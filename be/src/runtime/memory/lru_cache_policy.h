@@ -47,6 +47,7 @@ public:
             _cache = std::make_shared<doris::DummyLRUCache>();
         }
         _init_mem_tracker(lru_cache_type_string(lru_cache_type));
+        CacheManager::instance()->register_cache(this);
     }
 
     LRUCachePolicy(CacheType type, size_t capacity, LRUCacheType lru_cache_type,
@@ -66,6 +67,7 @@ public:
             _cache = std::make_shared<doris::DummyLRUCache>();
         }
         _init_mem_tracker(lru_cache_type_string(lru_cache_type));
+        CacheManager::instance()->register_cache(this);
     }
 
     void reset_cache() { _cache.reset(); }

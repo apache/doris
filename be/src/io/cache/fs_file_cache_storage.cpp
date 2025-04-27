@@ -700,22 +700,36 @@ void FSFileCacheStorage::load_blocks_directly_unlocked(BlockFileCache* mgr, cons
 }
 
 Status FSFileCacheStorage::clear(std::string& msg) {
-    std::stringstream ss;
-    auto st = global_local_filesystem()->delete_directory(_cache_base_path);
-    if (!st.ok()) {
-        ss << "failed to clear_file_cache_directly, path=" << _cache_base_path
-           << " delete dir failed: " << st;
-        LOG(WARNING) << ss.str();
-        msg = ss.str();
-        return Status::InternalError(ss.str());
+    LOG(INFO) << "clear file storage, path=" << _cache_base_path;
+    std::error_code ec;
+    std::filesystem::directory_iterator key_it {_cache_base_path, ec};
+    if (ec) {
+        LOG(WARNING) << "Failed to list directory: " << _cache_base_path
+                     << ", error: " << ec.message();
+        return Status::InternalError("Failed to list dir {}: {}", _cache_base_path, ec.message());
     }
-    st = global_local_filesystem()->create_directory(_cache_base_path);
-    if (!st.ok()) {
-        ss << "failed to clear_file_cache_directly, path=" << _cache_base_path
-           << " create dir failed: " << st;
-        LOG(WARNING) << ss.str();
+    int failed = 0;
+    int total = 0;
+    auto t0 = std::chrono::steady_clock::now();
+    for (; key_it != std::filesystem::directory_iterator(); ++key_it) {
+        if (!key_it->is_directory()) continue; // all file cache data is in sub-directories
+        ++total;
+        std::string cache_key = key_it->path().string();
+        auto st = global_local_filesystem()->delete_directory(cache_key);
+        if (st.ok()) continue;
+        failed++;
+        LOG(WARNING) << "failed to clear base_path=" << _cache_base_path
+                     << " path_to_delete=" << cache_key << " error=" << st;
+    }
+    auto t1 = std::chrono::steady_clock::now();
+    std::stringstream ss;
+    ss << "finished clear file storage, path=" << _cache_base_path
+       << " deleted=" << (total - failed) << " failed=" << failed
+       << " elapsed_ms=" << std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
+    LOG(INFO) << ss.str();
+    if (failed > 0) {
         msg = ss.str();
-        return Status::InternalError(ss.str());
+        return Status::InternalError(msg);
     }
     return Status::OK();
 }

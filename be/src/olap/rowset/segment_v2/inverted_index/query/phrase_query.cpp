@@ -371,7 +371,9 @@ void PhraseQuery::parser_info(std::string& query, const std::string& field_name,
         for (auto& t_query : t_querys) {
             auto terms = inverted_index::InvertedIndexAnalyzer::get_analyse_result(
                     t_query, field_name, query_type, properties);
-            query_info.additional_terms.emplace_back(std::move(terms));
+            if (terms.size() >= 2) {
+                query_info.additional_terms.emplace_back(std::move(terms));
+            }
         }
     }
 }

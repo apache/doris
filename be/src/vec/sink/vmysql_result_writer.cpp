@@ -29,39 +29,18 @@
 
 #include <ostream>
 #include <string>
-#include <utility>
 
 #include "common/cast_set.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
-#include "gutil/integral_types.h"
-#include "olap/hll.h"
-#include "runtime/decimalv2_value.h"
-#include "runtime/define_primitive_type.h"
-#include "runtime/large_int_value.h"
-#include "runtime/primitive_type.h"
 #include "runtime/result_block_buffer.h"
 #include "runtime/runtime_state.h"
 #include "runtime/types.h"
-#include "util/binary_cast.hpp"
-#include "util/jsonb_utils.h"
-#include "util/quantile_state.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
-#include "vec/columns/column_array.h"
-#include "vec/columns/column_complex.h"
 #include "vec/columns/column_const.h"
-#include "vec/columns/column_decimal.h"
-#include "vec/columns/column_nullable.h"
-#include "vec/columns/column_struct.h"
-#include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
-#include "vec/common/assert_cast.h"
-#include "vec/common/pod_array.h"
-#include "vec/common/string_ref.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
-#include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_decimal.h"
@@ -70,7 +49,6 @@
 #include "vec/data_types/data_type_struct.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
-#include "vec/runtime/vdatetime_value.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
@@ -163,6 +141,8 @@ Status VMysqlResultWriter<is_binary_format>::_set_options(
         _options.map_key_delim = ':';
         _options.null_format = "null";
         _options.null_len = 4;
+        _options.mysql_collection_delim = ", ";
+        _options.is_bool_value_num = true;
         break;
     case TSerdeDialect::PRESTO:
         // eg:
@@ -173,6 +153,20 @@ Status VMysqlResultWriter<is_binary_format>::_set_options(
         _options.map_key_delim = '=';
         _options.null_format = "NULL";
         _options.null_len = 4;
+        _options.mysql_collection_delim = ", ";
+        _options.is_bool_value_num = true;
+        break;
+    case TSerdeDialect::HIVE:
+        // eg:
+        //  array: ["abc","def","",null]
+        //  map: {"k1":null,"k2":"v3"}
+        _options.nested_string_wrapper = "\"";
+        _options.wrapper_len = 1;
+        _options.map_key_delim = ':';
+        _options.null_format = "null";
+        _options.null_len = 4;
+        _options.mysql_collection_delim = ",";
+        _options.is_bool_value_num = false;
         break;
     default:
         return Status::InternalError("unknown serde dialect: {}", serde_dialect);
@@ -215,12 +209,12 @@ Status VMysqlResultWriter<is_binary_format>::_write_one_block(RuntimeState* stat
             if (_output_vexpr_ctxs[col_idx]->root()->type().is_decimal_v2_type()) {
                 if (_output_vexpr_ctxs[col_idx]->root()->is_nullable()) {
                     auto nested_serde =
-                            std::make_shared<DataTypeDecimalSerDe<vectorized::Decimal128V2>>(scale,
-                                                                                             27);
+                            std::make_shared<DataTypeDecimalSerDe<vectorized::Decimal128V2>>(27,
+                                                                                             scale);
                     serde = std::make_shared<DataTypeNullableSerDe>(nested_serde);
                 } else {
-                    serde = std::make_shared<DataTypeDecimalSerDe<vectorized::Decimal128V2>>(scale,
-                                                                                             27);
+                    serde = std::make_shared<DataTypeDecimalSerDe<vectorized::Decimal128V2>>(27,
+                                                                                             scale);
                 }
             } else {
                 serde = block.get_by_position(col_idx).type->get_serde();

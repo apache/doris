@@ -35,13 +35,12 @@
 #include "pipeline/dependency.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
-#include "runtime/runtime_filter_mgr.h"
 #include "runtime/runtime_predicate.h"
 #include "runtime/workload_management/resource_context.h"
+#include "runtime_filter/runtime_filter_mgr.h"
 #include "util/hash_util.hpp"
 #include "util/threadpool.h"
 #include "vec/exec/scan/scanner_scheduler.h"
-#include "vec/runtime/shared_hash_table_controller.h"
 #include "workload_group/workload_group.h"
 
 namespace doris {
@@ -61,6 +60,7 @@ struct ReportStatusRequest {
     TUniqueId fragment_instance_id;
     int backend_num;
     RuntimeState* runtime_state;
+    std::string load_error_url;
     std::function<void(const Status&)> cancel_fn;
 };
 
@@ -149,7 +149,7 @@ public:
 
     void init_query_task_controller();
 
-    ExecEnv* exec_env() { return _exec_env; }
+    ExecEnv* exec_env() const { return _exec_env; }
 
     bool is_timeout(timespec now) const {
         if (_timeout_second <= 0) {
@@ -184,10 +184,6 @@ public:
     void set_memory_sufficient(bool sufficient);
 
     void set_ready_to_execute_only();
-
-    std::shared_ptr<vectorized::SharedHashTableController> get_shared_hash_table_controller() {
-        return _shared_hash_table_controller;
-    }
 
     bool has_runtime_predicate(int source_node_id) {
         return _runtime_predicates.contains(source_node_id);
@@ -240,6 +236,7 @@ public:
     bool enable_force_spill() const {
         return _query_options.__isset.enable_force_spill && _query_options.enable_force_spill;
     }
+    const TQueryOptions& query_options() const { return _query_options; }
 
     // global runtime filter mgr, the runtime filter have remote target or
     // need local merge should regist here. before publish() or push_to_remote()
@@ -265,11 +262,12 @@ public:
 
     doris::pipeline::TaskScheduler* get_pipe_exec_scheduler();
 
-    ThreadPool* get_memtable_flush_pool();
-
     void set_merge_controller_handler(
             std::shared_ptr<RuntimeFilterMergeControllerEntity>& handler) {
         _merge_controller_handler = handler;
+    }
+    std::shared_ptr<RuntimeFilterMergeControllerEntity> get_merge_controller_handler() const {
+        return _merge_controller_handler;
     }
 
     bool is_nereids() const { return _is_nereids; }
@@ -326,8 +324,6 @@ public:
     ObjectPool obj_pool;
 
     std::shared_ptr<ResourceContext> resource_ctx() { return _resource_ctx; }
-
-    std::vector<TUniqueId> fragment_instance_ids;
 
     // plan node id -> TFileScanRangeParams
     // only for file scan node
@@ -392,6 +388,9 @@ public:
 
     std::string debug_string();
 
+    void set_load_error_url(std::string error_url);
+    std::string get_load_error_url();
+
 private:
     int _timeout_second;
     TUniqueId _query_id;
@@ -414,7 +413,6 @@ private:
     void _init_resource_context();
     void _init_query_mem_tracker();
 
-    std::shared_ptr<vectorized::SharedHashTableController> _shared_hash_table_controller;
     std::unordered_map<int, vectorized::RuntimePredicate> _runtime_predicates;
 
     std::unique_ptr<RuntimeFilterMgr> _runtime_filter_mgr;
@@ -426,7 +424,6 @@ private:
 
     doris::pipeline::TaskScheduler* _task_scheduler = nullptr;
     vectorized::SimplifiedScanScheduler* _scan_task_scheduler = nullptr;
-    ThreadPool* _memtable_flush_pool = nullptr;
     vectorized::SimplifiedScanScheduler* _remote_scan_task_scheduler = nullptr;
     // This dependency indicates if the 2nd phase RPC received from FE.
     std::unique_ptr<pipeline::Dependency> _execution_dependency;
@@ -481,6 +478,9 @@ private:
 
     std::unordered_map<int, std::vector<std::shared_ptr<TRuntimeProfileTree>>>
     _collect_realtime_query_profile() const;
+
+    std::mutex _error_url_lock;
+    std::string _load_error_url;
 
 public:
     // when fragment of pipeline is closed, it will register its profile to this map by using add_fragment_profile

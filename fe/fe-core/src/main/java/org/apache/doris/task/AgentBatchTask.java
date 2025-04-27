@@ -20,7 +20,9 @@ package org.apache.doris.task;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThriftUtils;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.TAgentServiceVersion;
@@ -62,6 +64,7 @@ import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /*
  * This class group tasks by backend
@@ -168,6 +171,7 @@ public class AgentBatchTask implements Runnable {
             TNetworkAddress address = null;
             boolean ok = false;
             String errMsg = "";
+            List<TAgentTaskRequest> agentTaskRequests = new LinkedList<TAgentTaskRequest>();
             try {
                 Backend backend = Env.getCurrentSystemInfo().getBackend(backendId);
                 if (backend == null || !backend.isAlive()) {
@@ -179,7 +183,6 @@ public class AgentBatchTask implements Runnable {
                 String host = FeConstants.runningUnitTest ? "127.0.0.1" : backend.getHost();
                 address = new TNetworkAddress(host, backend.getBePort());
                 client = ClientPool.backendPool.borrowObject(address);
-                List<TAgentTaskRequest> agentTaskRequests = new LinkedList<TAgentTaskRequest>();
                 for (AgentTask task : tasks) {
                     agentTaskRequests.add(toAgentTaskRequest(task));
                     if (agentTaskRequests.size() >= batchSize) {
@@ -192,6 +195,21 @@ public class AgentBatchTask implements Runnable {
             } catch (Exception e) {
                 LOG.warn("task exec error. backend[{}]", backendId, e);
                 errMsg = String.format("task exec error: %s. backend[%d]", e.getMessage(), backendId);
+                if (!agentTaskRequests.isEmpty() && errMsg.contains("Broken pipe")) {
+                    // Log the task binary message size and the max task type, to help debug the
+                    // large thrift message size issue.
+                    List<Pair<TTaskType, Long>> taskTypeAndSize = agentTaskRequests.stream()
+                            .map(req -> Pair.of(req.getTaskType(), ThriftUtils.getBinaryMessageSize(req)))
+                            .collect(Collectors.toList());
+                    Pair<TTaskType, Long> maxTaskTypeAndSize = taskTypeAndSize.stream()
+                            .max((p1, p2) -> Long.compare(p1.value(), p2.value()))
+                            .orElse(null);  // taskTypeAndSize is not empty
+                    TTaskType maxType = maxTaskTypeAndSize.first;
+                    long maxSize = maxTaskTypeAndSize.second;
+                    long totalSize = taskTypeAndSize.stream().map(Pair::value).reduce(0L, Long::sum);
+                    LOG.warn("submit {} tasks to backend[{}], total size: {}, max task type: {}, size: {}. msg: {}",
+                            agentTaskRequests.size(), backendId, totalSize, maxType, maxSize, e.getMessage());
+                }
             } finally {
                 if (ok) {
                     ClientPool.backendPool.returnObject(address, client);
@@ -217,6 +235,7 @@ public class AgentBatchTask implements Runnable {
                 LOG.debug("submit {} tasks to backend[{}], total size: {}, first task type: {}",
                         agentTaskRequests.size(), backendId, size, firstTaskType);
             }
+            MetricRepo.COUNTER_AGENT_TASK_REQUEST_TOTAL.increase(1L);
             client.submitTasks(agentTaskRequests);
         }
         if (LOG.isDebugEnabled()) {
@@ -234,6 +253,7 @@ public class AgentBatchTask implements Runnable {
 
         TTaskType taskType = task.getTaskType();
         tAgentTaskRequest.setTaskType(taskType);
+        MetricRepo.COUNTER_AGENT_TASK_TOTAL.getOrAdd(taskType.toString()).increase(1L);
         switch (taskType) {
             case CREATE: {
                 CreateReplicaTask createReplicaTask = (CreateReplicaTask) task;

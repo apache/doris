@@ -45,6 +45,7 @@ class CloudBaseCompaction;
 class CloudFullCompaction;
 class TabletHotspot;
 class CloudWarmUpManager;
+class CloudCompactionStopToken;
 
 class CloudStorageEngine final : public BaseStorageEngine {
 public:
@@ -56,7 +57,8 @@ public:
     void stop() override;
     bool stopped() override;
 
-    Result<BaseTabletSPtr> get_tablet(int64_t tablet_id) override;
+    Result<BaseTabletSPtr> get_tablet(int64_t tablet_id,
+                                      SyncRowsetStats* sync_stats = nullptr) override;
 
     Status start_bg_threads(std::shared_ptr<WorkloadGroup> wg_sptr = nullptr) override;
 
@@ -147,6 +149,10 @@ public:
         return *_sync_load_for_tablets_thread_pool;
     }
 
+    Status register_compaction_stop_token(CloudTabletSPtr tablet, int64_t initiator);
+
+    Status unregister_compaction_stop_token(CloudTabletSPtr tablet, bool clear_ms);
+
 private:
     void _refresh_storage_vault_info_thread_callback();
     void _vacuum_stale_rowsets_thread_callback();
@@ -184,6 +190,7 @@ private:
 
     // ATTN: Compactions in maps depend on `CloudTabletMgr` and `CloudMetaMgr`
     mutable std::mutex _compaction_mtx;
+    mutable std::mutex _cumu_compaction_delay_mtx;
     // tablet_id -> submitted base compaction, guarded by `_compaction_mtx`
     std::unordered_map<int64_t, std::shared_ptr<CloudBaseCompaction>> _submitted_base_compactions;
     // tablet_id -> submitted full compaction, guarded by `_compaction_mtx`
@@ -193,9 +200,9 @@ private:
     // tablet_id -> submitted cumu compactions, guarded by `_compaction_mtx`
     std::unordered_map<int64_t, std::vector<std::shared_ptr<CloudCumulativeCompaction>>>
             _submitted_cumu_compactions;
-
-    std::unique_ptr<ThreadPool> _base_compaction_thread_pool;
-    std::unique_ptr<ThreadPool> _cumu_compaction_thread_pool;
+    // tablet_id -> active compaction stop tokens
+    std::unordered_map<int64_t, std::shared_ptr<CloudCompactionStopToken>>
+            _active_compaction_stop_tokens;
 
     using CumuPolices =
             std::unordered_map<std::string_view, std::shared_ptr<CloudCumulativeCompactionPolicy>>;

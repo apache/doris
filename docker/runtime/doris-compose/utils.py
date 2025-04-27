@@ -303,11 +303,16 @@ def get_local_ip():
     with contextlib.closing(socket.socket(socket.AF_INET,
                                           socket.SOCK_DGRAM)) as sock:
         sock.settimeout(0)
-        try:
-            sock.connect(('10.255.255.255', 1))
-            return sock.getsockname()[0]
-        except Exception:
-            return '127.0.0.1'
+        # the ip no need reachable.
+        # sometime connect to the external network '10.255.255.255' throw exception 'Permissions denied',
+        # then change to connect to the local network '192.168.0.255'
+        for ip in (('10.255.255.255'), ('192.168.0.255')):
+            try:
+                sock.connect((ip, 1))
+                return sock.getsockname()[0]
+            except Exception as e:
+                LOG.info(f"get local ip connect {ip} failed: {e}")
+        return '127.0.0.1'
 
 
 def enable_dir_with_rw_perm(dir):

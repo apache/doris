@@ -189,7 +189,7 @@ void ColumnVector<T>::update_crcs_with_value(uint32_t* __restrict hashes, Primit
         if (type == TYPE_DATE || type == TYPE_DATETIME) {
             char buf[64];
             auto date_convert_do_crc = [&](size_t i) {
-                const VecDateTimeValue& date_val = (const VecDateTimeValue&)data[i];
+                const auto& date_val = (const VecDateTimeValue&)data[i];
                 auto len = date_val.to_buffer(buf);
                 hashes[i] = HashUtil::zlib_crc_hash(buf, len, hashes[i]);
             };
@@ -448,7 +448,6 @@ ColumnPtr ColumnVector<T>::permute(const IColumn::Permutation& perm, size_t limi
         throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
                                "Size of permutation ({}) is less than required ({})", perm.size(),
                                limit);
-        __builtin_unreachable();
     }
 
     auto res = this->create(limit);

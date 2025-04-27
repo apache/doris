@@ -104,7 +104,8 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             JoinType.LEFT_SEMI_JOIN,
             JoinType.RIGHT_SEMI_JOIN,
             JoinType.LEFT_ANTI_JOIN,
-            JoinType.RIGHT_ANTI_JOIN);
+            JoinType.RIGHT_ANTI_JOIN,
+            JoinType.NULL_AWARE_LEFT_ANTI_JOIN);
 
     /**
      * The abstract template method for query rewrite, it contains the main logic, try to rewrite query by
@@ -185,21 +186,16 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                     () -> String.format("matchMode is %s", matchMode));
             return rewriteResults;
         }
+        SessionVariable sessionVariable = cascadesContext.getConnectContext().getSessionVariable();
+        int materializedViewRelationMappingMaxCount = sessionVariable.getMaterializedViewRelationMappingMaxCount();
         List<RelationMapping> queryToViewTableMappings = RelationMapping.generate(queryStructInfo.getRelations(),
-                viewStructInfo.getRelations());
+                viewStructInfo.getRelations(), materializedViewRelationMappingMaxCount);
         // if any relation in query and view can not map, bail out.
         if (queryToViewTableMappings == null) {
             materializationContext.recordFailReason(queryStructInfo,
                     "Query to view table mapping is null", () -> "");
             return rewriteResults;
         }
-        SessionVariable sessionVariable = cascadesContext.getConnectContext().getSessionVariable();
-        int materializedViewRelationMappingMaxCount = sessionVariable.getMaterializedViewRelationMappingMaxCount();
-        if (queryToViewTableMappings.size() > materializedViewRelationMappingMaxCount) {
-            LOG.warn("queryToViewTableMappings is over limit and be intercepted");
-            queryToViewTableMappings = queryToViewTableMappings.subList(0, materializedViewRelationMappingMaxCount);
-        }
-
         for (RelationMapping queryToViewTableMapping : queryToViewTableMappings) {
             SlotMapping queryToViewSlotMapping =
                     materializationContext.getSlotMappingFromCache(queryToViewTableMapping);
@@ -498,6 +494,17 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
         if (Sets.intersection(mvValidHasDataRelatedBaseTableNameSet, queryUsedBaseTablePartitionNameSet).isEmpty()) {
             // if mv can not offer any partition for query, query rewrite bail out
             return null;
+        }
+        if (LOG.isDebugEnabled()) {
+            LOG.debug(String.format("calcInvalidPartitions mv name is %s,\n mvValidBaseTablePartitionNameSet is %s,\n "
+                            + "mvValidHasDataRelatedBaseTableNameSet is %s,\n"
+                            + "queryUsedBaseTablePartitionNameSet is %s,\n "
+                            + "partitionMapping is %s \n, sql hash is %s",
+                    materializationContext.generateMaterializationIdentifier(),
+                    mvValidBaseTablePartitionNameSet,
+                    mvValidHasDataRelatedBaseTableNameSet,
+                    queryUsedBaseTablePartitionNameSet,
+                    partitionMapping, cascadesContext.getConnectContext().getSqlHash()));
         }
         // Check when mv partition relates base table partition data change or delete partition
         Set<String> rewrittenPlanUsePartitionNameSet = new HashSet<>();

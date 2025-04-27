@@ -272,8 +272,12 @@ public class NereidsPlanner extends Planner {
         // print memo before choose plan.
         // if chooseNthPlan failed, we could get memo to debug
         if (cascadesContext.getConnectContext().getSessionVariable().dumpNereidsMemo) {
-            String memo = cascadesContext.getMemo().toString();
-            LOG.info("{}\n{}", ConnectContext.get().getQueryIdentifier(), memo);
+            Memo memo = cascadesContext.getMemo();
+            if (memo != null) {
+                LOG.info("{}\n{}", ConnectContext.get().getQueryIdentifier(), memo.toString());
+            } else {
+                LOG.info("{}\nMemo is null", ConnectContext.get().getQueryIdentifier());
+            }
         }
         int nth = cascadesContext.getConnectContext().getSessionVariable().getNthOptimizedPlan();
         PhysicalPlan physicalPlan = chooseNthPlan(getRoot(), requireProperties, nth);
@@ -696,10 +700,15 @@ public class NereidsPlanner extends Planner {
                 plan = optimizedPlan.shape("");
                 break;
             case MEMO_PLAN:
-                plan = cascadesContext.getMemo().toString()
+                Memo memo = cascadesContext.getMemo();
+                if (memo == null) {
+                    plan = "Memo is null";
+                } else {
+                    plan = memo.toString()
                         + "\n\n========== OPTIMIZED PLAN ==========\n"
                         + optimizedPlan.treeString()
                         + mvSummary;
+                }
                 break;
             case DISTRIBUTED_PLAN:
                 StringBuilder distributedPlanStringBuilder = new StringBuilder();
@@ -799,6 +808,9 @@ public class NereidsPlanner extends Planner {
             case "presto":
             case "trino":
                 statementContext.setFormatOptions(FormatOptions.getForPresto());
+                break;
+            case "hive":
+                statementContext.setFormatOptions(FormatOptions.getForHive());
                 break;
             case "doris":
                 statementContext.setFormatOptions(FormatOptions.getDefault());

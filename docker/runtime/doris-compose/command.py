@@ -635,20 +635,25 @@ class UpCommand(Command):
 
             if cluster.remote_master_fe:
                 if is_new_cluster:
-                    if not cluster.is_cloud:
-                        with open(
-                                CLUSTER.get_master_fe_addr_path(cluster.name),
-                                "w") as f:
-                            f.write(cluster.remote_master_fe)
-                    else:
+                    with open(CLUSTER.get_master_fe_addr_path(cluster.name),
+                              "w") as f:
+                        f.write(cluster.remote_master_fe)
+                    if cluster.is_cloud:
                         cloud_config = "\n".join([
                             f"meta_service_endpoint = {cluster.get_meta_server_addr()}",
                             "deploy_mode = cloud",
                             f"cluster_id = {CLUSTER.CLUSTER_ID}",
                         ])
+                        # write add conf to remote_master_fe_add.conf, remote fe can send ssh to get this content.
+                        with open(
+                                os.path.join(
+                                    CLUSTER.get_status_path(cluster.name),
+                                    "remote_master_fe_add.conf"), "w") as f:
+                            f.write(cloud_config)
                         ans = input(
-                            f"\nAdd remote fe {cluster.remote_master_fe} fe.conf with follow config: \n\n" \
-                            f"{cloud_config}\n\nConfirm ?  y/n: ")
+                            utils.render_red(
+                                f"\nAdd remote fe {cluster.remote_master_fe} fe.conf with follow config: "
+                            ) + "\n\n" + f"{cloud_config}\n\nConfirm ?  y/n: ")
                         if ans != 'y':
                             LOG.info(
                                 "Up cluster failed due to not confirm write the above config."
@@ -897,7 +902,7 @@ class DownCommand(Command):
                     shutil.rmtree(node.get_path())
                     register_file = "{}/{}-{}-register".format(
                         CLUSTER.get_status_path(cluster.name),
-                        node.node_type(), node.get_ip())
+                        node.node_type(), node.id)
                     if os.path.exists(register_file):
                         os.remove(register_file)
                     LOG.info(

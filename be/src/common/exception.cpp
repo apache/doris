@@ -28,6 +28,11 @@ Exception::Exception(int code, const std::string_view& msg) {
     if (ErrorCode::error_states[abs(code)].stacktrace) {
         _err_msg->_stack = get_stack_trace();
     }
+#ifdef BE_TEST
+    // BE UT TEST exceptions thrown during execution cannot be caught
+    // and the error `C++ exception with description "argument not found" thrown in the test body` will be printed.
+    std::cout << "Exception: " << code << ", " << msg << ", " << get_stack_trace() << std::endl;
+#endif
     if (config::exit_on_exception) {
         LOG(FATAL) << "[ExitOnException] error code: " << code << ", message: " << msg;
     }

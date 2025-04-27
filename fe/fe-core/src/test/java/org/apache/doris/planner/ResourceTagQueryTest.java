@@ -41,6 +41,9 @@ import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.DdlExecutor;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.resource.computegroup.AllBackendComputeGroup;
+import org.apache.doris.resource.computegroup.ComputeGroup;
+import org.apache.doris.resource.computegroup.MergedComputeGroup;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TDisk;
 import org.apache.doris.thrift.TStorageMedium;
@@ -195,17 +198,21 @@ public class ResourceTagQueryTest {
         Database db = Env.getCurrentInternalCatalog().getDbNullable("test");
         OlapTable tbl = (OlapTable) db.getTableNullable("tbl1");
 
-        Set<Tag> userTags = Env.getCurrentEnv().getAuth().getResourceTags(Auth.ROOT_USER);
-        Assert.assertEquals(0, userTags.size());
+        ComputeGroup cg1 = Env.getCurrentEnv().getAuth().getComputeGroup(Auth.ROOT_USER);
+        Assert.assertTrue(cg1 instanceof AllBackendComputeGroup);
 
         // set default tag for root
         String setPropStr = "set property for 'root' 'resource_tags.location' = 'default';";
         ExceptionChecker.expectThrowsNoException(() -> setProperty(setPropStr));
-        userTags = Env.getCurrentEnv().getAuth().getResourceTags(Auth.ROOT_USER);
-        Assert.assertEquals(1, userTags.size());
+        ComputeGroup cg2 = Env.getCurrentEnv().getAuth().getComputeGroup(Auth.ROOT_USER);
+        Assert.assertTrue(cg2 instanceof MergedComputeGroup);
+        MergedComputeGroup cg3 = (MergedComputeGroup) cg2;
+        Set<String> cgNameSet1 = cg3.getComputeGroupNameSet();
+        Assert.assertTrue(cgNameSet1.size() == 1);
+        Assert.assertTrue(cgNameSet1.contains("default"));
 
         // update connection context and query
-        connectContext.setResourceTags(userTags);
+        connectContext.setComputeGroup(cg2);
         String queryStr = "explain select * from test.tbl1";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         System.out.println(explainString);
@@ -214,15 +221,15 @@ public class ResourceTagQueryTest {
         // set zone1 tag for root
         String setPropStr2 = "set property for 'root' 'resource_tags.location' = 'zone1';";
         ExceptionChecker.expectThrowsNoException(() -> setProperty(setPropStr2));
-        userTags = Env.getCurrentEnv().getAuth().getResourceTags(Auth.ROOT_USER);
-        Assert.assertEquals(1, userTags.size());
-        for (Tag tag : userTags) {
-            Assert.assertEquals(tag1, tag);
-        }
+        ComputeGroup cg4 = Env.getCurrentEnv().getAuth().getComputeGroup(Auth.ROOT_USER);
+        Assert.assertTrue(cg4 instanceof MergedComputeGroup);
+        MergedComputeGroup cg5 = (MergedComputeGroup) cg4;
+        Assert.assertTrue(cg5.getComputeGroupNameSet().size() == 1);
+        Assert.assertTrue(cg5.getComputeGroupNameSet().contains("zone1"));
 
         // update connection context and query, it will failed because no zone1 backend
-        connectContext.setResourceTags(userTags);
-        Assert.assertTrue(connectContext.isResourceTagsSet());
+        connectContext.setComputeGroup(cg4);
+        Assert.assertTrue(connectContext.isSetComputeGroup());
         queryStr = "explain select * from test.tbl1";
         String error = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         Assert.assertTrue(error.contains("no queryable replicas"));
@@ -280,7 +287,7 @@ public class ResourceTagQueryTest {
         Assert.assertEquals(1000000, execMemLimit);
 
         List<List<String>> userProps = Env.getCurrentEnv().getAuth().getUserProperties(Auth.ROOT_USER);
-        Assert.assertEquals(13, userProps.size());
+        Assert.assertEquals(14, userProps.size());
 
         // now :
         // be1 be2 be3 ==>tag1;

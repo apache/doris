@@ -86,6 +86,10 @@ public class TimeUtils {
         return DATETIME_FORMAT.withZone(getDorisZoneId());
     }
 
+    public static DateTimeFormatter getDatetimeFormatFromTimeZone(String timeZone) {
+        return DATETIME_FORMAT.withZone(getOrSystemTimeZone(timeZone).toZoneId());
+    }
+
     public static DateTimeFormatter getTimeFormatWithTimeZone() {
         return TIME_FORMAT.withZone(getDorisZoneId());
     }
@@ -176,6 +180,14 @@ public class TimeUtils {
 
     public static String longToTimeString(Long timeStamp) {
         return longToTimeStringWithFormat(timeStamp, getDatetimeFormatWithTimeZone());
+    }
+
+    public static String longToTimeStringWithTimeZone(Long timeStamp, String timeZone) {
+        if (timeStamp == null || timeStamp <= 0L) {
+            return FeConstants.null_string;
+        }
+        DateTimeFormatter dateFormat = getDatetimeFormatFromTimeZone(timeZone);
+        return dateFormat.format(LocalDateTime.ofInstant(Instant.ofEpochMilli(timeStamp), dateFormat.getZone()));
     }
 
     public static String longToTimeStringWithms(Long timeStamp) {

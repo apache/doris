@@ -186,6 +186,8 @@ class DBManager(object):
                 "provider" = "{cloud_store_config['DORIS_CLOUD_PROVIDER']}"
             );
             """
+            # create hk storage vault from beijing cost 14s
+            self._reset_conn(read_timeout=20)
             self._exec_query(create_vault_sql)
             LOG.info("Created storage vault 'default_vault'")
 
@@ -294,11 +296,11 @@ class DBManager(object):
             return
         self._reset_conn()
 
-    def _reset_conn(self):
+    def _reset_conn(self, read_timeout=10, connect_timeout=3):
         self.conn = pymysql.connect(user="root",
                                     host=self.fe_ip,
-                                    read_timeout=10,
-                                    connect_timeout=3,
+                                    read_timeout=read_timeout,
+                                    connect_timeout=connect_timeout,
                                     port=self.fe_port)
 
 

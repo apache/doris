@@ -33,6 +33,7 @@ static const char* STATS_KEY_PREFIX    = "stats";
 static const char* JOB_KEY_PREFIX      = "job";
 static const char* COPY_KEY_PREFIX     = "copy";
 static const char* VAULT_KEY_PREFIX    = "storage_vault";
+static const char* MOW_KEY_PREFIX      = "mow";
 
 // Infix
 static const char* TXN_KEY_INFIX_LABEL                  = "txn_label";
@@ -51,6 +52,7 @@ static const char* META_KEY_INFIX_SCHEMA                = "schema";
 static const char* META_KEY_INFIX_DELETE_BITMAP         = "delete_bitmap";
 static const char* META_KEY_INFIX_DELETE_BITMAP_LOCK    = "delete_bitmap_lock";
 static const char* META_KEY_INFIX_DELETE_BITMAP_PENDING = "delete_bitmap_pending";
+static const char* META_KEY_INFIX_MOW_TABLET_COMPACTION = "mow_tablet_comp";
 static const char* META_KEY_INFIX_SCHEMA_DICTIONARY     = "tablet_schema_pb_dict";
 
 static const char* RECYCLE_KEY_INFIX_INDEX              = "index";
@@ -115,7 +117,8 @@ static void encode_prefix(const T& t, std::string* key) {
         RecycleIndexKeyInfo, RecyclePartKeyInfo, RecycleRowsetKeyInfo, RecycleTxnKeyInfo, RecycleStageKeyInfo,
         StatsTabletKeyInfo, TableVersionKeyInfo,
         JobTabletKeyInfo, JobRecycleKeyInfo, RLJobProgressKeyInfo,
-        CopyJobKeyInfo, CopyFileKeyInfo,  StorageVaultKeyInfo, MetaSchemaPBDictionaryInfo>);
+        CopyJobKeyInfo, CopyFileKeyInfo,  StorageVaultKeyInfo, MetaSchemaPBDictionaryInfo,
+        MowTabletCompactionInfo>);
 
     key->push_back(CLOUD_USER_KEY_SPACE01);
     // Prefixes for key families
@@ -156,6 +159,8 @@ static void encode_prefix(const T& t, std::string* key) {
         encode_bytes(COPY_KEY_PREFIX, key);
     } else if constexpr (std::is_same_v<T, StorageVaultKeyInfo>) {
         encode_bytes(VAULT_KEY_PREFIX, key);
+    } else if constexpr(std::is_same_v<T, MowTabletCompactionInfo>) {
+        encode_bytes(MOW_KEY_PREFIX, key);
     } else {
         // This branch mean to be unreachable, add an assert(false) here to
         // prevent missing branch match.
@@ -496,6 +501,13 @@ std::string system_meta_service_encryption_key_info_key() {
 //==============================================================================
 // Other keys
 //==============================================================================
+
+void mow_tablet_compaction_key(const MowTabletCompactionInfo& in, std::string* out) {
+    encode_prefix(in, out);                                  // 0x01 "mow" ${instance_id}
+    encode_bytes(META_KEY_INFIX_MOW_TABLET_COMPACTION, out); // "mow_tablet_comp"
+    encode_int64(std::get<1>(in), out);                      // table_id
+    encode_int64(std::get<2>(in), out);                      // initiator
+}
 
 //==============================================================================
 // Decode keys

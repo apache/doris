@@ -20,6 +20,7 @@ suite("test_info_schema_db", "p0,external,hive,external_docker,external_docker_h
     String catalog_name = "hive_test_infodb";
     String innerdb = "innerdb";
     String innertbl = "innertbl";
+    String view="innertbl_view"
     sql """drop database if exists ${innerdb}""";
     sql """create database if not exists ${innerdb}"""
     sql """create table ${innerdb}.${innertbl} (
@@ -31,6 +32,22 @@ suite("test_info_schema_db", "p0,external,hive,external_docker,external_docker_h
                 "replication_num"="1"
         );
         """
+    sql """
+        CREATE VIEW ${innerdb}.${view} AS
+        SELECT id, name
+        FROM ${innerdb}.${innertbl}
+        WHERE id > 10;
+        """
+
+
+    qt_sql01 "show views from ${innerdb}"
+    qt_sql02 "show views from ${innerdb} like '%view'"
+    qt_sql03 "show views from ${innerdb} where table_name = '${view}'"
+    sql "use internal.${innerdb}"
+    qt_sql04 "show views"
+    qt_sql05 "show views like '%view'"
+    qt_sql06 "show views where table_name = '${view}'"
+    sql "drop view innerdb.innertbl_view"
 
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {

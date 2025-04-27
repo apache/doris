@@ -131,12 +131,11 @@ Status UDFTableFunction::process_init(Block* block, RuntimeState* state) {
     jobject output_map = JniUtil::convert_to_java_map(env, output_params);
     DCHECK(_jni_ctx != nullptr);
     DCHECK(_jni_ctx->executor != nullptr);
-    JNI_CALL_METHOD_CHECK_EXCEPTION(
-            long, output_address, env,
-            CallLongMethod(_jni_ctx->executor, _jni_ctx->executor_evaluate_id, input_map,
-                           output_map));
+    long output_address = env->CallLongMethod(_jni_ctx->executor, _jni_ctx->executor_evaluate_id,
+                                              input_map, output_map);
     env->DeleteLocalRef(input_map);
     env->DeleteLocalRef(output_map);
+    RETURN_ERROR_IF_EXC(env);
     RETURN_IF_ERROR(JniConnector::fill_block(block, {_result_column_idx}, output_address));
     block->erase(_result_column_idx);
     if (!extract_column_array_info(*_array_result_column, _array_column_detail)) {

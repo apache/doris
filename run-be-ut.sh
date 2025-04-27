@@ -213,6 +213,10 @@ if [[ -z "${USE_DWARF}" ]]; then
     USE_DWARF='OFF'
 fi
 
+if [[ -z "${USE_AVX2}" ]]; then
+    USE_AVX2='ON'
+fi
+
 if [[ -z "${USE_UNWIND}" ]]; then
     if [[ "$(uname -s)" != 'Darwin' ]]; then
         USE_UNWIND='ON'
@@ -240,11 +244,13 @@ cd "${CMAKE_BUILD_DIR}"
     -DGLIBC_COMPATIBILITY="${GLIBC_COMPATIBILITY}" \
     -DUSE_LIBCPP="${USE_LIBCPP}" \
     -DBUILD_META_TOOL=OFF \
+    -DBUILD_FILE_CACHE_MICROBENCH_TOOL=OFF \
     -DWITH_MYSQL=ON \
     -DUSE_DWARF="${USE_DWARF}" \
     -DUSE_UNWIND="${USE_UNWIND}" \
     -DUSE_MEM_TRACKER="${USE_MEM_TRACKER}" \
     -DUSE_JEMALLOC=OFF \
+    -DUSE_AVX2="${USE_AVX2}" \
     -DEXTRA_CXX_FLAGS="${EXTRA_CXX_FLAGS}" \
     -DENABLE_CLANG_COVERAGE="${DENABLE_CLANG_COVERAGE}" \
     ${CMAKE_USE_CCACHE:+${CMAKE_USE_CCACHE}} \

@@ -29,7 +29,6 @@
 
 #include "common/config.h"
 #include "common/logging.h"
-#include "gutil/integral_types.h"
 #include "pipeline/common/agg_utils.h"
 #include "pipeline/common/join_utils.h"
 #include "pipeline/common/set_utils.h"
@@ -84,8 +83,13 @@ struct BasicSharedState {
     virtual ~BasicSharedState() = default;
 
     Dependency* create_source_dependency(int operator_id, int node_id, const std::string& name);
-
+    void create_source_dependencies(int num_sources, int operator_id, int node_id,
+                                    const std::string& name);
     Dependency* create_sink_dependency(int dest_id, int node_id, const std::string& name);
+    std::vector<DependencySPtr> get_dep_by_channel_id(int channel_id) {
+        DCHECK_LT(channel_id, source_deps.size());
+        return {source_deps[channel_id]};
+    }
 };
 
 class Dependency : public std::enable_shared_from_this<Dependency> {
@@ -107,14 +111,13 @@ public:
     [[nodiscard]] int64_t watcher_elapse_time() { return _watcher.elapsed_time(); }
 
     // Which dependency current pipeline task is blocked by. `nullptr` if this dependency is ready.
-    [[nodiscard]] virtual Dependency* is_blocked_by(PipelineTask* task = nullptr);
+    [[nodiscard]] Dependency* is_blocked_by(std::shared_ptr<PipelineTask> task = nullptr);
     // Notify downstream pipeline tasks this dependency is ready.
-    virtual void set_ready();
-    void set_ready_to_read() {
-        DCHECK_EQ(_shared_state->source_deps.size(), 1) << debug_string();
-        _shared_state->source_deps.front()->set_ready();
+    void set_ready();
+    void set_ready_to_read(int channel_id = 0) {
+        DCHECK_LT(channel_id, _shared_state->source_deps.size()) << debug_string();
+        _shared_state->source_deps[channel_id]->set_ready();
     }
-
     void set_ready_to_write() {
         DCHECK_EQ(_shared_state->sink_deps.size(), 1) << debug_string();
         _shared_state->sink_deps.front()->set_ready();
@@ -145,7 +148,7 @@ public:
     }
 
 protected:
-    void _add_block_task(PipelineTask* task);
+    void _add_block_task(std::shared_ptr<PipelineTask> task);
 
     const int _id;
     const int _node_id;
@@ -156,7 +159,7 @@ protected:
     MonotonicStopWatch _watcher;
 
     std::mutex _task_lock;
-    std::vector<PipelineTask*> _blocked_task;
+    std::vector<std::weak_ptr<PipelineTask>> _blocked_task;
 
     // If `_always_ready` is true, `block()` will never block tasks.
     std::atomic<bool> _always_ready = false;
@@ -196,12 +199,11 @@ private:
     uint32_t _counter = 0;
 };
 
-class RuntimeFilterDependency;
 struct RuntimeFilterTimerQueue;
 class RuntimeFilterTimer {
 public:
     RuntimeFilterTimer(int64_t registration_time, int32_t wait_time_ms,
-                       std::shared_ptr<RuntimeFilterDependency> parent)
+                       std::shared_ptr<Dependency> parent)
             : _parent(std::move(parent)),
               _registration_time(registration_time),
               _wait_time_ms(wait_time_ms) {}
@@ -216,7 +218,7 @@ public:
     int32_t wait_time_ms() const { return _wait_time_ms; }
 
     void set_local_runtime_filter_dependencies(
-            const std::vector<std::shared_ptr<RuntimeFilterDependency>>& deps) {
+            const std::vector<std::shared_ptr<Dependency>>& deps) {
         _local_runtime_filter_dependencies = deps;
     }
 
@@ -224,8 +226,8 @@ public:
 
 private:
     friend struct RuntimeFilterTimerQueue;
-    std::shared_ptr<RuntimeFilterDependency> _parent = nullptr;
-    std::vector<std::shared_ptr<RuntimeFilterDependency>> _local_runtime_filter_dependencies;
+    std::shared_ptr<Dependency> _parent = nullptr;
+    std::vector<std::shared_ptr<Dependency>> _local_runtime_filter_dependencies;
     std::mutex _lock;
     int64_t _registration_time;
     const int32_t _wait_time_ms;
@@ -263,16 +265,6 @@ struct RuntimeFilterTimerQueue {
     std::atomic_bool _stop = false;
     std::atomic_bool _shutdown = false;
     std::list<std::shared_ptr<pipeline::RuntimeFilterTimer>> _que;
-};
-
-class RuntimeFilterDependency final : public Dependency {
-public:
-    RuntimeFilterDependency(int id, int node_id, std::string name, IRuntimeFilter* runtime_filter)
-            : Dependency(id, node_id, std::move(name)), _runtime_filter(runtime_filter) {}
-    std::string debug_string(int indentation_level = 0) override;
-
-private:
-    const IRuntimeFilter* _runtime_filter = nullptr;
 };
 
 struct AggSharedState : public BasicSharedState {
@@ -592,19 +584,32 @@ struct JoinSharedState : public BasicSharedState {
 
 struct HashJoinSharedState : public JoinSharedState {
     ENABLE_FACTORY_CREATOR(HashJoinSharedState)
-    // mark the join column whether support null eq
-    std::vector<bool> is_null_safe_eq_join;
-
-    // mark the build hash table whether it needs to store null value
-    std::vector<bool> serialize_null_into_key;
+    HashJoinSharedState() {
+        hash_table_variant_vector.push_back(std::make_shared<JoinDataVariants>());
+    }
+    HashJoinSharedState(int num_instances) {
+        source_deps.resize(num_instances, nullptr);
+        hash_table_variant_vector.resize(num_instances, nullptr);
+        for (int i = 0; i < num_instances; i++) {
+            hash_table_variant_vector[i] = std::make_shared<JoinDataVariants>();
+        }
+    }
     std::shared_ptr<vectorized::Arena> arena = std::make_shared<vectorized::Arena>();
 
-    // maybe share hash table with other fragment instances
-    std::shared_ptr<JoinDataVariants> hash_table_variants = std::make_shared<JoinDataVariants>();
     const std::vector<TupleDescriptor*> build_side_child_desc;
     size_t build_exprs_size = 0;
     std::shared_ptr<vectorized::Block> build_block;
     std::shared_ptr<std::vector<uint32_t>> build_indexes_null;
+
+    // Used by shared hash table
+    // For probe operator, hash table in _hash_table_variants is read-only if visited flags is not
+    // used. (visited flags will be used only in right / full outer join).
+    //
+    // For broadcast join, although hash table is read-only, some states in `_hash_table_variants`
+    // are still could be written. For example, serialized keys will be written in a continuous
+    // memory in `_hash_table_variants`. So before execution, we should use a local _hash_table_variants
+    // which has a shared hash table in it.
+    std::vector<std::shared_ptr<JoinDataVariants>> hash_table_variant_vector;
 };
 
 struct PartitionedHashJoinSharedState
@@ -646,6 +651,7 @@ public:
     std::vector<std::unique_ptr<vectorized::PartitionSorter>> partition_sorts;
     bool sink_eos = false;
     std::mutex sink_eos_lock;
+    std::mutex prepared_finish_lock;
 };
 
 struct SetSharedState : public BasicSharedState {
@@ -670,6 +676,7 @@ public:
     // If a calculation involves both nullable and non-nullable columns, the final output should be a nullable column
     Status update_build_not_ignore_null(const vectorized::VExprContextSPtrs& ctxs);
 
+    size_t get_hash_table_size() const;
     /// init in both upstream side.
     //The i-th result expr list refers to the i-th child.
     std::vector<vectorized::VExprContextSPtrs> child_exprs_lists;
@@ -748,13 +755,6 @@ public:
     std::atomic<size_t> _buffer_mem_limit = config::local_exchange_buffer_mem_limit;
     // We need to make sure to add mem_usage first and then enqueue, otherwise sub mem_usage may cause negative mem_usage during concurrent dequeue.
     std::mutex le_lock;
-    void create_dependencies(int local_exchange_id) {
-        for (auto& source_dep : source_deps) {
-            source_dep = std::make_shared<Dependency>(local_exchange_id, local_exchange_id,
-                                                      "LOCAL_EXCHANGE_OPERATOR_DEPENDENCY");
-            source_dep->set_shared_state(this);
-        }
-    }
     void sub_running_sink_operators();
     void sub_running_source_operators();
     void _set_always_ready() {
@@ -768,9 +768,6 @@ public:
         }
     }
 
-    std::vector<DependencySPtr> get_dep_by_channel_id(int channel_id) {
-        return {source_deps[channel_id]};
-    }
     Dependency* get_sink_dep_by_channel_id(int channel_id) { return nullptr; }
 
     void set_ready_to_read(int channel_id) {
@@ -805,11 +802,5 @@ public:
     }
 };
 
-class QueryGlobalDependency final : public Dependency {
-    ENABLE_FACTORY_CREATOR(QueryGlobalDependency);
-    QueryGlobalDependency(std::string name, bool ready = false) : Dependency(-1, -1, name, ready) {}
-    ~QueryGlobalDependency() override = default;
-    Dependency* is_blocked_by(PipelineTask* task = nullptr) override;
-};
 #include "common/compile_check_end.h"
 } // namespace doris::pipeline

@@ -197,6 +197,8 @@ public class Replica {
 
     private long userDropTime = -1;
 
+    private long scaleInDropTime = -1;
+
     private long lastReportVersion = 0;
 
     public Replica() {
@@ -861,6 +863,22 @@ public class Replica {
 
         return false;
     }
+
+    public void setScaleInDropTimeStamp(long scaleInDropTime) {
+        this.scaleInDropTime = scaleInDropTime;
+    }
+
+    public boolean isScaleInDrop() {
+        if (this.scaleInDropTime > 0) {
+            if (System.currentTimeMillis() - this.scaleInDropTime
+                    < Config.manual_drop_replica_valid_second * 1000L) {
+                return true;
+            }
+            this.scaleInDropTime = -1;
+        }
+        return false;
+    }
+
 
     public boolean isAlive() {
         return getState() != ReplicaState.CLONE

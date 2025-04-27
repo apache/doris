@@ -46,6 +46,8 @@ Status LoadBlockQueue::add_block(RuntimeState* runtime_state,
         return runtime_state->cancel_reason();
     }
     RETURN_IF_ERROR(status);
+    LOG(INFO) << "query_id: " << print_id(runtime_state->query_id())
+              << ", add block rows=" << block->rows() << ", use group_commit label=" << label;
     if (block->rows() > 0) {
         if (!config::group_commit_wait_replay_wal_finish) {
             _block_queue.emplace_back(block);
@@ -586,8 +588,10 @@ Status GroupCommitTable::_exec_plan_fragment(int64_t db_id, int64_t table_id,
                          << ", st=" << finish_st.to_string();
         }
     };
-    return _exec_env->fragment_mgr()->exec_plan_fragment(pipeline_params,
-                                                         QuerySource::GROUP_COMMIT_LOAD, finish_cb);
+
+    TPipelineFragmentParamsList mocked;
+    return _exec_env->fragment_mgr()->exec_plan_fragment(
+            pipeline_params, QuerySource::GROUP_COMMIT_LOAD, finish_cb, mocked);
 }
 
 Status GroupCommitTable::get_load_block_queue(const TUniqueId& instance_id,

@@ -45,7 +45,7 @@ Status SetSourceLocalState<is_intersect>::open(RuntimeState* state) {
     auto& child_exprs_lists = _shared_state->child_exprs_lists;
 
     auto output_data_types = vectorized::VectorizedUtils::get_data_types(
-            _parent->cast<SetSourceOperatorX<is_intersect>>()._row_descriptor);
+            _parent->cast<SetSourceOperatorX<is_intersect>>().row_descriptor());
     auto column_nums = child_exprs_lists[0].size();
     DCHECK_EQ(output_data_types.size(), column_nums)
             << output_data_types.size() << " " << column_nums;
@@ -127,33 +127,41 @@ Status SetSourceOperatorX<is_intersect>::_get_data_in_hashtable(
         vectorized::Block* output_block, const int batch_size, bool* eos) {
     size_t left_col_len = local_state._left_table_data_types.size();
     hash_table_ctx.init_iterator();
-    auto block_size = 0;
+    local_state._result_indexs.clear();
+    local_state._result_indexs.reserve(batch_size);
 
-    auto add_result = [&local_state, &block_size, this](auto value) {
+    auto add_result = [&local_state](auto value) {
         auto* it = &value;
         if constexpr (is_intersect) {
             if (it->visited) { //intersected: have done probe, so visited values it's the result
-                _add_result_columns(local_state, value, block_size);
+                local_state._result_indexs.push_back(value.row_num);
             }
         } else {
             if (!it->visited) { //except: haven't visited values it's the needed result
-                _add_result_columns(local_state, value, block_size);
+                local_state._result_indexs.push_back(value.row_num);
             }
         }
     };
 
     auto& iter = hash_table_ctx.iterator;
-    for (; iter != hash_table_ctx.hash_table->end() && block_size < batch_size; ++iter) {
+    while (iter != hash_table_ctx.hash_table->end() &&
+           local_state._result_indexs.size() < batch_size) {
         add_result(iter->get_second());
+        ++iter;
     }
 
     *eos = iter == hash_table_ctx.hash_table->end();
     if (*eos && hash_table_ctx.hash_table->has_null_key_data()) {
         auto value = hash_table_ctx.hash_table->template get_null_key_data<RowRefWithFlag>();
+        // If the hashmap can store nulldata, the return value is RowRefWithFlag, otherwise it is char*
+        static_assert(std::is_same_v<RowRefWithFlag, std::decay_t<decltype(value)>> ||
+                      std::is_same_v<char*, std::decay_t<decltype(value)>>);
         if constexpr (std::is_same_v<RowRefWithFlag, std::decay_t<decltype(value)>>) {
             add_result(value);
         }
     }
+
+    local_state._add_result_columns();
 
     if (!output_block->mem_reuse()) {
         for (int i = 0; i < left_col_len; ++i) {
@@ -169,18 +177,15 @@ Status SetSourceOperatorX<is_intersect>::_get_data_in_hashtable(
 }
 
 template <bool is_intersect>
-void SetSourceOperatorX<is_intersect>::_add_result_columns(
-        SetSourceLocalState<is_intersect>& local_state, RowRefWithFlag& value, int& block_size) {
-    auto& build_col_idx = local_state._shared_state->build_col_idx;
-    auto& build_block = local_state._shared_state->build_block;
+void SetSourceLocalState<is_intersect>::_add_result_columns() {
+    auto& build_col_idx = _shared_state->build_col_idx;
+    auto& build_block = _shared_state->build_block;
 
-    for (auto idx = build_col_idx.begin(); idx != build_col_idx.end(); ++idx) {
-        auto& column = *build_block.get_by_position(idx->second).column;
-        local_state._mutable_cols[idx->first]->insert_from(column, value.row_num);
+    for (auto& idx : build_col_idx) {
+        const auto& column = *build_block.get_by_position(idx.second).column;
+        column.append_data_by_selector(_mutable_cols[idx.first], _result_indexs);
     }
-    block_size++;
 }
-
 template class SetSourceLocalState<true>;
 template class SetSourceLocalState<false>;
 template class SetSourceOperatorX<true>;

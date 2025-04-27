@@ -150,7 +150,8 @@ void set_tablet_access_time_ms(CloudTablet* tablet) {
 }
 
 Result<std::shared_ptr<CloudTablet>> CloudTabletMgr::get_tablet(int64_t tablet_id, bool warmup_data,
-                                                                bool sync_delete_bitmap) {
+                                                                bool sync_delete_bitmap,
+                                                                SyncRowsetStats* sync_stats) {
     // LRU value type. `Value`'s lifetime MUST NOT be longer than `CloudTabletMgr`
     class Value : public LRUCacheValueBase {
     public:
@@ -168,8 +169,8 @@ Result<std::shared_ptr<CloudTablet>> CloudTabletMgr::get_tablet(int64_t tablet_i
     CacheKey key(tablet_id_str);
     auto* handle = _cache->lookup(key);
     if (handle == nullptr) {
-        auto load_tablet = [this, &key, warmup_data,
-                            sync_delete_bitmap](int64_t tablet_id) -> std::shared_ptr<CloudTablet> {
+        auto load_tablet = [this, &key, warmup_data, sync_delete_bitmap,
+                            sync_stats](int64_t tablet_id) -> std::shared_ptr<CloudTablet> {
             TabletMetaSharedPtr tablet_meta;
             auto st = _engine.meta_mgr().get_tablet_meta(tablet_id, &tablet_meta);
             if (!st.ok()) {
@@ -180,8 +181,10 @@ Result<std::shared_ptr<CloudTablet>> CloudTabletMgr::get_tablet(int64_t tablet_i
             auto tablet = std::make_shared<CloudTablet>(_engine, std::move(tablet_meta));
             auto value = std::make_unique<Value>(tablet, *_tablet_map);
             // MUST sync stats to let compaction scheduler work correctly
-            st = _engine.meta_mgr().sync_tablet_rowsets(tablet.get(), warmup_data,
-                                                        sync_delete_bitmap);
+            SyncOptions options;
+            options.warmup_delta_data = warmup_data;
+            options.sync_delete_bitmap = sync_delete_bitmap;
+            st = _engine.meta_mgr().sync_tablet_rowsets(tablet.get(), options, sync_stats);
             if (!st.ok()) {
                 LOG(WARNING) << "failed to sync tablet " << tablet_id << ": " << st;
                 return nullptr;
@@ -289,8 +292,10 @@ void CloudTabletMgr::sync_tablets(const CountDownLatch& stop_latch) {
                     continue;
                 }
             }
-
-            st = tablet->sync_rowsets(-1);
+            SyncOptions options;
+            options.query_version = -1;
+            options.merge_schema = true;
+            st = tablet->sync_rowsets(options);
             if (!st) {
                 LOG_WARNING("failed to sync tablet rowsets {}", tablet->tablet_id()).error(st);
             }

@@ -86,6 +86,9 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
     @Override
     public void close() {
+        if (catalog != null) {
+            catalog = null;
+        }
     }
 
     @Override
@@ -170,10 +173,10 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     }
 
     @Override
-    public void dropDbImpl(String dbName, boolean ifExists, boolean fore) throws DdlException {
+    public void dropDbImpl(String dbName, boolean ifExists, boolean force) throws DdlException {
         try {
             preExecutionAuthenticator.execute(() -> {
-                preformDropDb(dbName, ifExists);
+                preformDropDb(dbName, ifExists, force);
                 return null;
             });
         } catch (Exception e) {
@@ -182,13 +185,23 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         }
     }
 
-    private void preformDropDb(String dbName, boolean ifExists) throws DdlException {
+    private void preformDropDb(String dbName, boolean ifExists, boolean force) throws DdlException {
         if (!databaseExist(dbName)) {
             if (ifExists) {
                 LOG.info("drop database[{}] which does not exist", dbName);
                 return;
             } else {
                 ErrorReport.reportDdlException(ErrorCode.ERR_DB_DROP_EXISTS, dbName);
+            }
+        }
+        if (force) {
+            // try to drop all tables in the database
+            List<String> tables = listTableNames(dbName);
+            for (String table : tables) {
+                performDropTable(dbName, table, true);
+            }
+            if (!tables.isEmpty()) {
+                LOG.info("drop database[{}] with force, drop all tables, num: {}", dbName, tables.size());
             }
         }
         nsCatalog.dropNamespace(getNamespace(dbName));

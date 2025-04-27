@@ -36,7 +36,8 @@ ResultFileSinkLocalState::ResultFileSinkLocalState(DataSinkOperatorXBase* parent
 
 ResultFileSinkOperatorX::ResultFileSinkOperatorX(int operator_id, const RowDescriptor& row_desc,
                                                  const std::vector<TExpr>& t_output_expr)
-        : DataSinkOperatorX(operator_id, 0, 0),
+        : DataSinkOperatorX(operator_id, std::numeric_limits<int>::max(),
+                            std::numeric_limits<int>::max()),
           _row_desc(row_desc),
           _t_output_expr(t_output_expr) {}
 
@@ -44,7 +45,8 @@ ResultFileSinkOperatorX::ResultFileSinkOperatorX(
         int operator_id, const RowDescriptor& row_desc, const TResultFileSink& sink,
         const std::vector<TPlanFragmentDestination>& destinations,
         const std::vector<TExpr>& t_output_expr, DescriptorTbl& descs)
-        : DataSinkOperatorX(operator_id, 0, 0),
+        : DataSinkOperatorX(operator_id, std::numeric_limits<int>::max(),
+                            std::numeric_limits<int>::max()),
           _row_desc(row_desc),
           _t_output_expr(t_output_expr),
           _dests(destinations),

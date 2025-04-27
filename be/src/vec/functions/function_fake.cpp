@@ -50,9 +50,6 @@ struct FunctionFakeBaseImpl {
     }
     static DataTypes get_variadic_argument_types() {
         if constexpr (VARIADIC) {
-            if constexpr (AlwaysNullable) {
-                return {make_nullable(std::make_shared<ReturnType>())};
-            }
             return {std::make_shared<ReturnType>()};
         } else {
             return {};
@@ -66,6 +63,33 @@ struct FunctionExplode {
         DCHECK(is_array(arguments[0])) << arguments[0]->get_name() << " not supported";
         return make_nullable(
                 check_and_get_data_type<DataTypeArray>(arguments[0].get())->get_nested_type());
+    }
+    static DataTypes get_variadic_argument_types() { return {}; }
+    static std::string get_error_msg() { return "Fake function do not support execute"; }
+};
+
+struct FunctionExplodeV2 {
+    static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
+        DataTypes fieldTypes(arguments.size());
+        for (int i = 0; i < arguments.size(); i++) {
+            if (arguments[i]->get_type_id() == TypeIndex::VARIANT) {
+                if (arguments[i]->is_nullable()) {
+                    fieldTypes[i] = arguments[i];
+                } else {
+                    fieldTypes[i] = make_nullable(arguments[i]);
+                }
+            } else {
+                auto nestedType = check_and_get_data_type<DataTypeArray>(arguments[i].get())
+                                          ->get_nested_type();
+                if (nestedType->is_nullable()) {
+                    fieldTypes[i] = nestedType;
+                } else {
+                    fieldTypes[i] = make_nullable(nestedType);
+                }
+            }
+        }
+
+        return make_nullable(std::make_shared<vectorized::DataTypeStruct>(fieldTypes));
     }
     static DataTypes get_variadic_argument_types() { return {}; }
     static std::string get_error_msg() { return "Fake function do not support execute"; }
@@ -137,6 +161,14 @@ void register_table_function_expand(SimpleFunctionFactory& factory, const std::s
     factory.register_function<FunctionFake<FunctionImpl>>(name + suffix);
 };
 
+template <typename FunctionImpl>
+void register_table_alternative_function_expand(SimpleFunctionFactory& factory,
+                                                const std::string& name,
+                                                const std::string& suffix) {
+    factory.register_alternative_function<FunctionFake<FunctionImpl>>(name);
+    factory.register_alternative_function<FunctionFake<FunctionImpl>>(name + suffix);
+};
+
 template <typename ReturnType, bool VARIADIC>
 void register_table_function_expand_default(SimpleFunctionFactory& factory, const std::string& name,
                                             const std::string& suffix) {
@@ -146,9 +178,26 @@ void register_table_function_expand_default(SimpleFunctionFactory& factory, cons
             name + suffix);
 };
 
+template <typename ReturnType, bool VARIADIC>
+void register_table_alternative_function_expand_default(SimpleFunctionFactory& factory,
+                                                        const std::string& name,
+                                                        const std::string& suffix) {
+    factory.register_alternative_function<
+            FunctionFake<FunctionFakeBaseImpl<ReturnType, false, VARIADIC>>>(name);
+    factory.register_alternative_function<
+            FunctionFake<FunctionFakeBaseImpl<ReturnType, true, VARIADIC>>>(name + suffix);
+};
+
 template <typename FunctionImpl>
 void register_table_function_expand_outer(SimpleFunctionFactory& factory, const std::string& name) {
     register_table_function_expand<FunctionImpl>(factory, name, COMBINATOR_SUFFIX_OUTER);
+};
+
+template <typename FunctionImpl>
+void register_table_alternative_function_expand_outer(SimpleFunctionFactory& factory,
+                                                      const std::string& name) {
+    register_table_alternative_function_expand<FunctionImpl>(factory, name,
+                                                             COMBINATOR_SUFFIX_OUTER);
 };
 
 template <typename ReturnType, bool VARIADIC>
@@ -156,6 +205,13 @@ void register_table_function_expand_outer_default(SimpleFunctionFactory& factory
                                                   const std::string& name) {
     register_table_function_expand_default<ReturnType, VARIADIC>(factory, name,
                                                                  COMBINATOR_SUFFIX_OUTER);
+};
+
+template <typename ReturnType, bool VARIADIC>
+void register_table_alternative_function_expand_outer_default(SimpleFunctionFactory& factory,
+                                                              const std::string& name) {
+    register_table_alternative_function_expand_default<ReturnType, VARIADIC>(
+            factory, name, COMBINATOR_SUFFIX_OUTER);
 };
 
 template <typename FunctionImpl>
@@ -167,7 +223,9 @@ void register_table_function_with_impl(SimpleFunctionFactory& factory, const std
 void register_function_fake(SimpleFunctionFactory& factory) {
     register_function<FunctionEsquery>(factory, "esquery");
 
-    register_table_function_expand_outer<FunctionExplode>(factory, "explode");
+    register_table_function_expand_outer<FunctionExplodeV2>(factory, "explode");
+    register_table_alternative_function_expand_outer<FunctionExplode>(factory, "explode");
+
     register_table_function_expand_outer<FunctionExplodeMap>(factory, "explode_map");
 
     register_table_function_expand_outer<FunctionExplodeJsonObject>(factory, "explode_json_object");
@@ -187,8 +245,9 @@ void register_function_fake(SimpleFunctionFactory& factory) {
     register_table_function_with_impl<FunctionPoseExplode<false>>(factory, "posexplode");
     register_table_function_with_impl<FunctionPoseExplode<true>>(factory, "posexplode",
                                                                  COMBINATOR_SUFFIX_OUTER);
-    register_table_function_expand_outer_default<DataTypeObject, false>(factory,
-                                                                        "explode_variant_array");
+    register_table_alternative_function_expand_outer_default<DataTypeObject, false>(
+            factory, "explode_variant_array");
+    register_table_function_with_impl<FunctionExplodeV2>(factory, "explode_variant_array");
 }
 
 } // namespace doris::vectorized

@@ -57,6 +57,16 @@ class SortSinkOperatorX final : public DataSinkOperatorX<SortSinkLocalState> {
 public:
     SortSinkOperatorX(ObjectPool* pool, int operator_id, int dest_id, const TPlanNode& tnode,
                       const DescriptorTbl& descs, const bool require_bucket_distribution);
+#ifdef BE_TEST
+    SortSinkOperatorX(ObjectPool* pool, TSortAlgorithm::type type, int64_t limit, int64_t offset)
+            : _offset(offset),
+              _pool(pool),
+              _limit(limit),
+              _merge_by_exchange(false),
+              _partition_exprs({}),
+              _algorithm(type),
+              _reuse_mem(false) {}
+#endif
     Status init(const TDataSink& tsink) override {
         return Status::InternalError("{} should not init with TPlanNode",
                                      DataSinkOperatorX<SortSinkLocalState>::_name);

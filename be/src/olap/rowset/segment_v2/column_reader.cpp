@@ -178,6 +178,7 @@ Status ColumnReader::create_struct(const ColumnReaderOptions& opts, const Column
     std::unique_ptr<ColumnReader> struct_reader(
             new ColumnReader(opts, meta, num_rows, file_reader));
     struct_reader->_sub_readers.reserve(meta.children_columns_size());
+    // now we support struct column can add the children columns according to the schema-change behavior
     for (size_t i = 0; i < meta.children_columns_size(); i++) {
         std::unique_ptr<ColumnReader> sub_reader;
         RETURN_IF_ERROR(ColumnReader::create(opts, meta.children_columns(i),
@@ -289,7 +290,7 @@ Status VariantColumnReader::_create_hierarchical_reader(ColumnIterator** reader,
     if (_statistics && !_statistics->sparse_column_non_null_size.empty()) {
         // Sparse column exists or reached sparse size limit, read sparse column
         ColumnIterator* iter;
-        RETURN_IF_ERROR(_sparse_column_reader->new_iterator(&iter));
+        RETURN_IF_ERROR(_sparse_column_reader->new_iterator(&iter, nullptr));
         sparse_iter.reset(iter);
     }
     // If read the full path of variant read in MERGE_ROOT, otherwise READ_DIRECT
@@ -319,7 +320,7 @@ Status VariantColumnReader::_create_sparse_merge_reader(ColumnIterator** iterato
         }
         // Create subcolumn iterator
         ColumnIterator* it;
-        RETURN_IF_ERROR(subcolumn_reader->data.reader->new_iterator(&it));
+        RETURN_IF_ERROR(subcolumn_reader->data.reader->new_iterator(&it, nullptr));
         std::unique_ptr<ColumnIterator> it_ptr(it);
 
         // Create substream reader and add to tree
@@ -364,7 +365,7 @@ Status VariantColumnReader::_new_default_iter_with_same_nested(ColumnIterator** 
         assert(leaf);
         std::unique_ptr<ColumnIterator> sibling_iter;
         ColumnIterator* sibling_iter_ptr;
-        RETURN_IF_ERROR(leaf->data.reader->new_iterator(&sibling_iter_ptr));
+        RETURN_IF_ERROR(leaf->data.reader->new_iterator(&sibling_iter_ptr, nullptr));
         sibling_iter.reset(sibling_iter_ptr);
         *iterator = new DefaultNestedColumnIterator(std::move(sibling_iter),
                                                     leaf->data.file_column_type);
@@ -388,7 +389,7 @@ Status VariantColumnReader::_new_iterator_with_flat_leaves(ColumnIterator** iter
         if (relative_path.get_path() == SPARSE_COLUMN_PATH) {
             // read sparse column and filter extracted columns in subcolumn_path_map
             ColumnIterator* inner_iter;
-            RETURN_IF_ERROR(_sparse_column_reader->new_iterator(&inner_iter));
+            RETURN_IF_ERROR(_sparse_column_reader->new_iterator(&inner_iter, nullptr));
             // get subcolumns in sparse path set which will be merged into sparse column
             RETURN_IF_ERROR(_create_sparse_merge_reader(iterator, opts, target_col, inner_iter));
             return Status::OK();
@@ -399,7 +400,7 @@ Status VariantColumnReader::_new_iterator_with_flat_leaves(ColumnIterator** iter
             (exceeded_sparse_column_limit && !relative_path.get_is_typed())) {
             // Sparse column exists or reached sparse size limit, read sparse column
             ColumnIterator* inner_iter;
-            RETURN_IF_ERROR(_sparse_column_reader->new_iterator(&inner_iter));
+            RETURN_IF_ERROR(_sparse_column_reader->new_iterator(&inner_iter, nullptr));
             DCHECK(opts);
             *iterator = new SparseColumnExtractReader(
                     relative_path.get_path(), std::unique_ptr<ColumnIterator>(inner_iter),
@@ -423,17 +424,17 @@ Status VariantColumnReader::_new_iterator_with_flat_leaves(ColumnIterator** iter
                 new VariantRootColumnIterator(new FileColumnIterator(node->data.reader.get()));
         return Status::OK();
     }
-    RETURN_IF_ERROR(node->data.reader->new_iterator(iterator));
+    RETURN_IF_ERROR(node->data.reader->new_iterator(iterator, nullptr));
     return Status::OK();
 }
 
-Status VariantColumnReader::new_iterator(ColumnIterator** iterator, const TabletColumn& target_col,
+Status VariantColumnReader::new_iterator(ColumnIterator** iterator, const TabletColumn* target_col,
                                          const StorageReadOptions* opt) {
     // root column use unique id, leaf column use parent_unique_id
-    auto relative_path = target_col.path_info_ptr()->copy_pop_front();
+    auto relative_path = target_col->path_info_ptr()->copy_pop_front();
     const auto* root = _subcolumn_readers->get_root();
     const auto* node =
-            target_col.has_path_info() ? _subcolumn_readers->find_exact(relative_path) : nullptr;
+            target_col->has_path_info() ? _subcolumn_readers->find_exact(relative_path) : nullptr;
 
     // try rebuild path with hierarchical
     // example path(['a.b']) -> path(['a', 'b'])
@@ -459,7 +460,7 @@ Status VariantColumnReader::new_iterator(ColumnIterator** iterator, const Tablet
     if (opt != nullptr && is_compaction_reader_type(opt->io_ctx.reader_type)) {
         // original path, compaction with wide schema
         return _new_iterator_with_flat_leaves(
-                iterator, target_col, opt, exceeded_sparse_column_limit, existed_in_sparse_column);
+                iterator, *target_col, opt, exceeded_sparse_column_limit, existed_in_sparse_column);
     }
 
     // Check if path is prefix, example sparse columns path: a.b.c, a.b.e, access prefix: a.b.
@@ -484,12 +485,12 @@ Status VariantColumnReader::new_iterator(ColumnIterator** iterator, const Tablet
         // {"b" : 123}         b in sparse column
         // Then we should use hierarchical reader to read b
         ColumnIterator* inner_iter;
-        RETURN_IF_ERROR(_sparse_column_reader->new_iterator(&inner_iter));
+        RETURN_IF_ERROR(_sparse_column_reader->new_iterator(&inner_iter, nullptr));
         DCHECK(opt);
         // Sparse column exists or reached sparse size limit, read sparse column
         *iterator = new SparseColumnExtractReader(relative_path.get_path(),
                                                   std::unique_ptr<ColumnIterator>(inner_iter),
-                                                  nullptr, target_col);
+                                                  nullptr, *target_col);
         return Status::OK();
     }
 
@@ -499,7 +500,7 @@ Status VariantColumnReader::new_iterator(ColumnIterator** iterator, const Tablet
             // Node contains column without any child sub columns and no corresponding sparse columns
             // Direct read extracted columns
             const auto* node = _subcolumn_readers->find_leaf(relative_path);
-            RETURN_IF_ERROR(node->data.reader->new_iterator(iterator));
+            RETURN_IF_ERROR(node->data.reader->new_iterator(iterator, nullptr));
         } else {
             RETURN_IF_ERROR(_create_hierarchical_reader(iterator, relative_path, node, root));
         }
@@ -509,7 +510,7 @@ Status VariantColumnReader::new_iterator(ColumnIterator** iterator, const Tablet
         }
         // Sparse column not exists and not reached stats limit, then the target path is not exist, get a default iterator
         std::unique_ptr<ColumnIterator> iter;
-        RETURN_IF_ERROR(Segment::new_default_iterator(target_col, &iter));
+        RETURN_IF_ERROR(Segment::new_default_iterator(*target_col, &iter));
         *iterator = iter.release();
     }
     return Status::OK();
@@ -793,18 +794,17 @@ Status ColumnReader::read_page(const ColumnIteratorOptions& iter_opts, const Pag
                                PageHandle* handle, Slice* page_body, PageFooterPB* footer,
                                BlockCompressionCodec* codec) const {
     iter_opts.sanity_check();
-    PageReadOptions opts {
-            .verify_checksum = _opts.verify_checksum,
-            .use_page_cache = iter_opts.use_page_cache,
-            .kept_in_memory = _opts.kept_in_memory,
-            .type = iter_opts.type,
-            .file_reader = iter_opts.file_reader,
-            .page_pointer = pp,
-            .codec = codec,
-            .stats = iter_opts.stats,
-            .encoding_info = _encoding_info,
-            .io_ctx = iter_opts.io_ctx,
-    };
+    PageReadOptions opts(iter_opts.io_ctx);
+    opts.verify_checksum = _opts.verify_checksum;
+    opts.use_page_cache = iter_opts.use_page_cache;
+    opts.kept_in_memory = _opts.kept_in_memory;
+    opts.type = iter_opts.type;
+    opts.file_reader = iter_opts.file_reader;
+    opts.page_pointer = pp;
+    opts.codec = codec;
+    opts.stats = iter_opts.stats;
+    opts.encoding_info = _encoding_info;
+
     // index page should not pre decode
     if (iter_opts.type == INDEX_PAGE) opts.pre_decode = false;
     return PageIO::read_and_decompress_page(opts, handle, page_body, footer);
@@ -1152,12 +1152,12 @@ Status ColumnReader::seek_at_or_before(ordinal_t ordinal, OrdinalPageIndexIterat
     return Status::OK();
 }
 
-Status ColumnReader::new_iterator(ColumnIterator** iterator, const TabletColumn& col,
-                                  const StorageReadOptions* opt) {
-    return new_iterator(iterator);
+Status ColumnReader::new_iterator(ColumnIterator** iterator, const TabletColumn* tablet_column) {
+    return new_iterator(iterator, tablet_column, nullptr);
 }
 
-Status ColumnReader::new_iterator(ColumnIterator** iterator) {
+Status ColumnReader::new_iterator(ColumnIterator** iterator, const TabletColumn* tablet_column,
+                                  const StorageReadOptions* opt) {
     if (is_empty()) {
         *iterator = new EmptyFileColumnIterator();
         return Status::OK();
@@ -1172,13 +1172,13 @@ Status ColumnReader::new_iterator(ColumnIterator** iterator) {
             return new_agg_state_iterator(iterator);
         }
         case FieldType::OLAP_FIELD_TYPE_STRUCT: {
-            return new_struct_iterator(iterator);
+            return new_struct_iterator(iterator, tablet_column);
         }
         case FieldType::OLAP_FIELD_TYPE_ARRAY: {
-            return new_array_iterator(iterator);
+            return new_array_iterator(iterator, tablet_column);
         }
         case FieldType::OLAP_FIELD_TYPE_MAP: {
-            return new_map_iterator(iterator);
+            return new_map_iterator(iterator, tablet_column);
         }
         // case FieldType::OLAP_FIELD_TYPE_VARIANT: {
         //     // read from root data
@@ -1198,55 +1198,77 @@ Status ColumnReader::new_agg_state_iterator(ColumnIterator** iterator) {
     return Status::OK();
 }
 
-Status ColumnReader::new_array_iterator(ColumnIterator** iterator) {
+Status ColumnReader::new_array_iterator(ColumnIterator** iterator,
+                                        const TabletColumn* tablet_column) {
     ColumnIterator* item_iterator = nullptr;
-    RETURN_IF_ERROR(_sub_readers[0]->new_iterator(&item_iterator));
+    RETURN_IF_ERROR(_sub_readers[0]->new_iterator(
+            &item_iterator, tablet_column && tablet_column->get_subtype_count() > 0
+                                    ? &tablet_column->get_sub_column(0)
+                                    : nullptr));
 
     ColumnIterator* offset_iterator = nullptr;
-    RETURN_IF_ERROR(_sub_readers[1]->new_iterator(&offset_iterator));
+    RETURN_IF_ERROR(_sub_readers[1]->new_iterator(&offset_iterator, nullptr));
     auto* ofcIter =
             new OffsetFileColumnIterator(reinterpret_cast<FileColumnIterator*>(offset_iterator));
 
     ColumnIterator* null_iterator = nullptr;
     if (is_nullable()) {
-        RETURN_IF_ERROR(_sub_readers[2]->new_iterator(&null_iterator));
+        RETURN_IF_ERROR(_sub_readers[2]->new_iterator(&null_iterator, nullptr));
     }
     *iterator = new ArrayFileColumnIterator(this, ofcIter, item_iterator, null_iterator);
     return Status::OK();
 }
 
-Status ColumnReader::new_map_iterator(ColumnIterator** iterator) {
+Status ColumnReader::new_map_iterator(ColumnIterator** iterator,
+                                      const TabletColumn* tablet_column) {
     ColumnIterator* key_iterator = nullptr;
-    RETURN_IF_ERROR(_sub_readers[0]->new_iterator(&key_iterator));
+    RETURN_IF_ERROR(_sub_readers[0]->new_iterator(
+            &key_iterator, tablet_column && tablet_column->get_subtype_count() > 1
+                                   ? &tablet_column->get_sub_column(0)
+                                   : nullptr));
     ColumnIterator* val_iterator = nullptr;
-    RETURN_IF_ERROR(_sub_readers[1]->new_iterator(&val_iterator));
+    RETURN_IF_ERROR(_sub_readers[1]->new_iterator(
+            &val_iterator, tablet_column && tablet_column->get_subtype_count() > 1
+                                   ? &tablet_column->get_sub_column(1)
+                                   : nullptr));
     ColumnIterator* offsets_iterator = nullptr;
-    RETURN_IF_ERROR(_sub_readers[2]->new_iterator(&offsets_iterator));
+    RETURN_IF_ERROR(_sub_readers[2]->new_iterator(&offsets_iterator, nullptr));
     auto* ofcIter =
             new OffsetFileColumnIterator(reinterpret_cast<FileColumnIterator*>(offsets_iterator));
 
     ColumnIterator* null_iterator = nullptr;
     if (is_nullable()) {
-        RETURN_IF_ERROR(_sub_readers[3]->new_iterator(&null_iterator));
+        RETURN_IF_ERROR(_sub_readers[3]->new_iterator(&null_iterator, nullptr));
     }
     *iterator = new MapFileColumnIterator(this, null_iterator, ofcIter, key_iterator, val_iterator);
     return Status::OK();
 }
 
-Status ColumnReader::new_struct_iterator(ColumnIterator** iterator) {
+Status ColumnReader::new_struct_iterator(ColumnIterator** iterator,
+                                         const TabletColumn* tablet_column) {
     std::vector<ColumnIterator*> sub_column_iterators;
     size_t child_size = is_nullable() ? _sub_readers.size() - 1 : _sub_readers.size();
+    size_t tablet_column_size = tablet_column ? tablet_column->get_sub_columns().size() : 0;
     sub_column_iterators.reserve(child_size);
 
     ColumnIterator* sub_column_iterator;
     for (size_t i = 0; i < child_size; i++) {
-        RETURN_IF_ERROR(_sub_readers[i]->new_iterator(&sub_column_iterator));
+        RETURN_IF_ERROR(_sub_readers[i]->new_iterator(
+                &sub_column_iterator, tablet_column ? &tablet_column->get_sub_column(i) : nullptr));
         sub_column_iterators.push_back(sub_column_iterator);
+    }
+
+    // create default_iterator for schema-change behavior which increase column
+    for (size_t i = child_size; i < tablet_column_size; i++) {
+        TabletColumn column = tablet_column->get_sub_column(i);
+        std::unique_ptr<ColumnIterator>* it = new std::unique_ptr<ColumnIterator>();
+        RETURN_IF_ERROR(Segment::new_default_iterator(column, it));
+        sub_column_iterators.push_back(it->get());
     }
 
     ColumnIterator* null_iterator = nullptr;
     if (is_nullable()) {
-        RETURN_IF_ERROR(_sub_readers[child_size]->new_iterator(&null_iterator));
+        RETURN_IF_ERROR(_sub_readers[child_size]->new_iterator(&null_iterator, nullptr));
     }
     *iterator = new StructFileColumnIterator(this, null_iterator, sub_column_iterators);
     return Status::OK();

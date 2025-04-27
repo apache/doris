@@ -33,7 +33,6 @@
 
 #include "common/logging.h"
 #include "common/object_pool.h"
-#include "gutil/integral_types.h"
 #include "util/container_util.hpp"
 #include "util/runtime_profile_counter_tree_node.h"
 #ifdef BE_TEST
@@ -398,9 +397,6 @@ RuntimeProfile::Counter* RuntimeProfile::add_counter(const std::string& name, TU
     std::lock_guard<std::mutex> l(_counter_map_lock);
 
     if (_counter_map.find(name) != _counter_map.end()) {
-        // TODO: FIX DUPLICATE COUNTERS
-        // In production, we will return the existing counter.
-        // This will not make be crash, but the result may be wrong.
         return _counter_map[name];
     }
 
@@ -450,6 +446,31 @@ RuntimeProfile::DerivedCounter* RuntimeProfile::add_derived_counter(
             find_or_insert(&_child_counter_map, parent_counter_name, std::set<std::string>());
     child_counters->insert(name);
     return counter;
+}
+
+void RuntimeProfile::add_description(const std::string& name, const std::string& description,
+                                     std::string parent_counter_name) {
+    std::lock_guard<std::mutex> l(_counter_map_lock);
+
+    if (_counter_map.find(name) != _counter_map.end()) {
+        Counter* counter = _counter_map[name];
+        if (dynamic_cast<DescriptionEntry*>(counter) != nullptr) {
+            // Do replace instead of update to avoid data race.
+            _counter_map.erase(name);
+        } else {
+            DCHECK(false) << "Counter type mismatch, name: " << name
+                          << ", type: " << counter->type() << ", description: " << description;
+        }
+    }
+
+    // Parent counter must already exist.
+    DCHECK(parent_counter_name == ROOT_COUNTER ||
+           _counter_map.find(parent_counter_name) != _counter_map.end());
+    DescriptionEntry* counter = _pool->add(new DescriptionEntry(name, description));
+    _counter_map[name] = counter;
+    std::set<std::string>* child_counters =
+            find_or_insert(&_child_counter_map, parent_counter_name, std::set<std::string>());
+    child_counters->insert(name);
 }
 
 RuntimeProfile::Counter* RuntimeProfile::get_counter(const std::string& name) {

@@ -90,9 +90,6 @@ public:
 
     Status get_next_block_inner(Block* block, size_t* read_rows, bool* eof) final;
 
-    Status get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
-                       std::unordered_set<std::string>* missing_cols) final;
-
     Status init_reader(
             const std::vector<std::string>& column_names,
             std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,

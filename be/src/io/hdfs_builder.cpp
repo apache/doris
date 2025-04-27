@@ -145,21 +145,23 @@ void HDFSCommonBuilder::set_hdfs_conf_to_hdfs_builder() {
     }
 }
 
+// This method is deprecated, will be removed later
 Status HDFSCommonBuilder::set_kerberos_ticket_cache() {
-    kerberos::KerberosConfig config;
-    config.set_principal_and_keytab(hdfs_kerberos_principal, hdfs_kerberos_keytab);
-    config.set_krb5_conf_path(config::kerberos_krb5_conf_path);
-    config.set_refresh_interval(config::kerberos_refresh_interval_second);
-    config.set_min_time_before_refresh(600);
-    kerberos::KerberosTicketMgr* ticket_mgr = ExecEnv::GetInstance()->kerberos_ticket_mgr();
-    RETURN_IF_ERROR(ticket_mgr->get_or_set_ticket_cache(config, &ticket_cache));
-    // ATTN, can't use ticket_cache->get_ticket_cache_path() directly,
-    // it may cause the kerberos ticket cache path in libhdfs is empty,
-    kerberos_ticket_path = ticket_cache->get_ticket_cache_path();
-    hdfsBuilderSetKerbTicketCachePath(hdfs_builder, kerberos_ticket_path.c_str());
-    hdfsBuilderSetForceNewInstance(hdfs_builder);
-    LOG(INFO) << "get kerberos ticket path: " << kerberos_ticket_path
-              << " with principal: " << hdfs_kerberos_principal;
+    // kerberos::KerberosConfig config;
+    // config.set_principal_and_keytab(hdfs_kerberos_principal, hdfs_kerberos_keytab);
+    // config.set_krb5_conf_path(config::kerberos_krb5_conf_path);
+    // config.set_refresh_interval(config::kerberos_refresh_interval_second);
+    // config.set_min_time_before_refresh(600);
+    // kerberos::KerberosTicketMgr* ticket_mgr = ExecEnv::GetInstance()->kerberos_ticket_mgr();
+    // RETURN_IF_ERROR(ticket_mgr->get_or_set_ticket_cache(config, &ticket_cache));
+    // // ATTN, can't use ticket_cache->get_ticket_cache_path() directly,
+    // // it may cause the kerberos ticket cache path in libhdfs is empty,
+    // kerberos_ticket_path = ticket_cache->get_ticket_cache_path();
+    // hdfsBuilderSetUserName(hdfs_builder, hdfs_kerberos_principal.c_str());
+    // hdfsBuilderSetKerbTicketCachePath(hdfs_builder, kerberos_ticket_path.c_str());
+    // hdfsBuilderSetForceNewInstance(hdfs_builder);
+    // LOG(INFO) << "get kerberos ticket path: " << kerberos_ticket_path
+    //           << " with principal: " << hdfs_kerberos_principal;
     return Status::OK();
 }
 
@@ -225,7 +227,14 @@ Status create_hdfs_builder(const THdfsParams& hdfsParams, const std::string& fs_
         builder->kerberos_login = true;
         builder->hdfs_kerberos_principal = hdfsParams.hdfs_kerberos_principal;
         builder->hdfs_kerberos_keytab = hdfsParams.hdfs_kerberos_keytab;
-        RETURN_IF_ERROR(builder->set_kerberos_ticket_cache());
+        hdfsBuilderSetPrincipal(builder->get(), builder->hdfs_kerberos_principal.c_str());
+#ifdef USE_HADOOP_HDFS
+        hdfsBuilderSetKerb5Conf(builder->get(), doris::config::kerberos_krb5_conf_path.c_str());
+        hdfsBuilderSetKeyTabFile(builder->get(), builder->hdfs_kerberos_keytab.c_str());
+#endif
+        hdfsBuilderConfSetStr(builder->get(), "hadoop.kerberos.keytab.login.autorenewal.enabled",
+                              "true");
+        // RETURN_IF_ERROR(builder->set_kerberos_ticket_cache());
     } else {
         if (hdfsParams.__isset.user) {
             builder->hadoop_user = hdfsParams.user;

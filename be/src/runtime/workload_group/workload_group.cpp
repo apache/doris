@@ -87,6 +87,8 @@ WorkloadGroup::WorkloadGroup(const WorkloadGroupInfo& tg_info, bool need_create_
     _wg_metrics = std::make_shared<WorkloadGroupMetrics>(this);
 }
 
+WorkloadGroup::~WorkloadGroup() = default;
+
 std::string WorkloadGroup::debug_string() const {
     std::shared_lock<std::shared_mutex> rl {_mutex};
     return fmt::format(
@@ -288,6 +290,15 @@ int64_t WorkloadGroup::free_overcommited_memory(int64_t need_free_mem, RuntimePr
                 _id, _name, _memory_limit, used_memory, need_free_mem, freed_mem);
     }};
 
+    // the query being canceled is not counted in `freed_mem`,
+    // so `handle_paused_queries` may cancel more queries than expected.
+    //
+    // TODO, in `MemTrackerLimiter::free_xxx`, for the query being canceled,
+    // if (current time - cancel start time) < 2s (a config), the query memory is counted in `freed_mem`,
+    // and the query memory is expected to be released soon.
+    // if > 2s, the query memory will not be counted in `freed_mem`,
+    // and the query may be blocked during the cancel process. skip this query and continue to cancel other queries.
+
     // 1. free top overcommit query
     RuntimeProfile* tmq_profile = profile->create_child(
             fmt::format("FreeGroupTopOvercommitQuery:Name {}", _name), true, true);
@@ -335,6 +346,7 @@ int64_t WorkloadGroup::free_overcommited_memory(int64_t need_free_mem, RuntimePr
     return freed_mem;
 }
 
+// TODO, remove this function, replaced by free_overcommited_memory.
 int64_t WorkloadGroup::gc_memory(int64_t need_free_mem, RuntimeProfile* profile, bool is_minor_gc) {
     if (need_free_mem <= 0) {
         return 0;
@@ -747,13 +759,11 @@ void WorkloadGroup::upsert_task_scheduler(WorkloadGroupInfo* wg_info) {
 
 void WorkloadGroup::get_query_scheduler(doris::pipeline::TaskScheduler** exec_sched,
                                         vectorized::SimplifiedScanScheduler** scan_sched,
-                                        ThreadPool** memtable_flush_pool,
                                         vectorized::SimplifiedScanScheduler** remote_scan_sched) {
     std::shared_lock<std::shared_mutex> rlock(_task_sched_lock);
     *exec_sched = _task_sched.get();
     *scan_sched = _scan_task_sched.get();
     *remote_scan_sched = _remote_scan_task_sched.get();
-    *memtable_flush_pool = _memtable_flush_pool.get();
 }
 
 std::string WorkloadGroup::thread_debug_info() {

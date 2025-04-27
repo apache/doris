@@ -17,8 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
-import org.apache.doris.analysis.AddObserverClause;
-import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.ha.FrontendNodeType;
 
 /**
@@ -35,10 +33,5 @@ public class AddObserverOp extends FrontendOp {
         sb.append("ALTER CLUSTER ADD OBSERVER \"");
         sb.append(hostPort).append("\"");
         return sb.toString();
-    }
-
-    @Override
-    public AlterClause translateToLegacyAlterClause() {
-        return new AddObserverClause(hostPort, host, port, role);
     }
 }

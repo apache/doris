@@ -41,6 +41,7 @@
 #include "util/stack_util.h"
 #include "util/uid_util.h"
 
+namespace doris {
 std::unordered_map<void*, size_t> RecordSizeMemoryAllocator::_allocated_sizes;
 std::mutex RecordSizeMemoryAllocator::_mutex;
 
@@ -97,7 +98,9 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::sys_mem
                                 ->thread_mem_tracker_mgr->limiter_mem_tracker()
                                 ->consumption()),
                 doris::PrettyPrinter::print_bytes(
-                        doris::thread_context()->thread_mem_tracker()->reserved_consumption()),
+                        doris::thread_context()
+                                ->thread_mem_tracker_mgr->limiter_mem_tracker()
+                                ->reserved_consumption()),
                 doris::thread_context()->thread_mem_tracker_mgr->last_consumer_tracker_label(),
                 doris::GlobalMemoryArbitrator::process_limit_exceeded_errmsg_str());
 
@@ -287,6 +290,9 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::add_add
         return;
     }
 #endif
+    if (!doris::config::crash_in_memory_tracker_inaccurate) {
+        return;
+    }
     doris::thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker()->add_address_sanitizers(
             buf, size);
 }
@@ -299,6 +305,9 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::remove_
         return;
     }
 #endif
+    if (!doris::config::crash_in_memory_tracker_inaccurate) {
+        return;
+    }
     doris::thread_context()
             ->thread_mem_tracker_mgr->limiter_mem_tracker()
             ->remove_address_sanitizers(buf, size);
@@ -344,3 +353,5 @@ template class Allocator<false, true, true, RecordSizeMemoryAllocator>;
 template class Allocator<false, true, false, RecordSizeMemoryAllocator>;
 template class Allocator<false, false, true, RecordSizeMemoryAllocator>;
 template class Allocator<false, false, false, RecordSizeMemoryAllocator>;
+
+} // namespace doris

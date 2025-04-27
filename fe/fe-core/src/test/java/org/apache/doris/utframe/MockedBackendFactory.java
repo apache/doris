@@ -112,7 +112,7 @@ public class MockedBackendFactory {
     public static final int BE_DEFAULT_THRIFT_PORT = 9060;
     public static final int BE_DEFAULT_BRPC_PORT = 8060;
     public static final int BE_DEFAULT_HTTP_PORT = 8040;
-    public static final int BE_DEFAULT_ARROW_FLIGHT_SQL_PORT = 8070;
+    public static final int BE_DEFAULT_ARROW_FLIGHT_SQL_PORT = 8050;
 
     // create a mocked backend with customize parameters
     public static MockedBackend createBackend(String host, int heartbeatPort, int thriftPort, int brpcPort,

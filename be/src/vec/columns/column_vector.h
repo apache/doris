@@ -21,13 +21,13 @@
 #pragma once
 
 #include <glog/logging.h>
-#include <stdint.h>
-#include <string.h>
 #include <sys/types.h>
 
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
 #include <cmath>
+#include <cstdint>
+#include <cstring>
 #include <initializer_list>
 #include <string>
 #include <type_traits>
@@ -36,16 +36,13 @@
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
-#include "gutil/integral_types.h"
 #include "olap/uint24.h"
 #include "runtime/define_primitive_type.h"
 #include "vec/columns/column.h"
-#include "vec/columns/column_impl.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/cow.h"
 #include "vec/common/pod_array_fwd.h"
 #include "vec/common/string_ref.h"
-#include "vec/common/uint128.h"
 #include "vec/common/unaligned.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
@@ -53,12 +50,10 @@
 
 class SipHash;
 
-namespace doris {
-namespace vectorized {
+namespace doris::vectorized {
 class Arena;
 class ColumnSorter;
-} // namespace vectorized
-} // namespace doris
+} // namespace doris::vectorized
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
@@ -183,7 +178,6 @@ public:
         } else {
             throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                    "double column not support insert_range_of_integer");
-            __builtin_unreachable();
         }
     }
 
@@ -361,8 +355,9 @@ public:
 
     // For example, during create column_const(1, uint8), will use NearestFieldType
     // to cast a uint8 to int64, so that the Field is int64, but the column is created
-    // using data_type, so that T == uint8. After the field is created, it will be inserted
-    // into the column, but its type is different from column's data type, so that during column
+    // using data_type, so that T == uint8, NearestFieldType<T> == uint64.
+    // After the field is created, it will be inserted into the column,
+    // but its type is different from column's data type (int64 vs uint64), so that during column
     // insert method, should use NearestFieldType<T> to get the Field and get it actual
     // uint8 value and then insert into column.
     void insert(const Field& x) override {
@@ -411,6 +406,16 @@ public:
     void compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,
                           int direction, std::vector<uint8>& cmp_res,
                           uint8* __restrict filter) const override;
+
+    void erase(size_t start, size_t length) override {
+        if (start >= data.size() || length == 0) {
+            return;
+        }
+        length = std::min(length, data.size() - start);
+        size_t elements_to_move = data.size() - start - length;
+        memmove(data.data() + start, data.data() + start + length, elements_to_move * sizeof(T));
+        data.resize(data.size() - length);
+    }
 
 protected:
     Container data;

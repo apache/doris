@@ -28,6 +28,8 @@ namespace doris::vectorized {
 template <typename T>
 class DataTypeNumber final : public DataTypeNumberBase<T> {
 public:
+    using ColumnType = ColumnVector<T>;
+    using FieldType = T;
     bool equals(const IDataType& rhs) const override { return typeid(rhs) == typeid(*this); }
 
     void to_string_batch(const IColumn& column, ColumnString& column_to) const final {

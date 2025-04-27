@@ -27,6 +27,7 @@
 #include <string>
 #include <vector>
 
+#include "common/be_mock_util.h"
 #include "common/config.h"
 #include "common/status.h"
 #include "runtime/exec_env.h"
@@ -52,7 +53,7 @@ class ThreadMemTrackerMgr {
 public:
     ThreadMemTrackerMgr() = default;
 
-    ~ThreadMemTrackerMgr() {
+    MOCK_FUNCTION ~ThreadMemTrackerMgr() {
         // if _init == false, exec env is not initialized when init(). and never consumed mem tracker once.
         if (_init) {
             DCHECK(_reserved_mem == 0);
@@ -82,7 +83,8 @@ public:
     void consume(int64_t size);
     void flush_untracked_mem();
 
-    doris::Status try_reserve(int64_t size, bool only_check_process_memory);
+    // if only_check_process_memory == true, still reserve query, wg, process memory, only check process memory.
+    MOCK_FUNCTION doris::Status try_reserve(int64_t size, bool only_check_process_memory = false);
 
     void shrink_reserved();
 
@@ -281,9 +283,9 @@ inline void ThreadMemTrackerMgr::flush_untracked_mem() {
 
 inline doris::Status ThreadMemTrackerMgr::try_reserve(int64_t size,
                                                       bool only_check_process_memory) {
-    DCHECK(_limiter_tracker);
     DCHECK(size >= 0);
     CHECK(init());
+    DCHECK(_limiter_tracker);
     memory_orphan_check();
     // if _reserved_mem not equal to 0, repeat reserve,
     // _untracked_mem store bytes that not synchronized to process reserved memory.

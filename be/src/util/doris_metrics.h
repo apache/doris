@@ -231,6 +231,11 @@ public:
     IntCounter* scanner_cnt = nullptr;
     IntCounter* scanner_task_cnt = nullptr;
 
+    IntGauge* runtime_filter_consumer_num = nullptr;
+    IntGauge* runtime_filter_consumer_ready_num = nullptr;
+    IntCounter* runtime_filter_consumer_wait_ready_ms = nullptr;
+    IntGauge* runtime_filter_consumer_timeout_num = nullptr;
+
     static DorisMetrics* instance() {
         static DorisMetrics instance;
         return &instance;

@@ -149,12 +149,12 @@ public:
     ~ColumnReader() override;
 
     // create a new column iterator. Client should delete returned iterator
-    virtual Status new_iterator(ColumnIterator** iterator, const TabletColumn& col,
+    virtual Status new_iterator(ColumnIterator** iterator, const TabletColumn* col,
                                 const StorageReadOptions*);
-    Status new_iterator(ColumnIterator** iterator);
-    Status new_array_iterator(ColumnIterator** iterator);
-    Status new_struct_iterator(ColumnIterator** iterator);
-    Status new_map_iterator(ColumnIterator** iterator);
+    Status new_iterator(ColumnIterator** iterator, const TabletColumn* tablet_column);
+    Status new_array_iterator(ColumnIterator** iterator, const TabletColumn* tablet_column);
+    Status new_struct_iterator(ColumnIterator** iterator, const TabletColumn* tablet_column);
+    Status new_map_iterator(ColumnIterator** iterator, const TabletColumn* tablet_column);
     Status new_agg_state_iterator(ColumnIterator** iterator);
     // Client should delete returned iterator
     Status new_bitmap_index_iterator(BitmapIndexIterator** iterator);
@@ -315,7 +315,7 @@ public:
     Status init(const ColumnReaderOptions& opts, const SegmentFooterPB& footer, uint32_t column_id,
                 uint64_t num_rows, io::FileReaderSPtr file_reader);
 
-    Status new_iterator(ColumnIterator** iterator, const TabletColumn& col,
+    Status new_iterator(ColumnIterator** iterator, const TabletColumn* col,
                         const StorageReadOptions* opt) override;
 
     const SubcolumnColumnReaders::Node* get_reader_by_path(

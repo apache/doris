@@ -40,7 +40,6 @@ struct ConvertParams {
     size_t offset_days = 0;
     int64_t second_mask = 1;
     int64_t scale_to_nano_factor = 1;
-    DecimalScaleParams decimal_scale;
     FieldSchema* field_schema = nullptr;
 
     //For UInt8 -> Int16,UInt16 -> Int32,UInt32 -> Int64,UInt64 -> Int128.
@@ -115,46 +114,6 @@ struct ConvertParams {
             offset_days = t.day() == 31 ? -1 : 0;
         }
         is_type_compatibility = field_schema_->is_type_compatibility;
-    }
-
-    template <typename DecimalPrimitiveType>
-    void init_decimal_converter(int dst_scale) {
-        using DecimalNativeType = typename DecimalPrimitiveType::NativeType;
-        if (field_schema == nullptr || decimal_scale.scale_type != DecimalScaleParams::NOT_INIT) {
-            return;
-        }
-        auto scale = field_schema->parquet_schema.scale;
-        if (dst_scale > scale) {
-            decimal_scale.scale_type = DecimalScaleParams::SCALE_UP;
-            if constexpr (std::is_same_v<DecimalPrimitiveType, Decimal256>) {
-                decimal_scale.scale_factor =
-                        DecimalScaleParams::get_scale_factor<DecimalPrimitiveType>(dst_scale -
-                                                                                   scale);
-            } else {
-                //When an external data source performs a schema change that involves converting
-                // a high-precision value to a lower-precision one, we allow data loss during this
-                // process and therefore do not perform any checks. In the future, we may consider
-                // representing the lost data as `null`.
-                decimal_scale.scale_factor = cast_set<int64_t, DecimalNativeType, false>(
-                        DecimalScaleParams::get_scale_factor<DecimalPrimitiveType>(dst_scale -
-                                                                                   scale));
-            }
-
-        } else if (dst_scale < scale) {
-            decimal_scale.scale_type = DecimalScaleParams::SCALE_DOWN;
-            if constexpr (std::is_same_v<DecimalPrimitiveType, Decimal256>) {
-                decimal_scale.scale_factor =
-                        DecimalScaleParams::get_scale_factor<DecimalPrimitiveType>(scale -
-                                                                                   dst_scale);
-            } else {
-                decimal_scale.scale_factor = cast_set<int64_t, DecimalNativeType, false>(
-                        DecimalScaleParams::get_scale_factor<DecimalPrimitiveType>(scale -
-                                                                                   dst_scale));
-            }
-        } else {
-            decimal_scale.scale_type = DecimalScaleParams::NO_SCALE;
-            decimal_scale.scale_factor = 1;
-        }
     }
 };
 
@@ -395,7 +354,7 @@ public:
     }
 };
 
-template <typename DecimalType, DecimalScaleParams::ScaleType ScaleType>
+template <typename DecimalType>
 class FixedSizeToDecimal : public PhysicalToLogicalConverter {
 public:
     FixedSizeToDecimal(int32_t type_length) : _type_length(type_length) {}
@@ -455,7 +414,6 @@ public:
     template <int fixed_type_length, typename ValueCopyType>
     Status _convert_internal(ColumnPtr& src_col, MutableColumnPtr& dst_col) {
         size_t rows = src_col->size() / fixed_type_length;
-        DecimalScaleParams& scale_params = _convert_params->decimal_scale;
         auto* buf = static_cast<const ColumnUInt8*>(src_col.get())->get_data().data();
         size_t start_idx = dst_col->size();
         dst_col->resize(start_idx + rows);
@@ -470,15 +428,6 @@ public:
             offset += fixed_type_length;
             value = BitUtil::big_endian_to_host(value);
             value = value >> ((sizeof(value) - fixed_type_length) * 8);
-            if constexpr (ScaleType == DecimalScaleParams::SCALE_UP) {
-                value *= scale_params.scale_factor;
-            } else if constexpr (ScaleType == DecimalScaleParams::SCALE_DOWN) {
-                value /= scale_params.scale_factor;
-            } else if constexpr (ScaleType == DecimalScaleParams::NO_SCALE) {
-                // do nothing
-            } else {
-                throw Exception(Status::FatalError("__builtin_unreachable"));
-            }
             auto& v = reinterpret_cast<DecimalType&>(data[start_idx + i]);
             v = (DecimalType)value;
         }
@@ -490,7 +439,7 @@ private:
     int32_t _type_length;
 };
 
-template <typename DecimalType, DecimalScaleParams::ScaleType ScaleType>
+template <typename DecimalType>
 class StringToDecimal : public PhysicalToLogicalConverter {
     Status physical_convert(ColumnPtr& src_physical_col, ColumnPtr& src_logical_column) override {
         using ValueCopyType = DecimalType::NativeType;
@@ -498,7 +447,6 @@ class StringToDecimal : public PhysicalToLogicalConverter {
         MutableColumnPtr dst_col = remove_nullable(src_logical_column)->assume_mutable();
 
         size_t rows = src_col->size();
-        DecimalScaleParams& scale_params = _convert_params->decimal_scale;
         auto buf = static_cast<const ColumnString*>(src_col.get())->get_chars().data();
         auto& offset = static_cast<const ColumnString*>(src_col.get())->get_offsets();
         size_t start_idx = dst_col->size();
@@ -514,15 +462,6 @@ class StringToDecimal : public PhysicalToLogicalConverter {
                 memcpy(reinterpret_cast<char*>(&value), buf + offset[i - 1], len);
                 value = BitUtil::big_endian_to_host(value);
                 value = value >> ((sizeof(value) - len) * 8);
-                if constexpr (ScaleType == DecimalScaleParams::SCALE_UP) {
-                    value *= scale_params.scale_factor;
-                } else if constexpr (ScaleType == DecimalScaleParams::SCALE_DOWN) {
-                    value /= scale_params.scale_factor;
-                } else if constexpr (ScaleType == DecimalScaleParams::NO_SCALE) {
-                    // do nothing
-                } else {
-                    throw Exception(Status::FatalError("__builtin_unreachable"));
-                }
             }
             auto& v = reinterpret_cast<DecimalType&>(data[start_idx + i]);
             v = (DecimalType)value;
@@ -532,7 +471,7 @@ class StringToDecimal : public PhysicalToLogicalConverter {
     }
 };
 
-template <typename NumberType, typename DecimalType, DecimalScaleParams::ScaleType ScaleType>
+template <typename NumberType, typename DecimalType>
 class NumberToDecimal : public PhysicalToLogicalConverter {
     Status physical_convert(ColumnPtr& src_physical_col, ColumnPtr& src_logical_column) override {
         using ValueCopyType = typename DecimalType::NativeType;
@@ -545,7 +484,6 @@ class NumberToDecimal : public PhysicalToLogicalConverter {
         size_t start_idx = dst_col->size();
         dst_col->resize(start_idx + rows);
 
-        DecimalScaleParams& scale_params = _convert_params->decimal_scale;
         auto* data = static_cast<ColumnDecimal<DecimalType>*>(dst_col.get())->get_data().data();
 
         for (int i = 0; i < rows; i++) {
@@ -556,11 +494,6 @@ class NumberToDecimal : public PhysicalToLogicalConverter {
                 value = cast_set<ValueCopyType, NumberType, false>(src_data[i]);
             }
 
-            if constexpr (ScaleType == DecimalScaleParams::SCALE_UP) {
-                value *= scale_params.scale_factor;
-            } else if constexpr (ScaleType == DecimalScaleParams::SCALE_DOWN) {
-                value /= scale_params.scale_factor;
-            }
             data[start_idx + i] = (DecimalType)value;
         }
         return Status::OK();

@@ -15,24 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 #include <gtest/gtest.h>
-#include <stdint.h>
 
 #include <cstdint>
 #include <limits>
-#include <numeric>
 #include <string>
 #include <vector>
 
 #include "common/config.h"
 #include "common/status.h"
 #include "function_test_util.h"
-#include "gtest/gtest_pred_impl.h"
-#include "gutil/integral_types.h"
-#include "testutil/any_type.h"
 #include "util/bitmap_value.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_bitmap.h"
-#include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 
@@ -92,18 +86,18 @@ TEST(function_bitmap_test, function_bitmap_remove) {
     BitmapValue bitmap1_res(1);
     BitmapValue bitmap2_res({1, 3, 5});
     {
-        DataSet data_set = {{{&bitmap1, (int64_t)3}, bitmap1_res},
-                            {{&bitmap2, (int64_t)6}, bitmap2_res},
+        DataSet data_set = {{{&bitmap1, (int64_t)3}, &bitmap1_res},
+                            {{&bitmap2, (int64_t)6}, &bitmap2_res},
                             {{&bitmap1, Null()}, Null()}};
 
         static_cast<void>(check_function<DataTypeBitMap, true>(func_name, input_types, data_set));
     }
 }
-namespace doris {
-namespace config {
+
+namespace doris::config {
 DECLARE_Bool(enable_set_in_bitmap_value);
 }
-} // namespace doris
+
 TEST(function_bitmap_test, function_bitmap_to_base64) {
     config::Register::Field field("bool", "enable_set_in_bitmap_value",
                                   &config::enable_set_in_bitmap_value, "false", false);
@@ -263,10 +257,10 @@ TEST(function_bitmap_test, function_bitmap_from_base64) {
 
     BitmapValue empty_bitmap;
     {
-        DataSet data_set = {{{bitmap32_base64_1}, bitmap32_1}, {{bitmap32_base64_2}, bitmap32_2},
-                            {{bitmap32_base64_3}, bitmap32_3}, {{bitmap64_base64_1}, bitmap64_1},
-                            {{bitmap64_base64_2}, bitmap64_2}, {{bitmap64_base64_3}, bitmap64_3},
-                            {{base64_empty}, empty_bitmap},    {{Null()}, Null()}};
+        DataSet data_set = {{{bitmap32_base64_1}, &bitmap32_1}, {{bitmap32_base64_2}, &bitmap32_2},
+                            {{bitmap32_base64_3}, &bitmap32_3}, {{bitmap64_base64_1}, &bitmap64_1},
+                            {{bitmap64_base64_2}, &bitmap64_2}, {{bitmap64_base64_3}, &bitmap64_3},
+                            {{base64_empty}, &empty_bitmap},    {{Null()}, Null()}};
 
         static_cast<void>(check_function<DataTypeBitMap, true>(func_name, input_types, data_set));
     }
@@ -281,10 +275,10 @@ TEST(function_bitmap_test, function_bitmap_from_base64) {
     bitmap64_base64_3 = ("BAIAAAAAOzAAAAEAAB8AAQAAAB8AAQAAADowAAABAAAAAAAAABAAAAAAAA==");
 
     {
-        DataSet data_set = {{{bitmap32_base64_1}, bitmap32_1}, {{bitmap32_base64_2}, bitmap32_2},
-                            {{bitmap32_base64_3}, bitmap32_3}, {{bitmap64_base64_1}, bitmap64_1},
-                            {{bitmap64_base64_2}, bitmap64_2}, {{bitmap64_base64_3}, bitmap64_3},
-                            {{base64_empty}, empty_bitmap},    {{Null()}, Null()}};
+        DataSet data_set = {{{bitmap32_base64_1}, &bitmap32_1}, {{bitmap32_base64_2}, &bitmap32_2},
+                            {{bitmap32_base64_3}, &bitmap32_3}, {{bitmap64_base64_1}, &bitmap64_1},
+                            {{bitmap64_base64_2}, &bitmap64_2}, {{bitmap64_base64_3}, &bitmap64_3},
+                            {{base64_empty}, &empty_bitmap},    {{Null()}, Null()}};
 
         static_cast<void>(check_function<DataTypeBitMap, true>(func_name, input_types, data_set));
     }
@@ -294,7 +288,7 @@ TEST(function_bitmap_test, function_bitmap_from_base64) {
         BitmapValue bitmap;
         bitmap.add(0);
         bitmap.add(1);
-        DataSet data_set = {{{base64}, bitmap}};
+        DataSet data_set = {{{base64}, &bitmap}};
         static_cast<void>(check_function<DataTypeBitMap, true>(func_name, input_types, data_set));
     }
     {
@@ -306,7 +300,7 @@ TEST(function_bitmap_test, function_bitmap_from_base64) {
         std::string base64_64_v1(
                 "BAIAAAAAOjAAAAEAAAAAAB8AEAAAAAAAAQACAAMABAAFAAYABwAIAAkACgALAAwADQAOAA8AEAARABIAEw"
                 "AUABUAFgAXABgAGQAaABsAHAAdAB4AHwABAAAAOjAAAAEAAAAAAAAAEAAAAAAA");
-        DataSet data_set = {{{base64_32_v1}, bitmap32_3}, {{base64_64_v1}, bitmap64_3}};
+        DataSet data_set = {{{base64_32_v1}, &bitmap32_3}, {{base64_64_v1}, &bitmap64_3}};
         static_cast<void>(check_function<DataTypeBitMap, true>(func_name, input_types, data_set));
     }
     {
@@ -318,7 +312,7 @@ TEST(function_bitmap_test, function_bitmap_from_base64) {
         std::string base64_64_v2(
                 "DQIAAAAAAjowAAABAAAAAAAfABAAAAAAAAEAAgADAAQABQAGAAcACAAJAAoACwAMAA0ADgAPABAAEQASAB"
                 "MAFAAVABYAFwAYABkAGgAbABwAHQAeAB8AAQAAAAEBAAAAAAAAAA==");
-        DataSet data_set = {{{base64_32_v2}, bitmap32_3}, {{base64_64_v2}, bitmap64_3}};
+        DataSet data_set = {{{base64_32_v2}, &bitmap32_3}, {{base64_64_v2}, &bitmap64_3}};
         static_cast<void>(check_function<DataTypeBitMap, true>(func_name, input_types, data_set));
     }
 }

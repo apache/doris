@@ -551,7 +551,7 @@ message PInFilter {
 }
 
 enum PFilterType {
-    UNKNOW_FILTER = 0;
+    UNKNOWN_FILTER = 0;
     BLOOM_FILTER = 1;
     MINMAX_FILTER = 2;
     IN_FILTER = 3;
@@ -591,7 +591,7 @@ message PMergeFilterRequest {
     optional PInFilter in_filter = 7;
     optional bool is_pipeline = 8 [deprecated = true];
     optional bool opt_remote_rf = 9; // Deprecated
-    optional PColumnType column_type = 10;
+    optional PColumnType column_type = 10; // Deprecated
     optional bool contain_null = 11;
     optional bool ignored = 12;
     optional uint64 local_merge_time = 13;
@@ -600,23 +600,6 @@ message PMergeFilterRequest {
 
 message PMergeFilterResponse {
     required PStatus status = 1;
-};
-
-// delete PPublishFilterRequest after upgrade doris 2.1
-message PPublishFilterRequest {
-    required int32 filter_id = 1;
-    required PUniqueId query_id = 2;
-    required PUniqueId fragment_instance_id = 3;
-    required PFilterType filter_type = 4;
-    optional PMinMaxFilter minmax_filter = 5;
-    optional PBloomFilter bloom_filter = 6;
-    optional PInFilter in_filter = 7;
-    optional bool is_pipeline = 8 [deprecated = true];
-    optional int64 merge_time = 9;
-    optional PColumnType column_type = 10;
-    optional bool contain_null = 11;
-    optional bool ignored = 12;
-    optional bool disabled = 13;
 };
 
 message PPublishFilterRequestV2 {
@@ -631,7 +614,7 @@ message PPublishFilterRequestV2 {
     optional int64 merge_time = 9;
     optional bool contain_null = 10;
     optional bool ignored = 11;
-    repeated int32 fragment_ids = 12;
+    repeated int32 fragment_ids = 12; // deprecated
     optional uint64 local_merge_time = 13;
     optional bool disabled = 14;
 };
@@ -1013,7 +996,6 @@ service PBackendService {
     rpc merge_filter(PMergeFilterRequest) returns (PMergeFilterResponse);
     rpc send_filter_size(PSendFilterSizeRequest) returns (PSendFilterSizeResponse);
     rpc sync_filter_size(PSyncFilterSizeRequest) returns (PSyncFilterSizeResponse);
-    rpc apply_filter(PPublishFilterRequest) returns (PPublishFilterResponse);
     rpc apply_filterv2(PPublishFilterRequestV2) returns (PPublishFilterResponse);
     rpc fold_constant_expr(PConstantExprRequest) returns (PConstantExprResult);
     rpc transmit_block(PTransmitDataParams) returns (PTransmitDataResult);

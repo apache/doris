@@ -102,6 +102,10 @@ protected:
     // protects all subsequent data in this block
     std::mutex _lock;
 
+    // The last batch size in bytes.
+    // Determine whether to merge multiple batches based on the size of each batch to avoid getting an excessively large batch after merging.
+    size_t _last_batch_bytes = 0;
+
     // get arrow flight result is a sync method, need wait for data ready and return result.
     // TODO, waiting for data will block pipeline, so use a request pool to save requests waiting for data.
     std::condition_variable _arrow_data_arrival;

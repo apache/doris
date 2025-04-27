@@ -48,10 +48,12 @@ import org.apache.logging.log4j.Logger;
 import org.apache.paimon.CoreOptions;
 import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.predicate.Predicate;
+import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.source.DataSplit;
 import org.apache.paimon.table.source.DeletionFile;
 import org.apache.paimon.table.source.RawFile;
 import org.apache.paimon.table.source.ReadBuilder;
+import org.apache.paimon.types.DataField;
 import org.apache.paimon.utils.InstantiationUtil;
 
 import java.io.IOException;
@@ -63,6 +65,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 public class PaimonScanNode extends FileQueryScanNode {
@@ -122,6 +125,7 @@ public class PaimonScanNode extends FileQueryScanNode {
         source = new PaimonSource(desc);
         serializedTable = encodeObjectToString(source.getPaimonTable());
         Preconditions.checkNotNull(source);
+        params.setHistorySchemaInfo(new ConcurrentHashMap<>());
     }
 
     @Override
@@ -154,6 +158,17 @@ public class PaimonScanNode extends FileQueryScanNode {
         return Optional.of(serializedTable);
     }
 
+    private Map<Integer, String> getSchemaInfo(Long schemaId) {
+        PaimonExternalTable table = (PaimonExternalTable) source.getTargetTable();
+        TableSchema tableSchema = table.getPaimonSchemaCacheValue(schemaId).getTableSchema();
+        Map<Integer, String> columnIdToName = new HashMap<>(tableSchema.fields().size());
+        for (DataField dataField : tableSchema.fields()) {
+            columnIdToName.put(dataField.id(), dataField.name().toLowerCase());
+        }
+
+        return columnIdToName;
+    }
+
     private void setPaimonParams(TFileRangeDesc rangeDesc, PaimonSplit paimonSplit) {
         TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();
         tableFormatFileDesc.setTableFormatType(paimonSplit.getTableFormatType().value());
@@ -174,8 +189,9 @@ public class PaimonScanNode extends FileQueryScanNode {
             } else {
                 throw new RuntimeException("Unsupported file format: " + fileFormat);
             }
+            fileDesc.setSchemaId(paimonSplit.getSchemaId());
+            params.history_schema_info.computeIfAbsent(paimonSplit.getSchemaId(), this::getSchemaInfo);
         }
-
         fileDesc.setFileFormat(fileFormat);
         fileDesc.setPaimonPredicate(encodeObjectToString(predicates));
         fileDesc.setPaimonColumnNames(source.getDesc().getSlots().stream().map(slot -> slot.getColumn().getName())
@@ -194,7 +210,11 @@ public class PaimonScanNode extends FileQueryScanNode {
         if (optDeletionFile.isPresent()) {
             DeletionFile deletionFile = optDeletionFile.get();
             TPaimonDeletionFileDesc tDeletionFile = new TPaimonDeletionFileDesc();
-            tDeletionFile.setPath(deletionFile.path());
+            // convert the deletion file uri to make sure FileReader can read it in be
+            LocationPath locationPath = new LocationPath(deletionFile.path(),
+                    source.getCatalog().getProperties());
+            String path = locationPath.toStorageLocation().toString();
+            tDeletionFile.setPath(path);
             tDeletionFile.setOffset(deletionFile.offset());
             tDeletionFile.setLength(deletionFile.length());
             fileDesc.setDeletionFile(tDeletionFile);
@@ -294,6 +314,7 @@ public class PaimonScanNode extends FileQueryScanNode {
                                     null,
                                     PaimonSplit.PaimonSplitCreator.DEFAULT);
                             for (Split dorisSplit : dorisSplits) {
+                                ((PaimonSplit) dorisSplit).setSchemaId(file.schemaId());
                                 // try to set deletion file
                                 if (optDeletionFiles.isPresent() && optDeletionFiles.get().get(i) != null) {
                                     ((PaimonSplit) dorisSplit).setDeletionFile(optDeletionFiles.get().get(i));

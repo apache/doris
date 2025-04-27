@@ -35,6 +35,7 @@
 #include "io/fs/file_system.h"
 #include "olap/field.h"
 #include "olap/olap_common.h"
+#include "olap/page_cache.h"
 #include "olap/rowset/segment_v2/column_reader.h" // ColumnReader
 #include "olap/rowset/segment_v2/page_handle.h"
 #include "olap/schema.h"
@@ -96,6 +97,9 @@ public:
     Status new_iterator(SchemaSPtr schema, const StorageReadOptions& read_options,
                         std::unique_ptr<RowwiseIterator>* iter);
 
+    static Status new_default_iterator(const TabletColumn& tablet_column,
+                                       std::unique_ptr<ColumnIterator>* iter);
+
     uint32_t id() const { return _segment_id; }
 
     RowsetId rowset_id() const { return _rowset_id; }
@@ -121,8 +125,6 @@ public:
                                        const TabletIndex* index_meta,
                                        const StorageReadOptions& read_options,
                                        std::unique_ptr<InvertedIndexIterator>* iter);
-    static Status new_default_iterator(const TabletColumn& tablet_column,
-                                       std::unique_ptr<ColumnIterator>* iter);
     const ShortKeyIndexDecoder* get_short_key_index() const {
         DCHECK(_load_index_once.has_called() && _load_index_once.stored_result().ok());
         return _sk_index_decoder.get();
@@ -215,7 +217,7 @@ private:
                         std::shared_ptr<Segment>* output, InvertedIndexFileInfo idx_file_info);
     // open segment file and read the minimum amount of necessary information (footer)
     Status _open();
-    Status _parse_footer(SegmentFooterPB* footer);
+    Status _parse_footer(std::shared_ptr<SegmentFooterPB>& footer);
     Status _create_column_readers(const SegmentFooterPB& footer);
     Status _load_pk_bloom_filter(OlapReaderStatistics* stats);
     ColumnReader* _get_column_reader(const TabletColumn& col);
@@ -227,7 +229,10 @@ private:
 
     Status _create_column_readers_once(OlapReaderStatistics* stats);
 
-private:
+    Status _get_segment_footer(std::shared_ptr<SegmentFooterPB>&);
+
+    StoragePageCache::CacheKey get_segment_footer_cache_key() const;
+
     friend class SegmentIterator;
     io::FileSystemSPtr _fs;
     io::FileReaderSPtr _file_reader;
@@ -264,7 +269,7 @@ private:
 
     DorisCallOnce<Status> _create_column_readers_once_call;
 
-    std::unique_ptr<SegmentFooterPB> _footer_pb;
+    std::weak_ptr<SegmentFooterPB> _footer_pb;
 
     // used to hold short key index page in memory
     PageHandle _sk_index_handle;

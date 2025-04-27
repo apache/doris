@@ -102,10 +102,10 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
             _last_local_channel_idx = i;
         }
     }
-    only_local_exchange = local_size == channels.size();
+    _only_local_exchange = local_size == channels.size();
     _rpc_channels_num = channels.size() - local_size;
 
-    if (!only_local_exchange) {
+    if (!_only_local_exchange) {
         _sink_buffer = p.get_sink_buffer(state->fragment_instance_id().lo);
         register_channels(_sink_buffer.get());
         _queue_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
@@ -220,12 +220,9 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
     id.set_hi(_state->query_id().hi);
     id.set_lo(_state->query_id().lo);
 
-    if ((_part_type == TPartitionType::UNPARTITIONED || channels.size() == 1) &&
-        !only_local_exchange) {
-        _broadcast_dependency = Dependency::create_shared(
-                _parent->operator_id(), _parent->node_id(), "BroadcastDependency", true);
+    if ((_part_type == TPartitionType::UNPARTITIONED) && !_only_local_exchange) {
         _broadcast_pb_mem_limiter =
-                vectorized::BroadcastPBlockHolderMemLimiter::create_shared(_broadcast_dependency);
+                vectorized::BroadcastPBlockHolderMemLimiter::create_shared(_queue_dependency);
     } else if (_last_local_channel_idx > -1) {
         size_t dep_id = 0;
         for (auto& channel : channels) {
@@ -267,7 +264,7 @@ ExchangeSinkOperatorX::ExchangeSinkOperatorX(
         RuntimeState* state, const RowDescriptor& row_desc, int operator_id,
         const TDataStreamSink& sink, const std::vector<TPlanFragmentDestination>& destinations,
         const std::vector<TUniqueId>& fragment_instance_ids)
-        : DataSinkOperatorX(operator_id, sink.dest_node_id, 0),
+        : DataSinkOperatorX(operator_id, sink.dest_node_id, std::numeric_limits<int>::max()),
           _texprs(sink.output_partition.partition_exprs),
           _row_desc(row_desc),
           _part_type(sink.output_partition.type),
@@ -297,6 +294,20 @@ ExchangeSinkOperatorX::ExchangeSinkOperatorX(
     _pool = std::make_shared<ObjectPool>();
     if (sink.__isset.output_tuple_id) {
         _output_tuple_id = sink.output_tuple_id;
+    }
+
+    // Bucket shuffle may contain some same bucket so no need change the BUCKET_SHFFULE_HASH_PARTITIONED
+    if (_part_type != TPartitionType::UNPARTITIONED &&
+        _part_type != TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED) {
+        // if the destinations only one dest, we need to use broadcast
+        std::unordered_set<UniqueId> dest_fragment_ids_set;
+        for (auto& dest : _dests) {
+            dest_fragment_ids_set.insert(dest.fragment_instance_id);
+            if (dest_fragment_ids_set.size() > 1) {
+                break;
+            }
+        }
+        _part_type = dest_fragment_ids_set.size() == 1 ? TPartitionType::UNPARTITIONED : _part_type;
     }
 }
 
@@ -368,11 +379,11 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
         set_low_memory_mode(state);
     }
 
-    if (_part_type == TPartitionType::UNPARTITIONED || local_state.channels.size() == 1) {
+    if (_part_type == TPartitionType::UNPARTITIONED) {
         // 1. serialize depends on it is not local exchange
         // 2. send block
         // 3. rollover block
-        if (local_state.only_local_exchange) {
+        if (local_state._only_local_exchange) {
             if (!block->empty()) {
                 Status status;
                 size_t idx = 0;
@@ -549,9 +560,6 @@ Status ExchangeSinkLocalState::close(RuntimeState* state, Status exec_status) {
     }
 
     COUNTER_SET(_wait_for_finish_dependency_timer, _finish_dependency->watcher_elapse_time());
-    if (_broadcast_dependency) {
-        COUNTER_UPDATE(_wait_broadcast_buffer_timer, _broadcast_dependency->watcher_elapse_time());
-    }
     for (size_t i = 0; i < _local_channels_dependency.size(); i++) {
         COUNTER_UPDATE(_wait_channel_timer[i],
                        _local_channels_dependency[i]->watcher_elapse_time());

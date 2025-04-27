@@ -80,8 +80,6 @@ Status LzopDecompressor::decompress(uint8_t* input, size_t input_len, size_t* in
         }
     }
 
-    // LOG(INFO) << "after load header: " << *input_bytes_read;
-
     // read compressed block
     // compressed-block ::=
     //   <uncompressed-size>
@@ -144,7 +142,7 @@ Status LzopDecompressor::decompress(uint8_t* input, size_t input_len, size_t* in
             return Status::OK();
         }
 
-        ptr = get_uint32(ptr, &out_checksum);
+        ptr = get_uint32(ptr, &in_checksum);
         left_input_len -= sizeof(uint32_t);
     } else {
         // If the compressed data size is equal to the uncompressed data size, then
@@ -185,16 +183,7 @@ Status LzopDecompressor::decompress(uint8_t* input, size_t input_len, size_t* in
         ptr += compressed_size;
     }
 
-    // 7. peek next block's uncompressed size
-    uint32_t next_uncompressed_size;
-    get_uint32(ptr, &next_uncompressed_size);
-    if (next_uncompressed_size == 0) {
-        // 0 means current block is the last block.
-        // consume this uncompressed_size to finish reading.
-        ptr += sizeof(uint32_t);
-    }
-
-    // 8. done
+    // 7. done
     *stream_end = true;
     *decompressed_len = uncompressed_size;
     *input_bytes_read += ptr - block_start;
@@ -202,8 +191,7 @@ Status LzopDecompressor::decompress(uint8_t* input, size_t input_len, size_t* in
     VLOG_DEBUG << "finished decompress lzo block."
                << " compressed_size: " << compressed_size
                << " decompressed_len: " << *decompressed_len
-               << " input_bytes_read: " << *input_bytes_read
-               << " next_uncompressed_size: " << next_uncompressed_size;
+               << " input_bytes_read: " << *input_bytes_read;
 
     return Status::OK();
 }

@@ -93,14 +93,11 @@ Status OlapTableBlockConvertor::validate_and_convert_block(
         SCOPED_RAW_TIMER(&_validate_data_ns);
         _filter_map.clear();
         _filter_map.resize(rows, 0);
-        bool stop_processing = false;
-        RETURN_IF_ERROR(_validate_data(state, block.get(), rows, filtered_rows, &stop_processing));
+        auto st = _validate_data(state, block.get(), rows, filtered_rows);
         _num_filtered_rows += filtered_rows;
         has_filtered_rows = filtered_rows > 0;
-        if (stop_processing) {
-            // should be returned after updating "_number_filtered_rows", to make sure that load job can be cancelled
-            // because of "data unqualified"
-            return Status::DataQualityError("Encountered unqualified data, stop processing");
+        if (!st.ok()) {
+            return st;
         }
         _convert_to_dest_desc_block(block.get());
     }
@@ -186,9 +183,8 @@ DecimalType OlapTableBlockConvertor::_get_decimalv3_min_or_max(const TypeDescrip
 
 Status OlapTableBlockConvertor::_internal_validate_column(
         RuntimeState* state, const TypeDescriptor& type, bool is_nullable,
-        vectorized::ColumnPtr column, size_t slot_index, bool* stop_processing,
-        fmt::memory_buffer& error_prefix, const size_t row_count,
-        vectorized::IColumn::Permutation* rows) {
+        vectorized::ColumnPtr column, size_t slot_index, fmt::memory_buffer& error_prefix,
+        const size_t row_count, vectorized::IColumn::Permutation* rows) {
     DCHECK((rows == nullptr) || (rows->size() == row_count));
     fmt::memory_buffer error_msg;
     auto set_invalid_and_append_error_msg = [&](size_t row) {
@@ -197,8 +193,7 @@ Status OlapTableBlockConvertor::_internal_validate_column(
                                                    [&error_prefix, &error_msg]() -> std::string {
                                                        return fmt::to_string(error_prefix) +
                                                               fmt::to_string(error_msg);
-                                                   },
-                                                   stop_processing);
+                                                   });
         error_msg.clear();
         return ret;
     };
@@ -385,8 +380,8 @@ Status OlapTableBlockConvertor::_internal_validate_column(
         }
         fmt::format_to(error_prefix, "ARRAY type failed: ");
         RETURN_IF_ERROR(_validate_column(state, nested_type, type.contains_nulls[0],
-                                         column_array->get_data_ptr(), slot_index, stop_processing,
-                                         error_prefix, permutation.size(), &permutation));
+                                         column_array->get_data_ptr(), slot_index, error_prefix,
+                                         permutation.size(), &permutation));
         break;
     }
     case TYPE_MAP: {
@@ -403,11 +398,11 @@ Status OlapTableBlockConvertor::_internal_validate_column(
         }
         fmt::format_to(error_prefix, "MAP type failed: ");
         RETURN_IF_ERROR(_validate_column(state, key_type, type.contains_nulls[0],
-                                         column_map->get_keys_ptr(), slot_index, stop_processing,
-                                         error_prefix, permutation.size(), &permutation));
+                                         column_map->get_keys_ptr(), slot_index, error_prefix,
+                                         permutation.size(), &permutation));
         RETURN_IF_ERROR(_validate_column(state, val_type, type.contains_nulls[1],
-                                         column_map->get_values_ptr(), slot_index, stop_processing,
-                                         error_prefix, permutation.size(), &permutation));
+                                         column_map->get_values_ptr(), slot_index, error_prefix,
+                                         permutation.size(), &permutation));
         break;
     }
     case TYPE_STRUCT: {
@@ -418,7 +413,7 @@ Status OlapTableBlockConvertor::_internal_validate_column(
         for (size_t sc = 0; sc < column_struct->tuple_size(); ++sc) {
             RETURN_IF_ERROR(_validate_column(state, type.children[sc], type.contains_nulls[sc],
                                              column_struct->get_column_ptr(sc), slot_index,
-                                             stop_processing, error_prefix,
+                                             error_prefix,
                                              column_struct->get_column_ptr(sc)->size()));
         }
         break;
@@ -453,8 +448,13 @@ Status OlapTableBlockConvertor::_internal_validate_column(
 }
 
 Status OlapTableBlockConvertor::_validate_data(RuntimeState* state, vectorized::Block* block,
-                                               const size_t rows, int& filtered_rows,
-                                               bool* stop_processing) {
+                                               const size_t rows, int& filtered_rows) {
+    filtered_rows = 0;
+    Defer defer {[&] {
+        for (int i = 0; i < rows; ++i) {
+            filtered_rows += _filter_map[i];
+        }
+    }};
     for (int i = 0; i < _output_tuple_desc->slots().size(); ++i) {
         SlotDescriptor* desc = _output_tuple_desc->slots()[i];
         block->get_by_position(i).column =
@@ -464,12 +464,7 @@ Status OlapTableBlockConvertor::_validate_data(RuntimeState* state, vectorized::
         fmt::memory_buffer error_prefix;
         fmt::format_to(error_prefix, "column_name[{}], ", desc->col_name());
         RETURN_IF_ERROR(_validate_column(state, desc->type(), desc->is_nullable(), column, i,
-                                         stop_processing, error_prefix, rows));
-    }
-
-    filtered_rows = 0;
-    for (int i = 0; i < rows; ++i) {
-        filtered_rows += _filter_map[i];
+                                         error_prefix, rows));
     }
     return Status::OK();
 }

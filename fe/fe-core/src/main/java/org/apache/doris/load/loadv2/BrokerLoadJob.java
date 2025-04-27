@@ -52,6 +52,7 @@ import org.apache.doris.load.FailMsg;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TStatusCode;
@@ -63,6 +64,7 @@ import org.apache.doris.transaction.TransactionState.TxnSourceType;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -219,6 +221,37 @@ public class BrokerLoadJob extends BulkLoadJob {
         loadStartTimestamp = System.currentTimeMillis();
     }
 
+    // make public for UT
+    public void setComputeGroup() {
+        ComputeGroup computeGroup = null;
+        ConnectContext context = ConnectContext.get();
+        try {
+            if (context == null) {
+                context = new ConnectContext();
+                context.setThreadLocalInfo();
+            }
+
+            String currentUser = getUserInfo().getQualifiedUser();
+            // user is null or get an invalid compute group should not be normal case,
+            // broker load job can get all backends when meets it.
+            if (StringUtils.isEmpty(currentUser)) {
+                computeGroup = Env.getCurrentEnv().getComputeGroupMgr().getAllBackendComputeGroup();
+                LOG.warn("can not find user in broker load, then skip compute group.");
+            } else {
+                computeGroup = Env.getCurrentEnv().getAuth().getComputeGroup(currentUser);
+                if (ComputeGroup.INVALID_COMPUTE_GROUP.equals(computeGroup)) {
+                    LOG.warn("get an invalid compute group in broker load job.");
+                    computeGroup = Env.getCurrentEnv().getComputeGroupMgr().getAllBackendComputeGroup();
+                }
+            }
+        } catch (Throwable t) {
+            LOG.warn("error happens when set compute group for broker load", t);
+            computeGroup = Env.getCurrentEnv().getComputeGroupMgr().getAllBackendComputeGroup();
+        }
+
+        context.setComputeGroup(computeGroup);
+    }
+
     protected LoadLoadingTask createTask(Database db, OlapTable table, List<BrokerFileGroup> brokerFileGroups,
             boolean isEnableMemtableOnSinkNode, int batchSize, FileGroupAggKey aggKey,
             BrokerPendingTaskAttachment attachment) throws UserException {
@@ -231,6 +264,9 @@ public class BrokerLoadJob extends BulkLoadJob {
 
         UUID uuid = UUID.randomUUID();
         TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
+
+        setComputeGroup();
+
         task.init(loadId, attachment.getFileStatusByTable(aggKey),
                 attachment.getFileNumByTable(aggKey), getUserInfo());
         task.settWorkloadGroups(tWorkloadGroups);
@@ -365,7 +401,7 @@ public class BrokerLoadJob extends BulkLoadJob {
                         .add("txn_id", transactionId)
                         .add("msg", "Load job try to commit txn")
                         .build());
-                Env.getCurrentGlobalTransactionMgr().commitTransaction(
+                Env.getCurrentGlobalTransactionMgr().commitTransactionWithoutLock(
                         dbId, tableList, transactionId, commitInfos, getLoadJobFinalOperation());
                 afterLoadingTaskCommitTransaction(tableList);
                 afterCommit();

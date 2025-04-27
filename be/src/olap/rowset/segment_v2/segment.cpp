@@ -78,15 +78,6 @@ namespace doris::segment_v2 {
 
 class InvertedIndexIterator;
 
-io::UInt128Wrapper file_cache_key_from_path(const std::string& seg_path) {
-    std::string base = seg_path.substr(seg_path.rfind('/') + 1); // tricky: npos + 1 == 0
-    return io::BlockFileCache::hash(base);
-}
-
-std::string file_cache_key_str(const std::string& seg_path) {
-    return file_cache_key_from_path(seg_path).to_string();
-}
-
 Status Segment::open(io::FileSystemSPtr fs, const std::string& path, int64_t tablet_id,
                      uint32_t segment_id, RowsetId rowset_id, TabletSchemaSPtr tablet_schema,
                      const io::FileReaderOptions& reader_options, std::shared_ptr<Segment>* output,
@@ -175,8 +166,9 @@ io::UInt128Wrapper Segment::file_cache_key(std::string_view rowset_id, uint32_t 
 }
 
 int64_t Segment::get_metadata_size() const {
-    return sizeof(Segment) + (_footer_pb ? _footer_pb->ByteSizeLong() : 0) +
-           (_pk_index_meta ? _pk_index_meta->ByteSizeLong() : 0);
+    std::shared_ptr<SegmentFooterPB> footer_pb_shared = _footer_pb.lock();
+    return sizeof(Segment) + (_pk_index_meta ? _pk_index_meta->ByteSizeLong() : 0) +
+           (footer_pb_shared ? footer_pb_shared->ByteSizeLong() : 0);
 }
 
 void Segment::update_metadata_size() {
@@ -186,18 +178,20 @@ void Segment::update_metadata_size() {
 }
 
 Status Segment::_open() {
-    _footer_pb = std::make_unique<SegmentFooterPB>();
-    RETURN_IF_ERROR(_parse_footer(_footer_pb.get()));
-    _pk_index_meta.reset(_footer_pb->has_primary_key_index_meta()
-                                 ? new PrimaryKeyIndexMetaPB(_footer_pb->primary_key_index_meta())
-                                 : nullptr);
+    std::shared_ptr<SegmentFooterPB> footer_pb_shared;
+    RETURN_IF_ERROR(_get_segment_footer(footer_pb_shared));
+
+    _pk_index_meta.reset(
+            footer_pb_shared->has_primary_key_index_meta()
+                    ? new PrimaryKeyIndexMetaPB(footer_pb_shared->primary_key_index_meta())
+                    : nullptr);
     // delete_bitmap_calculator_test.cpp
     // DCHECK(footer.has_short_key_index_page());
-    _sk_index_page = _footer_pb->short_key_index_page();
-    _num_rows = _footer_pb->num_rows();
+    _sk_index_page = footer_pb_shared->short_key_index_page();
+    _num_rows = footer_pb_shared->num_rows();
 
     // An estimated memory usage of a segment
-    _meta_mem_usage += _footer_pb->ByteSizeLong();
+    _meta_mem_usage += footer_pb_shared->ByteSizeLong();
     if (_pk_index_meta != nullptr) {
         _meta_mem_usage += _pk_index_meta->ByteSizeLong();
     }
@@ -400,7 +394,7 @@ Status Segment::_write_error_file(size_t file_size, size_t offset, size_t bytes_
     return Status::OK(); // already exists
 };
 
-Status Segment::_parse_footer(SegmentFooterPB* footer) {
+Status Segment::_parse_footer(std::shared_ptr<SegmentFooterPB>& footer) {
     // Footer := SegmentFooterPB, FooterPBSize(4), FooterPBChecksum(4), MagicNumber(4)
     auto file_size = _file_reader->size();
     if (file_size < 12) {
@@ -466,6 +460,7 @@ Status Segment::_parse_footer(SegmentFooterPB* footer) {
     }
 
     // deserialize footer PB
+    footer = std::make_shared<SegmentFooterPB>();
     if (!footer->ParseFromString(footer_buf)) {
         Status st = _write_error_file(file_size, file_size - 12 - footer_length, bytes_read,
                                       footer_buf.data(), io_ctx);
@@ -477,6 +472,9 @@ Status Segment::_parse_footer(SegmentFooterPB* footer) {
                 _file_reader->path().native(), file_size,
                 file_cache_key_str(_file_reader->path().native()));
     }
+
+    VLOG_DEBUG << fmt::format("Loading segment footer from {} finished",
+                              _file_reader->path().native());
     return Status::OK();
 }
 
@@ -524,17 +522,16 @@ Status Segment::load_index(OlapReaderStatistics* stats) {
             // read and parse short key index page
             OlapReaderStatistics tmp_stats;
             OlapReaderStatistics* stats_ptr = stats != nullptr ? stats : &tmp_stats;
-            PageReadOptions opts {
-                    .use_page_cache = true,
-                    .type = INDEX_PAGE,
-                    .file_reader = _file_reader.get(),
-                    .page_pointer = PagePointer(_sk_index_page),
-                    // short key index page uses NO_COMPRESSION for now
-                    .codec = nullptr,
-                    .stats = &tmp_stats,
-                    .io_ctx = io::IOContext {.is_index_data = true,
-                                             .file_cache_stats = &stats_ptr->file_cache_stats},
-            };
+            PageReadOptions opts(io::IOContext {.is_index_data = true,
+                                                .file_cache_stats = &stats_ptr->file_cache_stats});
+            opts.use_page_cache = true;
+            opts.type = INDEX_PAGE;
+            opts.file_reader = _file_reader.get();
+            opts.page_pointer = PagePointer(_sk_index_page);
+            // short key index page uses NO_COMPRESSION for now
+            opts.codec = nullptr;
+            opts.stats = &tmp_stats;
+
             Slice body;
             PageFooterPB footer;
             RETURN_IF_ERROR(
@@ -625,9 +622,9 @@ Status Segment::_create_column_readers_once(OlapReaderStatistics* stats) {
         SCOPED_RAW_TIMER(&stats->segment_create_column_readers_timer_ns);
     }
     return _create_column_readers_once_call.call([&] {
-        DCHECK(_footer_pb);
-        Defer defer([&]() { _footer_pb.reset(); });
-        return _create_column_readers(*_footer_pb);
+        std::shared_ptr<SegmentFooterPB> footer_pb_shared;
+        RETURN_IF_ERROR(_get_segment_footer(footer_pb_shared));
+        return _create_column_readers(*footer_pb_shared);
     });
 }
 
@@ -635,7 +632,7 @@ Status Segment::_create_column_readers(const SegmentFooterPB& footer) {
     // unique_id -> idx in footer.columns()
     std::unordered_map<int32_t, uint32_t> column_id_to_footer_ordinal;
     uint32_t ordinal = 0;
-    for (const auto& column_meta : _footer_pb->columns()) {
+    for (const auto& column_meta : footer.columns()) {
         // no need to create column reader for variant's subcolumn
         if (column_meta.unique_id() == -1) {
             ordinal++;
@@ -710,7 +707,7 @@ Status Segment::new_column_iterator(const TabletColumn& tablet_column,
     }
     // init iterator by unique id
     ColumnIterator* it;
-    RETURN_IF_ERROR(_column_readers.at(unique_id)->new_iterator(&it, tablet_column, opt));
+    RETURN_IF_ERROR(_column_readers.at(unique_id)->new_iterator(&it, &tablet_column, opt));
     iter->reset(it);
 
     if (config::enable_column_type_check && !tablet_column.is_agg_state_type() &&
@@ -741,7 +738,8 @@ Status Segment::new_column_iterator(int32_t unique_id, const StorageReadOptions*
                                     std::unique_ptr<ColumnIterator>* iter) {
     RETURN_IF_ERROR(_create_column_readers_once(opt->stats));
     ColumnIterator* it;
-    RETURN_IF_ERROR(_column_readers.at(unique_id)->new_iterator(&it));
+    TabletColumn tablet_column = _tablet_schema->column_by_uid(unique_id);
+    RETURN_IF_ERROR(_column_readers.at(unique_id)->new_iterator(&it, &tablet_column));
     iter->reset(it);
     return Status::OK();
 }
@@ -791,10 +789,11 @@ Status Segment::new_inverted_index_iterator(const TabletColumn& tablet_column,
     RETURN_IF_ERROR(_create_column_readers_once(read_options.stats));
     ColumnReader* reader = _get_column_reader(tablet_column);
     if (reader != nullptr && index_meta) {
-        if (_inverted_index_file_reader == nullptr) {
-            RETURN_IF_ERROR(
-                    _inverted_index_file_reader_open.call([&] { return _open_inverted_index(); }));
-        }
+        // call DorisCallOnce.call without check if _inverted_index_file_reader is nullptr
+        // to avoid data race during parallel method calls
+        RETURN_IF_ERROR(
+                _inverted_index_file_reader_open.call([&] { return _open_inverted_index(); }));
+        // after DorisCallOnce.call, _inverted_index_file_reader is guaranteed to be not nullptr
         RETURN_IF_ERROR(reader->new_inverted_index_iterator(_inverted_index_file_reader, index_meta,
                                                             read_options, iter));
         return Status::OK();
@@ -997,6 +996,49 @@ Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescripto
         RETURN_IF_ERROR(iterator_hint->read_by_rowids(single_row_loc.data(), 1, result));
     }
     return Status::OK();
+}
+
+Status Segment::_get_segment_footer(std::shared_ptr<SegmentFooterPB>& footer_pb) {
+    std::shared_ptr<SegmentFooterPB> footer_pb_shared = _footer_pb.lock();
+    if (footer_pb_shared != nullptr) {
+        footer_pb = footer_pb_shared;
+        return Status::OK();
+    }
+
+    VLOG_DEBUG << fmt::format("Segment footer of {}:{}:{} is missing, try to load it",
+                              _file_reader->path().native(), _file_reader->size(),
+                              _file_reader->size() - 12);
+
+    StoragePageCache* segment_footer_cache = ExecEnv::GetInstance()->get_storage_page_cache();
+    DCHECK(segment_footer_cache != nullptr);
+
+    auto cache_key = get_segment_footer_cache_key();
+
+    PageCacheHandle cache_handle;
+
+    if (!segment_footer_cache->lookup(cache_key, &cache_handle,
+                                      segment_v2::PageTypePB::DATA_PAGE)) {
+        RETURN_IF_ERROR(_parse_footer(footer_pb_shared));
+        segment_footer_cache->insert(cache_key, footer_pb_shared, footer_pb_shared->ByteSizeLong(),
+                                     &cache_handle, segment_v2::PageTypePB::DATA_PAGE);
+    } else {
+        VLOG_DEBUG << fmt::format("Segment footer of {}:{}:{} is found in cache",
+                                  _file_reader->path().native(), _file_reader->size(),
+                                  _file_reader->size() - 12);
+    }
+    footer_pb_shared = cache_handle.get<std::shared_ptr<SegmentFooterPB>>();
+    _footer_pb = footer_pb_shared;
+    footer_pb = footer_pb_shared;
+    return Status::OK();
+}
+
+StoragePageCache::CacheKey Segment::get_segment_footer_cache_key() const {
+    DCHECK(_file_reader != nullptr);
+    // The footer is always at the end of the segment file.
+    // The size of footer is 12.
+    // So we use the size of file minus 12 as the cache key, which is unique for each segment file.
+    return StoragePageCache::CacheKey(_file_reader->path().native(), _file_reader->size(),
+                                      _file_reader->size() - 12);
 }
 
 } // namespace doris::segment_v2

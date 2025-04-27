@@ -60,6 +60,10 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.commands.AnalyzeCommand;
 import org.apache.doris.nereids.trees.plans.commands.AnalyzeDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.AnalyzeTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropAnalyzeJobCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropStatsCommand;
+import org.apache.doris.nereids.trees.plans.commands.KillAnalyzeJobCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.persist.AnalyzeDeletionLog;
 import org.apache.doris.persist.TableStatsDeletionLog;
@@ -270,39 +274,34 @@ public class AnalysisManager implements Writable {
     // for nereids analyze database/table
     public List<AnalysisInfo> buildAnalysisInfosForNereidsDB(DatabaseIf<TableIf> db,
             AnalyzeProperties analyzeProperties) throws AnalysisException {
-        db.readLock();
         List<TableIf> tbls = db.getTables();
         List<AnalysisInfo> analysisInfos = new ArrayList<>();
-        try {
-            List<AnalyzeTableCommand> commands = new ArrayList<>();
-            for (TableIf table : tbls) {
-                if (table instanceof View) {
-                    continue;
-                }
-                TableNameInfo tableNameInfo = new TableNameInfo(db.getCatalog().getName(),
-                        db.getFullName(), table.getName());
-                // columnNames null means to add all visible columns.
-                // Will get all the visible columns in analyzeTableOp.check()
-                AnalyzeTableCommand command = new AnalyzeTableCommand(analyzeProperties, tableNameInfo,
-                        null, db.getId(), table);
-                try {
-                    command.check();
-                } catch (AnalysisException analysisException) {
-                    LOG.warn("Failed to build analyze job: {}",
-                            analysisException.getMessage(), analysisException);
-                }
-                commands.add(command);
+        List<AnalyzeTableCommand> commands = new ArrayList<>();
+        for (TableIf table : tbls) {
+            if (table instanceof View) {
+                continue;
             }
-            for (AnalyzeTableCommand command : commands) {
-                try {
-                    analysisInfos.add(buildAndAssignJob(command));
-                } catch (DdlException e) {
-                    LOG.warn("Failed to build analyze job: {}",
-                            e.getMessage(), e);
-                }
+            TableNameInfo tableNameInfo = new TableNameInfo(db.getCatalog().getName(),
+                    db.getFullName(), table.getName());
+            // columnNames null means to add all visible columns.
+            // Will get all the visible columns in analyzeTableOp.check()
+            AnalyzeTableCommand command = new AnalyzeTableCommand(analyzeProperties, tableNameInfo,
+                    null, db.getId(), table);
+            try {
+                command.check();
+            } catch (AnalysisException analysisException) {
+                LOG.warn("Failed to build analyze job: {}",
+                        analysisException.getMessage(), analysisException);
             }
-        } finally {
-            db.readUnlock();
+            commands.add(command);
+        }
+        for (AnalyzeTableCommand command : commands) {
+            try {
+                analysisInfos.add(buildAndAssignJob(command));
+            } catch (DdlException e) {
+                LOG.warn("Failed to build analyze job: {}",
+                        e.getMessage(), e);
+            }
         }
         return analysisInfos;
     }
@@ -317,39 +316,34 @@ public class AnalysisManager implements Writable {
 
     public List<AnalysisInfo> buildAnalysisInfosForDB(DatabaseIf<TableIf> db, AnalyzeProperties analyzeProperties)
             throws AnalysisException {
-        db.readLock();
         List<TableIf> tbls = db.getTables();
         List<AnalysisInfo> analysisInfos = new ArrayList<>();
-        try {
-            List<AnalyzeTblStmt> analyzeStmts = new ArrayList<>();
-            for (TableIf table : tbls) {
-                if (table instanceof View) {
-                    continue;
-                }
+        List<AnalyzeTblStmt> analyzeStmts = new ArrayList<>();
+        for (TableIf table : tbls) {
+            if (table instanceof View) {
+                continue;
+            }
 
-                TableName tableName = new TableName(db.getCatalog().getName(), db.getFullName(), table.getName());
-                // columnNames null means to add all visible columns.
-                // Will get all the visible columns in analyzeTblStmt.check()
-                AnalyzeTblStmt analyzeTblStmt = new AnalyzeTblStmt(analyzeProperties, tableName,
-                        null, db.getId(), table);
-                try {
-                    analyzeTblStmt.check();
-                } catch (AnalysisException analysisException) {
-                    LOG.warn("Failed to build analyze job: {}",
-                            analysisException.getMessage(), analysisException);
-                }
-                analyzeStmts.add(analyzeTblStmt);
+            TableName tableName = new TableName(db.getCatalog().getName(), db.getFullName(), table.getName());
+            // columnNames null means to add all visible columns.
+            // Will get all the visible columns in analyzeTblStmt.check()
+            AnalyzeTblStmt analyzeTblStmt = new AnalyzeTblStmt(analyzeProperties, tableName,
+                    null, db.getId(), table);
+            try {
+                analyzeTblStmt.check();
+            } catch (AnalysisException analysisException) {
+                LOG.warn("Failed to build analyze job: {}",
+                        analysisException.getMessage(), analysisException);
             }
-            for (AnalyzeTblStmt analyzeTblStmt : analyzeStmts) {
-                try {
-                    analysisInfos.add(buildAndAssignJob(analyzeTblStmt));
-                } catch (DdlException e) {
-                    LOG.warn("Failed to build analyze job: {}",
-                            e.getMessage(), e);
-                }
+            analyzeStmts.add(analyzeTblStmt);
+        }
+        for (AnalyzeTblStmt analyzeTblStmt : analyzeStmts) {
+            try {
+                analysisInfos.add(buildAndAssignJob(analyzeTblStmt));
+            } catch (DdlException e) {
+                LOG.warn("Failed to build analyze job: {}",
+                        e.getMessage(), e);
             }
-        } finally {
-            db.readUnlock();
         }
         return analysisInfos;
     }
@@ -867,6 +861,38 @@ public class AnalysisManager implements Writable {
                 StatisticsUtil.getAnalyzeTimeout()));
     }
 
+    public void dropStats(DropStatsCommand dropStatsCommand) throws DdlException {
+        TableStatsMeta tableStats = findTableStatsStatus(dropStatsCommand.getTblId());
+        Set<String> cols = dropStatsCommand.getColumnNames();
+        PartitionNamesInfo partitionNamesInfo = dropStatsCommand.getOpPartitionNamesInfo();
+        PartitionNames partitionNames = null;
+        if (partitionNamesInfo != null) {
+            partitionNames = new PartitionNames(partitionNamesInfo.isTemp(), partitionNamesInfo.getPartitionNames());
+        }
+        long catalogId = dropStatsCommand.getCatalogId();
+        long dbId = dropStatsCommand.getDbId();
+        long tblId = dropStatsCommand.getTblId();
+        TableIf table = StatisticsUtil.findTable(catalogId, dbId, tblId);
+        // Remove tableMetaStats if drop whole table stats.
+        if ((cols == null || cols.isEmpty()) && (!table.isPartitionedTable() || partitionNames == null
+                || partitionNames.isStar() || partitionNames.getPartitionNames() == null)) {
+            removeTableStats(tblId);
+            Env.getCurrentEnv().getEditLog().logDeleteTableStats(new TableStatsDeletionLog(tblId));
+        }
+        invalidateLocalStats(catalogId, dbId, tblId, cols, tableStats, partitionNames);
+        // Drop stats ddl is master only operation.
+        Set<String> partitions = null;
+        if (partitionNames != null && !partitionNames.isStar() && partitionNames.getPartitionNames() != null) {
+            partitions = new HashSet<>(partitionNames.getPartitionNames());
+        }
+        invalidateRemoteStats(catalogId, dbId, tblId, cols, partitions, false);
+        StatisticsRepository.dropStatistics(catalogId, dbId, tblId, cols, partitions);
+    }
+
+    public void dropExpiredStats() {
+        Env.getCurrentEnv().getStatisticsCleaner().clear();
+    }
+
     public void dropCachedStats(DropCachedStatsStmt stmt) {
         long catalogId = stmt.getCatalogIdId();
         long dbId = stmt.getDbId();
@@ -1005,7 +1031,7 @@ public class AnalysisManager implements Writable {
                                      TableStatsMeta tableStats, PartitionNames partitionNames) {
         TableIf table = StatisticsUtil.findTable(catalogId, dbId, tableId);
         StatisticsCache statsCache = Env.getCurrentEnv().getStatisticsCache();
-        if (columns == null) {
+        if (columns == null || columns.isEmpty()) {
             columns = table.getSchemaAllIndexes(false)
                 .stream().map(Column::getName).collect(Collectors.toSet());
         }
@@ -1139,6 +1165,23 @@ public class AnalysisManager implements Writable {
                 continue;
             }
             statisticsCache.updatePartitionStats(frontend, request);
+        }
+    }
+
+    public void handleKillAnalyzeJob(KillAnalyzeJobCommand killAnalyzeJobCommand) throws DdlException {
+        Map<Long, BaseAnalysisTask> analysisTaskMap = analysisJobIdToTaskMap.remove(killAnalyzeJobCommand.getJobId());
+        if (analysisTaskMap == null) {
+            throw new DdlException("Job not exists or already finished");
+        }
+        BaseAnalysisTask anyTask = analysisTaskMap.values().stream().findFirst().orElse(null);
+        if (anyTask == null) {
+            return;
+        }
+        checkPriv(anyTask);
+        logKilled(analysisJobInfoMap.get(anyTask.getJobId()));
+        for (BaseAnalysisTask taskInfo : analysisTaskMap.values()) {
+            taskInfo.cancel();
+            logKilled(taskInfo.info);
         }
     }
 
@@ -1309,6 +1352,19 @@ public class AnalysisManager implements Writable {
                 analysisTaskInfoMap.remove(analysisInfo.taskId);
             }
         }
+    }
+
+    public void dropAnalyzeJob(DropAnalyzeJobCommand analyzeJobCommand) throws DdlException {
+        AnalysisInfo jobInfo = analysisJobInfoMap.get(analyzeJobCommand.getJobId());
+        if (jobInfo == null) {
+            throw new DdlException(String.format("Analyze job [%d] not exists", analyzeJobCommand.getJobId()));
+        }
+        checkPriv(jobInfo);
+        long jobId = analyzeJobCommand.getJobId();
+        AnalyzeDeletionLog analyzeDeletionLog = new AnalyzeDeletionLog(jobId);
+        Env.getCurrentEnv().getEditLog().logDeleteAnalysisJob(analyzeDeletionLog);
+        replayDeleteAnalysisJob(analyzeDeletionLog);
+        removeAll(findTasks(jobId));
     }
 
     public void dropAnalyzeJob(DropAnalyzeJobStmt analyzeJobStmt) throws DdlException {

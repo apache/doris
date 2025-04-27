@@ -55,7 +55,6 @@
 #include "common/logging.h"
 #include "gutil/atomicops.h"
 #include "gutil/dynamic_annotations.h"
-#include "gutil/map-util.h"
 #include "gutil/stringprintf.h"
 #include "gutil/strings/substitute.h"
 #include "http/web_page_handler.h"
@@ -242,11 +241,11 @@ void ThreadMgr::remove_thread(const pthread_t& pthread_id, const std::string& ca
 
 void ThreadMgr::display_thread_callback(const WebPageHandler::ArgumentMap& args,
                                         EasyJson* ej) const {
-    const auto* category_name = FindOrNull(args, "group");
-    if (category_name) {
-        bool requested_all = (*category_name == "all");
+    if (args.contains("group")) {
+        const auto& category_name = args.at("group");
+        bool requested_all = category_name == "all";
         ej->Set("requested_thread_group", EasyJson::kObject);
-        (*ej)["group_name"] = escape_for_html_to_string(*category_name);
+        (*ej)["group_name"] = escape_for_html_to_string(category_name);
         (*ej)["requested_all"] = requested_all;
 
         // The critical section is as short as possible so as to minimize the delay
@@ -254,11 +253,10 @@ void ThreadMgr::display_thread_callback(const WebPageHandler::ArgumentMap& args,
         std::vector<ThreadDescriptor> descriptors_to_print;
         if (!requested_all) {
             std::unique_lock<std::mutex> l(_lock);
-            const auto* category = FindOrNull(_thread_categories, *category_name);
-            if (!category) {
+            if (!_thread_categories.contains(category_name)) {
                 return;
             }
-            for (const auto& elem : *category) {
+            for (const auto& elem : _thread_categories.at(category_name)) {
                 descriptors_to_print.emplace_back(elem.second);
             }
         } else {

@@ -125,12 +125,8 @@ public class JdbcExternalCatalog extends ExternalCatalog {
     }
 
     @Override
-    public void onRefresh(boolean invalidCache) {
-        super.onRefresh(invalidCache);
-        if (jdbcClient != null) {
-            jdbcClient.closeClient();
-            jdbcClient = null;
-        }
+    public void resetToUninitialized(boolean invalidCache) {
+        super.resetToUninitialized(invalidCache);
         this.identifierMapping = new JdbcIdentifierMapping(
                 (Env.isTableNamesCaseInsensitive() || Env.isStoredTableNamesLowerCase()),
                 Boolean.parseBoolean(getLowerCaseMetaNames()),

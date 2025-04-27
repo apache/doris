@@ -30,7 +30,6 @@
 #include <boost/iterator/iterator_facade.hpp>
 #include <vector>
 
-#include "gutil/integral_types.h"
 #include "runtime/define_primitive_type.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_impl.h"
@@ -250,6 +249,16 @@ public:
     T get_scale_multiplier() const;
     T get_whole_part(size_t n) const { return data[n] / get_scale_multiplier(); }
     T get_fractional_part(size_t n) const { return data[n] % get_scale_multiplier(); }
+
+    void erase(size_t start, size_t length) override {
+        if (start >= data.size() || length == 0) {
+            return;
+        }
+        length = std::min(length, data.size() - start);
+        size_t elements_to_move = data.size() - start - length;
+        memmove(data.data() + start, data.data() + start + length, elements_to_move * sizeof(T));
+        data.resize(data.size() - length);
+    }
 
 protected:
     Container data;

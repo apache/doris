@@ -183,6 +183,12 @@ public:
         }
         return IColumn::convert_column_if_overflow();
     }
+
+    void erase(size_t start, size_t length) override {
+        for (auto& col : columns) {
+            col->erase(start, length);
+        }
+    }
 };
 
 } // namespace doris::vectorized

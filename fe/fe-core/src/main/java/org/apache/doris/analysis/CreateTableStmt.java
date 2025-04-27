@@ -613,9 +613,7 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
             Set<String> distinct = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
             TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat = PropertyAnalyzer
                     .analyzeInvertedIndexFileStorageFormat(new HashMap<>(properties));
-            boolean disableInvertedIndexV1ForVariant =
-                    (invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.V1)
-                            && ConnectContext.get().getSessionVariable().getDisableInvertedIndexV1ForVaraint();
+
             for (IndexDef indexDef : indexDefs) {
                 indexDef.analyze();
                 if (!engineName.equalsIgnoreCase(DEFAULT_ENGINE_NAME)) {
@@ -628,8 +626,7 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
                             indexDef.checkColumn(column,
                                     getKeysDesc().getKeysType(),
                                     enableUniqueKeyMergeOnWrite,
-                                    invertedIndexFileStorageFormat,
-                                    disableInvertedIndexV1ForVariant);
+                                    invertedIndexFileStorageFormat);
                             found = true;
                             columnToIndexes.computeIfAbsent(column, k -> new ArrayList<>()).add(indexDef);
                             break;
@@ -640,8 +637,7 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
                     }
                 }
                 indexes.add(new Index(Env.getCurrentEnv().getNextId(), indexDef.getIndexName(), indexDef.getColumns(),
-                        indexDef.getIndexType(), indexDef.getProperties(), indexDef.getComment(),
-                        indexDef.getColumnUniqueIds()));
+                        indexDef.getIndexType(), indexDef.getProperties(), indexDef.getComment()));
                 distinct.add(indexDef.getIndexName());
             }
             if (distinct.size() != indexes.size()) {

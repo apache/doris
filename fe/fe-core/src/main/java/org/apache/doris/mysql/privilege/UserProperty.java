@@ -32,6 +32,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.load.DppConfig;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.resource.Tag;
@@ -84,6 +85,7 @@ public class UserProperty implements Writable {
     public static final String PROP_QUOTA = "quota";
     public static final String PROP_DEFAULT_LOAD_CLUSTER = "default_load_cluster";
 
+    public static final String PROP_DEFAULT_INIT_CATALOG = "default_init_catalog";
     public static final String PROP_WORKLOAD_GROUP = "default_workload_group";
 
     public static final String DEFAULT_CLOUD_CLUSTER = "default_cloud_cluster";
@@ -144,6 +146,7 @@ public class UserProperty implements Writable {
         COMMON_PROPERTIES.add(Pattern.compile("^" + PROP_DEFAULT_LOAD_CLUSTER + "$", Pattern.CASE_INSENSITIVE));
         COMMON_PROPERTIES.add(Pattern.compile("^" + PROP_LOAD_CLUSTER + "." + DppConfig.CLUSTER_NAME_REGEX + ".",
                 Pattern.CASE_INSENSITIVE));
+        COMMON_PROPERTIES.add(Pattern.compile("^" + PROP_DEFAULT_INIT_CATALOG + "$", Pattern.CASE_INSENSITIVE));
         COMMON_PROPERTIES.add(Pattern.compile("^" + PROP_WORKLOAD_GROUP + "$", Pattern.CASE_INSENSITIVE));
         COMMON_PROPERTIES.add(Pattern.compile("^" + DEFAULT_CLOUD_CLUSTER + "$", Pattern.CASE_INSENSITIVE));
         COMMON_PROPERTIES.add(Pattern.compile("^" + DEFAULT_COMPUTE_GROUP + "$", Pattern.CASE_INSENSITIVE));
@@ -188,6 +191,10 @@ public class UserProperty implements Writable {
         return commonProperties.getCpuResourceLimit();
     }
 
+    public String getInitCatalog() {
+        return commonProperties.getInitCatalog();
+    }
+
     public String getWorkloadGroup() {
         return commonProperties.getWorkloadGroup();
     }
@@ -220,6 +227,7 @@ public class UserProperty implements Writable {
         long execMemLimit = this.commonProperties.getExecMemLimit();
         int queryTimeout = this.commonProperties.getQueryTimeout();
         int insertTimeout = this.commonProperties.getInsertTimeout();
+        String initCatalog = this.commonProperties.getInitCatalog();
         String workloadGroup = this.commonProperties.getWorkloadGroup();
 
         String newDefaultLoadCluster = defaultLoadCluster;
@@ -259,7 +267,7 @@ public class UserProperty implements Writable {
                 }
 
                 newDefaultLoadCluster = value;
-            }  else if (keyArr[0].equalsIgnoreCase(DEFAULT_CLOUD_CLUSTER)) {
+            } else if (keyArr[0].equalsIgnoreCase(DEFAULT_CLOUD_CLUSTER)) {
                 newDefaultCloudCluster = checkCloudDefaultCluster(keyArr, value, DEFAULT_CLOUD_CLUSTER, isReplay);
             } else if (keyArr[0].equalsIgnoreCase(DEFAULT_COMPUTE_GROUP)) {
                 newDefaultCloudCluster = checkCloudDefaultCluster(keyArr, value, DEFAULT_COMPUTE_GROUP, isReplay);
@@ -349,6 +357,15 @@ public class UserProperty implements Writable {
                 } catch (NumberFormatException e) {
                     throw new DdlException(PROP_USER_INSERT_TIMEOUT + " is not number");
                 }
+            } else if (keyArr[0].equalsIgnoreCase(PROP_DEFAULT_INIT_CATALOG)) {
+                if (keyArr.length != 1) {
+                    throw new DdlException(PROP_DEFAULT_INIT_CATALOG + " format error");
+                }
+                CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(value);
+                if (catalog == null) {
+                    throw new DdlException("catalog " + value + " not exists");
+                }
+                initCatalog = value;
             } else if (keyArr[0].equalsIgnoreCase(PROP_WORKLOAD_GROUP)) {
                 if (keyArr.length != 1) {
                     throw new DdlException(PROP_WORKLOAD_GROUP + " format error");
@@ -380,6 +397,7 @@ public class UserProperty implements Writable {
         this.commonProperties.setExecMemLimit(execMemLimit);
         this.commonProperties.setQueryTimeout(queryTimeout);
         this.commonProperties.setInsertTimeout(insertTimeout);
+        this.commonProperties.setInitCatalog(initCatalog);
         this.commonProperties.setWorkloadGroup(workloadGroup);
         if (newDppConfigs.containsKey(newDefaultLoadCluster)) {
             defaultLoadCluster = newDefaultLoadCluster;
@@ -543,6 +561,9 @@ public class UserProperty implements Writable {
 
         // resource tag
         result.add(Lists.newArrayList(PROP_RESOURCE_TAGS, Joiner.on(", ").join(commonProperties.getResourceTags())));
+
+        // init catalog
+        result.add(Lists.newArrayList(PROP_DEFAULT_INIT_CATALOG, String.valueOf(commonProperties.getInitCatalog())));
 
         result.add(Lists.newArrayList(PROP_WORKLOAD_GROUP, String.valueOf(commonProperties.getWorkloadGroup())));
 

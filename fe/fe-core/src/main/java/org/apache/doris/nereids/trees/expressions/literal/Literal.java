@@ -261,8 +261,20 @@ public abstract class Literal extends Expression implements LeafExpression {
                 return new CharLiteral(desc, ((CharType) targetType).getLen());
             }
         } else if (targetType.isVarcharType()) {
+            if (this.dataType.isDoubleType() || this.dataType.isFloatType()) {
+                int pointZeroIndex = findPointZeroIndex(desc);
+                if (pointZeroIndex > -1) {
+                    return new VarcharLiteral(desc.substring(0, pointZeroIndex), ((VarcharType) targetType).getLen());
+                }
+            }
             return new VarcharLiteral(desc, ((VarcharType) targetType).getLen());
         } else if (targetType instanceof StringType) {
+            if (this.dataType.isDoubleType() || this.dataType.isFloatType()) {
+                int pointZeroIndex = findPointZeroIndex(desc);
+                if (pointZeroIndex > -1) {
+                    return new StringLiteral(desc.substring(0, pointZeroIndex));
+                }
+            }
             return new StringLiteral(desc);
         } else if (targetType.isDateType()) {
             return new DateLiteral(desc);
@@ -284,6 +296,19 @@ public abstract class Literal extends Expression implements LeafExpression {
             return new IPv6Literal(desc);
         }
         throw new AnalysisException("cannot cast " + desc + " from type " + this.dataType + " to type " + targetType);
+    }
+
+    private static int findPointZeroIndex(String str) {
+        int pointIndex = -1;
+        for (int i = 0; i < str.length(); ++i) {
+            char c = str.charAt(i);
+            if (pointIndex > 0 && c != '0') {
+                return -1;
+            } else if (pointIndex == -1 && c == '.') {
+                pointIndex = i;
+            }
+        }
+        return pointIndex;
     }
 
     /** fromLegacyLiteral */

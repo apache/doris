@@ -21,7 +21,9 @@ import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ResultSetMetaData;
 import org.apache.doris.qe.ShowResultSet;
+import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
 
 /**
@@ -47,6 +49,13 @@ public abstract class ShowCommand extends Command implements Redirect {
                 executor.sendResultSet(resultSet);
             }
         }
+    }
+
+    public abstract ShowResultSetMetaData getMetaData();
+
+    @Override
+    public ResultSetMetaData getResultSetMetaData() {
+        return getMetaData();
     }
 
     @Override

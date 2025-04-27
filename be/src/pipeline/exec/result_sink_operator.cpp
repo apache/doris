@@ -101,7 +101,8 @@ Status ResultSinkLocalState::open(RuntimeState* state) {
 ResultSinkOperatorX::ResultSinkOperatorX(int operator_id, const RowDescriptor& row_desc,
                                          const std::vector<TExpr>& t_output_expr,
                                          const TResultSink& sink)
-        : DataSinkOperatorX(operator_id, 0, 0),
+        : DataSinkOperatorX(operator_id, std::numeric_limits<int>::max(),
+                            std::numeric_limits<int>::max()),
           _sink_type(!sink.__isset.type || sink.type == TResultSinkType::MYSQL_PROTOCAL
                              ? TResultSinkType::MYSQL_PROTOCAL
                              : sink.type),

@@ -23,13 +23,18 @@ public class BinlogLagInfo {
     private long lastCommitSeq;
     private long firstCommitTs;
     private long lastCommitTs;
+    private long nextCommitSeq;
+    private long nextCommitTs;
 
-    public BinlogLagInfo(long lag, long firstCommitSeq, long lastCommitSeq, long firstCommitTs, long lastCommitTs) {
+    public BinlogLagInfo(long lag, long firstCommitSeq, long lastCommitSeq, long firstCommitTs, long lastCommitTs,
+            long nextCommitSeq, long nextCommitTs) {
         this.lag = lag;
         this.firstCommitSeq = firstCommitSeq;
         this.lastCommitSeq = lastCommitSeq;
         this.firstCommitTs = firstCommitTs;
         this.lastCommitTs = lastCommitTs;
+        this.nextCommitSeq = nextCommitSeq;
+        this.nextCommitTs = nextCommitTs;
     }
 
     public BinlogLagInfo() {
@@ -38,6 +43,16 @@ public class BinlogLagInfo {
         lastCommitSeq = 0;
         firstCommitTs = 0;
         lastCommitTs = 0;
+        nextCommitSeq = 0;
+        nextCommitTs = 0;
+    }
+
+    public long getNextCommitSeq() {
+        return nextCommitSeq;
+    }
+
+    public long getNextCommitTs() {
+        return nextCommitTs;
     }
 
     public long getLag() {

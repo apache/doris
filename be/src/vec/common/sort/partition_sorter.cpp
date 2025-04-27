@@ -74,7 +74,6 @@ Status PartitionSorter::prepare_for_read() {
     }
     queue = MergeSorterQueue(cursors);
     blocks.clear();
-    _prepared_finish = true;
     return Status::OK();
 }
 

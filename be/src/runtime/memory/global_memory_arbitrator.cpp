@@ -52,10 +52,13 @@ std::atomic<int64_t> GlobalMemoryArbitrator::refresh_interval_memory_growth = 0;
 std::mutex GlobalMemoryArbitrator::cache_adjust_capacity_lock;
 std::condition_variable GlobalMemoryArbitrator::cache_adjust_capacity_cv;
 std::atomic<bool> GlobalMemoryArbitrator::cache_adjust_capacity_notify {false};
-// This capacity is set by gc thread, it is running periodicity.
-std::atomic<double> GlobalMemoryArbitrator::last_cache_capacity_adjust_weighted {1};
-// This capacity is set by workload group spill disk thread
-std::atomic<double> GlobalMemoryArbitrator::last_wg_trigger_cache_capacity_adjust_weighted {1};
+// This capacity is set by `refresh_cache_capacity`, it is running periodicity.
+// modified when process memory changes.
+std::atomic<double> GlobalMemoryArbitrator::last_periodic_refreshed_cache_capacity_adjust_weighted {
+        1};
+// This capacity is set by workload group mgr `handle_paused_queries`,
+// modified when a query enters paused state due to insufficient process memory.
+std::atomic<double> GlobalMemoryArbitrator::last_memory_exceeded_cache_capacity_adjust_weighted {1};
 // The value that take affect
 std::atomic<double> GlobalMemoryArbitrator::last_affected_cache_capacity_adjust_weighted {1};
 std::atomic<bool> GlobalMemoryArbitrator::any_workload_group_exceed_limit {false};

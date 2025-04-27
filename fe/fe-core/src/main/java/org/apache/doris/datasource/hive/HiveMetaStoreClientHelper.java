@@ -44,7 +44,6 @@ import org.apache.doris.thrift.TExprOpcode;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
-import org.apache.avro.Schema;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
@@ -58,9 +57,11 @@ import org.apache.hadoop.hive.ql.plan.ExprNodeGenericFuncDesc;
 import org.apache.hadoop.hive.serde2.typeinfo.PrimitiveTypeInfo;
 import org.apache.hadoop.hive.serde2.typeinfo.TypeInfo;
 import org.apache.hadoop.hive.serde2.typeinfo.TypeInfoFactory;
-import org.apache.hudi.avro.HoodieAvroUtils;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.TableSchemaResolver;
+import org.apache.hudi.common.util.Option;
+import org.apache.hudi.internal.schema.InternalSchema;
+import org.apache.hudi.internal.schema.convert.AvroInternalSchemaConverter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -94,6 +95,7 @@ public class HiveMetaStoreClientHelper {
 
     public static final String HIVE_JSON_SERDE = "org.apache.hive.hcatalog.data.JsonSerDe";
     public static final String LEGACY_HIVE_JSON_SERDE = "org.apache.hadoop.hive.serde2.JsonSerDe";
+    public static final String OPENX_JSON_SERDE = "org.openx.data.jsonserde.JsonSerDe";
 
     public enum HiveFileFormat {
         TEXT_FILE(0, "text"),
@@ -801,10 +803,9 @@ public class HiveMetaStoreClientHelper {
         return output.toString();
     }
 
-    public static Schema getHudiTableSchema(HMSExternalTable table) {
+    public static InternalSchema getHudiTableSchema(HMSExternalTable table, boolean[] enableSchemaEvolution) {
         HoodieTableMetaClient metaClient = table.getHudiClient();
         TableSchemaResolver schemaUtil = new TableSchemaResolver(metaClient);
-        Schema hudiSchema;
 
         // Here, the timestamp should be reloaded again.
         // Because when hudi obtains the schema in `getTableAvroSchema`, it needs to read the specified commit file,
@@ -814,14 +815,22 @@ public class HiveMetaStoreClientHelper {
         // So, we should reload timeline so that we can read the latest commit files.
         metaClient.reloadActiveTimeline();
 
-        try {
-            hudiSchema = HoodieAvroUtils.createHoodieWriteSchema(schemaUtil.getTableAvroSchema());
-        } catch (Exception e) {
-            throw new RuntimeException("Cannot get hudi table schema.", e);
-        }
-        return hudiSchema;
-    }
+        Option<InternalSchema> internalSchemaOption = schemaUtil.getTableInternalSchemaFromCommitMetadata();
 
+        if (internalSchemaOption.isPresent()) {
+            enableSchemaEvolution[0] = true;
+            return internalSchemaOption.get();
+        } else {
+            try {
+                // schema evolution is not enabled. (hoodie.schema.on.read.enable = false).
+                enableSchemaEvolution[0] = false;
+                // AvroInternalSchemaConverter.convert() will generator field id.
+                return AvroInternalSchemaConverter.convert(schemaUtil.getTableAvroSchema(true));
+            } catch (Exception e) {
+                throw new RuntimeException("Cannot get hudi table schema.", e);
+            }
+        }
+    }
 
     public static <T> T ugiDoAs(Configuration conf, PrivilegedExceptionAction<T> action) {
         // if hive config is not ready, then use hadoop kerberos to login

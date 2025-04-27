@@ -54,6 +54,11 @@ public class ShowStoragePolicyCommand extends ShowCommand {
     }
 
     @Override
+    public ShowResultSetMetaData getMetaData() {
+        return USING_META_DATA;
+    }
+
+    @Override
     public ShowResultSet doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
         // check auth
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
@@ -63,7 +68,7 @@ public class ShowStoragePolicyCommand extends ShowCommand {
         // Fetch the storage policy information from the environment
         if (isUsing) {
             List<List<String>> rows = Env.getCurrentEnv().getPolicyMgr().showStoragePolicyUsing(policyName);
-            return new ShowResultSet(USING_META_DATA, rows);
+            return new ShowResultSet(getMetaData(), rows);
         }
         return Env.getCurrentEnv().getPolicyMgr().showStoragePolicy();
     }

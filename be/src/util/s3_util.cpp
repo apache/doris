@@ -42,6 +42,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "cpp/aws_logger.h"
 #include "cpp/obj_retry_strategy.h"
 #include "cpp/sync_point.h"
 #ifdef USE_AZURE
@@ -105,16 +106,6 @@ constexpr char S3_REQUEST_TIMEOUT_MS[] = "AWS_REQUEST_TIMEOUT_MS";
 constexpr char S3_CONN_TIMEOUT_MS[] = "AWS_CONNECTION_TIMEOUT_MS";
 constexpr char S3_NEED_OVERRIDE_ENDPOINT[] = "AWS_NEED_OVERRIDE_ENDPOINT";
 
-auto metric_func_factory(bvar::Adder<int64_t>& ns_bvar, bvar::Adder<int64_t>& req_num_bvar) {
-    return [&](int64_t ns) {
-        if (ns > 0) {
-            ns_bvar << ns;
-        } else {
-            req_num_bvar << 1;
-        }
-    };
-}
-
 } // namespace
 
 bvar::Adder<int64_t> get_rate_limit_ns("get_rate_limit_ns");
@@ -134,54 +125,6 @@ int reset_s3_rate_limiter(S3RateLimitType type, size_t max_speed, size_t max_bur
     return S3ClientFactory::instance().rate_limiter(type)->reset(max_speed, max_burst, limit);
 }
 
-class DorisAWSLogger final : public Aws::Utils::Logging::LogSystemInterface {
-public:
-    DorisAWSLogger() : _log_level(Aws::Utils::Logging::LogLevel::Info) {}
-    DorisAWSLogger(Aws::Utils::Logging::LogLevel log_level) : _log_level(log_level) {}
-    ~DorisAWSLogger() final = default;
-    Aws::Utils::Logging::LogLevel GetLogLevel() const final { return _log_level; }
-    void Log(Aws::Utils::Logging::LogLevel log_level, const char* tag, const char* format_str,
-             ...) final {
-        _log_impl(log_level, tag, format_str);
-    }
-    void LogStream(Aws::Utils::Logging::LogLevel log_level, const char* tag,
-                   const Aws::OStringStream& message_stream) final {
-        _log_impl(log_level, tag, message_stream.str().c_str());
-    }
-
-    void Flush() final {}
-
-private:
-    void _log_impl(Aws::Utils::Logging::LogLevel log_level, const char* tag, const char* message) {
-        switch (log_level) {
-        case Aws::Utils::Logging::LogLevel::Off:
-            break;
-        case Aws::Utils::Logging::LogLevel::Fatal:
-            LOG(FATAL) << "[" << tag << "] " << message;
-            break;
-        case Aws::Utils::Logging::LogLevel::Error:
-            LOG(ERROR) << "[" << tag << "] " << message;
-            break;
-        case Aws::Utils::Logging::LogLevel::Warn:
-            LOG(WARNING) << "[" << tag << "] " << message;
-            break;
-        case Aws::Utils::Logging::LogLevel::Info:
-            LOG(INFO) << "[" << tag << "] " << message;
-            break;
-        case Aws::Utils::Logging::LogLevel::Debug:
-            LOG(INFO) << "[" << tag << "] " << message;
-            break;
-        case Aws::Utils::Logging::LogLevel::Trace:
-            LOG(INFO) << "[" << tag << "] " << message;
-            break;
-        default:
-            break;
-        }
-    }
-
-    std::atomic<Aws::Utils::Logging::LogLevel> _log_level;
-};
-
 S3ClientFactory::S3ClientFactory() {
     _aws_options = Aws::SDKOptions {};
     auto logLevel = static_cast<Aws::Utils::Logging::LogLevel>(config::aws_log_level);
@@ -193,12 +136,12 @@ S3ClientFactory::S3ClientFactory() {
     _ca_cert_file_path = get_valid_ca_cert_path();
     _rate_limiters = {
             std::make_unique<S3RateLimiterHolder>(
-                    S3RateLimitType::GET, config::s3_get_token_per_second,
-                    config::s3_get_bucket_tokens, config::s3_get_token_limit,
+                    config::s3_get_token_per_second, config::s3_get_bucket_tokens,
+                    config::s3_get_token_limit,
                     metric_func_factory(get_rate_limit_ns, get_rate_limit_exceed_req_num)),
             std::make_unique<S3RateLimiterHolder>(
-                    S3RateLimitType::PUT, config::s3_put_token_per_second,
-                    config::s3_put_bucket_tokens, config::s3_put_token_limit,
+                    config::s3_put_token_per_second, config::s3_put_bucket_tokens,
+                    config::s3_put_token_limit,
                     metric_func_factory(put_rate_limit_ns, put_rate_limit_exceed_req_num))};
 }
 
@@ -307,9 +250,11 @@ std::shared_ptr<io::ObjStorageClient> S3ClientFactory::_create_s3_client(
 #endif
     }
 
+    aws_config.requestTimeoutMs = 30000;
     if (s3_conf.request_timeout_ms > 0) {
         aws_config.requestTimeoutMs = s3_conf.request_timeout_ms;
     }
+
     if (s3_conf.connect_timeout_ms > 0) {
         aws_config.connectTimeoutMs = s3_conf.connect_timeout_ms;
     }

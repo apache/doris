@@ -230,7 +230,7 @@ public class CloudRollupJobV2 extends RollupJobV2 {
                                     tbl.getTimeSeriesCompactionLevelThreshold(),
                                     tbl.disableAutoCompaction(),
                                     tbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
-                                    tbl.getEnableMowLightDelete(), null,
+                                    null,
                                     tbl.rowStorePageSize(),
                                     tbl.variantEnableFlattenNested(), null,
                                     tbl.storagePageSize());

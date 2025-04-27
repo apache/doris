@@ -122,6 +122,9 @@ public:
         }
         throw Exception(Status::FatalError("__builtin_unreachable"));
     }
+
+private:
+    static std::string _get_fs_name(const io::FileDescription& file_description);
 };
 
 } // namespace doris

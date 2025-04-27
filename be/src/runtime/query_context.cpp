@@ -42,6 +42,7 @@
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "runtime/workload_group/workload_group_manager.h"
+#include "runtime_filter/runtime_filter_definitions.h"
 #include "util/mem_info.h"
 #include "util/uid_util.h"
 #include "vec/spill/spill_stream_manager.h"
@@ -124,13 +125,12 @@ QueryContext::QueryContext(TUniqueId query_id, ExecEnv* exec_env,
     _init_resource_context();
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(query_mem_tracker());
     _query_watcher.start();
-    _shared_hash_table_controller.reset(new vectorized::SharedHashTableController());
-    _execution_dependency = pipeline::QueryGlobalDependency::create_unique("ExecutionDependency");
+    _execution_dependency =
+            pipeline::Dependency::create_unique(-1, -1, "ExecutionDependency", false);
     _memory_sufficient_dependency =
-            pipeline::QueryGlobalDependency::create_unique("MemorySufficientDependency", true);
+            pipeline::Dependency::create_unique(-1, -1, "MemorySufficientDependency", true);
 
-    _runtime_filter_mgr = std::make_unique<RuntimeFilterMgr>(
-            TUniqueId(), RuntimeFilterParamsContext::create(this), query_mem_tracker(), true);
+    _runtime_filter_mgr = std::make_unique<RuntimeFilterMgr>(true);
 
     _timeout_second = query_options.execution_timeout;
 
@@ -262,7 +262,6 @@ QueryContext::~QueryContext() {
 #endif
     _runtime_filter_mgr.reset();
     _execution_dependency.reset();
-    _shared_hash_table_controller.reset();
     _runtime_predicates.clear();
     file_scan_range_params_map.clear();
     obj_pool.clear();
@@ -346,6 +345,16 @@ void QueryContext::cancel(Status new_status, int fragment_id) {
     cancel_all_pipeline_context(new_status, fragment_id);
 }
 
+void QueryContext::set_load_error_url(std::string error_url) {
+    std::lock_guard<std::mutex> lock(_error_url_lock);
+    _load_error_url = error_url;
+}
+
+std::string QueryContext::get_load_error_url() {
+    std::lock_guard<std::mutex> lock(_error_url_lock);
+    return _load_error_url;
+}
+
 void QueryContext::cancel_all_pipeline_context(const Status& reason, int fragment_id) {
     std::vector<std::weak_ptr<pipeline::PipelineFragmentContext>> ctx_to_cancel;
     {
@@ -406,21 +415,13 @@ doris::pipeline::TaskScheduler* QueryContext::get_pipe_exec_scheduler() {
     return _exec_env->pipeline_task_scheduler();
 }
 
-ThreadPool* QueryContext::get_memtable_flush_pool() {
-    if (workload_group()) {
-        return _memtable_flush_pool;
-    } else {
-        return nullptr;
-    }
-}
-
 void QueryContext::set_workload_group(WorkloadGroupPtr& wg) {
     _resource_ctx->set_workload_group(wg);
     // Should add query first, then the workload group will not be deleted.
     // see task_group_manager::delete_workload_group_by_ids
     workload_group()->add_mem_tracker_limiter(query_mem_tracker());
     workload_group()->get_query_scheduler(&_task_scheduler, &_scan_task_scheduler,
-                                          &_memtable_flush_pool, &_remote_scan_task_scheduler);
+                                          &_remote_scan_task_scheduler);
 }
 
 void QueryContext::add_fragment_profile(

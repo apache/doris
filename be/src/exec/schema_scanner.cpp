@@ -40,6 +40,7 @@
 #include "exec/schema_scanner/schema_partitions_scanner.h"
 #include "exec/schema_scanner/schema_processlist_scanner.h"
 #include "exec/schema_scanner/schema_profiling_scanner.h"
+#include "exec/schema_scanner/schema_routine_load_job_scanner.h"
 #include "exec/schema_scanner/schema_routine_scanner.h"
 #include "exec/schema_scanner/schema_rowsets_scanner.h"
 #include "exec/schema_scanner/schema_schema_privileges_scanner.h"
@@ -143,7 +144,7 @@ Status SchemaScanner::get_next_block_async(RuntimeState* state) {
     return Status::OK();
 }
 
-Status SchemaScanner::init(SchemaScannerParam* param, ObjectPool* pool) {
+Status SchemaScanner::init(RuntimeState* state, SchemaScannerParam* param, ObjectPool* pool) {
     if (_is_init) {
         return Status::OK();
     }
@@ -152,6 +153,7 @@ Status SchemaScanner::init(SchemaScannerParam* param, ObjectPool* pool) {
     }
 
     _param = param;
+    _timezone_obj = state->timezone_obj();
     _is_init = true;
 
     if (_param->profile) {
@@ -227,6 +229,8 @@ std::unique_ptr<SchemaScanner> SchemaScanner::create(TSchemaTableType::type type
         return SchemaCatalogMetaCacheStatsScanner::create_unique();
     case TSchemaTableType::SCH_BACKEND_KERBEROS_TICKET_CACHE:
         return SchemaBackendKerberosTicketCacheScanner::create_unique();
+    case TSchemaTableType::SCH_ROUTINE_LOAD_JOBS:
+        return SchemaRoutineLoadJobScanner::create_unique();
     default:
         return SchemaDummyScanner::create_unique();
         break;

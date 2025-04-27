@@ -22,6 +22,7 @@ package org.apache.doris.plsql.functions;
 
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.nereids.PLLexer;
 import org.apache.doris.nereids.PLParser;
@@ -43,7 +44,6 @@ import org.antlr.v4.runtime.CharStreams;
 import org.antlr.v4.runtime.CommonTokenStream;
 import org.antlr.v4.runtime.ParserRuleContext;
 
-import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.HashMap;
@@ -264,8 +264,7 @@ public class DorisFunctionRegistry implements FunctionRegistry {
     @Override
     public void save(FuncNameInfo procedureName, String source, boolean isForce) {
         try {
-            SimpleDateFormat f = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
-            String createTime = f.format(Calendar.getInstance().getTime());
+            String createTime = TimeUtils.longToTimeString(Calendar.getInstance().getTimeInMillis());
             String modifyTime = createTime;
             if (isForce) {
                 // need to get create time and use that.

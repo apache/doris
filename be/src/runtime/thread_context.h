@@ -174,6 +174,8 @@ inline thread_local bool use_mem_hook = false;
 //   4. ThreadMemTrackerMgr
 //
 // There may be other optional info to be added later.
+//
+// Note: Keep the class simple and only add properties.
 class ThreadContext {
 public:
     ThreadContext() { thread_mem_tracker_mgr = std::make_unique<ThreadMemTrackerMgr>(); }
@@ -225,18 +227,6 @@ public:
     // to nullptr, but the object it points to is not initialized. At this time, when the memory
     // is released somewhere, the hook is triggered to cause the crash.
     std::unique_ptr<ThreadMemTrackerMgr> thread_mem_tracker_mgr;
-
-    [[nodiscard]] std::shared_ptr<MemTrackerLimiter> thread_mem_tracker() const {
-        return thread_mem_tracker_mgr->limiter_mem_tracker();
-    }
-
-    doris::Status try_reserve_process_memory(const int64_t size) const {
-        return thread_mem_tracker_mgr->try_reserve(size, true);
-    }
-
-    doris::Status try_reserve_memory(const int64_t size) const {
-        return thread_mem_tracker_mgr->try_reserve(size, false);
-    }
 
     int thread_local_handle_count = 0;
 
@@ -352,6 +342,9 @@ public:
 
 class AttachTask {
 public:
+    // you must use ResourceCtx or MemTracker initialization.
+    explicit AttachTask() = delete;
+
     explicit AttachTask(const std::shared_ptr<ResourceContext>& rc);
 
     // Shortcut attach task, initialize an empty resource context, and set the memory tracker.
@@ -429,22 +422,24 @@ public:
 // Basic macros for mem tracker, usually do not need to be modified and used.
 #if defined(USE_MEM_TRACKER) && !defined(BE_TEST)
 // used to fix the tracking accuracy of caches.
-#define THREAD_MEM_TRACKER_TRANSFER_TO(size, tracker)                                        \
-    do {                                                                                     \
-        DCHECK(doris::k_doris_exit || !doris::config::enable_memory_orphan_check ||          \
-               doris::thread_context()->thread_mem_tracker()->label() != "Orphan")           \
-                << doris::memory_orphan_check_msg;                                           \
-        doris::thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker()->transfer_to( \
-                size, tracker);                                                              \
+#define THREAD_MEM_TRACKER_TRANSFER_TO(size, tracker)                                             \
+    do {                                                                                          \
+        DCHECK(doris::k_doris_exit || !doris::config::enable_memory_orphan_check ||               \
+               doris::thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker()->label() != \
+                       "Orphan")                                                                  \
+                << doris::memory_orphan_check_msg;                                                \
+        doris::thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker()->transfer_to(      \
+                size, tracker);                                                                   \
     } while (0)
 
-#define THREAD_MEM_TRACKER_TRANSFER_FROM(size, tracker)                                        \
-    do {                                                                                       \
-        DCHECK(doris::k_doris_exit || !doris::config::enable_memory_orphan_check ||            \
-               doris::thread_context()->thread_mem_tracker()->label() != "Orphan")             \
-                << doris::memory_orphan_check_msg;                                             \
-        tracker->transfer_to(                                                                  \
-                size, doris::thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker()); \
+#define THREAD_MEM_TRACKER_TRANSFER_FROM(size, tracker)                                           \
+    do {                                                                                          \
+        DCHECK(doris::k_doris_exit || !doris::config::enable_memory_orphan_check ||               \
+               doris::thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker()->label() != \
+                       "Orphan")                                                                  \
+                << doris::memory_orphan_check_msg;                                                \
+        tracker->transfer_to(                                                                     \
+                size, doris::thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker());    \
     } while (0)
 
 // Mem Hook to consume thread mem tracker

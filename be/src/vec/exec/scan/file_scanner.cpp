@@ -62,6 +62,7 @@
 #include "vec/exec/format/orc/vorc_reader.h"
 #include "vec/exec/format/parquet/vparquet_reader.h"
 #include "vec/exec/format/table/hudi_jni_reader.h"
+#include "vec/exec/format/table/hudi_reader.h"
 #include "vec/exec/format/table/iceberg_reader.h"
 #include "vec/exec/format/table/lakesoul_jni_reader.h"
 #include "vec/exec/format/table/max_compute_jni_reader.h"
@@ -78,6 +79,7 @@
 #include "vec/functions/function.h"
 #include "vec/functions/function_string.h"
 #include "vec/functions/simple_function_factory.h"
+#include "vec/utils/stringop_substring.h"
 
 namespace cctz {
 class time_zone;
@@ -373,7 +375,7 @@ Status FileScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eof
     Status st = _get_block_wrapped(state, block, eof);
     if (!st.ok()) {
         // add cur path in error msg for easy debugging
-        return std::move(st.prepend("cur path: " + get_current_scan_range_name() + ". "));
+        return std::move(st.append(". cur path: " + get_current_scan_range_name()));
     }
     return st;
 }
@@ -739,6 +741,7 @@ Status FileScanner::_convert_to_output_block(Block* block) {
                         // clang-format off
                         if (_strict_mode && (_src_slot_descs_order_by_dest[dest_index]) &&
                             !_src_block_ptr->get_by_position(_dest_slot_to_src_slot_index[dest_index]).column->is_null_at(i)) {
+                            filter_map[i] = false;
                             RETURN_IF_ERROR(_state->append_error_msg_to_file(
                                 [&]() -> std::string {
                                     return _src_block_ptr->dump_one_line(i, _num_of_columns_from_file);
@@ -751,10 +754,9 @@ Status FileScanner::_convert_to_output_block(Block* block) {
                                     fmt::format_to(error_msg,"column({}) value is incorrect while strict mode is {}, src value is {}",
                                             slot_desc->col_name(), _strict_mode, raw_string);
                                     return fmt::to_string(error_msg);
-                                },
-                                &_scanner_eof));
-                            filter_map[i] = false;
+                                }));
                         } else if (!slot_desc->is_nullable()) {
+                            filter_map[i] = false;
                             RETURN_IF_ERROR(_state->append_error_msg_to_file(
                                 [&]() -> std::string {
                                     return _src_block_ptr->dump_one_line(i, _num_of_columns_from_file);
@@ -763,9 +765,7 @@ Status FileScanner::_convert_to_output_block(Block* block) {
                                     fmt::memory_buffer error_msg;
                                     fmt::format_to(error_msg, "column({}) values is null while columns is not nullable", slot_desc->col_name());
                                     return fmt::to_string(error_msg);
-                                },
-                                &_scanner_eof));
-                            filter_map[i] = false;
+                                }));
                         }
                         // clang-format on
                     }
@@ -997,17 +997,27 @@ Status FileScanner::_get_next_reader() {
                 _cur_reader = std::move(iceberg_reader);
             } else if (range.__isset.table_format_params &&
                        range.table_format_params.table_format_type == "paimon") {
-                std::vector<std::string> place_holder;
-                init_status = parquet_reader->init_reader(
-                        _file_col_names, place_holder, _colname_to_value_range,
-                        _push_down_conjuncts, _real_tuple_desc, _default_val_row_desc.get(),
-                        _col_name_to_slot_id, &_not_single_slot_filter_conjuncts,
-                        &_slot_id_to_filter_conjuncts);
                 std::unique_ptr<PaimonParquetReader> paimon_reader =
                         PaimonParquetReader::create_unique(std::move(parquet_reader), _profile,
                                                            _state, *_params, range, _io_ctx.get());
+                init_status = paimon_reader->init_reader(
+                        _file_col_names, _col_id_name_map, _colname_to_value_range,
+                        _push_down_conjuncts, _real_tuple_desc, _default_val_row_desc.get(),
+                        _col_name_to_slot_id, &_not_single_slot_filter_conjuncts,
+                        &_slot_id_to_filter_conjuncts);
                 RETURN_IF_ERROR(paimon_reader->init_row_filters());
                 _cur_reader = std::move(paimon_reader);
+            } else if (range.__isset.table_format_params &&
+                       range.table_format_params.table_format_type == "hudi") {
+                std::unique_ptr<HudiParquetReader> hudi_reader =
+                        HudiParquetReader::create_unique(std::move(parquet_reader), _profile,
+                                                         _state, *_params, range, _io_ctx.get());
+                init_status = hudi_reader->init_reader(
+                        _file_col_names, _col_id_name_map, _colname_to_value_range,
+                        _push_down_conjuncts, _real_tuple_desc, _default_val_row_desc.get(),
+                        _col_name_to_slot_id, &_not_single_slot_filter_conjuncts,
+                        &_slot_id_to_filter_conjuncts);
+                _cur_reader = std::move(hudi_reader);
             } else {
                 bool hive_parquet_use_column_names = true;
 
@@ -1063,14 +1073,25 @@ Status FileScanner::_get_next_reader() {
                 _cur_reader = std::move(iceberg_reader);
             } else if (range.__isset.table_format_params &&
                        range.table_format_params.table_format_type == "paimon") {
-                init_status = orc_reader->init_reader(
-                        &_file_col_names, _colname_to_value_range, _push_down_conjuncts, false,
-                        _real_tuple_desc, _default_val_row_desc.get(),
-                        &_not_single_slot_filter_conjuncts, &_slot_id_to_filter_conjuncts);
                 std::unique_ptr<PaimonOrcReader> paimon_reader = PaimonOrcReader::create_unique(
                         std::move(orc_reader), _profile, _state, *_params, range, _io_ctx.get());
+
+                init_status = paimon_reader->init_reader(
+                        _file_col_names, _col_id_name_map, _colname_to_value_range,
+                        _push_down_conjuncts, _real_tuple_desc, _default_val_row_desc.get(),
+                        &_not_single_slot_filter_conjuncts, &_slot_id_to_filter_conjuncts);
                 RETURN_IF_ERROR(paimon_reader->init_row_filters());
                 _cur_reader = std::move(paimon_reader);
+            } else if (range.__isset.table_format_params &&
+                       range.table_format_params.table_format_type == "hudi") {
+                std::unique_ptr<HudiOrcReader> hudi_reader = HudiOrcReader::create_unique(
+                        std::move(orc_reader), _profile, _state, *_params, range, _io_ctx.get());
+
+                init_status = hudi_reader->init_reader(
+                        _file_col_names, _col_id_name_map, _colname_to_value_range,
+                        _push_down_conjuncts, _real_tuple_desc, _default_val_row_desc.get(),
+                        &_not_single_slot_filter_conjuncts, &_slot_id_to_filter_conjuncts);
+                _cur_reader = std::move(hudi_reader);
             } else {
                 bool hive_orc_use_column_names = true;
 
@@ -1080,7 +1101,7 @@ Status FileScanner::_get_next_reader() {
                     hive_orc_use_column_names = _state->query_options().hive_orc_use_column_names;
                 }
                 init_status = orc_reader->init_reader(
-                        &_file_col_names, _colname_to_value_range, _push_down_conjuncts, false,
+                        &_file_col_names, {}, _colname_to_value_range, _push_down_conjuncts, false,
                         _real_tuple_desc, _default_val_row_desc.get(),
                         &_not_single_slot_filter_conjuncts, &_slot_id_to_filter_conjuncts,
                         hive_orc_use_column_names);
@@ -1273,7 +1294,9 @@ Status FileScanner::_init_expr_ctxes() {
         if (slot_info.is_file_slot) {
             _file_slot_descs.emplace_back(it->second);
             _file_col_names.push_back(it->second->col_name());
-            if (it->second->col_unique_id() > 0) {
+            if (it->second->col_unique_id() >= 0) {
+                // Iceberg field unique ID starts from 1, Paimon/Hudi field unique ID starts from 0.
+                // For other data sources, all columns are set to -1.
                 _col_id_name_map.emplace(it->second->col_unique_id(), it->second->col_name());
             }
         } else {

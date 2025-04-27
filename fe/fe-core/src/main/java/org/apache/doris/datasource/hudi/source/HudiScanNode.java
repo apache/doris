@@ -31,12 +31,12 @@ import org.apache.doris.common.util.FileFormatUtils;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.ExternalSchemaCache;
 import org.apache.doris.datasource.ExternalTable;
-import org.apache.doris.datasource.FileSplit;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.TableFormatType;
 import org.apache.doris.datasource.hive.HivePartition;
 import org.apache.doris.datasource.hive.source.HiveScanNode;
 import org.apache.doris.datasource.hudi.HudiSchemaCacheValue;
+import org.apache.doris.datasource.hudi.HudiUtils;
 import org.apache.doris.fs.DirectoryLister;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.SessionVariable;
@@ -61,10 +61,12 @@ import org.apache.hudi.common.table.timeline.HoodieInstant;
 import org.apache.hudi.common.table.timeline.HoodieTimeline;
 import org.apache.hudi.common.table.view.HoodieTableFileSystemView;
 import org.apache.hudi.common.util.Option;
+import org.apache.hudi.internal.schema.InternalSchema;
 import org.apache.hudi.storage.StoragePath;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -73,6 +75,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Semaphore;
@@ -212,6 +215,9 @@ public class HudiScanNode extends HiveScanNode {
             .getExtMetaCacheMgr()
             .getFsViewProcessor(hmsTable.getCatalog())
             .getFsView(hmsTable.getDbName(), hmsTable.getName(), hudiClient);
+        if (HudiUtils.getSchemaCacheValue(hmsTable).isEnableSchemaEvolution()) {
+            params.setHistorySchemaInfo(new ConcurrentHashMap<>());
+        }
     }
 
     @Override
@@ -250,18 +256,32 @@ public class HudiScanNode extends HiveScanNode {
         TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();
         tableFormatFileDesc.setTableFormatType(hudiSplit.getTableFormatType().value());
         THudiFileDesc fileDesc = new THudiFileDesc();
-        fileDesc.setInstantTime(hudiSplit.getInstantTime());
-        fileDesc.setSerde(hudiSplit.getSerde());
-        fileDesc.setInputFormat(hudiSplit.getInputFormat());
-        fileDesc.setBasePath(hudiSplit.getBasePath());
-        fileDesc.setDataFilePath(hudiSplit.getDataFilePath());
-        fileDesc.setDataFileLength(hudiSplit.getFileLength());
-        fileDesc.setDeltaLogs(hudiSplit.getHudiDeltaLogs());
-        fileDesc.setColumnNames(hudiSplit.getHudiColumnNames());
-        fileDesc.setColumnTypes(hudiSplit.getHudiColumnTypes());
-        // TODO(gaoxin): support complex types
-        // fileDesc.setNestedFields(hudiSplit.getNestedFields());
-        fileDesc.setHudiJniScanner(hudiSplit.getHudiJniScanner());
+        if (rangeDesc.getFormatType() == TFileFormatType.FORMAT_JNI) {
+            fileDesc.setInstantTime(hudiSplit.getInstantTime());
+            fileDesc.setSerde(hudiSplit.getSerde());
+            fileDesc.setInputFormat(hudiSplit.getInputFormat());
+            fileDesc.setBasePath(hudiSplit.getBasePath());
+            fileDesc.setDataFilePath(hudiSplit.getDataFilePath());
+            fileDesc.setDataFileLength(hudiSplit.getFileLength());
+            fileDesc.setDeltaLogs(hudiSplit.getHudiDeltaLogs());
+            fileDesc.setColumnNames(hudiSplit.getHudiColumnNames());
+            fileDesc.setColumnTypes(hudiSplit.getHudiColumnTypes());
+            // TODO(gaoxin): support complex types
+            // fileDesc.setNestedFields(hudiSplit.getNestedFields());
+            fileDesc.setHudiJniScanner(hudiSplit.getHudiJniScanner());
+        } else {
+            HudiSchemaCacheValue hudiSchemaCacheValue = HudiUtils.getSchemaCacheValue(hmsTable);
+            if (hudiSchemaCacheValue.isEnableSchemaEvolution()) {
+                long commitInstantTime = Long.parseLong(FSUtils.getCommitTime(
+                        new File(hudiSplit.getPath().get()).getName()));
+                InternalSchema internalSchema = hudiSchemaCacheValue
+                        .getCommitInstantInternalSchema(hudiClient, commitInstantTime);
+                params.history_schema_info.computeIfAbsent(
+                        internalSchema.schemaId(),
+                        k -> HudiUtils.getSchemaInfo(internalSchema));
+                fileDesc.setSchemaId(internalSchema.schemaId()); //for schema change. (native reader)
+            }
+        }
         tableFormatFileDesc.setHudiParams(fileDesc);
         rangeDesc.setTableFormatParams(tableFormatFileDesc);
     }
@@ -319,6 +339,7 @@ public class HudiScanNode extends HiveScanNode {
                 incrementalRelation.getEndTs())).collect(Collectors.toList());
     }
 
+
     private void getPartitionSplits(HivePartition partition, List<Split> splits) throws IOException {
 
         String partitionName;
@@ -333,11 +354,14 @@ public class HudiScanNode extends HiveScanNode {
             fsView.getLatestBaseFilesBeforeOrOn(partitionName, queryInstant).forEach(baseFile -> {
                 noLogsSplitNum.incrementAndGet();
                 String filePath = baseFile.getPath();
+
                 long fileSize = baseFile.getFileSize();
                 // Need add hdfs host to location
                 LocationPath locationPath = new LocationPath(filePath, hmsTable.getCatalogProperties());
-                splits.add(new FileSplit(locationPath, 0, fileSize, fileSize, 0,
-                        new String[0], partition.getPartitionValues()));
+                HudiSplit hudiSplit = new HudiSplit(locationPath, 0, fileSize, fileSize,
+                        new String[0], partition.getPartitionValues());
+                hudiSplit.setTableFormatType(TableFormatType.HUDI);
+                splits.add(hudiSplit);
             });
         } else {
             fsView.getLatestMergedFileSlicesBeforeOrOn(partitionName, queryInstant)

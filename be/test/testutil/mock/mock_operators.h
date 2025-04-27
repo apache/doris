@@ -49,6 +49,13 @@ private:
     bool _eos = false;
 };
 
+class MockSourceOperator : public MockChildOperator {
+public:
+    bool is_source() const override { return true; }
+
+    Status close(RuntimeState* state) override { return Status::OK(); }
+};
+
 class MockSinkOperator final : public DataSinkOperatorXBase {
 public:
     Status sink(RuntimeState* state, vectorized::Block* block, bool eos) override {
