@@ -15,29 +15,20 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource.hudi.source;
+package org.apache.doris.datasource.property.fileformat;
 
-import org.apache.doris.common.util.LocationPath;
-import org.apache.doris.datasource.FileSplit;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 
-import lombok.Data;
+import org.junit.Assert;
+import org.junit.Test;
 
-import java.util.List;
 
-@Data
-public class HudiSplit extends FileSplit {
-    public HudiSplit(LocationPath file, long start, long length, long fileLength, String[] hosts,
-            List<String> partitionValues) {
-        super(file, start, length, fileLength, 0, hosts, partitionValues);
+public class FileFormatPropertiesTest {
+
+    @Test
+    public void testCreateFileFormatPropertiesInvalidFormat() {
+        Assert.assertThrows(AnalysisException.class, () -> {
+            FileFormatProperties.createFileFormatProperties("invalid_format");
+        });
     }
-
-    private String instantTime;
-    private String serde;
-    private String inputFormat;
-    private String basePath;
-    private String dataFilePath;
-    private List<String> hudiDeltaLogs;
-    private List<String> hudiColumnNames;
-    private List<String> hudiColumnTypes;
-    private List<String> nestedFields;
 }
