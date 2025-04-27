@@ -167,6 +167,13 @@ DEFINE_mBool(enable_query_memory_overcommit, "true");
 
 DEFINE_mBool(disable_memory_gc, "false");
 
+// for the query being canceled,
+// if (current time - cancel start time) < revoke_memory_max_tolerance_ms, the query memory is counted in `freed_memory`,
+// and the query memory is expected to be released soon.
+// if > revoke_memory_max_tolerance_ms, the query memory will not be counted in `freed_memory`,
+// and the query may be blocked during the cancel process. skip this query and continue to cancel other queries.
+DEFINE_mInt64(revoke_memory_max_tolerance_ms, "3000");
+
 DEFINE_mBool(enable_stacktrace, "true");
 
 DEFINE_mInt64(stacktrace_in_alloc_large_memory_bytes, "2147483648");
@@ -648,8 +655,7 @@ DEFINE_Bool(ignore_broken_disk, "false");
 // Sleep time in milliseconds between memory maintenance iterations
 DEFINE_mInt32(memory_maintenance_sleep_time_ms, "50");
 
-// After full gc, no longer full gc and minor gc during sleep.
-// After minor gc, no minor gc during sleep, but full gc is possible.
+// Memory gc are expensive, wait a while to avoid too frequent.
 DEFINE_mInt32(memory_gc_sleep_time_ms, "500");
 
 // max write buffer size before flush, default 200MB
@@ -1092,7 +1098,8 @@ DEFINE_mBool(enable_file_cache_keep_base_compaction_output, "false");
 DEFINE_mInt64(file_cache_remove_block_qps_limit, "1000");
 DEFINE_mInt64(file_cache_background_gc_interval_ms, "100");
 DEFINE_mInt64(file_cache_background_monitor_interval_ms, "5000");
-DEFINE_mInt64(file_cache_background_ttl_gc_interval_ms, "20000");
+DEFINE_mInt64(file_cache_background_ttl_gc_interval_ms, "3000");
+DEFINE_mInt64(file_cache_background_ttl_gc_batch, "1000");
 
 DEFINE_mInt32(index_cache_entry_stay_time_after_lookup_s, "1800");
 DEFINE_mInt32(inverted_index_cache_stale_sweep_time_sec, "600");
@@ -1262,8 +1269,6 @@ DEFINE_mInt32(be_proc_monitor_interval_ms, "10000");
 
 DEFINE_Int32(workload_group_metrics_interval_ms, "5000");
 
-DEFINE_mBool(enable_workload_group_memory_gc, "true");
-
 DEFINE_Bool(ignore_always_true_predicate_for_segment, "true");
 
 // Ingest binlog work pool size, -1 is disable, 0 is hardware concurrency
@@ -1330,6 +1335,7 @@ DEFINE_mBool(force_azure_blob_global_endpoint, "false");
 DEFINE_mInt32(max_s3_client_retry, "10");
 DEFINE_mInt32(s3_read_base_wait_time_ms, "100");
 DEFINE_mInt32(s3_read_max_wait_time_ms, "800");
+DEFINE_mBool(enable_s3_object_check_after_upload, "true");
 
 DEFINE_mBool(enable_s3_rate_limiter, "false");
 DEFINE_mInt64(s3_get_bucket_tokens, "1000000000000000000");

@@ -48,9 +48,12 @@
 #    - DORIS_USER, DORIS_PASSWORD: Database username and password
 #    - DORIS_DATABASE, DORIS_TABLE: Target database and table name
 #
-# 5. S3 Configuration:
+# 5. S3 Configuration: 
 #    - S3_PREFIX: S3 bucket path prefix
-#    - AWS_ACCESS_KEY, AWS_SECRET_KEY: S3 access credentials
+#    - PROVIDER: Object storage service provider, such as S3, AZURE, GCP, etc.
+#    - S3_ENDPOINT: The endpoint address of the S3 storage.
+#    - S3_REGION: The region where the S3 storage is located.
+#    - S3_ACCESS_KEY, S3_SECRET_KEY: S3 access credentials
 #    - The script will automatically add the date path after S3_PREFIX, for example: s3://bucket/path/2025-04-01/*
 #
 # 6. Other Configurations:
@@ -79,16 +82,22 @@ DORIS_PASSWORD=""
 DORIS_DATABASE="testdb"
 DORIS_TABLE="sales_data"
 
-LABEL_PREFIX="label"
+# S3 configuration
 S3_PREFIX="s3://mybucket/sales_data"
-AWS_ACCESS_KEY="ak"
-AWS_SECRET_KEY="sk"
+PROVIDER="S3"
+S3_ENDPOINT="s3.ap-southeast-1.amazonaws.com"
+S3_REGION="ap-southeast-1"
+S3_ACCESS_KEY="ak"
+S3_SECRET_KEY="sk"
 
 # Maximum number of concurrent tasks
 MAX_RUNNING_JOB=10
 
 # Interval for checking whether the S3 Load task is completed
 CHECK_INTERVAL=10
+
+# Label prefix for each task load
+LABEL_PREFIX="label"
 
 # Generate the date array to process
 generate_dates() {
@@ -159,15 +168,11 @@ LOAD LABEL ${label}
 )
 WITH S3
 (
-    "provider" = "S3",
-    "AWS_ENDPOINT" = "s3.ap-southeast-1.amazonaws.com",
-    "AWS_ACCESS_KEY" = "${AWS_ACCESS_KEY}",
-    "AWS_SECRET_KEY" = "${AWS_SECRET_KEY}",
-    "AWS_REGION" = "ap-southeast-1"
-)
-PROPERTIES
-(
-    "timeout" = "3600"
+    "provider" = "${PROVIDER}",
+    "s3.endpoint" = "${S3_ENDPOINT}",
+    "s3.access_key" = "${S3_ACCESS_KEY}",
+    "s3.secret_key" = "${S3_SECRET_KEY}",
+    "s3.region" = "${S3_REGION}"
 );
 EOF
 )

@@ -83,7 +83,8 @@ public:
     static Status open(io::FileSystemSPtr fs, const std::string& path, int64_t tablet_id,
                        uint32_t segment_id, RowsetId rowset_id, TabletSchemaSPtr tablet_schema,
                        const io::FileReaderOptions& reader_options,
-                       std::shared_ptr<Segment>* output, InvertedIndexFileInfo idx_file_info = {});
+                       std::shared_ptr<Segment>* output, InvertedIndexFileInfo idx_file_info = {},
+                       OlapReaderStatistics* stats = nullptr);
 
     static io::UInt128Wrapper file_cache_key(std::string_view rowset_id, uint32_t seg_id);
     io::UInt128Wrapper file_cache_key() const {
@@ -225,10 +226,11 @@ private:
     static Status _open(io::FileSystemSPtr fs, const std::string& path, uint32_t segment_id,
                         RowsetId rowset_id, TabletSchemaSPtr tablet_schema,
                         const io::FileReaderOptions& reader_options,
-                        std::shared_ptr<Segment>* output, InvertedIndexFileInfo idx_file_info);
+                        std::shared_ptr<Segment>* output, InvertedIndexFileInfo idx_file_info,
+                        OlapReaderStatistics* stats);
     // open segment file and read the minimum amount of necessary information (footer)
-    Status _open();
-    Status _parse_footer(std::shared_ptr<SegmentFooterPB>& footer);
+    Status _open(OlapReaderStatistics* stats);
+    Status _parse_footer(std::shared_ptr<SegmentFooterPB>& footer, OlapReaderStatistics* stats);
     Status _create_column_readers(const SegmentFooterPB& footer);
     Status _load_pk_bloom_filter(OlapReaderStatistics* stats);
     ColumnReader* _get_column_reader(const TabletColumn& col);
@@ -245,7 +247,7 @@ private:
 
     Status _create_column_readers_once(OlapReaderStatistics* stats);
 
-    Status _get_segment_footer(std::shared_ptr<SegmentFooterPB>&);
+    Status _get_segment_footer(std::shared_ptr<SegmentFooterPB>&, OlapReaderStatistics* stats);
 
     StoragePageCache::CacheKey get_segment_footer_cache_key() const;
 

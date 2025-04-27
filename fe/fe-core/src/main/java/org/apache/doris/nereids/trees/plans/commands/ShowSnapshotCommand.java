@@ -109,7 +109,18 @@ public class ShowSnapshotCommand extends ShowCommand {
         return builder.build();
     }
 
-    private boolean analyzeSubExpression(ComparisonPredicate expr) {
+    private boolean analyzeSubExpression(Expression expr) {
+        if (expr instanceof ComparisonPredicate) {
+            return analyzeComparisonPredicate((ComparisonPredicate) expr);
+        }
+        if (expr instanceof And) {
+            return expr.children().stream().allMatch(this::analyzeSubExpression);
+        }
+
+        return false;
+    }
+
+    private boolean analyzeComparisonPredicate(ComparisonPredicate expr) {
         Expression key = expr.child(0);
         Expression val = expr.child(1);
 
@@ -166,34 +177,17 @@ public class ShowSnapshotCommand extends ShowCommand {
         }
 
         // validate analyze where clause if not null
-        boolean ok = true;
         if (where != null) {
-            CHECK: {
-                if (where instanceof ComparisonPredicate) {
-                    if (!analyzeSubExpression((ComparisonPredicate) where)) {
-                        ok = false;
-                    }
-                } else if (where instanceof And) {
-                    if (!(where.child(0) instanceof ComparisonPredicate)
-                            || !(where.child(1) instanceof ComparisonPredicate)) {
-                        ok = false;
-                        break CHECK;
-                    }
-                    if (!analyzeSubExpression((ComparisonPredicate) where.child(0))
-                            || !analyzeSubExpression((ComparisonPredicate) where.child(1))) {
-                        ok = false;
-                    }
-                } else {
-                    ok = false;
-                }
+            if (!analyzeSubExpression(where)) {
+                return false;
             }
-
-            if (ok && (Strings.isNullOrEmpty(snapshotName) && !Strings.isNullOrEmpty(timestamp))) {
+            if (Strings.isNullOrEmpty(snapshotName) && !Strings.isNullOrEmpty(timestamp)) {
                 // can not only set timestamp
-                ok = false;
+                return false;
             }
         }
-        return ok;
+
+        return true;
     }
 
     /**

@@ -162,6 +162,10 @@ supportedDmlStatement
         (propertyClause)?
         (withRemoteStorageSystem)?                                     #export
     | replayCommand                                                    #replay
+    | COPY INTO selectHint? name=multipartIdentifier columns=identifierList? FROM
+            (stageAndPattern | (LEFT_PAREN SELECT selectColumnClause
+                FROM stageAndPattern whereClause? RIGHT_PAREN))
+            properties=propertyClause?                                 #copyInto
     ;
 
 supportedCreateStatement
@@ -220,6 +224,8 @@ supportedCreateStatement
     | CREATE USER (IF NOT EXISTS)? grantUserIdentify
             (SUPERUSER | DEFAULT ROLE role=STRING_LITERAL)?
             passwordOption commentSpec?                            #createUser
+    | CREATE EXTERNAL? RESOURCE (IF NOT EXISTS)?
+            name=identifierOrText properties=propertyClause?                        #createResource
     ;
 
 supportedAlterStatement
@@ -336,6 +342,7 @@ supportedShowStatement
     | SHOW BACKENDS                                                                 #showBackends
     | SHOW STAGES                                                                   #showStages
     | SHOW REPLICA DISTRIBUTION FROM baseTableRef                                   #showReplicaDistribution
+    | SHOW RESOURCES wildWhere? sortClause? limitClause?                            #showResources
     | SHOW FULL? TRIGGERS ((FROM | IN) database=multipartIdentifier)? wildWhere?    #showTriggers
     | SHOW TABLET DIAGNOSIS tabletId=INTEGER_VALUE                                  #showDiagnoseTablet
     | SHOW FRONTENDS name=identifier?                                               #showFrontends
@@ -365,6 +372,10 @@ supportedShowStatement
 supportedLoadStatement
     : SYNC                                                                          #sync
     | createRoutineLoad                                                             #createRoutineLoadAlias
+    | CREATE SYNC label=multipartIdentifier
+          LEFT_PAREN channelDescriptions RIGHT_PAREN
+          FROM BINLOG LEFT_PAREN propertyItemList RIGHT_PAREN
+          properties=propertyClause?                                                #createDataSyncJob
     ;
 
 supportedOtherStatement
@@ -422,7 +433,6 @@ unsupportedShowStatement
         sortClause? limitClause?                                                    #showAlterTable
     | SHOW TEMPORARY? PARTITIONS FROM tableName=multipartIdentifier
         wildWhere? sortClause? limitClause?                                         #showPartitions
-    | SHOW RESOURCES wildWhere? sortClause? limitClause?                            #showResources
     | SHOW WORKLOAD GROUPS wildWhere?                                               #showWorkloadGroups
     | SHOW TYPECAST ((FROM | IN) database=multipartIdentifier)?                     #showTypeCast
     | SHOW (KEY | KEYS | INDEX | INDEXES)
@@ -453,10 +463,6 @@ unsupportedLoadStatement
     : LOAD mysqlDataDesc
         (PROPERTIES LEFT_PAREN properties=propertyItemList RIGHT_PAREN)?
         (commentSpec)?                                                              #mysqlLoad
-    | CREATE SYNC label=multipartIdentifier
-          LEFT_PAREN channelDescriptions RIGHT_PAREN
-          FROM BINLOG LEFT_PAREN propertyItemList RIGHT_PAREN
-          properties=propertyClause?                                                #createDataSyncJob
     | STOP SYNC JOB name=multipartIdentifier                                        #stopDataSyncJob
     | RESUME SYNC JOB name=multipartIdentifier                                      #resumeDataSyncJob
     | PAUSE SYNC JOB name=multipartIdentifier                                       #pauseDataSyncJob
@@ -784,8 +790,6 @@ unsupportedCreateStatement
     : CREATE (DATABASE | SCHEMA) (IF NOT EXISTS)? name=multipartIdentifier
         properties=propertyClause?                                              #createDatabase
     | CREATE (READ ONLY)? REPOSITORY name=identifier WITH storageBackend        #createRepository
-    | CREATE EXTERNAL? RESOURCE (IF NOT EXISTS)?
-        name=identifierOrText properties=propertyClause?                        #createResource
     | CREATE STORAGE VAULT (IF NOT EXISTS)?
         name=identifierOrText properties=propertyClause?                        #createStorageVault
     | CREATE WORKLOAD POLICY (IF NOT EXISTS)? name=identifierOrText
@@ -895,10 +899,6 @@ unsupportedUseStatement
 
 unsupportedDmlStatement
     : TRUNCATE TABLE multipartIdentifier specifiedPartition?  FORCE?                 #truncateTable
-    | COPY INTO name=multipartIdentifier columns=identifierList? FROM
-        (stageAndPattern | (LEFT_PAREN SELECT selectColumnClause
-            FROM stageAndPattern whereClause? RIGHT_PAREN))
-        properties=propertyClause?                                                  #copyInto
     ;
 
 stageAndPattern

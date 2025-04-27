@@ -1150,8 +1150,8 @@ public:
     }
 
     ObjectStorageHeadResponse head_object(const ObjectStoragePathOptions& opts) override {
-        last_opts = opts;
-        return default_head_response;
+        return {.resp = ObjectStorageResponse::OK(),
+                .file_size = static_cast<int64_t>(objects[opts.path.native()].size())};
     }
 
     ObjectStorageResponse get_object(const ObjectStoragePathOptions& opts, void* buffer,
@@ -1365,7 +1365,7 @@ std::string get_s3_path(std::string_view path) {
 
 // put object
 // create_multi_parts_upload + upload_part + complete_parts
-TEST_F(S3FileWriterTest, write_bufer_boundary) {
+TEST_F(S3FileWriterTest, write_buffer_boundary) {
     // diable file cache to avoid write to cache
     bool enable_file_cache = config::enable_file_cache;
     config::enable_file_cache = false;

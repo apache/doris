@@ -52,6 +52,7 @@
 #define UNKNOWN_ID_FOR_TEST 0x7c00
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 bvar::Adder<int64_t> g_load_stream_cnt("load_stream_count");
 bvar::LatencyRecorder g_load_stream_flush_wait_ms("load_stream_flush_wait_ms");
@@ -241,7 +242,7 @@ Status TabletStream::add_segment(const PStreamHeader& header, butil::IOBuf* data
             return _status.status();
         }
         DBUG_EXECUTE_IF("TabletStream.add_segment.segid_never_written",
-                        { segid = _segids_mapping[src_id]->size(); });
+                        { segid = static_cast<uint32_t>(_segids_mapping[src_id]->size()); });
         if (segid >= _segids_mapping[src_id]->size()) {
             _status.update(Status::InternalError(
                     "add segment failed, segment is never written, src_id={}, segment_id={}",
@@ -452,7 +453,7 @@ LoadStream::~LoadStream() {
 
 Status LoadStream::init(const POpenLoadStreamRequest* request) {
     _txn_id = request->txn_id();
-    _total_streams = request->total_streams();
+    _total_streams = static_cast<int32_t>(request->total_streams());
     _is_incremental = (_total_streams == 0);
 
     _schema = std::make_shared<OlapTableSchemaParam>();
@@ -515,14 +516,14 @@ void LoadStream::_report_result(StreamId stream, const Status& status,
     if (_enable_profile && _close_load_cnt == _total_streams) {
         TRuntimeProfileTree tprofile;
         ThriftSerializer ser(false, 4096);
-        uint8_t* buf = nullptr;
+        uint8_t* profile_buf = nullptr;
         uint32_t len = 0;
         std::unique_lock<bthread::Mutex> l(_lock);
 
         _profile->to_thrift(&tprofile);
-        auto st = ser.serialize(&tprofile, &len, &buf);
+        auto st = ser.serialize(&tprofile, &len, &profile_buf);
         if (st.ok()) {
-            response.set_load_stream_profile(buf, len);
+            response.set_load_stream_profile(profile_buf, len);
         } else {
             LOG(WARNING) << "TRuntimeProfileTree serialize failed, errmsg=" << st << ", " << *this;
         }
@@ -717,4 +718,5 @@ inline std::ostream& operator<<(std::ostream& ostr, const LoadStream& load_strea
     return ostr;
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

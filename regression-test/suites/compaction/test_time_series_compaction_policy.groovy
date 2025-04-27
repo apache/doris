@@ -120,4 +120,34 @@ suite("test_time_series_compaction_polciy", "p0") {
     rowsetCount = get_rowset_count.call(tablets);
     assert (rowsetCount == 11 * replicaNum)
     qt_sql_3 """ select count() from ${tableName}"""
+
+    sql """ DROP TABLE IF EXISTS ${tableName}; """
+    sql """
+        CREATE TABLE ${tableName} (
+            `id` int(11) NULL,
+            `name` varchar(255) NULL,
+            `hobbies` text NULL,
+            `score` int(11) NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`id`)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`id`) BUCKETS 1
+        PROPERTIES (
+            "replication_num" = "1",
+            "disable_auto_compaction" = "true",
+            "compaction_policy" = "time_series",
+            "time_series_compaction_time_threshold_seconds" = "70"
+        );
+    """
+
+    sql """ INSERT INTO ${tableName} VALUES (1, "andy", "andy love apple", 100); """
+    sql """ INSERT INTO ${tableName} VALUES (1, "bason", "bason hate pear", 99); """
+    sql """ INSERT INTO ${tableName} VALUES (1, "andy", "andy love apple", 100); """
+    sql """ INSERT INTO ${tableName} VALUES (1, "bason", "bason hate pear", 99); """
+    sql """ INSERT INTO ${tableName} VALUES (1, "andy", "andy love apple", 100); """
+    sql """ INSERT INTO ${tableName} VALUES (100, "andy", "andy love apple", 100); """
+    sql """ INSERT INTO ${tableName} VALUES (100, "bason", "bason hate pear", 99); """
+
+    Thread.sleep(75000)
+    trigger_and_wait_compaction(tableName, "cumulative")
 }
