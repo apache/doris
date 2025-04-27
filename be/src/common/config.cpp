@@ -1493,6 +1493,7 @@ DEFINE_mBool(enable_compaction_pause_on_high_memory, "true");
 
 DEFINE_mBool(enable_calc_delete_bitmap_between_segments_concurrently, "false");
 
+DEFINE_mBool(enable_report_delete_bitmap_metrics, "false");
 DEFINE_mInt32(report_delete_bitmap_metrics_interval_s, "60");
 
 // clang-format off

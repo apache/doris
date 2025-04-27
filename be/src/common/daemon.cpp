@@ -461,12 +461,14 @@ void Daemon::report_runtime_query_statistics_thread() {
 void Daemon::report_delete_bitmap_metrics_thread() {
     while (!_stop_background_threads_latch.wait_for(
             std::chrono::seconds(config::report_delete_bitmap_metrics_interval_s))) {
-        StorageEngine& engine = ExecEnv::GetInstance()->storage_engine().to_local();
-        auto* metrics = DorisMetrics::instance();
-        metrics->valid_delete_bitmap_key_count->set_value(
-                engine.tablet_manager()->get_valid_delete_bitmap_key_count());
-        metrics->invalid_delete_bitmap_key_count->set_value(
-                engine.tablet_manager()->get_invalid_delete_bitmap_key_count());
+        if (config::enable_report_delete_bitmap_metrics) {
+            StorageEngine& engine = ExecEnv::GetInstance()->storage_engine().to_local();
+            auto* metrics = DorisMetrics::instance();
+            metrics->valid_delete_bitmap_key_count->set_value(
+                    engine.tablet_manager()->get_valid_delete_bitmap_key_count());
+            metrics->invalid_delete_bitmap_key_count->set_value(
+                    engine.tablet_manager()->get_invalid_delete_bitmap_key_count());
+        }
     }
 }
 
