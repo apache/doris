@@ -33,7 +33,6 @@
 #include "gutil/macros.h"
 #include "gutil/strings/numbers.h"
 #include "gutil/strings/split.h"
-#include "gutil/strings/substitute.h"
 #include "io/fs/local_file_system.h"
 
 using std::string;

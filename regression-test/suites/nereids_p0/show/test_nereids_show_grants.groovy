@@ -14,18 +14,17 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-// This file is copied from
-// https://github.com/ClickHouse/ClickHouse/blob/master/src/Common/HashTable/HashTableAllocator.h
-// and modified by Doris
 
-#pragma once
+suite("test_nereids_show_grants") {
+    String dbName = "show_grants_db"
+    sql "CREATE USER 'aaaaa'@'%' IDENTIFIED BY '12345';"
+    sql "CREATE USER 'zzzzz'@'%' IDENTIFIED BY '12345';"
+    sql "CREATE USER 'aaaaa'@'192.168.%' IDENTIFIED BY '12345';"
 
-#include "vec/common/allocator.h"
-#include "vec/common/allocator_fwd.h"
+    checkNereidsExecute("show all grants")
 
-/**
-  * We are going to use the entire memory we allocated when resizing a hash
-  * table, so it makes sense to pre-fault the pages so that page faults don't
-  * interrupt the resize loop. Set the allocator parameter accordingly.
-  */
-using HashTableAllocator = Allocator<true /* clear_memory */, true /* mmap_populate */>;
+    def res = sql """show all grants"""
+    assertEquals("'aaaaa'@'%'", res.get(0).get(0))
+    assertEquals("'aaaaa'@'192.168.%'", res.get(1).get(0))
+    assertEquals("'zzzzz'@'%'", res.get(res.size() - 1).get(0))
+}

@@ -22,6 +22,7 @@ import org.apache.doris.analysis.TableSample;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -145,7 +146,7 @@ public class OlapAnalysisTaskTest {
                         + "${ndvFunction} as `ndv`, ROUND(SUM(CASE WHEN `null` IS NULL THEN 1 ELSE 0 END) * ${scaleFactor}) AS `null_count`, "
                         + "SUBSTRING(CAST('1' AS STRING), 1, 1024) AS `min`, SUBSTRING(CAST('2' AS STRING), 1, 1024) AS `max`, "
                         + "COUNT(1) * 4 * ${scaleFactor} AS `data_size`, NOW() FROM "
-                        + "( SELECT * FROM `catalogName`.`${dbName}`.`null`  ${sampleHints} ${limit})  as t", sql);
+                        + "( SELECT * FROM `catalogName`.`${dbName}`.`null`  ${sampleHints} ${limit}) as t ", sql);
                 return;
             }
         };
@@ -173,7 +174,8 @@ public class OlapAnalysisTaskTest {
                         + "COUNT(1) * 4 * ${scaleFactor} AS `data_size`, NOW() "
                         + "FROM (     SELECT t0.`colValue` as `column_key`, COUNT(1) as `count`, SUM(`len`) as `column_length`     "
                         + "FROM         (SELECT ${subStringColName} AS `colValue`, LENGTH(`null`) as `len`         "
-                        + "FROM `catalogName`.`${dbName}`.`null`  ${sampleHints} ${limit}) as `t0`     GROUP BY `t0`.`colValue` ) as `t1` ", sql);
+                        + "FROM `catalogName`.`${dbName}`.`null`  ${sampleHints} ${limit}) as `t0`        "
+                        + "    GROUP BY `t0`.`colValue` ) as `t1` ", sql);
                 return;
             }
 
@@ -346,22 +348,70 @@ public class OlapAnalysisTaskTest {
                 return false;
             }
         };
-        task.col = new Column("test", PrimitiveType.INT);
+
+        new MockUp<OlapTable>() {
+            @Mock
+            public KeysType getKeysType() {
+                return KeysType.DUP_KEYS;
+            }
+        };
+        task.col = new Column("testColumn", Type.INT, true, null, null, "");
+        task.setTable(new OlapTable());
         task.getSampleParams(params, 10);
         Assertions.assertTrue(task.scanFullTable());
         Assertions.assertEquals("1", params.get("scaleFactor"));
         Assertions.assertEquals("", params.get("sampleHints"));
         Assertions.assertEquals("ROUND(NDV(`${colName}`) * ${scaleFactor})", params.get("ndvFunction"));
+        Assertions.assertNull(params.get("preAggHint"));
         params.clear();
 
+        new MockUp<OlapTable>() {
+            @Mock
+            public KeysType getKeysType() {
+                return KeysType.AGG_KEYS;
+            }
+        };
         task = new OlapAnalysisTask();
-        task.col = new Column("test", PrimitiveType.INT);
+        task.col = new Column("testColumn", Type.INT, false, null, null, "");
+        task.setTable(new OlapTable());
         task.getSampleParams(params, 1000);
         Assertions.assertEquals("10.0", params.get("scaleFactor"));
         Assertions.assertEquals("TABLET(1, 2)", params.get("sampleHints"));
         Assertions.assertEquals("SUM(`t1`.`count`) * COUNT(1) / (SUM(`t1`.`count`) - SUM(IF(`t1`.`count` = 1, 1, 0)) + SUM(IF(`t1`.`count` = 1, 1, 0)) * SUM(`t1`.`count`) / 1000)", params.get("ndvFunction"));
         Assertions.assertEquals("SUM(t1.count) * 4", params.get("dataSizeFunction"));
         Assertions.assertEquals("`${colName}`", params.get("subStringColName"));
+        Assertions.assertEquals("/*+PREAGGOPEN*/", params.get("preAggHint"));
+        params.clear();
+
+        new MockUp<OlapTable>() {
+            @Mock
+            public KeysType getKeysType() {
+                return KeysType.UNIQUE_KEYS;
+            }
+
+            @Mock
+            public boolean isUniqKeyMergeOnWrite() {
+                return false;
+            }
+        };
+        task = new OlapAnalysisTask();
+        task.col = new Column("testColumn", Type.INT, false, null, null, "");
+        task.setTable(new OlapTable());
+        task.getSampleParams(params, 1000);
+        Assertions.assertEquals("/*+PREAGGOPEN*/", params.get("preAggHint"));
+        params.clear();
+
+        new MockUp<OlapTable>() {
+            @Mock
+            public boolean isUniqKeyMergeOnWrite() {
+                return true;
+            }
+        };
+        task = new OlapAnalysisTask();
+        task.col = new Column("testColumn", Type.INT, false, null, null, "");
+        task.setTable(new OlapTable());
+        task.getSampleParams(params, 1000);
+        Assertions.assertNull(params.get("preAggHint"));
         params.clear();
 
         new MockUp<OlapAnalysisTask>() {
@@ -378,6 +428,7 @@ public class OlapAnalysisTaskTest {
 
         task = new OlapAnalysisTask();
         task.col = new Column("test", PrimitiveType.INT);
+        task.setTable(new OlapTable());
         task.getSampleParams(params, 1000);
         Assertions.assertEquals("10.0", params.get("scaleFactor"));
         Assertions.assertEquals("TABLET(1, 2)", params.get("sampleHints"));
@@ -392,6 +443,7 @@ public class OlapAnalysisTaskTest {
         };
         task = new OlapAnalysisTask();
         task.col = new Column("test", PrimitiveType.INT);
+        task.setTable(new OlapTable());
         task.getSampleParams(params, 1000);
         Assertions.assertEquals("10.0", params.get("scaleFactor"));
         Assertions.assertEquals("TABLET(1, 2)", params.get("sampleHints"));
@@ -411,6 +463,7 @@ public class OlapAnalysisTaskTest {
         };
         task = new OlapAnalysisTask();
         task.col = new Column("test", PrimitiveType.INT);
+        task.setTable(new OlapTable());
         task.getSampleParams(params, 1000);
         Assertions.assertEquals("20.0", params.get("scaleFactor"));
         Assertions.assertEquals("TABLET(1, 2)", params.get("sampleHints"));
@@ -422,6 +475,7 @@ public class OlapAnalysisTaskTest {
         task.col = new Column("test", Type.fromPrimitiveType(PrimitiveType.INT),
             true, null, null, null);
         task.setKeyColumnSampleTooManyRows(true);
+        task.setTable(new OlapTable());
         task.getSampleParams(params, 2000000000);
         Assertions.assertEquals("2.0", params.get("scaleFactor"));
         Assertions.assertEquals("TABLET(1, 2)", params.get("sampleHints"));

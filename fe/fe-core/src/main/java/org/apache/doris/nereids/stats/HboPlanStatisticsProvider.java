@@ -14,21 +14,24 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-// This file is copied from
-// https://github.com/ClickHouse/ClickHouse/blob/master/src/Commom/StringUtils/StringUtils.cpp
-// and modified by Doris
 
-#include "vec/common/string_utils/string_utils.h"
+package org.apache.doris.nereids.stats;
 
-namespace doris::vectorized::detail {
+import org.apache.doris.nereids.trees.plans.PlanNodeAndHash;
+import org.apache.doris.statistics.hbo.RecentRunsPlanStatistics;
 
-bool starts_with(const std::string& s, const char* prefix, size_t prefix_size) {
-    return s.size() >= prefix_size && 0 == memcmp(s.data(), prefix, prefix_size);
+import java.util.List;
+import java.util.Map;
+
+/**
+ * HboPlanStatisticsProvider provides recent runs' plan stats. info as a cache.
+ */
+public interface HboPlanStatisticsProvider {
+    Map<PlanNodeAndHash, RecentRunsPlanStatistics> getHboPlanStats(List<PlanNodeAndHash> nodeIds);
+
+    RecentRunsPlanStatistics getHboPlanStats(PlanNodeAndHash planNodeAndHash);
+
+    void putHboPlanStats(Map<PlanNodeAndHash, RecentRunsPlanStatistics> hashesAndStatistics);
+
+    void updatePlanStats(PlanNodeAndHash hash, RecentRunsPlanStatistics planStatistics);
 }
-
-bool ends_with(const std::string& s, const char* suffix, size_t suffix_size) {
-    return s.size() >= suffix_size &&
-           0 == memcmp(s.data() + s.size() - suffix_size, suffix, suffix_size);
-}
-
-} // namespace doris::vectorized::detail

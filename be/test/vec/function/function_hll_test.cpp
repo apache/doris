@@ -125,11 +125,11 @@ TEST(function_hll_test, function_hll_from_base64_test) {
     const std::string input5 = "AA==";
     HyperLogLog empty_hll;
 
-    DataSet data_set = {{{input1}, hll1},
-                        {{input2}, hll2},
-                        {{input3}, hll3},
-                        {{input4}, hll4},
-                        {{input5}, empty_hll}};
+    DataSet data_set = {{{input1}, &hll1},
+                        {{input2}, &hll2},
+                        {{input3}, &hll3},
+                        {{input4}, &hll4},
+                        {{input5}, &empty_hll}};
 
     static_cast<void>(check_function<DataTypeHLL, true>(func_name, input_types, data_set));
 }
