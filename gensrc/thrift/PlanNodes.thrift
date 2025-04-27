@@ -363,7 +363,7 @@ struct THudiFileDesc {
     8: optional list<string> column_names;
     9: optional list<string> column_types;
     10: optional list<string> nested_fields;
-    11: optional string hudi_jni_scanner;
+    11: optional string hudi_jni_scanner; // deprecated
     12: optional i64 schema_id; // for schema change. (native reader)
 }
 
