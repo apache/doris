@@ -1975,24 +1975,42 @@ public:
 
         const auto* str_col = assert_cast<const ColumnString*>(content_column.get());
 
-        [[maybe_unused]] const auto& [delimiter_col, delimiter_const] =
+        // Handle both constant and non-constant delimiter parameters
+        ColumnPtr delimiter_column_ptr;
+        bool delimiter_const = false;
+        std::tie(delimiter_column_ptr, delimiter_const) =
                 unpack_if_const(block.get_by_position(arguments[1]).column);
-        auto delimiter = delimiter_col->get_data_at(0);
-        int32_t delimiter_size = delimiter.size;
+        const auto* delimiter_col = assert_cast<const ColumnString*>(delimiter_column_ptr.get());
 
-        [[maybe_unused]] const auto& [part_num_col, part_const] =
+        ColumnPtr part_num_column_ptr;
+        bool part_num_const = false;
+        std::tie(part_num_column_ptr, part_num_const) =
                 unpack_if_const(block.get_by_position(arguments[2]).column);
-        auto part_number = *((int*)part_num_col->get_data_at(0).data);
+        const ColumnVector<Int32>* part_num_col =
+                assert_cast<const ColumnVector<Int32>*>(part_num_column_ptr.get());
 
-        if (part_number == 0 || delimiter_size == 0) {
-            for (size_t i = 0; i < input_rows_count; ++i) {
+        // For constant multi-character delimiters, create StringRef and StringSearch only once
+        std::optional<StringRef> const_delimiter_ref;
+        std::optional<StringSearch> const_search;
+        if (delimiter_const && delimiter_col->get_data_at(0).size > 1) {
+            const_delimiter_ref.emplace(delimiter_col->get_data_at(0));
+            const_search.emplace(&const_delimiter_ref.value());
+        }
+
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            auto str = str_col->get_data_at(i);
+            auto delimiter = delimiter_col->get_data_at(delimiter_const ? 0 : i);
+            int32_t delimiter_size = delimiter.size;
+
+            auto part_number = part_num_col->get_element(part_num_const ? 0 : i);
+
+            if (part_number == 0 || delimiter_size == 0) {
                 StringOP::push_empty_string(i, res_chars, res_offsets);
+                continue;
             }
-        } else if (part_number > 0) {
-            if (delimiter_size == 1) {
-                // If delimiter is a char, use memchr to split
-                for (size_t i = 0; i < input_rows_count; ++i) {
-                    auto str = str_col->get_data_at(i);
+
+            if (part_number > 0) {
+                if (delimiter_size == 1) {
                     int32_t offset = -1;
                     int32_t num = 0;
                     while (num < part_number) {
@@ -2018,18 +2036,23 @@ public:
                         StringOP::push_value_string(std::string_view(str.data, str.size), i,
                                                     res_chars, res_offsets);
                     }
-                }
-            } else {
-                StringRef delimiter_ref(delimiter);
-                StringSearch search(&delimiter_ref);
-                for (size_t i = 0; i < input_rows_count; ++i) {
-                    auto str = str_col->get_data_at(i);
+                } else {
+                    // For multi-character delimiters
+                    // Use pre-created StringRef and StringSearch for constant delimiters
+                    StringRef delimiter_ref = const_delimiter_ref ? const_delimiter_ref.value()
+                                                                  : StringRef(delimiter);
+                    const StringSearch* search_ptr = const_search ? &const_search.value() : nullptr;
+                    StringSearch local_search(&delimiter_ref);
+                    if (!search_ptr) {
+                        search_ptr = &local_search;
+                    }
+
                     int32_t offset = -delimiter_size;
                     int32_t num = 0;
                     while (num < part_number) {
                         size_t n = str.size - offset - delimiter_size;
                         // search first match delimter_ref index from src string among str_offset to end
-                        const char* pos = search.search(str.data + offset + delimiter_size, n);
+                        const char* pos = search_ptr->search(str.data + offset + delimiter_size, n);
                         if (pos < str.data + str.size) {
                             offset = pos - str.data;
                             num++;
@@ -2050,21 +2073,25 @@ public:
                                                     res_chars, res_offsets);
                     }
                 }
-            }
-        } else {
-            // if part_number is negative
-            part_number = -part_number;
-            for (size_t i = 0; i < input_rows_count; ++i) {
-                auto str = str_col->get_data_at(i);
+            } else {
+                int neg_part_number = -part_number;
                 auto str_str = str.to_string();
                 int32_t offset = str.size;
                 int32_t pre_offset = offset;
                 int32_t num = 0;
                 auto substr = str_str;
-                while (num <= part_number && offset >= 0) {
-                    offset = (int)substr.rfind(delimiter, offset);
+
+                // Use pre-created StringRef for constant delimiters
+                StringRef delimiter_str =
+                        const_delimiter_ref
+                                ? const_delimiter_ref.value()
+                                : StringRef(reinterpret_cast<const char*>(delimiter.data),
+                                            delimiter.size);
+
+                while (num <= neg_part_number && offset >= 0) {
+                    offset = (int)substr.rfind(delimiter_str, offset);
                     if (offset != -1) {
-                        if (++num == part_number) {
+                        if (++num == neg_part_number) {
                             break;
                         }
                         pre_offset = offset;
@@ -2076,7 +2103,7 @@ public:
                 }
                 num = (offset == -1 && num != 0) ? num + 1 : num;
 
-                if (num == part_number) {
+                if (num == neg_part_number) {
                     if (offset == -1) {
                         StringOP::push_value_string(std::string_view(str.data, str.size), i,
                                                     res_chars, res_offsets);
