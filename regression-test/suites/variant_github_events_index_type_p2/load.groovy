@@ -85,39 +85,6 @@ suite("test_variant_github_events_index_type_p2", "nonConcurrent,p2"){
         return "wait_timeout"
     }
 
-    def wait_for_last_build_index_on_table_running = { table_name, OpTimeout ->
-        for(int t = delta_time; t <= OpTimeout; t += delta_time){
-            alter_res = sql """SHOW BUILD INDEX WHERE TableName = "${table_name}" ORDER BY JobId """
-
-            if (alter_res.size() == 0) {
-                logger.info(table_name + " last index job finished")
-                return "SKIPPED"
-            }
-            if (alter_res.size() > 0) {
-                def last_job_state = alter_res[alter_res.size()-1][7];
-                if (last_job_state == "RUNNING") {
-                    logger.info(table_name + " last index job running, state: " + last_job_state + ", detail: " + alter_res)
-                    return last_job_state;
-                }
-            }
-            useTime = t
-            sleep(delta_time)
-        }
-        logger.info("wait_for_last_build_index_on_table_running debug: " + alter_res)
-        assertTrue(useTime <= OpTimeout, "wait_for_last_build_index_on_table_running timeout")
-        return "wait_timeout"
-    }
-
-
-    def backendId_to_backendIP = [:]
-    def backendId_to_backendHttpPort = [:]
-    getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
-    def set_be_config = { key, value ->
-        for (String backend_id: backendId_to_backendIP.keySet()) {
-            def (code, out, err) = update_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), key, value)
-            logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
-        }
-    }
     def load_json_data = {table_name, file_name ->
         // load the json data
         streamLoad {
@@ -257,7 +224,6 @@ suite("test_variant_github_events_index_type_p2", "nonConcurrent,p2"){
     sql """ set enable_match_without_inverted_index = false """
     qt_sql """select count()  from github_events3 where v["repo"]["name"] match 'xpressengine' """
     qt_sql """select count()  from github_events3 where v["repo"]["name"] match 'apache';"""
-    
 
     sql """ drop table if exists github_events4 """
     sql """ create table github_events4 like github_events """
