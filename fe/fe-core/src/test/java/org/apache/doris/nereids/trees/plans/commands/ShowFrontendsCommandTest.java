@@ -80,7 +80,7 @@ public class ShowFrontendsCommandTest {
     public void testNormal() throws Exception {
         runBefore();
         ShowFrontendsCommand command = new ShowFrontendsCommand(null);
-        Assertions.assertDoesNotThrow(() -> command.run(ctx, null));
+        Assertions.assertDoesNotThrow(() -> command.doRun(ctx, null));
     }
 
     @Test
@@ -113,6 +113,6 @@ public class ShowFrontendsCommandTest {
             }
         };
         ShowFrontendsCommand command = new ShowFrontendsCommand(null);
-        Assertions.assertThrows(AnalysisException.class, () -> command.run(ctx, null));
+        Assertions.assertThrows(AnalysisException.class, () -> command.doRun(ctx, null));
     }
 }
