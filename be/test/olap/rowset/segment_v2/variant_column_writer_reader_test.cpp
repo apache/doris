@@ -240,10 +240,7 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
 
     for (int i = 0; i < 1000; ++i) {
         std::string value;
-        st = assert_cast<ColumnObject*>(new_column_object.get())
-                     ->serialize_one_row_to_string(i, &value);
-
-        EXPECT_TRUE(st.ok()) << st.msg();
+        assert_cast<ColumnObject*>(new_column_object.get())->serialize_one_row_to_string(i, &value);
         EXPECT_EQ(value, inserted_jsonstr[i]);
     }
 
@@ -258,9 +255,7 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
     EXPECT_TRUE(st.ok()) << st.msg();
     for (int i = 0; i < row_ids.size(); ++i) {
         std::string value;
-        st = assert_cast<ColumnObject*>(new_column_object.get())
-                     ->serialize_one_row_to_string(i, &value);
-        EXPECT_TRUE(st.ok()) << st.msg();
+        assert_cast<ColumnObject*>(new_column_object.get())->serialize_one_row_to_string(i, &value);
         EXPECT_EQ(value, inserted_jsonstr[row_ids[i]]);
     }
 
@@ -297,9 +292,8 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
 
         for (int row = 0; row < 1000; ++row) {
             std::string value;
-            st = assert_cast<ColumnObject*>(new_column_object.get())
-                         ->serialize_one_row_to_string(row, &value);
-            EXPECT_TRUE(st.ok()) << st.msg();
+            assert_cast<ColumnObject*>(new_column_object.get())
+                    ->serialize_one_row_to_string(row, &value);
             if (inserted_jsonstr[row].find(key) != std::string::npos) {
                 if (i % 2 == 0) {
                     EXPECT_EQ(value, "88");
@@ -385,10 +379,8 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
     auto check_empty_column = [&]() {
         for (int row = 0; row < 1000; ++row) {
             std::string value;
-            st = assert_cast<ColumnObject*>(new_column_object.get())
-                         ->serialize_one_row_to_string(row, &value);
-
-            EXPECT_TRUE(st.ok()) << st.msg();
+            assert_cast<ColumnObject*>(new_column_object.get())
+                    ->serialize_one_row_to_string(row, &value);
             EXPECT_EQ(value, "{}");
         }
     };
@@ -601,9 +593,7 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_advanced) {
 
     for (int i = 0; i < 1000; ++i) {
         std::string value;
-        st = assert_cast<ColumnObject*>(new_column_object.get())
-                     ->serialize_one_row_to_string(i, &value);
-        EXPECT_TRUE(st.ok()) << st.msg();
+        assert_cast<ColumnObject*>(new_column_object.get())->serialize_one_row_to_string(i, &value);
         EXPECT_EQ(value, inserted_jsonstr[i]);
     }
 
@@ -640,9 +630,8 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_advanced) {
         size_t key_nested_count = 0;
         for (int row = 0; row < 1000; ++row) {
             std::string value;
-            st = assert_cast<ColumnObject*>(new_column_object.get())
-                         ->serialize_one_row_to_string(row, &value);
-            EXPECT_TRUE(st.ok()) << st.msg();
+            assert_cast<ColumnObject*>(new_column_object.get())
+                    ->serialize_one_row_to_string(row, &value);
             if (value.find("nested" + key_num) != std::string::npos) {
                 key_nested_count++;
             } else if (value.find("88") != std::string::npos) {
