@@ -199,7 +199,7 @@ RuntimeProfile* MemTrackerLimiter::make_profile(RuntimeProfile* profile) const {
             profile_snapshot->AddHighWaterMarkCounter("Memory", TUnit::BYTES);
     COUNTER_SET(usage_counter, peak_consumption());
     COUNTER_SET(usage_counter, consumption());
-    if (has_limit()) {
+    if (limit() >= 0) {
         RuntimeProfile::Counter* limit_counter =
                 ADD_COUNTER(profile_snapshot, "Limit", TUnit::BYTES);
         COUNTER_SET(limit_counter, _limit);

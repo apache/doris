@@ -65,8 +65,9 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::sys_mem
             const std::string injection_err_msg = fmt::format(
                     "[MemAllocInjectFault] Task {} alloc memory failed due to fault "
                     "injection.",
-                    print_id(
-                            doris::thread_context()->resource_ctx()->task_controller()->task_id()));
+                    doris::thread_context()
+                            ->thread_mem_tracker_mgr->limiter_mem_tracker()
+                            ->label());
             // Print stack trace for debug.
             [[maybe_unused]] auto stack_trace_st =
                     doris::Status::Error<doris::ErrorCode::MEM_ALLOC_FAILED, true>(
@@ -104,25 +105,18 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::sys_mem
                 doris::thread_context()->thread_mem_tracker_mgr->last_consumer_tracker_label(),
                 doris::GlobalMemoryArbitrator::process_mem_log_str());
 
-        bool has_alloc_stacktrace = false;
         if (doris::config::stacktrace_in_alloc_large_memory_bytes > 0 &&
             size > doris::config::stacktrace_in_alloc_large_memory_bytes) {
             err_msg += "\nAlloc Stacktrace:\n" + doris::get_stack_trace();
-            has_alloc_stacktrace = true;
         }
 
-        if (doris::thread_context()->resource_ctx()->task_controller()->is_cancelled()) {
-            if (doris::enable_thread_catch_bad_alloc) {
-                throw doris::Exception(doris::ErrorCode::MEM_ALLOC_FAILED, err_msg);
-            }
-            return;
-        }
-
-        if (doris::thread_context()->thread_mem_tracker_mgr->wait_gc()) {
+        if (doris::thread_context()->thread_mem_tracker_mgr->wait_gc() &&
+            doris::thread_context()->is_attach_task() &&
+            !doris::thread_context()->resource_ctx()->task_controller()->is_cancelled()) {
             int64_t wait_milliseconds = 0;
             LOG(INFO) << fmt::format(
                     "Task:{} waiting for enough memory in thread id:{}, maximum {}ms, {}.",
-                    print_id(doris::thread_context()->resource_ctx()->task_controller()->task_id()),
+                    doris::thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker()->label(),
                     doris::ThreadContext::get_thread_id(),
                     doris::config::thread_wait_gc_max_milliseconds, err_msg);
 
@@ -138,10 +132,10 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::sys_mem
                         doris::GlobalMemoryArbitrator::refresh_interval_memory_growth += size;
                         break;
                     }
-                    if (doris::thread_context()
-                                ->resource_ctx()
-                                ->task_controller()
-                                ->is_cancelled()) {
+                    if (!doris::thread_context()->is_attach_task() || doris::thread_context()
+                                                                              ->resource_ctx()
+                                                                              ->task_controller()
+                                                                              ->is_cancelled()) {
                         if (doris::enable_thread_catch_bad_alloc) {
                             throw doris::Exception(doris::ErrorCode::MEM_ALLOC_FAILED, err_msg);
                         }
@@ -159,41 +153,29 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::sys_mem
                 doris::thread_context()->thread_mem_tracker_mgr->disable_wait_gc();
                 doris::ProcessProfile::instance()->memory_profile()->print_log_process_usage();
 
-                std::string stack_trace;
-                if (!has_alloc_stacktrace) {
-                    // get stack trace to help memory problem analysis
-                    stack_trace = "\nAlloc Stacktrace:\n" + doris::get_stack_trace();
-                }
                 // If the outside will catch the exception, after throwing an exception,
                 // the task will actively cancel itself.
                 if (doris::enable_thread_catch_bad_alloc) {
                     LOG(INFO) << fmt::format(
                             "Task:{} sys memory check failed, throw exception, after waiting for "
                             "memory {}ms, {}.",
-                            print_id(doris::thread_context()
-                                             ->resource_ctx()
-                                             ->task_controller()
-                                             ->task_id()),
-                            wait_milliseconds, err_msg + stack_trace);
+                            doris::thread_context()
+                                    ->thread_mem_tracker_mgr->limiter_mem_tracker()
+                                    ->label(),
+                            wait_milliseconds, err_msg);
                     throw doris::Exception(doris::ErrorCode::MEM_ALLOC_FAILED, err_msg);
                 } else {
                     LOG(INFO) << fmt::format(
                             "Task:{} sys memory check failed, will continue to execute, cannot "
                             "throw exception, after waiting for memory {}ms, {}.",
-                            print_id(doris::thread_context()
-                                             ->resource_ctx()
-                                             ->task_controller()
-                                             ->task_id()),
-                            wait_milliseconds, err_msg + stack_trace);
+                            doris::thread_context()
+                                    ->thread_mem_tracker_mgr->limiter_mem_tracker()
+                                    ->label(),
+                            wait_milliseconds, err_msg);
                 }
             }
         } else if (doris::enable_thread_catch_bad_alloc) {
-            std::string stack_trace;
-            if (!has_alloc_stacktrace) {
-                stack_trace = "\nAlloc Stacktrace:\n" + doris::get_stack_trace();
-            }
-            LOG(INFO) << fmt::format("sys memory check failed, throw exception, {}.",
-                                     err_msg + stack_trace);
+            LOG(INFO) << fmt::format("sys memory check failed, throw exception, {}.", err_msg);
             throw doris::Exception(doris::ErrorCode::MEM_ALLOC_FAILED, err_msg);
         } else {
             LOG(INFO) << fmt::format("sys memory check failed, no throw exception, {}.", err_msg);
@@ -210,8 +192,9 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::memory_
     }
 #endif
     if (doris::thread_context()->thread_mem_tracker_mgr->skip_memory_check != 0 ||
-        !doris::thread_context()->is_attach_task() ||
-        !doris::thread_context()->resource_ctx()->memory_context()->enable_check_mem_limit()) {
+        !doris::thread_context()
+                 ->thread_mem_tracker_mgr->limiter_mem_tracker()
+                 ->enable_check_limit()) {
         return;
     }
     auto st = doris::thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker()->check_limit(
@@ -226,14 +209,14 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::memory_
         if (doris::enable_thread_catch_bad_alloc) {
             LOG(INFO) << fmt::format(
                     "Task:{} memory tracker check failed, throw exception, {}.",
-                    print_id(doris::thread_context()->resource_ctx()->task_controller()->task_id()),
+                    doris::thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker()->label(),
                     err_msg);
             throw doris::Exception(doris::ErrorCode::MEM_ALLOC_FAILED, err_msg);
         } else {
             LOG(INFO) << fmt::format(
                     "Task:{} memory tracker check failed, will continue to execute, no throw "
                     "exception, {}.",
-                    print_id(doris::thread_context()->resource_ctx()->task_controller()->task_id()),
+                    doris::thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker()->label(),
                     err_msg);
         }
     }

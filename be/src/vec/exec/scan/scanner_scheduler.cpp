@@ -280,7 +280,7 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                    !(ctx->low_memory_mode() && has_first_full_block) &&
                    !(has_first_full_block && doris::thread_context()
                                                      ->thread_mem_tracker_mgr->limiter_mem_tracker()
-                                                     ->limit_exceeded())) {
+                                                     ->check_limit(1)) != Status::OK()) {
                 if (UNLIKELY(ctx->done())) {
                     eos = true;
                     break;

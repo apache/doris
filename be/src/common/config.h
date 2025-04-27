@@ -209,7 +209,7 @@ DECLARE_mInt64(revoke_memory_max_tolerance_ms);
 // if false, turn off all stacktrace
 DECLARE_mBool(enable_stacktrace);
 
-// when alloc memory larger than stacktrace_in_alloc_large_memory_bytes, default 2G,
+// when alloc memory larger than stacktrace_in_alloc_large_memory_bytes, default 2G - 1,
 // if alloc successful, will print a warning with stacktrace, but not prevent memory alloc.
 // if alloc failed using Doris Allocator, will print stacktrace in error log.
 // if is -1, disable print stacktrace when alloc large memory.

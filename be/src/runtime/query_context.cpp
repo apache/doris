@@ -171,8 +171,8 @@ void QueryContext::_init_query_mem_tracker() {
     // after `check_limit` returns an error, but to run as long as possible,
     // and will enter the paused state and try to spill when the query reserves next time.
     // If the workload group or process runs out of memory, it will be forced to cancel.
-    _resource_ctx->memory_context()->set_enable_check_mem_limit(!(
-            _query_options.__isset.enable_reserve_memory && _query_options.enable_reserve_memory));
+    query_mem_tracker->set_enable_check_limit(!(_query_options.__isset.enable_reserve_memory &&
+                                                _query_options.enable_reserve_memory));
 }
 
 void QueryContext::_init_resource_context() {

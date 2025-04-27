@@ -172,7 +172,7 @@ DEFINE_mInt64(revoke_memory_max_tolerance_ms, "3000");
 
 DEFINE_mBool(enable_stacktrace, "true");
 
-DEFINE_mInt64(stacktrace_in_alloc_large_memory_bytes, "2147483648");
+DEFINE_mInt64(stacktrace_in_alloc_large_memory_bytes, "2147483647"); // 2GB -1
 
 DEFINE_mInt64(crash_in_alloc_large_memory_bytes, "-1");
 

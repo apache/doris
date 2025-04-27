@@ -80,8 +80,8 @@ public:
     std::shared_ptr<MemTrackerLimiter> mem_tracker() const { return mem_tracker_; }
     void set_mem_tracker(const std::shared_ptr<MemTrackerLimiter>& mem_tracker) {
         mem_tracker_ = mem_tracker;
-        _user_set_mem_limit = mem_tracker_->limit();
-        _adjusted_mem_limit = mem_tracker_->limit();
+        user_set_mem_limit_ = mem_tracker_->limit();
+        adjusted_mem_limit_ = mem_tracker_->limit();
     }
 
     // This method is called by workload group manager to set query's memlimit using slot
@@ -91,16 +91,11 @@ public:
 
     // The new memlimit should be less than user set memlimit.
     void set_adjusted_mem_limit(int64_t new_mem_limit) {
-        _adjusted_mem_limit = std::min<int64_t>(new_mem_limit, _user_set_mem_limit);
+        adjusted_mem_limit_ = std::min<int64_t>(new_mem_limit, user_set_mem_limit_);
     }
     // Expected mem limit is the limit when workload group reached limit.
-    int64_t adjusted_mem_limit() { return _adjusted_mem_limit; }
-    void effect_adjusted_mem_limit() { set_mem_limit(_adjusted_mem_limit); }
-
-    bool enable_check_mem_limit() const { return _enable_check_mem_limit; }
-    void set_enable_check_mem_limit(bool enable_check_mem_limit) {
-        _enable_check_mem_limit = enable_check_mem_limit;
-    }
+    int64_t adjusted_mem_limit() { return adjusted_mem_limit_; }
+    void effect_adjusted_mem_limit() { set_mem_limit(adjusted_mem_limit_); }
 
     int64_t current_memory_bytes() const { return mem_tracker_->consumption(); }
     int64_t peak_memory_bytes() const { return mem_tracker_->peak_consumption(); }
@@ -123,9 +118,8 @@ protected:
     std::shared_ptr<MemTrackerLimiter> mem_tracker_ {nullptr};
     ResourceContext* resource_ctx_ {nullptr};
 
-    int64_t _user_set_mem_limit = 0;
-    std::atomic<int64_t> _adjusted_mem_limit = 0;
-    bool _enable_check_mem_limit = true;
+    int64_t user_set_mem_limit_ = 0;
+    std::atomic<int64_t> adjusted_mem_limit_ = 0;
 };
 
 #include "common/compile_check_end.h"
