@@ -58,6 +58,12 @@ namespace doris {
 
 class UUIDGenerator {
 public:
+    UUIDGenerator() {
+        // Initialize random generator once
+        std::random_device rd;
+        _random_gen.seed(rd());
+    }
+
     boost::uuids::uuid next_uuid() {
         std::lock_guard<std::mutex> lock(_uuid_gen_lock);
 
@@ -68,11 +74,8 @@ public:
 
         uint16_t counter = _counter.fetch_add(1, std::memory_order_relaxed) & 0xFF;
 
-        // Generate random bits
-        std::random_device rd;
-        std::mt19937_64 gen(rd());
-        std::uniform_int_distribution<uint64_t> dis;
-        uint64_t random = dis(gen);
+        // Use the pre-initialized random generator
+        uint64_t random = _random_dist(_random_gen);
 
         boost::uuids::uuid uuid;
 
@@ -110,6 +113,8 @@ public:
 private:
     std::mutex _uuid_gen_lock;
     std::atomic<uint16_t> _counter {0};
+    std::mt19937_64 _random_gen;
+    std::uniform_int_distribution<uint64_t> _random_dist;
 };
 
 } // namespace doris
