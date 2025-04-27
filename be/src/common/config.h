@@ -699,6 +699,9 @@ DECLARE_mInt64(write_buffer_size_for_agg);
 // max parallel flush task per memtable writer
 DECLARE_mInt32(memtable_flush_running_count_limit);
 
+// maximum sleep time to wait for memory when writing or flushing memtable.
+DECLARE_mInt32(memtable_wait_for_memory_sleep_time_s);
+
 DECLARE_Int32(load_process_max_memory_limit_percent); // 50%
 
 // If the memory consumption of load jobs exceed load_process_max_memory_limit,

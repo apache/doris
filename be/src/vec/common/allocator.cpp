@@ -110,9 +110,7 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::sys_mem
             err_msg += "\nAlloc Stacktrace:\n" + doris::get_stack_trace();
         }
 
-        if (doris::thread_context()->thread_mem_tracker_mgr->wait_gc() &&
-            doris::thread_context()->is_attach_task() &&
-            !doris::thread_context()->resource_ctx()->task_controller()->is_cancelled()) {
+        if (doris::thread_context()->thread_mem_tracker_mgr->wait_gc()) {
             int64_t wait_milliseconds = 0;
             LOG(INFO) << fmt::format(
                     "Task:{} waiting for enough memory in thread id:{}, maximum {}ms, {}.",
@@ -126,23 +124,19 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::sys_mem
             doris::MemoryReclamation::je_purge_dirty_pages();
 
             if (!doris::config::disable_memory_gc) {
+                // Allocator is not aware of whether the query is canceled.
+                // even if the query is canceled, it will not end early.
+                // this may cause query to be cancelled more slowly, but it is not a major problem.
                 while (wait_milliseconds < doris::config::thread_wait_gc_max_milliseconds) {
                     std::this_thread::sleep_for(std::chrono::milliseconds(100));
                     if (!doris::GlobalMemoryArbitrator::is_exceed_hard_mem_limit(size)) {
                         doris::GlobalMemoryArbitrator::refresh_interval_memory_growth += size;
                         break;
                     }
-                    if (!doris::thread_context()->is_attach_task() || doris::thread_context()
-                                                                              ->resource_ctx()
-                                                                              ->task_controller()
-                                                                              ->is_cancelled()) {
-                        if (doris::enable_thread_catch_bad_alloc) {
-                            throw doris::Exception(doris::ErrorCode::MEM_ALLOC_FAILED, err_msg);
-                        }
-                        return;
-                    }
                     wait_milliseconds += 100;
                 }
+            } else {
+                wait_milliseconds = doris::config::thread_wait_gc_max_milliseconds;
             }
 
             // If true, it means that after waiting for a while, there is still not enough memory,
@@ -191,10 +185,7 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::memory_
         return;
     }
 #endif
-    if (doris::thread_context()->thread_mem_tracker_mgr->skip_memory_check != 0 ||
-        !doris::thread_context()
-                 ->thread_mem_tracker_mgr->limiter_mem_tracker()
-                 ->enable_check_limit()) {
+    if (doris::thread_context()->thread_mem_tracker_mgr->skip_memory_check != 0) {
         return;
     }
     auto st = doris::thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker()->check_limit(

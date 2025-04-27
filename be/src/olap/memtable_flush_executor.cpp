@@ -146,7 +146,7 @@ Status FlushToken::_try_reserve_memory(const std::shared_ptr<ResourceContext>& r
     auto* memtable_flush_executor =
             ExecEnv::GetInstance()->storage_engine().memtable_flush_executor();
     Status st;
-    int32_t max_waiting_time_ms = 10000; // If memory not enough, max waiting 10s.
+    int32_t max_waiting_time = config::memtable_wait_for_memory_sleep_time_s;
     do {
         // only try to reserve process memory
         st = thread_context->thread_mem_tracker_mgr->try_reserve(size, true);
@@ -164,13 +164,13 @@ Status FlushToken::_try_reserve_memory(const std::shared_ptr<ResourceContext>& r
             LOG_EVERY_T(INFO, 60) << fmt::format(
                     "Failed to reserve memory {} for flush memtable, retry after 100ms",
                     PrettyPrinter::print_bytes(size));
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
-            max_waiting_time_ms -= 100;
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+            max_waiting_time -= 1;
         } else {
             st = Status::OK();
             break;
         }
-    } while (max_waiting_time_ms > 0);
+    } while (max_waiting_time > 0);
     return st;
 }
 
