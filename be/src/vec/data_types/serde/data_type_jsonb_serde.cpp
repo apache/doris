@@ -232,42 +232,6 @@ void convert_jsonb_to_rapidjson(const JsonbValue& val, rapidjson::Value& target,
     }
 }
 
-Status DataTypeJsonbSerDe::write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
-                                                  rapidjson::Document::AllocatorType& allocator,
-                                                  Arena& mem_pool, int row_num) const {
-    const auto& data = assert_cast<const ColumnString&>(column);
-    const auto jsonb_val = data.get_data_at(row_num);
-    if (jsonb_val.empty()) {
-        return Status::OK();
-    }
-    JsonbValue* val = JsonbDocument::createValue(jsonb_val.data, jsonb_val.size);
-    if (val == nullptr) {
-        return Status::InternalError("Failed to get json document from jsonb");
-    }
-    rapidjson::Value value;
-    convert_jsonb_to_rapidjson(*val, value, allocator);
-    if (val->isObject() && result.IsObject()) {
-        JsonFunctions::merge_objects(result, value, allocator);
-    } else {
-        result = std::move(value);
-    }
-    return Status::OK();
-}
-
-Status DataTypeJsonbSerDe::read_one_cell_from_json(IColumn& column,
-                                                   const rapidjson::Value& result) const {
-    // TODO improve performance
-    auto& col = assert_cast<ColumnString&>(column);
-    rapidjson::StringBuffer buffer;
-    rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
-    result.Accept(writer);
-    JsonbParser parser;
-    bool ok = parser.parse(buffer.GetString(), buffer.GetLength());
-    CHECK(ok);
-    col.insert_data(parser.getWriter().getOutput()->getBuffer(),
-                    parser.getWriter().getOutput()->getSize());
-    return Status::OK();
-}
 Status DataTypeJsonbSerDe::write_column_to_pb(const IColumn& column, PValues& result, int start,
                                               int end) const {
     const auto& string_column = assert_cast<const ColumnString&>(column);
@@ -296,6 +260,24 @@ Status DataTypeJsonbSerDe::read_column_from_pb(IColumn& column, const PValues& a
         column_string.insert_data(value.value(), value.size());
     }
     return Status::OK();
+}
+
+void DataTypeJsonbSerDe::write_one_cell_to_binary(const IColumn& src_column,
+                                                  ColumnString::Chars& chars,
+                                                  int64_t row_num) const {
+    const uint8_t type = static_cast<uint8_t>(TypeIndex::JSONB);
+    const auto& col = assert_cast<const ColumnString&>(src_column);
+    const auto& data_ref = col.get_data_at(row_num);
+    size_t data_size = data_ref.size;
+
+    const size_t old_size = chars.size();
+    const size_t new_size = old_size + sizeof(uint8_t) + sizeof(size_t) + data_ref.size;
+    chars.resize(new_size);
+
+    memcpy(chars.data() + old_size, reinterpret_cast<const char*>(&type), sizeof(uint8_t));
+    memcpy(chars.data() + old_size + sizeof(uint8_t), reinterpret_cast<const char*>(&data_size),
+           sizeof(size_t));
+    memcpy(chars.data() + old_size + sizeof(uint8_t) + sizeof(size_t), data_ref.data, data_size);
 }
 } // namespace vectorized
 } // namespace doris

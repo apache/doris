@@ -102,6 +102,8 @@ DataTypePtr DataTypeFactory::create_data_type(const TabletColumn& col_desc, bool
             names.push_back(col_desc.get_sub_column(i).name());
         }
         nested = std::make_shared<DataTypeStruct>(dataTypes, names);
+    } else if (col_desc.type() == FieldType::OLAP_FIELD_TYPE_VARIANT) {
+        nested = std::make_shared<DataTypeObject>(col_desc.variant_max_subcolumns_count());
     } else {
         nested =
                 _create_primitive_data_type(col_desc.type(), col_desc.precision(), col_desc.frac());
@@ -163,7 +165,8 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeDescriptor& col_desc, bo
         nested = std::make_shared<vectorized::DataTypeFloat64>();
         break;
     case TYPE_VARIANT:
-        nested = std::make_shared<vectorized::DataTypeObject>("", true);
+        nested =
+                std::make_shared<vectorized::DataTypeObject>(col_desc.variant_max_subcolumns_count);
         break;
     case TYPE_STRING:
     case TYPE_CHAR:
@@ -248,7 +251,8 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeDescriptor& col_desc, bo
     return nested;
 }
 
-DataTypePtr DataTypeFactory::create_data_type(const TypeIndex& type_index, bool is_nullable) {
+DataTypePtr DataTypeFactory::create_data_type(const TypeIndex& type_index, bool is_nullable,
+                                              int precision, int scale) {
     DataTypePtr nested = nullptr;
     switch (type_index) {
     case TypeIndex::UInt8:
@@ -297,7 +301,7 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeIndex& type_index, bool 
         nested = std::make_shared<vectorized::DataTypeDateV2>();
         break;
     case TypeIndex::DateTimeV2:
-        nested = std::make_shared<DataTypeDateTimeV2>();
+        nested = std::make_shared<DataTypeDateTimeV2>(scale > 0 ? scale : 0);
         break;
     case TypeIndex::DateTime:
         nested = std::make_shared<vectorized::DataTypeDateTime>();
@@ -305,26 +309,30 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeIndex& type_index, bool 
     case TypeIndex::String:
         nested = std::make_shared<vectorized::DataTypeString>();
         break;
-    case TypeIndex::VARIANT:
-        nested = std::make_shared<vectorized::DataTypeObject>("", true);
-        break;
     case TypeIndex::Decimal32:
-        nested = std::make_shared<DataTypeDecimal<Decimal32>>(BeConsts::MAX_DECIMAL32_PRECISION, 0);
+        nested = std::make_shared<DataTypeDecimal<Decimal32>>(
+                precision > 0 ? precision : BeConsts::MAX_DECIMAL32_PRECISION,
+                scale > 0 ? scale : 0);
         break;
     case TypeIndex::Decimal64:
-        nested = std::make_shared<DataTypeDecimal<Decimal64>>(BeConsts::MAX_DECIMAL64_PRECISION, 0);
+        nested = std::make_shared<DataTypeDecimal<Decimal64>>(
+                precision > 0 ? precision : BeConsts::MAX_DECIMAL64_PRECISION,
+                scale > 0 ? scale : 0);
         break;
     case TypeIndex::Decimal128V2:
-        nested = std::make_shared<DataTypeDecimal<Decimal128V2>>(BeConsts::MAX_DECIMALV2_PRECISION,
-                                                                 0);
+        nested = std::make_shared<DataTypeDecimal<Decimal128V2>>(
+                precision > 0 ? precision : BeConsts::MAX_DECIMALV2_PRECISION,
+                scale > 0 ? scale : 0);
         break;
     case TypeIndex::Decimal128V3:
-        nested = std::make_shared<DataTypeDecimal<Decimal128V3>>(BeConsts::MAX_DECIMAL128_PRECISION,
-                                                                 0);
+        nested = std::make_shared<DataTypeDecimal<Decimal128V3>>(
+                precision > 0 ? precision : BeConsts::MAX_DECIMAL128_PRECISION,
+                scale > 0 ? scale : 0);
         break;
     case TypeIndex::Decimal256:
-        nested = std::make_shared<DataTypeDecimal<Decimal256>>(BeConsts::MAX_DECIMAL256_PRECISION,
-                                                               0);
+        nested = std::make_shared<DataTypeDecimal<Decimal256>>(
+                precision > 0 ? precision : BeConsts::MAX_DECIMAL256_PRECISION,
+                scale > 0 ? scale : 0);
         break;
     case TypeIndex::JSONB:
         nested = std::make_shared<vectorized::DataTypeJsonb>();
@@ -344,6 +352,10 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeIndex& type_index, bool 
     case TypeIndex::TimeV2:
     case TypeIndex::Time:
         nested = std::make_shared<vectorized::DataTypeTimeV2>();
+        break;
+    case TypeIndex::VARIANT:
+        // only in nested type which is Array<ColumnObject>
+        nested = std::make_shared<vectorized::DataTypeObject>(0);
         break;
     default:
         DCHECK(false) << "invalid typeindex:" << getTypeName(type_index);
@@ -408,7 +420,7 @@ DataTypePtr DataTypeFactory::_create_primitive_data_type(const FieldType& type, 
         result = std::make_shared<vectorized::DataTypeString>();
         break;
     case FieldType::OLAP_FIELD_TYPE_VARIANT:
-        result = std::make_shared<vectorized::DataTypeObject>("", true);
+        result = std::make_shared<vectorized::DataTypeObject>();
         break;
     case FieldType::OLAP_FIELD_TYPE_JSONB:
         result = std::make_shared<vectorized::DataTypeJsonb>();
@@ -489,7 +501,7 @@ DataTypePtr DataTypeFactory::create_data_type(const PColumnMeta& pcolumn) {
         nested = std::make_shared<DataTypeString>();
         break;
     case PGenericType::VARIANT:
-        nested = std::make_shared<DataTypeObject>("", true);
+        nested = std::make_shared<DataTypeObject>(pcolumn.variant_max_subcolumns_count());
         break;
     case PGenericType::JSONB:
         nested = std::make_shared<DataTypeJsonb>();

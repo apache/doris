@@ -58,8 +58,11 @@ public class CheckCast implements ExpressionPatternRuleFactory {
     }
 
     private static boolean check(DataType originalType, DataType targetType) {
+        if (originalType.isVariantType() && targetType.isVariantType()) {
+            return originalType.equals(targetType);
+        }
         if (originalType.isVariantType() && (targetType instanceof PrimitiveType || targetType.isArrayType())) {
-            // variant could cast to primitive types and array
+            // variant could cast to other primitive types and array
             return true;
         }
         if (originalType.isNullType()) {

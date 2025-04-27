@@ -30,6 +30,7 @@
 #include <vector>
 
 #include "agent/be_exec_version_manager.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_object.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/typeid_cast.h"
@@ -45,10 +46,19 @@ class IColumn;
 
 namespace doris::vectorized {
 
-DataTypeObject::DataTypeObject(const String& schema_format_, bool is_nullable_)
-        : schema_format(to_lower(schema_format_)), is_nullable(is_nullable_) {}
+DataTypeObject::DataTypeObject(int32_t max_subcolumns_count)
+        : _max_subcolumns_count(max_subcolumns_count) {
+    name = fmt::format("Variant(max subcolumns count = {})", max_subcolumns_count);
+}
 bool DataTypeObject::equals(const IDataType& rhs) const {
-    return typeid_cast<const DataTypeObject*>(&rhs) != nullptr;
+    auto rhs_type = typeid_cast<const DataTypeObject*>(&rhs);
+    if (rhs_type && _max_subcolumns_count != rhs_type->variant_max_subcolumns_count()) {
+        VLOG_DEBUG << "_max_subcolumns_count is" << _max_subcolumns_count
+                   << "rhs_type->variant_max_subcolumns_count()"
+                   << rhs_type->variant_max_subcolumns_count();
+        return false;
+    }
+    return rhs_type && _max_subcolumns_count == rhs_type->variant_max_subcolumns_count();
 }
 
 int64_t DataTypeObject::get_uncompressed_serialized_bytes(const IColumn& column,
@@ -69,6 +79,7 @@ int64_t DataTypeObject::get_uncompressed_serialized_bytes(const IColumn& column,
         }
         PColumnMeta column_meta_pb;
         column_meta_pb.set_name(entry->path.get_path());
+        entry->path.to_protobuf(column_meta_pb.mutable_column_path(), -1 /*not used here*/);
         type->to_pb_column_meta(&column_meta_pb);
         std::string meta_binary;
         column_meta_pb.SerializeToString(&meta_binary);
@@ -81,6 +92,13 @@ int64_t DataTypeObject::get_uncompressed_serialized_bytes(const IColumn& column,
     // serialize num of rows, only take effect when subcolumns empty
     if (be_exec_version >= VARIANT_SERDE) {
         size += sizeof(uint32_t);
+    }
+
+    // sparse column
+    // TODO make compability with sparse column
+    if (be_exec_version >= VARIANT_SPARSE_SERDE) {
+        size += ColumnObject::get_sparse_column_type()->get_uncompressed_serialized_bytes(
+                *column_object.get_sparse_column(), be_exec_version);
     }
 
     return size;
@@ -112,6 +130,7 @@ char* DataTypeObject::serialize(const IColumn& column, char* buf, int be_exec_ve
         ++num_of_columns;
         PColumnMeta column_meta_pb;
         column_meta_pb.set_name(entry->path.get_path());
+        entry->path.to_protobuf(column_meta_pb.mutable_column_path(), -1 /*not used here*/);
         type->to_pb_column_meta(&column_meta_pb);
         std::string meta_binary;
         column_meta_pb.SerializeToString(&meta_binary);
@@ -131,6 +150,13 @@ char* DataTypeObject::serialize(const IColumn& column, char* buf, int be_exec_ve
         buf += sizeof(uint32_t);
     }
 
+    // serialize sparse column
+    // TODO make compability with sparse column
+    if (be_exec_version >= VARIANT_SPARSE_SERDE) {
+        buf = ColumnObject::get_sparse_column_type()->serialize(*column_object.get_sparse_column(),
+                                                                buf, be_exec_version);
+    }
+
     return buf;
 }
 
@@ -141,7 +167,6 @@ const char* DataTypeObject::deserialize(const char* buf, MutableColumnPtr* colum
     // 1. deserialize num of subcolumns
     uint32_t num_subcolumns = *reinterpret_cast<const uint32_t*>(buf);
     buf += sizeof(uint32_t);
-
     // 2. deserialize each subcolumn in a loop
     for (uint32_t i = 0; i < num_subcolumns; i++) {
         // 2.1 deserialize subcolumn column path (str size + str data)
@@ -157,20 +182,40 @@ const char* DataTypeObject::deserialize(const char* buf, MutableColumnPtr* colum
         MutableColumnPtr sub_column = type->create_column();
         buf = type->deserialize(buf, &sub_column, be_exec_version);
 
-        // add subcolumn to column_object
         PathInData key;
-        if (!column_meta_pb.name().empty()) {
+        if (column_meta_pb.has_column_path()) {
+            // init from path pb
+            key.from_protobuf(column_meta_pb.column_path());
+        } else if (!column_meta_pb.name().empty()) {
+            // init from name for compatible
             key = PathInData {column_meta_pb.name()};
         }
+        // add subcolumn to column_object
         column_object->add_sub_column(key, std::move(sub_column), type);
     }
     size_t num_rows = 0;
     // serialize num of rows, only take effect when subcolumns empty
     if (be_exec_version >= VARIANT_SERDE) {
         num_rows = *reinterpret_cast<const uint32_t*>(buf);
-        column_object->set_num_rows(num_rows);
         buf += sizeof(uint32_t);
     }
+
+    // deserialize sparse column
+    if (be_exec_version >= VARIANT_SPARSE_SERDE) {
+        MutableColumnPtr sparse_column = ColumnObject::get_sparse_column_type()->create_column();
+        buf = ColumnObject::get_sparse_column_type()->deserialize(buf, &sparse_column,
+                                                                  be_exec_version);
+        column_object->set_sparse_column(std::move(sparse_column));
+    } else {
+        column_object->get_sparse_column()->assume_mutable()->resize(
+                column_object->get_sparse_column()->size() + num_rows);
+    }
+
+    if (column_object->get_subcolumn({})) {
+        column_object->get_subcolumn({})->resize(num_rows);
+    }
+
+    column_object->set_num_rows(num_rows);
 
     column_object->finalize();
 #ifndef NDEBUG
@@ -190,6 +235,20 @@ std::string DataTypeObject::to_string(const IColumn& column, size_t row_num) con
 void DataTypeObject::to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const {
     const auto& variant = assert_cast<const ColumnObject&>(column);
     static_cast<void>(variant.serialize_one_row_to_string(row_num, ostr));
+}
+
+void DataTypeObject::to_pb_column_meta(PColumnMeta* col_meta) const {
+    IDataType::to_pb_column_meta(col_meta);
+    col_meta->set_variant_max_subcolumns_count(_max_subcolumns_count);
+}
+
+MutableColumnPtr DataTypeObject::create_column() const {
+    return ColumnObject::create(_max_subcolumns_count);
+}
+
+Field DataTypeObject::get_type_field(const IColumn& column, size_t row) const {
+    const auto& column_object = assert_cast<const ColumnObject&>(column);
+    return column_object[row];
 }
 
 } // namespace doris::vectorized

@@ -110,6 +110,9 @@ Status DataTypeDateTimeSerDe::serialize_one_cell_to_json(const IColumn& column, 
     row_num = result.second;
 
     Int64 int_val = assert_cast<const ColumnInt64&>(*ptr).get_element(row_num);
+    if (_nesting_level > 1) {
+        bw.write('"');
+    }
     if (options.date_olap_format) {
         tm time_tm;
         int64 part1 = (int_val / 1000000L);
@@ -131,6 +134,9 @@ Status DataTypeDateTimeSerDe::serialize_one_cell_to_json(const IColumn& column, 
         char buf[64];
         char* pos = value.to_string(buf);
         bw.write(buf, pos - buf - 1);
+    }
+    if (_nesting_level > 1) {
+        bw.write('"');
     }
     return Status::OK();
 }

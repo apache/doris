@@ -34,7 +34,8 @@ constexpr inline int AGGREGATION_2_1_VERSION =
         6; // some aggregation changed the data format after this version
 constexpr inline int USE_CONST_SERDE =
         8; // support const column in serialize/deserialize function: PR #41175
-
+constexpr inline int VARIANT_SPARSE_SERDE =
+        9; // support variant for serializing/deserializing sparse column
 class BeExecVersionManager {
 public:
     BeExecVersionManager() = delete;

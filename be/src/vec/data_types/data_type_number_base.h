@@ -164,6 +164,13 @@ public:
         return std::make_shared<DataTypeNumberSerDe<T>>(nesting_level);
     };
 
+    // Return Field which wrapped with the real type.
+    Field get_type_field(const IColumn& column, size_t row) const override {
+        const auto& column_data = static_cast<const ColumnVector<T>&>(column);
+        Field field = column_data.get_data()[row];
+        return VariantField(std::move(field), get_type_id());
+    }
+
 protected:
     template <typename Derived>
     void to_string_batch_impl(const IColumn& column, ColumnString& column_to) const {

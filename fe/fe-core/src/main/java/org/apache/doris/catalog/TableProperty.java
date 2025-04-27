@@ -283,6 +283,16 @@ public class TableProperty implements Writable, GsonPostProcessable {
         return variantEnableFlattenNested;
     }
 
+    public void setVariantMaxSubcolumnsCount(int maxSubcoumnsCount) {
+        properties.put(PropertyAnalyzer.PROPERTIES_VARIANT_MAX_SUBCOLUMNS_COUNT, Integer.toString(maxSubcoumnsCount));
+    }
+
+    public int getVariantMaxSubcolumnsCount() {
+        return Integer.parseInt(properties.getOrDefault(
+                PropertyAnalyzer.PROPERTIES_VARIANT_MAX_SUBCOLUMNS_COUNT,
+                Integer.toString(PropertyAnalyzer.VARIANT_MAX_SUBCOLUMNS_COUNT_DEFAULT_VALUE)));
+    }
+
     public TableProperty buildEnableSingleReplicaCompaction() {
         enableSingleReplicaCompaction = Boolean.parseBoolean(
                 properties.getOrDefault(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION, "false"));

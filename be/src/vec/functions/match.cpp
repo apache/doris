@@ -42,8 +42,9 @@ Status FunctionMatchBase::evaluate_inverted_index(
 
     if (function_name == MATCH_PHRASE_FUNCTION || function_name == MATCH_PHRASE_PREFIX_FUNCTION ||
         function_name == MATCH_PHRASE_EDGE_FUNCTION) {
-        if (iter->get_inverted_index_reader_type() == InvertedIndexReaderType::FULLTEXT &&
-            get_parser_phrase_support_string_from_properties(iter->get_index_properties()) ==
+        auto reader = iter->get_reader(InvertedIndexReaderType::FULLTEXT);
+        if (reader &&
+            get_parser_phrase_support_string_from_properties(reader->get_index_properties()) ==
                     INVERTED_INDEX_PARSER_PHRASE_SUPPORT_NO) {
             return Status::Error<ErrorCode::INVERTED_INDEX_INVALID_PARAMETERS>(
                     "phrase queries require setting support_phrase = true");
@@ -67,7 +68,7 @@ Status FunctionMatchBase::evaluate_inverted_index(
     if (is_string_type(param_type)) {
         auto inverted_index_query_type = get_query_type_from_fn_name();
         RETURN_IF_ERROR(
-                iter->read_from_inverted_index(data_type_with_name.first, query_param->get_value(),
+                iter->read_from_inverted_index(data_type_with_name, query_param->get_value(),
                                                inverted_index_query_type, num_rows, roaring));
     } else {
         return Status::Error<ErrorCode::INVERTED_INDEX_INVALID_PARAMETERS>(

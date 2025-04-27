@@ -550,10 +550,8 @@ public class ScalarType extends Type {
     }
 
     public static ScalarType createVariantType() {
-        // length checked in analysis
-        ScalarType type = new ScalarType(PrimitiveType.VARIANT);
-        type.len = MAX_STRING_LENGTH;
-        return type;
+        // Not return ScalarType return VariantType instead for compatibility reason
+        return new VariantType();
     }
 
     public static ScalarType createVarchar(int len) {
@@ -727,8 +725,7 @@ public class ScalarType extends Type {
             case CHAR:
             case HLL:
             case STRING:
-            case JSONB:
-            case VARIANT: {
+            case JSONB: {
                 scalarType.setLen(getLength());
                 break;
             }
@@ -911,6 +908,9 @@ public class ScalarType extends Type {
             return precision == scalarType.precision && scale == scalarType.scale;
         }
         if (isDatetimeV2() && scalarType.isDatetimeV2()) {
+            return true;
+        }
+        if (isVariantType() && scalarType.isVariantType()) {
             return true;
         }
         return false;
@@ -1126,6 +1126,14 @@ public class ScalarType extends Type {
                 finalType = ScalarType.createDecimalV3Type(MAX_PRECISION, finalType.getScalarScale());
             }
             return finalType;
+        }
+
+        if (t1.isVariantType() && t2.isVariantType()) {
+            if (t1.equals(t2)) {
+                return t1;
+            } else {
+                return Type.UNSUPPORTED;
+            }
         }
 
         PrimitiveType smallerType =

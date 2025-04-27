@@ -540,6 +540,11 @@ Status VerticalBlockReader::_unique_key_next_block(Block* block, bool* eof) {
     int target_block_row = 0;
     auto target_columns = block->mutate_columns();
     size_t column_count = block->columns();
+    std::vector<bool> null_flag(column_count);
+    for (size_t i = 0; i < column_count; ++i) {
+        null_flag[i] = target_columns[i]->is_nullable();
+    }
+    std::vector<int> null_counter(column_count, 0);
     do {
         Status res = _vcollect_iter->unique_key_next_row(&_next_row);
         if (UNLIKELY(!res.ok())) {
@@ -553,14 +558,36 @@ Status VerticalBlockReader::_unique_key_next_block(Block* block, bool* eof) {
         }
         const auto& src_block = _next_row.block;
         assert(src_block->columns() == column_count);
-        RETURN_IF_CATCH_EXCEPTION({
-            for (size_t i = 0; i < column_count; ++i) {
+        for (size_t i = 0; i < column_count; ++i) {
+            if (LIKELY(null_flag[i])) {
+                // reduce virtual function calls
+                const auto& col = assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(
+                        *(src_block->get_by_position(i).column));
+                auto& dst_col = assert_cast<ColumnNullable&, TypeCheckOnRelease::DISABLE>(
+                        *target_columns[i]);
+                if (LIKELY(col.is_null_at(_next_row.row_pos))) {
+                    // dst_col.insert_default();
+                    ++null_counter[i];
+                    continue;
+                }
+                if (null_counter[i]) {
+                    dst_col.insert_many_defaults(null_counter[i]);
+                    null_counter[i] = 0;
+                }
+                dst_col.insert_from(col, _next_row.row_pos);
+            } else {
                 target_columns[i]->insert_from(*(src_block->get_by_position(i).column),
                                                _next_row.row_pos);
             }
-        });
+        };
         ++target_block_row;
     } while (target_block_row < _reader_context.batch_size);
+    for (size_t i = 0; i < column_count; ++i) {
+        if (null_counter[i]) {
+            target_columns[i]->insert_many_defaults(null_counter[i]);
+        }
+    }
+    null_counter.clear();
     block->set_columns(std::move(target_columns));
     return Status::OK();
 }

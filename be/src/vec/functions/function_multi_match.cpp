@@ -77,14 +77,19 @@ Status FunctionMultiMatch::evaluate_inverted_index(
                 "arguments for multi_match must be string");
     }
     // search
-    for (int i = 0; i < data_type_with_names.size(); i++) {
-        auto column_name = data_type_with_names[i].first;
+    for (size_t i = 0; i < data_type_with_names.size(); i++) {
         auto* iter = iterators[i];
+        if (iter == nullptr) {
+            std::string error_msg = "Inverted index iterator is null for column '" +
+                                    data_type_with_names[i].first +
+                                    "' during multi_match execution";
+            return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(error_msg);
+        }
+
         auto single_result = std::make_shared<roaring::Roaring>();
-        std::shared_ptr<roaring::Roaring> index = std::make_shared<roaring::Roaring>();
-        RETURN_IF_ERROR(iter->read_from_inverted_index(column_name, &query_str, query_type,
-                                                       num_rows, index));
-        *roaring |= *index;
+        RETURN_IF_ERROR(iter->read_from_inverted_index(data_type_with_names[i], &query_str,
+                                                       query_type, num_rows, single_result));
+        *roaring |= *single_result;
     }
     segment_v2::InvertedIndexResultBitmap result(roaring, null_bitmap);
     bitmap_result = result;

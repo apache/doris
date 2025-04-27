@@ -107,13 +107,6 @@ public:
                                std::vector<StringRef>& buffer_list) const override {
         return Status::NotSupported("write_column_to_orc with type " + column.get_name());
     }
-
-    Status write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
-                                  rapidjson::Document::AllocatorType& allocator, Arena& mem_pool,
-                                  int row_num) const override {
-        result.SetNull();
-        return Status::OK();
-    }
 };
 } // namespace vectorized
 } // namespace doris
