@@ -36,10 +36,12 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/exception.h"
 #include "olap/hll.h"
+#include "runtime/define_primitive_type.h"
 #include "util/bitmap_value.h"
 #include "util/quantile_state.h"
 #include "vec/common/uint128.h"
 #include "vec/core/types.h"
+#include "vec/json/path_in_data.h"
 
 namespace doris {
 template <PrimitiveType type>
@@ -82,7 +84,7 @@ struct Map : public FieldVector {
     using FieldVector::FieldVector;
 };
 
-using VariantMap = std::map<String, Field>;
+using VariantMap = std::map<PathInData, Field>;
 
 //TODO: rethink if we really need this? it only save one pointer from std::string
 // not POD type so could only use read/write_json_binary instead of read/write_binary
@@ -256,6 +258,7 @@ constexpr size_t DBMS_MIN_FIELD_SIZE = 32;
   * Used to represent a single value of one of several types in memory.
   * Warning! Prefer to use chunks of columns instead of single values. See Column.h
   */
+
 class Field {
 public:
     static const int MIN_NON_POD = 16;
@@ -281,6 +284,12 @@ public:
     Field(const Field& rhs) { create(rhs); }
 
     Field(Field&& rhs) { create(std::move(rhs)); }
+
+    Field(Field&& rhs, int8_t precision, int8_t scale) {
+        create(rhs);
+        this->precision = precision;
+        this->scale = scale;
+    }
 
     Field& operator=(const Field& rhs) {
         if (this != &rhs) {
@@ -315,6 +324,8 @@ public:
 
     PrimitiveType get_type() const { return type; }
     std::string get_type_name() const;
+    int8_t get_precision() const { return precision; }
+    int8_t get_scale() const { return scale; }
 
     bool is_null() const { return type == PrimitiveType::TYPE_NULL; }
 
@@ -560,6 +571,8 @@ private:
             storage;
 
     PrimitiveType type;
+    int8_t precision = -1;
+    int8_t scale = -1;
 
     /// Assuming there was no allocated state or it was deallocated (see destroy).
     template <PrimitiveType Type>

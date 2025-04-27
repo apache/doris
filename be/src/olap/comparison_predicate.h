@@ -71,9 +71,17 @@ public:
                     InvertedIndexIterator* iterator, uint32_t num_rows,
                     roaring::Roaring* bitmap) const override {
         if (iterator == nullptr) {
-            return Status::OK();
+            return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
+                    "Inverted index evaluate skipped, no inverted index reader can not support "
+                    "comparison predicate");
         }
-        std::string column_name = name_with_type.first;
+
+        if (iterator->get_reader(segment_v2::InvertedIndexReaderType::STRING_TYPE) == nullptr &&
+            iterator->get_reader(segment_v2::InvertedIndexReaderType::BKD) == nullptr) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
+                    "Inverted index evaluate skipped, no inverted index reader can not support "
+                    "comparison predicate");
+        }
 
         InvertedIndexQueryType query_type = InvertedIndexQueryType::UNKNOWN_QUERY;
         switch (PT) {
@@ -102,9 +110,9 @@ public:
         std::shared_ptr<roaring::Roaring> roaring = std::make_shared<roaring::Roaring>();
 
         std::unique_ptr<InvertedIndexQueryParamFactory> query_param = nullptr;
-        RETURN_IF_ERROR(
-                InvertedIndexQueryParamFactory::create_query_value<Type>(&_value, query_param));
-        RETURN_IF_ERROR(iterator->read_from_inverted_index(column_name, query_param->get_value(),
+        RETURN_IF_ERROR(InvertedIndexQueryParamFactory::create_query_value<Type>((const T*)&_value,
+                                                                                 query_param));
+        RETURN_IF_ERROR(iterator->read_from_inverted_index(name_with_type, query_param->get_value(),
                                                            query_type, num_rows, roaring));
 
         // mask out null_bitmap, since NULL cmp VALUE will produce NULL

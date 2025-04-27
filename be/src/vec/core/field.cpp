@@ -584,4 +584,5 @@ DECLARE_FUNCTION(create_concrete)
 DECLARE_FUNCTION(assign_concrete)
 
 #undef DECLARE_FUNCTION
+
 } // namespace doris::vectorized

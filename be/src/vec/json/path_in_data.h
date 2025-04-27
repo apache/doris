@@ -29,17 +29,19 @@
 #include <vector>
 
 #include "gen_cpp/segment_v2.pb.h"
-#include "vec/columns/column.h"
 #include "vec/common/uint128.h"
-#include "vec/core/field.h"
-#include "vec/core/types.h"
-#include "vec/data_types/data_type.h"
 
 namespace doris::vectorized {
 
 /// Class that represents path in document, e.g. JSON.
 class PathInData;
 using PathInDataPtr = std::shared_ptr<PathInData>;
+
+struct TypeInfo {
+    PrimitiveType type = PrimitiveType::INVALID_TYPE;
+    Int8 scale = -1;
+    Int8 precision = -1;
+};
 
 class PathInData {
 public:
@@ -64,8 +66,10 @@ public:
     };
     using Parts = std::vector<Part>;
     PathInData() = default;
-    explicit PathInData(std::string_view path_);
+    explicit PathInData(std::string_view path_, bool is_typed_ = false);
+    explicit PathInData(std::string_view path_, TypeInfo type_info);
     explicit PathInData(const Parts& parts_);
+    explicit PathInData(std::string_view path_, const Parts& parts_, bool is_typed_ = false);
     explicit PathInData(const std::vector<std::string>& paths);
     explicit PathInData(const std::string& root, const std::vector<std::string>& paths);
     PathInData(const PathInData& other);
@@ -73,10 +77,14 @@ public:
     static UInt128 get_parts_hash(const Parts& parts_);
     bool empty() const { return parts.empty(); }
     const vectorized::String& get_path() const { return path; }
+    // if path is v.a.b, then relative path will return a.b
+    // make sure the parts is not empty
+    std::string_view get_relative_path() const {
+        return {path.begin() + parts[0].key.size() + 1, path.end()};
+    }
     const Parts& get_parts() const { return parts; }
     bool is_nested(size_t i) const { return parts[i].is_nested; }
     bool has_nested_part() const { return has_nested; }
-    void unset_nested();
     bool operator==(const PathInData& other) const { return parts == other.parts; }
     PathInData get_nested_prefix_path() const;
     struct Hash {
@@ -90,10 +98,20 @@ public:
     void to_protobuf(segment_v2::ColumnPathInfo* pb, int32_t parent_col_unique_id) const;
     void from_protobuf(const segment_v2::ColumnPathInfo& pb);
 
+    bool get_is_typed() const { return is_typed; }
+
+    bool need_record_stats() const { return !empty() && !is_typed && !has_nested; }
+
     bool operator<(const PathInData& rhs) const {
         return std::lexicographical_compare(
                 parts.begin(), parts.end(), rhs.parts.begin(), rhs.parts.end(),
                 [](const auto& a, const auto& b) { return a.key < b.key; });
+    }
+
+    PathInData with_type_info(const TypeInfo& type_info) const {
+        PathInData new_path = *this;
+        new_path.type_info = type_info;
+        return new_path;
     }
 
 private:
@@ -108,6 +126,12 @@ private:
     /// True if at least one part is nested.
     /// Cached to avoid linear complexity at 'has_nested'.
     bool has_nested = false;
+
+    /// True if the path is typed, e.g. a.b: int
+    bool is_typed = false;
+
+    // type info of the path, only used in decimal type or datetime type
+    TypeInfo type_info;
 };
 
 class PathInDataBuilder {
@@ -129,13 +153,6 @@ private:
     size_t current_anonymous_array_level = 0;
 };
 using PathsInData = std::vector<PathInData>;
-/// Result of parsing of a document.
-/// Contains all paths extracted from document
-/// and values which are related to them.
-struct ParseResult {
-    std::vector<PathInData> paths;
-    std::vector<Field> values;
-};
 
 struct PathInDataRef {
     const PathInData* ref;
@@ -147,13 +164,5 @@ struct PathInDataRef {
     PathInDataRef(const PathInData* ptr) : ref(ptr) {}
     bool operator==(const PathInDataRef& other) const { return *this->ref == *other.ref; }
 };
-
-struct PathWithColumnAndType {
-    PathInData path;
-    ColumnPtr column;
-    DataTypePtr type;
-};
-
-using PathsWithColumnAndType = std::vector<PathWithColumnAndType>;
 
 } // namespace doris::vectorized
