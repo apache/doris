@@ -36,7 +36,6 @@ import org.apache.doris.nereids.trees.plans.commands.load.PauseDataSyncJobComman
 import org.apache.doris.nereids.trees.plans.commands.load.ResumeDataSyncJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.load.StopDataSyncJobCommand;
 
-
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
@@ -161,14 +160,14 @@ public class SyncJobManager implements Writable {
                 throw new DdlException("Load job does not exist");
             }
 
-            List<SyncJob> runningSyncJob = matchJobs.stream().filter(SyncJob::isRunning)
+            List<SyncJob> runningSyncJobs = matchJobs.stream().filter(SyncJob::isRunning)
                     .collect(Collectors.toList());
-            if (runningSyncJob.isEmpty()) {
+            if (runningSyncJobs.isEmpty()) {
                 throw new DdlException("There is no running job with jobName `"
                     + command.getJobName() + "` to pause");
             }
 
-            syncJobs.addAll(runningSyncJob);
+            syncJobs.addAll(runningSyncJobs);
         } finally {
             readUnlock();
         }

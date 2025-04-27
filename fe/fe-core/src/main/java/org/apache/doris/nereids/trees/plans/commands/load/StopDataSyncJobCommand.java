@@ -52,7 +52,7 @@ public class StopDataSyncJobCommand extends Command {
         ctx.getEnv().getSyncJobManager().stopSyncJob(this);
     }
 
-    private void validate(ConnectContext ctx) throws AnalysisException {
+    public void validate(ConnectContext ctx) throws AnalysisException {
         syncJobName.analyze(ctx);
     }
 

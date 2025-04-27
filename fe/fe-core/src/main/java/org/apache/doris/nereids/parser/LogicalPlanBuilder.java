@@ -6646,12 +6646,16 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitStopDataSyncJob(DorisParser.StopDataSyncJobContext ctx) {
-        List<String> nameParts = visitMultipartIdentifier(ctx.multipartIdentifier());
+        List<String> nameParts = visitMultipartIdentifier(ctx.name);
         int size = nameParts.size();
         String jobName = nameParts.get(size - 1);
-        String dbName = null;
-        if (size >= 2) {
-            dbName = nameParts.get(size - 2);
+        String dbName;
+        if (size == 1) {
+            dbName = null;
+        } else if (size == 2) {
+            dbName = nameParts.get(0);
+        } else {
+            throw new ParseException("only support [<db>.]<job_name>", ctx.name);
         }
         SyncJobName syncJobName = new SyncJobName(jobName, dbName);
         return new StopDataSyncJobCommand(syncJobName);
@@ -6659,12 +6663,16 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitResumeDataSyncJob(DorisParser.ResumeDataSyncJobContext ctx) {
-        List<String> nameParts = visitMultipartIdentifier(ctx.multipartIdentifier());
+        List<String> nameParts = visitMultipartIdentifier(ctx.name);
         int size = nameParts.size();
         String jobName = nameParts.get(size - 1);
-        String dbName = null;
-        if (size >= 2) {
-            dbName = nameParts.get(size - 2);
+        String dbName;
+        if (size == 1) {
+            dbName = null;
+        } else if (size == 2) {
+            dbName = nameParts.get(0);
+        } else {
+            throw new ParseException("only support [<db>.]<job_name>", ctx.name);
         }
         SyncJobName syncJobName = new SyncJobName(jobName, dbName);
         return new ResumeDataSyncJobCommand(syncJobName);
@@ -6672,17 +6680,22 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitPauseDataSyncJob(DorisParser.PauseDataSyncJobContext ctx) {
-        List<String> nameParts = visitMultipartIdentifier(ctx.multipartIdentifier());
+        List<String> nameParts = visitMultipartIdentifier(ctx.name);
         int size = nameParts.size();
         String jobName = nameParts.get(size - 1);
-        String dbName = null;
-        if (size >= 2) {
-            dbName = nameParts.get(size - 2);
+        String dbName;
+        if (size == 1) {
+            dbName = null;
+        } else if (size == 2) {
+            dbName = nameParts.get(0);
+        } else {
+            throw new ParseException("only support [<db>.]<job_name>", ctx.name);
         }
         SyncJobName syncJobName = new SyncJobName(jobName, dbName);
         return new PauseDataSyncJobCommand(syncJobName);
     }
 
+    @Override
     public List<ChannelDescription> visitChannelDescriptions(DorisParser.ChannelDescriptionsContext ctx) {
         List<ChannelDescription> channelDescriptions = new ArrayList<>();
         for (DorisParser.ChannelDescriptionContext channelDescriptionContext : ctx.channelDescription()) {
@@ -6727,7 +6740,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitCreateDataSyncJob(DorisParser.CreateDataSyncJobContext ctx) {
         List<ChannelDescription> channelDescriptions = visitChannelDescriptions(ctx.channelDescriptions());
-        List<String> labelParts = visitMultipartIdentifier(ctx.multipartIdentifier());
+        List<String> labelParts = visitMultipartIdentifier(ctx.label);
         int size = labelParts.size();
         String jobName = labelParts.get(size - 1);
         String dbName;
@@ -6736,7 +6749,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         } else if (size == 2) {
             dbName = labelParts.get(0);
         } else {
-            throw new ParseException("only support <mysql_db>.<src_tbl>", ctx.multipartIdentifier());
+            throw new ParseException("only support [<db>.]<job_name>", ctx.label);
         }
 
         Map<String, String> propertieItem = visitPropertyItemList(ctx.propertyItemList());

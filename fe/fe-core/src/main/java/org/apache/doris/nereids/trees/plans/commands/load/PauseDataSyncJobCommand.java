@@ -52,7 +52,7 @@ public class PauseDataSyncJobCommand extends Command {
         return syncJobName.getDbName();
     }
 
-    private void validate(ConnectContext ctx) throws AnalysisException {
+    public void validate(ConnectContext ctx) throws AnalysisException {
         syncJobName.analyze(ctx);
     }
 

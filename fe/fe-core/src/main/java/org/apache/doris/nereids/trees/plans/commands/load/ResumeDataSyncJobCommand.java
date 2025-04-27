@@ -52,7 +52,7 @@ public class ResumeDataSyncJobCommand extends Command {
         ctx.getEnv().getSyncJobManager().resumeSyncJob(this);
     }
 
-    private void validate(ConnectContext ctx) throws AnalysisException {
+    public void validate(ConnectContext ctx) throws AnalysisException {
         syncJobName.analyze(ctx);
     }
 
