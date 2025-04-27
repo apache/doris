@@ -361,8 +361,7 @@ private:
         auto ts_arg = binary_cast<NativeType, DateValueType>(date);
         auto& ts_res = (DateValueType&)(res);
         if constexpr (Flag::Unit == WEEK) {
-            // Only week use the FIRST SUNDAY
-            ts_res = DateValueType::FIRST_SUNDAY;
+            ts_res = DateValueType::FIRST_DAY;
             return time_round_two_args(ts_arg, 1, ts_res);
         } else {
             return time_round_one_arg(ts_arg, ts_res);
@@ -378,13 +377,7 @@ private:
             floor_opt(ts_arg, ts_res, period);
             return true;
         } else {
-            if constexpr (Flag::Unit == WEEK) {
-                ts_res = DateValueType::FIRST_SUNDAY;
-            } else {
-                // Only week use the FIRST SUNDAY
-                ts_res = DateValueType::FIRST_DAY;
-            }
-
+            ts_res = DateValueType::FIRST_DAY;
             return time_round_two_args(ts_arg, period, ts_res);
         }
     }
