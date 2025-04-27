@@ -17,11 +17,12 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.backup.CatalogMocker;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -29,17 +30,12 @@ import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.qe.ConnectContext;
 
 import mockit.Expectations;
-import mockit.Injectable;
 import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 public class CleanQueryStatsCommandTest {
     private static final String internalCtl = InternalCatalog.INTERNAL_CATALOG_NAME;
-    @Injectable
-    Database database;
-    @Injectable
-    OlapTable table;
     @Mocked
     AccessControllerManager accessManager;
     @Mocked
@@ -52,17 +48,23 @@ public class CleanQueryStatsCommandTest {
     private String jobName = "testJob";
     private String dbName = "testDb";
     private String tblName = "testTbl";
+    private Database db;
 
-    public void runBefore() {
+    public void runBefore() throws UserException {
+        db = CatalogMocker.mockDb();
         new Expectations() {
             {
-                env.getInternalCatalog();
+                Env.getCurrentEnv();
+                minTimes = 0;
+                result = env;
+
+                env.getCatalogMgr().getCatalog(anyString);
                 minTimes = 0;
                 result = catalog;
 
-                catalog.getDbNullable("testDb");
+                catalog.getDb(anyString);
                 minTimes = 0;
-                result = database;
+                result = db;
 
                 env.getAccessManager();
                 minTimes = 0;
@@ -76,10 +78,6 @@ public class CleanQueryStatsCommandTest {
                 minTimes = 0;
                 result = true;
 
-                database.getTableNullable("testTbl");
-                minTimes = 0;
-                result = table;
-
                 Env.getCurrentEnv();
                 minTimes = 0;
                 result = env;
@@ -88,7 +86,7 @@ public class CleanQueryStatsCommandTest {
     }
 
     @Test
-    public void testAll() {
+    public void testAll() throws UserException {
         runBefore();
         //normal
         new Expectations() {
@@ -114,12 +112,12 @@ public class CleanQueryStatsCommandTest {
     }
 
     @Test
-    public void testDB() {
+    public void testDB() throws UserException {
         runBefore();
         //normal
         new Expectations() {
             {
-                accessManager.checkGlobalPriv(connectContext, PrivPredicate.ALTER);
+                accessManager.checkDbPriv(connectContext, internalCtl, CatalogMocker.TEST_DB_NAME, PrivPredicate.ALTER);
                 minTimes = 0;
                 result = true;
             }
@@ -130,7 +128,7 @@ public class CleanQueryStatsCommandTest {
         //NoPriviledge
         new Expectations() {
             {
-                accessManager.checkDbPriv(connectContext, internalCtl, dbName, PrivPredicate.ALTER);
+                accessManager.checkDbPriv(connectContext, internalCtl, CatalogMocker.TEST_DB_NAME, PrivPredicate.ALTER);
                 minTimes = 0;
                 result = false;
             }
@@ -140,14 +138,14 @@ public class CleanQueryStatsCommandTest {
     }
 
     @Test
-    public void testTbl() throws Exception {
+    public void testTbl() throws UserException {
         runBefore();
-        TableNameInfo tableNameInfo = new TableNameInfo(dbName, tblName);
+        TableNameInfo tableNameInfo = new TableNameInfo(CatalogMocker.TEST_DB_NAME, CatalogMocker.TEST_TBL_NAME);
 
         //normal
         new Expectations() {
             {
-                accessManager.checkGlobalPriv(connectContext, PrivPredicate.ALTER);
+                accessManager.checkTblPriv(connectContext, tableNameInfo, PrivPredicate.ALTER);
                 minTimes = 0;
                 result = true;
             }

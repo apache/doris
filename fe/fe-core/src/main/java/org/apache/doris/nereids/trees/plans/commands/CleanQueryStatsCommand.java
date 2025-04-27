@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.analysis.CleanQueryStatsStmt;
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
@@ -136,15 +135,15 @@ public class CleanQueryStatsCommand extends CleanCommand {
         switch (scope) {
             case ALL:
                 cleanQueryStatsInfo = new CleanQueryStatsInfo(
-                    CleanQueryStatsStmt.Scope.ALL, env.getCurrentCatalog().getName(), null, null);
+                        Scope.ALL, env.getCurrentCatalog().getName(), null, null);
                 break;
             case DB:
-                cleanQueryStatsInfo = new CleanQueryStatsInfo(CleanQueryStatsStmt.Scope.DB,
-                    env.getCurrentCatalog().getName(), tableNameInfo.getDb(), null);
+                cleanQueryStatsInfo = new CleanQueryStatsInfo(
+                        Scope.DB, env.getCurrentCatalog().getName(), tableNameInfo.getDb(), null);
                 break;
             case TABLE:
-                cleanQueryStatsInfo = new CleanQueryStatsInfo(CleanQueryStatsStmt.Scope.TABLE,
-                    env.getCurrentCatalog().getName(), tableNameInfo.getDb(), tableNameInfo.getTbl());
+                cleanQueryStatsInfo = new CleanQueryStatsInfo(
+                        Scope.TABLE, env.getCurrentCatalog().getName(), tableNameInfo.getDb(), tableNameInfo.getTbl());
                 break;
             default:
                 throw new DdlException("Unknown scope: " + scope);
