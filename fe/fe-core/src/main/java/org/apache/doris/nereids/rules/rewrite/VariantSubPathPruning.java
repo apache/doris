@@ -306,7 +306,7 @@ public class VariantSubPathPruning extends DefaultPlanRewriter<PruneContext> imp
 
                     }
                     SlotReference outputSlot = new SlotReference(StatementScopeIdGenerator.newExprId(),
-                            entry.getValue().get(0).getName(), VariantType.INSTANCE,
+                            entry.getValue().get(0).getName(), entry.getValue().get(0).getDataType(),
                             true, ImmutableList.of());
                     outputs.add(outputSlot);
                     // update element to slot map

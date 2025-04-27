@@ -59,7 +59,7 @@ suite("test_variant_bloom_filter", "nonConcurrent") {
         )
         DUPLICATE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 1
-        properties("replication_num" = "1", "disable_auto_compaction" = "false", "bloom_filter_columns" = "v");
+        properties("replication_num" = "1", "disable_auto_compaction" = "false", "bloom_filter_columns" = "v", "variant_max_subcolumns_count" = "9999");
     """
     load_json_data.call(index_table, """${getS3Url() + '/regression/gharchive.m/2015-01-01-0.json'}""")
     load_json_data.call(index_table, """${getS3Url() + '/regression/gharchive.m/2015-01-01-0.json'}""")
@@ -71,7 +71,6 @@ suite("test_variant_bloom_filter", "nonConcurrent") {
     def backendId_to_backendHttpPort = [:]
     getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
     def tablets = sql_return_maparray """ show tablets from ${index_table}; """
-
 
     for (def tablet in tablets) {
         int beforeSegmentCount = 0

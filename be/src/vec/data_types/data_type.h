@@ -38,6 +38,7 @@
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_string.h"
 #include "vec/common/cow.h"
+#include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/serde/data_type_serde.h"
 
@@ -208,6 +209,9 @@ public:
                                     int be_exec_version) const = 0;
 
     virtual void to_pb_column_meta(PColumnMeta* col_meta) const;
+
+    // Return wrapped field with precision and scale, only use in Variant type to get the detailed type info
+    virtual FieldWithDataType get_field_with_data_type(const IColumn& column, size_t row_num) const;
 
     static PGenericType_TypeId get_pdata_type(const IDataType* data_type);
 

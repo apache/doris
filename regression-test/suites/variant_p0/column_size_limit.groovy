@@ -26,7 +26,7 @@ suite("regression_test_variant_column_limit"){
         )
         DUPLICATE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 1
-        properties("replication_num" = "1", "disable_auto_compaction" = "false");
+        properties("replication_num" = "1", "disable_auto_compaction" = "false", "variant_max_subcolumns_count" = "0");
     """
     def jsonBuilder = new JsonBuilder()
     def root = jsonBuilder {

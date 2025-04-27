@@ -68,6 +68,16 @@ public:
     Field get_default() const override;
 
     Field get_field(const TExprNode& node) const override;
+
+    FieldWithDataType get_field_with_data_type(const IColumn& column,
+                                               size_t row_num) const override {
+        const auto& column_data =
+                assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(column);
+        Field field = Field::create_field<TYPE_JSONB>(JsonbField(
+                column_data.get_data_at(row_num).data, column_data.get_data_at(row_num).size));
+        return FieldWithDataType(std::move(field));
+    }
+
     bool equals(const IDataType& rhs) const override;
 
     bool have_subtypes() const override { return false; }

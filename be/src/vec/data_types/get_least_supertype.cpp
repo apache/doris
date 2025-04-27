@@ -243,6 +243,10 @@ void get_least_supertype_jsonb(const DataTypes& types, DataTypePtr* type) {
     for (const auto& type : types) {
         type_ids.insert(type->get_primitive_type());
     }
+    if (type_ids.size() == 1) {
+        *type = types[0];
+        return;
+    }
     get_least_supertype_jsonb(type_ids, type);
 }
 

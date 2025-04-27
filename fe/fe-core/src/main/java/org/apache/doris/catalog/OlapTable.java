@@ -2504,6 +2504,26 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return false;
     }
 
+    public void setVariantMaxSubcolumnsCount(int maxSubcoumnsCount) {
+        List<Column> columns = getBaseSchema(true);
+        boolean hasVariantType = false;
+        for (Column column : columns) {
+            Type type = column.getType();
+            if (type.isVariantType()) {
+                hasVariantType = true;
+                VariantType scType = (VariantType) type;
+                scType.setVariantMaxSubcolumnsCount(maxSubcoumnsCount);
+            }
+        }
+        if (hasVariantType) {
+            getOrCreatTableProperty().setVariantMaxSubcolumnsCount(maxSubcoumnsCount);
+        }
+    }
+
+    public int getVariantMaxSubcolumnsCount() {
+        return getOrCreatTableProperty().getVariantMaxSubcolumnsCount();
+    }
+
     public int getBaseSchemaVersion() {
         MaterializedIndexMeta baseIndexMeta = indexIdToMeta.get(baseIndexId);
         return baseIndexMeta.getSchemaVersion();

@@ -201,7 +201,7 @@ private:
             ColumnPredicate* pred, std::vector<ColumnPredicate*>& remaining_predicates,
             bool* continue_apply);
     [[nodiscard]] Status _apply_index_expr();
-    bool _column_has_fulltext_index(int32_t cid);
+    bool _column_only_has_fulltext_index(int32_t cid);
     bool _downgrade_without_index(Status res, bool need_remaining = false);
     inline bool _inverted_index_not_support_pred_type(const PredicateType& type);
     bool _is_literal_node(const TExprNodeType::type& node_type);
@@ -258,13 +258,8 @@ private:
             if (block_cid >= block->columns()) {
                 continue;
             }
-            vectorized::DataTypePtr storage_type = _segment->get_data_type_of(
-                    Segment::ColumnIdentifier {
-                            .unique_id = _schema->column(cid)->unique_id(),
-                            .parent_unique_id = _schema->column(cid)->parent_unique_id(),
-                            .path = _schema->column(cid)->path(),
-                            .is_nullable = _schema->column(cid)->is_nullable()},
-                    false);
+            vectorized::DataTypePtr storage_type =
+                    _segment->get_data_type_of(_schema->column(cid)->get_desc(), false);
             if (storage_type && !storage_type->equals(*block->get_by_position(block_cid).type)) {
                 // Do additional cast
                 vectorized::MutableColumnPtr tmp = storage_type->create_column();

@@ -75,6 +75,7 @@ suite("explode") {
     def testTable = "tam"
     def dataFile = "am.json"
     sql """ DROP TABLE IF EXISTS $testTable; """
+    // TODO support more subcolumns count
     sql """
         CREATE TABLE `$testTable` (
           `id` bigint(20) NULL,

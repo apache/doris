@@ -1441,6 +1441,10 @@ public class InternalCatalog implements CatalogIf<Database> {
                 properties.put(PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED,
                         olapTable.variantEnableFlattenNested().toString());
             }
+            if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_VARIANT_MAX_SUBCOLUMNS_COUNT)) {
+                properties.put(PropertyAnalyzer.PROPERTIES_VARIANT_MAX_SUBCOLUMNS_COUNT,
+                        Integer.toString(olapTable.getVariantMaxSubcolumnsCount()));
+            }
             if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION)) {
                 properties.put(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION,
                         olapTable.enableSingleReplicaCompaction().toString());
@@ -2875,6 +2879,16 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
         Preconditions.checkNotNull(versionInfo);
 
+        int variantMaxSubcolumnsCount = ConnectContext.get() == null ? 0 : ConnectContext.get()
+                                                .getSessionVariable().getGlobalVariantMaxSubcolumnsCount();
+        try {
+            variantMaxSubcolumnsCount = PropertyAnalyzer
+                                            .analyzeVariantMaxSubcolumnsCount(properties, variantMaxSubcolumnsCount);
+        } catch (AnalysisException e) {
+            throw new DdlException(e.getMessage());
+        }
+        olapTable.setVariantMaxSubcolumnsCount(variantMaxSubcolumnsCount);
+
         // a set to record every new tablet created when create table
         // if failed in any step, use this set to do clear things
         Set<Long> tabletIdSet = new HashSet<>();
@@ -3078,6 +3092,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         if (olapTable instanceof MTMV) {
             Env.getCurrentEnv().getMtmvService().postCreateMTMV((MTMV) olapTable);
         }
+
         return tableHasExist;
     }
 

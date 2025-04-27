@@ -28,6 +28,7 @@
 #include "olap/rowset/segment_v2/row_ranges.h"
 #include "olap/tablet_schema.h"
 #include "runtime/runtime_state.h"
+#include "vec/columns/column.h"
 #include "vec/core/block.h"
 #include "vec/exprs/vexpr.h"
 
@@ -116,9 +117,12 @@ public:
     Version version;
     int64_t tablet_id = 0;
     // slots that cast may be eliminated in storage layer
-    std::map<std::string, PrimitiveType> target_cast_type_for_variants;
+    std::map<std::string, vectorized::DataTypePtr> target_cast_type_for_variants;
     RowRanges row_ranges;
     size_t topn_limit = 0;
+    // Cache for sparse column data to avoid redundant reads
+    // col_unique_id -> cached column_ptr
+    std::unordered_map<int32_t, vectorized::ColumnPtr> sparse_column_cache;
 };
 
 struct CompactionSampleInfo {

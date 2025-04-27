@@ -114,6 +114,7 @@ public interface ComputeSignature extends FunctionTrait, ImplicitCastInputTypes 
                 .then(ComputeSignatureHelper::implementFollowToArgumentReturnType)
                 .then(ComputeSignatureHelper::normalizeDecimalV2)
                 .then(ComputeSignatureHelper::dynamicComputePropertiesOfArray)
+                .then(ComputeSignatureHelper::dynamicComputeVariantArgs)
                 .get();
     }
 

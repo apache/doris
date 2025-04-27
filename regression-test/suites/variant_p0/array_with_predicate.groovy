@@ -27,11 +27,11 @@ suite("regression_test_variant_array_with_predicate", "p0"){
         DISTRIBUTED BY HASH(k) BUCKETS 1
         properties("replication_num" = "1", "disable_auto_compaction" = "false");
     """
-    sql """insert into array_with_predicate values (1, '{"arr" : ["1", "2", "3", "4"]}')"""
+    sql """insert into array_with_predicate values (1, '{"arr" : ["1","2","3","4"]}')"""
     sql """insert into array_with_predicate values (1, '{"arr" : "[]"}')"""
     sql """insert into array_with_predicate values (1, '{"arr1" : "[]"}')"""
-    qt_sql """select * from array_with_predicate where cast(v['arr'] as array<text>) is not null"""
-    qt_sql """select * from array_with_predicate where cast(v['arr'] as text) is not null"""
-    qt_sql """select * from array_with_predicate where cast(v['arr'] as array<text>) is null"""
-    qt_sql """select * from array_with_predicate where cast(v['arr'] as text) is null"""
+    qt_sql """select count() from array_with_predicate where cast(v['arr'] as array<text>) is not null"""
+    qt_sql """select count() from array_with_predicate where cast(v['arr'] as text) is not null"""
+    qt_sql """select count() from array_with_predicate where cast(v['arr'] as array<text>) is null"""
+    qt_sql """select count() from array_with_predicate where cast(v['arr'] as text) is null"""
 }

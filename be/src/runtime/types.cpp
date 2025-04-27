@@ -29,6 +29,7 @@
 
 #include "common/cast_set.h"
 #include "olap/olap_define.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
 
 namespace doris {

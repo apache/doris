@@ -37,6 +37,7 @@
 #include "olap/delete_bitmap_calculator.h"
 #include "olap/iterators.h"
 #include "olap/memtable.h"
+#include "olap/olap_common.h"
 #include "olap/partial_update_info.h"
 #include "olap/primary_key_index.h"
 #include "olap/rowid_conversion.h"
@@ -169,6 +170,31 @@ TabletSchemaSPtr BaseTablet::tablet_schema_with_merged_max_schema_version(
         VLOG_DEBUG << "dump schema: " << target_schema->dump_full_schema();
     }
     return target_schema;
+}
+
+Status BaseTablet::get_extended_compaction_schema(
+        const std::vector<RowsetMetaSharedPtr>& rowset_metas, TabletSchemaSPtr& target_schema) {
+    RowsetMetaSharedPtr max_schema_version_rs = *std::max_element(
+            rowset_metas.begin(), rowset_metas.end(),
+            [](const RowsetMetaSharedPtr& a, const RowsetMetaSharedPtr& b) {
+                return !a->tablet_schema()
+                               ? true
+                               : (!b->tablet_schema()
+                                          ? false
+                                          : a->tablet_schema()->schema_version() <
+                                                    b->tablet_schema()->schema_version());
+            });
+    target_schema = max_schema_version_rs->tablet_schema();
+    if (target_schema->num_variant_columns() > 0) {
+        RowsetIdUnorderedSet rowset_ids;
+        for (const RowsetMetaSharedPtr& rs_meta : rowset_metas) {
+            rowset_ids.emplace(rs_meta->rowset_id());
+        }
+        // extended schema for variant columns
+        RETURN_IF_ERROR(vectorized::schema_util::get_extended_compaction_schema(
+                get_rowset_by_ids(&rowset_ids), target_schema));
+    }
+    return Status::OK();
 }
 
 Status BaseTablet::set_tablet_state(TabletState state) {
@@ -2160,6 +2186,17 @@ int32_t BaseTablet::max_version_config() {
                                              config::max_tablet_version_num)
                                   : config::max_tablet_version_num;
     return max_version;
+}
+
+TabletSchemaSPtr BaseTablet::calculate_variant_extended_schema() const {
+    std::vector<RowsetSharedPtr> rowsets;
+    {
+        std::shared_lock rdlock(_meta_lock);
+        for (const auto& it : _rs_version_map) {
+            rowsets.emplace_back(it.second);
+        }
+    }
+    return vectorized::schema_util::calculate_variant_extended_schema(rowsets, _max_version_schema);
 }
 
 } // namespace doris

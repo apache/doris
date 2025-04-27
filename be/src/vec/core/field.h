@@ -36,6 +36,7 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/exception.h"
 #include "olap/hll.h"
+#include "runtime/define_primitive_type.h"
 #include "util/bitmap_value.h"
 #include "util/quantile_state.h"
 #include "vec/common/uint128.h"
@@ -83,7 +84,28 @@ struct Map : public FieldVector {
     using FieldVector::FieldVector;
 };
 
-using VariantMap = std::map<PathInData, Field>;
+struct FieldWithDataType {
+    FieldWithDataType() = default;
+    explicit FieldWithDataType(Field&& f);
+    explicit FieldWithDataType(const Field& f);
+    explicit FieldWithDataType(Field&& f, int precision, int scale,
+                               PrimitiveType base_scalar_type_id = PrimitiveType::INVALID_TYPE,
+                               uint8_t num_dimensions = 0);
+    FieldWithDataType(const FieldWithDataType&);
+    FieldWithDataType& operator=(const FieldWithDataType&);
+    FieldWithDataType& operator=(FieldWithDataType&&) = default;
+    FieldWithDataType(FieldWithDataType&&) = default;
+    ~FieldWithDataType() = default;
+
+    std::unique_ptr<Field> field;
+    // used for nested type of array
+    PrimitiveType base_scalar_type_id = PrimitiveType::INVALID_TYPE;
+    uint8_t num_dimensions = 0;
+    int precision = -1;
+    int scale = -1;
+};
+
+using VariantMap = std::map<PathInData, FieldWithDataType>;
 
 //TODO: rethink if we really need this? it only save one pointer from std::string
 // not POD type so could only use read/write_json_binary instead of read/write_binary
@@ -257,6 +279,7 @@ constexpr size_t DBMS_MIN_FIELD_SIZE = 32;
   * Used to represent a single value of one of several types in memory.
   * Warning! Prefer to use chunks of columns instead of single values. See Column.h
   */
+
 class Field {
 public:
     static const int MIN_NON_POD = 16;
