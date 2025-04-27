@@ -31,7 +31,9 @@
  *      DataTypeDate -------------------> ColumnDate -----------------------> Int64
  *           |   |      TypeToColumn                    ValueTypeOfColumn       |
  *           |   ↘--------------------------------------------------------------↗
- *           |                           ::FieldType
+ *           |   |                       ::FieldType                            |
+ *           |   ↖--------------------------------------------------------------↙
+ *           |                       DateTraits<T>::DateType
  *           ↓ TypeToValueType
  *      VecDateTimeValue
  */

@@ -153,8 +153,7 @@ Status FlushToken::_try_reserve_memory(const std::shared_ptr<ResourceContext>& r
             memtable_flush_executor->inc_flushing_task();
             break;
         }
-        if (_is_shutdown() ||
-            resource_context->memory_context()->mem_tracker()->is_query_cancelled()) {
+        if (_is_shutdown() || resource_context->task_controller()->is_cancelled()) {
             st = Status::Cancelled("flush memtable already cancelled");
             break;
         }

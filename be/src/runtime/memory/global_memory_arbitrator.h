@@ -21,6 +21,7 @@
 #include "util/mem_info.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class GlobalMemoryArbitrator {
 public:
@@ -137,30 +138,14 @@ public:
 
     static std::string process_mem_log_str() {
         return fmt::format(
-                "os physical memory {}. {}, limit {}, soft limit {}. {}, low water mark {}, "
-                "warning water mark {}.",
+                "sys physical memory {}. {}, limit {}, soft limit {}. {}, low water mark {}, "
+                "warning water mark {}",
                 PrettyPrinter::print(MemInfo::physical_mem(), TUnit::BYTES),
                 process_memory_used_details_str(), MemInfo::mem_limit_str(),
                 MemInfo::soft_mem_limit_str(), sys_mem_available_details_str(),
                 PrettyPrinter::print(MemInfo::sys_mem_available_low_water_mark(), TUnit::BYTES),
                 PrettyPrinter::print(MemInfo::sys_mem_available_warning_water_mark(),
                                      TUnit::BYTES));
-    }
-
-    static std::string process_limit_exceeded_errmsg_str() {
-        return fmt::format("{} exceed limit {} or {} less than low water mark {}",
-                           process_memory_used_details_str(), MemInfo::mem_limit_str(),
-                           sys_mem_available_str(),
-                           PrettyPrinter::print(MemInfo::sys_mem_available_low_water_mark(),
-                                                TUnit::BYTES)); // only process memory print details
-    }
-
-    static std::string process_soft_limit_exceeded_errmsg_str() {
-        return fmt::format("{} exceed soft limit {} or {} less than warning water mark {}.",
-                           process_memory_used_details_str(), MemInfo::soft_mem_limit_str(),
-                           sys_mem_available_str(),
-                           PrettyPrinter::print(MemInfo::sys_mem_available_warning_water_mark(),
-                                                TUnit::BYTES));
     }
 
     static void refresh_memory_bvar();
@@ -199,4 +184,5 @@ private:
     static std::atomic<int64_t> _process_reserved_memory;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris

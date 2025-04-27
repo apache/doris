@@ -61,6 +61,7 @@ public:
 
     // insert data to build filter
     Status insert(vectorized::ColumnPtr column, size_t start) {
+        std::unique_lock<std::recursive_mutex> l(_rmtx);
         if (!_wrapper->is_valid() || _rf_state == State::READY_TO_PUBLISH ||
             _rf_state == State::PUBLISHED) {
             return Status::OK();
@@ -71,7 +72,8 @@ public:
 
     Status publish(RuntimeState* state, bool build_hash_table);
 
-    std::string debug_string() const override {
+    std::string debug_string() override {
+        std::unique_lock<std::recursive_mutex> l(_rmtx);
         auto result =
                 fmt::format("Producer: ({}, state: {}", _debug_string(), to_string(_rf_state));
         if (_need_sync_filter_size) {
@@ -85,6 +87,7 @@ public:
 
     void set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State state,
                                                 std::string reason = "") {
+        std::unique_lock<std::recursive_mutex> l(_rmtx);
         if (_rf_state == State::PUBLISHED || _rf_state == State::READY_TO_PUBLISH) {
             return;
         }
@@ -110,7 +113,7 @@ public:
     }
 
     bool set_state(State state) {
-        std::unique_lock<std::mutex> l(_mtx);
+        std::unique_lock<std::recursive_mutex> l(_rmtx);
         if (_rf_state == State::PUBLISHED ||
             (state != State::PUBLISHED && _rf_state == State::READY_TO_PUBLISH)) {
             return false;
@@ -119,10 +122,17 @@ public:
         return true;
     }
 
-    std::shared_ptr<RuntimeFilterWrapper> wrapper() const { return _wrapper; }
-    void set_wrapper(std::shared_ptr<RuntimeFilterWrapper> wrapper) { _wrapper = wrapper; }
+    std::shared_ptr<RuntimeFilterWrapper> wrapper() {
+        std::unique_lock<std::recursive_mutex> l(_rmtx);
+        return _wrapper;
+    }
+    void set_wrapper(std::shared_ptr<RuntimeFilterWrapper> wrapper) {
+        std::unique_lock<std::recursive_mutex> l(_rmtx);
+        _wrapper = wrapper;
+    }
 
     void collect_realtime_profile(RuntimeProfile* parent_operator_profile) {
+        std::unique_lock<std::recursive_mutex> l(_rmtx);
         DCHECK(parent_operator_profile != nullptr);
         if (parent_operator_profile == nullptr) {
             return;
@@ -131,12 +141,8 @@ public:
         RuntimeFilterInfo:
             - RF0 Info: xxxx
         */
-        {
-            std::unique_lock<std::mutex> l(_mtx);
-            parent_operator_profile->add_description(
-                    fmt::format("RF{} Info", _wrapper->filter_id()), debug_string(),
-                    "RuntimeFilterInfo");
-        }
+        parent_operator_profile->add_description(fmt::format("RF{} Info", _wrapper->filter_id()),
+                                                 debug_string(), "RuntimeFilterInfo");
     }
 
 private:
@@ -168,10 +174,6 @@ private:
     std::shared_ptr<pipeline::CountedFinishDependency> _dependency;
 
     std::atomic<State> _rf_state;
-
-    // only used to lock set_state() to make _rf_state is protected
-    // set_synced_size and RuntimeFilterProducerHelper::terminate may called in different threads at the same time
-    std::mutex _mtx;
 };
 #include "common/compile_check_end.h"
 } // namespace doris

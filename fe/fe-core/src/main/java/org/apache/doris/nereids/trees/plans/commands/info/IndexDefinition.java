@@ -25,6 +25,7 @@ import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.common.Config;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
@@ -109,6 +110,20 @@ public class IndexDefinition {
     }
 
     /**
+     * Check if the column type is supported for inverted index
+     */
+    public boolean isSupportIdxType(DataType columnType) {
+        if (columnType.isArrayType()) {
+            DataType itemType = ((ArrayType) columnType).getItemType();
+            return isSupportIdxType(itemType);
+        }
+        return columnType.isDateLikeType() || columnType.isDecimalLikeType()
+                || columnType.isIntegralType() || columnType.isStringLikeType()
+                || columnType.isBooleanType() || columnType.isVariantType()
+                || columnType.isIPType();
+    }
+
+    /**
      * checkColumn
      */
     public void checkColumn(ColumnDefinition column, KeysType keysType,
@@ -119,9 +134,7 @@ public class IndexDefinition {
             String indexColName = column.getName();
             caseSensitivityCols.add(indexColName);
             DataType colType = column.getType();
-            if (!(colType.isDateLikeType() || colType.isDecimalLikeType() || colType.isArrayType()
-                    || colType.isIntegralType() || colType.isStringLikeType()
-                    || colType.isBooleanType() || colType.isVariantType() || colType.isIPType())) {
+            if (!isSupportIdxType(colType)) {
                 // TODO add colType.isAggState()
                 throw new AnalysisException(colType + " is not supported in " + indexType.toString()
                         + " index. " + "invalid index: " + name);

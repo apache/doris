@@ -43,13 +43,18 @@ import java.util.List;
 public class ExpressionOptimization extends ExpressionRewrite {
     public static final List<ExpressionRewriteRule> OPTIMIZE_REWRITE_RULES = ImmutableList.of(
             bottomUp(
-                    ExtractCommonFactorRule.INSTANCE,
-                    DistinctPredicatesRule.INSTANCE,
-                    SimplifyComparisonPredicate.INSTANCE,
                     SimplifyInPredicate.INSTANCE,
-                    SimplifyRange.INSTANCE,
+
+                    // comparison predicates
+                    SimplifyComparisonPredicate.INSTANCE,
                     SimplifySelfComparison.INSTANCE,
+
+                    // compound predicates
+                    SimplifyRange.INSTANCE,
                     SimplifyConflictCompound.INSTANCE,
+                    DistinctPredicatesRule.INSTANCE,
+                    ExtractCommonFactorRule.INSTANCE,
+
                     DateFunctionRewrite.INSTANCE,
                     ArrayContainToArrayOverlap.INSTANCE,
                     CaseWhenToIf.INSTANCE,
