@@ -32,7 +32,6 @@ suite("test_show_frontend_auth","p0,auth_call") {
     try_sql("DROP USER ${user}")
     sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
     sql """grant select_priv on regression_test to ${user}"""
-    sql """revoke select_priv on information_schema from ${user}"""
 
     connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
