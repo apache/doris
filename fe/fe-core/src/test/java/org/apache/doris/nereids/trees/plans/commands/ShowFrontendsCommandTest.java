@@ -25,7 +25,6 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.utframe.TestWithFeService;
 
 import mockit.Expectations;
 import mockit.Mocked;
@@ -108,7 +107,6 @@ public class ShowFrontendsCommandTest {
                 minTimes = 0;
                 result = ctx;
 
-                accessControllerManager.checkGlobalPriv(ctx, PrivPredicate.SHOW);
                 accessControllerManager.checkDbPriv(ctx, internalCtl, infoDB, PrivPredicate.SELECT);
                 minTimes = 0;
                 result = false;
