@@ -56,7 +56,8 @@ suite("test_export_csv", "p0") {
 
     def table_export_name = "test_export_csv"
     def table_load_name = "test_load_csv"
-    def outfile_path_prefix = """/tmp/test_export"""
+    def outfile_path_prefix = """/tmp/test_export_csv"""
+    def local_tvf_prefix = "tmp/test_export_csv"
 
     // create table and insert
     sql """ DROP TABLE IF EXISTS ${table_export_name} """
@@ -98,30 +99,13 @@ suite("test_export_csv", "p0") {
     logger.info("insert result: " + insert_res.toString())
     qt_select_export1 """ SELECT * FROM ${table_export_name} t ORDER BY user_id; """
 
-
+    def machine_user_name = "root"
     def check_path_exists = { dir_path ->
-        File path = new File(dir_path)
-        if (!path.exists()) {
-            assert path.mkdirs()
-        } else {
-            throw new IllegalStateException("""${dir_path} already exists! """)
-        }
-    }
-
-    def check_file_amounts = { dir_path, amount ->
-        File path = new File(dir_path)
-        File[] files = path.listFiles()
-        assert files.length == amount
+        mkdirRemotePathOnAllBE(machine_user_name, dir_path)
     }
 
     def delete_files = { dir_path ->
-        File path = new File(dir_path)
-        if (path.exists()) {
-            for (File f: path.listFiles()) {
-                f.delete();
-            }
-            path.delete();
-        }
+        deleteRemotePathOnAllBE(machine_user_name, dir_path)
     }
 
     def waiting_export = { export_label ->
@@ -140,7 +124,7 @@ suite("test_export_csv", "p0") {
 
     // 1. test more type
     def uuid = UUID.randomUUID().toString()
-    def outFilePath = """${outfile_path_prefix}_${uuid}"""
+    def outFilePath = "${outfile_path_prefix}" + "/${table_export_name}_${uuid}"
     def label = "label_${uuid}"
     try {
         // check export path
@@ -157,9 +141,6 @@ suite("test_export_csv", "p0") {
         """
         waiting_export.call(label)
         
-        // check file amounts
-        check_file_amounts.call("${outFilePath}", 1)
-
         // check data correctness
         sql """ DROP TABLE IF EXISTS ${table_load_name} """
         sql """
@@ -184,28 +165,22 @@ suite("test_export_csv", "p0") {
             DISTRIBUTED BY HASH(user_id) PROPERTIES("replication_num" = "1");
         """
 
-        File[] files = new File("${outFilePath}").listFiles()
-        String file_path = files[0].getAbsolutePath()
-        streamLoad {
-            table "${table_load_name}"
-
-            set 'column_separator', ','
-            set 'columns', 'user_id, date, datetime, city, age, sex, bool_col, int_col, bigint_col, largeint_col, float_col, double_col, char_col, decimal_col, ipv4_col, ipv6_col'
-            set 'strict_mode', 'true'
-
-            file "${file_path}"
-            time 10000 // limit inflight 10s
-
-            check { result, exception, startTime, endTime ->
-                if (exception != null) {
-                    throw exception
-                }
-                log.info("Stream load result: ${result}".toString())
-                def json = parseJson(result)
-                assertEquals("success", json.Status.toLowerCase())
-                assertEquals(100, json.NumberTotalRows)
-                assertEquals(0, json.NumberFilteredRows)
-            }
+        // use local() tvf to reload the data
+        def ipList = [:]
+        def portList = [:]
+        getBackendIpHeartbeatPort(ipList, portList)
+        ipList.each { beid, ip ->
+            logger.info("Begin to insert into ${table_load_name} from local()")
+            sql """
+                insert into ${table_load_name}
+                select * from local(
+                    "file_path" = "${local_tvf_prefix}/${table_export_name}_${uuid}/*",
+                    "backend_id" = "${beid}",
+                    "format" = "csv",
+                    "column_separator" = ",");         
+                """ 
+            insert_res = sql "show last insert;"
+            logger.info("insert from local(), BE id = ${beid}, result: " + insert_res.toString())
         }
 
         qt_select_load1 """ SELECT * FROM ${table_load_name} t ORDER BY user_id; """
@@ -218,7 +193,7 @@ suite("test_export_csv", "p0") {
 
     // 2. test csv column_separator and line_delimiter
     uuid = UUID.randomUUID().toString()
-    outFilePath = """${outfile_path_prefix}_${uuid}"""
+    outFilePath = "${outfile_path_prefix}" + "/${table_export_name}_${uuid}"
     label = "label_${uuid}"
     try {
         // check export path
@@ -236,9 +211,6 @@ suite("test_export_csv", "p0") {
         """
         waiting_export.call(label)
         
-        // check file amounts
-        check_file_amounts.call("${outFilePath}", 1)
-
         // check data correctness
         sql """ DROP TABLE IF EXISTS ${table_load_name} """
         sql """
@@ -263,29 +235,23 @@ suite("test_export_csv", "p0") {
             DISTRIBUTED BY HASH(user_id) PROPERTIES("replication_num" = "1");
         """
 
-        File[] files = new File("${outFilePath}").listFiles()
-        String file_path = files[0].getAbsolutePath()
-        streamLoad {
-            table "${table_load_name}"
-
-            set 'column_separator', 'ab'
-            set 'line_delimiter', 'cc'
-            set 'columns', 'user_id, date, datetime, city, age, sex, bool_col, int_col, bigint_col, largeint_col, float_col, double_col, char_col, decimal_col, ipv4_col, ipv6_col'
-            set 'strict_mode', 'true'
-
-            file "${file_path}"
-            time 10000 // limit inflight 10s
-
-            check { result, exception, startTime, endTime ->
-                if (exception != null) {
-                    throw exception
-                }
-                log.info("Stream load result: ${result}".toString())
-                def json = parseJson(result)
-                assertEquals("success", json.Status.toLowerCase())
-                assertEquals(10, json.NumberTotalRows)
-                assertEquals(0, json.NumberFilteredRows)
-            }
+        // use local() tvf to reload the data
+        def ipList = [:]
+        def portList = [:]
+        getBackendIpHeartbeatPort(ipList, portList)
+        ipList.each { beid, ip ->
+            logger.info("Begin to insert into ${table_load_name} from local()")
+            sql """
+                insert into ${table_load_name}
+                select * from local(
+                    "file_path" = "${local_tvf_prefix}/${table_export_name}_${uuid}/*",
+                    "backend_id" = "${beid}",
+                    "format" = "csv",
+                    "column_separator" = "ab",
+                    "line_delimiter" = "cc");         
+                """ 
+            insert_res = sql "show last insert;"
+            logger.info("insert from local(), BE id = ${beid}, result: " + insert_res.toString())
         }
 
         qt_select_load2 """ SELECT * FROM ${table_load_name} t ORDER BY user_id; """
@@ -297,7 +263,7 @@ suite("test_export_csv", "p0") {
 
     // 3. test csv_with_names
     uuid = UUID.randomUUID().toString()
-    outFilePath = """${outfile_path_prefix}_${uuid}"""
+    outFilePath = "${outfile_path_prefix}" + "/${table_export_name}_${uuid}"
     label = "label_${uuid}"
     try {
         // check export path
@@ -315,9 +281,6 @@ suite("test_export_csv", "p0") {
         """
         waiting_export.call(label)
         
-        // check file amounts
-        check_file_amounts.call("${outFilePath}", 1)
-
         // check data correctness
         sql """ DROP TABLE IF EXISTS ${table_load_name} """
         sql """
@@ -342,30 +305,24 @@ suite("test_export_csv", "p0") {
             DISTRIBUTED BY HASH(user_id) PROPERTIES("replication_num" = "1");
         """
 
-        File[] files = new File("${outFilePath}").listFiles()
-        String file_path = files[0].getAbsolutePath()
-        streamLoad {
-            table "${table_load_name}"
-
-            set 'column_separator', 'ab'
-            set 'line_delimiter', 'cc'
-            set 'columns', 'user_id, date, datetime, city, age, sex, bool_col, int_col, bigint_col, largeint_col, float_col, double_col, char_col, decimal_col, ipv4_col, ipv6_col'
-            set 'strict_mode', 'true'
-            set 'format', 'csv_with_names'
-
-            file "${file_path}"
-            time 10000 // limit inflight 10s
-
-            check { result, exception, startTime, endTime ->
-                if (exception != null) {
-                    throw exception
-                }
-                log.info("Stream load result: ${result}".toString())
-                def json = parseJson(result)
-                assertEquals("success", json.Status.toLowerCase())
-                assertEquals(10, json.NumberTotalRows)
-                assertEquals(0, json.NumberFilteredRows)
-            }
+        // use local() tvf to reload the data
+        def ipList = [:]
+        def portList = [:]
+        getBackendIpHeartbeatPort(ipList, portList)
+        ipList.each { beid, ip ->
+           logger.info("Begin to insert into ${table_load_name} from local()")
+           sql """
+                insert into ${table_load_name}
+                select *
+                from local(
+                    "file_path" = "${local_tvf_prefix}/${table_export_name}_${uuid}/*",
+                    "backend_id" = "${beid}",
+                    "format" = "csv_with_names",
+                    "line_delimiter" = "cc",
+                    "column_separator" = "ab");         
+                """ 
+            insert_res = sql "show last insert;"
+            logger.info("insert from local(), BE id = ${beid}, result: " + insert_res.toString())
         }
 
         qt_select_load3 """ SELECT * FROM ${table_load_name} t ORDER BY user_id; """
@@ -377,7 +334,7 @@ suite("test_export_csv", "p0") {
 
     // 4. test csv_with_names_and_types
     uuid = UUID.randomUUID().toString()
-    outFilePath = """${outfile_path_prefix}_${uuid}"""
+    outFilePath = "${outfile_path_prefix}" + "/${table_export_name}_${uuid}"
     label = "label_${uuid}"
     try {
         // check export path
@@ -395,9 +352,6 @@ suite("test_export_csv", "p0") {
         """
         waiting_export.call(label)
         
-        // check file amounts
-        check_file_amounts.call("${outFilePath}", 1)
-
         // check data correctness
         sql """ DROP TABLE IF EXISTS ${table_load_name} """
         sql """
@@ -422,30 +376,24 @@ suite("test_export_csv", "p0") {
             DISTRIBUTED BY HASH(user_id) PROPERTIES("replication_num" = "1");
         """
 
-        File[] files = new File("${outFilePath}").listFiles()
-        String file_path = files[0].getAbsolutePath()
-        streamLoad {
-            table "${table_load_name}"
-
-            set 'column_separator', 'ab'
-            set 'line_delimiter', 'cc'
-            set 'columns', 'user_id, date, datetime, city, age, sex, bool_col, int_col, bigint_col, largeint_col, float_col, double_col, char_col, decimal_col, ipv4_col, ipv6_col'
-            set 'strict_mode', 'true'
-            set 'format', 'csv_with_names_and_types'
-
-            file "${file_path}"
-            time 10000 // limit inflight 10s
-
-            check { result, exception, startTime, endTime ->
-                if (exception != null) {
-                    throw exception
-                }
-                log.info("Stream load result: ${result}".toString())
-                def json = parseJson(result)
-                assertEquals("success", json.Status.toLowerCase())
-                assertEquals(10, json.NumberTotalRows)
-                assertEquals(0, json.NumberFilteredRows)
-            }
+        // use local() tvf to reload the data
+        def ipList = [:]
+        def portList = [:]
+        getBackendIpHeartbeatPort(ipList, portList)
+        ipList.each { beid, ip ->
+           logger.info("Begin to insert into ${table_load_name} from local()")
+           sql """
+                insert into ${table_load_name}
+                select *
+                from local(
+                    "file_path" = "${local_tvf_prefix}/${table_export_name}_${uuid}/*",
+                    "backend_id" = "${beid}",
+                    "format" = "csv_with_names_and_types",
+                    "line_delimiter" = "cc",
+                    "column_separator" = "ab");         
+                """ 
+            insert_res = sql "show last insert;"
+            logger.info("insert from local(), BE id = ${beid}, result: " + insert_res.toString())
         }
 
         qt_select_load4 """ SELECT * FROM ${table_load_name} t ORDER BY user_id; """

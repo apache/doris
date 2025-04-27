@@ -123,6 +123,9 @@ public:
         LOG(FATAL) << "__builtin_unreachable";
         __builtin_unreachable();
     }
+
+private:
+    static std::string _get_fs_name(const io::FileDescription& file_description);
 };
 
 } // namespace doris

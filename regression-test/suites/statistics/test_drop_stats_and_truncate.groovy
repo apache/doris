@@ -240,7 +240,5 @@ suite("test_drop_stats_and_truncate") {
         result = sql """show table stats part"""
     }
     assertEquals("false", result[0][6])
-
-    sql """drop database if exists test_drop_stats_and_truncate"""
 }
 

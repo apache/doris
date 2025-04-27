@@ -30,6 +30,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalSchemaCache.SchemaCacheKey;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SchemaCacheValue;
@@ -74,6 +75,7 @@ import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.LongColumnStatsData;
 import org.apache.hadoop.hive.metastore.api.Partition;
 import org.apache.hadoop.hive.metastore.api.StringColumnStatsData;
+import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.hive.ql.io.AcidUtils;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.logging.log4j.LogManager;
@@ -359,19 +361,24 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     public boolean isHiveTransactionalTable() {
-        return dlaType == DLAType.HIVE && AcidUtils.isTransactionalTable(remoteTable)
-                && isSupportedTransactionalFileFormat();
+        return dlaType == DLAType.HIVE && AcidUtils.isTransactionalTable(remoteTable);
     }
 
-    private boolean isSupportedTransactionalFileFormat() {
+    private boolean isSupportedFullAcidTransactionalFileFormat() {
         // Sometimes we meet "transactional" = "true" but format is parquet, which is not supported.
         // So we need to check the input format for transactional table.
         String inputFormatName = remoteTable.getSd().getInputFormat();
         return inputFormatName != null && SUPPORTED_HIVE_TRANSACTIONAL_FILE_FORMATS.contains(inputFormatName);
     }
 
-    public boolean isFullAcidTable() {
-        return dlaType == DLAType.HIVE && AcidUtils.isFullAcidTable(remoteTable);
+    public boolean isFullAcidTable() throws UserException {
+        if (dlaType == DLAType.HIVE && AcidUtils.isFullAcidTable(remoteTable)) {
+            if (!isSupportedFullAcidTransactionalFileFormat()) {
+                throw new UserException("This table is full Acid Table, but no Orc Format.");
+            }
+            return true;
+        }
+        return false;
     }
 
     @Override
@@ -566,9 +573,18 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     private Optional<SchemaCacheValue> getHiveSchema() {
-        HMSCachedClient client = ((HMSExternalCatalog) catalog).getClient();
-        List<FieldSchema> schema = client.getSchema(dbName, name);
-        Map<String, String> colDefaultValues = client.getDefaultColumnValues(dbName, name);
+        boolean getFromTable = catalog.getCatalogProperty()
+                .getOrDefault(HMSExternalCatalog.GET_SCHEMA_FROM_TABLE, "false")
+                .equalsIgnoreCase("true");
+        List<FieldSchema> schema = null;
+        Map<String, String> colDefaultValues = Maps.newHashMap();
+        if (getFromTable) {
+            schema = getSchemaFromRemoteTable(remoteTable);
+        } else {
+            HMSCachedClient client = ((HMSExternalCatalog) catalog).getClient();
+            schema = client.getSchema(dbName, name);
+            colDefaultValues = client.getDefaultColumnValues(dbName, name);
+        }
         List<Column> columns = Lists.newArrayListWithCapacity(schema.size());
         for (FieldSchema field : schema) {
             String fieldName = field.getName().toLowerCase(Locale.ROOT);
@@ -579,6 +595,13 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         }
         List<Column> partitionColumns = initPartitionColumns(columns);
         return Optional.of(new HMSSchemaCacheValue(columns, partitionColumns));
+    }
+
+    private static List<FieldSchema> getSchemaFromRemoteTable(Table table) {
+        List<FieldSchema> schema = Lists.newArrayList();
+        schema.addAll(table.getSd().getCols());
+        schema.addAll(table.getPartitionKeys());
+        return schema;
     }
 
     @Override
@@ -1018,8 +1041,6 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
 
     @Override
     public void beforeMTMVRefresh(MTMV mtmv) throws DdlException {
-        Env.getCurrentEnv().getRefreshManager()
-                .refreshTable(getCatalog().getName(), getDbName(), getName(), true);
     }
 
     public HoodieTableMetaClient getHudiClient() {

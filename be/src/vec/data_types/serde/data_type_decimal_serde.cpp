@@ -79,7 +79,7 @@ Status DataTypeDecimalSerDe<T>::deserialize_one_cell_from_json(IColumn& column, 
         return Status::OK();
     }
     return Status::InvalidArgument("parse decimal fail, string: '{}', primitive type: '{}'",
-                                   std::string(rb.position(), rb.count()).c_str(),
+                                   std::string(slice.data, slice.size).c_str(),
                                    get_primitive_type());
 }
 

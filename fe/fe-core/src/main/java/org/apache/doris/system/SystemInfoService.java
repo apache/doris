@@ -70,12 +70,14 @@ public class SystemInfoService {
 
     public static final String DEFAULT_CLUSTER = "default_cluster";
 
-    public static final String NO_BACKEND_LOAD_AVAILABLE_MSG = "No backend load available.";
+    public static final String NO_BACKEND_LOAD_AVAILABLE_MSG =
+            "No backend available for load, please check the status of your backends.";
 
-    public static final String NO_SCAN_NODE_BACKEND_AVAILABLE_MSG = "There is no scanNode Backend available.";
+    public static final String NO_SCAN_NODE_BACKEND_AVAILABLE_MSG =
+            "No backend available as scan node, please check the status of your backends.";
 
-    public static final String NOT_USING_VALID_CLUSTER_MSG = "Not using valid cloud clusters, "
-            + "please use a cluster before issuing any queries";
+    public static final String NOT_USING_VALID_CLUSTER_MSG =
+            "Not using valid cloud clusters, please use a cluster before issuing any queries";
 
     protected volatile ImmutableMap<Long, Backend> idToBackendRef = ImmutableMap.of();
     protected volatile ImmutableMap<Long, AtomicLong> idToReportVersionRef = ImmutableMap.of();

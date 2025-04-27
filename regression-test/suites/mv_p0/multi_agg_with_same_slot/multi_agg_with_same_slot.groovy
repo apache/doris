@@ -46,6 +46,7 @@ suite ("multi_agg_with_same_slot") {
     sql "insert into d_table(k4,k2,k5) values('d',4,4);"
 
     sql "analyze table d_table with sync;"
+    sql """alter table d_table modify column k1 set stats ('row_count'='5');"""
     sql """set enable_stats=false;"""
 
     qt_select_star "select * from d_table order by k1;"
@@ -64,7 +65,6 @@ suite ("multi_agg_with_same_slot") {
 
     sql """set enable_stats=true;"""
 
-    sql """alter table d_table modify column k1 set stats ('row_count'='5');"""
     mv_rewrite_success("select k1,k2,avg(k3),max(k3) from d_table group by k1,k2 order by 1,2;", "kmv")
     mv_rewrite_success("select k1,k2,avg(k3)+max(k3) from d_table group by k1,k2 order by 1,2;", "kmv")
     mv_rewrite_success("select k1,k2,avg(k3)+max(k3) from d_table group by grouping sets((k1),(k1,k2),()) order by 1,2;", "kmv")

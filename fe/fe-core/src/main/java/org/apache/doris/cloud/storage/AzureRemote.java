@@ -18,6 +18,7 @@
 package org.apache.doris.cloud.storage;
 
 import org.apache.doris.common.DdlException;
+import org.apache.doris.datasource.property.constants.AzureProperties;
 
 import com.azure.core.credential.AccessToken;
 import com.azure.core.credential.TokenCredential;
@@ -58,8 +59,6 @@ public class AzureRemote extends RemoteBase {
 
     private static final Logger LOG = LogManager.getLogger(AzureRemote.class);
 
-    private static final String URI_TEMPLATE = "https://%s.blob.core.windows.net/%s";
-
     private BlobContainerClient client;
 
     public AzureRemote(ObjectInfo obj) {
@@ -72,8 +71,8 @@ public class AzureRemote extends RemoteBase {
             BlobContainerClientBuilder builder = new BlobContainerClientBuilder();
             builder.credential(new StorageSharedKeyCredential(obj.getAk(), obj.getSk()));
             String containerName = obj.getBucket();
-            String uri = String.format(URI_TEMPLATE, obj.getAk(),
-                    containerName);
+            String endpoint = AzureProperties.formatAzureEndpoint(obj.getEndpoint(), obj.getAk());
+            String uri = endpoint + "/" + containerName;
             builder.endpoint(uri);
             BlobContainerClient containerClient = builder.buildClient();
 
@@ -134,8 +133,8 @@ public class AzureRemote extends RemoteBase {
             BlobContainerClientBuilder builder = new BlobContainerClientBuilder();
             builder.credential(new StorageSharedKeyCredential(obj.getAk(), obj.getSk()));
             String containerName = obj.getBucket();
-            String uri = String.format(URI_TEMPLATE, obj.getAk(),
-                    containerName);
+            String endpoint = AzureProperties.formatAzureEndpoint(obj.getEndpoint(), obj.getAk());
+            String uri = endpoint + "/" + containerName;
             builder.endpoint(uri);
             BlobContainerClient containerClient = builder.buildClient();
             BlobServiceClient blobServiceClient = containerClient.getServiceClient();
@@ -229,8 +228,8 @@ public class AzureRemote extends RemoteBase {
                 builder.credential(new StorageSharedKeyCredential(obj.getAk(), obj.getSk()));
             }
             String containerName = obj.getBucket();
-            String uri = String.format(URI_TEMPLATE, obj.getAk(),
-                    containerName);
+            String endpoint = AzureProperties.formatAzureEndpoint(obj.getEndpoint(), obj.getAk());
+            String uri = endpoint + "/" + containerName;
             builder.endpoint(uri);
             client = builder.buildClient();
         }

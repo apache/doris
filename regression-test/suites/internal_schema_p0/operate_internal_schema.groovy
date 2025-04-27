@@ -126,5 +126,4 @@ suite("operate_internal_schema") {
                log.info(e.getMessage())
            }
         }
-        sql "drop table ${testTable}"
 }

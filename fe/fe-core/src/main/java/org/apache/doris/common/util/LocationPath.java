@@ -87,7 +87,7 @@ public class LocationPath {
         this(location, props, true);
     }
 
-    private LocationPath(String originLocation, Map<String, String> props, boolean convertPath) {
+    public LocationPath(String originLocation, Map<String, String> props, boolean convertPath) {
         isBindBroker = props.containsKey(HMSExternalCatalog.BIND_BROKER_NAME);
         String tmpLocation = originLocation;
         if (!(originLocation.contains(SCHEME_DELIM) || originLocation.contains(NONSTANDARD_SCHEME_DELIM))) {
@@ -203,8 +203,9 @@ public class LocationPath {
 
     // Return the file system type and the file system identity.
     // The file system identity is the scheme and authority of the URI, eg. "hdfs://host:port" or "s3://bucket".
-    public static Pair<FileSystemType, String> getFSIdentity(String location, String bindBrokerName) {
-        LocationPath locationPath = new LocationPath(location, Collections.emptyMap(), true);
+    public static Pair<FileSystemType, String> getFSIdentity(String location,
+            Map<String, String> properties, String bindBrokerName) {
+        LocationPath locationPath = new LocationPath(location, properties, true);
         FileSystemType fsType = (bindBrokerName != null) ? FileSystemType.BROKER : locationPath.getFileSystemType();
         URI uri = locationPath.getPath().toUri();
         String fsIdent = Strings.nullToEmpty(uri.getScheme()) + "://" + Strings.nullToEmpty(uri.getAuthority());

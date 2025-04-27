@@ -24,9 +24,7 @@ suite("load"){
 
     sql """ DROP TABLE IF EXISTS $tableName """
 
-    scriptDir = new File(getClass().protectionDomain.codeSource.location.path).parent
-
-    sql new File("""${scriptDir}/ddl/${tableName}.sql""").text
+    sql new File("""${context.file.parent}/ddl/${tableName}.sql""").text
 
     for (String sourceFile in sourceFiles) {
         streamLoad {

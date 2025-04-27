@@ -62,7 +62,7 @@ Status CloudTabletsChannel::add_batch(const PTabletWriterAddBlockRequest& reques
     {
         // add_batch may concurrency with inc_open but not under _lock.
         // so need to protect it with _tablet_writers_lock.
-        std::lock_guard<SpinLock> l(_tablet_writers_lock);
+        std::lock_guard<std::mutex> l(_tablet_writers_lock);
         for (auto& [tablet_id, _] : tablet_to_rowidxs) {
             auto tablet_writer_it = _tablet_writers.find(tablet_id);
             if (tablet_writer_it == _tablet_writers.end()) {

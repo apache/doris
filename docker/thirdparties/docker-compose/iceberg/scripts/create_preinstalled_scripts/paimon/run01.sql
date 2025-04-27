@@ -23,3 +23,48 @@ insert into test_tb_mix_format values (1,1,'b'),(2,1,'b'),(3,1,'b'),(4,1,'b'),(5
 insert into test_tb_mix_format values (1,2,'b'),(2,2,'b'),(3,2,'b'),(4,2,'b'),(5,2,'b');
 -- delete foramt in table properties, doris should get format by file name
 alter table test_tb_mix_format unset TBLPROPERTIES ('file.format');
+
+drop table if exists two_partition;
+CREATE TABLE two_partition (
+   id BIGINT,
+   create_date STRING,
+   region STRING
+) PARTITIONED BY (create_date,region) TBLPROPERTIES (
+    'primary-key' = 'create_date,region,id',
+    'bucket'=10,
+    'file.format'='orc'
+);
+
+insert into two_partition values(1,'2020-01-01','bj');
+insert into two_partition values(2,'2020-01-01','sh');
+insert into two_partition values(3,'2038-01-01','bj');
+insert into two_partition values(4,'2038-01-01','sh');
+insert into two_partition values(5,'2038-01-02','bj');
+
+drop table if exists null_partition;
+CREATE TABLE null_partition (
+   id BIGINT,
+   region STRING
+) PARTITIONED BY (region) TBLPROPERTIES (
+    'primary-key' = 'region,id',
+    'bucket'=10,
+    'file.format'='orc'
+);
+-- null NULL "null" all will be in partition [null]
+insert into null_partition values(1,'bj');
+insert into null_partition values(2,null);
+insert into null_partition values(3,NULL);
+insert into null_partition values(4,'null');
+insert into null_partition values(5,'NULL');
+
+drop table if exists date_partition;
+CREATE TABLE date_partition (
+                               id BIGINT,
+                               create_date DATE
+) PARTITIONED BY (create_date) TBLPROPERTIES (
+    'primary-key' = 'create_date,id',
+    'bucket'=10,
+    'file.format'='orc'
+);
+
+insert into date_partition values(1,date '2020-01-01');

@@ -112,7 +112,7 @@ public class VirtualSlotReference extends SlotReference implements SlotNotFromCh
     }
 
     @Override
-    public int hashCode() {
+    public int computeHashCode() {
         return Objects.hash(realExpressions, originExpression, getExprId());
     }
 

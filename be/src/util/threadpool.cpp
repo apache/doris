@@ -32,6 +32,7 @@
 #include "gutil/port.h"
 #include "gutil/strings/substitute.h"
 #include "util/debug/sanitizer_scopes.h"
+#include "util/debug_points.h"
 #include "util/doris_metrics.h"
 #include "util/metrics.h"
 #include "util/scoped_cleanup.h"
@@ -702,6 +703,10 @@ Status ThreadPool::set_min_threads(int min_threads) {
 
 Status ThreadPool::set_max_threads(int max_threads) {
     std::lock_guard<std::mutex> l(_lock);
+    DBUG_EXECUTE_IF("ThreadPool.set_max_threads.force_set", {
+        _max_threads = max_threads;
+        return Status::OK();
+    })
     if (_min_threads > max_threads) {
         // max threads can not be set less than min threads
         return Status::InternalError("set thread pool {} max_threads failed", _name);

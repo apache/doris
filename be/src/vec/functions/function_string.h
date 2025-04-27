@@ -122,6 +122,7 @@ struct StringOP {
 
     static void push_value_string(const std::string_view& string_value, int index,
                                   ColumnString::Chars& chars, ColumnString::Offsets& offsets) {
+        DCHECK(string_value.data() != nullptr);
         ColumnString::check_chars_length(chars.size() + string_value.size(), offsets.size());
 
         chars.insert(string_value.data(), string_value.data() + string_value.size());
@@ -1233,8 +1234,9 @@ public:
                 auto& target_column = block.get_by_position(arguments[pos]).column;
                 if (auto target_const_column = check_and_get_column<ColumnConst>(*target_column)) {
                     auto target_data = target_const_column->get_data_at(0);
+                    // return NULL, no target data
                     if (target_data.data == nullptr) {
-                        null_map = ColumnUInt8::create(input_rows_count, is_null);
+                        null_map = ColumnUInt8::create(input_rows_count, true);
                         res->insert_many_defaults(input_rows_count);
                     } else {
                         res->insert_many_data(target_data.data, target_data.size, input_rows_count);
@@ -2684,11 +2686,14 @@ public:
             StringRef url_val = url_col->get_data_at(index_check_const<url_const>(i));
             StringRef parse_res;
             if (UrlParser::parse_url(url_val, url_part, &parse_res)) {
+                if (parse_res.empty()) [[unlikely]] {
+                    StringOP::push_empty_string(i, res_chars, res_offsets);
+                    continue;
+                }
                 StringOP::push_value_string(std::string_view(parse_res.data, parse_res.size), i,
                                             res_chars, res_offsets);
             } else {
                 StringOP::push_null_string(i, res_chars, res_offsets, null_map_data);
-                continue;
             }
         }
         return Status::OK();
@@ -3472,7 +3477,8 @@ struct SubReplaceImpl {
         std::visit(
                 [&](auto origin_str_const, auto new_str_const, auto start_const, auto len_const) {
                     if (simd::VStringFunctions::is_ascii(
-                                StringRef {data_column->get_chars().data(), data_column->size()})) {
+                                StringRef {data_column->get_chars().data(),
+                                           data_column->get_chars().size()})) {
                         vector_ascii<origin_str_const, new_str_const, start_const, len_const>(
                                 data_column, mask_column, start_column->get_data(),
                                 length_column->get_data(), args_null_map->get_data(), result_column,
@@ -3653,9 +3659,10 @@ public:
         auto& res_offset = col_res->get_offsets();
         auto& res_chars = col_res->get_chars();
         res_offset.resize(input_rows_count);
-        // max pinyin size is 6, double of utf8 chinese word 3, add one char to set '~'
-        ColumnString::check_chars_length(str_chars.size() * 2 + input_rows_count, 0);
-        res_chars.resize(str_chars.size() * 2 + input_rows_count);
+        // max pinyin size is 6 + 1 (first '~') for utf8 chinese word 3
+        size_t pinyin_size = (str_chars.size() + 2) / 3 * 7;
+        ColumnString::check_chars_length(pinyin_size, 0);
+        res_chars.resize(pinyin_size);
 
         size_t in_len = 0, out_len = 0;
         for (int i = 0; i < input_rows_count; ++i) {
@@ -3696,7 +3703,11 @@ public:
                     }
 
                     auto end = strchr(buf, ' ');
-                    auto len = end != nullptr ? end - buf : MAX_PINYIN_LEN;
+                    // max len for pinyin is 6
+                    int len = MAX_PINYIN_LEN;
+                    if (end != nullptr && end - buf < MAX_PINYIN_LEN) {
+                        len = end - buf;
+                    }
                     // set first char '~' just make sure all english word lower than chinese word
                     *dest = 126;
                     memcpy(dest + 1, buf, len);

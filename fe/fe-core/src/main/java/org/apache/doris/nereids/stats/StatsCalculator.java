@@ -485,8 +485,12 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             // mv is selected, return its estimated stats
             Optional<Statistics> optStats = cascadesContext.getStatementContext()
                     .getStatistics(((Relation) olapScan).getRelationId());
+            LOG.info("computeOlapScan optStats isPresent {}, tableRowCount is {}, table name is {}",
+                    optStats.isPresent(), tableRowCount, olapTable.getQualifiedName());
             if (optStats.isPresent()) {
                 double selectedPartitionsRowCount = getSelectedPartitionRowCount(olapScan);
+                LOG.info("computeOlapScan optStats is {}, selectedPartitionsRowCount is {}", optStats.get(),
+                        selectedPartitionsRowCount);
                 if (selectedPartitionsRowCount == -1) {
                     selectedPartitionsRowCount = tableRowCount;
                 }
@@ -552,7 +556,9 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                     selectedPartitionNames.add(olapScan.getTable().getPartition(id).getName());
                 });
                 for (SlotReference slot : visibleOutputSlots) {
-                    ColumnStatistic cache = getColumnStatsFromPartitionCache(olapScan, slot, selectedPartitionNames);
+                    ColumnStatistic cache;
+                    cache = getColumnStatsFromTableCache((CatalogRelation) olapScan, slot);
+
                     if (slot.getColumn().isPresent()) {
                         cache = updateMinMaxForPartitionKey(olapTable, selectedPartitionNames, slot, cache);
                     }

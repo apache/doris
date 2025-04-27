@@ -90,6 +90,4 @@ suite("aggregate_grouping_function") {
         GROUP BY GROUPING SETS ((dt_date), (dt_date, name, ratio))
         ORDER BY dt_date, name;
     """
-
-    sql "DROP TABLE test_aggregate_grouping_function"
 }

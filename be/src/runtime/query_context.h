@@ -50,8 +50,6 @@ class PipelineFragmentContext;
 struct ReportStatusRequest {
     const Status status;
     std::vector<RuntimeState*> runtime_states;
-    RuntimeProfile* profile = nullptr;
-    RuntimeProfile* load_channel_profile = nullptr;
     bool done;
     TNetworkAddress coord_addr;
     TUniqueId query_id;
@@ -59,6 +57,7 @@ struct ReportStatusRequest {
     TUniqueId fragment_instance_id;
     int backend_num;
     RuntimeState* runtime_state;
+    std::string load_error_url;
     std::function<void(const Status&)> cancel_fn;
 };
 
@@ -236,8 +235,6 @@ public:
     // MemTracker that is shared by all fragment instances running on this host.
     std::shared_ptr<MemTrackerLimiter> query_mem_tracker;
 
-    std::vector<TUniqueId> fragment_instance_ids;
-
     // plan node id -> TFileScanRangeParams
     // only for file scan node
     std::map<int, TFileScanRangeParams> file_scan_range_params_map;
@@ -247,6 +244,9 @@ public:
             _workload_group->update_cpu_time(delta_cpu_time);
         }
     }
+
+    void set_load_error_url(std::string error_url);
+    std::string get_load_error_url();
 
 private:
     int _timeout_second;
@@ -324,6 +324,9 @@ private:
 
     std::unordered_map<int, std::vector<std::shared_ptr<TRuntimeProfileTree>>>
     _collect_realtime_query_profile() const;
+
+    std::mutex _error_url_lock;
+    std::string _load_error_url;
 
 public:
     // when fragment of pipeline is closed, it will register its profile to this map by using add_fragment_profile

@@ -387,7 +387,6 @@ public class ExportJob implements Writable {
         StatementContext statementContext = new StatementContext();
         ConnectContext connectContext = ConnectContext.get();
         if (connectContext != null) {
-            connectContext.setStatementContext(statementContext);
             statementContext.setConnectContext(connectContext);
         }
 
@@ -713,7 +712,10 @@ public class ExportJob implements Writable {
         LOG.info("cancel export job {}", id);
     }
 
-    private void exportExportJob() {
+    private void exportExportJob() throws JobException {
+        if (getState() == ExportJobState.CANCELLED || getState() == ExportJobState.FINISHED) {
+            throw new JobException("export job has been {}, can not be update to `EXPORTING` state", getState());
+        }
         // The first exportTaskExecutor will set state to EXPORTING,
         // other exportTaskExecutors do not need to set up state.
         if (getState() == ExportJobState.EXPORTING) {

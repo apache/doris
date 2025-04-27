@@ -77,12 +77,14 @@ public:
     enum class GCType { PROCESS = 0, WORK_LOAD_GROUP = 1 };
 
     enum class Type {
-        GLOBAL = 0,        // Life cycle is the same as the process, e.g. Cache and default Orphan
+        GLOBAL = 0,        // Life cycle is the same as the process, except cache and metadata.
         QUERY = 1,         // Count the memory consumption of all Query tasks.
         LOAD = 2,          // Count the memory consumption of all Load tasks.
         COMPACTION = 3,    // Count the memory consumption of all Base and Cumulative tasks.
         SCHEMA_CHANGE = 4, // Count the memory consumption of all SchemaChange tasks.
-        OTHER = 5,
+        METADATA = 5,      // Count the memory consumption of all Metadata.
+        CACHE = 6,         // Count the memory consumption of all Cache.
+        OTHER = 7, // Count the memory consumption of all other tasks, such as Clone, Snapshot, etc..
     };
 
     static std::string type_string(Type type) {
@@ -97,8 +99,12 @@ public:
             return "compaction";
         case Type::SCHEMA_CHANGE:
             return "schema_change";
+        case Type::METADATA:
+            return "metadata";
+        case Type::CACHE:
+            return "cache";
         case Type::OTHER:
-            return "other";
+            return "other_task";
         default:
             LOG(FATAL) << "not match type of mem tracker limiter :" << static_cast<int>(type);
         }
@@ -158,6 +164,8 @@ public:
     int64_t consumption() const { return _mem_counter.current_value(); }
     int64_t peak_consumption() const { return _mem_counter.peak_value(); }
 
+    // Use carefully! only memory that cannot be allocated using Doris Allocator needs to be consumed manually.
+    // Ideally, all memory should use Doris Allocator.
     void consume(int64_t bytes) {
         _mem_counter.add(bytes);
         if (_query_statistics) {

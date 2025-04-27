@@ -61,6 +61,7 @@ private:
     RuntimeProfile::Counter* _compute_agg_data_timer = nullptr;
     RuntimeProfile::Counter* _compute_partition_by_timer = nullptr;
     RuntimeProfile::Counter* _compute_order_by_timer = nullptr;
+    RuntimeProfile::Counter* _blocks_memory_usage = nullptr;
 
     std::vector<vectorized::VExprContextSPtrs> _agg_expr_ctxs;
 };

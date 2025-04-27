@@ -22,7 +22,6 @@
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_string.h"
 #include "vec/common/hash_table/hash_map.h"
-#include "vec/common/hash_table/hash_set.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/functions/array/function_array_utils.h"
 #include "vec/functions/function_helpers.h"

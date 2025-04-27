@@ -42,7 +42,5 @@ suite("test_unique_table_bitmap") {
         sql "insert into ${tbName} values(3,bitmap_from_string('1,0,1,2,3,1,5,99,876,2445'));"
         sql "insert into ${tbName} values(1,bitmap_or(bitmap_from_string('90,5,876'),to_bitmap(1000)));"
         qt_sql "select k,bitmap_count(id_bitmap),bitmap_to_string(id_bitmap) from ${tbName} order by k;"
-
-        sql "DROP TABLE ${tbName};"
     }
 }

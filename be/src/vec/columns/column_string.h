@@ -87,8 +87,11 @@ private:
 
     size_t ALWAYS_INLINE offset_at(ssize_t i) const { return offsets[i - 1]; }
 
-    /// Size of i-th element, including terminating zero.
-    size_t ALWAYS_INLINE size_at(ssize_t i) const { return offsets[i] - offsets[i - 1]; }
+    // Size of i-th element, including terminating zero.
+    // assume that the length of a single element is less than 32-bit
+    uint32_t ALWAYS_INLINE size_at(ssize_t i) const {
+        return uint32_t(offsets[i] - offsets[i - 1]);
+    }
 
     template <bool positive>
     struct less;
@@ -105,6 +108,7 @@ public:
     bool is_variable_length() const override { return true; }
     // used in string ut testd
     void sanity_check() const;
+    void sanity_check_simple() const;
     const char* get_family_name() const override { return "String"; }
 
     size_t size() const override { return offsets.size(); }
@@ -159,6 +163,7 @@ public:
         chars.resize(new_size);
         memcpy(chars.data() + old_size, s.data, size_to_append);
         offsets.push_back(new_size);
+        sanity_check_simple();
     }
 
     void insert_many_from(const IColumn& src, size_t position, size_t length) override;
@@ -185,6 +190,7 @@ public:
                                                      size_to_append);
             offsets.push_back(new_size);
         }
+        sanity_check_simple();
     }
 
     void insert_data(const char* pos, size_t length) override {
@@ -197,6 +203,7 @@ public:
             memcpy(chars.data() + old_size, pos, length);
         }
         offsets.push_back(new_size);
+        sanity_check_simple();
     }
 
     void insert_data_without_reserve(const char* pos, size_t length) {
@@ -209,6 +216,7 @@ public:
             memcpy(chars.data() + old_size, pos, length);
         }
         offsets.push_back_without_reserve(new_size);
+        sanity_check_simple();
     }
 
     /// Before insert strings, the caller should calculate the total size of strings,
@@ -216,6 +224,7 @@ public:
     void insert_many_strings_without_reserve(const StringRef* strings, size_t num) {
         Char* data = chars.data();
         size_t offset = chars.size();
+        data += offset;
         size_t length = 0;
 
         const char* ptr = strings[0].data;
@@ -242,6 +251,7 @@ public:
         }
         check_chars_length(offset, offsets.size());
         chars.resize(offset);
+        sanity_check_simple();
     }
 
     void insert_many_continuous_binary_data(const char* data, const uint32_t* offsets_,
@@ -267,6 +277,7 @@ public:
             offsets_ptr[i] = tail_offset + offsets_[i + 1] - begin_offset;
         }
         DCHECK(chars.size() == offsets.back());
+        sanity_check_simple();
     }
 
     void insert_many_binary_data(char* data_array, uint32_t* len_array,
@@ -290,6 +301,7 @@ public:
             offset += len;
             offsets.push_back(offset);
         }
+        sanity_check_simple();
     }
 
     void insert_many_strings(const StringRef* strings, size_t num) override {
@@ -312,6 +324,7 @@ public:
             }
             offsets.push_back(offset);
         }
+        sanity_check_simple();
     }
 
     template <size_t copy_length>
@@ -336,6 +349,7 @@ public:
             offsets.push_back(offset);
         }
         chars.resize(old_size + new_size);
+        sanity_check_simple();
     }
 
     void insert_many_strings_overflow(const StringRef* strings, size_t num,
@@ -373,16 +387,18 @@ public:
 
         for (size_t i = start_index; i < start_index + num; i++) {
             int32_t codeword = data_array[i];
-            auto& src = dict[codeword];
+            const auto& src = dict[codeword];
             memcpy(chars.data() + old_size, src.data, src.size);
             old_size += src.size;
         }
+        sanity_check_simple();
     }
 
     void pop_back(size_t n) override {
         size_t nested_n = offsets.back() - offset_at(offsets.size() - n);
         chars.resize(chars.size() - nested_n);
         offsets.resize_assume_reserved(offsets.size() - n);
+        sanity_check_simple();
     }
 
     StringRef serialize_value_into_arena(size_t n, Arena& arena, char const*& begin) const override;

@@ -69,32 +69,13 @@ suite("schema_change_modify_mv_column_type2") {
         }
     }
     createMV ("""CREATE MATERIALIZED VIEW mv_${testTable}_2 AS SELECT k1, sum(c_int), max(c_int), min(c_int) FROM ${testTable} GROUP BY k1""")
-    qt_sql """ desc ${testTable} all """
+    qt_master_sql """ desc ${testTable} all """
     sql "set topn_opt_limit_threshold = 100"
     qt_sql "SELECT * from ${testTable} order by 1, 2, 3 limit 10"
     qt_sql "SELECT * from ${testTable} where c_tinyint = 10 order by 1, 2, 3 limit 10 "
 
-    sql """
-          ALTER table ${testTable} MODIFY COLUMN c_int BIGINT;
-          """
-    def getJobState = { tableName ->
-          def jobStateResult = sql """  SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName}' ORDER BY createtime DESC LIMIT 1 """
-          return jobStateResult[0][9]
-     }
-    int max_try_time = 100
-    while (max_try_time--){
-        String result = getJobState(testTable)
-        if (result == "FINISHED") {
-            break
-        } else {
-            sleep(2000)
-            if (max_try_time < 1){
-                assertEquals(1,2)
-            }
-        }
+    test {
+        sql "ALTER table ${testTable} MODIFY COLUMN c_int BIGINT;"
+        exception "Can not modify column contained by mv"
     }
-    // sync materialized view rewrite will fail when schema change, tmp disable, enable when fixed
-    sql """set enable_dml_materialized_view_rewrite = false;"""
-    qt_sql """ desc ${testTable} all """
-    sql "INSERT INTO ${testTable} SELECT * from ${testTable}"
 }

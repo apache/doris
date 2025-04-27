@@ -117,6 +117,4 @@ suite("aggregate_group_by_metric_type") {
     //     sql "select c_array,count(*) from test_group_by_array group by c_array"
     //     exception "${error_msg}"
     // }
-
-    sql "DROP TABLE test_group_by_array"
 }

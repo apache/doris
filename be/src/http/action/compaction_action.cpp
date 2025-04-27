@@ -166,6 +166,15 @@ Status CompactionAction::_handle_run_compaction(HttpRequest* req, std::string* j
         if (fetch_from_remote && !tablet->should_fetch_from_peer()) {
             return Status::NotSupported("tablet should do compaction locally");
         }
+        DBUG_EXECUTE_IF("CompactionAction._handle_run_compaction.submit_cumu_task", {
+            RETURN_IF_ERROR(_engine.submit_compaction_task(
+                    tablet, CompactionType::CUMULATIVE_COMPACTION, false));
+            LOG(INFO) << "Manual debug compaction task is successfully triggered";
+            *json_result =
+                    R"({"status": "Success", "msg": "debug compaction task is successfully triggered. Table id: )" +
+                    std::to_string(table_id) + ". Tablet id: " + std::to_string(tablet_id) + "\"}";
+            return Status::OK();
+        })
 
         // 3. execute compaction task
         std::packaged_task<Status()> task([this, tablet, compaction_type, fetch_from_remote]() {

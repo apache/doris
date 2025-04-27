@@ -104,12 +104,13 @@ template <typename BlockType>
 struct BlockQueue {
     std::atomic<bool> eos = false;
     moodycamel::ConcurrentQueue<BlockType> data_queue;
+    moodycamel::ProducerToken ptok {data_queue};
     BlockQueue() : eos(false), data_queue(moodycamel::ConcurrentQueue<BlockType>()) {}
     BlockQueue(BlockQueue<BlockType>&& other)
             : eos(other.eos.load()), data_queue(std::move(other.data_queue)) {}
     inline bool enqueue(BlockType const& item) {
         if (!eos) {
-            if (!data_queue.enqueue(item)) [[unlikely]] {
+            if (!data_queue.enqueue(ptok, item)) [[unlikely]] {
                 throw Exception(ErrorCode::INTERNAL_ERROR,
                                 "Exception occurs in data queue [size = {}] of local exchange.",
                                 data_queue.size_approx());
@@ -121,7 +122,7 @@ struct BlockQueue {
 
     inline bool enqueue(BlockType&& item) {
         if (!eos) {
-            if (!data_queue.enqueue(std::move(item))) [[unlikely]] {
+            if (!data_queue.enqueue(ptok, std::move(item))) [[unlikely]] {
                 throw Exception(ErrorCode::INTERNAL_ERROR,
                                 "Exception occurs in data queue [size = {}] of local exchange.",
                                 data_queue.size_approx());

@@ -313,7 +313,6 @@ public class SingleNodePlanner {
             boolean useTopN = true;
             root = new SortNode(ctx.getNextNodeId(), root, stmt.getSortInfo(),
                     useTopN);
-            ((SortNode) root).setDefaultLimit(limit == -1);
             root.setOffset(stmt.getOffset());
             if (useTopN) {
                 if (sqlSelectLimit >= 0) {
@@ -1938,9 +1937,10 @@ public class SingleNodePlanner {
             case SCHEMA:
                 if (BackendPartitionedSchemaScanNode.isBackendPartitionedSchemaTable(
                         tblRef.getDesc().getTable().getName())) {
-                    scanNode = new BackendPartitionedSchemaScanNode(ctx.getNextNodeId(), tblRef.getDesc());
+                    scanNode = new BackendPartitionedSchemaScanNode(ctx.getNextNodeId(), tblRef.getDesc(),
+                        null, null, null);
                 } else {
-                    scanNode = new SchemaScanNode(ctx.getNextNodeId(), tblRef.getDesc());
+                    scanNode = new SchemaScanNode(ctx.getNextNodeId(), tblRef.getDesc(), null, null, null);
                 }
                 break;
             case BROKER:

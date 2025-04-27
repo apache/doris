@@ -174,14 +174,14 @@ DECLARE_DECIMAL_COMPARISON(Decimal256)
 
 template <>
 bool decimal_equal(Decimal128V3 x, Decimal128V3 y, UInt32 xs, UInt32 ys) {
-    return dec_equal(Decimal128V2(x.value), Decimal128V2(y.value), xs, ys);
+    return dec_equal(x, y, xs, ys);
 }
 template <>
 bool decimal_less(Decimal128V3 x, Decimal128V3 y, UInt32 xs, UInt32 ys) {
-    return dec_less(Decimal128V2(x.value), Decimal128V2(y.value), xs, ys);
+    return dec_less(x, y, xs, ys);
 }
 template <>
 bool decimal_less_or_equal(Decimal128V3 x, Decimal128V3 y, UInt32 xs, UInt32 ys) {
-    return dec_less_or_equal(Decimal128V2(x.value), Decimal128V2(y.value), xs, ys);
+    return dec_less_or_equal(x, y, xs, ys);
 }
 } // namespace doris::vectorized

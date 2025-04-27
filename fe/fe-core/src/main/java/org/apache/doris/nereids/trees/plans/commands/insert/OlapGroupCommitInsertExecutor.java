@@ -32,7 +32,9 @@ import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.OneRowRelation;
+import org.apache.doris.nereids.trees.plans.commands.PrepareCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalInlineTable;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
@@ -66,15 +68,40 @@ public class OlapGroupCommitInsertExecutor extends OlapInsertExecutor {
 
     /**
      * check if the sql can run in group commit mode
-     * @param logicalPlan plan of sql
      */
-    public static void analyzeGroupCommit(LogicalPlan logicalPlan) {
-        ConnectContext ctx = ConnectContext.get();
-        if (ctx.getSessionVariable().isEnableInsertGroupCommit() && logicalPlan instanceof InsertIntoTableCommand) {
-            LogicalPlan logicalQuery = ((InsertIntoTableCommand) logicalPlan).getLogicalQuery();
-            TableIf targetTableIf = InsertUtils.getTargetTable(logicalQuery, ctx);
-            OlapGroupCommitInsertExecutor.analyzeGroupCommit(ctx, targetTableIf, logicalQuery,
-                    Optional.empty());
+    public static void fastAnalyzeGroupCommit(ConnectContext ctx, LogicalPlan logicalPlan) {
+        try {
+            if (ctx.getSessionVariable().isEnableInsertGroupCommit() && !ctx.isTxnModel() && !ctx.getSessionVariable()
+                    .isEnableUniqueKeyPartialUpdate()) {
+                ctx.setGroupCommit(true);
+            }
+        } catch (Throwable e) {
+            LOG.warn("analyze group commit failed", e);
+        }
+    }
+
+    /**
+     * check if the sql can run in group commit mode
+     */
+    public static void analyzeGroupCommit(ConnectContext ctx, LogicalPlan logicalPlan) {
+        try {
+            if (ctx.isGroupCommit()) {
+                return;
+            }
+            if (!ctx.getSessionVariable().isEnableInsertGroupCommit()) {
+                return;
+            }
+            if (logicalPlan instanceof PrepareCommand) {
+                logicalPlan = ((PrepareCommand) logicalPlan).getLogicalPlan();
+            }
+            if (logicalPlan instanceof InsertIntoTableCommand) {
+                LogicalPlan logicalQuery = ((InsertIntoTableCommand) logicalPlan).getLogicalQuery();
+                TableIf targetTableIf = InsertUtils.getTargetTable(logicalQuery, ctx);
+                OlapGroupCommitInsertExecutor.analyzeGroupCommit(ctx, targetTableIf, logicalQuery,
+                        Optional.empty());
+            }
+        } catch (Throwable e) {
+            LOG.warn("analyze group commit failed", e);
         }
     }
 
@@ -105,11 +132,14 @@ public class OlapGroupCommitInsertExecutor extends OlapInsertExecutor {
                     () -> "not allowModifyMTMVData"));
             conditions.add(Pair.of(() -> !(insertCtx.isPresent() && insertCtx.get() instanceof OlapInsertCommandContext
                     && ((OlapInsertCommandContext) insertCtx.get()).isOverwrite()), () -> "is overwrite command"));
+            Plan tableSinkChild = tableSink.child();
             conditions.add(Pair.of(
-                    () -> tableSink.child() instanceof OneRowRelation || tableSink.child() instanceof LogicalUnion
-                            || tableSink.child() instanceof LogicalInlineTable,
-                    () -> "not one row relation or union or inline table, class: " + tableSink.child().getClass()
-                            .getName()));
+                    () -> tableSinkChild instanceof OneRowRelation || (tableSinkChild instanceof LogicalUnion
+                            && tableSinkChild.getExpressions().size() > 0)
+                            || tableSinkChild instanceof LogicalInlineTable,
+                    () -> "should be one row relation or union or inline table, class: "
+                            + tableSinkChild.getClass().getName() + (tableSinkChild instanceof LogicalUnion
+                            ? ", expression size is 0" : "")));
             ctx.setGroupCommit(conditions.stream().allMatch(p -> p.first.getAsBoolean()));
             if (!ctx.isGroupCommit() && LOG.isDebugEnabled()) {
                 for (Pair<BooleanSupplier, Supplier<String>> pair : conditions) {

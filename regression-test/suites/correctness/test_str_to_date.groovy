@@ -52,4 +52,8 @@ suite("test_str_to_date") {
     qt_short_2 " select STR_TO_DATE('2023-12', '%Y-%m') "
     qt_short_3 " select STR_TO_DATE('2023-12', '%Y')"
     qt_short_4 " select STR_TO_DATE('2020%2', '%Y%%%m')"
+
+    qt_select_all_space """
+        SELECT STR_TO_DATE('  ', '%Y-%m-%d %H:%i:%s');
+    """
 }

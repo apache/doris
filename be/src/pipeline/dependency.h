@@ -324,11 +324,6 @@ public:
     vectorized::Sizes offsets_of_aggregate_states;
     std::vector<size_t> make_nullable_keys;
 
-    struct MemoryRecord {
-        int64_t used_in_arena {};
-        int64_t used_in_state {};
-    };
-    MemoryRecord mem_usage_record;
     bool agg_data_created_without_key = false;
     bool enable_spill = false;
     bool reach_limit = false;
@@ -390,6 +385,9 @@ public:
     };
 
     std::priority_queue<HeapLimitCursor> limit_heap;
+
+    // Refresh the top limit heap with a new row
+    void refresh_top_limit(size_t row_id, const vectorized::ColumnRawPtrs& key_columns);
 
 private:
     vectorized::MutableColumns _get_keys_hash_table();
@@ -687,7 +685,8 @@ public:
     //// shared static states (shared, decided in prepare/open...)
 
     /// init in setup_local_state
-    std::unique_ptr<SetHashTableVariants> hash_table_variants = nullptr; // the real data HERE.
+    std::unique_ptr<SetHashTableVariants> hash_table_variants =
+            std::make_unique<SetHashTableVariants>(); // the real data HERE.
     std::vector<bool> build_not_ignore_null;
 
     /// init in both upstream side.
@@ -825,7 +824,7 @@ public:
     LocalExchangeSharedState(int num_instances);
     ~LocalExchangeSharedState() override;
     std::unique_ptr<ExchangerBase> exchanger {};
-    std::vector<MemTracker*> mem_trackers;
+    std::vector<RuntimeProfile::Counter*> mem_counters;
     std::atomic<int64_t> mem_usage = 0;
     // We need to make sure to add mem_usage first and then enqueue, otherwise sub mem_usage may cause negative mem_usage during concurrent dequeue.
     std::mutex le_lock;
@@ -861,13 +860,15 @@ public:
     }
 
     void add_mem_usage(int channel_id, size_t delta, bool update_total_mem_usage = true) {
-        mem_trackers[channel_id]->consume(delta);
+        mem_counters[channel_id]->update(delta);
         if (update_total_mem_usage) {
             add_total_mem_usage(delta, channel_id);
         }
     }
 
-    void sub_mem_usage(int channel_id, size_t delta) { mem_trackers[channel_id]->release(delta); }
+    void sub_mem_usage(int channel_id, size_t delta) {
+        mem_counters[channel_id]->update(-(int64_t)delta);
+    }
 
     virtual void add_total_mem_usage(size_t delta, int channel_id) {
         if (mem_usage.fetch_add(delta) + delta > config::local_exchange_buffer_mem_limit) {

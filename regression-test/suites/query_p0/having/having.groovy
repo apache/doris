@@ -19,7 +19,7 @@
 // /testing/trino-product-tests/src/main/resources/sql-tests/testcases/aggregate
 // and modified by Doris.
 
-suite("having", "query,p0") {
+suite("having", "query,p0,arrow_flight_sql") {
     sql """DROP TABLE IF EXISTS supplier"""
     sql """CREATE TABLE `supplier` (
             `s_suppkey` int(11) NOT NULL,

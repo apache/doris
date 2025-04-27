@@ -14,7 +14,7 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-suite("test_json_function") {
+suite("test_json_function", "arrow_flight_sql") {
     sql "set batch_size = 4096;"
 
     qt_sql "SELECT get_json_double('{\"k1\":1.3, \"k2\":\"2\"}', \"\$.k1\");"
@@ -77,4 +77,6 @@ suite("test_json_function") {
     qt_sql """SELECT JSON_CONTAINS('','1','\$.a')"""
     qt_sql """SELECT JSON_CONTAINS('""','1','\$.a')"""
     qt_sql """SELECT JSON_CONTAINS("",'1','\$.a')"""
+
+    qt_sql """select k6, json_extract_string(cast(k7 as json), "\$.a") as x10 from test_query_db.baseall group by k6, x10 order by 1,2; """
 }

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_largeint") {
+suite("test_largeint", "arrow_flight_sql") {
     def tbName = "test_largeint"
     sql "DROP TABLE IF EXISTS ${tbName}"
     sql """
@@ -41,5 +41,4 @@ suite("test_largeint") {
     sql "insert into ${tbName} values (10009,195456789345678955654444443878);"
 
     qt_select "select count(1) from ${tbName} where phone='195456789345678955654444443878';"
-    sql "DROP TABLE ${tbName}"
 }

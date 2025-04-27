@@ -75,6 +75,13 @@ public class HMSExternalCatalog extends ExternalCatalog {
     public static final String FILE_META_CACHE_TTL_SECOND = "file.meta.cache.ttl-second";
     // broker name for file split and query scan.
     public static final String BIND_BROKER_NAME = "broker.name";
+    // Default is false, if set to true, will get table schema from "remoteTable" instead of from hive metastore.
+    // This is because for some forward compatiblity issue of hive metastore, there maybe
+    // "storage schema reading not support" error being thrown.
+    // set this to true can avoid this error.
+    // But notice that if set to true, the default value of column will be ignored because we cannot get default value
+    // from remoteTable object.
+    public static final String GET_SCHEMA_FROM_TABLE = "get_schema_from_table";
 
     // -1 means file cache no ttl set
     public static final int FILE_META_CACHE_NO_TTL = -1;
@@ -117,20 +124,6 @@ public class HMSExternalCatalog extends ExternalCatalog {
             throw new DdlException(
                     "The parameter " + FILE_META_CACHE_TTL_SECOND + " is wrong, value is " + fileMetaCacheTtlSecond);
         }
-        Map<String, String> properties = catalogProperty.getProperties();
-        if (properties.containsKey(HMSProperties.ENABLE_HMS_EVENTS_INCREMENTAL_SYNC)) {
-            enableHmsEventsIncrementalSync =
-                    properties.get(HMSProperties.ENABLE_HMS_EVENTS_INCREMENTAL_SYNC).equals("true");
-        } else {
-            enableHmsEventsIncrementalSync = Config.enable_hms_events_incremental_sync;
-        }
-
-        if (properties.containsKey(HMSProperties.HMS_EVENTIS_BATCH_SIZE_PER_RPC)) {
-            hmsEventsBatchSizePerRpc = Integer.valueOf(properties.get(HMSProperties.HMS_EVENTIS_BATCH_SIZE_PER_RPC));
-        } else {
-            hmsEventsBatchSizePerRpc = Config.hms_events_batch_size_per_rpc;
-        }
-
         // check the dfs.ha properties
         // 'dfs.nameservices'='your-nameservice',
         // 'dfs.ha.namenodes.your-nameservice'='nn1,nn2',
@@ -190,7 +183,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
             for (Map.Entry<String, String> kv : catalogProperty.getHadoopProperties().entrySet()) {
                 hiveConf.set(kv.getKey(), kv.getValue());
             }
-            hiveConf.set(HiveConf.ConfVars.METASTORE_CLIENT_SOCKET_TIMEOUT.name(),
+            HiveConf.setVar(hiveConf, HiveConf.ConfVars.METASTORE_CLIENT_SOCKET_TIMEOUT,
                     String.valueOf(Config.hive_metastore_client_timeout_second));
         }
         HiveMetadataOps hiveOps = ExternalMetadataOperations.newHiveMetadataOps(hiveConf, jdbcClientConfig, this);
@@ -204,10 +197,21 @@ public class HMSExternalCatalog extends ExternalCatalog {
     }
 
     @Override
-    public void onRefresh(boolean invalidCache) {
-        super.onRefresh(invalidCache);
+    public void resetToUninitialized(boolean invalidCache) {
+        super.resetToUninitialized(invalidCache);
         if (metadataOps != null) {
             metadataOps.close();
+        }
+    }
+
+    @Override
+    public void onClose() {
+        super.onClose();
+        if (null != fileSystemExecutor) {
+            fileSystemExecutor.shutdown();
+        }
+        if (null != icebergMetadataOps) {
+            icebergMetadataOps.close();
         }
     }
 
@@ -244,7 +248,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
         }
         if (useMetaCache.get()) {
             if (isInitialized()) {
-                metaCache.invalidate(dbName, Util.genIdByName(getQualifiedName(dbName)));
+                metaCache.invalidate(dbName, Util.genIdByName(name, dbName));
             }
         } else {
             Long dbId = dbNameToId.remove(dbName);
@@ -265,7 +269,8 @@ public class HMSExternalCatalog extends ExternalCatalog {
         ExternalDatabase<? extends ExternalTable> db = buildDbForInit(dbName, null, dbId, logType, false);
         if (useMetaCache.get()) {
             if (isInitialized()) {
-                metaCache.updateCache(dbName, db, Util.genIdByName(getQualifiedName(dbName)));
+                metaCache.updateCache(db.getRemoteName(), db.getFullName(), db,
+                        Util.genIdByName(name, db.getFullName()));
             }
         } else {
             dbNameToId.put(dbName, dbId);
@@ -288,6 +293,20 @@ public class HMSExternalCatalog extends ExternalCatalog {
         if (ifNotSetFallbackToSimpleAuth()) {
             // always allow fallback to simple auth, so to support both kerberos and simple auth
             catalogProperty.addProperty(DFSFileSystem.PROP_ALLOW_FALLBACK_TO_SIMPLE_AUTH, "true");
+        }
+
+        Map<String, String> properties = catalogProperty.getProperties();
+        if (properties.containsKey(HMSProperties.ENABLE_HMS_EVENTS_INCREMENTAL_SYNC)) {
+            enableHmsEventsIncrementalSync =
+                    properties.get(HMSProperties.ENABLE_HMS_EVENTS_INCREMENTAL_SYNC).equals("true");
+        } else {
+            enableHmsEventsIncrementalSync = Config.enable_hms_events_incremental_sync;
+        }
+
+        if (properties.containsKey(HMSProperties.HMS_EVENTIS_BATCH_SIZE_PER_RPC)) {
+            hmsEventsBatchSizePerRpc = Integer.valueOf(properties.get(HMSProperties.HMS_EVENTIS_BATCH_SIZE_PER_RPC));
+        } else {
+            hmsEventsBatchSizePerRpc = Config.hms_events_batch_size_per_rpc;
         }
     }
 

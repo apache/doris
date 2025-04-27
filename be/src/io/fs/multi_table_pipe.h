@@ -95,6 +95,7 @@ private:
     std::atomic<int64_t> _number_unselected_rows {0};
 
     std::mutex _pipe_map_lock;
+    std::mutex _callback_lock;
     std::unordered_map<TUniqueId /*instance id*/, std::shared_ptr<io::StreamLoadPipe>> _pipe_map;
 
     uint32_t _row_threshold = config::multi_table_batch_plan_threshold;

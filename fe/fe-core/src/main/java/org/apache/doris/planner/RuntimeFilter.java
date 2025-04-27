@@ -112,6 +112,8 @@ public final class RuntimeFilter {
 
     private boolean bloomFilterSizeCalculatedByNdv = false;
 
+    private boolean singleEq = false;
+
     /**
      * Internal representation of a runtime filter target.
      */
@@ -216,9 +218,36 @@ public final class RuntimeFilter {
         tFilter.setIsBroadcastJoin(isBroadcastJoin);
         tFilter.setHasLocalTargets(hasLocalTargets);
         tFilter.setHasRemoteTargets(hasRemoteTargets);
+
+        boolean hasSerialTargets = false;
         for (RuntimeFilterTarget target : targets) {
             tFilter.putToPlanIdToTargetExpr(target.node.getId().asInt(), target.expr.treeToThrift());
+            hasSerialTargets = hasSerialTargets
+                    || (target.node.isSerialOperator() && target.node.fragment.useSerialSource(ConnectContext.get()));
         }
+
+        boolean enableSyncFilterSize = ConnectContext.get() != null
+                && ConnectContext.get().getSessionVariable().enableSyncRuntimeFilterSize();
+
+        // there are two cases has local exchange between join and scan
+        // 1. hasRemoteTargets is true means join probe side do least once shuffle (has shuffle between join and scan)
+        // 2. hasSerialTargets is true means scan is pooled (has local shuffle between join and scan)
+        boolean needShuffle = hasRemoteTargets || hasSerialTargets;
+
+        // There are two cases where all instances of rf have the same size.
+        // 1. enableSyncFilterSize is true means backends will collect global size and send to every instance
+        // 2. isBroadcastJoin is true means each join node instance have the same full amount of data
+        boolean hasGlobalSize = enableSyncFilterSize || isBroadcastJoin;
+
+        // build runtime filter by exact distinct count if all of 3 conditions are met:
+        // 1. only single eq conjunct
+        // 2. rf type may be bf
+        // 3. each filter only acts on self instance(do not need any shuffle), or size of
+        // all filters will be same
+        boolean buildBfExactly = singleEq && (runtimeFilterType == TRuntimeFilterType.IN_OR_BLOOM
+                || runtimeFilterType == TRuntimeFilterType.BLOOM) && (!needShuffle || hasGlobalSize);
+        tFilter.setBuildBfExactly(buildBfExactly);
+
         tFilter.setType(runtimeFilterType);
         tFilter.setBloomFilterSizeBytes(filterSizeBytes);
         if (runtimeFilterType.equals(TRuntimeFilterType.BITMAP)) {
@@ -239,8 +268,6 @@ public final class RuntimeFilter {
                 tFilter.setNullAware(false);
             }
         }
-        tFilter.setSyncFilterSize(ConnectContext.get() != null
-                && ConnectContext.get().getSessionVariable().enableSyncRuntimeFilterSize());
         return tFilter;
     }
 
@@ -595,6 +622,10 @@ public final class RuntimeFilter {
 
     public void addTarget(RuntimeFilterTarget target) {
         targets.add(target);
+    }
+
+    public void setSingleEq(int eqJoinConjunctsNumbers) {
+        singleEq = (eqJoinConjunctsNumbers == 1);
     }
 
     public void setIsBroadcast(boolean isBroadcast) {

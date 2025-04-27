@@ -15,14 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_forbid_vault") {
+suite("test_forbid_vault", "nonConcurrent") {
+    def suiteName = name;
     if (!isCloudMode()) {
-        logger.info("skip ${name} case, because not cloud mode")
+        logger.info("skip ${suiteName} case, because not cloud mode")
         return
     }
 
     if (enableStoragevault()) {
-        logger.info("skip ${name} case, because storage vault enabled")
+        logger.info("skip ${suiteName} case, because storage vault enabled")
         return
     }
 

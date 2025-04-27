@@ -39,6 +39,4 @@ suite("test_is_ip_string_functions") {
 
     qt_sql1 "select is_ipv4_string(ip_v4) from test_is_ip_string order by id"
     qt_sql2 "select is_ipv6_string(ip_v6) from test_is_ip_string order by id"
-
-    sql "DROP TABLE test_is_ip_string"
 }

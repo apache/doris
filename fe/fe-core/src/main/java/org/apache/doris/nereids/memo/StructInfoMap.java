@@ -60,7 +60,7 @@ public class StructInfoMap {
             return structInfo;
         }
         if (groupExpressionMap.isEmpty() || !groupExpressionMap.containsKey(tableMap)) {
-            refresh(group, cascadesContext);
+            refresh(group, cascadesContext, new HashSet<>());
             group.getstructInfoMap().setRefreshVersion(cascadesContext.getMemo().getRefreshVersion());
         }
         if (groupExpressionMap.containsKey(tableMap)) {
@@ -116,13 +116,13 @@ public class StructInfoMap {
      * @param group the root group
      *
      */
-    public void refresh(Group group, CascadesContext cascadesContext) {
+    public void refresh(Group group, CascadesContext cascadesContext, Set<Integer> refreshedGroup) {
         StructInfoMap structInfoMap = group.getstructInfoMap();
+        refreshedGroup.add(group.getGroupId().asInt());
         long memoVersion = cascadesContext.getMemo().getRefreshVersion();
         if (!structInfoMap.getTableMaps().isEmpty() && memoVersion == structInfoMap.refreshVersion) {
             return;
         }
-        Set<Integer> refreshedGroup = new HashSet<>();
         for (GroupExpression groupExpression : group.getLogicalExpressions()) {
             List<Set<BitSet>> childrenTableMap = new LinkedList<>();
             if (groupExpression.children().isEmpty()) {
@@ -136,10 +136,9 @@ public class StructInfoMap {
             for (Group child : groupExpression.children()) {
                 StructInfoMap childStructInfoMap = child.getstructInfoMap();
                 if (!refreshedGroup.contains(child.getGroupId().asInt())) {
-                    childStructInfoMap.refresh(child, cascadesContext);
+                    childStructInfoMap.refresh(child, cascadesContext, refreshedGroup);
                     childStructInfoMap.setRefreshVersion(memoVersion);
                 }
-                refreshedGroup.add(child.getGroupId().asInt());
                 childrenTableMap.add(child.getstructInfoMap().getTableMaps());
             }
             // if one same groupExpression have refreshed, continue

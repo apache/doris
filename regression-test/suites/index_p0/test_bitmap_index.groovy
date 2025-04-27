@@ -476,5 +476,4 @@ suite("test_bitmap_index") {
                 }
             }
         }
-        sql "DROP TABLE ${tbName5} FORCE;"
 }

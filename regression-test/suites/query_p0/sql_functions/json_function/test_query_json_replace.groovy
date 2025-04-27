@@ -63,6 +63,4 @@ suite("test_query_json_replace", "query") {
     sql "insert into test_query_json_replace_nullable values(2,'2022-01-01 11:45:14',null);"
     sql "insert into test_query_json_replace_nullable values(3,null,9);"
     qt_sql2 "select json_replace('{\"id\": 0, \"time\": \"1970-01-01 00:00:00\", \"a1\": [1, 2], \"a2\": [1, 2]}', '\$.id', id, '\$.time', time, '\$.a1[1]', k, '\$.a2[3]', k) from test_query_json_replace_nullable order by id;"
-
-    sql "DROP TABLE test_query_json_replace_nullable;"
 }

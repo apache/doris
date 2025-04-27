@@ -26,7 +26,6 @@
 #include "olap/storage_engine.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
-#include "runtime/memory/mem_tracker.h"
 #include "runtime/tablets_channel.h"
 #include "runtime/thread_context.h"
 #include "runtime/workload_group/workload_group_manager.h"
@@ -97,7 +96,6 @@ void LoadChannel::_init_profile() {
                                                _load_id.to_string(), _sender_ip, _backend_id),
                                    true, true);
     _add_batch_number_counter = ADD_COUNTER(_self_profile, "NumberBatchAdded", TUnit::UNIT);
-    _peak_memory_usage_counter = ADD_COUNTER(_self_profile, "PeakMemoryUsage", TUnit::BYTES);
     _add_batch_timer = ADD_TIMER(_self_profile, "AddBatchTime");
     _handle_eos_timer = ADD_CHILD_TIMER(_self_profile, "HandleEosTime", "AddBatchTime");
     _add_batch_times = ADD_COUNTER(_self_profile, "AddBatchTimes", TUnit::UNIT);
@@ -272,7 +270,7 @@ void LoadChannel::_report_profile(PTabletWriterAddBlockResult* response) {
     ThriftSerializer ser(false, 4096);
     uint8_t* buf = nullptr;
     uint32_t len = 0;
-    std::lock_guard<SpinLock> l(_profile_serialize_lock);
+    std::lock_guard<std::mutex> l(_profile_serialize_lock);
     _profile->to_thrift(&tprofile);
     auto st = ser.serialize(&tprofile, &len, &buf);
     if (st.ok()) {

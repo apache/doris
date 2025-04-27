@@ -46,7 +46,7 @@ int LoadStreamReplyHandler::on_received_messages(brpc::StreamId id, butil::IOBuf
             stub->_is_eos.store(true);
         }
 
-        Status st = Status::create(response.status());
+        Status st = Status::create<false>(response.status());
 
         std::stringstream ss;
         ss << "on_received_messages, " << *this << ", stream_id=" << id;

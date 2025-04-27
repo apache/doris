@@ -151,10 +151,12 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
         this.sourceRepeat = Objects.requireNonNull(sourceRepeat, "sourceRepeat cannot be null");
     }
 
+    @Override
     public List<Expression> getGroupByExpressions() {
         return groupByExpressions;
     }
 
+    @Override
     public List<NamedExpression> getOutputExpressions() {
         return outputExpressions;
     }
@@ -165,11 +167,6 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
 
     public Optional<LogicalRepeat<?>> getSourceRepeat() {
         return sourceRepeat;
-    }
-
-    public boolean isDistinct() {
-        return outputExpressions.stream().allMatch(e -> e instanceof Slot)
-                && groupByExpressions.stream().allMatch(e -> e instanceof Slot);
     }
 
     public boolean isGenerated() {
@@ -261,6 +258,11 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
         Preconditions.checkArgument(children.size() == 1);
         return new LogicalAggregate<>(groupByExpressions, outputExpressions, normalized, ordinalIsResolved, generated,
                 hasPushed, sourceRepeat, groupExpression, Optional.of(getLogicalProperties()), children.get(0));
+    }
+
+    public LogicalAggregate<Plan> withGroupBy(List<Expression> groupByExprList) {
+        return new LogicalAggregate<>(groupByExprList, outputExpressions, normalized, ordinalIsResolved, generated,
+                hasPushed, sourceRepeat, Optional.empty(), Optional.empty(), child());
     }
 
     public LogicalAggregate<Plan> withGroupByAndOutput(List<Expression> groupByExprList,

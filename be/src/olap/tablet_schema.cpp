@@ -41,8 +41,6 @@
 #include "olap/tablet_column_object_pool.h"
 #include "olap/types.h"
 #include "olap/utils.h"
-#include "runtime/memory/lru_cache_policy.h"
-#include "runtime/thread_context.h"
 #include "tablet_meta.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/aggregate_function_state_union.h"
@@ -750,10 +748,9 @@ void TabletIndex::init_from_thrift(const TOlapTableIndex& index,
             col_unique_ids[i] = tablet_schema.column(column_idx).unique_id();
         } else {
             // if column unique id not found by column name, find by column unique id
-            // column unique id can not bigger than tablet schema column size, if bigger than column size means
-            // this column is a new column added by light schema change
-            if (index.__isset.column_unique_ids &&
-                index.column_unique_ids[i] < tablet_schema.num_columns()) {
+            // column unique id can not found means this column is a new column added by light schema change
+            if (index.__isset.column_unique_ids && !index.column_unique_ids.empty() &&
+                tablet_schema.has_column_unique_id(index.column_unique_ids[i])) {
                 col_unique_ids[i] = index.column_unique_ids[i];
             } else {
                 col_unique_ids[i] = -1;
@@ -1354,6 +1351,10 @@ bool TabletSchema::exist_column(const std::string& field_name) const {
     return _field_name_to_index.contains(StringRef {field_name});
 }
 
+bool TabletSchema::has_column_unique_id(int32_t col_unique_id) const {
+    return _field_id_to_index.contains(col_unique_id);
+}
+
 Status TabletSchema::have_column(const std::string& field_name) const {
     if (!_field_name_to_index.contains(StringRef(field_name))) {
         return Status::Error<ErrorCode::INTERNAL_ERROR>(
@@ -1397,11 +1398,11 @@ bool TabletSchema::has_inverted_index_with_index_id(int64_t index_id) const {
 
 const TabletIndex* TabletSchema::inverted_index(int32_t col_unique_id,
                                                 const std::string& suffix_path) const {
+    const std::string escaped_suffix = escape_for_path_name(suffix_path);
     for (size_t i = 0; i < _indexes.size(); i++) {
         if (_indexes[i].index_type() == IndexType::INVERTED) {
             for (int32_t id : _indexes[i].col_unique_ids()) {
-                if (id == col_unique_id &&
-                    _indexes[i].get_index_suffix() == escape_for_path_name(suffix_path)) {
+                if (id == col_unique_id && _indexes[i].get_index_suffix() == escaped_suffix) {
                     return &(_indexes[i]);
                 }
             }

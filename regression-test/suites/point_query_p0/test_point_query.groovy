@@ -395,6 +395,13 @@ suite("test_point_query", "nonConcurrent") {
         qe_point_select partial_prepared_stmt
         qe_point_select partial_prepared_stmt
 
+        partial_prepared_stmt = prepareStatement " select * from regression_test_point_query_p0.table_3821461 where col1 = ? and col2 = ? and loc3 = 'aabc'"
+        partial_prepared_stmt.setInt(1, 10)
+        partial_prepared_stmt.setInt(2, 20)
+        qe_point_select partial_prepared_stmt
+        qe_point_select partial_prepared_stmt
+        qe_point_select partial_prepared_stmt
+
         // test prepared statement should not be short-circuited plan which use nondeterministic function
         try (PreparedStatement pstmt = prepareStatement("select now(3) data_time from regression_test_point_query_p0.test_partial_prepared_statement where sk = 'sk' and user_guid = 'user_guid' and  feature = 'feature'")) {
             def result1 = ""

@@ -41,23 +41,25 @@ suite("prune_bucket_with_bucket_shuffle_join") {
         """
 
     def extractFragment = { String sqlStr, String containsString, Closure<Integer> checkExchangeNum ->
-        explain {
-            sql sqlStr
-            check { result ->
-                log.info("Explain result:\n${result}")
+        retry(120, 1000) {
+            explain {
+                sql sqlStr
+                check { result ->
+                    log.info("Explain result:\n${result}")
 
-                assertTrue(result.contains(containsString))
+                    assertTrue(result.contains(containsString))
 
-                def fragmentContainsJoin = result.split("PLAN FRAGMENT")
-                        .toList()
-                        .stream()
-                        .filter { it.contains(containsString) }
-                        .findFirst()
-                        .get()
+                    def fragmentContainsJoin = result.split("PLAN FRAGMENT")
+                            .toList()
+                            .stream()
+                            .filter { it.contains(containsString) }
+                            .findFirst()
+                            .get()
 
-                log.info("Fragment:\n${fragmentContainsJoin}")
+                    log.info("Fragment:\n${fragmentContainsJoin}")
 
-                checkExchangeNum(fragmentContainsJoin.count("VEXCHANGE"))
+                    checkExchangeNum(fragmentContainsJoin.count("VEXCHANGE"))
+                }
             }
         }
     }

@@ -25,7 +25,7 @@ suite("test_mow_with_null_sequence", "inverted_index") {
                     `c_address` varchar(20) NOT NULL COMMENT "",
                     `c_date` date NULL COMMENT "",
                     INDEX c_custkey_idx(c_custkey) USING INVERTED COMMENT 'c_custkey index',
-                    INDEX c_name_idx(c_name) USING INVERTED PROPERTIES("parser"="english") COMMENT 'c_name index',
+                    INDEX c_name_idx(c_name) using inverted properties("support_phrase" = "true", "parser" = "english", "lower_case" = "true") COMMENT 'c_name index',
                     INDEX c_address_idx(c_address) USING INVERTED PROPERTIES("parser"="standard") COMMENT 'c_address index',
                     INDEX c_date_index(c_date) USING INVERTED COMMENT 'c_date_index index'
             )
@@ -87,7 +87,7 @@ suite("test_mow_with_null_sequence", "inverted_index") {
                     `c_address` varchar(20) NOT NULL COMMENT "",
                     `c_int` int NULL COMMENT "",
                     INDEX c_custkey_idx(c_custkey) USING INVERTED COMMENT 'c_custkey index',
-                    INDEX c_name_idx(c_name) USING INVERTED PROPERTIES("parser"="english") COMMENT 'c_name index',
+                    INDEX c_name_idx(c_name) using inverted properties("support_phrase" = "true", "parser" = "english", "lower_case" = "true") COMMENT 'c_name index',
                     INDEX c_address_idx(c_address) USING INVERTED PROPERTIES("parser"="standard") COMMENT 'c_address index',
                     INDEX c_int_index(c_int) USING INVERTED COMMENT 'c_int_index index'
             )

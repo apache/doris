@@ -64,5 +64,4 @@ suite("test_duplicate_table") {
     sql "insert into ${tbName1} values(0, 1, 2, 3)"
     order_qt_select_dup_table "select * from ${tbName1}"
     qt_desc_dup_table "desc ${tbName1}"
-    sql "DROP TABLE ${tbName1}"
 }

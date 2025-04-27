@@ -80,8 +80,8 @@ Status IndexedColumnReader::load(bool use_page_cache, bool kept_in_memory,
             _sole_data_page = PagePointer(_meta.ordinal_index_meta().root_page());
         } else {
             RETURN_IF_ERROR(load_index_page(_meta.ordinal_index_meta().root_page(),
-                                            &_ordinal_index_page_handle, &_ordinal_index_reader,
-                                            index_load_stats));
+                                            &_ordinal_index_page_handle,
+                                            _ordinal_index_reader.get(), index_load_stats));
             _has_index_page = true;
         }
     }
@@ -92,7 +92,7 @@ Status IndexedColumnReader::load(bool use_page_cache, bool kept_in_memory,
             _sole_data_page = PagePointer(_meta.value_index_meta().root_page());
         } else {
             RETURN_IF_ERROR(load_index_page(_meta.value_index_meta().root_page(),
-                                            &_value_index_page_handle, &_value_index_reader,
+                                            &_value_index_page_handle, _value_index_reader.get(),
                                             index_load_stats));
             _has_index_page = true;
         }
@@ -123,19 +123,18 @@ Status IndexedColumnReader::read_page(const PagePointer& pp, PageHandle* handle,
                                       OlapReaderStatistics* stats) const {
     OlapReaderStatistics tmp_stats;
     OlapReaderStatistics* stats_ptr = stats != nullptr ? stats : &tmp_stats;
-    PageReadOptions opts {
-            .use_page_cache = _use_page_cache,
-            .kept_in_memory = _kept_in_memory,
-            .pre_decode = pre_decode,
-            .type = type,
-            .file_reader = _file_reader.get(),
-            .page_pointer = pp,
-            .codec = codec,
-            .stats = stats_ptr,
-            .encoding_info = _encoding_info,
-            .io_ctx = io::IOContext {.is_index_data = true,
-                                     .file_cache_stats = &stats_ptr->file_cache_stats},
-    };
+    PageReadOptions opts(io::IOContext {.is_index_data = true,
+                                        .file_cache_stats = &stats_ptr->file_cache_stats});
+    opts.use_page_cache = _use_page_cache;
+    opts.kept_in_memory = _kept_in_memory;
+    opts.pre_decode = pre_decode;
+    opts.type = type;
+    opts.file_reader = _file_reader.get();
+    opts.page_pointer = pp;
+    opts.codec = codec;
+    opts.stats = stats_ptr;
+    opts.encoding_info = _encoding_info;
+
     if (_is_pk_index) {
         opts.type = PRIMARY_KEY_INDEX_PAGE;
     }

@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.functions.agg;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
@@ -26,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.SmallIntType;
@@ -44,6 +46,10 @@ public class PercentileArray extends NotNullableAggregateFunction
         implements BinaryExpression, ExplicitlyCastableSignature {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
+            FunctionSignature.ret(ArrayType.of(DoubleType.INSTANCE))
+                    .args(DoubleType.INSTANCE, ArrayType.of(DoubleType.INSTANCE)),
+            FunctionSignature.ret(ArrayType.of(DoubleType.INSTANCE))
+                    .args(FloatType.INSTANCE, ArrayType.of(DoubleType.INSTANCE)),
             FunctionSignature.ret(ArrayType.of(DoubleType.INSTANCE))
                     .args(LargeIntType.INSTANCE, ArrayType.of(DoubleType.INSTANCE)),
             FunctionSignature.ret(ArrayType.of(DoubleType.INSTANCE))
@@ -67,6 +73,14 @@ public class PercentileArray extends NotNullableAggregateFunction
      */
     public PercentileArray(boolean distinct, Expression arg0, Expression arg1) {
         super("percentile_array", distinct, arg0, arg1);
+    }
+
+    @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        if (!getArgument(1).isConstant()) {
+            throw new AnalysisException(
+                    "percentile_array requires second parameter must be a constant : " + this.toSql());
+        }
     }
 
     /**

@@ -58,13 +58,14 @@ suite("test_ttl_seconds") {
         |PROPERTIES(
         |"exec_mem_limit" = "8589934592",
         |"load_parallelism" = "3")""".stripMargin()
-    
-    
+
+
     sql new File("""${context.file.parent}/../ddl/customer_ttl_delete.sql""").text
     def load_customer_once =  { String table ->
         def uniqueID = Math.abs(UUID.randomUUID().hashCode()).toString()
         sql (new File("""${context.file.parent}/../ddl/${table}.sql""").text + ttlProperties)
         def loadLabel = table + "_" + uniqueID
+        sql """ alter table ${table} set ("disable_auto_compaction" = "true") """ // no influence from compaction
         // load data from cos
         def loadSql = new File("""${context.file.parent}/../ddl/${table}_load.sql""").text.replaceAll("\\\$\\{s3BucketName\\}", s3BucketName)
         loadSql = loadSql.replaceAll("\\\$\\{loadLabel\\}", loadLabel) + s3WithProperties
@@ -95,6 +96,7 @@ suite("test_ttl_seconds") {
     clearFileCache.call() {
         respCode, body -> {}
     }
+    sleep(30000)
 
     load_customer_once("customer_ttl")
     sleep(30000) // 30s

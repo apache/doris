@@ -123,6 +123,8 @@ public:
         }
     }
 
+    std::string get_load_error_url();
+
 private:
     Status _build_pipelines(ObjectPool* pool, const doris::TPipelineFragmentParams& request,
                             const DescriptorTbl& descs, OperatorPtr* root, PipelinePtr cur_pipe);
@@ -189,7 +191,7 @@ private:
     // When submit fail, `_total_tasks` is equal to the number of tasks submitted.
     std::atomic<int> _total_tasks = 0;
 
-    std::unique_ptr<RuntimeProfile> _runtime_profile;
+    std::unique_ptr<RuntimeProfile> _fragment_level_profile;
     bool _is_report_success = false;
 
     std::unique_ptr<RuntimeState> _runtime_state;

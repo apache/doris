@@ -19,12 +19,12 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.backup.Status;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.credentials.CloudCredentialWithEndpoint;
 import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.datasource.property.constants.S3Properties;
-import org.apache.doris.fs.remote.AzureFileSystem;
+import org.apache.doris.fs.obj.AzureObjStorage;
+import org.apache.doris.fs.obj.ObjStorage;
+import org.apache.doris.fs.obj.RemoteObjects;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -32,6 +32,7 @@ import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.ByteArrayInputStream;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -39,9 +40,8 @@ import java.util.Map;
 import java.util.Optional;
 
 public class AzureResource extends Resource {
-
     private static final Logger LOG = LogManager.getLogger(AzureResource.class);
-    private Map<String, String> properties;
+    private Map<String, String> properties = Maps.newHashMap();
 
     public AzureResource() {
         super();
@@ -52,89 +52,120 @@ public class AzureResource extends Resource {
     }
 
     @Override
-    protected void setProperties(Map<String, String> properties) throws DdlException {
-        Preconditions.checkState(properties != null);
+    protected void setProperties(Map<String, String> newProperties) throws DdlException {
+        Preconditions.checkState(newProperties != null);
         // check properties
-        S3Properties.requiredS3PingProperties(properties);
+        S3Properties.requiredS3PingProperties(newProperties);
         // default need check resource conf valid, so need fix ut and regression case
-        boolean needCheck = isNeedCheck(properties);
+        boolean needCheck = isNeedCheck(newProperties);
         if (LOG.isDebugEnabled()) {
             LOG.debug("azure info need check validity : {}", needCheck);
         }
 
         // the endpoint for ping need add uri scheme.
-        String pingEndpoint = properties.get(S3Properties.ENDPOINT);
+        String pingEndpoint = newProperties.get(S3Properties.ENDPOINT);
         if (!pingEndpoint.startsWith("http://")) {
-            pingEndpoint = "http://" + properties.get(S3Properties.ENDPOINT);
-            properties.put(S3Properties.ENDPOINT, pingEndpoint);
-            properties.put(S3Properties.Env.ENDPOINT, pingEndpoint);
+            pingEndpoint = "http://" + newProperties.get(S3Properties.ENDPOINT);
+            newProperties.put(S3Properties.ENDPOINT, pingEndpoint);
+            newProperties.put(S3Properties.Env.ENDPOINT, pingEndpoint);
         }
-        String region = S3Properties.getRegionOfEndpoint(pingEndpoint);
-        properties.putIfAbsent(S3Properties.REGION, region);
-        String ak = properties.get(S3Properties.ACCESS_KEY);
-        String sk = properties.get(S3Properties.SECRET_KEY);
-        String token = properties.get(S3Properties.SESSION_TOKEN);
-        CloudCredentialWithEndpoint credential = new CloudCredentialWithEndpoint(pingEndpoint, region, ak, sk, token);
 
         if (needCheck) {
-            String bucketName = properties.get(S3Properties.BUCKET);
-            String rootPath = properties.get(S3Properties.ROOT_PATH);
-            pingAzure(credential, bucketName, rootPath, properties);
+            String bucketName = newProperties.get(S3Properties.BUCKET);
+            String rootPath = newProperties.get(S3Properties.ROOT_PATH);
+            pingAzure(bucketName, rootPath, newProperties);
         }
         // optional
-        S3Properties.optionalS3Property(properties);
-        this.properties = properties;
+        S3Properties.optionalS3Property(newProperties);
+        this.properties = newProperties;
     }
 
-    private static void pingAzure(CloudCredentialWithEndpoint credential, String bucketName, String rootPath,
-            Map<String, String> properties) throws DdlException {
-        AzureFileSystem fileSystem = new AzureFileSystem(properties);
-        String testFile = rootPath + "/test-object-valid.txt";
-        if (FeConstants.runningUnitTest) {
-            return;
-        }
-        Status status = fileSystem.exists(testFile);
-        if (status != Status.OK || status.getErrCode() != Status.ErrCode.NOT_FOUND) {
+    protected static void pingAzure(String bucketName, String rootPath,
+            Map<String, String> newProperties) throws DdlException {
+
+        Long timestamp = System.currentTimeMillis();
+        String testObj = "azure://" + bucketName + "/" + rootPath
+                + "/doris-test-object-valid-" + timestamp.toString() + ".txt";
+
+        byte[] contentData = new byte[2 * ObjStorage.CHUNK_SIZE];
+        Arrays.fill(contentData, (byte) 'A');
+        AzureObjStorage azureObjStorage = new AzureObjStorage(newProperties);
+
+        Status status = azureObjStorage.putObject(testObj, new ByteArrayInputStream(contentData), contentData.length);
+        if (!Status.OK.equals(status)) {
             throw new DdlException(
-                    "ping azure failed(head), status: " + status + ", properties: " + new PrintableMap<>(
-                            properties, "=", true, false, true, false));
+                    "ping azure failed(put), status: " + status + ", properties: " + new PrintableMap<>(
+                            newProperties, "=", true, false, true, false));
         }
 
-        LOG.info("success to ping azure");
+        status = azureObjStorage.headObject(testObj);
+        if (!Status.OK.equals(status)) {
+            throw new DdlException(
+                    "ping azure failed(head), status: " + status + ", properties: " + new PrintableMap<>(
+                            newProperties, "=", true, false, true, false));
+        }
+
+        RemoteObjects remoteObjects = azureObjStorage.listObjects(testObj, null);
+        LOG.info("remoteObjects: {}", remoteObjects);
+        Preconditions.checkArgument(remoteObjects.getObjectList().size() == 1, "remoteObjects.size() must equal 1");
+
+        status = azureObjStorage.deleteObject(testObj);
+        if (!Status.OK.equals(status)) {
+            throw new DdlException(
+                    "ping azure failed(delete), status: " + status + ", properties: " + new PrintableMap<>(
+                            newProperties, "=", true, false, true, false));
+        }
+
+        status = azureObjStorage.multipartUpload(testObj,
+                new ByteArrayInputStream(contentData), contentData.length);
+        if (!Status.OK.equals(status)) {
+            throw new DdlException(
+                    "ping azure failed(multiPartPut), status: " + status + ", properties: " + new PrintableMap<>(
+                            newProperties, "=", true, false, true, false));
+        }
+
+        status = azureObjStorage.deleteObject(testObj);
+        if (!Status.OK.equals(status)) {
+            throw new DdlException(
+                    "ping azure failed(delete), status: " + status + ", properties: " + new PrintableMap<>(
+                            newProperties, "=", true, false, true, false));
+        }
+        LOG.info("Success to ping azure blob storage.");
     }
 
     @Override
-    public void modifyProperties(Map<String, String> properties) throws DdlException {
+    public void modifyProperties(Map<String, String> newProperties) throws DdlException {
         if (references.containsValue(ReferenceType.POLICY)) {
             // can't change, because remote fs use it info to find data.
             List<String> cantChangeProperties = Arrays.asList(S3Properties.ENDPOINT, S3Properties.REGION,
                     S3Properties.ROOT_PATH, S3Properties.BUCKET, S3Properties.Env.ENDPOINT, S3Properties.Env.REGION,
                     S3Properties.Env.ROOT_PATH, S3Properties.Env.BUCKET);
-            Optional<String> any = cantChangeProperties.stream().filter(properties::containsKey).findAny();
+            Optional<String> any = cantChangeProperties.stream().filter(newProperties::containsKey).findAny();
             if (any.isPresent()) {
                 throw new DdlException("current not support modify property : " + any.get());
             }
         }
         // compatible with old version, Need convert if modified properties map uses old properties.
-        S3Properties.convertToStdProperties(properties);
-        boolean needCheck = isNeedCheck(properties);
+        S3Properties.convertToStdProperties(newProperties);
+        boolean needCheck = isNeedCheck(newProperties);
         if (LOG.isDebugEnabled()) {
             LOG.debug("s3 info need check validity : {}", needCheck);
         }
         if (needCheck) {
             S3Properties.requiredS3PingProperties(this.properties);
             Map<String, String> changedProperties = new HashMap<>(this.properties);
-            changedProperties.putAll(properties);
-            String bucketName = properties.getOrDefault(S3Properties.BUCKET, this.properties.get(S3Properties.BUCKET));
-            String rootPath = properties.getOrDefault(S3Properties.ROOT_PATH,
+            changedProperties.putAll(newProperties);
+            String bucketName = newProperties.getOrDefault(S3Properties.BUCKET,
+                    this.properties.get(S3Properties.BUCKET));
+            String rootPath = newProperties.getOrDefault(S3Properties.ROOT_PATH,
                     this.properties.get(S3Properties.ROOT_PATH));
 
-            pingAzure(getS3PingCredentials(changedProperties), bucketName, rootPath, changedProperties);
+            pingAzure(bucketName, rootPath, changedProperties);
         }
 
         // modify properties
         writeLock();
-        for (Map.Entry<String, String> kv : properties.entrySet()) {
+        for (Map.Entry<String, String> kv : newProperties.entrySet()) {
             replaceIfEffectiveValue(this.properties, kv.getKey(), kv.getValue());
             if (kv.getKey().equals(S3Properties.Env.TOKEN)
                     || kv.getKey().equals(S3Properties.SESSION_TOKEN)) {
@@ -143,19 +174,7 @@ public class AzureResource extends Resource {
         }
         ++version;
         writeUnlock();
-        super.modifyProperties(properties);
-    }
-
-    private CloudCredentialWithEndpoint getS3PingCredentials(Map<String, String> properties) {
-        String ak = properties.getOrDefault(S3Properties.ACCESS_KEY, this.properties.get(S3Properties.ACCESS_KEY));
-        String sk = properties.getOrDefault(S3Properties.SECRET_KEY, this.properties.get(S3Properties.SECRET_KEY));
-        String token = properties.getOrDefault(S3Properties.SESSION_TOKEN,
-                this.properties.get(S3Properties.SESSION_TOKEN));
-        String endpoint = properties.getOrDefault(S3Properties.ENDPOINT, this.properties.get(S3Properties.ENDPOINT));
-        String pingEndpoint = "http://" + endpoint;
-        String region = S3Properties.getRegionOfEndpoint(pingEndpoint);
-        properties.putIfAbsent(S3Properties.REGION, region);
-        return new CloudCredentialWithEndpoint(pingEndpoint, region, ak, sk, token);
+        super.modifyProperties(newProperties);
     }
 
     private boolean isNeedCheck(Map<String, String> newProperties) {
@@ -169,7 +188,7 @@ public class AzureResource extends Resource {
 
     @Override
     public Map<String, String> getCopiedProperties() {
-        return Maps.newHashMap(properties);
+        return Maps.newHashMap(this.properties);
     }
 
     @Override
@@ -178,7 +197,7 @@ public class AzureResource extends Resource {
         result.addRow(Lists.newArrayList(name, lowerCaseType, "id", String.valueOf(id)));
         readLock();
         result.addRow(Lists.newArrayList(name, lowerCaseType, "version", String.valueOf(version)));
-        for (Map.Entry<String, String> entry : properties.entrySet()) {
+        for (Map.Entry<String, String> entry : this.properties.entrySet()) {
             if (PrintableMap.HIDDEN_KEY.contains(entry.getKey())) {
                 continue;
             }

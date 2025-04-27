@@ -37,6 +37,9 @@ public:
 
     void do_lease();
 
+    int64_t get_input_rowsets_bytes() const { return _input_rowsets_total_size; }
+    int64_t get_input_num_rows() const { return _input_row_num; }
+
 private:
     Status pick_rowsets_to_compact();
 
@@ -44,7 +47,7 @@ private:
 
     Status modify_rowsets() override;
 
-    void garbage_collection() override;
+    Status garbage_collection() override;
 
     void update_cumulative_point();
 
@@ -52,7 +55,6 @@ private:
 
     ReaderType compaction_type() const override { return ReaderType::READER_CUMULATIVE_COMPACTION; }
 
-    std::string _uuid;
     int64_t _input_segments = 0;
     int64_t _max_conflict_version = 0;
     // Snapshot values when pick input rowsets

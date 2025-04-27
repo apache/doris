@@ -126,7 +126,7 @@ suite("test_with_bom", "p0") {
                                 """
 
         // check outfile bytes
-        check_bytes("145bytes", label)
+        check_bytes("145", label)
     } finally {
     }
 
@@ -165,7 +165,7 @@ suite("test_with_bom", "p0") {
                                 """
 
         // check outfile bytes
-        check_bytes("148bytes", label)
+        check_bytes("148", label)
     } finally {
     }
 
@@ -204,7 +204,7 @@ suite("test_with_bom", "p0") {
                                 """
 
         // check outfile bytes
-        check_bytes("161bytes", label)
+        check_bytes("161", label)
     } finally {
     }
 
@@ -243,7 +243,7 @@ suite("test_with_bom", "p0") {
                                 """
 
         // check outfile bytes
-        check_bytes("172bytes", label)
+        check_bytes("172", label)
     } finally {
     }
 }

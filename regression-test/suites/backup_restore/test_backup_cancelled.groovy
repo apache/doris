@@ -17,7 +17,7 @@
 
 suite("test_backup_cancelled", "backup_cancelled") {
     String suiteName = "test_backup_cancelled"
-    String repoName = "repo_" + UUID.randomUUID().toString().replace("-", "")
+    String repoName = "${suiteName}_repo_" + UUID.randomUUID().toString().replace("-", "")
     String dbName = "${suiteName}_db"
     String tableName = "${suiteName}_table"
     String snapshotName = "${suiteName}_snapshot"

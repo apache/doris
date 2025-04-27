@@ -106,6 +106,16 @@ Status HDFSCommonBuilder::init_hdfs_builder() {
     return Status::OK();
 }
 
+void HDFSCommonBuilder::set_hdfs_conf(const std::string& key, const std::string& val) {
+    hdfs_conf[key] = val;
+}
+
+void HDFSCommonBuilder::set_hdfs_conf_to_hdfs_builder() {
+    for (const auto& pair : hdfs_conf) {
+        hdfsBuilderConfSetStr(hdfs_builder, pair.first.c_str(), pair.second.c_str());
+    }
+}
+
 Status HDFSCommonBuilder::check_krb_params() {
     std::string ticket_path = doris::config::kerberos_ccache_path;
     if (!ticket_path.empty()) {
@@ -157,22 +167,24 @@ THdfsParams parse_properties(const std::map<std::string, std::string>& propertie
 Status create_hdfs_builder(const THdfsParams& hdfsParams, const std::string& fs_name,
                            HDFSCommonBuilder* builder) {
     RETURN_IF_ERROR(builder->init_hdfs_builder());
-    hdfsBuilderSetNameNode(builder->get(), fs_name.c_str());
+    builder->fs_name = fs_name;
+    hdfsBuilderSetNameNode(builder->get(), builder->fs_name.c_str());
     // set kerberos conf
     if (hdfsParams.__isset.hdfs_kerberos_keytab) {
         builder->kerberos_login = true;
         builder->hdfs_kerberos_keytab = hdfsParams.hdfs_kerberos_keytab;
 #ifdef USE_HADOOP_HDFS
         hdfsBuilderSetKerb5Conf(builder->get(), doris::config::kerberos_krb5_conf_path.c_str());
-        hdfsBuilderSetKeyTabFile(builder->get(), hdfsParams.hdfs_kerberos_keytab.c_str());
+        hdfsBuilderSetKeyTabFile(builder->get(), builder->hdfs_kerberos_keytab.c_str());
 #endif
     }
     if (hdfsParams.__isset.hdfs_kerberos_principal) {
         builder->kerberos_login = true;
         builder->hdfs_kerberos_principal = hdfsParams.hdfs_kerberos_principal;
-        hdfsBuilderSetPrincipal(builder->get(), hdfsParams.hdfs_kerberos_principal.c_str());
+        hdfsBuilderSetPrincipal(builder->get(), builder->hdfs_kerberos_principal.c_str());
     } else if (hdfsParams.__isset.user) {
-        hdfsBuilderSetUserName(builder->get(), hdfsParams.user.c_str());
+        builder->hadoop_user = hdfsParams.user;
+        hdfsBuilderSetUserName(builder->get(), builder->hadoop_user.c_str());
 #ifdef USE_HADOOP_HDFS
         hdfsBuilderSetKerb5Conf(builder->get(), nullptr);
         hdfsBuilderSetKeyTabFile(builder->get(), nullptr);
@@ -181,15 +193,17 @@ Status create_hdfs_builder(const THdfsParams& hdfsParams, const std::string& fs_
     // set other conf
     if (hdfsParams.__isset.hdfs_conf) {
         for (const THdfsConf& conf : hdfsParams.hdfs_conf) {
-            hdfsBuilderConfSetStr(builder->get(), conf.key.c_str(), conf.value.c_str());
+            builder->set_hdfs_conf(conf.key, conf.value);
             LOG(INFO) << "set hdfs config: " << conf.key << ", value: " << conf.value;
 #ifdef USE_HADOOP_HDFS
             // Set krb5.conf, we should define java.security.krb5.conf in catalog properties
             if (strcmp(conf.key.c_str(), "java.security.krb5.conf") == 0) {
-                hdfsBuilderSetKerb5Conf(builder->get(), conf.value.c_str());
+                builder->krb5_conf_path = conf.value;
+                hdfsBuilderSetKerb5Conf(builder->get(), builder->krb5_conf_path.c_str());
             }
 #endif
         }
+        builder->set_hdfs_conf_to_hdfs_builder();
     }
     if (builder->is_kerberos()) {
         RETURN_IF_ERROR(builder->check_krb_params());

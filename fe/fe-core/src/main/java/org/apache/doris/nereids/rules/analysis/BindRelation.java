@@ -250,7 +250,9 @@ public class BindRelation extends OneAnalysisRuleFactory {
         List<Slot> childOutputSlots = olapScan.computeOutput();
         List<Expression> groupByExpressions = new ArrayList<>();
         List<NamedExpression> outputExpressions = new ArrayList<>();
-        List<Column> columns = olapTable.getBaseSchema();
+        List<Column> columns = olapScan.isIndexSelected()
+                ? olapTable.getSchemaByIndexId(olapScan.getSelectedIndexId())
+                : olapTable.getBaseSchema();
 
         for (Column col : columns) {
             // use exist slot in the plan
@@ -416,7 +418,9 @@ public class BindRelation extends OneAnalysisRuleFactory {
                             qualifierWithoutTableName, unboundRelation.getTableSample(),
                             unboundRelation.getTableSnapshot());
                 case SCHEMA:
-                    return new LogicalSchemaScan(unboundRelation.getRelationId(), table, qualifierWithoutTableName);
+                    // schema table's name is case-insensitive, we need save its name in SQL text to get correct case.
+                    return new LogicalSubQueryAlias<>(qualifiedTableName,
+                            new LogicalSchemaScan(unboundRelation.getRelationId(), table, qualifierWithoutTableName));
                 case JDBC_EXTERNAL_TABLE:
                 case JDBC:
                     return new LogicalJdbcScan(unboundRelation.getRelationId(), table, qualifierWithoutTableName);

@@ -46,8 +46,6 @@ Status GroupCommitBlockSinkLocalState::open(RuntimeState* state) {
     _vpartition = std::make_unique<doris::VOlapTablePartitionParam>(p._schema, p._partition);
     RETURN_IF_ERROR(_vpartition->init());
     _state = state;
-    // profile must add to state's object pool
-    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
 
     _block_convertor = std::make_unique<vectorized::OlapTableBlockConvertor>(p._output_tuple_desc);
     _block_convertor->init_autoinc_info(p._schema->db_id(), p._schema->table_id(),
@@ -288,7 +286,6 @@ Status GroupCommitBlockSinkOperatorX::sink(RuntimeState* state, vectorized::Bloc
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)input_block->rows());
-    SCOPED_CONSUME_MEM_TRACKER(local_state._mem_tracker.get());
     if (!local_state._load_block_queue) {
         RETURN_IF_ERROR(local_state._initialize_load_queue());
     }
@@ -350,24 +347,24 @@ Status GroupCommitBlockSinkOperatorX::sink(RuntimeState* state, vectorized::Bloc
             local_state._vpartition->find_partition(block.get(), index,
                                                     local_state._partitions[index]);
         }
-        bool stop_processing = false;
         for (int row_index = 0; row_index < rows; row_index++) {
             if (local_state._partitions[row_index] == nullptr) [[unlikely]] {
                 local_state._filter_bitmap.Set(row_index, true);
                 LOG(WARNING) << "no partition for this tuple. tuple="
                              << block->dump_data(row_index, 1);
-                RETURN_IF_ERROR(state->append_error_msg_to_file(
+                local_state._has_filtered_rows = true;
+                state->update_num_rows_load_filtered(1);
+                state->update_num_rows_load_total(-1);
+                // meiyi: we should ignore this error in group commit,
+                // as errors should no longer occur after the first 20,000 rows.
+                static_cast<void>(state->append_error_msg_to_file(
                         []() -> std::string { return ""; },
                         [&]() -> std::string {
                             fmt::memory_buffer buf;
                             fmt::format_to(buf, "no partition for this tuple. tuple=\n{}",
                                            block->dump_data(row_index, 1));
                             return fmt::to_string(buf);
-                        },
-                        &stop_processing));
-                local_state._has_filtered_rows = true;
-                state->update_num_rows_load_filtered(1);
-                state->update_num_rows_load_total(-1);
+                        }));
             }
         }
     }

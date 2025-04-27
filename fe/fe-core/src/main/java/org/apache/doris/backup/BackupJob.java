@@ -210,17 +210,19 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
             }
 
             //clear old task
-            AgentTaskQueue.removeTaskOfType(TTaskType.MAKE_SNAPSHOT, task.getTabletId());
-            unfinishedTaskIds.remove(task.getTabletId());
-            taskProgress.remove(task.getTabletId());
-            taskErrMsg.remove(task.getTabletId());
+            AgentTaskQueue.removeTaskOfType(TTaskType.MAKE_SNAPSHOT, task.getSignature());
+            unfinishedTaskIds.remove(task.getSignature());
+            taskProgress.remove(task.getSignature());
+            taskErrMsg.remove(task.getSignature());
 
-            SnapshotTask newTask = new SnapshotTask(null, replica.getBackendIdWithoutException(), task.getTabletId(),
+            long signature = env.getNextId();
+            long beId = replica.getBackendIdWithoutException();
+            SnapshotTask newTask = new SnapshotTask(null, beId, signature,
                     task.getJobId(), task.getDbId(), tbl.getId(), task.getPartitionId(),
                     task.getIndexId(), task.getTabletId(),
                     task.getVersion(),
                     task.getSchemaHash(), timeoutMs, false /* not restore task */);
-            unfinishedTaskIds.put(tablet.getId(), replica.getBackendIdWithoutException());
+            unfinishedTaskIds.put(signature, beId);
 
             //send task
             AgentBatchTask batchTask = new AgentBatchTask(newTask);
@@ -277,9 +279,9 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
                 request.getSnapshotFiles());
 
         snapshotInfos.put(task.getTabletId(), info);
-        taskProgress.remove(task.getTabletId());
-        Long oldValue = unfinishedTaskIds.remove(task.getTabletId());
-        taskErrMsg.remove(task.getTabletId());
+        taskProgress.remove(task.getSignature());
+        taskErrMsg.remove(task.getSignature());
+        Long oldValue = unfinishedTaskIds.remove(task.getSignature());
         if (LOG.isDebugEnabled()) {
             LOG.debug("get finished snapshot info: {}, unfinished tasks num: {}, remove result: {}. {}",
                     info, unfinishedTaskIds.size(), (oldValue != null), this);
@@ -348,7 +350,9 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
 
     @Override
     public synchronized void replayRun() {
-        // nothing to do
+        if (state == BackupJobState.SAVE_META) {
+            saveMetaInfo(true);
+        }
     }
 
     @Override
@@ -444,7 +448,7 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
                 waitingAllUploadingFinished();
                 break;
             case SAVE_META:
-                saveMetaInfo();
+                saveMetaInfo(false);
                 break;
             case UPLOAD_INFO:
                 uploadMetaAndJobInfoFile();
@@ -637,13 +641,15 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
                                         + ". visible version: " + visibleVersion);
                         return;
                     }
-                    SnapshotTask task = new SnapshotTask(null, replica.getBackendIdWithoutException(), tablet.getId(),
+                    long signature = env.getNextId();
+                    long beId = replica.getBackendIdWithoutException();
+                    SnapshotTask task = new SnapshotTask(null, beId, signature,
                             jobId, dbId, olapTable.getId(), partition.getId(),
                             index.getId(), tablet.getId(),
                             visibleVersion,
                             schemaHash, timeoutMs, false /* not restore task */);
                     batchTask.addTask(task);
-                    unfinishedTaskIds.put(tablet.getId(), replica.getBackendIdWithoutException());
+                    unfinishedTaskIds.put(signature, beId);
                 }
             }
 
@@ -820,7 +826,7 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
         }
     }
 
-    private void saveMetaInfo() {
+    private void saveMetaInfo(boolean replay) {
         String createTimeStr = TimeUtils.longToTimeString(createTime,
                 TimeUtils.getDatetimeFormatWithHyphenWithTimeZone());
         // local job dir: backup/repo__repo_id/label__createtime/
@@ -878,6 +884,10 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
             localJobInfoFilePath = jobInfoFile.getAbsolutePath();
         } catch (Exception e) {
             status = new Status(ErrCode.COMMON_ERROR, "failed to save meta info and job info file: " + e.getMessage());
+            return;
+        }
+
+        if (replay) {
             return;
         }
 

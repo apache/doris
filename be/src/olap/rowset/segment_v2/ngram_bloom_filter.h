@@ -26,6 +26,8 @@
 #include "olap/rowset/segment_v2/bloom_filter.h"
 
 namespace doris {
+static constexpr uint64_t SEED_GEN = 217728422;
+
 namespace segment_v2 {
 enum HashStrategyPB : int;
 

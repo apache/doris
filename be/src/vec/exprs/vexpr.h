@@ -252,6 +252,11 @@ public:
     void set_index_unique_id(uint32_t index_unique_id) { _index_unique_id = index_unique_id; }
     uint32_t index_unique_id() const { return _index_unique_id; }
 
+    virtual bool is_rf_wrapper() const {
+        return std::ranges::any_of(_children.begin(), _children.end(),
+                                   [](VExprSPtr child) { return child->is_rf_wrapper(); });
+    }
+
 protected:
     /// Simple debug string that provides no expr subclass-specific information
     std::string debug_string(const std::string& expr_name) const {

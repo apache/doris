@@ -189,6 +189,10 @@ void PipelineFragmentContext::cancel(const Status reason) {
                     debug_string());
     }
 
+    if (auto error_url = get_load_error_url(); !error_url.empty()) {
+        _query_ctx->set_load_error_url(error_url);
+    }
+
     _query_ctx->cancel(reason, _fragment_id);
     if (reason.is<ErrorCode::LIMIT_REACH>()) {
         _is_report_on_cancel = false;
@@ -237,14 +241,14 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
         _timeout = request.query_options.execution_timeout;
     }
 
-    _runtime_profile = std::make_unique<RuntimeProfile>("PipelineContext");
-    _prepare_timer = ADD_TIMER(_runtime_profile, "PrepareTime");
+    _fragment_level_profile = std::make_unique<RuntimeProfile>("PipelineContext");
+    _prepare_timer = ADD_TIMER(_fragment_level_profile, "PrepareTime");
     SCOPED_TIMER(_prepare_timer);
-    _build_pipelines_timer = ADD_TIMER(_runtime_profile, "BuildPipelinesTime");
-    _init_context_timer = ADD_TIMER(_runtime_profile, "InitContextTime");
-    _plan_local_exchanger_timer = ADD_TIMER(_runtime_profile, "PlanLocalLocalExchangerTime");
-    _build_tasks_timer = ADD_TIMER(_runtime_profile, "BuildTasksTime");
-    _prepare_all_pipelines_timer = ADD_TIMER(_runtime_profile, "PrepareAllPipelinesTime");
+    _build_pipelines_timer = ADD_TIMER(_fragment_level_profile, "BuildPipelinesTime");
+    _init_context_timer = ADD_TIMER(_fragment_level_profile, "InitContextTime");
+    _plan_local_exchanger_timer = ADD_TIMER(_fragment_level_profile, "PlanLocalLocalExchangerTime");
+    _build_tasks_timer = ADD_TIMER(_fragment_level_profile, "BuildTasksTime");
+    _prepare_all_pipelines_timer = ADD_TIMER(_fragment_level_profile, "PrepareAllPipelinesTime");
     {
         SCOPED_TIMER(_init_context_timer);
         _num_instances = request.local_params.size();
@@ -1693,7 +1697,7 @@ void PipelineFragmentContext::_close_fragment_instance() {
         return;
     }
     Defer defer_op {[&]() { _is_fragment_instance_closed = true; }};
-    _runtime_profile->total_time_counter()->update(_fragment_watcher.elapsed_time());
+    _fragment_level_profile->total_time_counter()->update(_fragment_watcher.elapsed_time());
     static_cast<void>(send_report(true));
     // Print profile content in info log is a tempoeray solution for stream load and external_connector.
     // Since stream load does not have someting like coordinator on FE, so
@@ -1702,7 +1706,8 @@ void PipelineFragmentContext::_close_fragment_instance() {
 
     if (_runtime_state->enable_profile() &&
         (_query_ctx->get_query_source() == QuerySource::STREAM_LOAD ||
-         _query_ctx->get_query_source() == QuerySource::EXTERNAL_CONNECTOR)) {
+         _query_ctx->get_query_source() == QuerySource::EXTERNAL_CONNECTOR ||
+         _query_ctx->get_query_source() == QuerySource::GROUP_COMMIT_LOAD)) {
         std::stringstream ss;
         // Compute the _local_time_percent before pretty_print the runtime_profile
         // Before add this operation, the print out like that:
@@ -1748,6 +1753,23 @@ void PipelineFragmentContext::close_a_pipeline(PipelineId pipeline_id) {
     }
 }
 
+std::string PipelineFragmentContext::get_load_error_url() {
+    if (const auto& str = _runtime_state->get_error_log_file_path(); !str.empty()) {
+        return to_load_error_http_path(str);
+    }
+    for (auto& task_states : _task_runtime_states) {
+        for (auto& task_state : task_states) {
+            if (!task_state) {
+                continue;
+            }
+            if (const auto& str = task_state->get_error_log_file_path(); !str.empty()) {
+                return to_load_error_http_path(str);
+            }
+        }
+    }
+    return "";
+}
+
 Status PipelineFragmentContext::send_report(bool done) {
     Status exec_status = _query_ctx->exec_status();
     // If plan is done successfully, but _is_report_success is false,
@@ -1774,10 +1796,12 @@ Status PipelineFragmentContext::send_report(bool done) {
         }
     }
 
+    std::string load_eror_url = _query_ctx->get_load_error_url().empty()
+                                        ? get_load_error_url()
+                                        : _query_ctx->get_load_error_url();
+
     ReportStatusRequest req {exec_status,
                              runtime_states,
-                             _runtime_profile.get(),
-                             _runtime_state->load_channel_profile(),
                              done || !exec_status.ok(),
                              _query_ctx->coord_addr,
                              _query_id,
@@ -1785,6 +1809,7 @@ Status PipelineFragmentContext::send_report(bool done) {
                              TUniqueId(),
                              -1,
                              _runtime_state.get(),
+                             load_eror_url,
                              [this](const Status& reason) { cancel(reason); }};
 
     return _report_status_cb(
@@ -1818,6 +1843,11 @@ PipelineFragmentContext::collect_realtime_profile() const {
         LOG_ERROR(msg);
         return res;
     }
+
+    // Make sure first profile is fragment level profile
+    auto fragment_profile = std::make_shared<TRuntimeProfileTree>();
+    _fragment_level_profile->to_thrift(fragment_profile.get());
+    res.push_back(fragment_profile);
 
     // pipeline_id_to_profile is initialized in prepare stage
     for (auto pipeline_profile : _runtime_state->pipeline_id_to_profile()) {

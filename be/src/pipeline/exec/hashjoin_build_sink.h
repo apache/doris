@@ -54,6 +54,8 @@ public:
 
     Status close(RuntimeState* state, Status exec_status) override;
 
+    Status disable_runtime_filters(RuntimeState* state);
+
 protected:
     void _hash_table_init(RuntimeState* state);
     void _set_build_ignore_flag(vectorized::Block& block, const std::vector<int>& res_col_ids);
@@ -74,8 +76,8 @@ protected:
     std::vector<vectorized::ColumnPtr> _key_columns_holder;
 
     bool _should_build_hash_table = true;
-    int64_t _build_side_mem_used = 0;
-    int64_t _build_side_last_mem_used = 0;
+
+    bool _runtime_filters_disabled = false;
 
     size_t _build_side_rows = 0;
 

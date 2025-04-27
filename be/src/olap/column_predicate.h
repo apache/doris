@@ -258,7 +258,8 @@ public:
 
     virtual std::string debug_string() const {
         return _debug_string() + ", column_id=" + std::to_string(_column_id) +
-               ", opposite=" + (_opposite ? "true" : "false");
+               ", opposite=" + (_opposite ? "true" : "false") +
+               ", can_ignore=" + (_can_ignore() ? "true" : "false");
     }
 
     virtual int get_filter_id() const { return -1; }

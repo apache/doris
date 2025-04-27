@@ -335,7 +335,8 @@ TEST_F(InvertedIndexFileWriterTest, PrepareSortedFilesTest) {
     EXPECT_TRUE(io::global_local_filesystem()->delete_directory(local_fs_index_path).ok());
     EXPECT_TRUE(io::global_local_filesystem()->create_directory(local_fs_index_path).ok());
     mock_dir->init(_fs, local_fs_index_path.c_str());
-    std::vector<std::string> files = {"0.segments", "0.fnm", "0.tii", "nullbitmap", "write.lock"};
+    std::vector<std::string> files = {"segments_0", "segments.gen", "0.fnm",
+                                      "0.tii",      "null_bitmap",  "write.lock"};
     for (auto& file : files) {
         auto out_file_1 =
                 std::unique_ptr<lucene::store::IndexOutput>(mock_dir->createOutput(file.c_str()));
@@ -343,11 +344,14 @@ TEST_F(InvertedIndexFileWriterTest, PrepareSortedFilesTest) {
         out_file_1->close();
     }
 
-    EXPECT_CALL(*mock_dir, fileLength(testing::StrEq("0.segments")))
+    EXPECT_CALL(*mock_dir, fileLength(testing::StrEq("segments_0")))
             .WillOnce(testing::Return(1000));
+    EXPECT_CALL(*mock_dir, fileLength(testing::StrEq("segments.gen")))
+            .WillOnce(testing::Return(1200));
     EXPECT_CALL(*mock_dir, fileLength(testing::StrEq("0.fnm"))).WillOnce(testing::Return(2000));
     EXPECT_CALL(*mock_dir, fileLength(testing::StrEq("0.tii"))).WillOnce(testing::Return(1500));
-    EXPECT_CALL(*mock_dir, fileLength(testing::StrEq("nullbitmap"))).WillOnce(testing::Return(500));
+    EXPECT_CALL(*mock_dir, fileLength(testing::StrEq("null_bitmap")))
+            .WillOnce(testing::Return(500));
 
     InvertedIndexFileWriter writer(_fs, _index_path_prefix, _rowset_id, _seg_id,
                                    InvertedIndexStorageFormatPB::V2);
@@ -362,24 +366,28 @@ TEST_F(InvertedIndexFileWriterTest, PrepareSortedFilesTest) {
     std::vector<FileInfo> sorted_files =
             writer.prepare_sorted_files(writer._indices_dirs[std::make_pair(1, "suffix1")].get());
 
-    // 1. 0.segments (priority 1, size 1000)
-    // 2. 0.fnm (priority 2, size 2000)
-    // 3. 0.tii (priority 3, size 1500)
-    // 4. nullbitmap (priority 4, size 500)
+    // 1. null_bitmap (priority 1, size 500)
+    // 2. segments.gen (priority 2, size 1200)
+    // 3. segments_0 (priority 3, size 1000)
+    // 4. 0.fnm (priority 4, size 2000)
+    // 5. 0.tii (priority 5, size 1500)
 
-    std::vector<std::string> expected_order = {"0.segments", "0.fnm", "0.tii", "nullbitmap"};
+    std::vector<std::string> expected_order = {"null_bitmap", "segments.gen", "segments_0", "0.fnm",
+                                               "0.tii"};
     ASSERT_EQ(sorted_files.size(), expected_order.size());
 
     for (size_t i = 0; i < expected_order.size(); ++i) {
         EXPECT_EQ(sorted_files[i].filename, expected_order[i]);
-        if (sorted_files[i].filename == "0.segments") {
+        if (sorted_files[i].filename == "null_bitmap") {
+            EXPECT_EQ(sorted_files[i].filesize, 500);
+        } else if (sorted_files[i].filename == "segments.gen") {
+            EXPECT_EQ(sorted_files[i].filesize, 1200);
+        } else if (sorted_files[i].filename == "segments_0") {
             EXPECT_EQ(sorted_files[i].filesize, 1000);
         } else if (sorted_files[i].filename == "0.fnm") {
             EXPECT_EQ(sorted_files[i].filesize, 2000);
         } else if (sorted_files[i].filename == "0.tii") {
             EXPECT_EQ(sorted_files[i].filesize, 1500);
-        } else if (sorted_files[i].filename == "nullbitmap") {
-            EXPECT_EQ(sorted_files[i].filesize, 500);
         }
     }
 }

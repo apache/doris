@@ -93,6 +93,7 @@ class Config {
     public String excludeSuites
     public String testDirectories
     public String excludeDirectories
+    public String clustersToCompareResults
     public boolean generateOutputFile
     public boolean forceGenerateOutputFile
     public boolean randomOrder
@@ -182,6 +183,7 @@ class Config {
             String excludeGroups,
             String testSuites, 
             String excludeSuites,
+            String clustersToCompareResults,
             String testDirectories,
             String excludeDirectories, 
             String pluginPath,
@@ -235,6 +237,7 @@ class Config {
         this.excludeGroups = excludeGroups
         this.testSuites = testSuites
         this.excludeSuites = excludeSuites
+        this.clustersToCompareResults = clustersToCompareResults
         this.testDirectories = testDirectories
         this.excludeDirectories = excludeDirectories
         this.pluginPath = pluginPath
@@ -347,6 +350,7 @@ class Config {
                 .collect({d -> d.trim()})
                 .findAll({d -> d != null && d.length() > 0})
                 .toSet()
+        config.clustersToCompareResults = cmd.getOptionValue(clustersToCompareResultsOpt, config.clustersToCompareResults)
 
         if (!config.suiteWildcard && !config.groups && !config.directories && !config.excludeSuiteWildcard
             && !config.excludeGroupSet && !config.excludeDirectorySet) {
@@ -560,6 +564,7 @@ class Config {
             configToString(obj.excludeGroups),
             configToString(obj.testSuites),
             configToString(obj.excludeSuites),
+            configToString(obj.clustersToCompareResults),
             configToString(obj.testDirectories),
             configToString(obj.excludeDirectories),
             configToString(obj.pluginPath),
@@ -903,6 +908,11 @@ class Config {
         if (config.excludeSuites == null) {
             config.excludeSuites = ""
             log.info("Set excludeSuites to empty because not specify.".toString())
+        }
+
+        if (config.clustersToCompareResults == null) {
+            config.clustersToCompareResults = ""
+            log.info("Not compare multi-cluster results after regression test".toString())
         }
 
         if (config.parallel == null) {

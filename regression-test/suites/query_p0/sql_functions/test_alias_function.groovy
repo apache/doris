@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite('test_alias_function') {
+suite('test_alias_function', "arrow_flight_sql") {
     sql '''
         CREATE ALIAS FUNCTION IF NOT EXISTS f1(DATETIMEV2(3), INT)
             with PARAMETER (datetime1, int1) as date_trunc(days_sub(datetime1, int1), 'day')'''

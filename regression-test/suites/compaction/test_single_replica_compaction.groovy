@@ -93,9 +93,9 @@ suite("test_single_compaction_p2", "p2") {
 
             String command = sb.toString()
             logger.info(command)
-            process = command.execute()
-            code = process.waitFor()
-            out = process.getText()
+            def process = command.execute()
+            def code = process.waitFor()
+            def out = process.getText()
             logger.info("Get compaction status: code=" + code + ", out=" + out)
             assertEquals(code, 0)
             def compactionStatus = parseJson(out.trim())
@@ -114,9 +114,9 @@ suite("test_single_compaction_p2", "p2") {
 
         String command = sb.toString()
         logger.info(command)
-        process = command.execute()
-        code = process.waitFor()
-        out = process.getText()
+        def process = command.execute()
+        def code = process.waitFor()
+        def out = process.getText()
         logger.info("Get compaction status: code=" + code + ", out=" + out)
         assertEquals(code, 0)
         def tabletStatus = parseJson(out.trim())
@@ -137,8 +137,7 @@ suite("test_single_compaction_p2", "p2") {
         PROPERTIES (
             "replication_num" = "2",
             "enable_single_replica_compaction" = "true",
-            "enable_unique_key_merge_on_write" = "false",
-            "compaction_policy" = "time_series"
+            "enable_unique_key_merge_on_write" = "false"
         );
     """
 

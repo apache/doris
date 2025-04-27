@@ -109,15 +109,21 @@ public class EliminateEmptyRelation implements RewriteRuleFactory {
                     if (union.getConstantExprsList().isEmpty()) {
                         Plan child = nonEmptyChildren.get(0);
                         List<Slot> unionOutput = union.getOutput();
-                        List<Slot> childOutput = child.getOutput();
-                        List<NamedExpression> projects = Lists.newArrayList();
-                        for (int i = 0; i < unionOutput.size(); i++) {
-                            ExprId id = unionOutput.get(i).getExprId();
-                            Alias alias = new Alias(id, childOutput.get(i), unionOutput.get(i).getName());
-                            projects.add(alias);
-                        }
+                        int childIdx = union.children().indexOf(nonEmptyChildren.get(0));
+                        if (childIdx >= 0) {
+                            List<SlotReference> childOutput = union.getRegularChildOutput(childIdx);
+                            List<NamedExpression> projects = Lists.newArrayList();
+                            for (int i = 0; i < unionOutput.size(); i++) {
+                                ExprId id = unionOutput.get(i).getExprId();
+                                Alias alias = new Alias(id, childOutput.get(i), unionOutput.get(i).getName());
+                                projects.add(alias);
+                            }
 
-                        return new LogicalProject<>(projects, child);
+                            return new LogicalProject<>(projects, child);
+                        } else {
+                            // should not hit here.
+                            return null;
+                        }
                     }
                 }
 

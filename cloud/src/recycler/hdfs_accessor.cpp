@@ -342,7 +342,21 @@ std::string HdfsAccessor::to_uri(const std::string& relative_path) {
     return uri_ + '/' + relative_path;
 }
 
+// extract parent path from prefix
+// e.g.
+// data/492211/02000000008a012957476a3e174dfdaa71ee5f80a3abafa3_ -> data/492211/
+std::string extract_parent_path(const std::string& path) {
+    // Find the last '/'
+    size_t last_slash = path.find_last_of('/');
+    if (last_slash == std::string::npos) {
+        LOG_WARNING("no '/' found in path").tag("path", path);
+        return "";
+    }
+    return path.substr(0, last_slash + 1);
+}
+
 int HdfsAccessor::init() {
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("HdfsAccessor::init.hdfs_init_failed", (int)-1);
     // TODO(plat1ko): Cache hdfsFS
     fs_ = HDFSBuilder::create_fs(info_.build_conf());
     if (!fs_) {
@@ -356,8 +370,35 @@ int HdfsAccessor::init() {
 int HdfsAccessor::delete_prefix(const std::string& path_prefix, int64_t expiration_time) {
     auto uri = to_uri(path_prefix);
     LOG(INFO) << "delete prefix, uri=" << uri;
+    // If path prefix exists, assume it is a dir or a file.
+    if (exists(path_prefix) == 0) {
+        // If it exists, then it is a dir or a file.
+        // delete_directory func can delete a dir or a file.
+        if (delete_directory(path_prefix) == 0) {
+            LOG(INFO) << "delete prefix succ"
+                      << ", is dir or file = true"
+                      << ", uri=" << uri;
+            return 0;
+        }
+        // delete failed, return err
+        LOG_WARNING("delete prefix failed, this is a dir or a file")
+                .tag("path prefix", path_prefix);
+        return -1;
+    }
+    // If path prefix is not a dir or a file,
+    // for example: data/492211/02000000008a012957476a3e174dfdaa71ee5f80a3abafa3_.
+    // Then we need to extract the parent id path from the given prefix,
+    // traverse all files in the parent id path, and delete the files that match the prefix.
     std::unique_ptr<ListIterator> list_iter;
-    int ret = list_all(&list_iter);
+    auto parent_path = extract_parent_path(path_prefix);
+    if (parent_path.empty()) {
+        LOG_WARNING("extract parent path failed").tag("path prefix", path_prefix);
+        return -1;
+    }
+    LOG_INFO("path prefix is not a dir, extract parent path success")
+            .tag("path prefix", path_prefix)
+            .tag("parent path", parent_path);
+    int ret = list_directory(parent_path, &list_iter);
     if (ret != 0) {
         LOG(WARNING) << "delete prefix, failed to list" << uri;
         return ret;
@@ -372,6 +413,10 @@ int HdfsAccessor::delete_prefix(const std::string& path_prefix, int64_t expirati
         }
         ++num_deleted;
     }
+    if (num_deleted == 0) {
+        LOG_WARNING("recycler delete prefix num = 0, maybe there are some problems?")
+                .tag("path prefix", path_prefix);
+    }
     LOG(INFO) << "delete prefix " << (ret != 0 ? "failed" : "succ") << " ret=" << ret
               << " uri=" << uri << " num_listed=" << num_listed << " num_deleted=" << num_deleted;
     return ret;
@@ -382,6 +427,7 @@ int HdfsAccessor::delete_directory_impl(const std::string& dir_path) {
     // `hdfsDelete`'s return value or errno to avoid exist rpc?
     int ret = exists(dir_path);
     if (ret == 1) {
+        // dir does not exist
         return 0;
     } else if (ret < 0) {
         return ret;

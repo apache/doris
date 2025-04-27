@@ -256,6 +256,21 @@ struct ConvertImpl {
     using FromFieldType = typename FromDataType::FieldType;
     using ToFieldType = typename ToDataType::FieldType;
 
+    // `static_cast_set` is introduced to wrap `static_cast` and handle special cases.
+    // Doris uses `uint8` to represent boolean values internally.
+    // Directly `static_cast` to `uint8` can result in non-0/1 values,
+    // To address this, `static_cast_set` performs an additional check:
+    //  For `uint8` types, it explicitly uses `static_cast<bool>` to ensure
+    //  the result is either 0 or 1.
+    static void static_cast_set(ToFieldType& to, const FromFieldType& from) {
+        // uint8_t now use as boolean in doris
+        if constexpr (std::is_same_v<uint8_t, ToFieldType>) {
+            to = static_cast<bool>(from);
+        } else {
+            to = static_cast<ToFieldType>(from);
+        }
+    }
+
     template <typename Additions = void*>
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           size_t result, size_t input_rows_count,
@@ -375,8 +390,9 @@ struct ConvertImpl {
                     } else if constexpr (IsDateTimeV2Type<ToDataType>) {
                         DataTypeDateTimeV2::cast_from_date(vec_from[i], vec_to[i]);
                     } else {
-                        vec_to[i] =
-                                reinterpret_cast<const VecDateTimeValue&>(vec_from[i]).to_int64();
+                        static_cast_set(
+                                vec_to[i],
+                                reinterpret_cast<const VecDateTimeValue&>(vec_from[i]).to_int64());
                     }
                 }
             } else if constexpr (IsTimeV2Type<FromDataType>) {
@@ -407,13 +423,16 @@ struct ConvertImpl {
                         }
                     } else {
                         if constexpr (IsDateTimeV2Type<FromDataType>) {
-                            vec_to[i] = reinterpret_cast<const DateV2Value<DateTimeV2ValueType>&>(
-                                                vec_from[i])
-                                                .to_int64();
+                            static_cast_set(
+                                    vec_to[i],
+                                    reinterpret_cast<const DateV2Value<DateTimeV2ValueType>&>(
+                                            vec_from[i])
+                                            .to_int64());
                         } else {
-                            vec_to[i] = reinterpret_cast<const DateV2Value<DateV2ValueType>&>(
-                                                vec_from[i])
-                                                .to_int64();
+                            static_cast_set(vec_to[i],
+                                            reinterpret_cast<const DateV2Value<DateV2ValueType>&>(
+                                                    vec_from[i])
+                                                    .to_int64());
                         }
                     }
                 }
@@ -423,7 +442,7 @@ struct ConvertImpl {
                     // 300 -> 00:03:00  360 will be parse failed , so value maybe null
                     ColumnUInt8::MutablePtr col_null_map_to;
                     ColumnUInt8::Container* vec_null_map_to = nullptr;
-                    col_null_map_to = ColumnUInt8::create(size);
+                    col_null_map_to = ColumnUInt8::create(size, 0);
                     vec_null_map_to = &col_null_map_to->get_data();
                     for (size_t i = 0; i < size; ++i) {
                         (*vec_null_map_to)[i] = !TimeCast::try_parse_time(
@@ -440,14 +459,8 @@ struct ConvertImpl {
                     }
                 } else {
                     for (size_t i = 0; i < size; ++i) {
-                        vec_to[i] = static_cast<ToFieldType>(vec_from[i]);
+                        static_cast_set(vec_to[i], vec_from[i]);
                     }
-                }
-            }
-            // TODO: support boolean cast more reasonable
-            if constexpr (std::is_same_v<uint8_t, ToFieldType>) {
-                for (int i = 0; i < size; ++i) {
-                    vec_to[i] = static_cast<bool>(vec_to[i]);
                 }
             }
 
@@ -511,7 +524,7 @@ struct ConvertImplToTimeType {
 
             // create null column
             ColumnUInt8::MutablePtr col_null_map_to;
-            col_null_map_to = ColumnUInt8::create(size);
+            col_null_map_to = ColumnUInt8::create(size, 0);
             auto& vec_null_map_to = col_null_map_to->get_data();
 
             UInt32 from_precision = 0;
@@ -582,7 +595,7 @@ struct ConvertImplGenericFromString {
             size_t size = col_from.size();
             col_to->reserve(size);
 
-            ColumnUInt8::MutablePtr col_null_map_to = ColumnUInt8::create(size);
+            ColumnUInt8::MutablePtr col_null_map_to = ColumnUInt8::create(size, 0);
             ColumnUInt8::Container* vec_null_map_to = &col_null_map_to->get_data();
             const bool is_complex = is_complex_type(data_type_to);
             DataTypeSerDe::FormatOptions format_options;
@@ -699,13 +712,13 @@ struct ConvertImplGenericFromJsonb {
             size_t size = col_from.size();
             col_to->reserve(size);
 
-            ColumnUInt8::MutablePtr col_null_map_to = ColumnUInt8::create(size);
+            ColumnUInt8::MutablePtr col_null_map_to = ColumnUInt8::create(size, 0);
             ColumnUInt8::Container* vec_null_map_to = &col_null_map_to->get_data();
             const bool is_complex = is_complex_type(data_type_to);
             const bool is_dst_string = is_string_or_fixed_string(data_type_to);
             for (size_t i = 0; i < size; ++i) {
                 const auto& val = col_from_string->get_data_at(i);
-                JsonbDocument* doc = JsonbDocument::createDocument(val.data, val.size);
+                JsonbDocument* doc = JsonbDocument::checkAndCreateDocument(val.data, val.size);
                 if (UNLIKELY(!doc || !doc->getValue())) {
                     (*vec_null_map_to)[i] = 1;
                     col_to->insert_default();
@@ -779,7 +792,7 @@ struct ConvertImplGenericToJsonb {
         auto column_string = ColumnString::create();
         JsonbWriter writer;
 
-        ColumnUInt8::MutablePtr col_null_map_to = ColumnUInt8::create(col_from.size());
+        ColumnUInt8::MutablePtr col_null_map_to = ColumnUInt8::create(col_from.size(), 0);
         ColumnUInt8::Container* vec_null_map_to = &col_null_map_to->get_data();
         DataTypeSerDe::FormatOptions format_options;
         format_options.converted_from_string = true;
@@ -868,7 +881,7 @@ struct ConvertImplFromJsonb {
                 }
 
                 // doc is NOT necessary to be deleted since JsonbDocument will not allocate memory
-                JsonbDocument* doc = JsonbDocument::createDocument(val.data, val.size);
+                JsonbDocument* doc = JsonbDocument::checkAndCreateDocument(val.data, val.size);
                 if (UNLIKELY(!doc || !doc->getValue())) {
                     null_map[i] = 1;
                     res[i] = 0;
@@ -1545,7 +1558,7 @@ struct StringParsing {
 
         ColumnUInt8::MutablePtr col_null_map_to;
         ColumnUInt8::Container* vec_null_map_to [[maybe_unused]] = nullptr;
-        col_null_map_to = ColumnUInt8::create(row);
+        col_null_map_to = ColumnUInt8::create(row, 0);
         vec_null_map_to = &col_null_map_to->get_data();
 
         const ColumnString::Chars* chars = &col_from_string->get_chars();
@@ -2055,7 +2068,8 @@ private:
                     variant.is_scalar_variant() ||
                     (!variant.is_null_root() &&
                      !WhichDataType(remove_nullable(variant.get_root_type())).is_nothing() &&
-                     !WhichDataType(data_type_to).is_string());
+                     !WhichDataType(data_type_to).is_string() &&
+                     !WhichDataType(data_type_to).is_json());
             if (is_root_valuable) {
                 ColumnPtr nested = variant.get_root();
                 auto nested_from_type = variant.get_root_type();
@@ -2087,13 +2101,19 @@ private:
                     // TODO not found root cause, a tmp fix
                     col_to->assume_mutable()->insert_many_defaults(input_rows_count);
                     col_to = make_nullable(col_to, true);
-                } else if (!data_type_to->is_nullable() &&
-                           !WhichDataType(data_type_to).is_string()) {
-                    col_to->assume_mutable()->insert_many_defaults(input_rows_count);
-                    col_to = make_nullable(col_to, true);
                 } else if (WhichDataType(data_type_to).is_string()) {
+                    // serialize to string
                     return ConvertImplGenericToString::execute2(context, block, arguments, result,
                                                                 input_rows_count);
+                } else if (WhichDataType(data_type_to).is_json()) {
+                    // serialize to json by parsing
+                    return ConvertImplGenericToJsonb::execute(context, block, arguments, result,
+                                                              input_rows_count);
+                } else if (!data_type_to->is_nullable() &&
+                           !WhichDataType(data_type_to).is_string()) {
+                    // other types
+                    col_to->assume_mutable()->insert_many_defaults(input_rows_count);
+                    col_to = make_nullable(col_to, true);
                 } else {
                     assert_cast<ColumnNullable&>(*col_to->assume_mutable())
                             .insert_many_defaults(input_rows_count);

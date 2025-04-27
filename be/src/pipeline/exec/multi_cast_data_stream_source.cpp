@@ -106,7 +106,6 @@ Status MultiCastDataStreamerSourceOperatorX::get_block(RuntimeState* state,
                 local_state._output_expr_contexts, *output_block, block, true));
         vectorized::materialize_block_inplace(*block);
     }
-    COUNTER_UPDATE(local_state._rows_returned_counter, block->rows());
     return Status::OK();
 }
 

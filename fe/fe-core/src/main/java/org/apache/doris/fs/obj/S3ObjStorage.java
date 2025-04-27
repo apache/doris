@@ -34,8 +34,14 @@ import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.AbortMultipartUploadRequest;
+import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
+import software.amazon.awssdk.services.s3.model.CompletedMultipartUpload;
+import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
+import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
+import software.amazon.awssdk.services.s3.model.CreateMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.Delete;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
@@ -52,11 +58,15 @@ import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.model.S3Object;
+import software.amazon.awssdk.services.s3.model.UploadPartRequest;
+import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 
+import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.InputStream;
 import java.net.URI;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
@@ -102,6 +112,11 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                 .equalsIgnoreCase("true");
         forceParsingByStandardUri = this.properties.getOrDefault(PropertyConverter.FORCE_PARSING_BY_STANDARD_URI,
                 "false").equalsIgnoreCase("true");
+
+        String endpoint = this.properties.get(S3Properties.ENDPOINT);
+        String region = this.properties.get(S3Properties.REGION);
+
+        this.properties.put(S3Properties.REGION, PropertyConverter.checkRegion(endpoint, region, S3Properties.REGION));
     }
 
     @Override
@@ -250,6 +265,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
             LOG.info("total delete {} objects for dir {}", totalObjects, absolutePath);
             return Status.OK;
         } catch (DdlException e) {
+            LOG.warn("deleteObjects:", e);
             return new Status(Status.ErrCode.COMMON_ERROR, "list objects for delete objects failed: " + e.getMessage());
         } catch (Exception e) {
             LOG.warn(String.format("delete objects %s failed", absolutePath), e);
@@ -303,5 +319,82 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
             LOG.warn(String.format("Failed to list objects for S3: %s", absolutePath), e);
             throw new DdlException("Failed to list objects for S3, Error message: " + e.getMessage(), e);
         }
+    }
+
+    public Status multipartUpload(String remotePath, @Nullable InputStream inputStream, long totalBytes) {
+        Status st = Status.OK;
+        long uploadedBytes = 0;
+        int bytesRead = 0;
+        byte[] buffer = new byte[CHUNK_SIZE];
+        int partNumber = 1;
+
+        String uploadId = null;
+        S3URI uri = null;
+        Map<Integer, String> etags = new HashMap<>();
+
+        try {
+            uri = S3URI.create(remotePath, isUsePathStyle, forceParsingByStandardUri);
+            CreateMultipartUploadRequest createMultipartUploadRequest = CreateMultipartUploadRequest.builder()
+                    .bucket(uri.getBucket())
+                    .key(uri.getKey())
+                    .build();
+            CreateMultipartUploadResponse createMultipartUploadResponse = getClient()
+                    .createMultipartUpload(createMultipartUploadRequest);
+
+            uploadId = createMultipartUploadResponse.uploadId();
+
+            while (uploadedBytes < totalBytes && (bytesRead = inputStream.read(buffer)) != -1) {
+                uploadedBytes += bytesRead;
+                UploadPartRequest uploadPartRequest = UploadPartRequest.builder()
+                        .bucket(uri.getBucket())
+                        .key(uri.getKey())
+                        .uploadId(uploadId)
+                        .partNumber(partNumber).build();
+                RequestBody body = RequestBody
+                        .fromInputStream(new ByteArrayInputStream(buffer, 0, bytesRead), bytesRead);
+                UploadPartResponse uploadPartResponse = getClient().uploadPart(uploadPartRequest, body);
+
+                etags.put(partNumber, uploadPartResponse.eTag());
+                partNumber++;
+                uploadedBytes += bytesRead;
+            }
+
+            List<CompletedPart> completedParts = etags.entrySet().stream()
+                    .map(entry -> CompletedPart.builder()
+                            .partNumber(entry.getKey())
+                            .eTag(entry.getValue())
+                            .build())
+                    .collect(Collectors.toList());
+            CompletedMultipartUpload completedMultipartUpload = CompletedMultipartUpload.builder()
+                    .parts(completedParts)
+                    .build();
+
+            CompleteMultipartUploadRequest completeMultipartUploadRequest = CompleteMultipartUploadRequest.builder()
+                    .bucket(uri.getBucket())
+                    .key(uri.getKey())
+                    .uploadId(uploadId)
+                    .multipartUpload(completedMultipartUpload)
+                    .build();
+
+            getClient().completeMultipartUpload(completeMultipartUploadRequest);
+        } catch (Exception e) {
+            LOG.warn("remotePath:{}, ", remotePath, e);
+            st = new Status(Status.ErrCode.COMMON_ERROR, "Failed to multipartUpload " + remotePath
+                    + " reason: " + e.getMessage());
+
+            if (uri != null && uploadId != null) {
+                try {
+                    AbortMultipartUploadRequest abortMultipartUploadRequest = AbortMultipartUploadRequest.builder()
+                            .bucket(uri.getBucket())
+                            .key(uri.getKey())
+                            .uploadId(uploadId)
+                            .build();
+                    getClient().abortMultipartUpload(abortMultipartUploadRequest);
+                } catch (Exception e1) {
+                    LOG.warn("Failed to abort multipartUpload " + remotePath, e1);
+                }
+            }
+        }
+        return st;
     }
 }

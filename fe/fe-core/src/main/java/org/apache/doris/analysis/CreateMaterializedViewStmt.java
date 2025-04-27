@@ -349,13 +349,23 @@ public class CreateMaterializedViewStmt extends DdlStmt implements NotFallbackIn
         if (selectStmt.getGroupByClause() == null && mvKeysType == KeysType.AGG_KEYS) {
             throw new AnalysisException("agg mv must has group by clause");
         }
+
+        List<Expr> selectExprs = selectStmt.getSelectList().getExprs();
+        Set<String> selectExprNames = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
+        for (Expr expr : selectExprs) {
+            String selectExprName = selectStmt.getExprFromAliasSMap(expr).toSqlWithoutTbl();
+            if (selectExprNames.contains(selectExprName)) {
+                throw new AnalysisException("The select expr " + selectExprName + " is duplicated.");
+            }
+            selectExprNames.add(selectExprName);
+        }
+
         if (selectStmt.getGroupByClause() == null) {
             return;
         }
 
         List<Expr> groupingExprs = selectStmt.getGroupByClause().getGroupingExprs();
         List<FunctionCallExpr> aggregateExprs = selectStmt.getAggInfo().getAggregateExprs();
-        List<Expr> selectExprs = selectStmt.getSelectList().getExprs();
         for (Expr expr : selectExprs) {
             boolean match = false;
             String lhs = selectStmt.getExprFromAliasSMap(expr).toSqlWithoutTbl();
@@ -379,15 +389,6 @@ public class CreateMaterializedViewStmt extends DdlStmt implements NotFallbackIn
             if (!match) {
                 throw new AnalysisException("The select expr " + lhs + " not in grouping or aggregate columns");
             }
-        }
-
-        Set<String> selectExprNames = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
-        for (Expr expr : selectExprs) {
-            String selectExprName = selectStmt.getExprFromAliasSMap(expr).toSqlWithoutTbl();
-            if (selectExprNames.contains(selectExprName)) {
-                throw new AnalysisException("The select expr " + selectExprName + " is duplicated.");
-            }
-            selectExprNames.add(selectExprName);
         }
 
         for (Expr expr : groupingExprs) {
@@ -475,7 +476,7 @@ public class CreateMaterializedViewStmt extends DdlStmt implements NotFallbackIn
                     }
                     break;
                 }
-                if (column.getType().isFloatingPointType()) {
+                if (!column.getType().couldBeShortKey()) {
                     break;
                 }
                 if (column.getType().getPrimitiveType() == PrimitiveType.VARCHAR) {
@@ -486,7 +487,9 @@ public class CreateMaterializedViewStmt extends DdlStmt implements NotFallbackIn
                 column.setIsKey(true);
             }
             if (theBeginIndexOfValue == 0) {
-                throw new AnalysisException("The first column could not be float or double type, use decimal instead");
+                throw new AnalysisException(
+                    "The first column could not be float, double or complex "
+                    + "type like array, struct, map, json, variant.");
             }
             // supply value
             for (; theBeginIndexOfValue < mvColumnItemList.size(); theBeginIndexOfValue++) {

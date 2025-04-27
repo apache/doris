@@ -141,9 +141,4 @@ suite("test_from_iso8601_date") {
     qt_test_87  """ select from_iso8601_date(k1),from_iso8601_date(k2),from_iso8601_date(k3),from_iso8601_date(k11),from_iso8601_date(k22),from_iso8601_date(k33) from tb2 order by  k0;"""
     qt_test_88 """ select from_iso8601_date(nullable(k1)),from_iso8601_date(k2),from_iso8601_date(k3),from_iso8601_date(nullable(k11)),from_iso8601_date(k22),from_iso8601_date(k33) from tb2 order by  k0; """ 
     qt_test_89 """ select from_iso8601_date(NULL)   from tb2 order by  k0; """ 
-
-
-
-    sql """ drop table tb2 """ 
-
 }

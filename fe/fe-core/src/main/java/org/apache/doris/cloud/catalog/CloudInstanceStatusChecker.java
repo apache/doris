@@ -59,10 +59,9 @@ public class CloudInstanceStatusChecker extends MasterDaemon {
                     String id = response.getInstance().getResourceIds(i);
                     vaultMap.put(name, id);
                 }
-                Env.getCurrentEnv().getStorageVaultMgr().refreshVaultMap(vaultMap);
-                Env.getCurrentEnv().getStorageVaultMgr().setDefaultStorageVault(
+                Env.getCurrentEnv().getStorageVaultMgr().refreshVaultMap(vaultMap,
                         Pair.of(response.getInstance().getDefaultStorageVaultName(),
-                                response.getInstance().getDefaultStorageVaultId()));
+                        response.getInstance().getDefaultStorageVaultId()));
             }
         } catch (Exception e) {
             LOG.warn("get instance from ms exception", e);

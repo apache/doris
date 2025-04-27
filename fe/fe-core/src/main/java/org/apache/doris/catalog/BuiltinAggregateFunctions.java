@@ -139,7 +139,7 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
             agg(OrthogonalBitmapIntersect.class, "orthogonal_bitmap_intersect"),
             agg(OrthogonalBitmapIntersectCount.class, "orthogonal_bitmap_intersect_count"),
             agg(OrthogonalBitmapUnionCount.class, "orthogonal_bitmap_union_count"),
-            agg(Percentile.class, "percentile"),
+            agg(Percentile.class, "percentile", "percentile_cont"),
             agg(PercentileApprox.class, "percentile_approx"),
             agg(PercentileApproxWeighted.class, "percentile_approx_weighted"),
             agg(PercentileArray.class, "percentile_array"),

@@ -65,6 +65,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.MasterCatalogExecutor;
 import org.apache.doris.transaction.TransactionManager;
 
+import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -139,6 +140,9 @@ public abstract class ExternalCatalog
     // <db name, table name> to tableAutoAnalyzePolicy
     @SerializedName(value = "taap")
     protected Map<Pair<String, String>, String> tableAutoAnalyzePolicy = Maps.newHashMap();
+    @SerializedName(value = "comment")
+    private String comment;
+
     // db name does not contains "default_cluster"
     protected Map<String, Long> dbNameToId = Maps.newConcurrentMap();
     private boolean objectCreated = false;
@@ -147,7 +151,6 @@ public abstract class ExternalCatalog
     protected TransactionManager transactionManager;
 
     private ExternalSchemaCache schemaCache;
-    private String comment;
     // A cached and being converted properties for external catalog.
     // generated from catalog properties.
     private byte[] propLock = new byte[0];
@@ -390,7 +393,7 @@ public abstract class ExternalCatalog
                     db.setRemoteName(remoteDbName);
                 }
                 tmpIdToDb.put(dbId, db);
-                initCatalogLog.addRefreshDb(dbId);
+                initCatalogLog.addRefreshDb(dbId, remoteDbName);
             } else {
                 dbId = Env.getCurrentEnv().getNextId();
                 tmpDbNameToId.put(localDbName, dbId);
@@ -491,7 +494,23 @@ public abstract class ExternalCatalog
         return remoteToLocalPairs;
     }
 
-    public void onRefresh(boolean invalidCache) {
+    /**
+     * Resets the Catalog state to uninitialized, releases resources held by {@code initLocalObjectsImpl()}
+     * <p>
+     * This method is typically invoked during operations such as {@code CREATE CATALOG}
+     * and {@code MODIFY CATALOG}. It marks the object as uninitialized, clears cached
+     * configurations, and ensures that resources allocated during {@link #initLocalObjectsImpl()}
+     * are properly released via {@link #onClose()}
+     * </p>
+     * <p>
+     * The {@code onClose()} method is responsible for cleaning up resources that were initialized
+     * in {@code initLocalObjectsImpl()}, preventing potential resource leaks.
+     * </p>
+     *
+     * @param invalidCache if {@code true}, the catalog cache will be invalidated
+     *                     and reloaded during the refresh process.
+     */
+    public void resetToUninitialized(boolean invalidCache) {
         this.objectCreated = false;
         this.initialized = false;
         synchronized (this.propLock) {
@@ -501,6 +520,7 @@ public abstract class ExternalCatalog
         synchronized (this.confLock) {
             this.cachedConf = null;
         }
+        onClose();
 
         refreshOnlyCatalogCache(invalidCache);
     }
@@ -628,7 +648,7 @@ public abstract class ExternalCatalog
         if (useMetaCache.get()) {
             // must use full qualified name to generate id.
             // otherwise, if 2 catalogs have the same db name, the id will be the same.
-            return metaCache.getMetaObj(realDbName, Util.genIdByName(getQualifiedName(realDbName))).orElse(null);
+            return metaCache.getMetaObj(realDbName, Util.genIdByName(name, realDbName)).orElse(null);
         } else {
             if (dbNameToId.containsKey(realDbName)) {
                 return idToDb.get(dbNameToId.get(realDbName));
@@ -714,6 +734,12 @@ public abstract class ExternalCatalog
     @Override
     public void onClose() {
         removeAccessController();
+        if (null != preExecutionAuthenticator) {
+            preExecutionAuthenticator = null;
+        }
+        if (null != transactionManager) {
+            transactionManager = null;
+        }
         CatalogIf.super.onClose();
     }
 
@@ -722,8 +748,12 @@ public abstract class ExternalCatalog
     }
 
     public void replayInitCatalog(InitCatalogLog log) {
-        // If the remote name is missing during upgrade, all databases in the Map will be reinitialized.
-        if (log.getRemoteDbNames() == null || log.getRemoteDbNames().isEmpty()) {
+        // If the remote name is missing during upgrade, or
+        // the refresh db's remote name is empty,
+        // all databases in the Map will be reinitialized.
+        if ((log.getCreateCount() > 0 && (log.getRemoteDbNames() == null || log.getRemoteDbNames().isEmpty()))
+                || (log.getRefreshCount() > 0
+                && (log.getRefreshRemoteDbNames() == null || log.getRefreshRemoteDbNames().isEmpty()))) {
             dbNameToId = Maps.newConcurrentMap();
             idToDb = Maps.newConcurrentMap();
             lastUpdateTime = log.getLastUpdateTime();
@@ -743,6 +773,7 @@ public abstract class ExternalCatalog
                         log.getRefreshDbIds().get(i), name);
                 continue;
             }
+            db.get().setRemoteName(log.getRefreshRemoteDbNames().get(i));
             Preconditions.checkNotNull(db.get());
             tmpDbNameToId.put(db.get().getFullName(), db.get().getId());
             tmpIdToDb.put(db.get().getId(), db.get());
@@ -757,6 +788,18 @@ public abstract class ExternalCatalog
                 tmpIdToDb.put(db.getId(), db);
                 LOG.info("Synchronized database (create): [Name: {}, ID: {}, Remote Name: {}]",
                         db.getFullName(), db.getId(), log.getRemoteDbNames().get(i));
+            }
+        }
+        // Check whether the remoteName of db in tmpIdToDb is empty
+        for (ExternalDatabase<? extends ExternalTable> db : tmpIdToDb.values()) {
+            if (Strings.isNullOrEmpty(db.getRemoteName())) {
+                LOG.info("Database [{}] remoteName is empty in catalog [{}], mark as uninitialized",
+                        db.getFullName(), name);
+                dbNameToId = Maps.newConcurrentMap();
+                idToDb = Maps.newConcurrentMap();
+                lastUpdateTime = log.getLastUpdateTime();
+                initialized = false;
+                return;
             }
         }
         dbNameToId = tmpDbNameToId;
@@ -1081,10 +1124,6 @@ public abstract class ExternalCatalog
         }
     }
 
-    public String getQualifiedName(String dbName) {
-        return String.join(".", name, dbName);
-    }
-
     public void setAutoAnalyzePolicy(String dbName, String tableName, String policy) {
         Pair<String, String> key = Pair.of(dbName, tableName);
         if (policy == null) {
@@ -1096,5 +1135,22 @@ public abstract class ExternalCatalog
 
     public PreExecutionAuthenticator getPreExecutionAuthenticator() {
         return preExecutionAuthenticator;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (!(o instanceof ExternalCatalog)) {
+            return false;
+        }
+        ExternalCatalog that = (ExternalCatalog) o;
+        return Objects.equal(name, that.name);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hashCode(name);
     }
 }

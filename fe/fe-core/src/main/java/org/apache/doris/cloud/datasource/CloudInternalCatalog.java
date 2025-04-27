@@ -316,12 +316,16 @@ public class CloudInternalCatalog extends InternalCatalog {
             schemaBuilder.addColumn(column.toPb(bfColumns, indexes));
         }
 
+        Map<Integer, Column> columnMap = Maps.newHashMap();
+        for (Column column : schemaColumns) {
+            columnMap.put(column.getUniqueId(), column);
+        }
         if (indexes != null) {
-            for (int i = 0; i < indexes.size(); i++) {
-                Index index = indexes.get(i);
-                schemaBuilder.addIndex(index.toPb(schemaColumns));
+            for (Index index : indexes) {
+                schemaBuilder.addIndex(index.toPb(columnMap, index.getColumnUniqueIds(schemaColumns)));
             }
         }
+
         if (rowStoreColumnUniqueIds != null) {
             schemaBuilder.addAllRowStoreColumnUniqueIds(rowStoreColumnUniqueIds);
         }

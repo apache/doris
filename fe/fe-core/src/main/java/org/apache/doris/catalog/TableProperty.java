@@ -469,6 +469,8 @@ public class TableProperty implements Writable, GsonPostProcessable {
         properties.remove(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY);
         storagePolicy = "";
         properties.remove(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH);
+        properties.remove(DynamicPartitionProperty.STORAGE_POLICY);
+        dynamicPartitionProperty.clearStoragePolicy();
     }
 
     public List<String> getCopiedRowStoreColumns() {
@@ -686,6 +688,9 @@ public class TableProperty implements Writable, GsonPostProcessable {
             modifyTableProperties(PropertyAnalyzer.PROPERTIES_ROW_STORE_COLUMNS,
                     Joiner.on(",").join(rowStoreColumns));
             buildRowStoreColumns();
+        } else {
+            // clear row store columns
+            this.rowStoreColumns = null;
         }
     }
 

@@ -24,6 +24,7 @@ suite("test_compaction_score_action") {
             id INT NOT NULL,
             name STRING NOT NULL
         ) DUPLICATE KEY (`id`)
+          DISTRIBUTED BY HASH(`id`) BUCKETS 1
           PROPERTIES ("replication_num" = "1", "disable_auto_compaction" = "true");
     """
     for (i in 0..<30) {
@@ -39,12 +40,12 @@ suite("test_compaction_score_action") {
     for (int i=0;i<backendId_to_backendIP.size();i++){
         def beHttpAddress =backendId_to_backendIP.entrySet()[i].getValue()+":"+backendId_to_backendHttpPort.entrySet()[i].getValue()
         if (isCloudMode()) {
-            def (code, text, err) = curl("GET",beHttpAddress+ "/api/compaction_score?top_n=1&sync_meta=true")
+            def (code, text, err) = curl("GET", beHttpAddress+ "/api/compaction_score?top_n=1&sync_meta=true", null/*body*/, 100/*timeoutSec*/)
             def score_str = parseJson(text).get(0).get("compaction_score")
             def score = Integer.parseInt(score_str)
             assertTrue(score >= 90)
         } else {
-            def (code, text, err) = curl("GET",beHttpAddress+"/api/compaction_score?top_n=1")
+            def (code, text, err) = curl("GET", beHttpAddress+"/api/compaction_score?top_n=1")
             def score_str = parseJson(text).get(0).get("compaction_score")
             def score = Integer.parseInt(score_str)
             assertTrue(score >= 90)

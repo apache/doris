@@ -83,6 +83,7 @@ import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
+import org.apache.doris.service.arrowflight.results.FlightSqlEndpointsLocation;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.LoadEtlTask;
@@ -402,9 +403,7 @@ public class Coordinator implements CoordInterface {
             this.queryOptions.setResourceLimit(resourceLimit);
         }
         // set exec mem limit
-        long maxExecMemByte = connectContext.getSessionVariable().getMaxExecMemByte();
-        long memLimit = maxExecMemByte > 0 ? maxExecMemByte :
-                Env.getCurrentEnv().getAuth().getExecMemLimit(qualifiedUser);
+        long memLimit = connectContext.getMaxExecMemByte();
         if (memLimit > 0) {
             // overwrite the exec_mem_limit from session variable;
             this.queryOptions.setMemLimit(memLimit);
@@ -731,29 +730,27 @@ public class Coordinator implements CoordInterface {
                 enableParallelResultSink = queryOptions.isEnableParallelOutfile();
             }
 
-            TNetworkAddress execBeAddr = topParams.instanceExecParams.get(0).host;
             Set<TNetworkAddress> addrs = new HashSet<>();
             for (FInstanceExecParam param : topParams.instanceExecParams) {
                 if (addrs.contains(param.host)) {
                     continue;
                 }
                 addrs.add(param.host);
-                receivers.add(new ResultReceiver(queryId, param.instanceId, addressToBackendID.get(param.host),
-                        toBrpcHost(param.host), this.timeoutDeadline,
-                        context.getSessionVariable().getMaxMsgSizeOfResultReceiver(), enableParallelResultSink));
-            }
-
-            if (!context.isReturnResultFromLocal()) {
-                Preconditions.checkState(context.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL));
-                if (enableParallelResultSink) {
-                    context.setFinstId(queryId);
+                if (context.isReturnResultFromLocal()) {
+                    receivers.add(new ResultReceiver(queryId, param.instanceId, addressToBackendID.get(param.host),
+                            toBrpcHost(param.host), this.timeoutDeadline,
+                            context.getSessionVariable().getMaxMsgSizeOfResultReceiver(), enableParallelResultSink));
                 } else {
-                    context.setFinstId(topParams.instanceExecParams.get(0).instanceId);
+                    Preconditions.checkState(context.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL));
+                    TUniqueId finstId;
+                    if (enableParallelResultSink) {
+                        finstId = queryId;
+                    } else {
+                        finstId = topParams.instanceExecParams.get(0).instanceId;
+                    }
+                    context.addFlightSqlEndpointsLocation(new FlightSqlEndpointsLocation(finstId,
+                            toArrowFlightHost(param.host), toBrpcHost(param.host), fragments.get(0).getOutputExprs()));
                 }
-                context.setFinstId(topParams.instanceExecParams.get(0).instanceId);
-                context.setResultFlightServerAddr(toArrowFlightHost(execBeAddr));
-                context.setResultInternalServiceAddr(toBrpcHost(execBeAddr));
-                context.setResultOutputExprs(fragments.get(0).getOutputExprs());
             }
 
             LOG.info("dispatch result sink of query {} to {}", DebugUtil.printId(queryId),
@@ -764,7 +761,8 @@ public class Coordinator implements CoordInterface {
                 // set the broker address for OUTFILE sink
                 ResultFileSink topResultFileSink = (ResultFileSink) topDataSink;
                 FsBroker broker = Env.getCurrentEnv().getBrokerMgr()
-                        .getBroker(topResultFileSink.getBrokerName(), execBeAddr.getHostname());
+                        .getBroker(topResultFileSink.getBrokerName(),
+                                topParams.instanceExecParams.get(0).host.getHostname());
                 topResultFileSink.setBrokerAddr(broker.host, broker.port);
             }
         } else {
@@ -1447,7 +1445,6 @@ public class Coordinator implements CoordInterface {
                         } else {
                             destHosts.put(param.host, param);
                             TPlanFragmentDestination dest = new TPlanFragmentDestination();
-                            param.recvrId = params.destinations.size();
                             dest.fragment_instance_id = param.instanceId;
                             try {
                                 dest.server = toRpcHost(param.host);
@@ -1593,7 +1590,6 @@ public class Coordinator implements CoordInterface {
                             destHosts.put(param.host, param);
                             TPlanFragmentDestination dest = new TPlanFragmentDestination();
                             dest.fragment_instance_id = param.instanceId;
-                            param.recvrId = params.destinations.size();
                             try {
                                 dest.server = toRpcHost(param.host);
                                 dest.setBrpcServer(toBrpcHost(param.host));
@@ -1814,7 +1810,8 @@ public class Coordinator implements CoordInterface {
                     exchangeInstances = ConnectContext.get().getSessionVariable().getExchangeInstanceParallel();
                 }
                 // when we use nested loop join do right outer / semi / anti join, the instance must be 1.
-                if (leftMostNode.getNumInstances() == 1) {
+                boolean isNereids = context != null && context.getState().isNereids();
+                if (!isNereids && leftMostNode.getNumInstances() == 1) {
                     exchangeInstances = 1;
                 }
                 // Using serial source means a serial source operator will be used in this fragment (e.g. data will be

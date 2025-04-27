@@ -124,7 +124,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         idToCatalog.put(catalog.getId(), catalog);
         String catalogName = catalog.getName();
         if (!catalogName.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
-            ((ExternalCatalog) catalog).onRefresh(false);
+            ((ExternalCatalog) catalog).resetToUninitialized(false);
         }
         if (!Strings.isNullOrEmpty(catalog.getResource())) {
             Resource resource = Env.getCurrentEnv().getResourceMgr().getResource(catalog.getResource());
@@ -839,5 +839,9 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
 
     public Set<CatalogIf> getCopyOfCatalog() {
         return new HashSet<>(idToCatalog.values());
+    }
+
+    public int getCatalogNum() {
+        return idToCatalog.size();
     }
 }

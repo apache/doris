@@ -210,7 +210,8 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
                     insertOverwriteManager.taskFail(taskId);
                     return;
                 }
-                InsertOverwriteUtil.replacePartition(targetTable, partitionNames, tempPartitionNames);
+                InsertOverwriteUtil.replacePartition(targetTable, partitionNames, tempPartitionNames,
+                        isForceDropPartition());
                 if (isCancelled.get()) {
                     LOG.info("insert overwrite is cancelled before taskSuccess, do nothing, queryId: {}",
                             ctx.getQueryIdentifier());
@@ -363,6 +364,10 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
     @Override
     public Plan getExplainPlan(ConnectContext ctx) {
         return InsertUtils.getPlanForExplain(ctx, this.logicalQuery);
+    }
+
+    public boolean isForceDropPartition() {
+        return false;
     }
 
     @Override

@@ -48,7 +48,7 @@ suite("test_memtable_flush_is_high_priority_for_vtablet_writerV2", "nonConcurren
     """
     try {
         GetDebugPoint().enableDebugPointForAllBEs("VTabletWriterV2._init.is_high_priority")
-        result = sql "show VARIABLES like \'enable_memtable_on_sink_node\'"
+        def result = sql "show VARIABLES like \'enable_memtable_on_sink_node\'"
         log.info(result.toString())
         original_status = result[0][1]       
         sql """set enable_memtable_on_sink_node = true"""
@@ -58,7 +58,7 @@ suite("test_memtable_flush_is_high_priority_for_vtablet_writerV2", "nonConcurren
         qt_sql """select * from ${testTable} order by id"""
         sql """set enable_memtable_on_sink_node = ${original_status}"""
     } catch(Exception e) {
-        log.error(e.message())
+        log.error(e.getMessage())
     } finally {
         GetDebugPoint().disableDebugPointForAllBEs("VTabletWriterV2._init.is_high_priority")
     }

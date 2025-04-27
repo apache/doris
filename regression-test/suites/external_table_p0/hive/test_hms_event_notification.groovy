@@ -21,7 +21,7 @@ suite("test_hms_event_notification", "p0,external,hive,external_docker,external_
         logger.info("diable Hive test.")
         return;
     }
-    for (String useMetaCache : ["true","false"] ) {
+    for (String useMetaCache : ["true"] ) {
     for (String hivePrefix : ["hive3"]) {
         try {
             setHivePrefix(hivePrefix)

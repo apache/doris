@@ -126,6 +126,9 @@ public class FloatLiteral extends NumericLiteralExpr {
         if (expr instanceof NullLiteral) {
             return 1;
         }
+        if (expr == MaxLiteral.MAX_VALUE) {
+            return -1;
+        }
         return Double.compare(value, expr.getDoubleValue());
     }
 

@@ -65,6 +65,4 @@ suite("bitmap", "rollup") {
         // check exception message contains
         exception "The input: -1 is not valid, to_bitmap only support bigint value from 0 to 18446744073709551615 currently"
     }
-
-    sql "DROP TABLE ${tbName1} FORCE;"
 }

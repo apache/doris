@@ -49,8 +49,6 @@ public:
 
 private:
     friend class NestedLoopJoinBuildSinkOperatorX;
-    uint64_t _build_rows = 0;
-    uint64_t _total_mem_usage = 0;
 
     vectorized::VExprContextSPtrs _filter_src_expr_ctxs;
 };

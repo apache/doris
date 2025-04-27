@@ -117,7 +117,6 @@ suite("insert_group_commit_with_exception") {
             Statement statement = connection.createStatement();
             statement.execute("use ${db}");
             statement.execute("set group_commit = sync_mode");
-            statement.execute("set enable_server_side_prepared_statement = true")
             // without column
             try (PreparedStatement ps = connection.prepareStatement("insert into ${table} values(?, ?, ?, ?)")) {
                 ps.setObject(1, 8);

@@ -39,13 +39,14 @@ suite ("dup_mv_bm_hash") {
     sql "SET enable_fallback_to_original_planner=false"
 
     sql "analyze table dup_mv_bm_hash with sync;"
+    sql """alter table dup_mv_bm_hash modify column k1 set stats ('row_count'='5');"""
+
     sql """set enable_stats=false;"""
 
     mv_rewrite_success("select bitmap_union_count(to_bitmap(k2)) from dup_mv_bm_hash group by k1 order by k1;", "dup_mv_bm_hash_mv1")
     order_qt_select_mv "select bitmap_union_count(to_bitmap(k2)) from dup_mv_bm_hash group by k1 order by k1;"
 
     sql """set enable_stats=true;"""
-    sql """alter table dup_mv_bm_hash modify column k1 set stats ('row_count'='5');"""
     mv_rewrite_success("select bitmap_union_count(to_bitmap(k2)) from dup_mv_bm_hash group by k1 order by k1;", "dup_mv_bm_hash_mv1")
 
     createMV("create materialized view dup_mv_bm_hash_mv2 as select k1,bitmap_union(bitmap_hash(k3)) from dup_mv_bm_hash group by k1;")

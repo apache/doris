@@ -316,7 +316,7 @@ public class OlapTableSink extends DataSink {
                 indexes = table.getIndexes();
             }
             for (Index index : indexes) {
-                TOlapTableIndex tIndex = index.toThrift();
+                TOlapTableIndex tIndex = index.toThrift(index.getColumnUniqueIds(table.getBaseSchema()));
                 indexDesc.add(tIndex);
             }
             TOlapTableIndexSchema indexSchema = new TOlapTableIndexSchema(pair.getKey(), columns,
@@ -337,6 +337,10 @@ public class OlapTableSink extends DataSink {
         }
         schemaParam.setIsPartialUpdate(isPartialUpdate);
         if (isPartialUpdate) {
+            if (table.getState() == OlapTable.OlapTableState.ROLLUP
+                    || table.getState() == OlapTable.OlapTableState.SCHEMA_CHANGE) {
+                throw new AnalysisException("Can't do partial update when table is doing schema change.");
+            }
             for (String s : partialUpdateInputColumns) {
                 schemaParam.addToPartialUpdateInputColumns(s);
             }

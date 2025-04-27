@@ -22,36 +22,35 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.datasource.SchemaCacheValue;
 
 import com.aliyun.odps.Table;
-import com.google.common.collect.Lists;
 import lombok.Getter;
 import lombok.Setter;
 
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
 
 @Getter
 @Setter
 public class MaxComputeSchemaCacheValue extends SchemaCacheValue {
     private Table odpsTable;
+    private List<String> partitionColumnNames;
     private List<String> partitionSpecs;
-    private Map<String, Column> partitionNameToColumns;
+    private List<Column> partitionColumns;
     private List<Type> partitionTypes;
 
-    public MaxComputeSchemaCacheValue(List<Column> schema, Table odpsTable, List<String> partitionSpecs,
-            Map<String, Column> partitionNameToColumns, List<Type> partitionTypes) {
+    public MaxComputeSchemaCacheValue(List<Column> schema, Table odpsTable, List<String> partitionColumnNames,
+            List<String> partitionSpecs, List<Column> partitionColumns, List<Type> partitionTypes) {
         super(schema);
         this.odpsTable = odpsTable;
         this.partitionSpecs = partitionSpecs;
-        this.partitionNameToColumns = partitionNameToColumns;
+        this.partitionColumnNames = partitionColumnNames;
+        this.partitionColumns = partitionColumns;
         this.partitionTypes = partitionTypes;
     }
 
-    public Set<String> getPartitionColNames() {
-        return partitionNameToColumns.keySet();
+    public List<Column> getPartitionColumns() {
+        return partitionColumns;
     }
 
-    public List<Column> getPartitionColumns() {
-        return Lists.newArrayList(partitionNameToColumns.values());
+    public List<String> getPartitionColumnNames() {
+        return partitionColumnNames;
     }
 }

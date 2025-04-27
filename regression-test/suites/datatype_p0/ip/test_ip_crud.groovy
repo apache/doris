@@ -98,8 +98,4 @@ suite("test_ip_crud") {
     qt_sql14 "select * from test_dup_ip_crud order by id"
     sql "delete from test_dup_ip_crud where ip_v6='2001:4888:1f:e891:161:26::'"
     qt_sql15 "select * from test_dup_ip_crud order by id"
-
-    sql "DROP TABLE test_unique_ip_crud"
-    sql "DROP TABLE test_agg_ip_crud"
-    sql "DROP TABLE test_dup_ip_crud"
 }

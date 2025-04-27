@@ -68,6 +68,7 @@ class DateLiteralTest {
         new DateLiteral("20220101");
 
         Assertions.assertThrows(AnalysisException.class, () -> new DateLiteral("-01-01"));
+        Assertions.assertThrows(AnalysisException.class, () -> new DateLiteral("01-01"));
     }
 
     @Test

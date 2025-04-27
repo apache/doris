@@ -18,6 +18,9 @@
 #include "runtime/memory/memory_profile.h"
 
 #include "bvar/reducer.h"
+#include "olap/metadata_adder.h"
+#include "olap/schema_cache.h"
+#include "olap/tablet_schema_cache.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/global_memory_arbitrator.h"
 #include "runtime/memory/mem_tracker_limiter.h"
@@ -28,6 +31,9 @@ namespace doris {
 
 static bvar::Adder<int64_t> memory_all_tracked_sum_bytes("memory_all_tracked_sum_bytes");
 static bvar::Adder<int64_t> memory_global_trackers_sum_bytes("memory_global_trackers_sum_bytes");
+static bvar::Adder<int64_t> memory_metadata_trackers_sum_bytes(
+        "memory_metadata_trackers_sum_bytes");
+static bvar::Adder<int64_t> memory_cache_trackers_sum_bytes("memory_cache_trackers_sum_bytes");
 static bvar::Adder<int64_t> memory_query_trackers_sum_bytes("memory_query_trackers_sum_bytes");
 static bvar::Adder<int64_t> memory_load_trackers_sum_bytes("memory_load_trackers_sum_bytes");
 static bvar::Adder<int64_t> memory_compaction_trackers_sum_bytes(
@@ -40,140 +46,122 @@ static bvar::Adder<int64_t> memory_all_tasks_memory_bytes("memory_all_tasks_memo
 static bvar::Adder<int64_t> memory_untracked_memory_bytes("memory_untracked_memory_bytes");
 
 MemoryProfile::MemoryProfile() {
-    _memory_overview_profile.set(std::make_unique<RuntimeProfile>("MemoryOverviewSnapshot"));
+#ifdef ADDRESS_SANITIZER
+    _memory_overview_profile = std::make_unique<RuntimeProfile>("[ASAN]MemoryOverviewSnapshot");
+#else
+    _memory_overview_profile = std::make_unique<RuntimeProfile>("MemoryOverviewSnapshot");
+#endif
     _global_memory_profile.set(std::make_unique<RuntimeProfile>("GlobalMemorySnapshot"));
+    _metadata_memory_profile.set(std::make_unique<RuntimeProfile>("MetadataMemorySnapshot"));
+    _cache_memory_profile.set(std::make_unique<RuntimeProfile>("CacheMemorySnapshot"));
     _top_memory_tasks_profile.set(std::make_unique<RuntimeProfile>("TopMemoryTasksSnapshot"));
     _tasks_memory_profile.set(std::make_unique<RuntimeProfile>("TasksMemorySnapshot"));
+    init_memory_overview_counter();
 }
 
-void MemoryProfile::refresh_memory_overview_profile() {
-#ifdef ADDRESS_SANITIZER
-    std::unique_ptr<RuntimeProfile> memory_overview_profile =
-            std::make_unique<RuntimeProfile>("[ASAN]MemoryOverviewSnapshot");
-#else
-    std::unique_ptr<RuntimeProfile> memory_overview_profile =
-            std::make_unique<RuntimeProfile>("MemoryOverviewSnapshot");
-#endif
-    std::unique_ptr<RuntimeProfile> global_memory_profile =
-            std::make_unique<RuntimeProfile>("GlobalMemorySnapshot");
-    std::unique_ptr<RuntimeProfile> top_memory_tasks_profile =
-            std::make_unique<RuntimeProfile>("TopMemoryTasksSnapshot");
-
-    // 1. create profile
+void MemoryProfile::init_memory_overview_counter() {
     RuntimeProfile* untracked_memory_profile =
-            memory_overview_profile->create_child("UntrackedMemory", true, false);
+            _memory_overview_profile->create_child("UntrackedMemory", true, false);
     RuntimeProfile* tracked_memory_profile =
-            memory_overview_profile->create_child("TrackedMemory", true, false);
+            _memory_overview_profile->create_child("TrackedMemory", true, false);
     RuntimeProfile* tasks_memory_overview_profile =
             tracked_memory_profile->create_child("TasksMemory", true, false);
     RuntimeProfile* tasks_memory_overview_details_profile =
             tasks_memory_overview_profile->create_child("Details", true, false);
     RuntimeProfile* global_memory_overview_profile =
             tracked_memory_profile->create_child("GlobalMemory", true, false);
+    RuntimeProfile* metadata_memory_overview_profile =
+            tracked_memory_profile->create_child("MetadataMemory", true, false);
+    RuntimeProfile* cache_memory_overview_profile =
+            tracked_memory_profile->create_child("CacheMemory", true, false);
     RuntimeProfile* jemalloc_memory_profile =
             tracked_memory_profile->create_child("JemallocMemory", true, false);
     RuntimeProfile* jemalloc_memory_details_profile =
             jemalloc_memory_profile->create_child("Details", true, false);
 
-    // 2. add counter
-    // 2.1 add process memory counter
-    RuntimeProfile::Counter* process_physical_memory_current_usage_counter =
-            ADD_COUNTER(memory_overview_profile, "PhysicalMemory(VmRSS)", TUnit::BYTES);
-    RuntimeProfile::Counter* process_physical_memory_peak_usage_counter =
-            memory_overview_profile->AddHighWaterMarkCounter("PhysicalMemoryPeak", TUnit::BYTES);
-    RuntimeProfile::Counter* process_virtual_memory_current_usage_counter =
-            ADD_COUNTER(memory_overview_profile, "VirtualMemory(VmSize)", TUnit::BYTES);
-    RuntimeProfile::Counter* process_virtual_memory_peak_usage_counter =
-            memory_overview_profile->AddHighWaterMarkCounter("VirtualMemoryPeak", TUnit::BYTES);
+    // 1 add process memory counter
+    _process_physical_memory_usage_counter = _memory_overview_profile->AddHighWaterMarkCounter(
+            "PhysicalMemory(VmRSS)", TUnit::BYTES);
+    _process_virtual_memory_usage_counter = _memory_overview_profile->AddHighWaterMarkCounter(
+            "VirtualMemory(VmSize)", TUnit::BYTES);
 
-    // 2.2 add untracked memory counter
-    RuntimeProfile::Counter* untracked_memory_current_usage_counter =
-            ADD_COUNTER(untracked_memory_profile, "CurrentUsage", TUnit::BYTES);
-    RuntimeProfile::Counter* untracked_memory_peak_usage_counter =
-            untracked_memory_profile->AddHighWaterMarkCounter("PeakUsage", TUnit::BYTES);
+    // 2 add untracked/tracked memory counter
+    _untracked_memory_usage_counter =
+            untracked_memory_profile->AddHighWaterMarkCounter("Memory", TUnit::BYTES);
+    _tracked_memory_usage_counter =
+            tracked_memory_profile->AddHighWaterMarkCounter("Memory", TUnit::BYTES);
 
-    // 2.3 add tracked memory counter
-    RuntimeProfile::Counter* tracked_memory_current_usage_counter =
-            ADD_COUNTER(tracked_memory_profile, "CurrentUsage", TUnit::BYTES);
-    RuntimeProfile::Counter* tracked_memory_peak_usage_counter =
-            tracked_memory_profile->AddHighWaterMarkCounter("PeakUsage", TUnit::BYTES);
+    // 3 add Jemalloc memory counter
+    _jemalloc_memory_usage_counter =
+            jemalloc_memory_profile->AddHighWaterMarkCounter("Memory", TUnit::BYTES);
+    _jemalloc_cache_usage_counter =
+            jemalloc_memory_details_profile->AddHighWaterMarkCounter("Cache", TUnit::BYTES);
+    _jemalloc_metadata_usage_counter =
+            jemalloc_memory_details_profile->AddHighWaterMarkCounter("Metadata", TUnit::BYTES);
 
-    // 2.4 add jemalloc memory counter
-    RuntimeProfile::Counter* jemalloc_memory_current_usage_counter =
-            ADD_COUNTER(jemalloc_memory_profile, "CurrentUsage", TUnit::BYTES);
-    RuntimeProfile::Counter* jemalloc_memory_peak_usage_counter =
-            jemalloc_memory_profile->AddHighWaterMarkCounter("PeakUsage", TUnit::BYTES);
-    RuntimeProfile::Counter* jemalloc_cache_current_usage_counter =
-            ADD_COUNTER(jemalloc_memory_details_profile, "Cache", TUnit::BYTES);
-    RuntimeProfile::Counter* jemalloc_cache_peak_usage_counter =
-            jemalloc_memory_details_profile->AddHighWaterMarkCounter("CachePeak", TUnit::BYTES);
-    RuntimeProfile::Counter* jemalloc_metadata_current_usage_counter =
-            ADD_COUNTER(jemalloc_memory_details_profile, "Metadata", TUnit::BYTES);
-    RuntimeProfile::Counter* jemalloc_metadata_peak_usage_counter =
-            jemalloc_memory_details_profile->AddHighWaterMarkCounter("MetadataPeak", TUnit::BYTES);
+    // 4 add global/metadata/cache memory counter
+    _global_usage_counter =
+            global_memory_overview_profile->AddHighWaterMarkCounter("Memory", TUnit::BYTES);
+    _metadata_usage_counter =
+            metadata_memory_overview_profile->AddHighWaterMarkCounter("Memory", TUnit::BYTES);
+    _cache_usage_counter =
+            cache_memory_overview_profile->AddHighWaterMarkCounter("Memory", TUnit::BYTES);
 
-    // 2.5 add global memory counter
-    RuntimeProfile::Counter* global_current_usage_counter =
-            ADD_COUNTER(global_memory_overview_profile, "CurrentUsage", TUnit::BYTES);
-    RuntimeProfile::Counter* global_peak_usage_counter =
-            global_memory_overview_profile->AddHighWaterMarkCounter("PeakUsage", TUnit::BYTES);
-
-    // 2.6 add tasks memory counter
-    RuntimeProfile::Counter* tasks_memory_current_usage_counter =
-            ADD_COUNTER_WITH_LEVEL(tasks_memory_overview_profile, "CurrentUsage", TUnit::BYTES, 1);
+    // 5 add tasks memory counter
+    _tasks_memory_usage_counter =
+            tasks_memory_overview_profile->AddHighWaterMarkCounter("Memory", TUnit::BYTES);
     // Reserved memory is the sum of all task reserved memory, is duplicated with all task memory counter.
-    RuntimeProfile::Counter* reserved_memory_current_usage_counter = ADD_CHILD_COUNTER_WITH_LEVEL(
-            tasks_memory_overview_profile, "ReservedMemory", TUnit::BYTES, "CurrentUsage", 1);
-    RuntimeProfile::Counter* reserved_memory_peak_usage_counter =
-            tasks_memory_overview_profile->AddHighWaterMarkCounter("ReservedMemoryPeak",
-                                                                   TUnit::BYTES, "CurrentUsage", 1);
-    RuntimeProfile::Counter* tasks_memory_peak_usage_counter =
-            tasks_memory_overview_profile->AddHighWaterMarkCounter("PeakUsage", TUnit::BYTES);
-    RuntimeProfile::Counter* query_current_usage_counter =
-            ADD_COUNTER_WITH_LEVEL(tasks_memory_overview_details_profile, "Query", TUnit::BYTES, 1);
-    RuntimeProfile::Counter* query_peak_usage_counter =
-            tasks_memory_overview_details_profile->AddHighWaterMarkCounter(
-                    "QueryPeak", TUnit::BYTES, "Query", 1);
-    RuntimeProfile::Counter* load_current_usage_counter =
-            ADD_COUNTER_WITH_LEVEL(tasks_memory_overview_details_profile, "Load", TUnit::BYTES, 1);
-    RuntimeProfile::Counter* load_peak_usage_counter =
-            tasks_memory_overview_details_profile->AddHighWaterMarkCounter("LoadPeak", TUnit::BYTES,
-                                                                           "Load", 1);
-    RuntimeProfile::Counter* load_all_memtables_current_usage_counter =
-            ADD_CHILD_COUNTER_WITH_LEVEL(tasks_memory_overview_details_profile,
-                                         "AllMemTablesMemory", TUnit::BYTES, "Load", 1);
-    RuntimeProfile::Counter* load_all_memtables_peak_usage_counter =
-            ADD_CHILD_COUNTER_WITH_LEVEL(tasks_memory_overview_details_profile,
-                                         "AllMemTablesMemoryPeak", TUnit::BYTES, "Load", 1);
-    RuntimeProfile::Counter* compaction_current_usage_counter = ADD_COUNTER_WITH_LEVEL(
-            tasks_memory_overview_details_profile, "Compaction", TUnit::BYTES, 1);
-    RuntimeProfile::Counter* compaction_peak_usage_counter =
-            tasks_memory_overview_details_profile->AddHighWaterMarkCounter(
-                    "CompactionPeak", TUnit::BYTES, "Compaction", 1);
-    RuntimeProfile::Counter* schema_change_current_usage_counter = ADD_COUNTER_WITH_LEVEL(
-            tasks_memory_overview_details_profile, "SchemaChange", TUnit::BYTES, 1);
-    RuntimeProfile::Counter* schema_change_peak_usage_counter =
-            tasks_memory_overview_details_profile->AddHighWaterMarkCounter(
-                    "SchemaChangePeak", TUnit::BYTES, "SchemaChange", 1);
-    RuntimeProfile::Counter* other_current_usage_counter =
-            ADD_COUNTER_WITH_LEVEL(tasks_memory_overview_details_profile, "Other", TUnit::BYTES, 1);
-    RuntimeProfile::Counter* other_peak_usage_counter =
-            tasks_memory_overview_details_profile->AddHighWaterMarkCounter(
-                    "OtherPeak", TUnit::BYTES, "Other", 1);
-    // 3. refresh counter
-    // 3.1 refresh process memory counter
-    COUNTER_SET(process_physical_memory_current_usage_counter,
-                PerfCounters::get_vm_rss()); // from /proc VmRSS VmHWM
-    COUNTER_SET(process_physical_memory_peak_usage_counter, PerfCounters::get_vm_hwm());
-    COUNTER_SET(process_virtual_memory_current_usage_counter,
-                PerfCounters::get_vm_size()); // from /proc VmSize VmPeak
-    COUNTER_SET(process_virtual_memory_peak_usage_counter, PerfCounters::get_vm_peak());
+    _reserved_memory_usage_counter = tasks_memory_overview_profile->AddHighWaterMarkCounter(
+            "ReservedMemory", TUnit::BYTES, "Memory", 1);
+    _query_usage_counter =
+            tasks_memory_overview_details_profile->AddHighWaterMarkCounter("Query", TUnit::BYTES);
+    _load_usage_counter =
+            tasks_memory_overview_details_profile->AddHighWaterMarkCounter("Load", TUnit::BYTES);
+    _load_all_memtables_usage_counter =
+            tasks_memory_overview_details_profile->AddHighWaterMarkCounter("AllMemTablesMemory",
+                                                                           TUnit::BYTES, "Load", 1);
+    _compaction_usage_counter = tasks_memory_overview_details_profile->AddHighWaterMarkCounter(
+            "Compaction", TUnit::BYTES);
+    _schema_change_usage_counter = tasks_memory_overview_details_profile->AddHighWaterMarkCounter(
+            "SchemaChange", TUnit::BYTES);
+    _other_usage_counter =
+            tasks_memory_overview_details_profile->AddHighWaterMarkCounter("Other", TUnit::BYTES);
+}
 
-    // 3.2 refresh tracked memory counter
+void MemoryProfile::refresh_memory_overview_profile() {
+    // 1 create profile
+    std::unique_ptr<RuntimeProfile> global_memory_profile =
+            std::make_unique<RuntimeProfile>("GlobalMemorySnapshot");
+    std::unique_ptr<RuntimeProfile> metadata_memory_profile =
+            std::make_unique<RuntimeProfile>("MetadataMemorySnapshot");
+    std::unique_ptr<RuntimeProfile> cache_memory_profile =
+            std::make_unique<RuntimeProfile>("CacheMemorySnapshot");
+    std::unique_ptr<RuntimeProfile> top_memory_tasks_profile =
+            std::make_unique<RuntimeProfile>("TopMemoryTasksSnapshot");
+
+    // 2 refresh process memory counter
+    COUNTER_SET(_process_physical_memory_usage_counter,
+                PerfCounters::get_vm_rss()); // from /proc VmRSS VmHWM
+    COUNTER_SET(_process_virtual_memory_usage_counter,
+                PerfCounters::get_vm_size()); // from /proc VmSize VmPeak
+
+    // 2 refresh metadata memory tracker
+    ExecEnv::GetInstance()->tablets_no_cache_mem_tracker()->set_consumption(
+            MetadataAdder<TabletMeta>::get_all_tablets_size() -
+            TabletSchemaCache::instance()->value_mem_consumption() -
+            SchemaCache::instance()->value_mem_consumption());
+    ExecEnv::GetInstance()->rowsets_no_cache_mem_tracker()->set_consumption(
+            MetadataAdder<RowsetMeta>::get_all_rowsets_size());
+    ExecEnv::GetInstance()->segments_no_cache_mem_tracker()->set_consumption(
+            MetadataAdder<segment_v2::Segment>::get_all_segments_estimate_size() -
+            SegmentLoader::instance()->cache_mem_usage());
+
+    // 4 refresh tracked memory counter
     std::unordered_map<MemTrackerLimiter::Type, int64_t> type_mem_sum = {
             {MemTrackerLimiter::Type::GLOBAL, 0},        {MemTrackerLimiter::Type::QUERY, 0},
             {MemTrackerLimiter::Type::LOAD, 0},          {MemTrackerLimiter::Type::COMPACTION, 0},
-            {MemTrackerLimiter::Type::SCHEMA_CHANGE, 0}, {MemTrackerLimiter::Type::OTHER, 0}};
+            {MemTrackerLimiter::Type::SCHEMA_CHANGE, 0}, {MemTrackerLimiter::Type::METADATA, 0},
+            {MemTrackerLimiter::Type::CACHE, 0},         {MemTrackerLimiter::Type::OTHER, 0}};
     // always ExecEnv::ready(), because Daemon::_stop_background_threads_latch
     for (auto& group : ExecEnv::GetInstance()->mem_tracker_limiter_pool) {
         std::lock_guard<std::mutex> l(group.group_lock);
@@ -191,42 +179,46 @@ void MemoryProfile::refresh_memory_overview_profile() {
         all_tracked_mem_sum += it.second;
         switch (it.first) {
         case MemTrackerLimiter::Type::GLOBAL:
-            COUNTER_SET(global_current_usage_counter, it.second);
-            COUNTER_SET(global_peak_usage_counter, it.second);
+            COUNTER_SET(_global_usage_counter, it.second);
             memory_global_trackers_sum_bytes
                     << it.second - memory_global_trackers_sum_bytes.get_value();
             break;
         case MemTrackerLimiter::Type::QUERY:
-            COUNTER_SET(query_current_usage_counter, it.second);
-            COUNTER_SET(query_peak_usage_counter, it.second);
+            COUNTER_SET(_query_usage_counter, it.second);
             tasks_trackers_mem_sum += it.second;
             memory_query_trackers_sum_bytes
                     << it.second - memory_query_trackers_sum_bytes.get_value();
             break;
         case MemTrackerLimiter::Type::LOAD:
-            COUNTER_SET(load_current_usage_counter, it.second);
-            COUNTER_SET(load_peak_usage_counter, it.second);
+            COUNTER_SET(_load_usage_counter, it.second);
             tasks_trackers_mem_sum += it.second;
             memory_load_trackers_sum_bytes
                     << it.second - memory_load_trackers_sum_bytes.get_value();
             break;
         case MemTrackerLimiter::Type::COMPACTION:
-            COUNTER_SET(compaction_current_usage_counter, it.second);
-            COUNTER_SET(compaction_peak_usage_counter, it.second);
+            COUNTER_SET(_compaction_usage_counter, it.second);
             tasks_trackers_mem_sum += it.second;
             memory_compaction_trackers_sum_bytes
                     << it.second - memory_compaction_trackers_sum_bytes.get_value();
             break;
         case MemTrackerLimiter::Type::SCHEMA_CHANGE:
-            COUNTER_SET(schema_change_current_usage_counter, it.second);
-            COUNTER_SET(schema_change_peak_usage_counter, it.second);
+            COUNTER_SET(_schema_change_usage_counter, it.second);
             tasks_trackers_mem_sum += it.second;
             memory_schema_change_trackers_sum_bytes
                     << it.second - memory_schema_change_trackers_sum_bytes.get_value();
             break;
+        case MemTrackerLimiter::Type::METADATA:
+            COUNTER_SET(_metadata_usage_counter, it.second);
+            memory_metadata_trackers_sum_bytes
+                    << it.second - memory_metadata_trackers_sum_bytes.get_value();
+            break;
+        case MemTrackerLimiter::Type::CACHE:
+            COUNTER_SET(_cache_usage_counter, it.second);
+            memory_cache_trackers_sum_bytes
+                    << it.second - memory_cache_trackers_sum_bytes.get_value();
+            break;
         case MemTrackerLimiter::Type::OTHER:
-            COUNTER_SET(other_current_usage_counter, it.second);
-            COUNTER_SET(other_peak_usage_counter, it.second);
+            COUNTER_SET(_other_usage_counter, it.second);
             tasks_trackers_mem_sum += it.second;
             memory_other_trackers_sum_bytes
                     << it.second - memory_other_trackers_sum_bytes.get_value();
@@ -235,60 +227,52 @@ void MemoryProfile::refresh_memory_overview_profile() {
 
     MemTrackerLimiter::make_type_trackers_profile(global_memory_profile.get(),
                                                   MemTrackerLimiter::Type::GLOBAL);
+    MemTrackerLimiter::make_type_trackers_profile(metadata_memory_profile.get(),
+                                                  MemTrackerLimiter::Type::METADATA);
+    MemTrackerLimiter::make_type_trackers_profile(cache_memory_profile.get(),
+                                                  MemTrackerLimiter::Type::CACHE);
 
     MemTrackerLimiter::make_top_consumption_tasks_tracker_profile(top_memory_tasks_profile.get(),
                                                                   15);
 
-    COUNTER_SET(tasks_memory_current_usage_counter, tasks_trackers_mem_sum);
-    COUNTER_SET(tasks_memory_peak_usage_counter, tasks_trackers_mem_sum);
+    COUNTER_SET(_tasks_memory_usage_counter, tasks_trackers_mem_sum);
     memory_all_tasks_memory_bytes << tasks_trackers_mem_sum -
                                              memory_all_tasks_memory_bytes.get_value();
 
-    COUNTER_SET(reserved_memory_current_usage_counter,
-                GlobalMemoryArbitrator::process_reserved_memory());
-    COUNTER_SET(reserved_memory_peak_usage_counter,
-                GlobalMemoryArbitrator::process_reserved_memory());
+    COUNTER_SET(_reserved_memory_usage_counter, GlobalMemoryArbitrator::process_reserved_memory());
     memory_reserved_memory_bytes << GlobalMemoryArbitrator::process_reserved_memory() -
                                             memory_reserved_memory_bytes.get_value();
 
     all_tracked_mem_sum += MemInfo::allocator_cache_mem();
-    COUNTER_SET(jemalloc_cache_current_usage_counter,
-                static_cast<int64_t>(MemInfo::allocator_cache_mem()));
-    COUNTER_SET(jemalloc_cache_peak_usage_counter,
+    COUNTER_SET(_jemalloc_cache_usage_counter,
                 static_cast<int64_t>(MemInfo::allocator_cache_mem()));
     all_tracked_mem_sum += MemInfo::allocator_metadata_mem();
-    COUNTER_SET(jemalloc_metadata_current_usage_counter,
+    COUNTER_SET(_jemalloc_metadata_usage_counter,
                 static_cast<int64_t>(MemInfo::allocator_metadata_mem()));
-    COUNTER_SET(jemalloc_metadata_peak_usage_counter,
-                static_cast<int64_t>(MemInfo::allocator_metadata_mem()));
-    COUNTER_SET(jemalloc_memory_current_usage_counter,
-                jemalloc_cache_current_usage_counter->value() +
-                        jemalloc_metadata_current_usage_counter->value());
-    COUNTER_SET(jemalloc_memory_peak_usage_counter,
-                jemalloc_cache_current_usage_counter->value() +
-                        jemalloc_metadata_current_usage_counter->value());
+    COUNTER_SET(_jemalloc_memory_usage_counter,
+                _jemalloc_cache_usage_counter->current_value() +
+                        _jemalloc_metadata_usage_counter->current_value());
 
-    COUNTER_SET(tracked_memory_current_usage_counter, all_tracked_mem_sum);
-    COUNTER_SET(tracked_memory_peak_usage_counter, all_tracked_mem_sum);
+    COUNTER_SET(_tracked_memory_usage_counter, all_tracked_mem_sum);
     memory_all_tracked_sum_bytes << all_tracked_mem_sum - memory_all_tracked_sum_bytes.get_value();
 
-    // 3.3 refresh untracked memory counter
+    // 5 refresh untracked memory counter
     int64_t untracked_memory =
-            process_physical_memory_current_usage_counter->value() - all_tracked_mem_sum;
-    COUNTER_SET(untracked_memory_current_usage_counter, untracked_memory);
-    COUNTER_SET(untracked_memory_peak_usage_counter, untracked_memory);
+            _process_physical_memory_usage_counter->current_value() - all_tracked_mem_sum;
+    COUNTER_SET(_untracked_memory_usage_counter, untracked_memory);
     memory_untracked_memory_bytes << untracked_memory - memory_untracked_memory_bytes.get_value();
 
-    // 3.4 refresh additional tracker printed when memory exceeds limit.
-    COUNTER_SET(load_all_memtables_current_usage_counter,
-                ExecEnv::GetInstance()->memtable_memory_limiter()->mem_tracker()->consumption());
+    // 6 refresh additional tracker printed when memory exceeds limit.
     COUNTER_SET(
-            load_all_memtables_peak_usage_counter,
+            _load_all_memtables_usage_counter,
             ExecEnv::GetInstance()->memtable_memory_limiter()->mem_tracker()->peak_consumption());
+    COUNTER_SET(_load_all_memtables_usage_counter,
+                ExecEnv::GetInstance()->memtable_memory_limiter()->mem_tracker()->consumption());
 
-    // 4. reset profile
-    _memory_overview_profile.set(std::move(memory_overview_profile));
+    // 7. reset profile
     _global_memory_profile.set(std::move(global_memory_profile));
+    _metadata_memory_profile.set(std::move(metadata_memory_profile));
+    _cache_memory_profile.set(std::move(cache_memory_profile));
     _top_memory_tasks_profile.set(std::move(top_memory_tasks_profile));
 }
 
@@ -302,15 +286,24 @@ void MemoryProfile::refresh_tasks_memory_profile() {
 void MemoryProfile::make_memory_profile(RuntimeProfile* profile) const {
     RuntimeProfile* memory_profile_snapshot = profile->create_child("MemoryProfile", true, false);
 
-    auto memory_overview_version_ptr = _memory_overview_profile.get();
     RuntimeProfile* memory_overview_profile =
-            memory_profile_snapshot->create_child(memory_overview_version_ptr->name(), true, false);
-    memory_overview_profile->merge(const_cast<RuntimeProfile*>(memory_overview_version_ptr.get()));
+            memory_profile_snapshot->create_child(_memory_overview_profile->name(), true, false);
+    memory_overview_profile->merge(const_cast<RuntimeProfile*>(_memory_overview_profile.get()));
 
     auto global_memory_version_ptr = _global_memory_profile.get();
     RuntimeProfile* global_memory_profile =
             memory_profile_snapshot->create_child(global_memory_version_ptr->name(), true, false);
     global_memory_profile->merge(const_cast<RuntimeProfile*>(global_memory_version_ptr.get()));
+
+    auto metadata_memory_version_ptr = _metadata_memory_profile.get();
+    RuntimeProfile* metadata_memory_profile =
+            memory_profile_snapshot->create_child(metadata_memory_version_ptr->name(), true, false);
+    metadata_memory_profile->merge(const_cast<RuntimeProfile*>(metadata_memory_version_ptr.get()));
+
+    auto cache_memory_version_ptr = _cache_memory_profile.get();
+    RuntimeProfile* cache_memory_profile =
+            memory_profile_snapshot->create_child(cache_memory_version_ptr->name(), true, false);
+    cache_memory_profile->merge(const_cast<RuntimeProfile*>(cache_memory_version_ptr.get()));
 
     auto top_memory_tasks_version_ptr = _top_memory_tasks_profile.get();
     RuntimeProfile* top_memory_tasks_profile = memory_profile_snapshot->create_child(
@@ -346,6 +339,8 @@ void MemoryProfile::print_log_process_usage() {
         LOG(WARNING) << "Process Memory Summary: " + GlobalMemoryArbitrator::process_mem_log_str();
         LOG(WARNING) << "\n" << print_memory_overview_profile();
         LOG(WARNING) << "\n" << print_global_memory_profile();
+        LOG(WARNING) << "\n" << print_metadata_memory_profile();
+        LOG(WARNING) << "\n" << print_cache_memory_profile();
         LOG(WARNING) << "\n" << print_top_memory_tasks_profile();
     }
 }

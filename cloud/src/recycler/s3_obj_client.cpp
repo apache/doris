@@ -107,6 +107,17 @@ public:
             return false;
         }
 
+        if (outcome.GetResult().GetIsTruncated() &&
+            outcome.GetResult().GetNextContinuationToken().empty()) {
+            LOG_WARNING("failed to list objects, isTruncated but no continuation token")
+                    .tag("endpoint", endpoint_)
+                    .tag("bucket", req_.GetBucket())
+                    .tag("prefix", req_.GetPrefix());
+
+            is_valid_ = false;
+            return false;
+        }
+
         has_more_ = outcome.GetResult().GetIsTruncated();
         req_.SetContinuationToken(std::move(
                 const_cast<std::string&&>(outcome.GetResult().GetNextContinuationToken())));

@@ -71,6 +71,7 @@ int main(int argc, char** argv) {
     cloud::config::fdb_cluster_file_path = "fdb.cluster";
     cloud::config::write_schema_kv = true;
     cloud::config::enable_check_instance_id = false;
+    cloud::config::enable_loopback_address_for_ms = true;
 
     auto sp = SyncPoint::get_instance();
     sp->enable_processing();
@@ -92,6 +93,8 @@ int main(int argc, char** argv) {
                       [](auto&& args) { *try_any_cast<uint64_t*>(args[0]) = 0; });
     sp->set_call_back("put_schema_kv:schema_key_exists_return",
                       [](auto&& args) { *try_any_cast<bool*>(args.back()) = true; });
+    sp->set_call_back("resource_manager::set_safe_drop_time",
+                      [](auto&& args) { *try_any_cast<int64_t*>(args[0]) = -1; });
 
     meta_service = create_meta_service();
 

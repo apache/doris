@@ -58,6 +58,7 @@ import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -71,6 +72,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunctio
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
@@ -193,6 +195,21 @@ public class CreateTableInfo {
         PropertyAnalyzer.getInstance().rewriteForceProperties(this.properties);
         this.extProperties = extProperties;
         this.clusterKeysColumnNames = Utils.copyRequiredList(clusterKeyColumnNames);
+    }
+
+    /**
+     * withTableNameAndIfNotExists
+     */
+    public CreateTableInfo withTableNameAndIfNotExists(String tableName, boolean ifNotExists) {
+        if (ctasColumns != null) {
+            return new CreateTableInfo(ifNotExists, isExternal, ctlName, dbName, tableName, ctasColumns, engineName,
+                    keysType, keys, comment, partitionTableInfo, distribution, rollups, properties, extProperties,
+                    clusterKeysColumnNames);
+        } else {
+            return new CreateTableInfo(ifNotExists, isExternal, ctlName, dbName, tableName, columns, indexes,
+                    engineName, keysType, keys, comment, partitionTableInfo, distribution, rollups, properties,
+                    extProperties, clusterKeysColumnNames);
+        }
     }
 
     public List<String> getCtasColumns() {
@@ -376,8 +393,7 @@ public class CreateTableInfo {
                                 }
                                 break;
                             }
-                            if (type.isFloatLikeType() || type.isStringType() || type.isJsonType()
-                                    || catalogType.isComplexType() || catalogType.isVariantType()) {
+                            if (!catalogType.couldBeShortKey()) {
                                 break;
                             }
                             keys.add(column.getName());
@@ -583,11 +599,10 @@ public class CreateTableInfo {
         if (!indexes.isEmpty()) {
             Set<String> distinct = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
             Set<Pair<IndexDef.IndexType, List<String>>> distinctCol = new HashSet<>();
-            boolean disableInvertedIndexV1ForVariant = false;
+            TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat;
             try {
-                disableInvertedIndexV1ForVariant = PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(
-                            new HashMap<>(properties)) == TInvertedIndexFileStorageFormat.V1
-                                && ConnectContext.get().getSessionVariable().getDisableInvertedIndexV1ForVaraint();
+                invertedIndexFileStorageFormat = PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(
+                        new HashMap<>(properties));
             } catch (Exception e) {
                 throw new AnalysisException(e.getMessage(), e.getCause());
             }
@@ -603,7 +618,7 @@ public class CreateTableInfo {
                     for (ColumnDefinition column : columns) {
                         if (column.getName().equalsIgnoreCase(indexColName)) {
                             indexDef.checkColumn(column, keysType, isEnableMergeOnWrite,
-                                                                disableInvertedIndexV1ForVariant);
+                                    invertedIndexFileStorageFormat);
                             found = true;
                             break;
                         }
@@ -927,19 +942,28 @@ public class CreateTableInfo {
             Expression boundSlotExpression = SlotReplacer.INSTANCE.replace(parsedExpression, columnToSlotReference);
             Scope scope = new Scope(slots);
             ExpressionAnalyzer analyzer = new ExpressionAnalyzer(null, scope, cascadesContext, false, false);
-            Expression expr;
+            Expression expression;
             try {
-                expr = analyzer.analyze(boundSlotExpression, new ExpressionRewriteContext(cascadesContext));
+                expression = analyzer.analyze(boundSlotExpression, new ExpressionRewriteContext(cascadesContext));
             } catch (AnalysisException e) {
                 throw new AnalysisException("In generated column '" + column.getName() + "', "
                         + Utils.convertFirstChar(e.getMessage()));
             }
-            checkExpressionInGeneratedColumn(expr, column, nameToColumnDefinition);
-            TypeCoercionUtils.checkCanCastTo(expr.getDataType(), column.getType());
+            checkExpressionInGeneratedColumn(expression, column, nameToColumnDefinition);
+            TypeCoercionUtils.checkCanCastTo(expression.getDataType(), column.getType());
             ExpressionToExpr translator = new ExpressionToExpr(i, translateMap);
-            Expr e = expr.accept(translator, planTranslatorContext);
-            info.get().setExpr(e);
-            exprAndnames.add(new GeneratedColumnUtil.ExprAndname(e.clone(), column.getName()));
+            Expr expr = expression.accept(translator, planTranslatorContext);
+            info.get().setExpr(expr);
+            // Casting slot to its own type is because when loading data(stream load and other load),
+            // the slots reading from files are string type. So we need to cast it to its own type to avoid error.
+            Expression expressionForLoad = expression.rewriteDownShortCircuit(e -> {
+                if (e instanceof SlotReference && !(e.getDataType() instanceof CharacterType)) {
+                    return new Cast(e, e.getDataType());
+                }
+                return e;
+            });
+            Expr exprForLoad = expressionForLoad.accept(translator, planTranslatorContext);
+            exprAndnames.add(new GeneratedColumnUtil.ExprAndname(exprForLoad.clone(), column.getName()));
         }
 
         // for alter drop column

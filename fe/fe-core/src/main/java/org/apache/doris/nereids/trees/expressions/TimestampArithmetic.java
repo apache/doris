@@ -160,6 +160,7 @@ public class TimestampArithmetic extends Expression implements BinaryExpression,
         }
         TimestampArithmetic other = (TimestampArithmetic) o;
         return Objects.equals(funcName, other.funcName) && Objects.equals(timeUnit, other.timeUnit)
+                && op.equals(other.op)
                 && Objects.equals(left(), other.left()) && Objects.equals(right(), other.right());
     }
 }

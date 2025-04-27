@@ -83,6 +83,4 @@ suite("test_decimalv2") {
 
     sql " set runtime_filter_type = 8; "
     qt_sql2 "select * from ${tbName} a, ${tbName} b WHERE a.c2 = b.c2 ORDER BY a.c0"
-
-    sql "DROP TABLE ${tbName}"
 }

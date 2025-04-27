@@ -20,6 +20,7 @@
 #include <brpc/controller.h>
 #include <brpc/http_status_code.h>
 #include <brpc/uri.h>
+#include <fmt/core.h>
 #include <fmt/format.h>
 #include <gen_cpp/cloud.pb.h>
 #include <glog/logging.h>
@@ -44,7 +45,9 @@
 #include <vector>
 
 #include "common/config.h"
+#include "common/configbase.h"
 #include "common/logging.h"
+#include "common/string_util.h"
 #include "meta-service/keys.h"
 #include "meta-service/txn_kv.h"
 #include "meta-service/txn_kv_error.h"
@@ -155,7 +158,8 @@ HttpResponse http_json_reply(MetaServiceCode code, const std::string& msg,
     return {status_code, msg, sb.GetString()};
 }
 
-static std::string format_http_request(const brpc::HttpHeader& request) {
+static std::string format_http_request(brpc::Controller* cntl) {
+    const brpc::HttpHeader& request = cntl->http_request();
     auto& unresolved_path = request.unresolved_path();
     auto& uri = request.uri();
     std::stringstream ss;
@@ -170,6 +174,8 @@ static std::string format_http_request(const brpc::HttpHeader& request) {
     for (auto it = request.HeaderBegin(); it != request.HeaderEnd(); ++it) {
         ss << "\n" << it->first << ":" << it->second;
     }
+    std::string body = cntl->request_attachment().to_string();
+    ss << "\nbody=" << (body.empty() ? "(empty)" : body);
     return ss.str();
 }
 
@@ -177,6 +183,8 @@ static std::string_view remove_version_prefix(std::string_view path) {
     if (path.size() > 3 && path.substr(0, 3) == "v1/") path.remove_prefix(3);
     return path;
 }
+
+HttpResponse process_injection_point(MetaServiceImpl* service, brpc::Controller* ctrl);
 
 static HttpResponse process_alter_cluster(MetaServiceImpl* service, brpc::Controller* ctrl) {
     static std::unordered_map<std::string_view, AlterClusterRequest::Operation> operations {
@@ -446,6 +454,40 @@ static HttpResponse process_query_rate_limit(MetaServiceImpl* service, brpc::Con
     return http_json_reply(MetaServiceCode::OK, "", sb.GetString());
 }
 
+static HttpResponse process_update_config(MetaServiceImpl* service, brpc::Controller* cntl) {
+    const auto& uri = cntl->http_request().uri();
+    bool persist = (http_query(uri, "persist") == "true");
+    auto configs = std::string {http_query(uri, "configs")};
+    auto reason = std::string {http_query(uri, "reason")};
+    LOG(INFO) << "modify configs for reason=" << reason << ", configs=" << configs
+              << ", persist=" << http_query(uri, "persist");
+    if (configs.empty()) [[unlikely]] {
+        LOG(WARNING) << "query param `config` should not be empty";
+        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT,
+                               "query param `config` should not be empty");
+    }
+    std::unordered_map<std::string, std::string> conf_map;
+    auto conf_list = split(configs, ',');
+    for (const auto& conf : conf_list) {
+        auto conf_pair = split(conf, '=');
+        if (conf_pair.size() != 2) [[unlikely]] {
+            LOG(WARNING) << "failed to split config=[{}] from `k=v` pattern" << conf;
+            return http_json_reply(MetaServiceCode::INVALID_ARGUMENT,
+                                   fmt::format("config {} is invalid", configs));
+        }
+        trim(conf_pair[0]);
+        trim(conf_pair[1]);
+        conf_map.emplace(std::move(conf_pair[0]), std::move(conf_pair[1]));
+    }
+    if (auto [succ, cause] =
+                config::set_config(std::move(conf_map), persist, config::custom_conf_path);
+        !succ) {
+        LOG(WARNING) << cause;
+        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT, cause);
+    }
+    return http_json_reply(MetaServiceCode::OK, "");
+}
+
 static HttpResponse process_decode_key(MetaServiceImpl*, brpc::Controller* ctrl) {
     auto& uri = ctrl->http_request().uri();
     std::string_view key = http_query(uri, "key");
@@ -468,6 +510,10 @@ static HttpResponse process_encode_key(MetaServiceImpl*, brpc::Controller* ctrl)
 
 static HttpResponse process_get_value(MetaServiceImpl* service, brpc::Controller* ctrl) {
     return process_http_get_value(service->txn_kv().get(), ctrl->http_request().uri());
+}
+
+static HttpResponse process_set_value(MetaServiceImpl* service, brpc::Controller* ctrl) {
+    return process_http_set_value(service->txn_kv().get(), ctrl);
 }
 
 // show all key ranges and their count.
@@ -698,16 +744,19 @@ void MetaServiceImpl::http(::google::protobuf::RpcController* controller,
             {"decode_key", process_decode_key},
             {"encode_key", process_encode_key},
             {"get_value", process_get_value},
+            {"set_value", process_set_value},
             {"show_meta_ranges", process_show_meta_ranges},
             {"txn_lazy_commit", process_txn_lazy_commit},
             {"fix_tablet_stats", process_fix_tablet_stats},
+            {"injection_point", process_injection_point},
             {"v1/decode_key", process_decode_key},
             {"v1/encode_key", process_encode_key},
             {"v1/get_value", process_get_value},
+            {"v1/set_value", process_set_value},
             {"v1/show_meta_ranges", process_show_meta_ranges},
             {"v1/txn_lazy_commit", process_txn_lazy_commit},
-            // for get
-            {"get_instance", process_get_instance_info},
+            {"v1/injection_point", process_injection_point},
+            {"v1/fix_tablet_stats", process_fix_tablet_stats},
             // for get
             {"get_instance", process_get_instance_info},
             {"get_obj_store_info", process_get_obj_store_info},
@@ -728,12 +777,14 @@ void MetaServiceImpl::http(::google::protobuf::RpcController* controller,
             {"alter_iam", process_alter_iam},
             {"adjust_rate_limit", process_adjust_rate_limit},
             {"list_rate_limit", process_query_rate_limit},
+            {"update_config", process_update_config},
             {"v1/abort_txn", process_abort_txn},
             {"v1/abort_tablet_job", process_abort_tablet_job},
             {"v1/alter_ram_user", process_alter_ram_user},
             {"v1/alter_iam", process_alter_iam},
             {"v1/adjust_rate_limit", process_adjust_rate_limit},
             {"v1/list_rate_limit", process_query_rate_limit},
+            {"v1/update_config", process_update_config},
     };
 
     auto* cntl = static_cast<brpc::Controller*>(controller);
@@ -742,7 +793,7 @@ void MetaServiceImpl::http(::google::protobuf::RpcController* controller,
     // Prepare input request info
     LOG(INFO) << "rpc from " << cntl->remote_side()
               << " request: " << cntl->http_request().uri().path();
-    std::string http_request = format_http_request(cntl->http_request());
+    std::string http_request = format_http_request(cntl);
 
     // Auth
     auto token = http_query(cntl->http_request().uri(), "token");

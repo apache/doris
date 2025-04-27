@@ -26,6 +26,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "olap/olap_common.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_reader.h"
@@ -76,11 +77,12 @@ public:
     Status load_segments(int64_t seg_id_begin, int64_t seg_id_end,
                          std::vector<segment_v2::SegmentSharedPtr>* segments);
 
-    Status load_segment(int64_t seg_id, segment_v2::SegmentSharedPtr* segment);
+    Status load_segment(int64_t seg_id, segment_v2::SegmentSharedPtr* segment,
+                        OlapReaderStatistics* stats = nullptr);
 
     Status get_segments_size(std::vector<size_t>* segments_size);
 
-    Status get_inverted_index_size(size_t* index_size);
+    Status get_inverted_index_size(int64_t* index_size) override;
 
     [[nodiscard]] virtual Status add_to_binlog() override;
 

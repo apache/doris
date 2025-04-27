@@ -50,7 +50,8 @@ suite("test_group_commit_insert_into_lineitem_multiple_client") {
         }
     }
     def insert_table = "test_insert_into_lineitem_multiple_client"
-    def batch = 100;
+    // Set batch to 90 to avoid JDBC driver bug. Larger batch size may trigger JDBC send COM_STMT_FETCH command.
+    def batch = 90;
     def total = 0;
     def rwLock = new ReentrantReadWriteLock();
     def wlock = rwLock.writeLock();
@@ -114,6 +115,9 @@ PROPERTIES (
                 break
             } catch (Exception e) {
                 logger.info("got exception:" + e)
+                Thread.sleep(2000)
+                context.reconnectFe()
+                sql """ set group_commit = async_mode; """
             }
             i++;
             if (i >= 30) {

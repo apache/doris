@@ -46,6 +46,4 @@ suite("test_ipv4_to_ipv6_function") {
     qt_sql """ select ipv6_num_to_string(ipv4_to_ipv6(to_ipv4('192.168.0.1'))) """
 
     qt_sql "select ipv4_to_ipv6(NULL)"
-
-    sql "DROP TABLE test_ipv4_to_ipv6_function"
 }

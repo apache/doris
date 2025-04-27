@@ -44,6 +44,8 @@ suite ("dup_mv_abs") {
     sql "SET enable_fallback_to_original_planner=false"
 
     sql "analyze table dup_mv_abs with sync;"
+    sql """alter table dup_mv_abs modify column k1 set stats ('row_count'='4');"""
+
     sql """set enable_stats=false;"""
 
 
@@ -68,7 +70,6 @@ suite ("dup_mv_abs") {
     order_qt_select_group_mv_not "select sum(abs(k2)) from dup_mv_abs group by k3 order by k3;"
 
     sql """set enable_stats=true;"""
-    sql """alter table dup_mv_abs modify column k1 set stats ('row_count'='4');"""
     mv_rewrite_success("select k1,abs(k2) from dup_mv_abs order by k1;", "k12a")
 
     mv_rewrite_success("select abs(k2) from dup_mv_abs order by k1;", "k12a")

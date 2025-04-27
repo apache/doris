@@ -94,6 +94,10 @@ public class CloudEnv extends Env {
         return this.upgradeMgr;
     }
 
+    public CloudClusterChecker getCloudClusterChecker() {
+        return this.cloudClusterCheck;
+    }
+
     public String getCloudInstanceId() {
         return cloudInstanceId;
     }
@@ -180,13 +184,12 @@ public class CloudEnv extends Env {
                 .stream().filter(NodeInfoPB::hasNodeType).collect(Collectors.toList());
 
         helperNodes.clear();
-        Optional<Cloud.NodeInfoPB> firstNonObserverNode = allNodes.stream().findFirst();
-        if (firstNonObserverNode.isPresent()) {
-            helperNodes.add(new HostInfo(
-                    Config.enable_fqdn_mode ? firstNonObserverNode.get().getHost()
-                            : firstNonObserverNode.get().getIp(),
-                    firstNonObserverNode.get().getEditLogPort()));
-        }
+        Optional<Cloud.NodeInfoPB> firstNonObserverNode = allNodes.stream()
+                .filter(nodeInfoPB -> nodeInfoPB.getNodeType() != NodeInfoPB.NodeType.FE_OBSERVER).findFirst();
+        firstNonObserverNode.ifPresent(nodeInfoPB -> helperNodes.add(new HostInfo(
+                Config.enable_fqdn_mode ? nodeInfoPB.getHost()
+                : nodeInfoPB.getIp(),
+                nodeInfoPB.getEditLogPort())));
         Preconditions.checkState(helperNodes.size() == 1);
 
         Optional<NodeInfoPB> local = allNodes.stream().filter(n -> ((Config.enable_fqdn_mode ? n.getHost() : n.getIp())
@@ -270,7 +273,7 @@ public class CloudEnv extends Env {
 
     public void checkCloudClusterPriv(String clusterName) throws DdlException {
         // check resource usage privilege
-        if (!Env.getCurrentEnv().getAuth().checkCloudPriv(ConnectContext.get().getCurrentUserIdentity(),
+        if (!Env.getCurrentEnv().getAccessManager().checkCloudPriv(ConnectContext.get().getCurrentUserIdentity(),
                 clusterName, PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER)) {
             throw new DdlException("USAGE denied to user "
                 + ConnectContext.get().getQualifiedUser() + "'@'" + ConnectContext.get().getRemoteIP()

@@ -48,8 +48,8 @@ suite("create_view_use_mv") {
     (3, 1, 1, 2, 7.5, 8.5, 9.5, 10.5, 'k', 'o', '2023-10-19', null, 'c', 'd', 'xxxxxxxxx', '2023-10-19'),
     (1, 3, 2, 2, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy', '2023-10-17');"""
 
-    createMV("""
-    CREATE MATERIALIZED VIEW t_mv_mv AS select
+    create_sync_mv(context.dbName, "orders", "t_mv_mv", """
+    select
     o_orderkey,
     sum(o_totalprice) as sum_total,
     max(o_totalprice) as max_total,

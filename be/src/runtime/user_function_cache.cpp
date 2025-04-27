@@ -42,7 +42,6 @@
 #include "runtime/exec_env.h"
 #include "util/dynamic_util.h"
 #include "util/md5.h"
-#include "util/spinlock.h"
 #include "util/string_util.h"
 
 namespace doris {
@@ -272,12 +271,10 @@ Status UserFunctionCache::_download_lib(const std::string& url,
         return Status::InternalError("fail to open file");
     }
 
-    std::string real_url = _get_real_url(url);
-
     Md5Digest digest;
     HttpClient client;
     int64_t file_size = 0;
-    RETURN_IF_ERROR(client.init(real_url));
+    RETURN_IF_ERROR(client.init(url));
     Status status;
     auto download_cb = [&status, &tmp_file, &fp, &digest, &file_size](const void* data,
                                                                       size_t length) {
@@ -297,11 +294,10 @@ Status UserFunctionCache::_download_lib(const std::string& url,
     digest.digest();
     if (!iequal(digest.hex(), entry->checksum)) {
         fmt::memory_buffer error_msg;
-        fmt::format_to(
-                error_msg,
-                " The checksum is not equal of {} ({}). The init info of first create entry is:"
-                "{} But download file check_sum is: {}, file_size is: {}.",
-                url, real_url, entry->debug_string(), digest.hex(), file_size);
+        fmt::format_to(error_msg,
+                       " The checksum is not equal of {}. The init info of first create entry is:"
+                       "{} But download file check_sum is: {}, file_size is: {}.",
+                       url, entry->debug_string(), digest.hex(), file_size);
         std::string error(fmt::to_string(error_msg));
         LOG(WARNING) << error;
         return Status::InternalError(error);
@@ -321,13 +317,6 @@ Status UserFunctionCache::_download_lib(const std::string& url,
     // check download
     entry->is_downloaded = true;
     return Status::OK();
-}
-
-std::string UserFunctionCache::_get_real_url(const std::string& url) {
-    if (url.find(":/") == std::string::npos) {
-        return "file://" + config::jdbc_drivers_dir + "/" + url;
-    }
-    return url;
 }
 
 std::string UserFunctionCache::_get_file_name_from_url(const std::string& url) const {

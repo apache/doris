@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("nereids_explain") {
+suite("explain") {
     sql """
         SET enable_nereids_planner=true
     """
@@ -28,7 +28,6 @@ suite("nereids_explain") {
         sql("select count(2) + 1, sum(2) + sum(lo_suppkey) from lineorder")
         contains "sum(2) + sum(lo_suppkey)"
     }
-
 
     explain {
         sql("physical plan select 100")

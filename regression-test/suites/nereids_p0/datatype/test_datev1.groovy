@@ -84,6 +84,4 @@ suite("test_datev1") {
 
     sql " set runtime_filter_type = 8; "
     qt_sql2 "select * from ${tbName} a, ${tbName} b WHERE a.c3 = b.c3 ORDER BY a.c2"
-
-    sql "DROP TABLE ${tbName}"
 }

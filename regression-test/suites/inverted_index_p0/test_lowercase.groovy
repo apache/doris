@@ -25,7 +25,7 @@ suite("test_lowercase"){
 	CREATE TABLE IF NOT EXISTS ${indexTblName}(
 		`id`int(11)NULL,
 		`c` text NULL,
-		INDEX c_idx(`c`) USING INVERTED PROPERTIES("parser"="english") COMMENT ''
+		INDEX c_idx(`c`) using inverted properties("support_phrase" = "true", "parser" = "english", "lower_case" = "true") COMMENT ''
 	) ENGINE=OLAP
 	DUPLICATE KEY(`id`)
 	COMMENT 'OLAP'

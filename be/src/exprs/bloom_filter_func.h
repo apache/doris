@@ -211,6 +211,7 @@ public:
         _bloom_filter_alloced = other_func->_bloom_filter_alloced;
         _bloom_filter = other_func->_bloom_filter;
         _inited = other_func->_inited;
+        set_filter_id(bloomfilter_func->get_filter_id());
     }
 
     virtual void insert(const void* data) = 0;

@@ -37,10 +37,7 @@ suite("nereids_scalar_fn_A") {
 	qt_sql_abs_DecimalV2_notnull "select abs(kdcmls1) from fn_test_not_nullable order by kdcmls1"
 	qt_sql_acos_Double "select acos(kdbl) from fn_test order by kdbl"
 	qt_sql_acos_Double_notnull "select acos(kdbl) from fn_test_not_nullable order by kdbl"
-	test {
-		sql "select acos(cast(1.1 as double))"
-		exception "errCode"
-	}
+    qt_sql_acos_Double_NAN "select acos(cast(1.1 as double))"
 	qt_sql_acos_Double_NULL "select acos(null)"
 	sql "select aes_decrypt(kvchrs1, kvchrs1) from fn_test order by kvchrs1, kvchrs1"
 	sql "select aes_decrypt(kvchrs1, kvchrs1) from fn_test_not_nullable order by kvchrs1, kvchrs1"

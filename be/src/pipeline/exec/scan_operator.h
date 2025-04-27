@@ -108,7 +108,6 @@ protected:
     // Max num of scanner thread
     RuntimeProfile::Counter* _max_scanner_thread_num = nullptr;
     RuntimeProfile::HighWaterMarkCounter* _peak_running_scanner = nullptr;
-    RuntimeProfile::HighWaterMarkCounter* _scanner_peak_memory_usage = nullptr;
     // time of get block from scanner
     RuntimeProfile::Counter* _scan_timer = nullptr;
     RuntimeProfile::Counter* _scan_cpu_timer = nullptr;
@@ -358,7 +357,15 @@ public:
     Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
     Status get_block_after_projects(RuntimeState* state, vectorized::Block* block,
                                     bool* eos) override {
-        return get_block(state, block, eos);
+        Status status = get_block(state, block, eos);
+        if (status.ok()) {
+            if (auto rows = block->rows()) {
+                auto* local_state = state->get_local_state(operator_id());
+                COUNTER_UPDATE(local_state->_rows_returned_counter, rows);
+                COUNTER_UPDATE(local_state->_blocks_returned_counter, 1);
+            }
+        }
+        return status;
     }
     [[nodiscard]] bool is_source() const override { return true; }
 

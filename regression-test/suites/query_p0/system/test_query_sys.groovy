@@ -54,4 +54,12 @@ suite("test_query_sys", "query,p0") {
         sql "select * from http_stream('format'='csv');"
         exception "No Alive backends"
     }
+
+    // `workload_group_resource_usage` will be refresh 30s after BE startup so sleep 30s to get a stable result
+    sleep(30000)
+    sql """set parallel_pipeline_task_num=8"""
+    def rows1 = sql """ select count(*) from information_schema.workload_group_resource_usage; """
+    sql """set parallel_pipeline_task_num=1"""
+    def rows2 = sql """ select count(*) from information_schema.workload_group_resource_usage; """
+    assertEquals(rows1, rows2)
 }

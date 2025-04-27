@@ -144,7 +144,7 @@ public class InPredicate extends Expression {
     }
 
     @Override
-    public int hashCode() {
+    protected int computeHashCode() {
         return Objects.hash(compareExpr, options);
     }
 

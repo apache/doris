@@ -321,5 +321,4 @@ suite("test_range_partition", "p0") {
         DISTRIBUTED BY HASH(id) BUCKETS 1 properties("replication_num" = "1")
         """
     sql "insert into range_date_cast_to_datetime_range_partition values (1, 'name', '2023-04-19 08:08:30')"
-    sql "drop table range_date_cast_to_datetime_range_partition"
 }

@@ -15,11 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_array_char_orderby", "query") {
+suite("test_array_orderby_limit", "query") {
     // define a sql table
     def testTable = "test_array_char_orderby"
 
     sql """
+            drop table if exists test_array_char_orderby;
             CREATE TABLE IF NOT EXISTS test_array_char_orderby (
               `k1` INT(11) NULL,
               `k2` array<array<char(50)>> NULL
@@ -32,13 +33,16 @@ suite("test_array_char_orderby", "query") {
             "in_memory" = "false",
             "storage_format" = "V2",
             "disable_auto_compaction" = "false"
-            )
+            );
             """
     // prepare data
     sql """ INSERT INTO test_array_char_orderby VALUES (100, [['abc']]), (200, [['xyz']]) """
-    sql "analyze table test_array_char_orderby with sync"
+    sql '''
+        alter table test_array_char_orderby modify column k1 set stats ('ndv'='10', 'num_nulls'='0', 'min_value'='1', 'max_value'='100', 'row_count'='100');
+        '''
     // set topn_opt_limit_threshold = 1024 to make sure _internal_service to be request with proto request
     sql """ set topn_opt_limit_threshold = 1024 """
+    def table_stats = sql("show table stats test_array_char_orderby")
 
     explain{
         sql("select * from test_array_char_orderby order by k1 limit 1")

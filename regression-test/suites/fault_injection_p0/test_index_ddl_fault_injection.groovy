@@ -18,10 +18,13 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_index_ddl_fault_injection", "nonConcurrent") {
+    def tableName1 = "test_index_ddl_fault_injection_tbl_1"
+    def tableName2 = "test_index_ddl_fault_injection_tbl_2"
+
     try {
-      sql "DROP TABLE IF EXISTS `test_index_ddl_fault_injection_tbl`"
+      sql "DROP TABLE IF EXISTS `${tableName1}`"
       sql """
-        CREATE TABLE test_index_ddl_fault_injection_tbl (
+        CREATE TABLE ${tableName1} (
           `k1` int(11) NULL COMMENT "",
           `k2` int(11) NULL COMMENT "",
           `v1` string NULL COMMENT ""
@@ -31,21 +34,21 @@ suite("test_index_ddl_fault_injection", "nonConcurrent") {
           PROPERTIES ( "replication_allocation" = "tag.location.default: 1");
       """
 
-      sql """ INSERT INTO test_index_ddl_fault_injection_tbl VALUES (1, 2, "hello"), (3, 4, "world"); """
+      sql """ INSERT INTO ${tableName1} VALUES (1, 2, "hello"), (3, 4, "world"); """
       sql 'sync'
 
-      qt_order1 """ select * from test_index_ddl_fault_injection_tbl where v1 = 'hello'; """
+      qt_order1 """ select * from ${tableName1} where v1 = 'hello'; """
 
       // add bloom filter
-      sql """ ALTER TABLE test_index_ddl_fault_injection_tbl set ("bloom_filter_columns" = "v1"); """
-      assertEquals("FINISHED", getAlterColumnFinalState("test_index_ddl_fault_injection_tbl"))
+      sql """ ALTER TABLE ${tableName1} set ("bloom_filter_columns" = "v1"); """
+      assertEquals("FINISHED", getAlterColumnFinalState("${tableName1}"))
 
       try {
-          qt_order2 """ select * from test_index_ddl_fault_injection_tbl where v1 = 'hello'; """
+          qt_order2 """ select * from ${tableName1} where v1 = 'hello'; """
           GetDebugPoint().enableDebugPointForAllBEs("BloomFilterIndexReader::new_iterator.fail");
           test {
             // if BE add bloom filter correctly, this query will call BloomFilterIndexReader::new_iterator
-            sql """ select * from test_index_ddl_fault_injection_tbl where v1 = 'hello'; """
+            sql """ select * from ${tableName1} where v1 = 'hello'; """
            exception "new_iterator for bloom filter index failed"
           }
       } finally {
@@ -53,17 +56,47 @@ suite("test_index_ddl_fault_injection", "nonConcurrent") {
       }
 
       // drop bloom filter
-      sql """ ALTER TABLE test_index_ddl_fault_injection_tbl set ("bloom_filter_columns" = ""); """
-      assertEquals("FINISHED", getAlterColumnFinalState("test_index_ddl_fault_injection_tbl"))
+      sql """ ALTER TABLE ${tableName1} set ("bloom_filter_columns" = ""); """
+      assertEquals("FINISHED", getAlterColumnFinalState("${tableName1}"))
 
       try {
-          qt_order3 """ select * from test_index_ddl_fault_injection_tbl where v1 = 'hello'; """
+          qt_order3 """ select * from ${tableName1} where v1 = 'hello'; """
           GetDebugPoint().enableDebugPointForAllBEs("BloomFilterIndexReader::new_iterator.fail");
             // if BE drop bloom filter correctly, this query will not call BloomFilterIndexReader::new_iterator
-          qt_order4 """ select * from test_index_ddl_fault_injection_tbl where v1 = 'hello'; """
+          qt_order4 """ select * from ${tableName1} where v1 = 'hello'; """
       } finally {
           GetDebugPoint().disableDebugPointForAllBEs("BloomFilterIndexReader::new_iterator.fail");
       }
     } finally {
+    }
+
+    sql "DROP TABLE IF EXISTS `${tableName2}`"
+    sql """
+        CREATE TABLE `${tableName2}` (
+          `col0` bigint NOT NULL,
+          `col1` boolean NOT NULL,
+          `col2` tinyint NOT NULL,
+          INDEX col1 (`col1`) USING INVERTED,
+          INDEX col2 (`col2`) USING INVERTED
+        ) ENGINE=OLAP
+        UNIQUE KEY(`col0`)
+        DISTRIBUTED BY HASH(`col0`) BUCKETS 1
+        PROPERTIES (
+        "enable_unique_key_merge_on_write" = "true", 
+        "store_row_column" = "true",
+        "replication_num" = "1"
+        );
+    """
+
+    try {
+        sql """ INSERT INTO ${tableName2} (col0, col1, col2) VALUES (-74, true, 1); """
+        sql 'sync'
+
+        GetDebugPoint().enableDebugPointForAllBEs("tablet_schema::has_inverted_index");
+
+        sql """ ALTER TABLE ${tableName2} MODIFY COLUMN col1 BOOLEAN; """
+        assertEquals("FINISHED", getAlterColumnFinalState("${tableName2}"))
+    } finally {
+        GetDebugPoint().disableDebugPointForAllBEs("tablet_schema::has_inverted_index");
     }
 }

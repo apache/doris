@@ -1106,7 +1106,5 @@ suite("test_partition_stats") {
     assertEquals(2, result.size())
     result = sql """show column stats part10 partition(*)"""
     assertEquals(4, result.size())
-
-    sql """drop database test_partition_stats"""
 }
 

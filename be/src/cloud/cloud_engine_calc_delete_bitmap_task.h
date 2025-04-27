@@ -18,6 +18,7 @@
 #pragma once
 
 #include <memory>
+#include <optional>
 
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
@@ -32,19 +33,18 @@ class MemTrackerLimiter;
 
 class CloudTabletCalcDeleteBitmapTask {
 public:
-    CloudTabletCalcDeleteBitmapTask(CloudStorageEngine& engine,
-                                    CloudEngineCalcDeleteBitmapTask* engine_task, int64_t tablet_id,
+    CloudTabletCalcDeleteBitmapTask(CloudStorageEngine& engine, int64_t tablet_id,
                                     int64_t transaction_id, int64_t version);
     ~CloudTabletCalcDeleteBitmapTask() = default;
 
     void set_compaction_stats(int64_t ms_base_compaction_cnt, int64_t ms_cumulative_compaction_cnt,
                               int64_t ms_cumulative_point);
+    void set_tablet_state(int64_t tablet_state);
 
     Status handle() const;
 
 private:
     CloudStorageEngine& _engine;
-    CloudEngineCalcDeleteBitmapTask* _engine_calc_delete_bitmap_task;
 
     int64_t _tablet_id;
     int64_t _transaction_id;
@@ -53,6 +53,7 @@ private:
     int64_t _ms_base_compaction_cnt {-1};
     int64_t _ms_cumulative_compaction_cnt {-1};
     int64_t _ms_cumulative_point {-1};
+    std::optional<int64_t> _ms_tablet_state;
     std::shared_ptr<MemTrackerLimiter> _mem_tracker;
 };
 

@@ -205,6 +205,4 @@ suite("test_alter_table_column") {
     def res3 = sql "select * from ${tbName3} order by k1"
     def res4 = sql "select k1, k2, k3, null from baseall order by k1"
     check2_doris(res3, res4)
-    sql "DROP TABLE ${tbName3} FORCE;"
-
 }

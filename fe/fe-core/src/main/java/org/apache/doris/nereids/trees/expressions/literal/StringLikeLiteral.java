@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions.literal;
 
 import org.apache.doris.nereids.types.DataType;
 
+import java.nio.charset.StandardCharsets;
 import java.util.Objects;
 
 /**
@@ -46,7 +47,7 @@ public abstract class StringLikeLiteral extends Literal {
      * get double value
      */
     public static double getDouble(String str) {
-        byte[] bytes = str.getBytes();
+        byte[] bytes = str.getBytes(StandardCharsets.UTF_8);
         long v = 0;
         int pos = 0;
         int len = Math.min(bytes.length, 7);
@@ -72,11 +73,6 @@ public abstract class StringLikeLiteral extends Literal {
         }
         StringLikeLiteral that = (StringLikeLiteral) o;
         return Objects.equals(value, that.value);
-    }
-
-    @Override
-    public int hashCode() {
-        return Objects.hash(value);
     }
 
     @Override

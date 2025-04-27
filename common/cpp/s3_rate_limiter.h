@@ -16,6 +16,7 @@
 // under the License.
 
 #pragma once
+#include <bvar/bvar.h>
 
 #include <functional>
 #include <memory>
@@ -30,6 +31,15 @@ enum class S3RateLimitType : int {
 
 extern std::string to_string(S3RateLimitType type);
 extern S3RateLimitType string_to_s3_rate_limit_type(std::string_view value);
+
+inline auto metric_func_factory(bvar::Adder<int64_t>& ns_bvar, bvar::Adder<int64_t>& req_num_bvar) {
+    return [&](int64_t ns) {
+        if (ns > 0) {
+            ns_bvar << ns;
+            req_num_bvar << 1;
+        }
+    };
+}
 
 class S3RateLimiter {
 public:
@@ -57,7 +67,7 @@ private:
 
 class S3RateLimiterHolder {
 public:
-    S3RateLimiterHolder(S3RateLimitType type, size_t max_speed, size_t max_burst, size_t limit,
+    S3RateLimiterHolder(size_t max_speed, size_t max_burst, size_t limit,
                         std::function<void(int64_t)> metric_func);
     ~S3RateLimiterHolder();
 

@@ -42,9 +42,8 @@ public:
                                       FormatOptions& options) const override;
 
     Status serialize_column_to_json(const IColumn& column, int start_idx, int end_idx,
-                                    BufferWritable& bw, FormatOptions& options) const override {
-        return Status::NotSupported("serialize_column_to_json with type [{}]", column.get_name());
-    }
+                                    BufferWritable& bw, FormatOptions& options) const override;
+
     Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                           const FormatOptions& options) const override {
         return Status::NotSupported("deserialize_one_cell_from_text with type " +

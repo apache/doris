@@ -42,7 +42,5 @@ suite("test_ifnull") {
 			logger.info(exception.message)
 		}
 	}
-
-	sql "DROP TABLE ${tbName};"
 }
 

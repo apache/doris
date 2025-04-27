@@ -21,7 +21,6 @@
 
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_string.h"
-#include "vec/common/hash_table/hash_set.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/functions/array/function_array_utils.h"
 #include "vec/functions/function_helpers.h"
@@ -48,7 +47,7 @@ template <SetOperation operation, typename ColumnType>
 struct OpenSetImpl {
     using Element = typename ColumnType::value_type;
     using ElementNativeType = typename NativeType<Element>::Type;
-    using Set = HashSetWithStackMemory<ElementNativeType, DefaultHash<ElementNativeType>, 4>;
+    using Set = phmap::flat_hash_set<ElementNativeType>;
     using Action = typename ActionImpl<Set, Element, operation>::Action;
     Action action;
     Set set;
@@ -85,7 +84,7 @@ struct OpenSetImpl {
 
 template <SetOperation operation>
 struct OpenSetImpl<operation, ColumnString> {
-    using Set = HashSetWithStackMemory<StringRef, DefaultHash<StringRef>, 4>;
+    using Set = phmap::flat_hash_set<StringRef>;
     using Action = typename ActionImpl<Set, StringRef, operation>::Action;
     Action action;
     Set set;

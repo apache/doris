@@ -72,6 +72,4 @@ suite("test_dynamic_partition_with_alter") {
         result = sql "show partitions from ${tbl}"
     }
     assertEquals(9, result.size())
-
-    sql "drop table ${tbl}"
 }

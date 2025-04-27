@@ -25,7 +25,6 @@
 #include <vector>
 
 #include "common/status.h"
-#include "util/spinlock.h"
 #include "vec/core/block.h"
 
 namespace doris::pipeline {
@@ -105,7 +104,7 @@ private:
     // data queue is multi sink one source
     std::shared_ptr<Dependency> _source_dependency = nullptr;
     std::vector<Dependency*> _sink_dependencies;
-    SpinLock _source_lock;
+    std::mutex _source_lock;
 };
 
 } // namespace doris::pipeline

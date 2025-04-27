@@ -149,7 +149,7 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
         List<NamedExpression> outputExpressions = aggregate.getOutputExpressions().stream()
                 .map(o -> (NamedExpression) ExpressionDeepCopier.INSTANCE.deepCopy(o, context))
                 .collect(ImmutableList.toImmutableList());
-        return new LogicalAggregate<>(groupByExpressions, outputExpressions, child);
+        return aggregate.withChildGroupByAndOutput(groupByExpressions, outputExpressions, child);
     }
 
     @Override
@@ -194,7 +194,10 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
         List<NamedExpression> newProjects = project.getProjects().stream()
                 .map(p -> (NamedExpression) ExpressionDeepCopier.INSTANCE.deepCopy(p, context))
                 .collect(ImmutableList.toImmutableList());
-        return new LogicalProject<>(newProjects, child);
+        List<NamedExpression> newExcepts = project.getExcepts().stream()
+                .map(p -> (NamedExpression) ExpressionDeepCopier.INSTANCE.deepCopy(p, context))
+                .collect(ImmutableList.toImmutableList());
+        return new LogicalProject<>(newProjects, newExcepts, project.isDistinct(), child);
     }
 
     @Override
@@ -353,7 +356,7 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
         List<Slot> generatorOutput = generate.getGeneratorOutput().stream()
                 .map(o -> (Slot) ExpressionDeepCopier.INSTANCE.deepCopy(o, context))
                 .collect(ImmutableList.toImmutableList());
-        return new LogicalGenerate<>(generators, generatorOutput, child);
+        return new LogicalGenerate<>(generators, generatorOutput, generate.getExpandColumnAlias(), child);
     }
 
     @Override
@@ -362,7 +365,7 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
         List<NamedExpression> windowExpressions = window.getWindowExpressions().stream()
                 .map(w -> (NamedExpression) ExpressionDeepCopier.INSTANCE.deepCopy(w, context))
                 .collect(ImmutableList.toImmutableList());
-        return new LogicalWindow<>(windowExpressions, child);
+        return new LogicalWindow<>(windowExpressions, window.isChecked(), child);
     }
 
     @Override

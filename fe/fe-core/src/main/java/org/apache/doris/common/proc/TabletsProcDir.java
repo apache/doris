@@ -141,8 +141,9 @@ public class TabletsProcDir implements ProcDirInterface {
                     tabletInfos.add(tabletInfo);
                 } else {
                     for (Replica replica : tablet.getReplicas()) {
+                        long beId = replica.getBackendIdWithoutException();
                         if ((version > -1 && replica.getVersion() != version)
-                                || (backendId > -1 && replica.getBackendIdWithoutException() != backendId)
+                                || (backendId > -1 && beId != backendId)
                                 || (state != null && replica.getState() != state)) {
                             continue;
                         }
@@ -150,7 +151,7 @@ public class TabletsProcDir implements ProcDirInterface {
                         // tabletId -- replicaId -- backendId -- version -- dataSize -- rowCount -- state
                         tabletInfo.add(tabletId);
                         tabletInfo.add(replica.getId());
-                        tabletInfo.add(replica.getBackendIdWithoutException());
+                        tabletInfo.add(beId);
                         tabletInfo.add(replica.getSchemaHash());
                         tabletInfo.add(replica.getVersion());
                         tabletInfo.add(replica.getLastSuccessVersion());
@@ -168,7 +169,7 @@ public class TabletsProcDir implements ProcDirInterface {
                         tabletInfo.add(replicaIdToQueryHits.getOrDefault(replica.getId(), 0L));
                         tabletInfo.add(replica.getPathHash());
                         tabletInfo.add(pathHashToRoot.getOrDefault(replica.getPathHash(), ""));
-                        Backend be = backendMap.get(replica.getBackendIdWithoutException());
+                        Backend be = backendMap.get(beId);
                         String host = (be == null ? Backend.DUMMY_IP : be.getHost());
                         int port = (be == null ? 0 : be.getHttpPort());
                         String hostPort = NetUtils.getHostPortInAccessibleFormat(host, port);

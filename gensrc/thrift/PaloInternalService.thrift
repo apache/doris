@@ -356,6 +356,8 @@ struct TQueryOptions {
 
   141: optional bool ignore_runtime_filter_error = false;
 
+  146: optional bool fuzzy_disable_runtime_filter_in_be = false;
+
   // upgrade options. keep them same in every branch.
   200: optional bool new_is_ip_address_in_range = false;
 

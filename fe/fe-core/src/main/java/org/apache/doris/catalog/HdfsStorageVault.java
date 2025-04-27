@@ -17,20 +17,29 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.backup.Status;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.security.authentication.AuthenticationConfig;
+import org.apache.doris.common.util.PrintableMap;
+import org.apache.doris.datasource.property.constants.S3Properties;
+import org.apache.doris.fs.remote.dfs.DFSFileSystem;
 
+import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
+import org.apache.hadoop.fs.CommonConfigurationKeysPublic;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * HDFS resource
@@ -67,9 +76,10 @@ public class HdfsStorageVault extends StorageVault {
      * Property keys used by Doris, and should not be put in HDFS client configs,
      * such as `type`, `path_prefix`, etc.
      */
-    private static final Set<String> nonHdfsConfPropertyKeys = ImmutableSet.of(VAULT_TYPE, VAULT_PATH_PREFIX)
-            .stream().map(String::toLowerCase)
-            .collect(ImmutableSet.toImmutableSet());
+    private static final Set<String> nonHdfsConfPropertyKeys =
+            ImmutableSet.of(VAULT_TYPE, VAULT_PATH_PREFIX, S3Properties.VALIDITY_CHECK)
+                    .stream().map(String::toLowerCase)
+                    .collect(ImmutableSet.toImmutableSet());
 
     @SerializedName(value = "properties")
     private Map<String, String> properties;
@@ -80,10 +90,11 @@ public class HdfsStorageVault extends StorageVault {
     }
 
     @Override
-    public void modifyProperties(Map<String, String> properties) throws DdlException {
-        for (Map.Entry<String, String> kv : properties.entrySet()) {
+    public void modifyProperties(Map<String, String> newProperties) throws DdlException {
+        for (Map.Entry<String, String> kv : newProperties.entrySet()) {
             replaceIfEffectiveValue(this.properties, kv.getKey(), kv.getValue());
         }
+        checkConnectivity(this.properties);
     }
 
     @Override
@@ -91,24 +102,96 @@ public class HdfsStorageVault extends StorageVault {
         return Maps.newHashMap(properties);
     }
 
+    public static void checkConnectivity(Map<String, String> newProperties) throws DdlException {
+        if (newProperties.containsKey(S3Properties.VALIDITY_CHECK)
+                && newProperties.get(S3Properties.VALIDITY_CHECK).equalsIgnoreCase("false")) {
+            return;
+        }
+
+        String hadoopFsName = null;
+        String pathPrefix = null;
+        for (Map.Entry<String, String> property : newProperties.entrySet()) {
+            if (property.getKey().equalsIgnoreCase(HADOOP_FS_NAME)) {
+                hadoopFsName = property.getValue();
+            } else if (property.getKey().equalsIgnoreCase(VAULT_PATH_PREFIX)) {
+                pathPrefix = property.getValue();
+            }
+        }
+        Preconditions.checkArgument(!Strings.isNullOrEmpty(hadoopFsName), "%s is null or empty", HADOOP_FS_NAME);
+        Preconditions.checkArgument(!Strings.isNullOrEmpty(pathPrefix), "%s is null or empty", VAULT_PATH_PREFIX);
+
+        try (DFSFileSystem dfsFileSystem = new DFSFileSystem(newProperties)) {
+            Long timestamp = System.currentTimeMillis();
+            String remotePath = hadoopFsName + "/" + pathPrefix + "/doris-check-connectivity" + timestamp.toString();
+
+            Status st = dfsFileSystem.makeDir(remotePath);
+            if (st != Status.OK) {
+                throw new DdlException(
+                        "checkConnectivity(makeDir) failed, status: " + st + ", properties: " + new PrintableMap<>(
+                                newProperties, "=", true, false, true, false));
+            }
+
+            st = dfsFileSystem.exists(remotePath);
+            if (st != Status.OK) {
+                throw new DdlException(
+                        "checkConnectivity(exist) failed, status: " + st + ", properties: " + new PrintableMap<>(
+                                newProperties, "=", true, false, true, false));
+            }
+
+            st = dfsFileSystem.delete(remotePath);
+            if (st != Status.OK) {
+                throw new DdlException(
+                        "checkConnectivity(exist) failed, status: " + st + ", properties: " + new PrintableMap<>(
+                                newProperties, "=", true, false, true, false));
+            }
+        } catch (IOException e) {
+            LOG.warn("checkConnectivity failed, properties:{}", new PrintableMap<>(
+                    newProperties, "=", true, false, true, false), e);
+            throw new DdlException("checkConnectivity failed, properties: " + new PrintableMap<>(
+                    newProperties, "=", true, false, true, false), e);
+        }
+    }
+
     public static Cloud.HdfsVaultInfo generateHdfsParam(Map<String, String> properties) {
         Cloud.HdfsVaultInfo.Builder hdfsVaultInfoBuilder =
                     Cloud.HdfsVaultInfo.newBuilder();
         Cloud.HdfsBuildConf.Builder hdfsConfBuilder = Cloud.HdfsBuildConf.newBuilder();
+
+        Set<String> lowerCaseKeys = properties.keySet().stream().map(String::toLowerCase)
+                .collect(Collectors.toSet());
+
         for (Map.Entry<String, String> property : properties.entrySet()) {
             if (property.getKey().equalsIgnoreCase(HADOOP_FS_NAME)) {
+                Preconditions.checkArgument(!Strings.isNullOrEmpty(property.getValue()),
+                        "%s is null or empty", property.getKey());
                 hdfsConfBuilder.setFsName(property.getValue());
             } else if (property.getKey().equalsIgnoreCase(VAULT_PATH_PREFIX)) {
                 hdfsVaultInfoBuilder.setPrefix(property.getValue());
             } else if (property.getKey().equalsIgnoreCase(AuthenticationConfig.HADOOP_USER_NAME)) {
+                Preconditions.checkArgument(!Strings.isNullOrEmpty(property.getValue()),
+                        "%s is null or empty", property.getKey());
                 hdfsConfBuilder.setUser(property.getValue());
+            } else if (property.getKey()
+                    .equalsIgnoreCase(CommonConfigurationKeysPublic.HADOOP_SECURITY_AUTHENTICATION)) {
+                Preconditions.checkArgument(lowerCaseKeys.contains(AuthenticationConfig.HADOOP_KERBEROS_PRINCIPAL),
+                        "%s is required for kerberos", AuthenticationConfig.HADOOP_KERBEROS_PRINCIPAL);
+                Preconditions.checkArgument(lowerCaseKeys.contains(AuthenticationConfig.HADOOP_KERBEROS_KEYTAB),
+                        "%s is required for kerberos", AuthenticationConfig.HADOOP_KERBEROS_KEYTAB);
             } else if (property.getKey().equalsIgnoreCase(AuthenticationConfig.HADOOP_KERBEROS_PRINCIPAL)) {
+                Preconditions.checkArgument(!Strings.isNullOrEmpty(property.getValue()),
+                        "%s is null or empty", property.getKey());
                 hdfsConfBuilder.setHdfsKerberosPrincipal(property.getValue());
             } else if (property.getKey().equalsIgnoreCase(AuthenticationConfig.HADOOP_KERBEROS_KEYTAB)) {
+                Preconditions.checkArgument(!Strings.isNullOrEmpty(property.getValue()),
+                        "%s is null or empty", property.getKey());
                 hdfsConfBuilder.setHdfsKerberosKeytab(property.getValue());
             } else if (property.getKey().equalsIgnoreCase(VAULT_NAME)) {
                 continue;
             } else {
+                Preconditions.checkArgument(!property.getKey().toLowerCase().contains(S3Properties.S3_PREFIX),
+                        "Invalid argument %s", property.getKey());
+                Preconditions.checkArgument(!property.getKey().toLowerCase().contains(S3Properties.PROVIDER),
+                        "Invalid argument %s", property.getKey());
                 if (!nonHdfsConfPropertyKeys.contains(property.getKey().toLowerCase())) {
                     Cloud.HdfsBuildConf.HdfsConfKVPair.Builder conf = Cloud.HdfsBuildConf.HdfsConfKVPair.newBuilder();
                     conf.setKey(property.getKey());

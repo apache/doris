@@ -43,6 +43,6 @@ suite("ssb_sf1_q3_4_nereids") {
         GROUP BY c_city, s_city, d_year
         ORDER BY d_year ASC,  REVENUE DESC;"""
 
-        resultFile(file = "../sql/q3.4.out", tag = "q3.4")
+        resultFile("../sql/q3.4.out", "q3.4")
     }
 }

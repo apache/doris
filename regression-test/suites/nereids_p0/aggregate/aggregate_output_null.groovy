@@ -86,7 +86,4 @@ suite("aggregate_output_null") {
             t2.a,
             t1.c;
     """
-
-    sql "DROP TABLE t1"
-    sql "DROP TABLE t2"
 }
