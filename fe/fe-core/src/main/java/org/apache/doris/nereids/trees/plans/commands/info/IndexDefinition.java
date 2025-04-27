@@ -98,6 +98,9 @@ public class IndexDefinition {
     public boolean isSupportIdxType(DataType columnType) {
         if (columnType.isArrayType()) {
             DataType itemType = ((ArrayType) columnType).getItemType();
+            if (itemType.isArrayType()) {
+                return false;
+            }
             return isSupportIdxType(itemType);
         }
         return columnType.isDateLikeType() || columnType.isDecimalLikeType()
