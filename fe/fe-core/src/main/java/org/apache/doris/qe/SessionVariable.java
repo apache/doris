@@ -2246,7 +2246,8 @@ public class SessionVariable implements Serializable, Writable {
     public boolean keepCarriageReturn = false;
 
     @VariableMgr.VarAttr(name = EXCHANGE_MULTI_BLOCKS_BYTE_SIZE,
-            description = {"enable exchange send multi blocks in one rpc, default is 256KB. negatives means disable"})
+            description = {"Enable exchange to send multiple blocks in one RPC. Default is 256KB. A negative"
+                    + " value disables multi-block exchange."})
     public int exchangeMultiBlocksByteSize = 256 * 1024;
 
     @VariableMgr.VarAttr(name = FORCE_JNI_SCANNER,
@@ -2596,6 +2597,12 @@ public class SessionVariable implements Serializable, Writable {
         this.disableStreamPreaggregations = random.nextBoolean();
         this.enableShareHashTableForBroadcastJoin = random.nextBoolean();
         this.enableParallelResultSink = random.nextBoolean();
+
+        // 4KB = 4 * 1024 bytes
+        int minBytes = 4 * 1024;
+        // 10MB = 10 * 1024 * 1024 bytes
+        int maxBytes = 10 * 1024 * 1024;
+        this.exchangeMultiBlocksByteSize = minBytes + (int) (random.nextDouble() * (maxBytes - minBytes));
         int randomInt = random.nextInt(4);
         if (randomInt % 2 == 0) {
             this.rewriteOrToInPredicateThreshold = 100000;
