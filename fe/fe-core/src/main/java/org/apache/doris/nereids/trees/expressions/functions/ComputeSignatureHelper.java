@@ -424,6 +424,11 @@ public class ComputeSignatureHelper {
         signature = signature.withArgumentTypes(signature.hasVarArgs, newArgTypes);
         if (signature.returnType instanceof DateTimeV2Type) {
             signature = signature.withReturnType(argType);
+        } else if (signature.returnType instanceof ArrayType) {
+            DataType itemType = ((ArrayType) signature.returnType).getItemType();
+            if (itemType instanceof DateTimeV2Type) {
+                signature = signature.withReturnType(ArrayType.of(argType));
+            }
         }
         return signature;
     }
