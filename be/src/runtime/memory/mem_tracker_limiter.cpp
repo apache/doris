@@ -65,10 +65,9 @@ std::shared_ptr<MemTrackerLimiter> MemTrackerLimiter::create_shared(MemTrackerLi
                                                                     const std::string& label,
                                                                     int64_t byte_limit) {
     auto tracker = std::make_shared<MemTrackerLimiter>(type, label, byte_limit);
-    // Write tracker is only used to tracker the size, so limit == -1
+    // Write tracker is only used to tracker the size, memtable has a separate logic to deal with memory flush,
+    // so limit == -1, so that should not check the limit in memtracker.
     auto write_tracker = std::make_shared<MemTrackerLimiter>(type, "Memtable#" + label, -1);
-    // Memtable has a separate logic to deal with memory flush, so that should not check the limit in memtracker.
-    write_tracker->set_enable_reserve_memory(true);
     tracker->_write_tracker.swap(write_tracker);
 #ifndef BE_TEST
     DCHECK(ExecEnv::tracking_memory());
@@ -200,7 +199,7 @@ RuntimeProfile* MemTrackerLimiter::make_profile(RuntimeProfile* profile) const {
             profile_snapshot->AddHighWaterMarkCounter("Memory", TUnit::BYTES);
     COUNTER_SET(usage_counter, peak_consumption());
     COUNTER_SET(usage_counter, consumption());
-    if (has_limit()) {
+    if (limit() >= 0) {
         RuntimeProfile::Counter* limit_counter =
                 ADD_COUNTER(profile_snapshot, "Limit", TUnit::BYTES);
         COUNTER_SET(limit_counter, _limit);

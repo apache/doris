@@ -27,7 +27,7 @@ namespace doris {
 
 TEST(MemTrackerTest, SingleTrackerNoLimit) {
     auto t = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "UT");
-    EXPECT_FALSE(t->has_limit());
+    EXPECT_FALSE(t->limit() >= 0);
     t->consume(10);
     EXPECT_EQ(t->consumption(), 10);
     t->consume(10);

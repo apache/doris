@@ -1186,6 +1186,7 @@ void upload_callback(StorageEngine& engine, ExecEnv* env, const TAgentTaskReques
     std::unique_ptr<SnapshotLoader> loader = std::make_unique<SnapshotLoader>(
             engine, env, upload_request.job_id, req.signature, upload_request.broker_addr,
             upload_request.broker_prop);
+    SCOPED_ATTACH_TASK(loader->resource_ctx());
     Status status =
             loader->init(upload_request.__isset.storage_backend ? upload_request.storage_backend
                                                                 : TStorageBackendType::type::BROKER,

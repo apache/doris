@@ -206,6 +206,7 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
     if (task_lock == nullptr) {
         return;
     }
+    SCOPED_ATTACH_TASK(ctx->state());
 
     ctx->update_peak_running_scanner(1);
     Defer defer([&] { ctx->update_peak_running_scanner(-1); });
@@ -216,7 +217,6 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
     }
 
     ScannerSPtr& scanner = scanner_delegate->_scanner;
-    SCOPED_ATTACH_TASK(scanner->runtime_state());
     // for cpu hard limit, thread name should not be reset
     if (ctx->_should_reset_thread_name) {
         Thread::set_self_name("_scanner_scan");
@@ -277,10 +277,10 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
 
             // During low memory mode, every scan task will return at most 2 block to reduce memory usage.
             while (!eos && raw_bytes_read < raw_bytes_threshold &&
-                   !(ctx->low_memory_mode() && has_first_full_block) &&
-                   !(has_first_full_block && doris::thread_context()
+                   (!ctx->low_memory_mode() || !has_first_full_block) &&
+                   (!has_first_full_block || doris::thread_context()
                                                      ->thread_mem_tracker_mgr->limiter_mem_tracker()
-                                                     ->limit_exceeded())) {
+                                                     ->check_limit(1))) {
                 if (UNLIKELY(ctx->done())) {
                     eos = true;
                     break;
