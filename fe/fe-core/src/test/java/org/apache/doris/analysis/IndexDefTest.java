@@ -107,9 +107,14 @@ public class IndexDefTest {
         def.checkColumn(arrayOfDate, KeysType.DUP_KEYS, true, TInvertedIndexFileStorageFormat.V1);
 
         // Array<Array<String>>
-        Column nestedArray = new Column("col1",
-                ArrayType.create(ArrayType.create(ScalarType.createVarchar(10), false), false));
-        def.checkColumn(nestedArray, KeysType.DUP_KEYS, true, TInvertedIndexFileStorageFormat.V1);
+        try {
+            Column nestedArray = new Column("col1",
+                    ArrayType.create(ArrayType.create(ScalarType.createVarchar(10), false), false));
+            def.checkColumn(nestedArray, KeysType.DUP_KEYS, true, TInvertedIndexFileStorageFormat.V1);
+            Assert.fail("No exception throws for unsupported array element type.");
+        } catch (AnalysisException e) {
+            Assert.assertTrue(e.getMessage().contains("is not supported in"));
+        }
 
         // Test array of unsupported types
         try {
