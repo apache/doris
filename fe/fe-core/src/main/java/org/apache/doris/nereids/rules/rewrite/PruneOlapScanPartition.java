@@ -26,7 +26,6 @@ import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.cache.NereidsSortedPartitionsCacheManager;
-import org.apache.doris.nereids.StatementContext.PlanCachePhase;
 import org.apache.doris.nereids.pattern.MatchingContext;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
@@ -82,6 +81,9 @@ public class PruneOlapScanPartition implements RewriteRuleFactory {
                         LogicalOlapScan scan = filter.child();
                         OlapTable table = scan.getTable();
                         LogicalRelation rewrittenLogicalRelation = prunePartition(scan, table, filter, ctx);
+                        if (rewrittenLogicalRelation == null) {
+                            return null;
+                        }
                         if (rewrittenLogicalRelation instanceof LogicalEmptyRelation) {
                             return rewrittenLogicalRelation;
                         } else {
@@ -96,12 +98,25 @@ public class PruneOlapScanPartition implements RewriteRuleFactory {
                                       OlapTable table,
                                       LogicalFilter filter,
                                       MatchingContext ctx) {
-        List<Long> prunedPartitions;
-        if (filter == null) {
-            prunedPartitions = prunePartitionByTabletIds(scan, table);
-        } else {
-            prunedPartitions = prunePartitionByFilters(scan, table, filter, ctx);
+        List<Long> prunedPartitionsByTablets = prunePartitionByTabletIds(scan, table);
+        List<Long> prunedPartitionsByFilters = null;
+        if (filter != null) {
+            prunedPartitionsByFilters = prunePartitionByFilters(scan, table, filter, ctx);
         }
+
+        List<Long> prunedPartitions;
+        if (prunedPartitionsByTablets == null && prunedPartitionsByFilters == null) {
+            return null;
+        } else if (prunedPartitionsByTablets == null) {
+            prunedPartitions = prunedPartitionsByFilters;
+        } else if (prunedPartitionsByFilters == null) {
+            prunedPartitions = prunedPartitionsByTablets;
+        } else {
+            // intersect two pruned partitions
+            prunedPartitions = new ArrayList<>(prunedPartitionsByTablets);
+            prunedPartitions.retainAll(prunedPartitionsByFilters);
+        }
+
         if (prunedPartitions.isEmpty()) {
             return new LogicalEmptyRelation(
                 ConnectContext.get().getStatementContext().getNextRelationId(),
