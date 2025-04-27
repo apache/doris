@@ -6656,6 +6656,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
     }
 
+    @Override
     public List<ChannelDescription> visitChannelDescriptions(DorisParser.ChannelDescriptionsContext ctx) {
         List<ChannelDescription> channelDescriptions = new ArrayList<>();
         for (DorisParser.ChannelDescriptionContext channelDescriptionContext : ctx.channelDescription()) {
