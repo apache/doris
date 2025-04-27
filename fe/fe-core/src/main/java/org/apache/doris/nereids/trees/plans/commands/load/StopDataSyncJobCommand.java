@@ -21,6 +21,7 @@ import org.apache.doris.analysis.StmtType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.Command;
+import org.apache.doris.nereids.trees.plans.commands.ForwardWithSync;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
@@ -30,7 +31,7 @@ import org.apache.doris.qe.StmtExecutor;
  * syntax:
  *      STOP SYNC JOB [db.]jobName
  */
-public class StopDataSyncJobCommand extends Command {
+public class StopDataSyncJobCommand extends Command implements ForwardWithSync {
     private SyncJobName syncJobName;
 
     public StopDataSyncJobCommand(SyncJobName syncJobName) {
