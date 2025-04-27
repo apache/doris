@@ -578,8 +578,10 @@ public:
         if (iter == nullptr) {
             return Status::OK();
         }
-        if (iter->get_inverted_index_reader_type() ==
-            segment_v2::InvertedIndexReaderType::FULLTEXT) {
+
+        // only string type and bkd inverted index reader can be used for comparison
+        if (iter->get_reader(segment_v2::InvertedIndexReaderType::STRING_TYPE) == nullptr &&
+            iter->get_reader(segment_v2::InvertedIndexReaderType::BKD) == nullptr) {
             //NOT support comparison predicate when parser is FULLTEXT for expr inverted index evaluate.
             return Status::OK();
         }
@@ -600,23 +602,19 @@ public:
         }
 
         if (segment_v2::is_range_query(query_type) &&
-            iter->get_inverted_index_reader_type() ==
-                    segment_v2::InvertedIndexReaderType::STRING_TYPE) {
+            iter->get_reader(segment_v2::InvertedIndexReaderType::STRING_TYPE)) {
             // untokenized strings exceed ignore_above, they are written as null, causing range query errors
             return Status::OK();
         }
-        std::string column_name = data_type_with_name.first;
         Field param_value;
         arguments[0].column->get(0, param_value);
         auto param_type = arguments[0].type->get_primitive_type();
         std::unique_ptr<segment_v2::InvertedIndexQueryParamFactory> query_param = nullptr;
-        RETURN_IF_ERROR(segment_v2::InvertedIndexQueryParamFactory::create_query_value(
-                param_type, &param_value, query_param));
         std::shared_ptr<roaring::Roaring> roaring = std::make_shared<roaring::Roaring>();
         RETURN_IF_ERROR(segment_v2::InvertedIndexQueryParamFactory::create_query_value(
                 param_type, &param_value, query_param));
-        RETURN_IF_ERROR(iter->read_from_inverted_index(column_name, query_param->get_value(),
-                                                       query_type, num_rows, roaring));
+        RETURN_IF_ERROR(iter->read_from_inverted_index(
+                data_type_with_name, query_param->get_value(), query_type, num_rows, roaring));
         std::shared_ptr<roaring::Roaring> null_bitmap = std::make_shared<roaring::Roaring>();
         if (iter->has_null()) {
             segment_v2::InvertedIndexQueryCacheHandle null_bitmap_cache_handle;

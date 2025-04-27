@@ -73,6 +73,12 @@ public:
 
     Field get_field(const TExprNode& node) const override;
 
+    Field get_type_field(const IColumn& column, size_t row) const override {
+        Field field;
+        column.get(row, field);
+        return {std::move(field), -1, static_cast<int8_t>(get_scale())};
+    }
+
 private:
     UInt32 _scale;
 };

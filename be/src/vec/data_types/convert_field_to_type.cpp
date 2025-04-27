@@ -34,6 +34,7 @@
 #include "common/exception.h"
 #include "common/status.h"
 #include "util/bitmap_value.h"
+#include "util/jsonb_document.h"
 #include "util/jsonb_writer.h"
 #include "vec/common/field_visitors.h"
 #include "vec/common/typeid_cast.h"
@@ -43,6 +44,8 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_nullable.h"
+#include "vec/io/io_helper.h"
+#include "vec/runtime/ipv6_value.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
@@ -90,6 +93,14 @@ public:
         writer->writeString(x);
         writer->writeEndString();
     }
+    void operator()(const JsonbField& x, JsonbWriter* writer) const {
+        const JsonbValue* value = JsonbDocument::createValue(x.get_value(), x.get_size());
+        if (value == nullptr) {
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "Failed to create JsonbValue");
+        }
+        writer->writeValue(value);
+    }
+
     void operator()(const Array& x, JsonbWriter* writer) const;
 
     void operator()(const Tuple& x, JsonbWriter* writer) const {
@@ -123,9 +134,6 @@ public:
         throw doris::Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
     }
     void operator()(const Map& x, JsonbWriter* writer) const {
-        throw doris::Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
-    }
-    void operator()(const JsonbField& x, JsonbWriter* writer) const {
         throw doris::Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
     }
 };
