@@ -217,7 +217,7 @@ public class IndexDef {
     }
 
     // Check if the column type is supported for inverted index
-    public boolean isSupportIdxType(Type colType) {
+    public static boolean isSupportIdxType(Type colType) {
         if (colType.isArrayType()) {
             Type itemType = ((ArrayType) colType).getItemType();
             if (itemType.isArrayType()) {
@@ -308,5 +308,11 @@ public class IndexDef {
         } catch (NumberFormatException e) {
             throw new AnalysisException("Invalid value for '" + key + "': " + valueStr, e);
         }
+    }
+
+    public boolean isAnalyzedInvertedIndex() {
+        return indexType == IndexDef.IndexType.INVERTED
+            && properties != null
+            && properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY);
     }
 }

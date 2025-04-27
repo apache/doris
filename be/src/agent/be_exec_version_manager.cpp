@@ -113,7 +113,7 @@ void BeExecVersionManager::check_function_compatibility(int current_be_exec_vers
 *     b. support const column in serialize/deserialize function: PR #41175
  */
 
-const int BeExecVersionManager::max_be_exec_version = 8;
+const int BeExecVersionManager::max_be_exec_version = 9;
 const int BeExecVersionManager::min_be_exec_version = 0;
 std::map<std::string, std::set<int>> BeExecVersionManager::_function_change_map {};
 std::set<std::string> BeExecVersionManager::_function_restrict_map;

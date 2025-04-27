@@ -70,6 +70,8 @@ const std::string kApacheLicenseHeader =
 // under the License.
 )";
 
+DEFINE_bool(gen_out, true, "generate expected check data for test");
+
 namespace doris {
 
 static const char* const kSlowTestsEnvVar = "DORIS_ALLOW_SLOW_TESTS";

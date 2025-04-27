@@ -43,8 +43,16 @@ Status FunctionMatchBase::evaluate_inverted_index(
 
     if (function_name == MATCH_PHRASE_FUNCTION || function_name == MATCH_PHRASE_PREFIX_FUNCTION ||
         function_name == MATCH_PHRASE_EDGE_FUNCTION) {
+<<<<<<< HEAD
         if (iter->get_reader()->is_fulltext_index() && !iter->get_reader()->is_support_phrase()) {
             return Status::Error<ErrorCode::INDEX_INVALID_PARAMETERS>(
+=======
+        auto reader = iter->get_reader(InvertedIndexReaderType::FULLTEXT);
+        if (reader &&
+            get_parser_phrase_support_string_from_properties(reader->get_index_properties()) ==
+                    INVERTED_INDEX_PARSER_PHRASE_SUPPORT_NO) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_INVALID_PARAMETERS>(
+>>>>>>> b4f01947a44 ([feature](semi-structure) support variant and index with many features)
                     "phrase queries require setting support_phrase = true");
         }
     }
@@ -70,7 +78,14 @@ Status FunctionMatchBase::evaluate_inverted_index(
     param.num_rows = num_rows;
     param.roaring = std::make_shared<roaring::Roaring>();
     if (is_string_type(param_type)) {
+<<<<<<< HEAD
         RETURN_IF_ERROR(iter->read_from_index(&param));
+=======
+        auto inverted_index_query_type = get_query_type_from_fn_name();
+        RETURN_IF_ERROR(
+                iter->read_from_inverted_index(data_type_with_name, query_param->get_value(),
+                                               inverted_index_query_type, num_rows, roaring));
+>>>>>>> b4f01947a44 ([feature](semi-structure) support variant and index with many features)
     } else {
         return Status::Error<ErrorCode::INDEX_INVALID_PARAMETERS>(
                 "invalid params type for FunctionMatchBase::evaluate_inverted_index {}",

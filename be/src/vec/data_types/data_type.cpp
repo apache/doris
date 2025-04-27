@@ -103,6 +103,10 @@ void IDataType::to_pb_column_meta(PColumnMeta* col_meta) const {
     col_meta->set_type(get_pdata_type(this));
 }
 
+FieldWithDataType IDataType::get_field_with_data_type(const IColumn& column, size_t row_num) const {
+    return FieldWithDataType(column[row_num]);
+}
+
 PGenericType_TypeId IDataType::get_pdata_type(const IDataType* data_type) {
     switch (data_type->get_primitive_type()) {
     case PrimitiveType::TYPE_BOOLEAN:

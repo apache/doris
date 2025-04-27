@@ -474,7 +474,7 @@ if [[ -f "${test}" ]]; then
         echo "${cmd1}"
         eval "${cmd1}"
         cmd2="${LLVM_COV} show -output-dir=${DORIS_TEST_BINARY_DIR}/report -format=html \
-            -ignore-filename-regex='(.*gensrc/.*)|(.*_test\.cpp$)|(.*be/test.*)|(.*apache-orc/.*)|(.*clucene/.*)' \
+            -show-branches=count -show-expansions -ignore-filename-regex='(.*gensrc/.*)|(.*be/src/common/status\.h$)|(.*be/src/common/logging.h)|(.*_test\.cpp$)|(.*be/test.*)|(.*apache-orc/.*)|(.*clucene/.*)' \
             -instr-profile=${profdata} \
             -object=${test}"
         echo "${cmd2}"

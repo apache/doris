@@ -57,15 +57,15 @@ suite("regression_test_variant_escaped_chars", "p0"){
     qt_select """select json_extract(b, "\$.c_json"), e["c_json"] from t01;"""
 
     // test json keys with escaped characters, FIXED in 3.1.0
-    // sql "truncate table variant_escape_chars"
-    // sql """
-    //     INSERT INTO variant_escape_chars VALUES
-    //     (1, '{"test with escape \\\\" characters" : 123}'),
-    //     (2, '{"another test with escape \\\\\\\\ characters" : 123}'),
-    //     (3, '{"test with single quote \\\' characters" : 123}'),
-    //     (4, '{"test with newline \\\\n characters":123}'),
-    //     (5, '{"test with tab \\\\t characters" : 123}'),
-    //     (6, '{"test with backslash \\\\b characters" : 123}');
-    // """
-    // qt_select """ SELECT * FROM variant_escape_chars ORDER BY id """
+    sql "truncate table variant_escape_chars"
+    sql """
+        INSERT INTO variant_escape_chars VALUES
+        (1, '{"test with escape \\\\" characters" : 123}'),
+        (2, '{"another test with escape \\\\\\\\ characters" : 123}'),
+        (3, '{"test with single quote \\\' characters" : 123}'),
+        (4, '{"test with newline \\\\n characters":123}'),
+        (5, '{"test with tab \\\\t characters" : 123}'),
+        (6, '{"test with backslash \\\\b characters" : 123}');
+    """
+    qt_select """ SELECT * FROM variant_escape_chars ORDER BY id """
 }

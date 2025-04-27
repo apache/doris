@@ -79,6 +79,7 @@ suite("regression_test_variant_schema_change", "variant_type"){
     sql """INSERT INTO ${table_name} SELECT k, v,v  from ${table_name} limit 1111"""
     // select from mv
     qt_sql """select v['k1'], cast(v['k2'] as string) from ${table_name} order by k desc limit 10"""
+    qt_sql """select k, v from ${table_name} order by k desc limit 5"""
 
     // not null to null
     sql "drop table if exists t"

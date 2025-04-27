@@ -21,6 +21,8 @@
 #include <gen_cpp/segment_v2.pb.h>
 #include <parallel_hashmap/phmap.h>
 
+#include <algorithm>
+
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "cloud/config.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
@@ -36,6 +38,7 @@
 #include "olap/data_dir.h"
 #include "olap/key_coder.h"
 #include "olap/olap_common.h"
+#include "olap/olap_define.h"
 #include "olap/partial_update_info.h"
 #include "olap/primary_key_index.h"
 #include "olap/row_cursor.h"                   // RowCursor // IWYU pragma: keep
@@ -58,6 +61,7 @@
 #include "util/crc32c.h"
 #include "util/faststring.h"
 #include "util/key_util.h"
+#include "util/simd/bits.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/common/schema_util.h"
 #include "vec/core/block.h"
@@ -157,13 +161,12 @@ void SegmentWriter::init_column_meta(ColumnMetaPB* meta, uint32_t column_id,
         init_column_meta(meta->add_children_columns(), column_id, column.get_sub_column(i),
                          tablet_schema);
     }
-    // add sparse column to footer
-    for (uint32_t i = 0; i < column.num_sparse_columns(); i++) {
-        init_column_meta(meta->add_sparse_columns(), -1, column.sparse_column_at(i), tablet_schema);
-    }
     meta->set_result_is_nullable(column.get_result_is_nullable());
     meta->set_function_name(column.get_aggregation_name());
     meta->set_be_exec_version(column.get_be_exec_version());
+    if (column.is_variant_type()) {
+        meta->set_variant_max_subcolumns_count(column.variant_max_subcolumns_count());
+    }
 }
 
 Status SegmentWriter::init() {
@@ -219,8 +222,8 @@ Status SegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& co
     if (_opts.write_type == DataWriteType::TYPE_DIRECT && schema->skip_write_index_on_load()) {
         skip_inverted_index = true;
     }
-
     // indexes for this column
+<<<<<<< HEAD
     if (const auto& index = schema->inverted_index(column);
         index != nullptr && !skip_inverted_index) {
         opts.inverted_index = index;
@@ -228,7 +231,20 @@ Status SegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& co
         DCHECK(_index_file_writer != nullptr);
         opts.index_file_writer = _index_file_writer;
         // TODO support multiple inverted index
+=======
+    if (!skip_inverted_index) {
+        auto inverted_indexs = schema->inverted_indexs(column);
+        if (!inverted_indexs.empty()) {
+            for (const auto& index : inverted_indexs) {
+                opts.inverted_indexs.emplace_back(index);
+            }
+            opts.need_inverted_index = true;
+            DCHECK(_inverted_index_file_writer != nullptr);
+        }
+>>>>>>> b4f01947a44 ([feature](semi-structure) support variant and index with many features)
     }
+    opts.inverted_index_file_writer = _inverted_index_file_writer;
+
 #define DISABLE_INDEX_IF_FIELD_TYPE(TYPE, type_name)          \
     if (column.type() == FieldType::OLAP_FIELD_TYPE_##TYPE) { \
         opts.need_zone_map = false;                           \
@@ -281,6 +297,14 @@ Status SegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& co
         auto page_size = _tablet_schema->row_store_page_size();
         opts.data_page_size =
                 (page_size > 0) ? page_size : segment_v2::ROW_STORE_PAGE_SIZE_DEFAULT_VALUE;
+    }
+
+    opts.rowset_ctx = _opts.rowset_ctx;
+    opts.file_writer = _file_writer;
+    opts.compression_type = _opts.compression_type;
+    opts.footer = &_footer;
+    if (_opts.rowset_ctx != nullptr) {
+        opts.input_rs_readers = _opts.rowset_ctx->input_rs_readers;
     }
 
     std::unique_ptr<ColumnWriter> writer;
@@ -356,7 +380,8 @@ void SegmentWriter::_maybe_invalid_row_cache(const std::string& key) {
 // 3. merge current columns info(contains extracted columns) with previous merged_tablet_schema
 //    which will be used to contruct the new schema for rowset
 Status SegmentWriter::append_block_with_variant_subcolumns(vectorized::Block& data) {
-    if (_tablet_schema->num_variant_columns() == 0) {
+    if (_tablet_schema->num_variant_columns() == 0 ||
+        !_tablet_schema->need_record_variant_extended_schema()) {
         return Status::OK();
     }
     size_t column_id = _tablet_schema->num_columns();
@@ -404,7 +429,7 @@ Status SegmentWriter::append_block_with_variant_subcolumns(vectorized::Block& da
             int current_column_id = column_id++;
             TabletColumn tablet_column = generate_column_info(entry);
             vectorized::schema_util::inherit_column_attributes(*parent_column, tablet_column,
-                                                               _flush_schema);
+                                                               &_flush_schema);
             RETURN_IF_ERROR(_create_column_writer(current_column_id /*unused*/, tablet_column,
                                                   _flush_schema));
             RETURN_IF_ERROR(_olap_data_convertor->set_source_content_with_specifid_column(
@@ -420,18 +445,6 @@ Status SegmentWriter::append_block_with_variant_subcolumns(vectorized::Block& da
                     column->get_nullmap(), column->get_data(), data.rows()));
             _flush_schema->append_column(tablet_column);
             _olap_data_convertor->clear_source_content();
-        }
-        // sparse_columns
-        for (const auto& entry : vectorized::schema_util::get_sorted_subcolumns(
-                     object_column.get_sparse_subcolumns())) {
-            TabletColumn sparse_tablet_column = generate_column_info(entry);
-            _flush_schema->mutable_column_by_uid(parent_column->unique_id())
-                    .append_sparse_column(sparse_tablet_column);
-
-            // add sparse column to footer
-            auto* column_pb = _footer.mutable_columns(i);
-            init_column_meta(column_pb->add_sparse_columns(), -1, sparse_tablet_column,
-                             _flush_schema);
         }
     }
 
@@ -810,6 +823,10 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
         }
         RETURN_IF_ERROR(_column_writers[id]->append(converted_result.second->get_nullmap(),
                                                     converted_result.second->get_data(), num_rows));
+
+        // caculate stats for variant type
+        // TODO it's tricky here, maybe come up with a better idea
+        _maybe_calculate_variant_stats(block, id, cid, row_pos, num_rows);
     }
     if (_has_key) {
         if (_is_mow_with_cluster_key()) {
@@ -1201,6 +1218,7 @@ Status SegmentWriter::_write_footer() {
 
     // Footer := SegmentFooterPB, FooterPBSize(4), FooterPBChecksum(4), MagicNumber(4)
     std::string footer_buf;
+    VLOG_DEBUG << "footer " << _footer.DebugString();
     if (!_footer.SerializeToString(&footer_buf)) {
         return Status::InternalError("failed to serialize segment footer");
     }
@@ -1324,5 +1342,57 @@ inline bool SegmentWriter::_is_mow() {
 inline bool SegmentWriter::_is_mow_with_cluster_key() {
     return _is_mow() && !_tablet_schema->cluster_key_uids().empty();
 }
+
+// Compaction will extend sparse column and is visible during read and write, in order to
+// persit variant stats info, we should do extra caculation during flushing segment, otherwise
+// the info is lost
+void SegmentWriter::_maybe_calculate_variant_stats(
+        const vectorized::Block* block,
+        size_t id,  // id is the offset of the column in the block
+        size_t cid, // cid is the column id in TabletSchema
+        size_t row_pos, size_t num_rows) {
+    const auto& tablet_column = _tablet_schema->columns()[cid];
+    // Only process sub columns and sparse columns during compaction
+    if (_tablet_schema->need_record_variant_extended_schema() || !tablet_column->has_path_info() ||
+        !tablet_column->path_info_ptr()->need_record_stats() ||
+        _opts.write_type != DataWriteType::TYPE_COMPACTION) {
+        return;
+    }
+
+    // Get parent column's unique ID for matching
+    int64_t parent_unique_id = tablet_column->parent_unique_id();
+
+    // Find matching column in footer
+    for (auto& column : *_footer.mutable_columns()) {
+        // Check if this is the target sparse column
+        if (!column.has_column_path_info() ||
+            column.column_path_info().parrent_column_unique_id() != parent_unique_id) {
+            continue;
+        }
+
+        // sprse column from variant column
+        if (column.column_path_info().path().ends_with(SPARSE_COLUMN_PATH)) {
+            // Found matching column, calculate statistics
+            auto* stats = column.mutable_variant_statistics();
+            vectorized::schema_util::calculate_variant_stats(*block->get_by_position(id).column,
+                                                             stats, row_pos, num_rows);
+            VLOG_DEBUG << "sparse stats columns " << stats->sparse_column_non_null_size_size();
+            break;
+        }
+        // sub column from variant column
+        else if (column.column_path_info().path() == tablet_column->path_info_ptr()->get_path()) {
+            const auto& null_data = assert_cast<const vectorized::ColumnNullable&>(
+                                            *block->get_by_position(id).column)
+                                            .get_null_map_data();
+            const int8_t* start = (int8_t*)null_data.data() + row_pos;
+            // none null size in block + current none null size
+            size_t res = simd::count_zero_num(start, num_rows) + column.none_null_size();
+            column.set_none_null_size(res);
+            VLOG_DEBUG << "none null size " << res << " path: " << column.column_path_info().path();
+            break;
+        }
+    }
+}
+
 } // namespace segment_v2
 } // namespace doris

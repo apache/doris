@@ -148,7 +148,14 @@ public:
         if (iter == nullptr) {
             return Status::OK();
         }
+<<<<<<< HEAD
         if (iter->get_reader()->is_fulltext_index()) {
+=======
+
+        // only string type and bkd inverted index reader can be used for in
+        if (iter->get_reader(segment_v2::InvertedIndexReaderType::STRING_TYPE) == nullptr &&
+            iter->get_reader(segment_v2::InvertedIndexReaderType::BKD) == nullptr) {
+>>>>>>> b4f01947a44 ([feature](semi-structure) support variant and index with many features)
             //NOT support in list when parser is FULLTEXT for expr inverted index evaluate.
             return Status::OK();
         }
@@ -157,7 +164,6 @@ public:
             RETURN_IF_ERROR(iter->read_null_bitmap(&null_bitmap_cache_handle));
             null_bitmap = null_bitmap_cache_handle.get_bitmap();
         }
-        std::string column_name = data_type_with_name.first;
         for (const auto& arg : arguments) {
             Field param_value;
             arg.column->get(0, param_value);
@@ -174,6 +180,7 @@ public:
             RETURN_IF_ERROR(InvertedIndexQueryParamFactory::create_query_value(
                     param_type, &param_value, query_param));
             InvertedIndexQueryType query_type = InvertedIndexQueryType::EQUAL_QUERY;
+<<<<<<< HEAD
             segment_v2::InvertedIndexParam param;
             param.column_name = column_name;
             param.query_value = query_param->get_value();
@@ -183,6 +190,12 @@ public:
             ;
             RETURN_IF_ERROR(iter->read_from_index(&param));
             *roaring |= *param.roaring;
+=======
+            std::shared_ptr<roaring::Roaring> index = std::make_shared<roaring::Roaring>();
+            RETURN_IF_ERROR(iter->read_from_inverted_index(
+                    data_type_with_name, query_param->get_value(), query_type, num_rows, index));
+            *roaring |= *index;
+>>>>>>> b4f01947a44 ([feature](semi-structure) support variant and index with many features)
         }
         segment_v2::InvertedIndexResultBitmap result(roaring, null_bitmap);
         bitmap_result = result;

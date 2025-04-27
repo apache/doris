@@ -71,11 +71,7 @@ public:
     const char* deserialize(const char* buf, MutableColumnPtr* column,
                             int be_exec_version) const override;
 
-    [[noreturn]] Field get_default() const override {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "Method get_default() is not implemented for data type {}.",
-                               get_name());
-    }
+    Field get_default() const override { return Field(); }
 
     [[noreturn]] Field get_field(const TExprNode& node) const override {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
@@ -87,6 +83,11 @@ public:
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
         return std::make_shared<SerDeType>();
     };
+
+    FieldWithDataType get_field_with_data_type(const IColumn& column,
+                                               size_t row_num) const override {
+        return FieldWithDataType(Field());
+    }
 };
 
 } // namespace doris::vectorized

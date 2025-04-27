@@ -20,6 +20,7 @@
 
 #pragma once
 #include <memory>
+#include <unordered_map>
 
 #include "runtime/exec_env.h"
 #include "runtime/thread_context.h"

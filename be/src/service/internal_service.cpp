@@ -1154,6 +1154,10 @@ void PInternalService::fetch_remote_tablet_schema(google::protobuf::RpcControlle
     bool ret = _heavy_work_pool.try_offer([request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
         Status st = Status::OK();
+        std::shared_ptr<MemTrackerLimiter> mem_tracker = MemTrackerLimiter::create_shared(
+                MemTrackerLimiter::Type::OTHER,
+                fmt::format("InternalService::fetch_remote_tablet_schema"));
+        SCOPED_ATTACH_TASK(mem_tracker);
         if (request->is_coordinator()) {
             // Spawn rpc request to none coordinator nodes, and finally merge them all
             PFetchRemoteSchemaRequest remote_request(*request);
@@ -1236,7 +1240,12 @@ void PInternalService::fetch_remote_tablet_schema(google::protobuf::RpcControlle
                     }
                     auto schema = res.value()->merged_tablet_schema();
                     if (schema != nullptr) {
-                        tablet_schemas.push_back(schema);
+                        if (!schema->need_record_variant_extended_schema()) {
+                            schema = res.value()->calculate_variant_extended_schema();
+                        }
+                        if (schema != nullptr) {
+                            tablet_schemas.push_back(schema);
+                        }
                     }
                 }
                 if (!tablet_schemas.empty()) {

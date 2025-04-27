@@ -29,3 +29,11 @@ test with backslash  characters
 -- !select --
 {"a":"a\\nb"}	{"a":"a\\nb"}
 
+-- !select --
+1	{"test with escape \\" characters":123}
+2	{"another test with escape \\\\ characters":123}
+3	{"test with single quote ' characters":123}
+4	{"test with newline \\n characters":123}
+5	{"test with tab \\t characters":123}
+6	{"test with backslash \\b characters":123}
+

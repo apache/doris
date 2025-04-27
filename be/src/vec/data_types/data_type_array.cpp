@@ -39,6 +39,8 @@
 #include "vec/common/string_buffer.hpp"
 #include "vec/common/string_ref.h"
 #include "vec/common/typeid_cast.h"
+#include "vec/core/field.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/io/reader_buffer.h"
 
@@ -362,6 +364,30 @@ Status DataTypeArray::from_string(ReadBuffer& rb, IColumn* column) const {
     }
     offsets.push_back(offsets.back() + element_num);
     return Status::OK();
+}
+
+FieldWithDataType DataTypeArray::get_field_with_data_type(const IColumn& column,
+                                                          size_t row_num) const {
+    const auto& array = assert_cast<const ColumnArray&>(column);
+    auto field = array[row_num];
+    int precision = -1;
+    int scale = -1;
+    auto nested_type = get_nested_type();
+    PrimitiveType nested_type_id = nested_type->get_primitive_type();
+    uint8_t num_dimensions = 1;
+    while (nested_type_id == TYPE_ARRAY) {
+        nested_type = remove_nullable(nested_type);
+        const auto& nested_array = assert_cast<const DataTypeArray&>(*nested_type);
+        nested_type_id = nested_array.get_nested_type()->get_primitive_type();
+        num_dimensions++;
+    }
+    if (is_decimal(nested_type_id)) {
+        precision = nested_type->get_precision();
+        scale = nested_type->get_scale();
+    } else if (nested_type_id == TYPE_DATETIMEV2) {
+        scale = nested_type->get_scale();
+    }
+    return FieldWithDataType(std::move(field), precision, scale, nested_type_id, num_dimensions);
 }
 
 } // namespace doris::vectorized

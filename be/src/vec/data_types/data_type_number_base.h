@@ -120,6 +120,15 @@ public:
 
     Field get_field(const TExprNode& node) const override;
 
+    FieldWithDataType get_field_with_data_type(const IColumn& column,
+                                               size_t row_num) const override {
+        const auto& column_data =
+                assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(column);
+        Field field;
+        column_data.get(row_num, field);
+        return FieldWithDataType(std::move(field));
+    }
+
     int64_t get_uncompressed_serialized_bytes(const IColumn& column,
                                               int be_exec_version) const override;
     char* serialize(const IColumn& column, char* buf, int be_exec_version) const override;

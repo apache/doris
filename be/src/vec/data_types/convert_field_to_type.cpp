@@ -44,6 +44,8 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_nullable.h"
+#include "vec/io/io_helper.h"
+#include "vec/runtime/ipv6_value.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"

@@ -1299,8 +1299,6 @@ DECLARE_mInt64(LZ4_HC_compression_level);
 DECLARE_mDouble(variant_ratio_of_defaults_as_sparse_column);
 DECLARE_mBool(variant_use_cloud_schema_dict_cache);
 // Threshold to estimate a column is sparsed
-// Notice: TEST ONLY
-DECLARE_mInt64(variant_threshold_rows_to_estimate_sparse_column);
 // Treat invalid json format str as string, instead of throwing exception if false
 DECLARE_mBool(variant_throw_exeception_on_invalid_json);
 
@@ -1408,6 +1406,9 @@ DECLARE_Bool(enable_snapshot_action);
 
 // The max columns size for a tablet schema
 DECLARE_mInt32(variant_max_merged_tablet_schema_size);
+
+// The max sparse column statistics size for a variant column
+DECLARE_mInt32(variant_max_sparse_column_statistics_size);
 
 DECLARE_mInt64(local_exchange_buffer_mem_limit);
 

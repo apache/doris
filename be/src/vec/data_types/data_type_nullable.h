@@ -127,6 +127,18 @@ public:
     void to_protobuf(PTypeDesc* ptype, PTypeNode* node, PScalarType* scalar_type) const override {
         nested_data_type->to_protobuf(ptype, node, scalar_type);
     }
+
+    FieldWithDataType get_field_with_data_type(const IColumn& column,
+                                               size_t row_num) const override {
+        const auto& nullable_column =
+                assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(column);
+        if (nullable_column.is_null_at(row_num)) {
+            return FieldWithDataType(Field());
+        }
+        return nested_data_type->get_field_with_data_type(nullable_column.get_nested_column(),
+                                                          row_num);
+    }
+
 #ifdef BE_TEST
     void to_thrift(TTypeDesc& thrift_type, TTypeNode& node) const override {
         nested_data_type->to_thrift(thrift_type, node);
