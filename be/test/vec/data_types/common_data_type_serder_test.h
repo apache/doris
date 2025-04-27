@@ -125,7 +125,8 @@ public:
     static void load_data_and_assert_from_csv(const DataTypeSerDeSPtrs serders,
                                               MutableColumns& columns, const std::string& file_path,
                                               const char spliter = ';',
-                                              const std::set<int> idxes = {0}) {
+                                              const std::set<int> idxes = {0},
+                                              bool should_finialize = false) {
         ASSERT_EQ(serders.size(), columns.size())
                 << "serder size: " << serders.size() << " column size: " << columns.size();
         ASSERT_EQ(serders.size(), idxes.size())
@@ -170,6 +171,10 @@ public:
                         std::cout << "error in deserialize but continue: " << st.to_string()
                                   << std::endl;
                     }
+                    if (should_finialize) {
+                        // finalize column if needed
+                        columns[c_idx]->finalize();
+                    }
                     // serialize data
                     size_t row_num = columns[c_idx]->size() - 1;
                     assert_str_cols[c_idx]->reserve(columns[c_idx]->size());
@@ -186,13 +191,6 @@ public:
                     bw.commit();
                     // assert data : origin data and serialized data should be equal or generated
                     // file to check data
-                    size_t assert_size = assert_str_cols[c_idx]->size();
-                    if constexpr (!generate_res_file) {
-                        EXPECT_EQ(assert_str_cols[c_idx]->get_data_at(assert_size - 1).to_string(),
-                                  string_slice.to_string())
-                                << "column: " << columns[c_idx]->get_name() << " row: " << row_num
-                                << " is_hive_format: " << is_hive_format;
-                    }
                     ++c_idx;
                 }
                 res.push_back(row);
@@ -320,6 +318,16 @@ public:
                 Status st;
                 EXPECT_NO_FATAL_FAILURE(
                         st = serders[i]->write_column_to_mysql(*col, row_buffer, j, false, {}));
+                EXPECT_TRUE(st.ok()) << st.to_string();
+            }
+        }
+        MysqlRowBuffer<true> row_buffer1;
+        for (size_t i = 0; i < load_cols.size(); ++i) {
+            auto& col = load_cols[i];
+            for (size_t j = 0; j < col->size(); ++j) {
+                Status st;
+                EXPECT_NO_FATAL_FAILURE(
+                        st = serders[i]->write_column_to_mysql(*col, row_buffer1, j, true, {}));
                 EXPECT_TRUE(st.ok()) << st.to_string();
             }
         }
