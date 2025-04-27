@@ -899,6 +899,7 @@ public class TransactionState implements Writable {
 
     public void setCalcTaskSignature(long calcTaskSignature) {
         this.calcTaskSignature = calcTaskSignature;
+        LOG.info("set txn={}'s calc task signature to {}", transactionId, calcTaskSignature);
     }
 
     public long getCalcTaskSignature() {
