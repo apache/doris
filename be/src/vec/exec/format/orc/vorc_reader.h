@@ -291,7 +291,7 @@ private:
     static bool _check_acid_schema(const orc::Type& type);
     static const orc::Type& _remove_acid(const orc::Type& type);
     bool _init_search_argument(
-            std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
+            const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
     void _init_bloom_filter(
             std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
     void _init_system_properties();
