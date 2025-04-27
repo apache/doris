@@ -18,6 +18,7 @@
 #include "vec/functions/function_datetime_string_to_string.h"
 
 #include "vec/data_types/data_type_time_v2.h" // IWYU pragma: keep
+#include "vec/functions/date_time_transforms.h"
 #include "vec/functions/simple_function_factory.h"
 #include "vec/runtime/vdatetime_value.h"
 
@@ -28,7 +29,7 @@ using FunctionDateFormatV2 =
         FunctionDateTimeStringToString<DateFormatImpl<DateV2Value<DateV2ValueType>, UInt32>>;
 using FunctionDateTimeV2DateFormat =
         FunctionDateTimeStringToString<DateFormatImpl<DateV2Value<DateTimeV2ValueType>, UInt64>>;
-using FunctionFromUnixTime = FunctionDateTimeStringToString<FromUnixTimeImpl<VecDateTimeValue>>;
+using FunctionFromUnixTime = FunctionDateTimeStringToString<FromUnixTimeImpl>;
 
 void register_function_date_time_string_to_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionDateFormat>();
