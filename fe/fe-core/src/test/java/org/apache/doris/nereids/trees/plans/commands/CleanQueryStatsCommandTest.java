@@ -44,10 +44,6 @@ public class CleanQueryStatsCommandTest {
     InternalCatalog catalog;
     @Mocked
     private ConnectContext connectContext;
-
-    private String jobName = "testJob";
-    private String dbName = "testDb";
-    private String tblName = "testTbl";
     private Database db;
 
     public void runBefore() throws UserException {
@@ -77,10 +73,6 @@ public class CleanQueryStatsCommandTest {
                 connectContext.isSkipAuth();
                 minTimes = 0;
                 result = true;
-
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
             }
         };
     }
@@ -122,7 +114,7 @@ public class CleanQueryStatsCommandTest {
                 result = true;
             }
         };
-        CleanQueryStatsCommand command = new CleanQueryStatsCommand(dbName);
+        CleanQueryStatsCommand command = new CleanQueryStatsCommand(CatalogMocker.TEST_DB_NAME);
         Assertions.assertDoesNotThrow(() -> command.validate(connectContext));
 
         //NoPriviledge
@@ -133,8 +125,8 @@ public class CleanQueryStatsCommandTest {
                 result = false;
             }
         };
-        CleanQueryStatsCommand command2 = new CleanQueryStatsCommand(dbName);
-        Assertions.assertThrows(AnalysisException.class, () -> command2.validate(connectContext), "Access denied; you need (at least one of) the (CLEAN DATABASE QUERY STATS FOR " + ClusterNamespace.getNameFromFullName(dbName) + ") privilege(s) for this operation");
+        CleanQueryStatsCommand command2 = new CleanQueryStatsCommand(CatalogMocker.TEST_DB_NAME);
+        Assertions.assertThrows(AnalysisException.class, () -> command2.validate(connectContext), "Access denied; you need (at least one of) the (CLEAN DATABASE QUERY STATS FOR " + ClusterNamespace.getNameFromFullName(CatalogMocker.TEST_DB_NAME) + ") privilege(s) for this operation");
     }
 
     @Test
