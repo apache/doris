@@ -818,7 +818,7 @@ public class Env {
         this.refreshManager = new RefreshManager();
         this.policyMgr = new PolicyMgr();
         this.indexPolicyMgr = new IndexPolicyMgr();
-        this.extMetaCacheMgr = new ExternalMetaCacheMgr(isCheckpointCatalog);
+        this.extMetaCacheMgr = new ExternalMetaCacheMgr();
         this.analysisManager = new AnalysisManager();
         this.statisticsCleaner = new StatisticsCleaner();
         this.statisticsAutoCollector = new StatisticsAutoCollector();
