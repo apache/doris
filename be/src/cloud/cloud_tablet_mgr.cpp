@@ -269,6 +269,13 @@ void CloudTabletMgr::vacuum_stale_rowsets(const CountDownLatch& stop_latch) {
     }
     LOG_INFO("finish remove pre rowsets delete bitmap")
             .tag("num_tablets", tablets_to_remove_delete_bitmap.size());
+    if (config::enable_check_agg_and_remove_pre_rowsets_delete_bitmap) {
+        OlapStopWatch watch;
+        _tablet_map->traverse(
+                [](auto&& tablet) { tablet->check_agg_delete_bitmap_for_stale_rowsets(); });
+        LOG(INFO) << "finish check_agg_delete_bitmap_for_stale_rowsets, cost(us)="
+                  << watch.get_elapse_time_us();
+    }
 }
 
 std::vector<std::weak_ptr<CloudTablet>> CloudTabletMgr::get_weak_tablets() {

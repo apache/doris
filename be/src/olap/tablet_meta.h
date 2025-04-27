@@ -558,6 +558,9 @@ public:
 
     uint64_t get_delete_bitmap_count();
 
+    void traverse_rowset_and_version(
+            const std::function<int(const RowsetId& rowsetId, int64_t version)>& func) const;
+
     bool has_calculated_for_multi_segments(const RowsetId& rowset_id) const;
 
     // return the size of the map

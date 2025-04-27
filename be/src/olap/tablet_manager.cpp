@@ -1133,6 +1133,17 @@ Status TabletManager::start_trash_sweep() {
     for_each_tablet([](const TabletSharedPtr& tablet) { tablet->delete_expired_stale_rowset(); },
                     filter_all_tablets);
 
+    if (config::enable_check_agg_and_remove_pre_rowsets_delete_bitmap) {
+        OlapStopWatch watch;
+        for_each_tablet(
+                [](const TabletSharedPtr& tablet) {
+                    tablet->check_agg_delete_bitmap_for_stale_rowsets();
+                },
+                filter_all_tablets);
+        LOG(INFO) << "finish check_agg_delete_bitmap_for_stale_rowsets, cost(us)="
+                  << watch.get_elapse_time_us();
+    }
+
     std::list<TabletSharedPtr>::iterator last_it;
     {
         std::shared_lock rdlock(_shutdown_tablets_lock);

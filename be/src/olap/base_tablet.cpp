@@ -1811,6 +1811,74 @@ void BaseTablet::agg_delete_bitmap_for_stale_rowsets(
     tablet_meta()->delete_bitmap().merge(*new_delete_bitmap);
 }
 
+void BaseTablet::check_agg_delete_bitmap_for_stale_rowsets() {
+    std::set<RowsetId> rowset_ids;
+    std::set<int64_t> end_versions;
+    traverse_rowsets(
+            [&rowset_ids, &end_versions](const RowsetSharedPtr& rs) {
+                rowset_ids.emplace(rs->rowset_id());
+                end_versions.emplace(rs->end_version());
+            },
+            true);
+
+    std::set<RowsetId> useless_rowsets;
+    std::map<RowsetId, std::vector<int64_t>> useless_rowset_versions;
+    {
+        _tablet_meta->delete_bitmap().traverse_rowset_and_version(
+                // 0: rowset and rowset with version exists
+                // -1: rowset does not exist
+                // -2: rowset exist, rowset with version does not exist
+                [&](const RowsetId& rowset_id, int64_t version) {
+                    if (rowset_ids.find(rowset_id) == rowset_ids.end()) {
+                        useless_rowsets.emplace(rowset_id);
+                        return -1;
+                    }
+                    if (end_versions.find(version) == end_versions.end()) {
+                        if (useless_rowset_versions.find(rowset_id) ==
+                            useless_rowset_versions.end()) {
+                            useless_rowset_versions[rowset_id] = {};
+                        }
+                        useless_rowset_versions[rowset_id].emplace_back(version);
+                        return -2;
+                    }
+                    return 0;
+                });
+    }
+    if (!useless_rowsets.empty() || !useless_rowset_versions.empty()) {
+        std::stringstream ss;
+        if (!useless_rowsets.empty()) {
+            ss << "useless rowsets: {";
+            for (auto it = useless_rowsets.begin(); it != useless_rowsets.end(); ++it) {
+                if (it != useless_rowsets.begin()) {
+                    ss << ", ";
+                }
+                ss << it->to_string();
+            }
+            ss << "}. ";
+        }
+        if (!useless_rowset_versions.empty()) {
+            ss << "useless rowset versions: {";
+            for (auto iter = useless_rowset_versions.begin(); iter != useless_rowset_versions.end();
+                 ++iter) {
+                if (iter != useless_rowset_versions.begin()) {
+                    ss << ", ";
+                }
+                ss << iter->first.to_string() << ": [";
+                for (auto it = iter->second.begin(); it != iter->second.end(); ++it) {
+                    if (it != iter->second.begin()) {
+                        ss << ", ";
+                    }
+                    ss << *it;
+                }
+                ss << "]";
+            }
+            ss << "}.";
+        }
+        LOG(WARNING) << "failed check_agg_delete_bitmap_for_stale_rowsets for tablet_id="
+                     << tablet_id() << ". " << ss.str();
+    }
+}
+
 RowsetSharedPtr BaseTablet::get_rowset(const RowsetId& rowset_id) {
     std::shared_lock rdlock(_meta_lock);
     for (auto& version_rowset : _rs_version_map) {
