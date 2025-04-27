@@ -79,8 +79,9 @@ PaimonJniReader::PaimonJniReader(const std::vector<SlotDescriptor*>& file_slot_d
             params[HADOOP_OPTION_PREFIX + kv.first] = kv.second;
         }
     }
+    int64_t self_split_weight = range.__isset.self_split_weight ? range.self_split_weight : -1;
     _jni_connector = std::make_unique<JniConnector>("org/apache/doris/paimon/PaimonJniScanner",
-                                                    params, column_names);
+                                                    params, column_names, self_split_weight);
 }
 
 Status PaimonJniReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
@@ -112,7 +113,7 @@ Status PaimonJniReader::get_columns(std::unordered_map<std::string, TypeDescript
 }
 
 Status PaimonJniReader::init_reader(
-        std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
+        const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
     _colname_to_value_range = colname_to_value_range;
     RETURN_IF_ERROR(_jni_connector->init(colname_to_value_range));
     return _jni_connector->open(_state, _profile);

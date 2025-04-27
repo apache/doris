@@ -48,6 +48,7 @@ import org.apache.doris.nereids.trees.plans.commands.CancelMTMVTaskCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelWarmUpJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.CleanAllProfileCommand;
 import org.apache.doris.nereids.trees.plans.commands.Command;
+import org.apache.doris.nereids.trees.plans.commands.CopyIntoCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateEncryptkeyCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateFileCommand;
@@ -204,6 +205,7 @@ import org.apache.doris.nereids.trees.plans.commands.clean.CleanLabelCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.BatchInsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.load.CreateDataSyncJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.load.CreateRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshDatabaseCommand;
@@ -261,6 +263,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitExportCommand(ExportCommand exportCommand, C context) {
         return visitCommand(exportCommand, context);
+    }
+
+    default R visitCopyIntoCommand(CopyIntoCommand copyIntoCommand, C context) {
+        return visitCommand(copyIntoCommand, context);
     }
 
     default R visitCreateEncryptKeyCommand(CreateEncryptkeyCommand createEncryptKeyCommand, C context) {
@@ -957,6 +963,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitAlterColumnStatsCommand(AlterColumnStatsCommand alterColumnStatsCommand, C context) {
         return visitCommand(alterColumnStatsCommand, context);
+    }
+
+    default R visitCreateDataSyncJobCommand(CreateDataSyncJobCommand createDataSyncJobCommand, C context) {
+        return visitCommand(createDataSyncJobCommand, context);
     }
 
     default R visitDropResourceCommand(DropResourceCommand dropResourceCommand, C context) {
