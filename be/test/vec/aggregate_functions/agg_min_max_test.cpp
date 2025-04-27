@@ -156,7 +156,7 @@ TEST_P(AggMinMaxTest, min_max_string_test) {
     agg_function->destroy(place);
 }
 
-TEST_F(AggMinMaxTest, any_json_test) {
+TEST_P(AggMinMaxTest, any_json_test) {
     // Prepare test data with JSON
     auto column_vector_json = ColumnString::create();
     std::string json_data = "{}";
