@@ -168,7 +168,7 @@ public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPost
         WorkloadGroup wg = nameToWorkloadGroup.get(Pair.of(cgName, wgName));
         if (wg == null) {
             throw new DdlException(
-                    "Can not find workload group " + cgName + " in compute group " + wgName + ".");
+                    "Can not find workload group " + wgName + " in compute group " + cgName + ".");
         }
         return wg;
     }
