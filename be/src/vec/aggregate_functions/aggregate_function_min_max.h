@@ -23,19 +23,16 @@
 #include <fmt/format.h>
 #include <string.h>
 
-#include <cstddef>
 #include <memory>
 #include <vector>
 
 #include "common/cast_set.h"
-#include "common/compiler_util.h"
 #include "common/logging.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_fixed_length_object.h"
 #include "vec/columns/column_string.h"
 #include "vec/common/assert_cast.h"
-#include "vec/common/pod_array.h"
 #include "vec/common/string_buffer.hpp"
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
