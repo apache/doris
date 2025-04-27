@@ -39,9 +39,9 @@ public class ShowBackendsCommandTest extends TestWithFeService {
     @Mocked
     private Env env;
     @Mocked
-    private ConnectContext ctx;
-    @Mocked
     private AccessControllerManager accessControllerManager;
+    @Mocked
+    private ConnectContext ctx;
     @Mocked
     private InternalCatalog catalog;
     @Mocked
@@ -57,6 +57,14 @@ public class ShowBackendsCommandTest extends TestWithFeService {
                 env.getAccessManager();
                 minTimes = 0;
                 result = accessControllerManager;
+
+                env.getCatalogMgr();
+                minTimes = 0;
+                result = catalogMgr;
+
+                catalogMgr.getCatalog(anyString);
+                minTimes = 0;
+                result = catalog;
 
                 ConnectContext.get();
                 minTimes = 0;
@@ -87,6 +95,14 @@ public class ShowBackendsCommandTest extends TestWithFeService {
                 env.getAccessManager();
                 minTimes = 0;
                 result = accessControllerManager;
+
+                env.getCatalogMgr();
+                minTimes = 0;
+                result = catalogMgr;
+
+                catalogMgr.getCatalog(anyString);
+                minTimes = 0;
+                result = catalog;
 
                 ConnectContext.get();
                 minTimes = 0;

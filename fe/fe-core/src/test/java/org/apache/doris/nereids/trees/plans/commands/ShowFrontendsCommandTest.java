@@ -58,6 +58,14 @@ public class ShowFrontendsCommandTest extends TestWithFeService {
                 minTimes = 0;
                 result = accessControllerManager;
 
+                env.getCatalogMgr();
+                minTimes = 0;
+                result = catalogMgr;
+
+                catalogMgr.getCatalog(anyString);
+                minTimes = 0;
+                result = catalog;
+
                 ConnectContext.get();
                 minTimes = 0;
                 result = connectContext;
@@ -87,6 +95,14 @@ public class ShowFrontendsCommandTest extends TestWithFeService {
                 env.getAccessManager();
                 minTimes = 0;
                 result = accessControllerManager;
+
+                env.getCatalogMgr();
+                minTimes = 0;
+                result = catalogMgr;
+
+                catalogMgr.getCatalog(anyString);
+                minTimes = 0;
+                result = catalog;
 
                 ConnectContext.get();
                 minTimes = 0;
