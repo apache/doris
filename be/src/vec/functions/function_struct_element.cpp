@@ -83,7 +83,7 @@ public:
         Status res = get_element_index(*struct_type, index_column, index_type, &index);
         if (res.ok()) {
             ColumnPtr res_column = struct_col->get_column_ptr(index);
-            block.replace_by_position(result, res_column->clone_resized(res_column->size()));
+            block.replace_by_position(result, std::move(res_column));
             return res;
         }
         return res;
