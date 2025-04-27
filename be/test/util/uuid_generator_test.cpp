@@ -18,9 +18,9 @@
 #include "util/uuid_generator.h"
 
 #include <gtest/gtest.h>
-#include <boost/uuid/uuid_io.hpp>
 
 #include <algorithm>
+#include <boost/uuid/uuid_io.hpp>
 #include <chrono>
 #include <iomanip>
 #include <sstream>
@@ -61,9 +61,7 @@ class UUIDGeneratorTest : public testing::Test {
 protected:
     UUIDGenerator* _generator;
 
-    void SetUp() override {
-        _generator = UUIDGenerator::instance();
-    }
+    void SetUp() override { _generator = UUIDGenerator::instance(); }
 };
 
 // Test that UUIDs are unique
@@ -95,8 +93,7 @@ TEST_F(UUIDGeneratorTest, TestMonotonicIncrease) {
         uint64_t timestamp = extract_timestamp_from_uuid(uuid);
 
         // Timestamp should be >= the previous one (either equal or greater)
-        ASSERT_GE(timestamp, prev_timestamp)
-                << "UUID timestamp not monotonically increasing";
+        ASSERT_GE(timestamp, prev_timestamp) << "UUID timestamp not monotonically increasing";
 
         prev_uuid = uuid;
         prev_timestamp = timestamp;
@@ -116,8 +113,7 @@ TEST_F(UUIDGeneratorTest, TestRandomComponent) {
     // Check that all random parts are unique
     std::sort(random_parts.begin(), random_parts.end());
     auto it = std::adjacent_find(random_parts.begin(), random_parts.end());
-    ASSERT_EQ(it, random_parts.end())
-            << "Random component is not unique between UUIDs";
+    ASSERT_EQ(it, random_parts.end()) << "Random component is not unique between UUIDs";
 }
 
 // Test parallel generation of UUIDs to ensure they're still unique
@@ -154,13 +150,15 @@ TEST_F(UUIDGeneratorTest, TestParallelGeneration) {
 // Test that timestamps extracted from UUIDs correlate with real time
 TEST_F(UUIDGeneratorTest, TestTimestampCorrelation) {
     auto before = std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::system_clock::now().time_since_epoch()).count();
+                          std::chrono::system_clock::now().time_since_epoch())
+                          .count();
 
     // Generate a UUID
     boost::uuids::uuid uuid = _generator->next_uuid();
 
     auto after = std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::system_clock::now().time_since_epoch()).count();
+                         std::chrono::system_clock::now().time_since_epoch())
+                         .count();
 
     uint64_t uuid_timestamp = extract_timestamp_from_uuid(uuid);
 
