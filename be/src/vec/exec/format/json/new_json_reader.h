@@ -292,8 +292,6 @@ private:
     // column to default value string map
     std::unordered_map<std::string, std::string> _col_default_value_map;
 
-    bool _is_load = true;
-
     //Used to indicate whether it is a stream load. When loading, only data will be inserted into columnString.
     //If an illegal value is encountered during the load process, `_append_error_msg` should be called
     //instead of directly returning `Status::DataQualityError`
