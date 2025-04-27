@@ -21,6 +21,7 @@ import org.apache.doris.analysis.StmtType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.Command;
+import org.apache.doris.nereids.trees.plans.commands.ForwardWithSync;
 import org.apache.doris.nereids.trees.plans.commands.info.LabelNameInfo;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
@@ -32,7 +33,7 @@ import org.apache.doris.qe.StmtExecutor;
   syntax:
       STOP ROUTINE LOAD [database.]name
  */
-public class StopRoutineLoadCommand extends Command {
+public class StopRoutineLoadCommand extends Command implements ForwardWithSync {
 
     private final LabelNameInfo labelNameInfo;
 
@@ -55,7 +56,7 @@ public class StopRoutineLoadCommand extends Command {
         ctx.getEnv().getRoutineLoadManager().stopRoutineLoadJob(this);
     }
 
-    private void validate(ConnectContext ctx) throws AnalysisException {
+    public void validate(ConnectContext ctx) throws AnalysisException {
         labelNameInfo.validate(ctx);
     }
 

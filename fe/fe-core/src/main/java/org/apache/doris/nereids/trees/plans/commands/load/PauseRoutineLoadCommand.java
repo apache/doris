@@ -23,6 +23,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.Command;
+import org.apache.doris.nereids.trees.plans.commands.ForwardWithSync;
 import org.apache.doris.nereids.trees.plans.commands.info.LabelNameInfo;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
@@ -36,7 +37,7 @@ import com.google.common.base.Strings;
   syntax:
       PAUSE ROUTINE LOAD [database.]name
  */
-public class PauseRoutineLoadCommand extends Command {
+public class PauseRoutineLoadCommand extends Command implements ForwardWithSync {
     private final LabelNameInfo labelNameInfo;
     private final boolean isAll;
     private String db;
@@ -71,7 +72,10 @@ public class PauseRoutineLoadCommand extends Command {
         ctx.getEnv().getRoutineLoadManager().pauseRoutineLoadJob(this);
     }
 
-    private void validate(ConnectContext ctx) throws AnalysisException {
+    /**
+     * validate
+     */
+    public void validate(ConnectContext ctx) throws AnalysisException {
         if (labelNameInfo != null) {
             labelNameInfo.validate(ctx);
             db = labelNameInfo.getDb();
