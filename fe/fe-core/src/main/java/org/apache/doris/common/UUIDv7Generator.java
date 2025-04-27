@@ -45,35 +45,62 @@ package org.apache.doris.common;
 // |                            rand_b                             |
 // +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 
-import java.security.SecureRandom;
 import java.time.Instant;
+import java.util.Random;
 import java.util.UUID;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.locks.ReentrantLock;
 
 public class UUIDv7Generator {
     private static final UUIDv7Generator INSTANCE = new UUIDv7Generator();
-    private static final SecureRandom RANDOM = new SecureRandom();
+    private static final Random RANDOM = ThreadLocalRandom.current();
     private static final AtomicInteger COUNTER = new AtomicInteger(0);
-    private static final long VERSION = 7 << 12;
-    private static final long VARIANT = 2 << 62;
+    private static final long VERSION = 7L << 12;
+    private static final long VARIANT = 2L << 62;
 
-    private UUIDv7Generator() {}
+    // For synchronizing timestamp access
+    private final ReentrantLock lock = new ReentrantLock();
+    private long lastTimestamp = 0;
+
+    private UUIDv7Generator() {
+        // Initialize with current timestamp
+        lastTimestamp = Instant.now().toEpochMilli();
+    }
 
     public static UUIDv7Generator getInstance() {
         return INSTANCE;
     }
 
     public UUID nextUUID() {
-        long timestamp = Instant.now().toEpochMilli();
+        lock.lock();
+        try {
+            // Get current timestamp
+            long timestamp = Instant.now().toEpochMilli();
 
-        int counter = COUNTER.getAndIncrement() & 0xFFF;
+            // Ensure the timestamp is monotonic
+            if (timestamp <= lastTimestamp) {
+                timestamp = lastTimestamp;
+            } else {
+                lastTimestamp = timestamp;
+            }
 
-        long random = RANDOM.nextLong();
+            // Get counter value (12 bits)
+            int counter = COUNTER.getAndIncrement() & 0xFFF;
 
-        long msb = (timestamp << 16) | VERSION | counter;
+            // Generate random bits for the lower part
+            long random = RANDOM.nextLong();
 
-        long lsb = VARIANT | (random & 0x3FFFFFFFFFFFFFFFL);
+            // Build UUID components
+            // Timestamp (48 bits) + Version (4 bits) + Counter (12 bits)
+            long msb = (timestamp << 16) | VERSION | counter;
 
-        return new UUID(msb, lsb);
+            // Variant (2 bits) + Random (62 bits)
+            long lsb = VARIANT | (random & 0x3FFFFFFFFFFFFFFFL);
+
+            return new UUID(msb, lsb);
+        } finally {
+            lock.unlock();
+        }
     }
 }
