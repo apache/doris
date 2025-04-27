@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.trees.plans.commands.info.LabelNameInfo;
 import org.apache.doris.nereids.trees.plans.commands.load.PauseRoutineLoadCommand;
 import org.apache.doris.qe.ConnectContext;
@@ -34,7 +35,7 @@ public class PauseRoutineLoadCommandTest {
         Assertions.assertDoesNotThrow(() -> command.validate(ctx));
 
         PauseRoutineLoadCommand command2 = new PauseRoutineLoadCommand();
-        Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class, () -> command2.validate(ctx),
+        Assertions.assertThrows(AnalysisException.class, () -> command2.validate(ctx),
                 "No database selected");
 
         ctx.setDatabase("testDB");

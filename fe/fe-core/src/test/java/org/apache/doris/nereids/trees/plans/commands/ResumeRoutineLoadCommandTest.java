@@ -17,38 +17,29 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.trees.plans.commands.info.LabelNameInfo;
 import org.apache.doris.nereids.trees.plans.commands.load.ResumeRoutineLoadCommand;
 import org.apache.doris.qe.ConnectContext;
 
-import mockit.Expectations;
-import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 public class ResumeRoutineLoadCommandTest {
-    @Mocked
-    private ConnectContext connectContext;
-
-    private void runBefore() {
-        new Expectations() {
-            {
-                ConnectContext.get();
-                minTimes = 0;
-                result = connectContext;
-            }
-        };
-    }
 
     @Test
     public void test() throws Exception {
-        runBefore();
+        ConnectContext ctx = new ConnectContext();
         LabelNameInfo labelNameInfo = new LabelNameInfo("testDB", "label0");
         ResumeRoutineLoadCommand command = new ResumeRoutineLoadCommand(labelNameInfo);
-        Assertions.assertDoesNotThrow(() -> command.validate(connectContext));
+        Assertions.assertDoesNotThrow(() -> command.validate(ctx));
 
-        connectContext.setDatabase("testDB");
         ResumeRoutineLoadCommand command2 = new ResumeRoutineLoadCommand();
-        Assertions.assertDoesNotThrow(() -> command2.validate(connectContext));
+        Assertions.assertThrows(AnalysisException.class, () -> command2.validate(ctx),
+                "No database selected");
+
+        ctx.setDatabase("testDB");
+        ResumeRoutineLoadCommand command3 = new ResumeRoutineLoadCommand();
+        Assertions.assertDoesNotThrow(() -> command3.validate(ctx));
     }
 }
