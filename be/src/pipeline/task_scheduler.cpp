@@ -112,7 +112,6 @@ void TaskScheduler::_do_work(int index) {
         if (task->is_finalized()) {
             continue;
         }
-
         auto fragment_context = task->fragment_context().lock();
         if (!fragment_context) {
             // Fragment already finished

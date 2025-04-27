@@ -164,7 +164,6 @@ void QueryContext::_init_query_mem_tracker() {
         query_mem_tracker->enable_print_log_usage();
     }
 
-    _resource_ctx->memory_context()->set_mem_tracker(query_mem_tracker);
     // If enable reserve memory, not enable check limit, because reserve memory will check it.
     // If reserve enabled, even if the reserved memory size is smaller than the actual requested memory,
     // and the query memory consumption is larger than the limit, we do not expect the query to fail
@@ -173,6 +172,7 @@ void QueryContext::_init_query_mem_tracker() {
     // If the workload group or process runs out of memory, it will be forced to cancel.
     query_mem_tracker->set_enable_check_limit(!(_query_options.__isset.enable_reserve_memory &&
                                                 _query_options.enable_reserve_memory));
+    _resource_ctx->memory_context()->set_mem_tracker(query_mem_tracker);
 }
 
 void QueryContext::_init_resource_context() {
