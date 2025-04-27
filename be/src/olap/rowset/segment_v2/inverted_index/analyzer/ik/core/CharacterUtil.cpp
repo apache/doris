@@ -74,7 +74,7 @@ bool CharacterUtil::decodeString(const char* str, size_t length, RuneStrArray& r
     return cppjieba::DecodeRunesInString(str, length, runes);
 }
 
-void CharacterUtil::decodeStringToRunes(const char* str, size_t length, TypedRuneArray& typed_runes,
+void CharacterUtil::decodeStringToRunes(char* str, size_t length, TypedRuneArray& typed_runes,
                                         bool use_lowercase) {
     typed_runes.clear();
     size_t byte_pos = 0;
@@ -83,6 +83,9 @@ void CharacterUtil::decodeStringToRunes(const char* str, size_t length, TypedRun
         RuneStrLite runeStr = decodeChar(str + byte_pos, length - byte_pos);
         if (runeStr.len == 0) {
             break;
+        }
+        if (runeStr.len == 1 && use_lowercase && str[byte_pos] >= 'A' && str[byte_pos] <= 'Z') {
+            str[byte_pos] += 32;
         }
         typed_runes.emplace_back(runeStr.rune, byte_pos, runeStr.len, typed_runes.size(), 1);
 

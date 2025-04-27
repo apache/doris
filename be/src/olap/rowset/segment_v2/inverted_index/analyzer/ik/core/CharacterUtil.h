@@ -72,7 +72,7 @@ public:
 
     static int32_t identifyCharType(int32_t rune);
 
-    static void decodeStringToRunes(const char* str, size_t length, TypedRuneArray& typed_runes,
+    static void decodeStringToRunes(char* str, size_t length, TypedRuneArray& typed_runes,
                                     bool use_lowercase);
 
     static int32_t regularize(int32_t rune, bool use_lowercase);
