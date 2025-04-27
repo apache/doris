@@ -112,14 +112,15 @@ suite("test_drop_column_with_format_v2", "inverted_index_format_v2"){
 
     tablets = sql_return_maparray """ show tablets from ${tableName}; """
     tablet_id = tablets[0].TabletId
-
-    check_nested_index_file(ip, port, tablet_id, 7, 1, "V2")
+    // when drop column, the index files will not be deleted, so the index files count is still 2
+    check_nested_index_file(ip, port, tablet_id, 7, 2, "V2")
 
     sql """ ALTER TABLE ${tableName} DROP COLUMN name; """
     wait_for_latest_op_on_table_finish(tableName, timeout)
 
     tablets = sql_return_maparray """ show tablets from ${tableName}; """
     tablet_id = tablets[0].TabletId
-
-    check_nested_index_file(ip, port, tablet_id, 7, 0, "V2")
+    // when drop column, the index files will not be deleted, so the index files count is still 2
+    // when all index columns are dropped, the index files will be deleted by GC later
+    check_nested_index_file(ip, port, tablet_id, 7, 2, "V2")
 }

@@ -1462,8 +1462,8 @@ void TabletSchema::update_indexes_from_thrift(const std::vector<doris::TOlapTabl
                 auto& pattern_to_index_map = _index_by_unique_id_with_pattern[col_uid];
                 pattern_to_index_map[field_pattern].emplace_back(index);
             } else {
-                IndexKey key = std::make_tuple(index->index_type(), col_uid,
-                                                index->get_index_suffix());
+                IndexKey key =
+                        std::make_tuple(index->index_type(), col_uid, index->get_index_suffix());
                 _col_id_suffix_to_index[key].push_back(index_pos);
             }
         }
