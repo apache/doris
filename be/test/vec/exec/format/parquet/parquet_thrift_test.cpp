@@ -22,16 +22,15 @@
 #include <glog/logging.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
-#include <math.h>
-#include <stdint.h>
 #include <sys/types.h>
 
 #include <algorithm>
+#include <cmath>
+#include <cstdint>
 #include <memory>
 #include <new>
 #include <ostream>
 #include <string>
-#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -42,7 +41,6 @@
 #include "io/fs/buffered_reader.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
-#include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/decimalv2_value.h"
 #include "runtime/define_primitive_type.h"
@@ -57,8 +55,6 @@
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/data_types/data_type.h"
-#include "vec/data_types/data_type_factory.hpp"
-#include "vec/exec/format/parquet/parquet_column_convert.h"
 #include "vec/exec/format/parquet/parquet_common.h"
 #include "vec/exec/format/parquet/parquet_thrift_util.h"
 #include "vec/exec/format/parquet/schema_desc.h"
@@ -66,12 +62,11 @@
 #include "vec/exec/format/parquet/vparquet_file_metadata.h"
 #include "vec/exec/format/parquet/vparquet_group_reader.h"
 
-namespace doris {
-namespace vectorized {
+namespace doris::vectorized {
 
 class ParquetThriftReaderTest : public testing::Test {
 public:
-    ParquetThriftReaderTest() {}
+    ParquetThriftReaderTest() = default;
 };
 
 TEST_F(ParquetThriftReaderTest, normal) {
@@ -291,12 +286,14 @@ static doris::TupleDescriptor* create_tuple_desc(
 
     for (int i = 0; i < column_descs.size(); ++i) {
         TSlotDescriptor t_slot_desc;
-        if (column_descs[i].type == TYPE_DECIMALV2) {
-            t_slot_desc.__set_slotType(TypeDescriptor::create_decimalv2_type(27, 9).to_thrift());
+        if (column_descs[i].type == TYPE_DECIMAL128I) {
+            t_slot_desc.__set_slotType(TypeDescriptor::create_decimalv3_type(27, 9).to_thrift());
         } else {
             TypeDescriptor descriptor(column_descs[i].type);
-            if (column_descs[i].precision >= 0 && column_descs[i].scale >= 0) {
+            if (column_descs[i].precision >= 0) {
                 descriptor.precision = column_descs[i].precision;
+            }
+            if (column_descs[i].scale >= 0) {
                 descriptor.scale = column_descs[i].scale;
             }
             t_slot_desc.__set_slotType(descriptor.to_thrift());
@@ -355,13 +352,12 @@ static void create_block(std::unique_ptr<vectorized::Block>& block) {
             {"binary_col", TYPE_STRING, sizeof(StringRef), true},
             // 64-bit-length, see doris::get_slot_size in primitive_type.cpp
             {"timestamp_col", TYPE_DATETIMEV2, sizeof(int128_t), true},
-            {"decimal_col", TYPE_DECIMALV2, sizeof(DecimalV2Value), true},
+            {"decimal_col", TYPE_DECIMAL128I, sizeof(Decimal128V3), true},
             {"char_col", TYPE_CHAR, sizeof(StringRef), true},
             {"varchar_col", TYPE_VARCHAR, sizeof(StringRef), true},
             {"date_col", TYPE_DATEV2, sizeof(uint32_t), true},
             {"date_v2_col", TYPE_DATEV2, sizeof(uint32_t), true},
             {"timestamp_v2_col", TYPE_DATETIMEV2, sizeof(int128_t), true, 18, 0}};
-    SchemaScanner schema_scanner(column_descs);
     ObjectPool object_pool;
     doris::TupleDescriptor* tuple_desc = create_tuple_desc(&object_pool, column_descs);
     auto tuple_slots = tuple_desc->slots();
@@ -462,6 +458,4 @@ TEST_F(ParquetThriftReaderTest, dict_decoder) {
     read_parquet_data_and_check("./be/test/exec/test_data/parquet_scanner/dict-decoder.parquet",
                                 "./be/test/exec/test_data/parquet_scanner/dict-decoder.txt", 12);
 }
-} // namespace vectorized
-
-} // namespace doris
+} // namespace doris::vectorized
