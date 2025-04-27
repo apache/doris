@@ -150,6 +150,8 @@ suite("regression_test_variant_github_events_p2", "nonConcurrent,p2"){
     def table_name = "github_events"
     sql """DROP TABLE IF EXISTS ${table_name}"""
     table_name = "github_events"
+    int rand_subcolumns_count = Math.floor(Math.random() * (611 - 511 + 1)) + 511
+    // int rand_subcolumns_count = 0;
     sql """
         CREATE TABLE IF NOT EXISTS ${table_name} (
             k bigint,
@@ -157,10 +159,10 @@ suite("regression_test_variant_github_events_p2", "nonConcurrent,p2"){
             -- INDEX idx_var(v) USING INVERTED PROPERTIES("parser" = "english") COMMENT ''
         )
         DUPLICATE KEY(`k`)
-        DISTRIBUTED BY HASH(k) BUCKETS 4
-        properties("replication_num" = "1", "disable_auto_compaction" = "true", "bloom_filter_columns" = "v", "variant_enable_flatten_nested" = "true");
+        DISTRIBUTED BY HASH(k) BUCKETS 4 
+        properties("replication_num" = "1", "disable_auto_compaction" = "true", "variant_enable_flatten_nested" = "false", "variant_max_subcolumns_count" = "${rand_subcolumns_count}");
     """
-    set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "1")
+    
     // 2015
     load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2015-01-01-0.json'}""")
     load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2015-01-01-1.json'}""")
@@ -197,14 +199,15 @@ suite("regression_test_variant_github_events_p2", "nonConcurrent,p2"){
     qt_sql """select cast(v["payload"]["pull_request"]["additions"] as int)  from github_events where cast(v["repo"]["name"] as string) = 'xpressengine/xe-core' order by 1;"""
     qt_sql """select * from github_events where  cast(v["repo"]["name"] as string) = 'xpressengine/xe-core' order by 1 limit 10"""
     sql """select * from github_events order by k limit 10"""
+    sql "DROP TABLE IF EXISTS github_events2"
     sql """
      CREATE TABLE IF NOT EXISTS github_events2 (
             k bigint,
             v variant not null
         )
         UNIQUE KEY(`k`)
-        DISTRIBUTED BY HASH(k) BUCKETS 4
-        properties("replication_num" = "1", "disable_auto_compaction" = "false", "bloom_filter_columns" = "v", "variant_enable_flatten_nested" = "true");
+        DISTRIBUTED BY HASH(k) BUCKETS 4 
+        properties("replication_num" = "1", "disable_auto_compaction" = "false", "variant_enable_flatten_nested" = "false", "bloom_filter_columns" = "v", "variant_max_subcolumns_count" = "${rand_subcolumns_count}");
         """
     sql """insert into github_events2 select * from github_events order by k"""
     sql """select v['payload']['commits'] from github_events order by k ;"""
@@ -213,4 +216,11 @@ suite("regression_test_variant_github_events_p2", "nonConcurrent,p2"){
     // query with inverted index
     qt_sql """select cast(v["payload"]["pull_request"]["additions"] as int)  from github_events where v["repo"]["name"] match 'xpressengine' order by 1;"""
     qt_sql """select count()  from github_events where v["repo"]["name"] match 'apache' order by 1;"""
+
+    // specify schema
+    // sql "alter table github_events2 modify column v variant<`payload.comment.id`:int,`payload.commits.url`:text,`payload.forkee.has_pages`:tinyint>"
+    // load_json_data.call("github_events2", """${getS3Url() + '/regression/gharchive.m/2022-11-07-23.json'}""")
+    // qt_sql "select * from github_events2 WHERE 1=1  ORDER BY k DESC LIMIT 10"
+    // qt_sql "select v['payload']['commits'] from github_events2 WHERE 1=1  ORDER BY k DESC LIMIT 10"
+    // qt_sql "select v['payload']['commits']['url'] from github_events2 WHERE 1=1  ORDER BY k DESC LIMIT 10"
 }

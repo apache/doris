@@ -316,13 +316,7 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
         const Field* col = _schema->column(i);
         if (col) {
             auto storage_type = _segment->get_data_type_of(
-                    Segment::ColumnIdentifier {
-                            col->unique_id(),
-                            col->parent_unique_id(),
-                            col->path(),
-                            col->is_nullable(),
-                    },
-                    _opts.io_ctx.reader_type != ReaderType::READER_QUERY);
+                    col->get_desc(), _opts.io_ctx.reader_type != ReaderType::READER_QUERY);
             if (storage_type == nullptr) {
                 storage_type = vectorized::DataTypeFactory::instance().create_data_type(*col);
             }
@@ -543,6 +537,23 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
             }
         }
     }
+    DBUG_EXECUTE_IF("segment_iterator.apply_inverted_index", {
+        LOG(INFO) << "Debug Point: segment_iterator.apply_inverted_index";
+        if (!_common_expr_ctxs_push_down.empty() || !_col_predicates.empty()) {
+            return Status::Error<ErrorCode::INTERNAL_ERROR>("it is failed to apply inverted index");
+        }
+    })
+    DBUG_EXECUTE_IF("segment_iterator.inverted_index.filtered_rows", {
+        LOG(INFO) << "Debug Point: segment_iterator.inverted_index.filtered_rows";
+        auto filtered_rows = DebugPoints::instance()->get_debug_param_or_default<int32_t>(
+                "segment_iterator.inverted_index.filtered_rows", "filtered_rows", 0);
+        if (filtered_rows != _opts.stats->rows_inverted_index_filtered) {
+            return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                    "filtered_rows: {} not equal to expected: {}",
+                    _opts.stats->rows_inverted_index_filtered, filtered_rows);
+        }
+    })
+
     if (!_row_bitmap.isEmpty() &&
         (!_opts.topn_filter_source_node_ids.empty() || !_opts.col_id_to_predicates.empty() ||
          _opts.delete_condition_predicates->num_of_column_predicate() > 0)) {
@@ -1080,12 +1091,22 @@ Status SegmentIterator::_init_inverted_index_iterators() {
             // This is because the sub-column is created in create_materialized_variant_column.
             // We use this column to locate the metadata for the inverted index, which requires a unique_id and path.
             const auto& column = _opts.tablet_schema->column(cid);
-            int32_t col_unique_id =
-                    column.is_extracted_column() ? column.parent_unique_id() : column.unique_id();
-            RETURN_IF_ERROR(_segment->new_inverted_index_iterator(
-                    column,
-                    _segment->_tablet_schema->inverted_index(col_unique_id, column.suffix_path()),
-                    _opts, &_inverted_index_iterators[cid]));
+            const TabletIndex* index_meta = nullptr;
+            if (column.is_extracted_column()) {
+                if (_segment->_column_readers.find(column.parent_unique_id()) ==
+                    _segment->_column_readers.end()) {
+                    continue;
+                }
+                auto* column_reader = _segment->_column_readers.at(column.parent_unique_id()).get();
+                index_meta = assert_cast<VariantColumnReader*>(column_reader)
+                                     ->find_subcolumn_tablet_index(column.suffix_path());
+            } else {
+                index_meta = _segment->_tablet_schema->inverted_index(column.unique_id());
+            }
+            if (index_meta) {
+                RETURN_IF_ERROR(_segment->new_inverted_index_iterator(
+                        column, index_meta, _opts, &_inverted_index_iterators[cid]));
+            }
         }
     }
     return Status::OK();
@@ -2005,7 +2026,8 @@ void SegmentIterator::_clear_iterators() {
 Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
     bool is_mem_reuse = block->mem_reuse();
     DCHECK(is_mem_reuse);
-
+    // Clear the sparse column cache before processing a new batch
+    _opts.sparse_column_cache.clear();
     SCOPED_RAW_TIMER(&_opts.stats->block_load_ns);
     if (UNLIKELY(!_lazy_inited)) {
         RETURN_IF_ERROR(_lazy_init());

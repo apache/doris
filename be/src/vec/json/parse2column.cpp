@@ -154,10 +154,10 @@ void parse_json_to_variant(IColumn& column, const char* src, size_t length,
     }
     auto& [paths, values] = *result;
     assert(paths.size() == values.size());
-    size_t old_num_rows = column_object.size();
+    size_t old_num_rows = column_object.rows();
     for (size_t i = 0; i < paths.size(); ++i) {
         FieldInfo field_info;
-        get_field_info(values[i], &field_info);
+        schema_util::get_field_info(values[i], &field_info);
         if (WhichDataType(field_info.scalar_type_id).is_nothing()) {
             continue;
         }
@@ -173,6 +173,10 @@ void parse_json_to_variant(IColumn& column, const char* src, size_t length,
             throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "Failed to find sub column {}",
                                    paths[i].get_path());
         }
+        if (subcolumn->cur_num_of_defaults() > 0) {
+            subcolumn->insert_many_defaults(subcolumn->cur_num_of_defaults());
+            subcolumn->reset_current_num_of_defaults();
+        }
         if (subcolumn->size() != old_num_rows) {
             throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
                                    "subcolumn {} size missmatched, may contains duplicated entry",
@@ -184,13 +188,21 @@ void parse_json_to_variant(IColumn& column, const char* src, size_t length,
     const auto& subcolumns = column_object.get_subcolumns();
     for (const auto& entry : subcolumns) {
         if (entry->data.size() == old_num_rows) {
-            bool inserted = column_object.try_insert_default_from_nested(entry);
+            bool inserted = UNLIKELY(entry->path.has_nested_part() &&
+                                     column_object.try_insert_default_from_nested(entry));
             if (!inserted) {
-                entry->data.insert_default();
+                entry->data.increment_default_counter();
             }
         }
     }
     column_object.incr_num_rows();
+    auto sparse_column = column_object.get_sparse_column();
+    if (sparse_column->size() == old_num_rows) {
+        sparse_column->assume_mutable()->insert_default();
+    }
+#ifndef NDEBUG
+    column_object.check_consistency();
+#endif
 }
 
 // exposed interfaces
@@ -206,6 +218,7 @@ void parse_json_to_variant(IColumn& column, const ColumnString& raw_json_column,
         StringRef raw_json = raw_json_column.get_data_at(i);
         parse_json_to_variant(column, raw_json.data, raw_json.size, parser.get(), config);
     }
+    column.finalize();
 }
 
 } // namespace doris::vectorized

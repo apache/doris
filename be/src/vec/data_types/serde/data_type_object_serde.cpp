@@ -36,6 +36,8 @@
 #else
 #include "util/jsonb_parser.h"
 #endif
+#include "vec/json/json_parser.h"
+#include "vec/json/parse2column.cpp"
 
 namespace doris {
 
@@ -48,28 +50,12 @@ Status DataTypeObjectSerDe::_write_column_to_mysql(const IColumn& column,
                                                    int64_t row_idx, bool col_const,
                                                    const FormatOptions& options) const {
     const auto& variant = assert_cast<const ColumnObject&>(column);
-    if (!variant.is_finalized()) {
-        const_cast<ColumnObject&>(variant).finalize();
+    // Serialize hierarchy types to json format
+    std::string buffer;
+    if (!variant.serialize_one_row_to_string(row_idx, &buffer)) {
+        return Status::InternalError("Invalid json format");
     }
-    RETURN_IF_ERROR(variant.sanitize());
-    if (variant.is_scalar_variant()) {
-        // Serialize scalar types, like int, string, array, faster path
-        const auto& root = variant.get_subcolumn({});
-        RETURN_IF_ERROR(root->get_least_common_type_serde()->write_column_to_mysql(
-                root->get_finalized_column(), row_buffer, row_idx, col_const, options));
-    } else {
-        // Serialize hierarchy types to json format
-        rapidjson::StringBuffer buffer;
-        bool is_null = false;
-        if (!variant.serialize_one_row_to_json_format(row_idx, &buffer, &is_null)) {
-            return Status::InternalError("Invalid json format");
-        }
-        if (is_null) {
-            row_buffer.push_null();
-        } else {
-            row_buffer.push_string(buffer.GetString(), buffer.GetLength());
-        }
-    }
+    row_buffer.push_string(buffer.data(), buffer.size());
     return Status::OK();
 }
 
@@ -97,9 +83,6 @@ void DataTypeObjectSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWr
                                                   Arena* mem_pool, int32_t col_id,
                                                   int64_t row_num) const {
     const auto& variant = assert_cast<const ColumnObject&>(column);
-    if (!variant.is_finalized()) {
-        const_cast<ColumnObject&>(variant).finalize();
-    }
     result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
     std::string value_str;
     if (!variant.serialize_one_row_to_string(row_num, &value_str)) {
@@ -146,6 +129,22 @@ Status DataTypeObjectSerDe::serialize_one_cell_to_json(const IColumn& column, in
     if (!var->serialize_one_row_to_string(row_num, bw)) {
         return Status::InternalError("Failed to serialize variant {}", var->dump_structure());
     }
+    return Status::OK();
+}
+
+Status DataTypeObjectSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
+                                                           const FormatOptions& options) const {
+    vectorized::ParseConfig config;
+    auto parser = parsers_pool.get([] { return new JsonParser(); });
+    RETURN_IF_CATCH_EXCEPTION(
+            parse_json_to_variant(column, slice.data, slice.size, parser.get(), config));
+    return Status::OK();
+}
+
+Status DataTypeObjectSerDe::deserialize_column_from_json_vector(
+        IColumn& column, std::vector<Slice>& slices, uint64_t* num_deserialized,
+        const FormatOptions& options) const {
+    DESERIALIZE_COLUMN_FROM_JSON_VECTOR()
     return Status::OK();
 }
 

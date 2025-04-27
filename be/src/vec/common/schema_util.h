@@ -27,6 +27,7 @@
 #include <string>
 
 #include "common/status.h"
+#include "olap/tablet_fwd.h"
 #include "olap/tablet_schema.h"
 #include "udf/udf.h"
 #include "vec/aggregate_functions/aggregate_function.h"
@@ -41,7 +42,9 @@
 
 namespace doris {
 enum class FieldType;
-
+namespace segment_v2 {
+struct VariantStatisticsPB;
+} // namespace segment_v2
 namespace vectorized {
 class Block;
 class IColumn;
@@ -49,7 +52,10 @@ struct ColumnWithTypeAndName;
 } // namespace vectorized
 } // namespace doris
 
+const std::string SPARSE_COLUMN_PATH = "__DORIS_VARIANT_SPARSE__";
 namespace doris::vectorized::schema_util {
+using PathToNoneNullValues = std::unordered_map<std::string, int64_t>;
+
 /// Returns number of dimensions in Array type. 0 if type is not array.
 size_t get_number_of_dimensions(const IDataType& type);
 
@@ -86,7 +92,7 @@ TabletColumn get_column_by_type(const vectorized::DataTypePtr& data_type, const 
 // 3. encode sparse sub columns
 Status parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
                              const ParseConfig& config);
-Status encode_variant_sparse_subcolumns(ColumnObject& column);
+// Status encode_variant_sparse_subcolumns(ColumnObject& column);
 
 // Pick the tablet schema with the highest schema version as the reference.
 // Then update all variant columns to there least common types.
@@ -112,18 +118,49 @@ void inherit_column_attributes(TabletSchemaSPtr& schema);
 // source: variant column
 // target: extracted column from variant column
 void inherit_column_attributes(const TabletColumn& source, TabletColumn& target,
-                               TabletSchemaSPtr& target_schema);
+                               TabletSchemaSPtr* target_schema = nullptr);
 
 // get sorted subcolumns of variant
 vectorized::ColumnObject::Subcolumns get_sorted_subcolumns(
         const vectorized::ColumnObject::Subcolumns& subcolumns);
 
-// Extract json data from source with path
-Status extract(ColumnPtr source, const PathInData& path, MutableColumnPtr& dst);
-
-std::string dump_column(DataTypePtr type, const ColumnPtr& col);
-
 bool has_schema_index_diff(const TabletSchema* new_schema, const TabletSchema* old_schema,
                            int32_t new_col_idx, int32_t old_col_idx);
+
+// create ColumnMap<String, String>
+TabletColumn create_sparse_column(const TabletColumn& variant);
+
+// get the subpaths and sparse paths for the variant column
+void get_subpaths(const TabletSchema& schema, int32_t col_unique_id,
+                  const std::unordered_map<int32_t, PathToNoneNullValues>& path_stats,
+                  std::unordered_map<int32_t, TabletSchema::PathsSetInfo>& uid_to_paths_set_info);
+
+// collect path stats from the rowset
+Status collect_path_stats(
+        const RowsetSharedPtr& rs,
+        std::unordered_map<int32_t, PathToNoneNullValues>& uid_to_path_stats,
+        std::unordered_map<int32_t, std::unordered_set<std::string>>& uid_to_typed_paths);
+
+// Build the temporary schema for compaction, this will reduce the memory usage of compacting variant columns
+Status get_compaction_schema(const std::vector<RowsetSharedPtr>& rowsets, TabletSchemaSPtr& target);
+
+TabletSchemaSPtr calculate_variant_extended_schema(const std::vector<RowsetSharedPtr>& rowsets,
+                                                   const TabletSchemaSPtr& base_schema);
+
+// Check if the path stats are consistent between inputs rowsets and output rowset.
+// Used to check the correctness of compaction.
+Status check_path_stats(const std::vector<RowsetSharedPtr>& intputs, RowsetSharedPtr output,
+                        BaseTabletSPtr tablet);
+
+// Calculate statistics about variant data paths from the encoded sparse column
+void calculate_variant_stats(const IColumn& encoded_sparse_column,
+                             segment_v2::VariantStatisticsPB* stats, size_t row_pos,
+                             size_t num_rows);
+
+void get_field_info(const Field& field, FieldInfo* info);
+
+bool generate_sub_column_info(const TabletSchema& schema, int32_t col_unique_id,
+                              const std::string& path,
+                              TabletSchema::SubColumnInfo* sub_column_info);
 
 } // namespace  doris::vectorized::schema_util

@@ -32,17 +32,26 @@ public class StructField {
     private final boolean nullable;
     private final String comment;
 
+    private final boolean nameCaseSensitive;
+
     /**
      * StructField Constructor
      *  @param name The name of this field
      *  @param dataType The data type of this field
      *  @param nullable Indicates if values of this field can be `null` values
+     *  @param nameCaseSensitive Indicates if name is case-sensitive
      */
-    public StructField(String name, DataType dataType, boolean nullable, String comment) {
-        this.name = Objects.requireNonNull(name, "name should not be null").toLowerCase(Locale.ROOT);
+    public StructField(String name, DataType dataType, boolean nullable, String comment, boolean nameCaseSensitive) {
+        this.nameCaseSensitive = nameCaseSensitive;
+        this.name = nameCaseSensitive ? Objects.requireNonNull(name, "name should not be null")
+                    : Objects.requireNonNull(name, "name should not be null").toLowerCase(Locale.ROOT);
         this.dataType = Objects.requireNonNull(dataType, "dataType should not be null");
         this.nullable = nullable;
         this.comment = Objects.requireNonNull(comment, "comment should not be null");
+    }
+
+    public StructField(String name, DataType dataType, boolean nullable, String comment) {
+        this(name, dataType, nullable, comment, false);
     }
 
     public String getName() {
@@ -69,11 +78,11 @@ public class StructField {
     }
 
     public StructField withDataType(DataType dataType) {
-        return new StructField(name, dataType, nullable, comment);
+        return new StructField(name, dataType, nullable, comment, nameCaseSensitive);
     }
 
     public StructField withDataTypeAndNullable(DataType dataType, boolean nullable) {
-        return new StructField(name, dataType, nullable, comment);
+        return new StructField(name, dataType, nullable, comment, nameCaseSensitive);
     }
 
     public org.apache.doris.catalog.StructField toCatalogDataType() {

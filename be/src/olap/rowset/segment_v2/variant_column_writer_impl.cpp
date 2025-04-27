@@ -1,0 +1,796 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+#include "olap/rowset/segment_v2/variant_column_writer_impl.h"
+
+#include <fmt/core.h>
+#include <gen_cpp/segment_v2.pb.h>
+
+#include <memory>
+#include <set>
+
+#include "common/config.h"
+#include "common/status.h"
+#include "exec/decompressor.h"
+#include "olap/olap_common.h"
+#include "olap/olap_define.h"
+#include "olap/rowset/beta_rowset.h"
+#include "olap/rowset/rowset_fwd.h"
+#include "olap/rowset/rowset_writer_context.h"
+#include "olap/rowset/segment_v2/column_writer.h"
+#include "olap/segment_loader.h"
+#include "olap/tablet_schema.h"
+#include "util/simd/bits.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/columns/column_object.h"
+#include "vec/columns/columns_number.h"
+#include "vec/common/schema_util.h"
+#include "vec/data_types/data_type_factory.hpp"
+#include "vec/json/path_in_data.h"
+#include "vec/olap/olap_data_convertor.h"
+
+namespace doris::segment_v2 {
+
+void _init_column_meta(ColumnMetaPB* meta, uint32_t column_id, const TabletColumn& column,
+                       CompressionTypePB compression_type) {
+    meta->Clear();
+    meta->set_column_id(column_id);
+    meta->set_type(int(column.type()));
+    meta->set_length(column.length());
+    meta->set_encoding(DEFAULT_ENCODING);
+    meta->set_compression(compression_type);
+    meta->set_is_nullable(column.is_nullable());
+    meta->set_default_value(column.default_value());
+    meta->set_precision(column.precision());
+    meta->set_frac(column.frac());
+    if (column.has_path_info()) {
+        column.path_info_ptr()->to_protobuf(meta->mutable_column_path_info(),
+                                            column.parent_unique_id());
+    }
+    meta->set_unique_id(column.unique_id());
+    for (uint32_t i = 0; i < column.get_subtype_count(); ++i) {
+        _init_column_meta(meta->add_children_columns(), column_id, column.get_sub_column(i),
+                          compression_type);
+    }
+    if (column.is_variant_type()) {
+        meta->set_variant_max_subcolumns_count(column.variant_max_subcolumns_count());
+    }
+};
+
+Status _create_column_writer(uint32_t cid, const TabletColumn& column,
+                             const TabletSchemaSPtr& tablet_schema,
+                             InvertedIndexFileWriter* inverted_index_file_writer,
+                             std::unique_ptr<ColumnWriter>* writer,
+                             std::unique_ptr<TabletIndex>& subcolumn_index,
+                             ColumnWriterOptions* opt, int64_t none_null_value_size) {
+    _init_column_meta(opt->meta, cid, column, opt->compression_type);
+    // no need to record none null value size for typed column
+    if (!column.path_info_ptr()->get_is_typed()) {
+        // record none null value size for statistics
+        opt->meta->set_none_null_size(none_null_value_size);
+    }
+    opt->need_zone_map = tablet_schema->keys_type() != KeysType::AGG_KEYS;
+    opt->need_bloom_filter = column.is_bf_column();
+    opt->need_bitmap_index = column.has_bitmap_index();
+    const auto& index = tablet_schema->inverted_index(column.parent_unique_id());
+    VLOG_DEBUG << "column: " << column.name()
+               << " need_inverted_index: " << opt->need_inverted_index
+               << " need_bloom_filter: " << opt->need_bloom_filter
+               << " need_bitmap_index: " << opt->need_bitmap_index;
+
+    // init inverted index
+    // index denotes the index of the entire variant column
+    // while subcolumn_index denotes the current subcolumn's index
+    if ((index != nullptr || subcolumn_index != nullptr) &&
+        segment_v2::InvertedIndexColumnWriter::check_support_inverted_index(column)) {
+        // inheriting the variant column's index when the subcolumn index is absent
+        if (subcolumn_index == nullptr) {
+            subcolumn_index = std::make_unique<TabletIndex>(*index);
+            subcolumn_index->set_escaped_escaped_index_suffix_path(
+                    column.path_info_ptr()->get_path());
+        }
+        opt->inverted_index = subcolumn_index.get();
+        opt->need_inverted_index = true;
+        DCHECK(inverted_index_file_writer != nullptr);
+        opt->inverted_index_file_writer = inverted_index_file_writer;
+    }
+
+#define DISABLE_INDEX_IF_FIELD_TYPE(TYPE, type_name)          \
+    if (column.type() == FieldType::OLAP_FIELD_TYPE_##TYPE) { \
+        opt->need_zone_map = false;                           \
+        opt->need_bloom_filter = false;                       \
+        opt->need_bitmap_index = false;                       \
+    }
+
+    DISABLE_INDEX_IF_FIELD_TYPE(ARRAY, "array")
+    DISABLE_INDEX_IF_FIELD_TYPE(JSONB, "jsonb")
+    DISABLE_INDEX_IF_FIELD_TYPE(VARIANT, "variant")
+
+#undef DISABLE_INDEX_IF_FIELD_TYPE
+
+#undef CHECK_FIELD_TYPE
+    RETURN_IF_ERROR(ColumnWriter::create(*opt, &column, opt->file_writer, writer));
+    RETURN_IF_ERROR((*writer)->init());
+
+    return Status::OK();
+}
+
+Status convert_and_write_column(vectorized::OlapBlockDataConvertor* converter,
+                                const TabletColumn& column, ColumnWriter* writer,
+
+                                const vectorized::ColumnPtr& src_column, size_t num_rows,
+                                int column_id) {
+    converter->add_column_data_convertor(column);
+    RETURN_IF_ERROR(converter->set_source_content_with_specifid_column({src_column, nullptr, ""}, 0,
+                                                                       num_rows, column_id));
+    auto [status, converted_column] = converter->convert_column_data(column_id);
+    RETURN_IF_ERROR(status);
+
+    const uint8_t* nullmap = converted_column->get_nullmap();
+    RETURN_IF_ERROR(writer->append(nullmap, converted_column->get_data(), num_rows));
+
+    converter->clear_source_content(column_id);
+    return Status::OK();
+}
+
+VariantColumnWriterImpl::VariantColumnWriterImpl(const ColumnWriterOptions& opts,
+                                                 const TabletColumn* column) {
+    _opts = opts;
+    _tablet_column = column;
+}
+
+Status VariantColumnWriterImpl::init() {
+    // caculate stats info
+    std::set<std::string> subcolumn_paths;
+    RETURN_IF_ERROR(_get_subcolumn_paths_from_stats(subcolumn_paths));
+    DCHECK(_tablet_column->variant_max_subcolumns_count() >= 0)
+            << "max subcolumns count is: " << _tablet_column->variant_max_subcolumns_count();
+    int count = _tablet_column->variant_max_subcolumns_count();
+    if (_opts.rowset_ctx->write_type == DataWriteType::TYPE_DIRECT) {
+        count = 0;
+    }
+    auto col = vectorized::ColumnObject::create(count);
+    if (_opts.rowset_ctx->write_type == DataWriteType::TYPE_SCHEMA_CHANGE) {
+        for (const auto& str_path : subcolumn_paths) {
+            DCHECK(col->add_sub_column(vectorized::PathInData(str_path), 0));
+        }
+    }
+    _column = std::move(col);
+    if (_tablet_column->is_nullable()) {
+        _null_column = vectorized::ColumnUInt8::create(0);
+    }
+    return Status::OK();
+}
+
+Status VariantColumnWriterImpl::_get_subcolumn_paths_from_stats(std::set<std::string>& paths) {
+    std::unordered_map<std::string, size_t> path_to_total_number_of_non_null_values;
+
+    // Merge and collect all stats info from all input rowsets/segments
+    for (RowsetReaderSharedPtr reader : _opts.input_rs_readers) {
+        SegmentCacheHandle segment_cache;
+        RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(
+                std::static_pointer_cast<BetaRowset>(reader->rowset()), &segment_cache));
+        for (const auto& segment : segment_cache.get_segments()) {
+            ColumnReader* column_reader =
+                    DORIS_TRY(segment->get_column_reader(_tablet_column->unique_id()));
+            if (!column_reader) {
+                continue;
+            }
+            CHECK(column_reader->get_meta_type() == FieldType::OLAP_FIELD_TYPE_VARIANT);
+            const VariantStatistics* source_statistics =
+                    static_cast<const VariantColumnReader*>(column_reader)->get_stats();
+            if (!source_statistics) {
+                continue;
+            }
+            for (const auto& [path, size] : source_statistics->subcolumns_non_null_size) {
+                auto it = path_to_total_number_of_non_null_values.find(path);
+                if (it == path_to_total_number_of_non_null_values.end()) {
+                    it = path_to_total_number_of_non_null_values.emplace(path, 0).first;
+                }
+                it->second += size;
+            }
+            for (const auto& [path, size] : source_statistics->sparse_column_non_null_size) {
+                auto it = path_to_total_number_of_non_null_values.find(path);
+                if (it == path_to_total_number_of_non_null_values.end()) {
+                    it = path_to_total_number_of_non_null_values.emplace(path, 0).first;
+                }
+                it->second += size;
+            }
+        }
+    }
+
+    // Check if the number of all subcolumn paths exceeds the limit.
+    DCHECK(_tablet_column->variant_max_subcolumns_count() >= 0)
+            << "max subcolumns count is: " << _tablet_column->variant_max_subcolumns_count();
+    if (_tablet_column->variant_max_subcolumns_count() &&
+        path_to_total_number_of_non_null_values.size() >
+                _tablet_column->variant_max_subcolumns_count()) {
+        // Sort paths by total number of non null values.
+        std::vector<std::pair<size_t, std::string_view>> paths_with_sizes;
+        paths_with_sizes.reserve(path_to_total_number_of_non_null_values.size());
+        for (const auto& [path, size] : path_to_total_number_of_non_null_values) {
+            paths_with_sizes.emplace_back(size, path);
+        }
+        std::sort(paths_with_sizes.begin(), paths_with_sizes.end(), std::greater());
+        // Fill subcolumn_paths with first subcolumn paths in sorted list.
+        // reserve 1 for root column
+        for (const auto& [size, path] : paths_with_sizes) {
+            if (paths.size() < _tablet_column->variant_max_subcolumns_count()) {
+                VLOG_DEBUG << "pick " << path << " as subcolumn";
+                paths.emplace(path);
+            }
+            // // todo : Add all remaining paths into shared data statistics until we reach its max size;
+            // else if (new_statistics.sparse_data_paths_statistics.size() < Statistics::config::variant_max_sparse_column_statistics_size) {
+            //     new_statistics.sparse_data_paths_statistics.emplace(path, size);
+            // }
+        }
+        DBUG_EXECUTE_IF("variant_column_writer_impl._get_subcolumn_paths_from_stats", {
+            auto stats = DebugPoints::instance()->get_debug_param_or_default<std::string>(
+                    "variant_column_writer_impl._get_subcolumn_paths_from_stats", "stats", "");
+            auto subcolumns = DebugPoints::instance()->get_debug_param_or_default<std::string>(
+                    "variant_column_writer_impl._get_subcolumn_paths_from_stats", "subcolumns", "");
+            LOG(INFO) << "stats: " << stats;
+            LOG(INFO) << "subcolumns: " << subcolumns;
+            if (stats.empty()) {
+                return Status::Error<ErrorCode::INTERNAL_ERROR>("debug point stats is empty");
+            }
+            std::vector<std::string> sizes;
+            boost::split(sizes, stats, boost::algorithm::is_any_of(","));
+            CHECK_EQ(sizes.size(), paths_with_sizes.size()) << "stats not match " << stats;
+            for (int i = 0; i < sizes.size(); ++i) {
+                CHECK_EQ(fmt::format("{}", paths_with_sizes[i].first), sizes[i]);
+            }
+            std::set<std::string> subcolumns_set;
+            boost::split(subcolumns_set, subcolumns, boost::algorithm::is_any_of(","));
+            if (!std::equal(paths.begin(), paths.end(), subcolumns_set.begin(),
+                            subcolumns_set.end())) {
+                CHECK(false) << "subcolumns not match " << subcolumns;
+            }
+        })
+    } else {
+        // Use all subcolumn paths from all source columns.
+        for (const auto& [path, _] : path_to_total_number_of_non_null_values) {
+            VLOG_DEBUG << "pick " << path << " as subcolumn";
+            paths.emplace(path);
+        }
+    }
+
+    return Status::OK();
+}
+
+Status VariantColumnWriterImpl::_process_root_column(vectorized::ColumnObject* ptr,
+                                                     vectorized::OlapBlockDataConvertor* converter,
+                                                     size_t num_rows, int& column_id) {
+    // root column
+    ColumnWriterOptions root_opts = _opts;
+    _root_writer = std::unique_ptr<ColumnWriter>(new ScalarColumnWriter(
+            _opts, std::unique_ptr<Field>(FieldFactory::create(*_tablet_column)),
+            _opts.file_writer));
+    RETURN_IF_ERROR(_root_writer->init());
+
+    // make sure the root type
+    auto expected_root_type =
+            vectorized::make_nullable(std::make_shared<vectorized::ColumnObject::MostCommonType>());
+    ptr->ensure_root_node_type(expected_root_type);
+
+    DCHECK_EQ(ptr->get_root()->get_ptr()->size(), num_rows);
+    converter->add_column_data_convertor(*_tablet_column);
+    DCHECK_EQ(ptr->get_root()->get_ptr()->size(), num_rows);
+    RETURN_IF_ERROR(converter->set_source_content_with_specifid_column(
+            {ptr->get_root()->get_ptr(), nullptr, ""}, 0, num_rows, column_id));
+    auto [status, column] = converter->convert_column_data(column_id);
+    if (!status.ok()) {
+        return status;
+    }
+    const uint8_t* nullmap =
+            _null_column
+                    ? vectorized::check_and_get_column<vectorized::ColumnUInt8>(_null_column.get())
+                              ->get_data()
+                              .data()
+                    : nullptr;
+    RETURN_IF_ERROR(_root_writer->append(nullmap, column->get_data(), num_rows));
+    converter->clear_source_content(column_id);
+    ++column_id;
+
+    _opts.meta->set_num_rows(num_rows);
+    return Status::OK();
+    return Status::OK();
+}
+
+Status VariantColumnWriterImpl::_process_subcolumns(vectorized::ColumnObject* ptr,
+                                                    vectorized::OlapBlockDataConvertor* converter,
+                                                    size_t num_rows, int& column_id) {
+    // generate column info by entry info
+    auto generate_column_info = [&](const auto& entry) {
+        const std::string& column_name =
+                _tablet_column->name_lower_case() + "." + entry->path.get_path();
+        const vectorized::DataTypePtr& final_data_type_from_object =
+                entry->data.get_least_common_type();
+        auto full_path = vectorized::PathInData(_tablet_column->name_lower_case() + "." +
+                                                entry->path.get_path());
+        // set unique_id and parent_unique_id, will use unique_id to get iterator correct
+        auto column = vectorized::schema_util::get_column_by_type(
+                final_data_type_from_object, column_name,
+                vectorized::schema_util::ExtraInfo {.unique_id = -1,
+                                                    .parent_unique_id = _tablet_column->unique_id(),
+                                                    .path_info = full_path});
+        return column;
+    };
+    _subcolumns_indexes.resize(ptr->get_subcolumns().size());
+    // convert sub column data from engine format to storage layer format
+    for (const auto& entry :
+         vectorized::schema_util::get_sorted_subcolumns(ptr->get_subcolumns())) {
+        const auto& least_common_type = entry->data.get_least_common_type();
+        if (is_nothing(remove_nullable(
+                    vectorized::schema_util::get_base_type_of_array(least_common_type)))) {
+            continue;
+        }
+        if (entry->path.empty()) {
+            // already handled
+            continue;
+        }
+        CHECK(entry->data.is_finalized());
+
+        // create subcolumn writer
+        int current_column_id = column_id++;
+        TabletColumn tablet_column;
+        int64_t none_null_value_size = -1;
+        vectorized::ColumnPtr current_column;
+        if (auto current_path = entry->path.get_path();
+            _subcolumns_info.find(current_path) != _subcolumns_info.end()) {
+            tablet_column = _subcolumns_info[current_path].column;
+            vectorized::DataTypePtr storage_type =
+                    vectorized::DataTypeFactory::instance().create_data_type(tablet_column);
+            vectorized::DataTypePtr finalized_type = entry->data.get_least_common_type();
+            current_column = entry->data.get_finalized_column_ptr()->get_ptr();
+            if (!storage_type->equals(*finalized_type)) {
+                RETURN_IF_ERROR(vectorized::schema_util::cast_column(
+                        {current_column, finalized_type, ""}, storage_type, &current_column));
+            }
+            if (auto index = _subcolumns_info[current_path].index; index != nullptr) {
+                _subcolumns_indexes[current_column_id] = std::make_unique<TabletIndex>(*index);
+            }
+            const auto& null_data = assert_cast<const vectorized::ColumnNullable&>(*current_column)
+                                            .get_null_map_data();
+            none_null_value_size =
+                    simd::count_zero_num((int8_t*)null_data.data(), null_data.size());
+        } else {
+            tablet_column = generate_column_info(entry);
+            none_null_value_size = entry->data.get_non_null_value_size();
+            current_column = entry->data.get_finalized_column_ptr()->get_ptr();
+        }
+        ColumnWriterOptions opts;
+        opts.meta = _opts.footer->add_columns();
+        opts.inverted_index_file_writer = _opts.inverted_index_file_writer;
+        opts.compression_type = _opts.compression_type;
+        opts.rowset_ctx = _opts.rowset_ctx;
+        opts.file_writer = _opts.file_writer;
+        std::unique_ptr<ColumnWriter> writer;
+        vectorized::schema_util::inherit_column_attributes(*_tablet_column, tablet_column);
+        RETURN_IF_ERROR(_create_column_writer(
+                current_column_id, tablet_column, _opts.rowset_ctx->tablet_schema,
+                _opts.inverted_index_file_writer, &writer, _subcolumns_indexes[current_column_id],
+                &opts, none_null_value_size));
+        _subcolumn_writers.push_back(std::move(writer));
+        _subcolumn_opts.push_back(opts);
+
+        // set convertors
+        // converter->add_column_data_convertor(tablet_column);
+        // RETURN_IF_ERROR(converter->set_source_content_with_specifid_column(
+        //         {entry->data.get_finalized_column_ptr()->get_ptr(),
+        //          entry->data.get_least_common_type(), tablet_column.name()},
+        //         0, num_rows, current_column_id));
+        // auto [status, column] = converter->convert_column_data(current_column_id);
+        // if (!status.ok()) {
+        //     return status;
+        // }
+        // const uint8_t* nullmap = column->get_nullmap();
+        // RETURN_IF_ERROR(_subcolumn_writers[current_column_id - 1]->append(
+        //         nullmap, column->get_data(), num_rows));
+        // converter->clear_source_content();
+        _subcolumn_opts[current_column_id - 1].meta->set_num_rows(num_rows);
+
+        RETURN_IF_ERROR(convert_and_write_column(converter, tablet_column,
+                                                 _subcolumn_writers[current_column_id - 1].get(),
+                                                 current_column, ptr->rows(), current_column_id));
+
+        // get stastics
+        _statistics.subcolumns_non_null_size.emplace(entry->path.get_path(), none_null_value_size);
+    }
+    return Status::OK();
+}
+
+Status VariantColumnWriterImpl::_process_sparse_column(
+        vectorized::ColumnObject* ptr, vectorized::OlapBlockDataConvertor* converter,
+        size_t num_rows, int& column_id) {
+    // create sparse column writer
+    TabletColumn sparse_column = vectorized::schema_util::create_sparse_column(*_tablet_column);
+    ColumnWriterOptions sparse_writer_opts;
+    sparse_writer_opts.meta = _opts.footer->add_columns();
+
+    _init_column_meta(sparse_writer_opts.meta, column_id, sparse_column, _opts.compression_type);
+    RETURN_IF_ERROR(ColumnWriter::create_map_writer(sparse_writer_opts, &sparse_column,
+                                                    _opts.file_writer, &_sparse_column_writer));
+    RETURN_IF_ERROR(_sparse_column_writer->init());
+
+    // convert root column data from engine format to storage layer format
+    converter->add_column_data_convertor(sparse_column);
+    DCHECK_EQ(ptr->get_sparse_column()->size(), num_rows);
+    RETURN_IF_ERROR(converter->set_source_content_with_specifid_column(
+            {ptr->get_sparse_column(), nullptr, ""}, 0, num_rows, column_id));
+    auto [status, column] = converter->convert_column_data(column_id);
+    if (!status.ok()) {
+        return status;
+    }
+    VLOG_DEBUG << "dump sparse "
+               << vectorized::Block::dump_column(
+                          ptr->get_sparse_column(),
+                          vectorized::ColumnObject::get_sparse_column_type());
+    RETURN_IF_ERROR(
+            _sparse_column_writer->append(column->get_nullmap(), column->get_data(), num_rows));
+    converter->clear_source_content(column_id);
+    ++column_id;
+
+    // get stastics
+    // todo: reuse the statics from collected stastics from compaction stage
+    std::unordered_map<StringRef, size_t> sparse_data_paths_statistics;
+    const auto [sparse_data_paths, _] = ptr->get_sparse_data_paths_and_values();
+    for (size_t i = 0; i != sparse_data_paths->size(); ++i) {
+        auto path = sparse_data_paths->get_data_at(i);
+        if (auto it = sparse_data_paths_statistics.find(path);
+            it != sparse_data_paths_statistics.end()) {
+            ++it->second;
+        } else if (sparse_data_paths_statistics.size() <
+                   config::variant_max_sparse_column_statistics_size) {
+            sparse_data_paths_statistics.emplace(path, 1);
+        }
+    }
+
+    // assign to _statistics.sparse_column_non_null_size
+    for (const auto& [path, size] : sparse_data_paths_statistics) {
+        _statistics.sparse_column_non_null_size.emplace(path.to_string(), size);
+    }
+    // set statistics info
+    _statistics.to_pb(sparse_writer_opts.meta->mutable_variant_statistics());
+    sparse_writer_opts.meta->set_num_rows(num_rows);
+    return Status::OK();
+}
+
+void VariantStatistics::to_pb(VariantStatisticsPB* stats) const {
+    for (const auto& [path, value] : sparse_column_non_null_size) {
+        stats->mutable_sparse_column_non_null_size()->emplace(path, value);
+    }
+    LOG(INFO) << "num subcolumns " << subcolumns_non_null_size.size() << ", num sparse columns "
+              << sparse_column_non_null_size.size();
+}
+
+void VariantStatistics::from_pb(const VariantStatisticsPB& stats) {
+    for (const auto& [path, value] : stats.sparse_column_non_null_size()) {
+        sparse_column_non_null_size[path] = value;
+    }
+}
+
+Status VariantColumnWriterImpl::finalize() {
+    auto* ptr = assert_cast<vectorized::ColumnObject*>(_column.get());
+    ptr->set_max_subcolumns_count(_tablet_column->variant_max_subcolumns_count());
+    RETURN_IF_ERROR(ptr->finalize(vectorized::ColumnObject::FinalizeMode::WRITE_MODE));
+    // convert each subcolumns to storage format and add data to sub columns writers buffer
+    auto olap_data_convertor = std::make_unique<vectorized::OlapBlockDataConvertor>();
+
+    DCHECK(ptr->is_finalized());
+
+    for (const auto& entry :
+         vectorized::schema_util::get_sorted_subcolumns(ptr->get_subcolumns())) {
+        if (entry->path.empty()) {
+            // already handled
+            continue;
+        }
+        TabletSchema::SubColumnInfo sub_column_info;
+        if (vectorized::schema_util::generate_sub_column_info(
+                    *_opts.rowset_ctx->tablet_schema, _tablet_column->unique_id(),
+                    entry->path.get_path(), &sub_column_info)) {
+            _subcolumns_info.emplace(entry->path.get_path(), std::move(sub_column_info));
+        }
+    }
+
+    RETURN_IF_ERROR(ptr->pick_subcolumns_to_sparse_column(_subcolumns_info));
+
+#ifndef NDEBUG
+    ptr->check_consistency();
+#endif
+
+    size_t num_rows = _column->size();
+    int column_id = 0;
+
+    // convert root column data from engine format to storage layer format
+    RETURN_IF_ERROR(_process_root_column(ptr, olap_data_convertor.get(), num_rows, column_id));
+
+    if (_opts.rowset_ctx->write_type != DataWriteType::TYPE_COMPACTION) {
+        // process and append each subcolumns to sub columns writers buffer
+        RETURN_IF_ERROR(_process_subcolumns(ptr, olap_data_convertor.get(), num_rows, column_id));
+
+        // process sparse column and append to sparse writer buffer
+        RETURN_IF_ERROR(
+                _process_sparse_column(ptr, olap_data_convertor.get(), num_rows, column_id));
+    }
+
+    _is_finalized = true;
+    return Status::OK();
+}
+
+bool VariantColumnWriterImpl::is_finalized() const {
+    const auto* ptr = assert_cast<vectorized::ColumnObject*>(_column.get());
+    return ptr->is_finalized() && _is_finalized;
+}
+
+Status VariantColumnWriterImpl::append_data(const uint8_t** ptr, size_t num_rows) {
+    DCHECK(!is_finalized());
+    const auto* column = reinterpret_cast<const vectorized::VariantColumnData*>(*ptr);
+    const auto& src = *reinterpret_cast<const vectorized::ColumnObject*>(column->column_data);
+    RETURN_IF_ERROR(src.sanitize());
+    auto* dst_ptr = assert_cast<vectorized::ColumnObject*>(_column.get());
+    // TODO: if direct write we could avoid copy
+    dst_ptr->insert_range_from(src, column->row_pos, num_rows);
+    return Status::OK();
+}
+
+uint64_t VariantColumnWriterImpl::estimate_buffer_size() {
+    if (!is_finalized()) {
+        // not accurate
+        return _column->byte_size();
+    }
+    uint64_t size = 0;
+    size += _root_writer->estimate_buffer_size();
+    for (auto& column_writer : _subcolumn_writers) {
+        size += column_writer->estimate_buffer_size();
+    }
+    size += _sparse_column_writer ? _sparse_column_writer->estimate_buffer_size() : 0;
+    return size;
+}
+
+Status VariantColumnWriterImpl::finish() {
+    if (!is_finalized()) {
+        RETURN_IF_ERROR(finalize());
+    }
+    RETURN_IF_ERROR(_root_writer->finish());
+    for (auto& column_writer : _subcolumn_writers) {
+        RETURN_IF_ERROR(column_writer->finish());
+    }
+    if (_sparse_column_writer) {
+        RETURN_IF_ERROR(_sparse_column_writer->finish());
+    }
+    return Status::OK();
+}
+Status VariantColumnWriterImpl::write_data() {
+    if (!is_finalized()) {
+        RETURN_IF_ERROR(finalize());
+    }
+    RETURN_IF_ERROR(_root_writer->write_data());
+    for (auto& column_writer : _subcolumn_writers) {
+        RETURN_IF_ERROR(column_writer->write_data());
+    }
+    if (_sparse_column_writer) {
+        RETURN_IF_ERROR(_sparse_column_writer->write_data());
+    }
+    return Status::OK();
+}
+Status VariantColumnWriterImpl::write_ordinal_index() {
+    if (!is_finalized()) {
+        RETURN_IF_ERROR(finalize());
+    }
+    RETURN_IF_ERROR(_root_writer->write_ordinal_index());
+    for (auto& column_writer : _subcolumn_writers) {
+        RETURN_IF_ERROR(column_writer->write_ordinal_index());
+    }
+    if (_sparse_column_writer) {
+        RETURN_IF_ERROR(_sparse_column_writer->write_ordinal_index());
+    }
+    return Status::OK();
+}
+
+Status VariantColumnWriterImpl::write_zone_map() {
+    if (!is_finalized()) {
+        RETURN_IF_ERROR(finalize());
+    }
+    for (int i = 0; i < _subcolumn_writers.size(); ++i) {
+        if (_subcolumn_opts[i].need_zone_map) {
+            RETURN_IF_ERROR(_subcolumn_writers[i]->write_zone_map());
+        }
+    }
+    return Status::OK();
+}
+
+Status VariantColumnWriterImpl::write_bitmap_index() {
+    if (!is_finalized()) {
+        RETURN_IF_ERROR(finalize());
+    }
+    for (int i = 0; i < _subcolumn_writers.size(); ++i) {
+        if (_subcolumn_opts[i].need_bitmap_index) {
+            RETURN_IF_ERROR(_subcolumn_writers[i]->write_bitmap_index());
+        }
+    }
+    return Status::OK();
+}
+Status VariantColumnWriterImpl::write_inverted_index() {
+    if (!is_finalized()) {
+        RETURN_IF_ERROR(finalize());
+    }
+    for (int i = 0; i < _subcolumn_writers.size(); ++i) {
+        if (_subcolumn_opts[i].need_inverted_index) {
+            RETURN_IF_ERROR(_subcolumn_writers[i]->write_inverted_index());
+        }
+    }
+    return Status::OK();
+}
+Status VariantColumnWriterImpl::write_bloom_filter_index() {
+    if (!is_finalized()) {
+        RETURN_IF_ERROR(finalize());
+    }
+    for (int i = 0; i < _subcolumn_writers.size(); ++i) {
+        if (_subcolumn_opts[i].need_bloom_filter) {
+            RETURN_IF_ERROR(_subcolumn_writers[i]->write_bloom_filter_index());
+        }
+    }
+    return Status::OK();
+}
+
+Status VariantColumnWriterImpl::append_nullable(const uint8_t* null_map, const uint8_t** ptr,
+                                                size_t num_rows) {
+    if (null_map != nullptr) {
+        _null_column->insert_many_raw_data((const char*)null_map, num_rows);
+    }
+    RETURN_IF_ERROR(append_data(ptr, num_rows));
+    return Status::OK();
+}
+
+VariantSubcolumnWriter::VariantSubcolumnWriter(const ColumnWriterOptions& opts,
+                                               const TabletColumn* column,
+                                               std::unique_ptr<Field> field)
+        : ColumnWriter(std::move(field), opts.meta->is_nullable()) {
+    //
+    _tablet_column = column;
+    _opts = opts;
+    _column = vectorized::ColumnObject::create(true);
+}
+
+Status VariantSubcolumnWriter::init() {
+    return Status::OK();
+}
+
+Status VariantSubcolumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
+    const auto* column = reinterpret_cast<const vectorized::VariantColumnData*>(*ptr);
+    const auto& src = *reinterpret_cast<const vectorized::ColumnObject*>(column->column_data);
+    auto* dst_ptr = assert_cast<vectorized::ColumnObject*>(_column.get());
+    // TODO: if direct write we could avoid copy
+    dst_ptr->insert_range_from(src, column->row_pos, num_rows);
+    return Status::OK();
+}
+
+uint64_t VariantSubcolumnWriter::estimate_buffer_size() {
+    return _column->byte_size();
+}
+
+bool VariantSubcolumnWriter::is_finalized() const {
+    const auto* ptr = assert_cast<vectorized::ColumnObject*>(_column.get());
+    return ptr->is_finalized() && _is_finalized;
+}
+
+Status VariantSubcolumnWriter::finalize() {
+    auto* ptr = assert_cast<vectorized::ColumnObject*>(_column.get());
+    ptr->finalize();
+
+    DCHECK(ptr->is_finalized());
+    const auto& parent_column =
+            _opts.rowset_ctx->tablet_schema->column_by_uid(_tablet_column->parent_unique_id());
+
+    if (ptr->get_subcolumns().get_root()->data.get_least_common_base_type_id() ==
+        vectorized::TypeIndex::Nothing) {
+        auto flush_type = vectorized::DataTypeFactory::instance().create_data_type(
+                vectorized::TypeIndex::Int8, true /* is_nullable */);
+        ptr->ensure_root_node_type(flush_type);
+    }
+
+    TabletColumn flush_column = vectorized::schema_util::get_column_by_type(
+            ptr->get_root_type(), _tablet_column->name(),
+            vectorized::schema_util::ExtraInfo {
+                    .unique_id = -1,
+                    .parent_unique_id = _tablet_column->parent_unique_id(),
+                    .path_info = *_tablet_column->path_info_ptr()});
+    int64_t none_null_value_size = ptr->get_subcolumns().get_root()->data.get_non_null_value_size();
+    ColumnWriterOptions opts = _opts;
+
+    // refresh opts and get writer with flush column
+    vectorized::schema_util::inherit_column_attributes(parent_column, flush_column);
+    VLOG_DEBUG << "parent_column: " << parent_column.name()
+               << " flush_column: " << flush_column.name()
+               << " is_bf_column: " << parent_column.is_bf_column() << " "
+               << flush_column.is_bf_column();
+    RETURN_IF_ERROR(_create_column_writer(0, flush_column, _opts.rowset_ctx->tablet_schema,
+                                          _opts.inverted_index_file_writer, &_writer, _index, &opts,
+                                          none_null_value_size));
+    _opts = opts;
+    auto olap_data_convertor = std::make_unique<vectorized::OlapBlockDataConvertor>();
+    int column_id = 0;
+    RETURN_IF_ERROR(convert_and_write_column(olap_data_convertor.get(), flush_column, _writer.get(),
+                                             ptr->get_root()->get_ptr(), ptr->rows(), column_id));
+
+    _is_finalized = true;
+    return Status::OK();
+}
+
+Status VariantSubcolumnWriter::finish() {
+    if (!is_finalized()) {
+        RETURN_IF_ERROR(finalize());
+    }
+    RETURN_IF_ERROR(_writer->finish());
+    return Status::OK();
+}
+Status VariantSubcolumnWriter::write_data() {
+    if (!is_finalized()) {
+        RETURN_IF_ERROR(finalize());
+    }
+    RETURN_IF_ERROR(_writer->write_data());
+    return Status::OK();
+}
+Status VariantSubcolumnWriter::write_ordinal_index() {
+    if (!is_finalized()) {
+        RETURN_IF_ERROR(finalize());
+    }
+    RETURN_IF_ERROR(_writer->write_ordinal_index());
+    return Status::OK();
+}
+
+Status VariantSubcolumnWriter::write_zone_map() {
+    if (!is_finalized()) {
+        RETURN_IF_ERROR(finalize());
+    }
+    if (_opts.need_zone_map) {
+        RETURN_IF_ERROR(_writer->write_zone_map());
+    }
+    return Status::OK();
+}
+
+Status VariantSubcolumnWriter::write_bitmap_index() {
+    return Status::OK();
+}
+Status VariantSubcolumnWriter::write_inverted_index() {
+    if (!is_finalized()) {
+        RETURN_IF_ERROR(finalize());
+    }
+    if (_opts.need_inverted_index) {
+        RETURN_IF_ERROR(_writer->write_inverted_index());
+    }
+    return Status::OK();
+}
+Status VariantSubcolumnWriter::write_bloom_filter_index() {
+    if (!is_finalized()) {
+        RETURN_IF_ERROR(finalize());
+    }
+    if (_opts.need_bloom_filter) {
+        RETURN_IF_ERROR(_writer->write_bloom_filter_index());
+    }
+    return Status::OK();
+}
+
+Status VariantSubcolumnWriter::append_nullable(const uint8_t* null_map, const uint8_t** ptr,
+                                               size_t num_rows) {
+    // the root contains the same nullable info
+    RETURN_IF_ERROR(append_data(ptr, num_rows));
+    return Status::OK();
+}
+
+} // namespace doris::segment_v2

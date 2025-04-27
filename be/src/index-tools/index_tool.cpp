@@ -82,6 +82,7 @@ DEFINE_string(dest_idx_dirs_file, "", "destination segment index files");
 DEFINE_string(dest_seg_num_rows_file, "", "destination segment number of rows");
 DEFINE_string(tablet_path, "", "tablet path");
 DEFINE_string(trans_vec_file, "", "rowid conversion map file");
+DEFINE_string(idx_path, "", "inverted index path");
 
 std::string get_usage(const std::string& progname) {
     std::stringstream ss;
@@ -666,6 +667,9 @@ int main(int argc, char** argv) {
             std::vector<std::string> files;
             int64_t index_id = FLAGS_idx_id;
             std::string index_suffix = "";
+            if (FLAGS_idx_path != "") {
+                index_suffix = FLAGS_idx_path;
+            }
             doris::TabletIndexPB index_pb;
             index_pb.set_index_id(index_id);
             index_pb.set_index_suffix_name(index_suffix);

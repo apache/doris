@@ -207,6 +207,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.GetJsonBigInt
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GetJsonDouble;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GetJsonInt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GetJsonString;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.GetVariantType;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Greatest;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Hex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HllCardinality;
@@ -2407,5 +2408,9 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitUncompress(Uncompress uncompress, C context) {
         return visitScalarFunction(uncompress, context);
+    }
+
+    default R visitGetVariantType(GetVariantType getVariantType, C context) {
+        return visitScalarFunction(getVariantType, context);
     }
 }

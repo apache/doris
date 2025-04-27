@@ -86,6 +86,14 @@ public:
         return nested_data_type->get_field(node);
     }
 
+    Field get_type_field(const IColumn& column, size_t row) const override {
+        const auto& nullable_column = assert_cast<const ColumnNullable&>(column);
+        if (nullable_column.is_null_at(row)) {
+            return Null();
+        }
+        return nested_data_type->get_type_field(nullable_column.get_nested_column(), row);
+    }
+
     bool equals(const IDataType& rhs) const override;
 
     bool is_value_unambiguously_represented_in_contiguous_memory_region() const override {

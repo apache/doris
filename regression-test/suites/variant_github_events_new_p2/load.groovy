@@ -53,8 +53,6 @@ suite("regression_test_variant_github_events_p2", "nonConcurrent,p2"){
             }
         }
     }
-    set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "1")
-
     def table_name = "github_events"
     sql """DROP TABLE IF EXISTS ${table_name}"""
     table_name = "github_events"

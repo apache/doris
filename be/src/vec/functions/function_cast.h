@@ -600,6 +600,11 @@ struct ConvertImplStringToJsonbAsJsonbString {
         ColumnString* dst_str = assert_cast<ColumnString*>(dst.get());
         const auto* from_string = assert_cast<const ColumnString*>(&col_from);
         JsonbWriter writer;
+        if (from_string->size() < input_rows_count) {
+            return Status::RuntimeError(
+                    "Illegal column {} of first argument of conversion function",
+                    col_from.get_name());
+        }
         for (size_t i = 0; i < input_rows_count; i++) {
             auto str_ref = from_string->get_data_at(i);
             writer.reset();
@@ -763,7 +768,7 @@ struct ConvertNothingToJsonb {
     }
 };
 
-template <TypeIndex type_index, typename ColumnType>
+template <TypeIndex type_index, typename ColumnType, typename ToDataType>
 struct ConvertImplFromJsonb {
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           const uint32_t result, size_t input_rows_count) {
@@ -777,16 +782,12 @@ struct ConvertImplFromJsonb {
             auto& null_map = null_map_col->get_data();
             auto col_to = ColumnType::create();
 
-            //IColumn & col_to = *res;
-            // size_t size = col_from.size();
             col_to->reserve(input_rows_count);
             auto& res = col_to->get_data();
             res.resize(input_rows_count);
 
             for (size_t i = 0; i < input_rows_count; ++i) {
                 const auto& val = column_string->get_data_at(i);
-                // ReadBuffer read_buffer((char*)(val.data), val.size);
-                // RETURN_IF_ERROR(data_type_to->from_string(read_buffer, col_to));
 
                 if (val.size == 0) {
                     null_map[i] = 1;
@@ -807,6 +808,15 @@ struct ConvertImplFromJsonb {
                 if (UNLIKELY(!value)) {
                     null_map[i] = 1;
                     res[i] = 0;
+                    continue;
+                }
+                if (value->isString()) {
+                    // convert by parse
+                    const auto& data = static_cast<const JsonbBlobVal*>(value)->getBlob();
+                    size_t len = static_cast<const JsonbBlobVal*>(value)->getBlobLen();
+                    ReadBuffer rb((char*)(data), len);
+                    bool parsed = try_parse_impl<ToDataType>(res[i], rb, context);
+                    null_map[i] = !parsed;
                     continue;
                 }
                 if constexpr (type_index == TypeIndex::UInt8) {
@@ -1713,19 +1723,20 @@ private:
                                      bool jsonb_string_as_string) const {
         switch (to_type->get_type_id()) {
         case TypeIndex::UInt8:
-            return &ConvertImplFromJsonb<TypeIndex::UInt8, ColumnUInt8>::execute;
+            return &ConvertImplFromJsonb<TypeIndex::UInt8, ColumnUInt8, DataTypeUInt8>::execute;
         case TypeIndex::Int8:
-            return &ConvertImplFromJsonb<TypeIndex::Int8, ColumnInt8>::execute;
+            return &ConvertImplFromJsonb<TypeIndex::Int8, ColumnInt8, DataTypeInt8>::execute;
         case TypeIndex::Int16:
-            return &ConvertImplFromJsonb<TypeIndex::Int16, ColumnInt16>::execute;
+            return &ConvertImplFromJsonb<TypeIndex::Int16, ColumnInt16, DataTypeInt16>::execute;
         case TypeIndex::Int32:
-            return &ConvertImplFromJsonb<TypeIndex::Int32, ColumnInt32>::execute;
+            return &ConvertImplFromJsonb<TypeIndex::Int32, ColumnInt32, DataTypeInt32>::execute;
         case TypeIndex::Int64:
-            return &ConvertImplFromJsonb<TypeIndex::Int64, ColumnInt64>::execute;
+            return &ConvertImplFromJsonb<TypeIndex::Int64, ColumnInt64, DataTypeInt64>::execute;
         case TypeIndex::Int128:
-            return &ConvertImplFromJsonb<TypeIndex::Int128, ColumnInt128>::execute;
+            return &ConvertImplFromJsonb<TypeIndex::Int128, ColumnInt128, DataTypeInt128>::execute;
         case TypeIndex::Float64:
-            return &ConvertImplFromJsonb<TypeIndex::Float64, ColumnFloat64>::execute;
+            return &ConvertImplFromJsonb<TypeIndex::Float64, ColumnFloat64,
+                                         DataTypeFloat64>::execute;
         case TypeIndex::String:
             if (!jsonb_string_as_string) {
                 // Conversion from String through parsing.
@@ -1858,12 +1869,13 @@ private:
         static Status execute(FunctionContext* context, Block& block,
                               const ColumnNumbers& arguments, const uint32_t result,
                               size_t input_rows_count) {
-            // auto& data_type_to = block.get_by_position(result).type;
+            auto& data_type_to = block.get_by_position(result).type;
             const auto& col_with_type_and_name = block.get_by_position(arguments[0]);
             auto& from_type = col_with_type_and_name.type;
             auto& col_from = col_with_type_and_name.column;
             // set variant root column/type to from column/type
-            auto variant = ColumnObject::create(true /*always nullable*/);
+            const auto& data_type_object = assert_cast<const DataTypeObject&>(*data_type_to);
+            auto variant = ColumnObject::create(data_type_object.variant_max_subcolumns_count());
             variant->create_root(from_type, col_from->assume_mutable());
             block.replace_by_position(result, std::move(variant));
             return Status::OK();
@@ -2177,10 +2189,10 @@ private:
 
         // variant needs to be judged first
         if (to_type->get_type_id() == TypeIndex::VARIANT) {
-            return create_variant_wrapper(from_type, static_cast<const DataTypeObject&>(*to_type));
+            return create_variant_wrapper(from_type, assert_cast<const DataTypeObject&>(*to_type));
         }
         if (from_type->get_type_id() == TypeIndex::VARIANT) {
-            return create_variant_wrapper(static_cast<const DataTypeObject&>(*from_type), to_type);
+            return create_variant_wrapper(assert_cast<const DataTypeObject&>(*from_type), to_type);
         }
 
         switch (from_type->get_type_id()) {

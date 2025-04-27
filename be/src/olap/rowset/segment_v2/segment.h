@@ -38,14 +38,12 @@
 #include "olap/page_cache.h"
 #include "olap/rowset/segment_v2/column_reader.h" // ColumnReader
 #include "olap/rowset/segment_v2/page_handle.h"
-#include "olap/rowset/segment_v2/stream_reader.h"
 #include "olap/schema.h"
 #include "olap/tablet_schema.h"
 #include "runtime/descriptors.h"
 #include "util/once.h"
 #include "util/slice.h"
 #include "vec/columns/column.h"
-#include "vec/columns/subcolumn_tree.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/json/path_in_data.h"
@@ -68,6 +66,7 @@ class BitmapIndexIterator;
 class Segment;
 class InvertedIndexIterator;
 class InvertedIndexFileReader;
+struct VariantStatistics;
 
 using SegmentSharedPtr = std::shared_ptr<Segment>;
 // A Segment is used to represent a segment in memory format. When segment is
@@ -112,9 +111,9 @@ public:
                                std::unique_ptr<ColumnIterator>* iter,
                                const StorageReadOptions* opt);
 
-    Status new_column_iterator_with_path(const TabletColumn& tablet_column,
-                                         std::unique_ptr<ColumnIterator>* iter,
-                                         const StorageReadOptions* opt);
+    // Status new_column_iterator_with_path(const TabletColumn& tablet_column,
+    //                                      std::unique_ptr<ColumnIterator>* iter,
+    //                                      const StorageReadOptions* opt);
 
     Status new_column_iterator(int32_t unique_id, const StorageReadOptions* opt,
                                std::unique_ptr<ColumnIterator>* iter);
@@ -127,7 +126,6 @@ public:
                                        const TabletIndex* index_meta,
                                        const StorageReadOptions& read_options,
                                        std::unique_ptr<InvertedIndexIterator>* iter);
-
     const ShortKeyIndexDecoder* get_short_key_index() const {
         DCHECK(_load_index_once.has_called() && _load_index_once.stored_result().ok());
         return _sk_index_decoder.get();
@@ -173,19 +171,12 @@ public:
     // another method `get_metadata_size` not include the column reader, only the segment object itself.
     int64_t meta_mem_usage() const { return _meta_mem_usage; }
 
-    // Identify the column by unique id or path info
-    struct ColumnIdentifier {
-        int32_t unique_id = -1;
-        int32_t parent_unique_id = -1;
-        vectorized::PathInDataPtr path;
-        bool is_nullable = false;
-    };
     // Get the inner file column's data type
     // ignore_chidren set to false will treat field as variant
     // when it contains children with field paths.
     // nullptr will returned if storage type does not contains such column
-    std::shared_ptr<const vectorized::IDataType> get_data_type_of(
-            const ColumnIdentifier& identifier, bool read_flat_leaves) const;
+    std::shared_ptr<const vectorized::IDataType> get_data_type_of(const TabletColumn& column,
+                                                                  bool read_flat_leaves) const;
     // Check is schema read type equals storage column type
     bool same_with_storage_type(int32_t cid, const Schema& schema, bool read_flat_leaves) const;
 
@@ -195,11 +186,7 @@ public:
                                     ReaderType read_type) const {
         const Field* col = schema.column(cid);
         vectorized::DataTypePtr storage_column_type =
-                get_data_type_of(ColumnIdentifier {.unique_id = col->unique_id(),
-                                                   .parent_unique_id = col->parent_unique_id(),
-                                                   .path = col->path(),
-                                                   .is_nullable = col->is_nullable()},
-                                 read_type != ReaderType::READER_QUERY);
+                get_data_type_of(col->get_desc(), read_type != ReaderType::READER_QUERY);
         if (storage_column_type == nullptr) {
             // Default column iterator
             return true;
@@ -219,6 +206,8 @@ public:
 
     const TabletSchemaSPtr& tablet_schema() { return _tablet_schema; }
 
+    Result<ColumnReader*> get_column_reader(int32_t col_unique_id);
+
 private:
     DISALLOW_COPY_AND_ASSIGN(Segment);
     Segment(uint32_t segment_id, RowsetId rowset_id, TabletSchemaSPtr tablet_schema,
@@ -235,11 +224,6 @@ private:
     Status _load_pk_bloom_filter(OlapReaderStatistics* stats);
     ColumnReader* _get_column_reader(const TabletColumn& col);
 
-    // Get Iterator which will read variant root column and extract with paths and types info
-    Status _new_iterator_with_variant_root(const TabletColumn& tablet_column,
-                                           std::unique_ptr<ColumnIterator>* iter,
-                                           const SubcolumnColumnReaders::Node* root,
-                                           vectorized::DataTypePtr target_type_hint);
     Status _write_error_file(size_t file_size, size_t offset, size_t bytes_read, char* data,
                              io::IOContext& io_ctx);
 
@@ -279,15 +263,6 @@ private:
     // Init from ColumnMetaPB in SegmentFooterPB
     // map column unique id ---> it's inner data type
     std::map<int32_t, std::shared_ptr<const vectorized::IDataType>> _file_column_types;
-
-    // Each node in the tree represents the sub column reader and type
-    // for variants.
-    // map column unique id --> it's sub column readers
-    std::map<int32_t, SubcolumnColumnReaders> _sub_column_tree;
-
-    // each sprase column's path and types info
-    // map column unique id --> it's sparse sub column readers
-    std::map<int32_t, SubcolumnColumnReaders> _sparse_column_tree;
 
     // used to guarantee that short key index will be loaded at most once in a thread-safe way
     DorisCallOnce<Status> _load_index_once;

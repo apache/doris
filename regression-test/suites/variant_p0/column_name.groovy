@@ -18,6 +18,7 @@
 suite("regression_test_variant_column_name", "variant_type"){
     def table_name = "var_column_name"
     sql "DROP TABLE IF EXISTS ${table_name}"
+    int max_subcolumns_count = Math.floor(Math.random() * 4) + 1
     sql """
         CREATE TABLE IF NOT EXISTS ${table_name} (
             k bigint,
@@ -25,7 +26,7 @@ suite("regression_test_variant_column_name", "variant_type"){
         )
         DUPLICATE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 1 
-        properties("replication_num" = "1", "disable_auto_compaction" = "true");
+        properties("replication_num" = "1", "disable_auto_compaction" = "true", "variant_max_subcolumns_count" = "${max_subcolumns_count}");
     """ 
 
     sql """insert into ${table_name} values (1, '{"中文" : "中文", "\\\u4E2C\\\u6587": "unicode"}')"""
@@ -60,13 +61,38 @@ suite("regression_test_variant_column_name", "variant_type"){
     sql """insert into var_column_name values (7, '{"": "ooaoaaaaaaa"}')"""
     sql """insert into var_column_name values (7, '{"": 1234566}')"""
     sql """insert into var_column_name values (7, '{"": 8888888}')"""
+    trigger_and_wait_compaction(table_name, "cumulative")
 
-    qt_sql "select Tags[''] from var_column_name order by cast(Tags[''] as string)"
-
+    qt_sql "select cast(Tags[''] as text) from var_column_name order by cast(Tags[''] as string)"
     try {
         sql """insert into var_column_name values (7, '{"": "UPPER CASE", "": "lower case"}')"""
     } catch(Exception ex) {
         logger.info("""INSERT INTO ${table_name} failed: """ + ex)
         assertTrue(ex.toString().contains("may contains duplicated entry"));
     }
+
+    // name with `.`
+    sql "truncate table var_column_name"
+    test {
+         sql """insert into var_column_name values (7, '{"a.b": "UPPER CASE", "a.c": "lower case", "a" : {"b" : 123}, "a" : {"c" : 456}}')"""
+         exception "may contains duplicated entry"
+    };
+    sql """insert into var_column_name values (1, '{"a.b" : 123, "a.c" : 456, "a.d" : 1.111, "a.e" : "1234567890"}')"""
+    for (int i = 0; i < 7; i++) {
+        sql """insert into var_column_name select * from var_column_name"""
+    }
+    trigger_and_wait_compaction(table_name, "cumulative")
+    qt_sql_cnt_1 "select count(Tags['a.b']) from var_column_name"
+    qt_sql_cnt_2 "select count(Tags['a.c']) from var_column_name"
+    qt_sql_cnt_3 "select count(Tags['a.d']) from var_column_name"
+    qt_sql_cnt_4 "select count(Tags['a.e']) from var_column_name"
+    for (int i = 0; i < 7; i++) {
+        sql """insert into var_column_name values (1, '{"a"  : {"b" : 123}, "a" : {"c" : 456}, "a" : {"d" : 1.111}, "a" : {"e" : "1234567890"}}')"""
+    }
+    trigger_and_wait_compaction(table_name, "full")
+    qt_sql_cnt_5 "select count(Tags['a']['b']) from var_column_name"
+    qt_sql_cnt_6 "select count(Tags['a']['c']) from var_column_name"
+    qt_sql_cnt_7 "select count(Tags['a']['d']) from var_column_name"
+    qt_sql_cnt_8 "select count(Tags['a']['e']) from var_column_name"
+    qt_sql_cnt_9 "select Tags['a'], Tags['a']['b'], Tags['a']['c'], Tags['a']['d'], Tags['a']['e'], Tags from var_column_name order by k limit 5"
 }

@@ -252,6 +252,10 @@ void get_least_supertype_jsonb(const DataTypes& types, DataTypePtr* type) {
     for (const auto& type : types) {
         type_ids.insert(type->get_type_id());
     }
+    if (type_ids.size() == 1) {
+        *type = types[0];
+        return;
+    }
     get_least_supertype_jsonb(type_ids, type);
 }
 
@@ -282,7 +286,8 @@ void get_least_supertype_jsonb(const TypeIndexSet& types, DataTypePtr* type) {
             return;
         }
         if (which.is_variant_type()) {
-            *type = std::make_shared<DataTypeObject>();
+            // only in nested type which is Array<ColumnObject>
+            *type = std::make_shared<DataTypeObject>(0);
             return;
         }
         if (which.is_date_v2()) {
