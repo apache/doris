@@ -791,7 +791,7 @@ suite("test_crud_wlg") {
                 "    'enable_memory_overcommit'='true' " +
                 ");"
         sql "set workload_group=test_wg_metrics;"
-        wg = sql("select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,tag,read_bytes_per_second,remote_read_bytes_per_second from information_schema.workload_groups where name = 'test_wg_metrics' order by name;");
+        def wg = sql("select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,tag,read_bytes_per_second,remote_read_bytes_per_second from information_schema.workload_groups where name = 'test_wg_metrics' order by name;");
         logger.info("wg: " + wg);
 
         // 3. EXECUTE A QUERY SO THAT THE WORKLOAD GROUP IS USED
@@ -799,9 +799,9 @@ suite("test_crud_wlg") {
         
         // curl backend http port to get metrics
         // get first backendId
-        backendId = backendId_to_backendIP.keySet().iterator().next();
-        backendIP = backendId_to_backendIP.get(backendId);
-        backendHttpPort = backendId_to_backendHttpPort.get(backendId);
+        def backendId = backendId_to_backendIP.keySet().iterator().next();
+        def backendIP = backendId_to_backendIP.get(backendId);
+        def backendHttpPort = backendId_to_backendHttpPort.get(backendId);
         logger.info("backendId: " + backendId + ", backendIP: " + backendIP + ", backendHttpPort: " + backendHttpPort);
 
         // Create a for loop to get metrics 5 times
