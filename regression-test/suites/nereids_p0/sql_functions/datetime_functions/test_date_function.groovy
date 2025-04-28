@@ -385,6 +385,10 @@ suite("test_date_function") {
     qt_sql_ustamp5 """ select unix_timestamp('2007-11-30 10:30:19.123456') """
     qt_sql_ustamp6 """ select unix_timestamp(cast('2007-11-30 10:30:19.123456' as datetimev2(3))) """
     qt_sql_ustamp7 """ select unix_timestamp(cast('2007-11-30 10:30:19.123456' as datetimev2(4))) """
+    qt_sql_ustamp8 """ SELECT UNIX_TIMESTAMP('9999-12-30 23:59:59.999'); """
+    qt_sql_ustamp9 """ SELECT UNIX_TIMESTAMP('9999-12-30 23:59:59'); """
+    testFoldConst("SELECT UNIX_TIMESTAMP('9999-12-30 23:59:59.999');")
+    testFoldConst("SELECT UNIX_TIMESTAMP('9999-12-30 23:59:59');")
 
     // UTC_TIMESTAMP
     def utc_timestamp_str = sql """ select utc_timestamp(),utc_timestamp() + 1 """

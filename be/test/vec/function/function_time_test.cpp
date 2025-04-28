@@ -24,6 +24,7 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_date.h"
 #include "vec/data_types/data_type_date_time.h"
+#include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/data_types/data_type_time.h"
@@ -180,6 +181,58 @@ TEST(VTimestampFunctionsTest, from_unix_test) {
                         {{int64_t(-123)}, Null()}};
 
     static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
+}
+
+TEST(VTimestampFunctionsTest, unix_timestamp_test) {
+    std::string func_name = "unix_timestamp";
+    TimezoneUtils::load_timezones_to_cache();
+
+    {
+        InputTypeSet input_types = {TypeIndex::DateV2};
+        DataSet data_set = {{{std::string("2022-05-24")}, int32_t {1653321600}},
+                            {{Null()}, Null()}};
+        static_cast<void>(check_function<DataTypeInt32, true>(func_name, input_types, data_set));
+    }
+
+    {
+        InputTypeSet input_types = {{TypeIndex::DateTimeV2, 3}};
+        DataSet data_set = {
+                {{std::string("2022-05-24 12:34:56.789")}, DECIMAL64(1653366896, 789, 3)},
+                {{Null()}, Null()}};
+        static_cast<void>(check_function<DataTypeDecimal<Decimal64>, true, 3, 13>(
+                func_name, input_types, data_set));
+    }
+
+    {
+        InputTypeSet input_types = {{TypeIndex::DateTimeV2, 6}};
+        DataSet data_set = {
+                {{std::string("2022-05-24 12:34:56.789123")}, DECIMAL64(1653366896, 789123, 6)},
+                {{Null()}, Null()}};
+        static_cast<void>(check_function<DataTypeDecimal<Decimal64>, true, 6, 16>(
+                func_name, input_types, data_set));
+    }
+
+    // test out of range
+    {
+        InputTypeSet input_types = {{TypeIndex::DateTimeV2, 6}};
+        DataSet data_set = {
+                {{std::string("1022-05-24 12:34:56.789123")}, DECIMAL64(0, 0, 0)},
+                {{std::string("9022-05-24 12:34:56.789123")}, DECIMAL64(0, 0, 0)},
+                {{std::string("9999-12-30 23:59:59.999")}, DECIMAL64(0, 0, 0)},
+        };
+        static_cast<void>(check_function<DataTypeDecimal<Decimal64>, true, 0, 1>(
+                func_name, input_types, data_set));
+    }
+    // negative case
+    {
+        InputTypeSet input_types = {{TypeIndex::DateTimeV2, 6}};
+        DataSet data_set = {
+                {{std::string("9999-12-30 23:59:59.999")}, DECIMAL64(0, 999, 3)},
+                {{std::string("9999-12-30 23:59:59.999")}, DECIMAL64(0, 999, 3)},
+        };
+        static_cast<void>(check_function<DataTypeDecimal<Decimal64>, true, 0, 1>(
+                func_name, input_types, data_set, false, true));
+    }
 }
 
 TEST(VTimestampFunctionsTest, timediff_test) {
