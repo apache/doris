@@ -23,13 +23,11 @@ suite("test_list_default_partition_show_create") {
             k2 int NOT NULL) 
         UNIQUE KEY(k1)
         PARTITION BY LIST(k1) ( 
-            PARTITION p1 VALUES IN ("1","2","3","4"), 
-            PARTITION p2 VALUES IN ("5","6","7","8"), 
-            PARTITION p3 ) 
+            PARTITION p1 ) 
         DISTRIBUTED BY HASH(k1) BUCKETS 5 properties("replication_num" = "1")
         """
 
     def res = sql "show create table list_default"
     logger.info(res[0][1])
-    assertFalse(res[0][1].contains("VALUES IN (\"-2147483648\")"))
+    assertTrue(res[0][1].contains("(PARTITION p1)"))
 }
