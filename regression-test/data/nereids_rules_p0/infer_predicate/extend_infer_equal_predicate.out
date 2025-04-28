@@ -24,7 +24,7 @@ PhysicalResultSink
 
 -- !test_simple_compare_datetimev2 --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((t1.d_datetimev2 = t2.d_datetimev2)) otherCondition=()
+--NestedLoopJoin[INNER_JOIN]
 ----filter((t1.d_datetimev2 = '2024-01-01 00:00:00'))
 ------PhysicalOlapScan[extend_infer_t1]
 ----filter((t2.d_datetimev2 = '2024-01-01 00:00:00'))
@@ -79,7 +79,7 @@ PhysicalResultSink
 
 -- !test_like_to_equal --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((t1.d_char100 = t2.d_char100)) otherCondition=()
+--NestedLoopJoin[INNER_JOIN]
 ----filter((t1.d_char100 = '012'))
 ------PhysicalOlapScan[extend_infer_t1]
 ----filter((t2.d_char100 = '012'))
