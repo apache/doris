@@ -163,7 +163,8 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
         tableId = Long.valueOf(getOrDefaultAndRemove(copiedProps, PROP_TABLE_ID, "-1"));
 
-        fileFormatProperties = FileFormatProperties.createFileFormatProperties(copiedProps);
+        String formatString = getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_FORMAT, "").toLowerCase();
+        fileFormatProperties = FileFormatProperties.createFileFormatProperties(formatString);
         fileFormatProperties.analyzeFileFormatProperties(copiedProps, true);
 
         if (fileFormatProperties instanceof CsvFileFormatProperties) {
