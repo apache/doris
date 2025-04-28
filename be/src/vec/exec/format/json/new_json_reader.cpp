@@ -366,7 +366,7 @@ Status NewJsonReader::get_parsed_schema(std::vector<std::string>* col_names,
     for (int i = 0; i < objectValue->MemberCount(); ++i) {
         auto it = objectValue->MemberBegin() + i;
         col_names->emplace_back(it->name.GetString());
-        col_types->emplace_back(std::make_shared<vectorized::DataTypeString>());
+        col_types->emplace_back(make_nullable(std::make_shared<vectorized::DataTypeString>()));
     }
     return Status::OK();
 }

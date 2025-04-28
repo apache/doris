@@ -955,7 +955,7 @@ Status CsvReader::_parse_col_names(std::vector<std::string>* col_names) {
 Status CsvReader::_parse_col_types(size_t col_nums, std::vector<DataTypePtr>* col_types) {
     // delete after.
     for (size_t i = 0; i < col_nums; ++i) {
-        col_types->emplace_back(std::make_shared<DataTypeString>());
+        col_types->emplace_back(make_nullable(std::make_shared<DataTypeString>()));
     }
 
     // 1. check _line_reader_eof

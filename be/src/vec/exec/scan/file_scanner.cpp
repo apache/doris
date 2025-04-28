@@ -561,7 +561,7 @@ Status FileScanner::_cast_to_input_block(Block* block) {
         auto& arg = _src_block_ptr->get_by_name(slot_desc->col_name());
         auto return_type = slot_desc->get_data_type_ptr();
         // remove nullable here, let the get_function decide whether nullable
-        auto data_type = remove_nullable(return_type);
+        auto data_type = get_data_type_with_default_argument(remove_nullable(return_type));
         ColumnsWithTypeAndName arguments {
                 arg, {data_type->create_column(), data_type, slot_desc->col_name()}};
         auto func_cast = SimpleFunctionFactory::instance().get_function(
@@ -804,7 +804,7 @@ Status FileScanner::_truncate_char_or_varchar_columns(Block* block) {
             continue;
         }
         const auto& type = slot_desc->type();
-        if (type->get_primitive_type() != TYPE_VARCHAR) {
+        if (type->get_primitive_type() != TYPE_VARCHAR && type->get_primitive_type() != TYPE_CHAR) {
             ++idx;
             continue;
         }

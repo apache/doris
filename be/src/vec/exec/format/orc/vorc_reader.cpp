@@ -1409,8 +1409,7 @@ DataTypePtr OrcReader::convert_to_doris_type(const orc::Type* orc_type) {
                 cast_set<int>(orc_type->getMaximumLength()));
     case orc::TypeKind::CHAR:
         return DataTypeFactory::instance().create_data_type(
-                PrimitiveType::TYPE_STRING, true, 0, 0,
-                cast_set<int>(orc_type->getMaximumLength()));
+                PrimitiveType::TYPE_CHAR, true, 0, 0, cast_set<int>(orc_type->getMaximumLength()));
     case orc::TypeKind::TIMESTAMP_INSTANT:
         return DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_DATETIMEV2, true, 0,
                                                             6);
@@ -2354,7 +2353,8 @@ bool OrcReader::_can_filter_by_dict(int slot_id) {
     if (slot == nullptr) {
         return false;
     }
-    if (slot->type()->get_primitive_type() != PrimitiveType::TYPE_STRING) {
+    if (!is_string_type(slot->type()->get_primitive_type()) &&
+        !is_var_len_object(slot->type()->get_primitive_type())) {
         return false;
     }
 
