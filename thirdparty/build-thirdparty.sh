@@ -741,52 +741,6 @@ build_boost() {
         cxxflags="-std=c++17 -g -I${TP_INCLUDE_DIR} -L${TP_LIB_DIR}" install
 }
 
-# mysql
-build_mysql() {
-    check_if_source_exist "${MYSQL_SOURCE}"
-    check_if_source_exist "${BOOST_SOURCE}"
-
-    cd "${TP_SOURCE_DIR}/${MYSQL_SOURCE}"
-
-    mkdir -p "${BUILD_DIR}"
-    cd "${BUILD_DIR}"
-
-    rm -rf CMakeCache.txt CMakeFiles/
-
-    if [[ ! -d "${BOOST_SOURCE}" ]]; then
-        cp -rf "${TP_SOURCE_DIR}/${BOOST_SOURCE}" ./
-    fi
-
-    if [[ "${KERNEL}" != 'Darwin' ]]; then
-        cflags='-static -pthread -lrt'
-        cxxflags='-static -pthread -lrt'
-    else
-        cflags='-pthread'
-        cxxflags='-pthread'
-    fi
-
-    CFLAGS="${cflags}" CXXFLAGS="${cxxflags}" \
-        "${CMAKE_CMD}" -G "${GENERATOR}" ../ -DCMAKE_LINK_SEARCH_END_STATIC=1 \
-        -DWITH_BOOST="$(pwd)/${BOOST_SOURCE}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}/mysql" \
-        -DWITHOUT_SERVER=1 -DWITH_ZLIB=1 -DZLIB_ROOT="${TP_INSTALL_DIR}" \
-        -DCMAKE_CXX_FLAGS_RELWITHDEBINFO="-O3 -g -fabi-version=2 -fno-omit-frame-pointer -fno-strict-aliasing -std=gnu++11" \
-        -DDISABLE_SHARED=1 -DBUILD_SHARED_LIBS=0 -DZLIB_LIBRARY="${TP_INSTALL_DIR}/lib/libz.a" -DENABLE_DTRACE=0
-    "${BUILD_SYSTEM}" -j "${PARALLEL}" mysqlclient
-
-    # copy headers manually
-    rm -rf ../../../installed/include/mysql/
-    mkdir ../../../installed/include/mysql/ -p
-    cp -R ./include/* ../../../installed/include/mysql/
-    cp -R ../include/* ../../../installed/include/mysql/
-    cp ../libbinlogevents/export/binary_log_types.h ../../../installed/include/mysql/
-    echo "mysql headers are installed."
-
-    # copy libmysqlclient.a
-    cp libmysql/libmysqlclient.a ../../../installed/lib/
-    echo "mysql client lib is installed."
-    strip_lib libmysqlclient.a
-}
-
 #leveldb
 build_leveldb() {
     check_if_source_exist "${LEVELDB_SOURCE}"
@@ -911,20 +865,6 @@ build_librdkafka() {
     remove_all_dylib
     strip_lib librdkafka.a
     strip_lib librdkafka++.a
-}
-
-# libunixodbc
-build_odbc() {
-    check_if_source_exist "${ODBC_SOURCE}"
-
-    cd "${TP_SOURCE_DIR}/${ODBC_SOURCE}"
-
-    CFLAGS="-I${TP_INCLUDE_DIR} -Wno-int-conversion -Wno-implicit-function-declaration" \
-        LDFLAGS="-L${TP_LIB_DIR}" \
-        ./configure --prefix="${TP_INSTALL_DIR}" --with-included-ltdl --enable-static=yes --enable-shared=no
-
-    make -j "${PARALLEL}"
-    make install
 }
 
 # flatbuffers
@@ -1948,7 +1888,6 @@ build_faiss() {
 if [[ "${#packages[@]}" -eq 0 ]]; then
     packages=(
         jindofs
-        odbc
         openssl
         libevent
         zlib
@@ -1990,7 +1929,6 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         libdivide
         cctz
         tsan_header
-        mysql
         aws_sdk
         js_and_css
         lzma

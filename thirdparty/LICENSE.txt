@@ -55,17 +55,3 @@ You can also enable the LZO support by adding env variable:
 `WITH_LZO=1 sh build.sh`.
 
 Disable LZO support does not affect normal use of Doris.
-
-============================================================================================
-MySQL
-source: https://github.com/mysql/mysql-server
-
-MySQL is under GNU General Public License Version 2(GPL-2), which is not compatible with Apache 2.0 License. 
-
-So MySQL is an optional feature when building Doris from source. And default is disabled.
-You can also enable the MySQL support by adding env variable:
-
-`WITH_MYSQL=1 sh build.sh`
-
-Disable MySQL support with disable the feature of visiting a MySQL table as an external table in Doris.
-But you can visit MySQL external table via ODBC.
