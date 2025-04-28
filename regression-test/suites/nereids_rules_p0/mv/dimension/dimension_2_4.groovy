@@ -23,6 +23,8 @@ suite("partition_mv_rewrite_dimension_2_4") {
     String db = context.config.getDbNameByFile(context.file)
     sql "use ${db}"
 
+    sql "set disable_nereids_rules='CONSTANT_PROPAGATION'"
+
     sql """
     drop table if exists orders_2_4
     """
