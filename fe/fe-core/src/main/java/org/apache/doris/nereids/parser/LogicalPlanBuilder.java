@@ -6660,6 +6660,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
     }
 
+    @Override
     public LogicalPlan visitStopDataSyncJob(DorisParser.StopDataSyncJobContext ctx) {
         List<String> nameParts = visitMultipartIdentifier(ctx.name);
         int size = nameParts.size();
