@@ -34,8 +34,13 @@ suite("test_show_frontend_auth","p0,auth_call") {
     sql """grant select_priv on regression_test to ${user}"""
 
     connect(user, "${pwd}", context.config.jdbcUrl) {
-        def show_result = sql """SHOW frontends"""
-        logger.info("show_result: " + show_result)
+        try {
+            def show_result = sql """SHOW frontends"""
+            logger.info("show_result: " + show_result)
+        } catch (Exception e) {
+            logger.info("show_result: " + e)
+            e.printStackTrace()
+        }
         test {
             sql """SHOW frontends"""
             exception "denied"
