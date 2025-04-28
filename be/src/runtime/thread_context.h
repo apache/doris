@@ -43,7 +43,14 @@
 // This will save some info about a working thread in the thread context.
 // Looking forward to tracking memory during thread execution into MemTrackerLimiter.
 #define SCOPED_ATTACH_TASK(arg1) auto VARNAME_LINENUM(attach_task) = AttachTask(arg1)
+
+// If the current thread is not executing a Task, such as a StorageEngine thread,
+// use SCOPED_INIT_THREAD_CONTEXT to initialize ThreadContext.
+#define SCOPED_INIT_THREAD_CONTEXT() \
+    auto VARNAME_LINENUM(scoped_tls_itc) = doris::ScopedInitThreadContext()
+
 // Switch resource context in thread context, used after SCOPED_ATTACH_TASK.
+// If just want to switch mem tracker, use SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER first.
 #define SCOPED_SWITCH_RESOURCE_CONTEXT(arg1) \
     auto VARNAME_LINENUM(switch_resource_context) = doris::SwitchResourceContext(arg1)
 
@@ -79,9 +86,6 @@
 //                { SCOPED_CONSUME_MEM_TRACKER_BY_HOOK(_mem_tracker.get()); xxx; xxx; }
 #define SCOPED_CONSUME_MEM_TRACKER_BY_HOOK(mem_tracker) \
     auto VARNAME_LINENUM(add_mem_consumer) = doris::AddThreadMemTrackerConsumerByHook(mem_tracker)
-
-#define SCOPED_INIT_THREAD_CONTEXT() \
-    auto VARNAME_LINENUM(scoped_tls_itc) = doris::ScopedInitThreadContext()
 
 #define SCOPED_SKIP_MEMORY_CHECK() \
     auto VARNAME_LINENUM(scope_skip_memory_check) = doris::ScopeSkipMemoryCheck()
@@ -143,8 +147,6 @@ class SwitchResourceContext;
 
 extern bthread_key_t btls_key;
 
-// If the current thread is not executing a Task, such as a StorageEngine thread,
-// use SCOPED_INIT_THREAD_CONTEXT to initialize ThreadContext.
 static std::string NO_THREAD_CONTEXT_MSG =
         "Current thread not exist ThreadContext, usually after the thread is started, using "
         "SCOPED_ATTACH_TASK macro to create a ThreadContext and bind a Task.";

@@ -159,7 +159,7 @@ Status MemTableWriter::flush_async() {
     // 1. call by local, from `VTabletWriterV2::_write_memtable`.
     // 2. call by remote, from `LoadChannelMgr::_get_load_channel`.
     // 3. call by daemon thread, from `handle_paused_queries` -> `flush_workload_group_memtables`.
-    SCOPED_SWITCH_RESOURCE_CONTEXT(_resource_ctx);
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_resource_ctx->memory_context()->mem_tracker());
     if (!_is_init || _is_closed) {
         // This writer is uninitialized or closed before flushing, do nothing.
         // We return OK instead of NOT_INITIALIZED or ALREADY_CLOSED.
