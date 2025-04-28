@@ -833,12 +833,12 @@ import org.apache.doris.nereids.trees.plans.commands.load.LoadProperty;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadSeparator;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadSequenceClause;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadWhereClause;
-import org.apache.doris.nereids.trees.plans.commands.load.PauseRoutineLoadCommand;
-import org.apache.doris.nereids.trees.plans.commands.load.ResumeRoutineLoadCommand;
-import org.apache.doris.nereids.trees.plans.commands.load.StopRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.load.PauseDataSyncJobCommand;
+import org.apache.doris.nereids.trees.plans.commands.load.PauseRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.load.ResumeDataSyncJobCommand;
+import org.apache.doris.nereids.trees.plans.commands.load.ResumeRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.load.StopDataSyncJobCommand;
+import org.apache.doris.nereids.trees.plans.commands.load.StopRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.load.SyncJobName;
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshDatabaseCommand;
@@ -6696,6 +6696,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return new StopRoutineLoadCommand(labelNameInfo);
     }
 
+    @Override
     public LogicalPlan visitStopDataSyncJob(DorisParser.StopDataSyncJobContext ctx) {
         List<String> nameParts = visitMultipartIdentifier(ctx.name);
         int size = nameParts.size();
