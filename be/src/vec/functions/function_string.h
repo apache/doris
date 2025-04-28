@@ -4501,7 +4501,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        uint32_t result, size_t input_rows_count) const override {
+                        size_t result, size_t input_rows_count) const override {
         CHECK_EQ(arguments.size(), 2);
         auto col_res = ColumnNullable::create(ColumnString::create(), ColumnUInt8::create());
         const auto& [left_col, left_const] =

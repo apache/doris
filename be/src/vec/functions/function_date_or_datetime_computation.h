@@ -1195,7 +1195,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        uint32_t result, size_t input_rows_count) const override {
+                        size_t result, size_t input_rows_count) const override {
         CHECK_EQ(arguments.size(), 3);
         auto res = ColumnFloat64::create();
 
@@ -1305,7 +1305,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        uint32_t result, size_t input_rows_count) const override {
+                        size_t result, size_t input_rows_count) const override {
         CHECK_EQ(arguments.size(), 2);
         auto res = ColumnDateV2::create();
         res->reserve(input_rows_count);
