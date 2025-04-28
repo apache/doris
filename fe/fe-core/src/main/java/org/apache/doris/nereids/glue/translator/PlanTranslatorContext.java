@@ -116,6 +116,8 @@ public class PlanTranslatorContext {
 
     private final Map<ScanNode, Set<SlotId>> statsUnknownColumnsMap = Maps.newHashMap();
 
+    private final Set<SlotId> virtualColumnIds = Sets.newHashSet();
+
     public PlanTranslatorContext(CascadesContext ctx) {
         this.connectContext = ctx.getConnectContext();
         this.translator = new RuntimeFilterTranslator(ctx.getRuntimeFilterContext());
@@ -342,5 +344,9 @@ public class PlanTranslatorContext {
 
     public TPushAggOp getRelationPushAggOp(RelationId relationId) {
         return tablePushAggOp.getOrDefault(relationId, TPushAggOp.NONE);
+    }
+
+    public Set<SlotId> getVirtualColumnIds() {
+        return virtualColumnIds;
     }
 }
