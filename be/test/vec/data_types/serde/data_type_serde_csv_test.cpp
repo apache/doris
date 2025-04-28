@@ -19,6 +19,9 @@
 #include "olap/types.h" // for TypeInfo
 #include "olap/wrapper_field.h"
 #include "vec/columns/column.h"
+#include "vec/columns/column_array.h"
+#include "vec/columns/column_string.h"
+#include "vec/columns/column_struct.h"
 #include "vec/common/string_buffer.hpp"
 #include "vec/core/field.h"
 #include "vec/data_types/data_type.h"
@@ -482,4 +485,233 @@ TEST(CsvSerde, ComplexTypeSerdeCsvTest) {
         EXPECT_EQ(str, rand_s_d.to_string());
     }
 }
+
+TEST(CsvSerde, ComplexTypeSerdeSchemaChangedCsvTest) {
+    { //struct<string, string> => struct<string, string, string>
+        DataTypeSerDe::FormatOptions formatOptions;
+        formatOptions.collection_delim = '\002';
+        formatOptions.map_key_delim = '\003';
+
+        string str = "false\002example";
+        DataTypes substruct_dataTypes;
+        substruct_dataTypes.push_back(make_nullable(std::make_shared<DataTypeString>()));
+        substruct_dataTypes.push_back(make_nullable(std::make_shared<DataTypeString>()));
+        substruct_dataTypes.push_back(make_nullable(std::make_shared<DataTypeString>()));
+
+        DataTypePtr data_type_ptr =
+                make_nullable(std::make_shared<DataTypeStruct>(substruct_dataTypes));
+
+        auto col = data_type_ptr->create_column();
+        Slice slice(str.data(), str.size());
+        DataTypeSerDeSPtr serde = data_type_ptr->get_serde();
+        Status st = serde->deserialize_one_cell_from_hive_text(*col, slice, formatOptions);
+        EXPECT_EQ(st, Status::OK());
+        auto struct_col = static_cast<ColumnStruct&>(
+                static_cast<ColumnNullable&>(*col.get()).get_nested_column());
+        EXPECT_EQ(struct_col.get_column(0).get_data_at(0).to_string(), "false");
+        EXPECT_EQ(struct_col.get_column(1).get_data_at(0).to_string(), "example");
+
+        EXPECT_EQ(struct_col.get_column(0).is_null_at(0), false);
+        EXPECT_EQ(struct_col.get_column(1).is_null_at(0), false);
+        EXPECT_EQ(struct_col.get_column(2).is_null_at(0), true);
+    }
+
+    { // Map<int,String> => array<string>
+        DataTypeSerDe::FormatOptions formatOptions;
+        formatOptions.collection_delim = '\002';
+        formatOptions.map_key_delim = '\003';
+
+        string str = "1\003example\0022\003test";
+
+        DataTypePtr data_type_ptr = make_nullable(
+                std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeString>())));
+
+        auto col = data_type_ptr->create_column();
+        Slice slice(str.data(), str.size());
+        DataTypeSerDeSPtr serde = data_type_ptr->get_serde();
+        Status st = serde->deserialize_one_cell_from_hive_text(*col, slice, formatOptions);
+        EXPECT_EQ(st, Status::OK());
+        auto array_col = static_cast<ColumnArray&>(
+                static_cast<ColumnNullable&>(*col.get()).get_nested_column());
+
+        auto string_col = static_cast<ColumnString&>(
+                static_cast<ColumnNullable&>(array_col.get_data()).get_nested_column());
+        EXPECT_EQ(string_col.get_data_at(0).to_string(), "1\003example");
+        EXPECT_EQ(string_col.get_data_at(1).to_string(), "2\003test");
+    }
+
+    { // null
+        DataTypeSerDe::FormatOptions formatOptions;
+        formatOptions.collection_delim = '\002';
+        formatOptions.map_key_delim = '\003';
+        std::string null_format = "null";
+        formatOptions.escape_char = '|';
+        formatOptions.null_format = null_format.data();
+        formatOptions.null_len = null_format.size();
+
+        static const string str = "null";
+
+        DataTypePtr data_type_ptr = make_nullable(
+                std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeString>())));
+
+        auto col = data_type_ptr->create_column();
+        Slice slice(str.data(), str.size());
+        DataTypeSerDeSPtr serde = data_type_ptr->get_serde();
+        Status st = serde->deserialize_one_cell_from_hive_text(*col, slice, formatOptions);
+        EXPECT_EQ(st, Status::OK());
+        EXPECT_EQ(col->is_null_at(0), 1);
+    }
+
+    { //  \\N
+        DataTypeSerDe::FormatOptions formatOptions;
+        formatOptions.collection_delim = '\002';
+        formatOptions.map_key_delim = '\003';
+        std::string null_format = "null";
+        formatOptions.escape_char = '|';
+        formatOptions.null_format = null_format.data();
+        formatOptions.null_len = null_format.size();
+
+        static const string str = "\\N";
+        DataTypes substruct_dataTypes;
+        substruct_dataTypes.push_back(make_nullable(std::make_shared<DataTypeString>()));
+        substruct_dataTypes.push_back(make_nullable(std::make_shared<DataTypeString>()));
+        substruct_dataTypes.push_back(make_nullable(std::make_shared<DataTypeString>()));
+
+        DataTypePtr data_type_ptr =
+                make_nullable(std::make_shared<DataTypeStruct>(substruct_dataTypes));
+
+        auto col = data_type_ptr->create_column();
+        Slice slice(str.data(), str.size());
+        DataTypeSerDeSPtr serde = data_type_ptr->get_serde();
+        Status st = serde->deserialize_one_cell_from_hive_text(*col, slice, formatOptions);
+        EXPECT_EQ(st, Status::OK());
+        EXPECT_EQ(col->is_null_at(0), 0);
+    }
+
+    { //  \\N
+        DataTypeSerDe::FormatOptions formatOptions;
+        formatOptions.collection_delim = '\002';
+        formatOptions.map_key_delim = '\003';
+        formatOptions.escape_char = '|';
+
+        static const string str = "\\N";
+        DataTypes substruct_dataTypes;
+        substruct_dataTypes.push_back(make_nullable(std::make_shared<DataTypeString>()));
+        substruct_dataTypes.push_back(make_nullable(std::make_shared<DataTypeString>()));
+        substruct_dataTypes.push_back(make_nullable(std::make_shared<DataTypeString>()));
+
+        DataTypePtr data_type_ptr =
+                make_nullable(std::make_shared<DataTypeStruct>(substruct_dataTypes));
+
+        auto col = data_type_ptr->create_column();
+        Slice slice(str.data(), str.size());
+        DataTypeSerDeSPtr serde = data_type_ptr->get_serde();
+        Status st = serde->deserialize_one_cell_from_hive_text(*col, slice, formatOptions);
+        EXPECT_EQ(st, Status::OK());
+        EXPECT_EQ(col->is_null_at(0), 1);
+    }
+
+    { // random
+        auto randomControlChar = [&]() { return static_cast<char>(rand() % 7 + 2); };
+
+        auto randomPrintableChar = []() { return static_cast<char>(rand() % (126 - 32 + 1) + 32); };
+
+        auto generateMixedString = [&](int n) -> std::string {
+            std::string result;
+            for (int i = 0; i < n; ++i) {
+                if (rand() % 4 == 0) {
+                    result += randomControlChar();
+                } else {
+                    result += randomPrintableChar();
+                }
+            }
+            for (unsigned char c : result) {
+                printf("\\x%02X ", c);
+            }
+            std::cout << std::endl;
+
+            return result;
+        };
+
+        std::srand(std::time(nullptr));
+
+        for (int i = 0; i < 100; i++) {
+            DataTypeSerDe::FormatOptions formatOptions;
+            formatOptions.collection_delim = '\002';
+            formatOptions.map_key_delim = '\003';
+            string str = generateMixedString(rand() % 100 + 10);
+
+#define TEST_REPLACE                                                                    \
+    auto col = data_type_ptr->create_column();                                          \
+    Slice slice(str.data(), str.size());                                                \
+    DataTypeSerDeSPtr serde = data_type_ptr->get_serde();                               \
+    Status st = serde->deserialize_one_cell_from_hive_text(*col, slice, formatOptions); \
+    EXPECT_EQ(st, Status::OK());
+
+            {
+                DataTypes substruct_dataTypes;
+                substruct_dataTypes.push_back(make_nullable(std::make_shared<DataTypeString>()));
+                substruct_dataTypes.push_back(make_nullable(std::make_shared<DataTypeString>()));
+                substruct_dataTypes.push_back(make_nullable(std::make_shared<DataTypeString>()));
+                DataTypePtr data_type_ptr =
+                        make_nullable(std::make_shared<DataTypeStruct>(substruct_dataTypes));
+
+                TEST_REPLACE
+            }
+
+            {
+                DataTypePtr data_type_ptr = std::make_shared<DataTypeMap>(
+                        make_nullable(std::make_shared<DataTypeInt32>()),
+                        make_nullable(std::make_shared<DataTypeMap>(
+                                make_nullable(std::make_shared<DataTypeString>()),
+                                make_nullable(std::make_shared<DataTypeInt32>()))));
+
+                TEST_REPLACE
+            }
+
+            {
+                DataTypes substruct_dataTypes;
+                substruct_dataTypes.push_back(make_nullable(std::make_shared<DataTypeString>()));
+                substruct_dataTypes.push_back(make_nullable(std::make_shared<DataTypeString>()));
+
+                DataTypePtr data_type_ptr = make_nullable(std::make_shared<DataTypeMap>(
+                        make_nullable(std::make_shared<DataTypeInt32>()),
+                        make_nullable(std::make_shared<DataTypeStruct>(substruct_dataTypes))));
+                TEST_REPLACE
+            }
+
+            {
+                DataTypes substruct_dataTypes;
+                substruct_dataTypes.push_back(make_nullable(std::make_shared<DataTypeString>()));
+                substruct_dataTypes.push_back(make_nullable(std::make_shared<DataTypeString>()));
+                substruct_dataTypes.push_back(make_nullable(std::make_shared<DataTypeInt32>()));
+
+                DataTypes struct_dataTypes;
+                struct_dataTypes.push_back(make_nullable(std::make_shared<DataTypeInt32>()));
+                struct_dataTypes.push_back(make_nullable(std::make_shared<DataTypeMap>(
+                        make_nullable(std::make_shared<DataTypeInt32>()),
+                        make_nullable(std::make_shared<DataTypeString>()))));
+                struct_dataTypes.push_back(
+                        make_nullable(std::make_shared<DataTypeStruct>(substruct_dataTypes)));
+                struct_dataTypes.push_back(make_nullable(std::make_shared<DataTypeArray>(
+                        make_nullable(std::make_shared<DataTypeInt32>()))));
+
+                DataTypePtr data_type_ptr =
+                        make_nullable(std::make_shared<DataTypeStruct>(struct_dataTypes));
+                TEST_REPLACE
+            }
+
+            {
+                DataTypePtr data_type_ptr = make_nullable(std::make_shared<DataTypeArray>(
+                        make_nullable(std::make_shared<DataTypeArray>(
+                                make_nullable(std::make_shared<DataTypeMap>(
+                                        make_nullable(std::make_shared<DataTypeInt32>()),
+                                        make_nullable(std::make_shared<DataTypeString>())))))));
+                TEST_REPLACE
+            }
+#undef TEST_REPLACE
+        }
+    }
+}
+
 } // namespace doris::vectorized
