@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
@@ -27,6 +28,7 @@ import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.dictionary.LayoutType;
+import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
 
@@ -165,6 +167,10 @@ public class CreateDictionaryInfo {
     }
 
     private void validateAndSetColumns(Table table) throws DdlException {
+        if (!(table instanceof OlapTable || table instanceof MTMVRelatedTableIf)) {
+            throw new DdlException("Source table " + table.getName() + " is not a valid table type. "
+                    + "Only OlapTable and MTMVRelatedTableIf are supported");
+        }
         List<Column> schema = table.getFullSchema();
         // Build a map of source table columns for quick lookup
         Map<String, Column> sourceColumns = new HashMap<>();

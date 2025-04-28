@@ -401,6 +401,18 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         return destNode;
     }
 
+    public PlanNode getDeepestLinearSource() {
+        if (getChildren().size() > 1) {
+            throw new IllegalStateException("getDeepestLinearSource() called on a fragment with multiple children");
+        } else if (getChildren().isEmpty()) {
+            // this is the root fragment
+            return getPlanRoot();
+        } else {
+            // this is a non-root fragment
+            return getChild(0).getDeepestLinearSource();
+        }
+    }
+
     public PlanFragment getDestFragment() {
         if (destNode == null) {
             return null;

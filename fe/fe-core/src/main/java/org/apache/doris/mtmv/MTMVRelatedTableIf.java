@@ -92,7 +92,7 @@ public interface MTMVRelatedTableIf extends TableIf {
      * the results should be obtained directly from the context
      *
      * @param snapshot
-     * @param context
+     * @param context now for OLAP table to speed up version find.
      * @return table snapshot at current time
      * @throws AnalysisException
      */
@@ -100,12 +100,21 @@ public interface MTMVRelatedTableIf extends TableIf {
             throws AnalysisException;
 
     /**
-     * getNewestUpdateTime Used for dictionary update. for those external tables support MTMV getTableSnapshot, means
-     * could support this also. then we can use it for dictionary update.
+     * getTableSnapshot without context speeding up OLAP version find. others same with the function above.
      *
-     * @return the newest update time of the table. 0 for something wrong.
+     * @param context
+     * @return table snapshot at current time
+     * @throws AnalysisException
      */
-    long getNewestUpdateTime();
+    MTMVSnapshotIf getTableSnapshot(Optional<MvccSnapshot> snapshot) throws AnalysisException;
+
+    /**
+     * Used for dictionary update. for those external tables support MTMV getTableSnapshot, means could support this
+     * also. then we can use it for dictionary update.
+     *
+     * @return the newest update time(external table) or version(internal table) of the table. 0 for something wrong.
+     */
+    long getNewestUpdateVersionOrTime();
 
     /**
      * Does the current type of table allow timed triggering

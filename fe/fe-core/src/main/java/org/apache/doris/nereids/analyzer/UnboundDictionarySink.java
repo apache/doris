@@ -46,11 +46,12 @@ public class UnboundDictionarySink<CHILD_TYPE extends Plan> extends UnboundLogic
         implements Unbound, Sink, BlockFuncDepsPropagation {
 
     private final Dictionary dictionary;
+    private final boolean allowAdaptiveLoad;
 
     /**
      * create unbound sink for dictionary sink
      */
-    public UnboundDictionarySink(Dictionary dictionary, CHILD_TYPE child) {
+    public UnboundDictionarySink(Dictionary dictionary, CHILD_TYPE child, boolean adaptiveLoad) {
         // all the empty arguments is like UnboundTableSink
         super(ImmutableList.copyOf(dictionary.getNameWithFullQualifiers().split("\\.")), // nameParts
                 PlanType.LOGICAL_UNBOUND_DICTIONARY_SINK, // type
@@ -61,16 +62,21 @@ public class UnboundDictionarySink<CHILD_TYPE extends Plan> extends UnboundLogic
                 DMLCommandType.INSERT, // dmlCommandType
                 child);
         this.dictionary = dictionary;
+        this.allowAdaptiveLoad = adaptiveLoad;
     }
 
     public Dictionary getDictionary() {
         return dictionary;
     }
 
+    public boolean allowAdaptiveLoad() {
+        return allowAdaptiveLoad;
+    }
+
     @Override
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1, "UnboundDictionarySink only accepts one child");
-        return new UnboundDictionarySink<>(dictionary, children.get(0));
+        return new UnboundDictionarySink<>(dictionary, children.get(0), allowAdaptiveLoad);
     }
 
     @Override
@@ -85,13 +91,13 @@ public class UnboundDictionarySink<CHILD_TYPE extends Plan> extends UnboundLogic
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new UnboundDictionarySink<>(dictionary, child());
+        return new UnboundDictionarySink<>(dictionary, child(), allowAdaptiveLoad);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new UnboundDictionarySink<>(dictionary, children.get(0));
+        return new UnboundDictionarySink<>(dictionary, children.get(0), allowAdaptiveLoad);
     }
 
     @Override

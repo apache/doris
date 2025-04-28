@@ -22,7 +22,6 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
@@ -31,6 +30,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.DictionaryColumnDefini
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TDictionaryTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
@@ -261,36 +261,39 @@ public class Dictionary extends Table {
     }
 
     /**
-     * @return true if source table's version is newer than this dictionary's version(need update dictionary). if need
-     * record, return the new version as second element when first is true. otherwise, return 0 as second element.
+     * @return true if source table's version is newer than this dictionary's version(need update dictionary).
      */
-    public Pair<Boolean, Long> hasNewerSourceVersion() {
+    public Boolean hasNewerSourceVersion() {
         TableIf tableIf = RelationUtil.getTable(getSourceQualifiedName(), Env.getCurrentEnv());
         if (tableIf == null) {
             throw new RuntimeException(getName() + "'s source table not found");
         }
         if (tableIf instanceof MTMVRelatedTableIf) { // include OlapTable and some External tables
-            long time = ((MTMVRelatedTableIf) tableIf).getNewestUpdateTime();
+            long tableVersionNow = ((MTMVRelatedTableIf) tableIf).getNewestUpdateVersionOrTime();
             if (LOG.isDebugEnabled()) {
-                LOG.debug("src's now version is " + time + ", old is " + srcVersion);
+                LOG.debug("src's now version is " + tableVersionNow + ", old is " + srcVersion);
             }
-            if (time < srcVersion) {
+            if (tableVersionNow < srcVersion) {
                 // maybe drop and recreate. but if so, this dictionary should be dropped as well.
                 // so should not happen.
                 throw new RuntimeException("source table's version is smaller than dictionary's");
-            } else if (time > srcVersion) {
-                return Pair.of(true, time);
+            } else if (tableVersionNow > srcVersion) {
+                return true;
             } else {
-                return Pair.of(false, 0L);
+                return false;
             }
         }
         // just update for tables without version information.
-        return Pair.of(true, 0L);
+        return true;
     }
 
     // when refresh success, update srcVersion.
     public void updateSrcVersion(long value) {
         srcVersion = value;
+    }
+
+    public long getSrcVersion() {
+        return srcVersion;
     }
 
     public DictionaryStatus getStatus() {
@@ -357,7 +360,7 @@ public class Dictionary extends Table {
     }
 
     public boolean dataCompleted() {
-        List<Long> aliveBEs = Env.getCurrentSystemInfo().getAllBackendIds();
+        List<Long> aliveBEs = Env.getCurrentSystemInfo().getAllBackendByCurrentCluster(true);
         if (dataDistributions.size() < aliveBEs.size()) {
             // greater is OK. may be BEs down.
             return false;
@@ -378,6 +381,24 @@ public class Dictionary extends Table {
             }
         }
         return true;
+    }
+
+    // get BEs which are out of date.
+    public List<Backend> filterOutdatedBEs(List<Backend> backends) {
+        if (dataDistributions == null || dataDistributions.isEmpty()) {
+            // only called when do partial load. it bases on collection of data distributions.
+            // so dataDistributions should not be null.
+            LOG.warn("dataDistributions is null or empty. should not happen");
+            return backends;
+        }
+        Set<Long> validBEs = Sets.newHashSet();
+        for (DictionaryDistribution distribution : dataDistributions) {
+            if (distribution.getVersion() == version) {
+                validBEs.add(distribution.getBackendId());
+            }
+        }
+        // get those not valid. maybe: 1. version not match(outdated) 2. not in dataDistributions(newcomers)
+        return backends.stream().filter(backend -> !validBEs.contains(backend.getId())).collect(Collectors.toList());
     }
 
     public void setLastUpdateResult(String lastUpdateResult) {

@@ -555,7 +555,7 @@ public class NereidsPlanner extends Planner {
 
         cascadesContext.releaseMemo();
 
-        // update scan nodes visible version at the end of plan phase.
+        // update scan nodes visible version at the end of plan phase for cloud mode.
         try {
             ScanNode.setVisibleVersionForOlapScanNodes(getScanNodes());
         } catch (UserException ue) {

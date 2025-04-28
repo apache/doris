@@ -131,7 +131,7 @@ public class UnboundTableSinkCreator {
      * create unbound sink for dictionary sink
      */
     public static UnboundDictionarySink<? extends Plan> createUnboundDictionarySink(Dictionary dictionary,
-            LogicalPlan child) {
-        return new UnboundDictionarySink<>(dictionary, child);
+            LogicalPlan child, boolean adaptiveLoad) {
+        return new UnboundDictionarySink<>(dictionary, child, adaptiveLoad);
     }
 }

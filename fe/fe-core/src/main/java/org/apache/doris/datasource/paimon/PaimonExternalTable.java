@@ -198,12 +198,17 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
     @Override
     public MTMVSnapshotIf getTableSnapshot(MTMVRefreshContext context, Optional<MvccSnapshot> snapshot)
             throws AnalysisException {
+        return getTableSnapshot(snapshot);
+    }
+
+    @Override
+    public MTMVSnapshotIf getTableSnapshot(Optional<MvccSnapshot> snapshot) throws AnalysisException {
         PaimonSnapshotCacheValue paimonSnapshot = getOrFetchSnapshotCacheValue(snapshot);
         return new MTMVSnapshotIdSnapshot(paimonSnapshot.getSnapshot().getSnapshotId());
     }
 
     @Override
-    public long getNewestUpdateTime() {
+    public long getNewestUpdateVersionOrTime() {
         return getPaimonSnapshotCacheValue().getPartitionInfo().getNameToPartition().values().stream()
                 .mapToLong(Partition::lastFileCreationTime).max().orElse(0);
     }

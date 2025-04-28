@@ -30,7 +30,7 @@
 
     // validate dict status NORMAL
     dict_res.each { row ->
-        assertTrue(row[4] == "NORMAL")
+        assertTrue(row[4] == "NORMAL", row[4])
     }
 
     // validate dict version and get it

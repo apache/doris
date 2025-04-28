@@ -3419,8 +3419,11 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     }
 
     @Override
-    public long getNewestUpdateTime() {
-        return getVisibleVersionTime();
+    public long getNewestUpdateVersionOrTime() {
+        // return version rather than time because:
+        //  1. they are all incremental
+        //  2. more reasonable for UnassignedAllBEJob to compare version this time we plan and last succeed refresh.
+        return tableAttributes.getVisibleVersion();
     }
 
     @Override
@@ -3476,8 +3479,16 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     @Override
     public MTMVSnapshotIf getTableSnapshot(MTMVRefreshContext context, Optional<MvccSnapshot> snapshot) {
         Map<Long, Long> tableVersions = context.getBaseVersions().getTableVersions();
-        long visibleVersion = tableVersions.containsKey(id) ? tableVersions.get(id) : getVisibleVersion();
-        return new MTMVVersionSnapshot(visibleVersion, id);
+        if (tableVersions.containsKey(id)) { // hits cache
+            return new MTMVVersionSnapshot(tableVersions.get(id), id);
+        } else {
+            return getTableSnapshot(snapshot);
+        }
+    }
+
+    @Override
+    public MTMVSnapshotIf getTableSnapshot(Optional<MvccSnapshot> snapshot) {
+        return new MTMVVersionSnapshot(getVisibleVersion(), id);
     }
 
     @Override

@@ -42,9 +42,11 @@ public class InsertIntoDictionaryCommand extends InsertIntoTableCommand {
      *
      * @param baseCommand The base InsertIntoTableCommand to copy from
      * @param dictionary The target dictionary to insert into
+     * @param adaptiveLoad see DictionaryManager.submitDataLoad
      * @throws AnalysisException if the logical query is not a valid sink
      */
-    public InsertIntoDictionaryCommand(InsertIntoTableCommand baseCommand, Dictionary dictionary) {
+    public InsertIntoDictionaryCommand(InsertIntoTableCommand baseCommand, Dictionary dictionary,
+            boolean adaptiveLoad) {
         super(baseCommand, PlanType.INSERT_INTO_DICTIONARY_COMMAND);
         this.dictionary = dictionary;
 
@@ -56,7 +58,7 @@ public class InsertIntoDictionaryCommand extends InsertIntoTableCommand {
 
         UnboundTableSink<?> sink = (UnboundTableSink<?>) logicalQuery;
         UnboundDictionarySink<?> newSink = UnboundTableSinkCreator.createUnboundDictionarySink(dictionary,
-                (LogicalPlan) sink.child(0));
+                (LogicalPlan) sink.child(0), adaptiveLoad);
         setLogicalQuery(newSink);
         setOriginLogicalQuery(newSink);
     }

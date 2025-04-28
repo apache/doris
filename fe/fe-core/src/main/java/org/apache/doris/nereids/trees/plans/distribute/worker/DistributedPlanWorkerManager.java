@@ -33,5 +33,5 @@ public interface DistributedPlanWorkerManager {
 
     long randomAvailableWorker(Map<TNetworkAddress, Long> addressToBackendID);
 
-    List<Backend> getAllBackend(boolean needAlive);
+    List<Backend> getAllBackendsCurrentCluster(boolean needAlive);
 }

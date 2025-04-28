@@ -938,7 +938,13 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     @Override
-    public long getNewestUpdateTime() {
+    public MTMVSnapshotIf getTableSnapshot(Optional<MvccSnapshot> snapshot) throws AnalysisException {
+        makeSureInitialized();
+        return dlaTable.getTableSnapshot(snapshot);
+    }
+
+    @Override
+    public long getNewestUpdateVersionOrTime() {
         HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
                 .getMetaStoreCache((HMSExternalCatalog) getCatalog());
         HiveMetaStoreCache.HivePartitionValues hivePartitionValues = cache.getPartitionValues(getDbName(), getName(),

@@ -34,10 +34,21 @@ import java.util.List;
 public class DictionarySink extends DataSink {
     private final Dictionary dictionary;
     private final List<String> columnNames;
+    // not send to BE. use for UnassignedAllBEJob to adjust number of BEs to load.
+    private final boolean allowAdaptiveLoad;
 
-    public DictionarySink(Dictionary dictionary, List<String> columnNames) {
+    public DictionarySink(Dictionary dictionary, boolean allowAdaptiveLoad, List<String> columnNames) {
         this.dictionary = dictionary;
+        this.allowAdaptiveLoad = allowAdaptiveLoad;
         this.columnNames = columnNames;
+    }
+
+    public Dictionary getDictionary() {
+        return dictionary;
+    }
+
+    public boolean allowAdaptiveLoad() {
+        return allowAdaptiveLoad;
     }
 
     @Override

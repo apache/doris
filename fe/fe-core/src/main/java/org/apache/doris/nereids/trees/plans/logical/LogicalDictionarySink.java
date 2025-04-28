@@ -47,19 +47,21 @@ public class LogicalDictionarySink<CHILD_TYPE extends Plan> extends LogicalTable
     private final Database database;
     private final Dictionary dictionary;
     private final List<Column> cols; // sink table columns
+    private final boolean allowAdaptiveLoad;
 
-    public LogicalDictionarySink(Database database, Dictionary dictionary, List<Column> cols,
+    public LogicalDictionarySink(Database database, Dictionary dictionary, boolean allowAdaptiveLoad, List<Column> cols,
             List<NamedExpression> outputExprs, CHILD_TYPE child) {
-        this(database, dictionary, cols, outputExprs, Optional.empty(), Optional.empty(), child);
+        this(database, dictionary, allowAdaptiveLoad, cols, outputExprs, Optional.empty(), Optional.empty(), child);
     }
 
-    public LogicalDictionarySink(Database database, Dictionary dictionary, List<Column> cols,
+    public LogicalDictionarySink(Database database, Dictionary dictionary, boolean allowAdaptiveLoad, List<Column> cols,
             List<NamedExpression> outputExprs, Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
         super(PlanType.LOGICAL_DICTIONARY_SINK, outputExprs, groupExpression, logicalProperties, cols, child);
         this.database = Objects.requireNonNull(database, "database != null in LogicalDictionarySink");
         this.dictionary = Objects.requireNonNull(dictionary, "dictionary != null in LogicalDictionarySink");
         this.cols = ImmutableList.copyOf(cols);
+        this.allowAdaptiveLoad = allowAdaptiveLoad;
     }
 
     public Database getDatabase() {
@@ -74,19 +76,23 @@ public class LogicalDictionarySink<CHILD_TYPE extends Plan> extends LogicalTable
         return cols;
     }
 
+    public boolean allowAdaptiveLoad() {
+        return allowAdaptiveLoad;
+    }
+
     @Override
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1, "LogicalDictionarySink only accepts one child");
-        return new LogicalDictionarySink<>(database, dictionary, cols, outputExprs, Optional.empty(), Optional.empty(),
-                children.get(0));
+        return new LogicalDictionarySink<>(database, dictionary, allowAdaptiveLoad, cols, outputExprs, Optional.empty(),
+                Optional.empty(), children.get(0));
     }
 
     // This function will really set outputExprs in base class
     public Plan withChildAndUpdateOutput(Plan child) {
         List<NamedExpression> output = child.getOutput().stream().map(NamedExpression.class::cast)
                 .collect(ImmutableList.toImmutableList());
-        return new LogicalDictionarySink<>(database, dictionary, cols, output, Optional.empty(), Optional.empty(),
-                child);
+        return new LogicalDictionarySink<>(database, dictionary, allowAdaptiveLoad, cols, output, Optional.empty(),
+                Optional.empty(), child);
     }
 
     @Override
@@ -96,15 +102,15 @@ public class LogicalDictionarySink<CHILD_TYPE extends Plan> extends LogicalTable
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalDictionarySink<>(database, dictionary, cols, outputExprs, groupExpression,
+        return new LogicalDictionarySink<>(database, dictionary, allowAdaptiveLoad, cols, outputExprs, groupExpression,
                 Optional.of(getLogicalProperties()), child());
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new LogicalDictionarySink<>(database, dictionary, cols, outputExprs, groupExpression, logicalProperties,
-                children.get(0));
+        return new LogicalDictionarySink<>(database, dictionary, allowAdaptiveLoad, cols, outputExprs, groupExpression,
+                logicalProperties, children.get(0));
     }
 
     @Override
@@ -114,8 +120,8 @@ public class LogicalDictionarySink<CHILD_TYPE extends Plan> extends LogicalTable
 
     @Override
     public LogicalSink<CHILD_TYPE> withOutputExprs(List<NamedExpression> outputExprs) {
-        return new LogicalDictionarySink<>(database, dictionary, cols, outputExprs, Optional.empty(), Optional.empty(),
-                child());
+        return new LogicalDictionarySink<>(database, dictionary, allowAdaptiveLoad, cols, outputExprs, Optional.empty(),
+                Optional.empty(), child());
     }
 
     @Override

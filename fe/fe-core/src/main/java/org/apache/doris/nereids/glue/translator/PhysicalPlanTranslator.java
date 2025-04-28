@@ -370,7 +370,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             // gather to one instance
             exchangeNode.setNumInstances(1);
         } else if (targetDistribution instanceof DistributionSpecAllSingleton) {
-            // instances number = BE number. assign one by one later.
+            // instances number = BE number now. assign one by one later.
+            //ATTN: this number MAY BE CHANGED when we do distributing because when we finished physical planning,
+            // we got the source table version. and in distribute planning, basing on the src version we may find
+            // there's some BE whose dictionary already have newest data we dont have to reload.
             int aliveBENumber = Env.getCurrentSystemInfo().getAllBackendByCurrentCluster(true).size();
             exchangeNode.setNumInstances(aliveBENumber);
         } else { // not change instances
@@ -448,8 +451,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         rootFragment.setOutputPartition(DataPartition.UNPARTITIONED); // only used for explain string
         // set rootFragment output expr
 
-        DictionarySink sink = new DictionarySink(dictionarySink.getDictionary(),
-                        dictionarySink.getCols().stream().map(Column::getName).collect(Collectors.toList()));
+        DictionarySink sink = new DictionarySink(dictionarySink.getDictionary(), dictionarySink.allowAdaptiveLoad(),
+                dictionarySink.getCols().stream().map(Column::getName).collect(Collectors.toList()));
         rootFragment.setSink(sink);
         return rootFragment;
     }

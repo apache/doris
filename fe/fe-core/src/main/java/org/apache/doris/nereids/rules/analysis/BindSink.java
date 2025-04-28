@@ -668,8 +668,8 @@ public class BindSink implements AnalysisRuleFactory {
 
         // Create LogicalDictionarySink. from child's output to OutputExprs.
         // if source table has A,B,C,D, dictionary has D,B,A, then outputExprs and sinkColumns are both D,B,A
-        LogicalDictionarySink<?> boundSink = new LogicalDictionarySink<>(database, dictionary, sinkColumns,
-                outputExprs, child);
+        LogicalDictionarySink<?> boundSink = new LogicalDictionarySink<>(database, dictionary, sink.allowAdaptiveLoad(),
+                sinkColumns, outputExprs, child);
 
         // Get column to output mapping and handle type coercion. sink column to its accepted expr
         Map<String, NamedExpression> sinkColumnToExpr = getDictColumnToOutput(ctx, sinkColumns, boundSink, child);

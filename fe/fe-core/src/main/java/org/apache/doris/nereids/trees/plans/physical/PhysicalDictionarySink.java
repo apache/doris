@@ -47,18 +47,20 @@ public class PhysicalDictionarySink<CHILD_TYPE extends Plan> extends PhysicalTab
     private final Database database;
     private final Dictionary dictionary;
     private final List<Column> cols;
+    private final boolean allowAdaptiveLoad;
 
     /**
      * constructor
      */
-    public PhysicalDictionarySink(Database database, Dictionary dictionary, List<Column> cols,
-            List<NamedExpression> outputExprs, Optional<GroupExpression> groupExpression,
+    public PhysicalDictionarySink(Database database, Dictionary dictionary, boolean allowAdaptiveLoad,
+            List<Column> cols, List<NamedExpression> outputExprs, Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, Statistics statistics, CHILD_TYPE child) {
         super(PlanType.PHYSICAL_DICTIONARY_SINK, outputExprs, groupExpression, logicalProperties,
                 PhysicalProperties.ALL_SINGLETON, statistics, child);
         this.database = Objects.requireNonNull(database, "database cannot be null");
         this.dictionary = Objects.requireNonNull(dictionary, "dictionary cannot be null");
         this.cols = ImmutableList.copyOf(cols);
+        this.allowAdaptiveLoad = allowAdaptiveLoad;
     }
 
     @Override
@@ -78,6 +80,10 @@ public class PhysicalDictionarySink<CHILD_TYPE extends Plan> extends PhysicalTab
         return cols;
     }
 
+    public boolean allowAdaptiveLoad() {
+        return allowAdaptiveLoad;
+    }
+
     @Override
     public List<? extends Expression> getExpressions() {
         return ImmutableList.of();
@@ -95,38 +101,38 @@ public class PhysicalDictionarySink<CHILD_TYPE extends Plan> extends PhysicalTab
 
     @Override
     public Plan withChildren(List<Plan> children) {
-        return new PhysicalDictionarySink<>(database, dictionary, cols, outputExprs, groupExpression,
+        return new PhysicalDictionarySink<>(database, dictionary, allowAdaptiveLoad, cols, outputExprs, groupExpression,
                 getLogicalProperties(), statistics, children.get(0));
     }
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalDictionarySink<>(database, dictionary, cols, outputExprs, groupExpression,
+        return new PhysicalDictionarySink<>(database, dictionary, allowAdaptiveLoad, cols, outputExprs, groupExpression,
                 getLogicalProperties(), statistics, child());
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new PhysicalDictionarySink<>(database, dictionary, cols, outputExprs, groupExpression,
+        return new PhysicalDictionarySink<>(database, dictionary, allowAdaptiveLoad, cols, outputExprs, groupExpression,
                 logicalProperties.get(), statistics, children.get(0));
     }
 
     @Override
     public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties, Statistics statistics) {
-        return new PhysicalDictionarySink<>(database, dictionary, cols, outputExprs, groupExpression,
+        return new PhysicalDictionarySink<>(database, dictionary, allowAdaptiveLoad, cols, outputExprs, groupExpression,
                 getLogicalProperties(), statistics, child());
     }
 
     @Override
     public PhysicalDictionarySink<Plan> resetLogicalProperties() {
-        return new PhysicalDictionarySink<>(database, dictionary, cols, outputExprs, groupExpression,
+        return new PhysicalDictionarySink<>(database, dictionary, allowAdaptiveLoad, cols, outputExprs, groupExpression,
                 getLogicalProperties(), null, child());
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), database, dictionary, cols);
+        return Objects.hash(super.hashCode(), database, dictionary, allowAdaptiveLoad, cols);
     }
 
     @Override

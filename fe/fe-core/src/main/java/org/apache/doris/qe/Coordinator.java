@@ -1724,9 +1724,10 @@ public class Coordinator implements CoordInterface {
                 // set when assign all BE job
                 int expectedInstanceNum = fragment.getParallelExecNum();
                 int count = 0;
-                // current cluster
-                for (Map.Entry<Long, Backend> entry : this.idToBackend.entrySet()) {
-                    Backend backend = entry.getValue();
+                // only get alive BEs in current cluster
+                List<Backend> aliveBackends = this.idToBackend.values().stream().filter(e -> e.isAlive())
+                        .collect(Collectors.toList());
+                for (Backend backend : aliveBackends) {
                     TNetworkAddress execHostport = new TNetworkAddress(backend.getHost(), backend.getBePort());
                     Reference<Long> backendIdRef = new Reference<Long>(backend.getId());
                     this.addressToBackendID.put(execHostport, backendIdRef.getRef());
@@ -1735,7 +1736,8 @@ public class Coordinator implements CoordInterface {
                     count++;
                 }
                 if (count != expectedInstanceNum) {
-                    throw new UserException("Expected " + expectedInstanceNum + " backends, but got " + count);
+                    throw new UserException("Expected " + expectedInstanceNum + " backends, but got " + count
+                            + ". partial load: " + context.getStatementContext().isPartialLoadDictionary());
                 }
                 // TODO: rethink the whole function logic. could All BE sink naturally merged into other judgements?
                 return;

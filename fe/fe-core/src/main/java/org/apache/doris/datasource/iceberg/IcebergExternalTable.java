@@ -228,13 +228,18 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
     @Override
     public MTMVSnapshotIf getTableSnapshot(MTMVRefreshContext context, Optional<MvccSnapshot> snapshot)
             throws AnalysisException {
+        return getTableSnapshot(snapshot);
+    }
+
+    @Override
+    public MTMVSnapshotIf getTableSnapshot(Optional<MvccSnapshot> snapshot) throws AnalysisException {
         makeSureInitialized();
         IcebergSnapshotCacheValue snapshotValue = getOrFetchSnapshotCacheValue(snapshot);
         return new MTMVSnapshotIdSnapshot(snapshotValue.getSnapshot().getSnapshotId());
     }
 
     @Override
-    public long getNewestUpdateTime() {
+    public long getNewestUpdateVersionOrTime() {
         return getIcebergSnapshotCacheValue().getPartitionInfo().getNameToIcebergPartition().values().stream()
                 .mapToLong(IcebergPartition::getLastUpdateTime).max().orElse(0);
     }

@@ -35,6 +35,7 @@ public class LogicalDictionarySinkToPhysicalDictionarySink extends OneImplementa
             LogicalDictionarySink<? extends Plan> sink = ctx.root;
             return new PhysicalDictionarySink<>(sink.getDatabase(),
                                                 sink.getDictionary(),
+                                                sink.allowAdaptiveLoad(),
                                                 sink.getCols(),
                                                 sink.getOutputExprs(),
                                                 Optional.empty(),                   // group expression is not useful
