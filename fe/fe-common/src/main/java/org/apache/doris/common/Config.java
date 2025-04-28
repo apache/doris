@@ -2029,10 +2029,6 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static boolean enable_query_queue = true;
 
-    // used for regression test
-    @ConfField(mutable = true)
-    public static boolean enable_alter_queue_prop_sync = false;
-
     @ConfField(mutable = true)
     public static long query_queue_update_interval_ms = 5000;
 

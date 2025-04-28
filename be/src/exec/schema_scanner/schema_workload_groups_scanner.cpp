@@ -43,7 +43,7 @@ std::vector<SchemaScanner::ColumnDesc> SchemaWorkloadGroupsScanner::_s_tbls_colu
         {"MIN_REMOTE_SCAN_THREAD_NUM", TYPE_BIGINT, sizeof(int64_t), true},
         {"MEMORY_LOW_WATERMARK", TYPE_VARCHAR, sizeof(StringRef), true},
         {"MEMORY_HIGH_WATERMARK", TYPE_VARCHAR, sizeof(StringRef), true},
-        {"TAG", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"COMPUTE_GROUP", TYPE_VARCHAR, sizeof(StringRef), true},
         {"READ_BYTES_PER_SECOND", TYPE_BIGINT, sizeof(int64_t), true},
         {"REMOTE_READ_BYTES_PER_SECOND", TYPE_BIGINT, sizeof(int64_t), true},
 };

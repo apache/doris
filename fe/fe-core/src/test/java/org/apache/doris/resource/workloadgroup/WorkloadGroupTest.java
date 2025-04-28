@@ -35,10 +35,11 @@ public class WorkloadGroupTest {
         Map<String, String> properties1 = Maps.newHashMap();
         properties1.put(WorkloadGroup.CPU_SHARE, "10");
         properties1.put(WorkloadGroup.MEMORY_LIMIT, "30%");
+        properties1.put(WorkloadGroup.COMPUTE_GROUP, "default");
         String name1 = "g1";
         WorkloadGroup group1 = WorkloadGroup.create(name1, properties1);
         Assert.assertEquals(name1, group1.getName());
-        Assert.assertEquals(7, group1.getProperties().size());
+        Assert.assertEquals(8, group1.getProperties().size());
         Assert.assertTrue(group1.getProperties().containsKey(WorkloadGroup.CPU_SHARE));
         Assert.assertTrue(Math.abs(group1.getMemoryLimitPercent() - 30) < 1e-6);
     }
@@ -80,6 +81,7 @@ public class WorkloadGroupTest {
         Map<String, String> properties1 = Maps.newHashMap();
         properties1.put(WorkloadGroup.CPU_SHARE, "10");
         properties1.put(WorkloadGroup.MEMORY_LIMIT, "30%");
+        properties1.put(WorkloadGroup.COMPUTE_GROUP, "default");
         String name1 = "g1";
         WorkloadGroup group1 = WorkloadGroup.create(name1, properties1);
 

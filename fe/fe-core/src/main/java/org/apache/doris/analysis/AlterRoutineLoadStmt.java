@@ -35,6 +35,9 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import lombok.Getter;
 import org.apache.commons.collections.MapUtils;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.Map;
 import java.util.Optional;
@@ -49,6 +52,8 @@ import java.util.Optional;
  * )
  */
 public class AlterRoutineLoadStmt extends DdlStmt implements NotFallbackInParser {
+
+    private static final Logger LOG = LogManager.getLogger(AlterRoutineLoadStmt.class);
 
     private static final String NAME_TYPE = "ROUTINE LOAD NAME";
 
@@ -248,9 +253,24 @@ public class AlterRoutineLoadStmt extends DdlStmt implements NotFallbackInParser
         }
         if (jobProperties.containsKey(CreateRoutineLoadStmt.WORKLOAD_GROUP)) {
             String workloadGroup = jobProperties.get(CreateRoutineLoadStmt.WORKLOAD_GROUP);
-            long wgId = Env.getCurrentEnv().getWorkloadGroupMgr()
-                    .getWorkloadGroup(ConnectContext.get().getCurrentUserIdentity(), workloadGroup);
-            analyzedJobProperties.put(CreateRoutineLoadStmt.WORKLOAD_GROUP, String.valueOf(wgId));
+            if (!StringUtils.isEmpty(workloadGroup)) {
+                ConnectContext tmpCtx = new ConnectContext();
+                tmpCtx.setCurrentUserIdentity(ConnectContext.get().getCurrentUserIdentity());
+                tmpCtx.getSessionVariable().setWorkloadGroup(workloadGroup);
+                long wgId;
+                try {
+                    // NOTE(wb): why get 0th wg here;
+                    // currently a routineload can only be executed in one workload group;
+                    // but the workload group thrift sent from FE to BE is a list, this is for scalability.
+                    wgId = Env.getCurrentEnv().getWorkloadGroupMgr()
+                            .getWorkloadGroup(tmpCtx).get(0)
+                            .getId();
+                } catch (Throwable t) {
+                    LOG.info("Get workload group failed when alter routine load,", t);
+                    throw  t;
+                }
+                analyzedJobProperties.put(CreateRoutineLoadStmt.WORKLOAD_GROUP, String.valueOf(wgId));
+            }
         }
         if (jobProperties.containsKey(LoadStmt.KEY_ENCLOSE)) {
             analyzedJobProperties.put(LoadStmt.KEY_ENCLOSE, jobProperties.get(LoadStmt.KEY_ENCLOSE));

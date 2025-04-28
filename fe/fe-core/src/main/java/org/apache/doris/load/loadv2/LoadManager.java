@@ -147,8 +147,13 @@ public class LoadManager implements Writable {
         }
 
         if (Config.enable_workload_group) {
-            loadJob.settWorkloadGroups(
-                    Env.getCurrentEnv().getWorkloadGroupMgr().getWorkloadGroup(ConnectContext.get()));
+            try {
+                loadJob.settWorkloadGroups(
+                        Env.getCurrentEnv().getWorkloadGroupMgr().getWorkloadGroup(ConnectContext.get()));
+            } catch (Throwable t) {
+                LOG.info("Get workload group failed when create load job,", t);
+                throw  t;
+            }
         }
 
         Env.getCurrentEnv().getEditLog().logCreateLoadJob(loadJob);

@@ -2034,8 +2034,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             boolean hasUserName = !StringUtils.isEmpty(request.getUser());
             if (Config.enable_workload_group && hasUserName) {
                 tWorkloadGroupList = Env.getCurrentEnv().getWorkloadGroupMgr()
-                        .getWorkloadGroupByUser(ConnectContext.get()
-                                .getCurrentUserIdentity(), true);
+                        .getWorkloadGroup(ConnectContext.get());
             }
             if (!Strings.isNullOrEmpty(request.getLoadSql())) {
                 httpStreamPutImpl(request, result);
