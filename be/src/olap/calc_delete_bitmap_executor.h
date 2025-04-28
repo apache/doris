@@ -49,10 +49,16 @@ public:
     explicit CalcDeleteBitmapToken(std::unique_ptr<ThreadPoolToken> thread_token)
             : _thread_token(std::move(thread_token)), _status(Status::OK()) {}
 
+    // calculate delete bitmap of `cur_segment` to historical `target_rowsets`
     Status submit(BaseTabletSPtr tablet, RowsetSharedPtr cur_rowset,
                   const segment_v2::SegmentSharedPtr& cur_segment,
                   const std::vector<RowsetSharedPtr>& target_rowsets, int64_t end_version,
                   DeleteBitmapPtr delete_bitmap, RowsetWriter* rowset_writer);
+
+    // calculate delete bitmap between `segments`
+    Status submit(BaseTabletSPtr tablet, RowsetId rowset_id,
+                  const std::vector<segment_v2::SegmentSharedPtr>& segments,
+                  DeleteBitmapPtr delete_bitmap);
 
     // wait all tasks in token to be completed.
     Status wait();
