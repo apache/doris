@@ -85,7 +85,7 @@ public class CleanQueryStatsCommandTest extends TestWithFeService {
     }
 
     @Test
-    public void testDB() throws IOException {
+    public void testDB() throws Exception {
         runBefore();
         //normal
         new Expectations() {
@@ -94,12 +94,13 @@ public class CleanQueryStatsCommandTest extends TestWithFeService {
                 minTimes = 0;
                 result = true;
 
-                accessControllerManager.checkDbPriv(connectContext, internalCtl, CatalogMocker.TEST_DB_NAME, PrivPredicate.ALTER);
+                accessControllerManager.checkDbPriv(connectContext, internalCtl, "test_db", PrivPredicate.ALTER);
                 minTimes = 0;
                 result = true;
             }
         };
-        CleanQueryStatsCommand command = new CleanQueryStatsCommand(CatalogMocker.TEST_DB_NAME);
+        createDatabase("test_db");
+        CleanQueryStatsCommand command = new CleanQueryStatsCommand("test_db");
         Assertions.assertDoesNotThrow(() -> command.validate(connectContext));
 
         //NoPriviledge
@@ -113,7 +114,7 @@ public class CleanQueryStatsCommandTest extends TestWithFeService {
                 minTimes = 0;
                 result = accessControllerManager;
 
-                accessControllerManager.checkDbPriv(connectContext, internalCtl, CatalogMocker.TEST_DB_NAME, PrivPredicate.ALTER);
+                accessControllerManager.checkDbPriv(connectContext, internalCtl, "test_db", PrivPredicate.ALTER);
                 minTimes = 0;
                 result = false;
             }
@@ -123,10 +124,14 @@ public class CleanQueryStatsCommandTest extends TestWithFeService {
     }
 
     @Test
-    public void testTbl() throws IOException {
+    public void testTbl() throws Exception {
         runBefore();
-        TableNameInfo tableNameInfo = new TableNameInfo(CatalogMocker.TEST_DB_NAME, CatalogMocker.TEST_TBL_NAME);
-
+        createDatabase("test_db");
+        createTable("create table test_db.test_tbl\n" + "(k1 int, k2 int)\n"
+                + "duplicate key(k1)\n" + "partition by range(k2)\n" + "(partition p1 values less than(\"10\"))\n"
+                + "distributed by hash(k2) buckets 1\n" + "properties('replication_num' = '1'); ");
+        TableNameInfo tableNameInfo = new TableNameInfo("test_db", "test_tbl");
+        connectContext.setDatabase("test_db");
         //normal
         new Expectations() {
             {
