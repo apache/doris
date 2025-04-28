@@ -84,12 +84,11 @@ public class ShowCreateRoutineLoadCommand extends ShowCommand {
         return handleShowCreateRoutineLoad();
     }
 
-    private void validate(ConnectContext ctx) throws AnalysisException {
+    public void validate(ConnectContext ctx) throws AnalysisException {
         labelNameInfo.validate(ctx);
     }
 
     private ShowResultSet handleShowCreateRoutineLoad() throws AnalysisException {
-        ShowResultSet resultSet;
         List<List<String>> rows = Lists.newArrayList();
         String dbName = getDb();
         String labelName = getLabel();
@@ -136,8 +135,7 @@ public class ShowCreateRoutineLoadCommand extends ShowCommand {
                 throw new AnalysisException(e.getMessage());
             }
         }
-        resultSet = new ShowResultSet(getMetaData(), rows);
-        return resultSet;
+        return new ShowResultSet(getMetaData(), rows);
     }
 
     @Override
