@@ -102,7 +102,7 @@ enum class TypeIndex {
     Decimal256 = 45,
     IPv4 = 46,
     IPv6 = 47,
-    Int256
+    Int256 = 48
 };
 
 struct Consted {
@@ -548,7 +548,9 @@ struct Decimal {
         return T(value);
     }
 
-    static Decimal double_to_decimal(double value_) {
+    static Decimal double_to_decimalv2(double value_)
+        requires(std::is_same_v<T, Int128>)
+    {
         DecimalV2Value decimal_value;
         decimal_value.assign_from_double(value_);
         return Decimal(binary_cast<DecimalV2Value, T>(decimal_value));

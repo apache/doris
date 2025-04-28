@@ -293,18 +293,22 @@ private:
 
     int32_t skip_bitmap_col_idx {-1};
 
-    bool _is_load = true;
     //Used to indicate whether it is a stream load. When loading, only data will be inserted into columnString.
     //If an illegal value is encountered during the load process, `_append_error_msg` should be called
     //instead of directly returning `Status::DataQualityError`
+    bool _is_load = true;
 
-    bool _is_hive_table = false;
     // In hive : create table xxx ROW FORMAT SERDE 'org.apache.hive.hcatalog.data.JsonSerDe';
     // Hive will not allow you to create columns with the same name but different case, including field names inside
     // structs, and will automatically convert uppercase names in create sql to lowercase.However, when Hive loads data
     // to table, the column names in the data may be uppercase,and there may be multiple columns with
     // the same name but different capitalization.We refer to the behavior of hive, convert all column names
     // in the data to lowercase,and use the last one as the insertion value
+    bool _is_hive_table = false;
+
+    // hive : org.openx.data.jsonserde.JsonSerDe, `ignore.malformed.json` prop.
+    // If the variable is true, `null` will be inserted for llegal json format instead of return error.
+    bool _openx_json_ignore_malformed = false;
 
     DataTypeSerDeSPtrs _serdes;
     vectorized::DataTypeSerDe::FormatOptions _serde_options;

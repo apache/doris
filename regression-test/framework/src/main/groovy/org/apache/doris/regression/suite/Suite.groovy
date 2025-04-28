@@ -328,7 +328,7 @@ class Suite implements GroovyInterceptable {
             def user = context.config.jdbcUser
             def password = context.config.jdbcPassword
             Frontend fe = null
-            for (def i=0; fe == null && i<30; i++) {
+            for (def i=0; (fe == null || !fe.alive) && i<30; i++) {
                 if (options.connectToFollower) {
                     fe = cluster.getOneFollowerFe()
                 } else {
@@ -337,7 +337,7 @@ class Suite implements GroovyInterceptable {
                 Thread.sleep(1000)
             }
 
-            logger.info("get fe {}", fe)
+            logger.info("get fe host {} , queryPort {}", fe.host, fe.queryPort)
             assertNotNull(fe)
             if (!isCloud) {
                 for (def be : cluster.getAllBackends()) {

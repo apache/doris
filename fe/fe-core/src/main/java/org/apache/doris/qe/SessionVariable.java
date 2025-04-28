@@ -328,6 +328,12 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_DPHYP_OPTIMIZER = "enable_dphyp_optimizer";
     public static final String DPHYPER_LIMIT = "dphyper_limit";
     public static final String ENABLE_LEFT_ZIG_ZAG = "enable_left_zig_zag";
+    public static final String ENABLE_HBO_OPTIMIZATION = "enable_hbo_optimization";
+    public static final String ENABLE_HBO_INFO_COLLECTION = "enable_hbo_info_collection";
+    public static final String ENABLE_HBO_NONSTRICT_MATCHING_MODE = "enable_hbo_nonstrict_matching_mode";
+    public static final String HBO_RFSAFE_THRESHOLD = "hbo_rfsafe_threshold";
+    public static final String HBO_ROW_MATCHING_THRESHOLD = "hbo_row_matching_threshold";
+    public static final String HBO_SKEW_RATIO_THRESHOLD = "hbo_skew_ratio_threshold";
     public static final String NTH_OPTIMIZED_PLAN = "nth_optimized_plan";
 
     public static final String ENABLE_NEREIDS_PLANNER = "enable_nereids_planner";
@@ -491,6 +497,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_ORC_FILTER_BY_MIN_MAX = "enable_orc_filter_by_min_max";
 
+    public static final String CHECK_ORC_INIT_SARGS_SUCCESS = "check_orc_init_sargs_success";
+
     public static final String INLINE_CTE_REFERENCED_THRESHOLD = "inline_cte_referenced_threshold";
 
     public static final String ENABLE_CTE_MATERIALIZE = "enable_cte_materialize";
@@ -650,8 +658,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String FORCE_JNI_SCANNER = "force_jni_scanner";
 
-    public static final String HUDI_JNI_SCANNER = "hudi_jni_scanner";
-
     public static final String ENABLE_COUNT_PUSH_DOWN_FOR_EXTERNAL_TABLE = "enable_count_push_down_for_external_table";
 
     public static final String SHOW_ALL_FE_CONNECTION = "show_all_fe_connection";
@@ -711,6 +717,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_COOLDOWN_REPLICA_AFFINITY =
             "enable_cooldown_replica_affinity";
     public static final String SKIP_CHECKING_ACID_VERSION_FILE = "skip_checking_acid_version_file";
+
+    public static final String READ_HIVE_JSON_IN_ONE_COLUMN = "read_hive_json_in_one_column";
 
     /**
      * Inserting overwrite for auto partition table allows creating partition for
@@ -1224,6 +1232,17 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = PARALLEL_PREPARE_THRESHOLD, fuzzy = true)
     public int parallelPrepareThreshold = 32;
 
+    @VariableMgr.VarAttr(name = READ_HIVE_JSON_IN_ONE_COLUMN,
+            description = {"在读取hive json的时候，由于存在一些不支持的json格式，我们默认会报错。为了让用户使用体验更好，"
+                    + "当该变量为true的时候，将一整行json读取到第一列中，用户可以自行选择对一整行json进行处理，例如JSON_PARSE。"
+                    + "需要表的第一列的数据类型为string.",
+                    "When reading hive json, we will report an error by default because there are some unsupported "
+                    + "json formats. In order to provide users with a better experience, when this variable is true,"
+                    + "a whole line of json is read into the first column. Users can choose to process a whole line"
+                    + "of json, such as JSON_PARSE. The data type of the first column of the table needs to"
+                    + "be string."})
+    private boolean readHiveJsonInOneColumn = false;
+
     @VariableMgr.VarAttr(name = ENABLE_COST_BASED_JOIN_REORDER)
     private boolean enableJoinReorderBasedCost = false;
 
@@ -1458,6 +1477,48 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_LEFT_ZIG_ZAG)
     private boolean enableLeftZigZag = false;
+
+    public boolean isEnableHboOptimization() {
+        return enableHboOptimization;
+    }
+
+    public double getHboRfSafeThreshold() {
+        return hboRfSafeThreshold;
+    }
+
+    public double getHboRowMatchingThreshold() {
+        return hboRowMatchingThreshold;
+    }
+
+    public int getHboSkewRatioThreshold() {
+        return hboSkewRatioThreshold;
+    }
+
+    @VariableMgr.VarAttr(name = ENABLE_HBO_OPTIMIZATION)
+    private boolean enableHboOptimization = false;
+
+    public boolean isEnableHboInfoCollection() {
+        return enableHboInfoCollection;
+    }
+
+    public boolean isEnableHboNonStrictMatchingMode() {
+        return enableHboNonStrictMatchingMode;
+    }
+
+    @VariableMgr.VarAttr(name = ENABLE_HBO_INFO_COLLECTION, flag = VariableMgr.GLOBAL)
+    private boolean enableHboInfoCollection = false;
+
+    @VariableMgr.VarAttr(name = ENABLE_HBO_NONSTRICT_MATCHING_MODE)
+    private boolean enableHboNonStrictMatchingMode = false;
+
+    @VariableMgr.VarAttr(name = HBO_RFSAFE_THRESHOLD, needForward = true)
+    private double hboRfSafeThreshold = 0.5;
+
+    @VariableMgr.VarAttr(name = HBO_ROW_MATCHING_THRESHOLD, needForward = true)
+    private double hboRowMatchingThreshold = 0.1;
+
+    @VariableMgr.VarAttr(name = HBO_SKEW_RATIO_THRESHOLD, needForward = true)
+    private int hboSkewRatioThreshold = 5;
 
     /**
      * as the new optimizer is not mature yet, use this var
@@ -1888,6 +1949,14 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableOrcFilterByMinMax = true;
 
     @VariableMgr.VarAttr(
+            name = CHECK_ORC_INIT_SARGS_SUCCESS,
+            description = {"是否检查orc init sargs是否成功。默认为 false。",
+                    "Whether to check whether orc init sargs is successful. "
+                            + "The default value is false."},
+            needForward = true)
+    public boolean checkOrcInitSargsSuccess = false;
+
+    @VariableMgr.VarAttr(
             name = EXTERNAL_TABLE_ANALYZE_PART_NUM,
             description = {"收集外表统计信息行数时选取的采样分区数，默认-1表示全部分区",
                     "Number of sample partition for collecting external table line number, "
@@ -2178,10 +2247,6 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = FORCE_JNI_SCANNER,
             description = {"强制使用jni方式读取外表", "Force the use of jni mode to read external table"})
     private boolean forceJniScanner = false;
-
-    @VariableMgr.VarAttr(name = HUDI_JNI_SCANNER, description = { "使用那种hudi jni scanner, 'hadoop' 或 'spark'",
-            "Which hudi jni scanner to use, 'hadoop' or 'spark'" })
-    private String hudiJniScanner = "hadoop";
 
     @VariableMgr.VarAttr(name = ENABLE_COUNT_PUSH_DOWN_FOR_EXTERNAL_TABLE,
             description = {"对外表启用 count(*) 下推优化", "enable count(*) pushdown optimization for external table"})
@@ -3427,6 +3492,14 @@ public class SessionVariable implements Serializable, Writable {
         this.enableOrcFilterByMinMax = enableOrcFilterByMinMax;
     }
 
+    public boolean isCheckOrcInitSargsSuccess() {
+        return checkOrcInitSargsSuccess;
+    }
+
+    public void setCheckOrcInitSargsSuccess(boolean checkOrcInitSargsSuccess) {
+        this.checkOrcInitSargsSuccess = checkOrcInitSargsSuccess;
+    }
+
     public String getSqlDialect() {
         return sqlDialect;
     }
@@ -3782,6 +3855,14 @@ public class SessionVariable implements Serializable, Writable {
         this.keepCarriageReturn = keepCarriageReturn;
     }
 
+    public boolean isReadHiveJsonInOneColumn() {
+        return readHiveJsonInOneColumn;
+    }
+
+    public void setReadHiveJsonInOneColumn(boolean readHiveJsonInOneColumn) {
+        this.readHiveJsonInOneColumn = readHiveJsonInOneColumn;
+    }
+
     public boolean isDropTableIfCtasFailed() {
         return dropTableIfCtasFailed;
     }
@@ -4012,6 +4093,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableOrcLazyMat(enableOrcLazyMat);
         tResult.setEnableParquetFilterByMinMax(enableParquetFilterByMinMax);
         tResult.setEnableOrcFilterByMinMax(enableOrcFilterByMinMax);
+        tResult.setCheckOrcInitSargsSuccess(checkOrcInitSargsSuccess);
 
         tResult.setTruncateCharOrVarcharColumns(truncateCharOrVarcharColumns);
         tResult.setEnableMemtableOnSinkNode(enableMemtableOnSinkNode);
@@ -4600,10 +4682,6 @@ public class SessionVariable implements Serializable, Writable {
         return forceJniScanner;
     }
 
-    public String getHudiJniScanner() {
-        return hudiJniScanner;
-    }
-
     public String getIgnoreSplitType() {
         return ignoreSplitType;
     }
@@ -4622,10 +4700,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setForceJniScanner(boolean force) {
         forceJniScanner = force;
-    }
-
-    public void setHudiJniScanner(String hudiJniScanner) {
-        this.hudiJniScanner = hudiJniScanner;
     }
 
     public boolean isEnableCountPushDownForExternalTable() {
@@ -4709,5 +4783,9 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean getEnableExternalTableBatchMode() {
         return enableExternalTableBatchMode;
+    }
+
+    public boolean showSplitProfileInfo() {
+        return enableProfile() && getProfileLevel() > 1;
     }
 }

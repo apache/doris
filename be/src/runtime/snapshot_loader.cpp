@@ -744,7 +744,17 @@ SnapshotLoader::SnapshotLoader(StorageEngine& engine, ExecEnv* env, int64_t job_
           _job_id(job_id),
           _task_id(task_id),
           _broker_addr(broker_addr),
-          _prop(prop) {}
+          _prop(prop) {
+    _resource_ctx = ResourceContext::create_shared();
+    TUniqueId tid;
+    tid.hi = _job_id;
+    tid.lo = _task_id;
+    _resource_ctx->task_controller()->set_task_id(tid);
+    std::shared_ptr<MemTrackerLimiter> mem_tracker = MemTrackerLimiter::create_shared(
+            MemTrackerLimiter::Type::OTHER,
+            fmt::format("SnapshotLoader#Id={}", ((UniqueId)tid).to_string()));
+    _resource_ctx->memory_context()->set_mem_tracker(mem_tracker);
+}
 
 Status SnapshotLoader::init(TStorageBackendType::type type, const std::string& location) {
     if (TStorageBackendType::type::S3 == type) {

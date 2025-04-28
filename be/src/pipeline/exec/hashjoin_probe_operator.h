@@ -154,8 +154,10 @@ public:
 
     bool need_finalize_variant_column() const { return _need_finalize_variant_column; }
 
+    bool can_do_lazy_materialized() const { return _have_other_join_conjunct || _is_mark_join; }
+
     bool is_lazy_materialized_column(int column_id) const {
-        return _have_other_join_conjunct &&
+        return can_do_lazy_materialized() &&
                !_should_not_lazy_materialized_column_ids.contains(column_id);
     }
 

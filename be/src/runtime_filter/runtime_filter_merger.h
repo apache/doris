@@ -46,7 +46,7 @@ public:
         return Status::OK();
     }
 
-    std::string debug_string() const override {
+    std::string debug_string() override {
         return fmt::format(
                 "Merger: ({}, expected_producer_num: {}, received_producer_num: {}, "
                 "received_rf_size_num: {}, received_sum_size: {})",
