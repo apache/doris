@@ -59,7 +59,7 @@ public class ParquetFileFormatProperties extends FileFormatProperties {
 
     private TParquetCompressionType parquetCompressionType = TParquetCompressionType.SNAPPY;
     private boolean parquetDisableDictionary = false;
-    private static TParquetVersion parquetVersion = TParquetVersion.PARQUET_1_0;
+    private TParquetVersion parquetVersion = TParquetVersion.PARQUET_1_0;
 
     public ParquetFileFormatProperties() {
         super(TFileFormatType.FORMAT_PARQUET);
