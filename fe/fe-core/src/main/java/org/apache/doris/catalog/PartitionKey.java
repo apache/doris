@@ -603,6 +603,8 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
             JsonArray extend = new JsonArray();
             extend.add(context.serialize(partitionKey.isDefaultListPartitionKey()));
 
+            // for compatibility in the future add item before unused
+            extend.add("unused");
             jsonArray.add(new JsonPrimitive(GsonUtils.GSON.toJson(extend)));
 
             return jsonArray;
@@ -650,11 +652,14 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
                 }
                 JsonPrimitive extend = jsonArray.get(jsonArray.size() - 1).getAsJsonPrimitive();
                 String extendStr = extend.getAsString();
+                // for compatibility, extend takes up the previous "unused" position, so the last element needs to be checked here
+                // if it is unused ignore it
                 if (!extendStr.equals("unused")) {
-                    // parse ununsed record
+                    // parse extend record
                     Gson gson = new Gson();
                     JsonArray pExtend = gson.fromJson(extendStr, JsonArray.class);
                     partitionKey.setDefaultListPartition(pExtend.get(0).getAsBoolean());
+                    // ignore the last element
                 }
 
                 return partitionKey;
