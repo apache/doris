@@ -64,7 +64,7 @@ public class CleanQueryStatsCommandTest extends TestWithFeService {
     @Test
     public void testDB() throws Exception {
         runBefore();
-        createDatabase("test_db");
+        connectContext.setDatabase("test_db");
         //normal
         new Expectations() {
             {
