@@ -22,15 +22,11 @@
 
 #include <fmt/format.h>
 #include <glog/logging.h>
-#include <stdint.h>
-#include <string.h>
 
 #include <algorithm>
 #include <cassert>
-#include <functional>
+#include <cstring>
 #include <map>
-#include <new>
-#include <ostream>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -154,7 +150,7 @@ DEFINE_FIELD_VECTOR(Tuple);
 DEFINE_FIELD_VECTOR(Map);
 #undef DEFINE_FIELD_VECTOR
 
-using FieldMap = std::map<String, Field, std::less<String>>;
+using FieldMap = std::map<String, Field>;
 #define DEFINE_FIELD_MAP(X)       \
     struct X : public FieldMap {  \
         using FieldMap::FieldMap; \
@@ -197,9 +193,7 @@ public:
     }
 
     JsonbField& operator=(JsonbField&& x) {
-        if (data) {
-            delete[] data;
-        }
+        delete[] data;
         data = x.data;
         size = x.size;
         x.data = nullptr;
@@ -207,11 +201,7 @@ public:
         return *this;
     }
 
-    ~JsonbField() {
-        if (data) {
-            delete[] data;
-        }
-    }
+    ~JsonbField() { delete[] data; }
 
     const char* get_value() const { return data; }
     size_t get_size() const { return size; }
@@ -495,21 +485,23 @@ public:
     template <typename T>
     T& get() {
         using TWithoutRef = std::remove_reference_t<T>;
-        TWithoutRef* MAY_ALIAS ptr = reinterpret_cast<TWithoutRef*>(&storage);
+        auto* MAY_ALIAS ptr = reinterpret_cast<TWithoutRef*>(&storage);
         return *ptr;
     }
 
     template <typename T>
     const T& get() const {
         using TWithoutRef = std::remove_reference_t<T>;
-        const TWithoutRef* MAY_ALIAS ptr = reinterpret_cast<const TWithoutRef*>(&storage);
+        const auto* MAY_ALIAS ptr = reinterpret_cast<const TWithoutRef*>(&storage);
         return *ptr;
     }
 
     template <typename T>
     bool try_get(T& result) {
         const Types::Which requested = TypeToEnum<std::decay_t<T>>::value;
-        if (which != requested) return false;
+        if (which != requested) {
+            return false;
+        }
         result = get<T>();
         return true;
     }
@@ -519,7 +511,9 @@ public:
     template <typename T>
     bool try_get(T& result) const {
         const Types::Which requested = TypeToEnum<std::decay_t<T>>::value;
-        if (which != requested) return false;
+        if (which != requested) {
+            return false;
+        }
         result = get<T>();
         return true;
     }
@@ -565,7 +559,7 @@ public:
         case Types::Tuple:
         case Types::Map:
         case Types::VariantMap:
-            return std::strong_ordering::equal;
+            return std::strong_ordering::equal; //TODO: throw Exception?
         case Types::UInt64:
             return get<UInt64>() <=> rhs.get<UInt64>();
         case Types::UInt128:
@@ -702,7 +696,7 @@ private:
     void assign_concrete(T&& x) {
         using JustT = std::decay_t<T>;
         assert(which == TypeToEnum<JustT>::value);
-        JustT* MAY_ALIAS ptr = reinterpret_cast<JustT*>(&storage);
+        auto* MAY_ALIAS ptr = reinterpret_cast<JustT*>(&storage);
         *ptr = std::forward<T>(x);
     }
 

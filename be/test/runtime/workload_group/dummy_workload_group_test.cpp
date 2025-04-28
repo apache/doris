@@ -94,8 +94,8 @@ TEST_F(DummyWorkloadGroupTest, dummy_wg_basic_test) {
     TUniqueId q1;
     q1.hi = 1;
     q1.lo = 2;
-    ASSERT_TRUE(dummy_wg_ptr->add_query(q1, nullptr) == Status::OK());
-    ASSERT_TRUE(dummy_wg_ptr->queries().size() == 1);
+    ASSERT_TRUE(dummy_wg_ptr->add_resource_ctx(q1, nullptr) == Status::OK());
+    ASSERT_TRUE(dummy_wg_ptr->resource_ctxs().size() == 1);
 }
 
 }; // namespace doris

@@ -28,7 +28,6 @@
 #include "vec/core/column_numbers.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
-#include "vec/data_types/data_type_string.h"
 #include "vec/functions/function.h"
 
 namespace doris {
@@ -72,27 +71,7 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        if constexpr (Impl::NEED_CONTEXT) {
-            return Impl::execute(context, block, arguments, result);
-        } else {
-            return Impl::execute(block, arguments, result);
-        }
-    }
-
-    Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
-        if constexpr (Impl::NEED_CONTEXT) {
-            return Impl::open(context, scope);
-        } else {
-            return Status::OK();
-        }
-    }
-
-    Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
-        if constexpr (Impl::NEED_CONTEXT) {
-            return Impl::close(context, scope);
-        } else {
-            return Status::OK();
-        }
+        return Impl::execute(block, arguments, result);
     }
 };
 

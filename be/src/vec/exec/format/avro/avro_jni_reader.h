@@ -68,7 +68,7 @@ public:
                        std::unordered_set<std::string>* missing_cols) override;
 
     Status init_fetch_table_reader(
-            std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
+            const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
 
     TFileType::type get_file_type() const;
 
@@ -82,7 +82,7 @@ public:
 private:
     const TFileScanRangeParams _params;
     const TFileRangeDesc _range;
-    std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range = nullptr;
+    const std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range = nullptr;
 };
 
 #include "common/compile_check_end.h"

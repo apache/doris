@@ -31,7 +31,6 @@
 
 #include "common/status.h" // Status
 #include "gutil/macros.h"
-#include "gutil/strings/substitute.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/segment_v2/column_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_file_writer.h"
