@@ -58,7 +58,7 @@ import java.util.concurrent.TimeUnit;
 /**
  * ADMIN COPY TABLET 10110 PROPERTIES('version' = '1000', backend_id = '10001');
  */
-public class AdminCopyTabletCommand extends Command {
+public class AdminCopyTabletCommand extends Command implements ForwardWithSync {
 
     public static final String PROP_VERSION = "version";
     public static final String PROP_BACKEND_ID = "backend_id";
@@ -104,7 +104,7 @@ public class AdminCopyTabletCommand extends Command {
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        validate();
+        validate(ctx);
         ShowResultSet resultSet = handleCopyTablet();
         if (resultSet != null) {
             if (executor.isProxy()) {
@@ -115,7 +115,10 @@ public class AdminCopyTabletCommand extends Command {
         }
     }
 
-    private void validate() throws AnalysisException {
+    /**
+     * validate
+     */
+    public void validate(ConnectContext connectContext) throws AnalysisException {
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
                     PrivPredicate.ADMIN.getPrivs().toString());
