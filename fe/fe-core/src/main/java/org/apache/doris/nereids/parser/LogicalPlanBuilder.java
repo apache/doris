@@ -6657,6 +6657,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return new AdminCopyTabletCommand(tabletId, properties);
     }
 
+    @Override
     public LogicalPlan visitStopDataSyncJob(DorisParser.StopDataSyncJobContext ctx) {
         List<String> nameParts = visitMultipartIdentifier(ctx.name);
         int size = nameParts.size();
