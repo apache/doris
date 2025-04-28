@@ -235,7 +235,7 @@ public:
     // to nullptr, but the object it points to is not initialized. At this time, when the memory
     // is released somewhere, the hook is triggered to cause the crash.
     std::unique_ptr<ThreadMemTrackerMgr> thread_mem_tracker_mgr;
-    [[nodiscard]] std::shared_ptr<MemTrackerLimiter> thread_mem_tracker() const {
+    [[nodiscard]] MemTrackerLimiter* thread_mem_tracker() const {
         return thread_mem_tracker_mgr->limiter_mem_tracker();
     }
 
@@ -402,7 +402,8 @@ public:
 #ifndef BE_TEST
         ORPHAN_TRACKER_CHECK();
         query_id = doris::thread_context()->task_id();
-        query_mem_tracker = doris::thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker();
+        query_mem_tracker =
+                doris::thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker_sptr();
         wg_wptr = doris::thread_context()->workload_group();
 #else
         query_id = TUniqueId();
@@ -468,8 +469,8 @@ public:
             const std::shared_ptr<doris::MemTrackerLimiter>& mem_tracker) {
         DCHECK(mem_tracker);
         doris::ThreadLocalHandle::create_thread_local_if_not_exits();
-        if (mem_tracker != thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker()) {
-            _old_mem_tracker = thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker();
+        if (mem_tracker != thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker_sptr()) {
+            _old_mem_tracker = thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker_sptr();
             thread_context()->thread_mem_tracker_mgr->attach_limiter_tracker(mem_tracker);
         }
     }
@@ -480,8 +481,8 @@ public:
                query_thread_context.query_id); // workload group alse not change
         DCHECK(query_thread_context.query_mem_tracker);
         if (query_thread_context.query_mem_tracker !=
-            thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker()) {
-            _old_mem_tracker = thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker();
+            thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker_sptr()) {
+            _old_mem_tracker = thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker_sptr();
             thread_context()->thread_mem_tracker_mgr->attach_limiter_tracker(
                     query_thread_context.query_mem_tracker);
         }

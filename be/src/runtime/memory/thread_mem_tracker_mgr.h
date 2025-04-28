@@ -93,9 +93,17 @@ public:
 
     void reset_query_cancelled_flag(bool new_val) { _is_query_cancelled = new_val; }
 
-    std::shared_ptr<MemTrackerLimiter> limiter_mem_tracker() {
+    MemTrackerLimiter* limiter_mem_tracker() {
         CHECK(init());
         return _limiter_tracker;
+    }
+
+    // Prefer use `limiter_mem_tracker`, which is faster than `limiter_mem_tracker_sptr`.
+    // when multiple threads hold the same `std::shared_ptr` at the same time,
+    // modifying the `std::shared_ptr` reference count will be expensive when there is high concurrency.
+    std::shared_ptr<MemTrackerLimiter> limiter_mem_tracker_sptr() {
+        CHECK(init());
+        return _limiter_tracker_sptr;
     }
 
     void enable_wait_gc() { _wait_gc = true; }
@@ -141,7 +149,8 @@ private:
     // A thread of query/load will only wait once during execution.
     bool _wait_gc = false;
 
-    std::shared_ptr<MemTrackerLimiter> _limiter_tracker;
+    std::shared_ptr<MemTrackerLimiter> _limiter_tracker_sptr {nullptr};
+    MemTrackerLimiter* _limiter_tracker {nullptr};
     std::vector<MemTracker*> _consumer_tracker_stack;
     std::weak_ptr<WorkloadGroup> _wg_wptr;
 
@@ -156,7 +165,8 @@ inline bool ThreadMemTrackerMgr::init() {
     // 2. ExecEnv not initialized when thread start, initialized in limiter_mem_tracker().
     if (_init) return true;
     if (ExecEnv::GetInstance()->orphan_mem_tracker() != nullptr) {
-        _limiter_tracker = ExecEnv::GetInstance()->orphan_mem_tracker();
+        _limiter_tracker_sptr = ExecEnv::GetInstance()->orphan_mem_tracker();
+        _limiter_tracker = _limiter_tracker_sptr.get();
         _wait_gc = true;
         _init = true;
         return true;
