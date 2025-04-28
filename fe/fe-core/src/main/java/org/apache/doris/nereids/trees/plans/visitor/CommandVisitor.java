@@ -48,6 +48,7 @@ import org.apache.doris.nereids.trees.plans.commands.CancelMTMVTaskCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelWarmUpJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.CleanAllProfileCommand;
 import org.apache.doris.nereids.trees.plans.commands.Command;
+import org.apache.doris.nereids.trees.plans.commands.CopyIntoCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateDictionaryCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateEncryptkeyCommand;
@@ -208,7 +209,11 @@ import org.apache.doris.nereids.trees.plans.commands.clean.CleanLabelCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.BatchInsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.load.CreateDataSyncJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.load.CreateRoutineLoadCommand;
+import org.apache.doris.nereids.trees.plans.commands.load.PauseDataSyncJobCommand;
+import org.apache.doris.nereids.trees.plans.commands.load.ResumeDataSyncJobCommand;
+import org.apache.doris.nereids.trees.plans.commands.load.StopDataSyncJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshDictionaryCommand;
@@ -270,6 +275,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitExportCommand(ExportCommand exportCommand, C context) {
         return visitCommand(exportCommand, context);
+    }
+
+    default R visitCopyIntoCommand(CopyIntoCommand copyIntoCommand, C context) {
+        return visitCommand(copyIntoCommand, context);
     }
 
     default R visitCreateDictionaryCommand(CreateDictionaryCommand createDictionaryCommand, C context) {
@@ -982,6 +991,22 @@ public interface CommandVisitor<R, C> {
 
     default R visitAlterColumnStatsCommand(AlterColumnStatsCommand alterColumnStatsCommand, C context) {
         return visitCommand(alterColumnStatsCommand, context);
+    }
+
+    default R visitPauseDataSyncJobCommand(PauseDataSyncJobCommand pauseDataSyncJobCommand, C context) {
+        return visitCommand(pauseDataSyncJobCommand, context);
+    }
+
+    default R visitResumeDataSyncJobCommand(ResumeDataSyncJobCommand resumeDataSyncJobCommand, C context) {
+        return visitCommand(resumeDataSyncJobCommand, context);
+    }
+
+    default R visitStopDataSyncJobCommand(StopDataSyncJobCommand stopDataSyncJobCommand, C context) {
+        return visitCommand(stopDataSyncJobCommand, context);
+    }
+
+    default R visitCreateDataSyncJobCommand(CreateDataSyncJobCommand createDataSyncJobCommand, C context) {
+        return visitCommand(createDataSyncJobCommand, context);
     }
 
     default R visitDropResourceCommand(DropResourceCommand dropResourceCommand, C context) {

@@ -3280,6 +3280,9 @@ public class Env {
     }
 
     private void removeDroppedFrontends(ConcurrentLinkedQueue<String> removedFrontends) {
+        if (removedFrontends.size() == 0) {
+            return;
+        }
         if (!Strings.isNullOrEmpty(System.getProperty(FeConstants.METADATA_FAILURE_RECOVERY_KEY))) {
             // metadata recovery mode
             LOG.info("Metadata failure recovery({}), ignore removing dropped frontends",
@@ -3289,6 +3292,7 @@ public class Env {
 
         if (haProtocol != null && haProtocol instanceof BDBHA) {
             BDBHA bdbha = (BDBHA) haProtocol;
+            LOG.info("remove frontends, num {} frontends {}", removedFrontends.size(), removedFrontends);
             bdbha.removeDroppedMember(removedFrontends);
         }
     }

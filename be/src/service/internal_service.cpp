@@ -834,7 +834,7 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
                 MemTrackerLimiter::Type::OTHER,
                 fmt::format("InternalService::fetch_table_schema:{}#{}", params.format_type,
                             params.file_type));
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(mem_tracker);
+        SCOPED_ATTACH_TASK(mem_tracker);
 
         // make sure profile is desctructed after reader cause PrefetchBufferedReader
         // might asynchronouslly access the profile

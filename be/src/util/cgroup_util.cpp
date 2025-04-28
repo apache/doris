@@ -17,20 +17,19 @@
 
 #include "util/cgroup_util.h"
 
+#include <absl/strings/escaping.h>
+
 #include <algorithm>
 #include <fstream>
 #include <utility>
 #include <vector>
 
 #include "gutil/stringprintf.h"
-#include "gutil/strings/escaping.h"
 #include "gutil/strings/split.h"
-#include "gutil/strings/substitute.h"
 #include "io/fs/local_file_system.h"
 #include "util/error_util.h"
 #include "util/string_parser.hpp"
 
-using strings::CUnescape;
 using strings::Split;
 using strings::SkipWhitespace;
 using std::pair;
@@ -92,7 +91,7 @@ Status CGroupUtil::find_global_cgroupv1(const string& subsystem, string* path) {
 
 static Status unescape_path(const string& escaped, string* unescaped) {
     string err;
-    if (!CUnescape(escaped, unescaped, &err)) {
+    if (!absl::CUnescape(escaped, unescaped, &err)) {
         return Status::InvalidArgument("Could not unescape path '{}': {}", escaped, err);
     }
     return Status::OK();

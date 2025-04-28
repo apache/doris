@@ -2897,6 +2897,19 @@ public class Config extends ConfigBase {
     })
     public static int sync_image_timeout_second = 300;
 
+    @ConfField(mutable = true, description = {
+        "FE启动时加载image文件某个模块的二进制内容到字节数组，并将字节数组反序列化为utf8编码字符串时单批次（单位：byte, 至少500MB）"
+            + "的大小。等于-1的值表示一次性读取完整的字节数组后反序列化反序列化为utf8编码字符串；"
+            + "不等于-1的值（至少16MB）表示分批每次读取多大的字节数组后反序列化为utf8编码字符串，最后合并成完成的字符串。默认值为-1",
+        "The size of a single batch (in bytes) when loading the binary content of a module of the "
+            + "image file into a byte array and deserializing the byte array into a utf8 encoded string when FE starts."
+            + " A value equal to -1 means reading the entire byte array at once and "
+            + "then deserializing it into a utf8 encoded string; a value not equal to -1 means reading "
+            + "a certain size (at least 16MB) of byte array in batches and then deserializing it into a "
+            + "utf8 encoded string, and finally merging it into a completed string. The default value is -1"
+    })
+    public static int metadata_text_read_max_batch_bytes = -1;
+
     @ConfField(mutable = true, masterOnly = true)
     public static int publish_topic_info_interval_ms = 30000; // 30s
 
