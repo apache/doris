@@ -309,9 +309,11 @@ TEST_F(TestDeltaWriterClusterKey, vec_sequence_col) {
     std::cout << "start to publish txn" << std::endl;
     RowsetSharedPtr rowset = tablet_related_rs.begin()->second;
     TabletPublishStatistics pstats;
-    res = engine_ref->txn_manager()->publish_txn(
-            meta, write_req.partition_id, write_req.txn_id, write_req.tablet_id,
-            tablet_related_rs.begin()->first.tablet_uid, version, &pstats);
+    std::shared_ptr<TabletTxnInfo> extend_tablet_txn_info_lifetime = nullptr;
+    res = engine_ref->txn_manager()->publish_txn(meta, write_req.partition_id, write_req.txn_id,
+                                                 write_req.tablet_id,
+                                                 tablet_related_rs.begin()->first.tablet_uid,
+                                                 version, &pstats, extend_tablet_txn_info_lifetime);
     ASSERT_TRUE(res.ok());
     std::cout << "start to add inc rowset:" << rowset->rowset_id()
               << ", num rows:" << rowset->num_rows() << ", version:" << rowset->version().first
