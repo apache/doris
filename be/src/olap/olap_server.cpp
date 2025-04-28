@@ -465,9 +465,17 @@ void StorageEngine::_path_gc_thread_callback(DataDir* data_dir) {
         int32_t current_time = time(nullptr);
 
         int32_t interval = _auto_get_interval_by_disk_capacity(data_dir);
+        DBUG_EXECUTE_IF("_path_gc_thread_callback.interval.eq.1ms", {
+            LOG(INFO) << "debug point change interval eq 1ms";
+            interval = 1;
+            while (DebugPoints::instance()->is_enable("_path_gc_thread_callback.always.do")) {
+                data_dir->perform_path_gc();
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            }
+        });
         if (interval <= 0) {
             LOG(WARNING) << "path gc thread check interval config is illegal:" << interval
-                         << "will be forced set to half hour";
+                         << " will be forced set to half hour";
             interval = 1800; // 0.5 hour
         }
         if (current_time - last_exec_time >= interval) {
@@ -483,8 +491,9 @@ void StorageEngine::_path_gc_thread_callback(DataDir* data_dir) {
 void StorageEngine::_tablet_checkpoint_callback(const std::vector<DataDir*>& data_dirs) {
     int64_t interval = config::generate_tablet_meta_checkpoint_tasks_interval_secs;
     do {
-        LOG(INFO) << "begin to produce tablet meta checkpoint tasks.";
         for (auto data_dir : data_dirs) {
+            LOG(INFO) << "begin to produce tablet meta checkpoint tasks, data_dir="
+                      << data_dir->path();
             auto st = _tablet_meta_checkpoint_thread_pool->submit_func(
                     [data_dir, this]() { _tablet_manager->do_tablet_meta_checkpoint(data_dir); });
             if (!st.ok()) {
