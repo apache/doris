@@ -85,14 +85,14 @@ suite("test_partial_update_publish_seq", "nonConcurrent") {
             sql "sync;"
             sql "insert into ${table1}(k1,c1,c2) values(1,10,99),(2,10,99),(3,10,99);"
         }
-        Thread.sleep(500)
+        Thread.sleep(2000)
         def t2 = Thread.start {
             sql "set enable_unique_key_partial_update=true;"
             sql "set enable_insert_strict=false;"
             sql "sync;"
             sql "insert into ${table1}(k1,c1,c3) values(1,20,88),(2,10,88),(3,5,88);"
         }
-        Thread.sleep(1000)
+        Thread.sleep(2000)
         disable_block_in_publish()
         t1.join()
         t2.join()
@@ -107,14 +107,14 @@ suite("test_partial_update_publish_seq", "nonConcurrent") {
             sql "sync;"
             sql "insert into ${table1}(k1,c1,c2) values(1,9,77),(2,10,77),(3,50,77);"
         }
-        Thread.sleep(500)
+        Thread.sleep(2000)
         t2 = Thread.start {
             sql "set enable_unique_key_partial_update=true;"
             sql "set enable_insert_strict=false;"
             sql "sync;"
             sql "insert into ${table1}(k1,c4) values(1,33),(2,33),(3,33);"
         }
-        Thread.sleep(1000)
+        Thread.sleep(2000)
         disable_block_in_publish()
         t1.join()
         t2.join()
@@ -129,14 +129,14 @@ suite("test_partial_update_publish_seq", "nonConcurrent") {
             sql "sync;"
             sql "insert into ${table1}(k1,c1,c2) values(1,80,66),(2,100,66),(3,120,66);"
         }
-        Thread.sleep(500)
+        Thread.sleep(2000)
         t2 = Thread.start {
             sql "set enable_unique_key_partial_update=true;"
             sql "set enable_insert_strict=false;"
             sql "sync;"
             sql "insert into ${table1}(k1,c1,__DORIS_DELETE_SIGN__) values(1,100,1),(2,100,1),(3,100,1);"
         }
-        Thread.sleep(1000)
+        Thread.sleep(2000)
         disable_block_in_publish()
         t1.join()
         t2.join()
@@ -155,14 +155,14 @@ suite("test_partial_update_publish_seq", "nonConcurrent") {
             sql "sync;"
             sql "insert into ${table1}(k1,c1,c2) values(1,20,55),(2,100,55),(3,120,55);"
         }
-        Thread.sleep(500)
+        Thread.sleep(2000)
         t2 = Thread.start {
             sql "set enable_unique_key_partial_update=true;"
             sql "set enable_insert_strict=false;"
             sql "sync;"
             sql "insert into ${table1}(k1,c4,__DORIS_DELETE_SIGN__) values(1,100,1),(2,100,1),(3,100,1);"
         }
-        Thread.sleep(1000)
+        Thread.sleep(2000)
         disable_block_in_publish()
         t1.join()
         t2.join()
