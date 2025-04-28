@@ -67,8 +67,6 @@ enum class FileCachePolicy : uint8_t;
 
 namespace doris::vectorized {
 
-const static Slice _s_null_slice = Slice("\\N");
-
 void EncloseCsvTextFieldSplitter::do_split(const Slice& line, std::vector<Slice>* splitted_values) {
     const char* data = line.data;
     const auto& column_sep_positions = _text_line_reader_ctx->column_sep_positions();
@@ -655,8 +653,9 @@ Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
     for (int i = 0; i < _file_slot_descs.size(); ++i) {
         int col_idx = _col_idxs[i];
         // col idx is out of range, fill with null.
-        const Slice& value =
-                col_idx < _split_values.size() ? _split_values[col_idx] : _s_null_slice;
+        const Slice& value = col_idx < _split_values.size()
+                                     ? _split_values[col_idx]
+                                     : Slice {_options.null_format, _options.null_len};
         Slice slice {value.data, value.size};
 
         IColumn* col_ptr = columns[i];
