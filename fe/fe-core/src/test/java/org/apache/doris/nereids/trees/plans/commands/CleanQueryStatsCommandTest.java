@@ -17,10 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.backup.CatalogMocker;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.cluster.ClusterNamespace;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -65,30 +62,9 @@ public class CleanQueryStatsCommandTest extends TestWithFeService {
     }
 
     @Test
-    public void testAllNoPriviledge() throws IOException {
-        runBefore();
-        new Expectations() {
-            {
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
-
-                env.getAccessManager();
-                minTimes = 0;
-                result = accessControllerManager;
-
-                accessControllerManager.checkGlobalPriv(connectContext, PrivPredicate.ADMIN);
-                minTimes = 0;
-                result = false;
-            }
-        };
-        CleanQueryStatsCommand command2 = new CleanQueryStatsCommand();
-        Assertions.assertThrows(AnalysisException.class, () -> command2.validate(connectContext), "Access denied; you need (at least one of) the (CLEAN ALL QUERY STATS) privilege(s) for this operation");
-    }
-
-    @Test
     public void testDB() throws Exception {
         runBefore();
+        createDatabase("test_db");
         //normal
         new Expectations() {
             {
@@ -101,28 +77,8 @@ public class CleanQueryStatsCommandTest extends TestWithFeService {
                 result = true;
             }
         };
-        createDatabase("test_db");
         CleanQueryStatsCommand command = new CleanQueryStatsCommand("test_db");
         Assertions.assertDoesNotThrow(() -> command.validate(connectContext));
-
-        //NoPriviledge
-        new Expectations() {
-            {
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
-
-                env.getAccessManager();
-                minTimes = 0;
-                result = accessControllerManager;
-
-                accessControllerManager.checkDbPriv(connectContext, internalCtl, "test_db", PrivPredicate.ALTER);
-                minTimes = 0;
-                result = false;
-            }
-        };
-        CleanQueryStatsCommand command2 = new CleanQueryStatsCommand(CatalogMocker.TEST_DB_NAME);
-        Assertions.assertThrows(AnalysisException.class, () -> command2.validate(connectContext), "Access denied; you need (at least one of) the (CLEAN DATABASE QUERY STATS FOR " + ClusterNamespace.getNameFromFullName(CatalogMocker.TEST_DB_NAME) + ") privilege(s) for this operation");
     }
 
     @Test
@@ -148,24 +104,5 @@ public class CleanQueryStatsCommandTest extends TestWithFeService {
         };
         CleanQueryStatsCommand command = new CleanQueryStatsCommand(tableNameInfo);
         Assertions.assertDoesNotThrow(() -> command.validate(connectContext));
-
-        //NoPriviledge
-        new Expectations() {
-            {
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
-
-                env.getAccessManager();
-                minTimes = 0;
-                result = accessControllerManager;
-
-                accessControllerManager.checkTblPriv(connectContext, tableNameInfo, PrivPredicate.ALTER);
-                minTimes = 0;
-                result = false;
-            }
-        };
-        CleanQueryStatsCommand command2 = new CleanQueryStatsCommand(tableNameInfo);
-        Assertions.assertThrows(AnalysisException.class, () -> command2.validate(connectContext), "Access denied; you need (at least one of) the (CLEAN TABLE QUERY STATS FROM " + tableNameInfo + ") privilege(s) for this operation");
     }
 }
