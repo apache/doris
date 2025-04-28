@@ -48,6 +48,7 @@ import org.apache.doris.nereids.types.AggStateType;
 import org.apache.doris.nereids.types.CharType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DecimalV2Type;
+import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TinyIntType;
@@ -276,9 +277,19 @@ public class MTMVPlanUtil {
         return columns;
     }
 
-    private static DataType getDataType(Slot s, int i, ConnectContext ctx, String partitionCol,
+    /**
+     * generate DataType by Slot
+     * @param s
+     * @param i
+     * @param ctx
+     * @param partitionCol
+     * @param distributionColumnNames
+     * @return
+     */
+    public static DataType getDataType(Slot s, int i, ConnectContext ctx, String partitionCol,
             Set<String> distributionColumnNames) {
         DataType dataType = s.getDataType().conversion();
+        // first column can not be TEXT, should transfer to varchar
         if (i == 0 && dataType.isStringType()) {
             dataType = VarcharType.createVarcharType(ScalarType.MAX_VARCHAR_LENGTH);
         } else {
@@ -286,7 +297,10 @@ public class MTMVPlanUtil {
                     NullType.class, TinyIntType.INSTANCE);
             dataType = TypeCoercionUtils.replaceSpecifiedType(dataType,
                     DecimalV2Type.class, DecimalV2Type.SYSTEM_DEFAULT);
+            dataType = TypeCoercionUtils.replaceSpecifiedType(dataType,
+                    DecimalV3Type.class, DecimalV3Type.SYSTEM_DEFAULT);
             if (s.isColumnFromTable()) {
+                // check if external table
                 if ((!((SlotReference) s).getTable().isPresent()
                         || !((SlotReference) s).getTable().get().isManagedTable())) {
                     if (s.getName().equals(partitionCol) || distributionColumnNames.contains(s.getName())) {
@@ -301,6 +315,7 @@ public class MTMVPlanUtil {
                 }
             } else {
                 if (ctx.getSessionVariable().useMaxLengthOfVarcharInCtas) {
+                    // The calculation of columns that are not from the original table will become VARCHAR(65533)
                     dataType = TypeCoercionUtils.replaceSpecifiedType(dataType,
                             VarcharType.class, VarcharType.MAX_VARCHAR_TYPE);
                     dataType = TypeCoercionUtils.replaceSpecifiedType(dataType,

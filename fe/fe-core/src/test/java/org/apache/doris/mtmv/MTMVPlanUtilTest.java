@@ -17,22 +17,38 @@
 
 package org.apache.doris.mtmv;
 
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.Config;
 import org.apache.doris.nereids.sqltest.SqlTestBase;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.SimpleColumnDefinition;
 import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DecimalV2Type;
+import org.apache.doris.nereids.types.DecimalV3Type;
+import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import mockit.Expectations;
+import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Optional;
 
 public class MTMVPlanUtilTest extends SqlTestBase {
+    @Mocked
+    private SlotReference slot;
+    @Mocked
+    private TableIf slotTable;
+
     @Test
     public void testGenerateColumnsBySql() throws Exception {
         createTables(
@@ -105,5 +121,112 @@ public class MTMVPlanUtilTest extends SqlTestBase {
             Assert.assertEquals(expect.get(i).getName(), actual.get(i).getName());
             Assert.assertEquals(expect.get(i).getType(), actual.get(i).getType());
         }
+    }
+
+    @Test
+    public void testGetDataType() {
+        new Expectations() {
+            {
+                slot.getDataType();
+                minTimes = 0;
+                result = StringType.INSTANCE;
+
+                slot.isColumnFromTable();
+                minTimes = 0;
+                result = true;
+
+                slot.getTable();
+                minTimes = 0;
+                result = Optional.empty();
+
+                slot.getName();
+                minTimes = 0;
+                result = "slot_name";
+            }
+        };
+        // test i=0
+        DataType dataType = MTMVPlanUtil.getDataType(slot, 0, connectContext, "pcol", Sets.newHashSet("dcol"));
+        Assert.assertEquals(VarcharType.MAX_VARCHAR_TYPE, dataType);
+
+        // test isColumnFromTable and is not managed table
+        dataType = MTMVPlanUtil.getDataType(slot, 1, connectContext, "pcol", Sets.newHashSet("dcol"));
+        Assert.assertEquals(StringType.INSTANCE, dataType);
+
+        // test is partitionCol
+        dataType = MTMVPlanUtil.getDataType(slot, 1, connectContext, "slot_name", Sets.newHashSet("dcol"));
+        Assert.assertEquals(VarcharType.MAX_VARCHAR_TYPE, dataType);
+
+        // test is partitdistribution Col
+        dataType = MTMVPlanUtil.getDataType(slot, 1, connectContext, "pcol", Sets.newHashSet("slot_name"));
+        Assert.assertEquals(VarcharType.MAX_VARCHAR_TYPE, dataType);
+        // test managed table
+        new Expectations() {
+            {
+                slot.getTable();
+                minTimes = 0;
+                result = Optional.of(slotTable);
+
+                slotTable.isManagedTable();
+                minTimes = 0;
+                result = true;
+            }
+        };
+
+        dataType = MTMVPlanUtil.getDataType(slot, 1, connectContext, "pcol", Sets.newHashSet("slot_name"));
+        Assert.assertEquals(StringType.INSTANCE, dataType);
+
+        // test is not column table
+        boolean originalUseMaxLengthOfVarcharInCtas = connectContext.getSessionVariable().useMaxLengthOfVarcharInCtas;
+        new Expectations() {
+            {
+                slot.getDataType();
+                minTimes = 0;
+                result = new VarcharType(10);
+
+                slot.isColumnFromTable();
+                minTimes = 0;
+                result = false;
+            }
+        };
+        connectContext.getSessionVariable().useMaxLengthOfVarcharInCtas = true;
+        dataType = MTMVPlanUtil.getDataType(slot, 1, connectContext, "pcol", Sets.newHashSet("slot_name"));
+        Assert.assertEquals(VarcharType.MAX_VARCHAR_TYPE, dataType);
+
+        connectContext.getSessionVariable().useMaxLengthOfVarcharInCtas = false;
+        dataType = MTMVPlanUtil.getDataType(slot, 1, connectContext, "pcol", Sets.newHashSet("slot_name"));
+        Assert.assertEquals(new VarcharType(10), dataType);
+
+        connectContext.getSessionVariable().useMaxLengthOfVarcharInCtas = originalUseMaxLengthOfVarcharInCtas;
+
+        // test null type
+        new Expectations() {
+            {
+                slot.getDataType();
+                minTimes = 0;
+                result = NullType.INSTANCE;
+            }
+        };
+        dataType = MTMVPlanUtil.getDataType(slot, 1, connectContext, "pcol", Sets.newHashSet("slot_name"));
+        Assert.assertEquals(TinyIntType.INSTANCE, dataType);
+
+        // test decimal type
+        new Expectations() {
+            {
+                slot.getDataType();
+                minTimes = 0;
+                result = DecimalV2Type.createDecimalV2Type(1, 1);
+            }
+        };
+        boolean originalEnableDecimalConversion = Config.enable_decimal_conversion;
+        Config.enable_decimal_conversion = true;
+
+        dataType = MTMVPlanUtil.getDataType(slot, 1, connectContext, "pcol", Sets.newHashSet("slot_name"));
+        Assert.assertEquals(DecimalV3Type.SYSTEM_DEFAULT, dataType);
+
+        Config.enable_decimal_conversion = false;
+        dataType = MTMVPlanUtil.getDataType(slot, 1, connectContext, "pcol", Sets.newHashSet("slot_name"));
+        Assert.assertEquals(DecimalV2Type.SYSTEM_DEFAULT, dataType);
+
+        Config.enable_decimal_conversion = originalEnableDecimalConversion;
     }
 }
