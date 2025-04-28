@@ -64,10 +64,10 @@ Status CalcDeleteBitmapToken::submit(BaseTabletSPtr tablet, RowsetId rowset_id,
     {
         std::shared_lock rlock(_lock);
         RETURN_IF_ERROR(_status);
-        _resource_ctx = thread_context()->resource_ctx();
+        _query_thread_context.init_unlocked();
     }
     return _thread_token->submit_func([=, this]() {
-        SCOPED_ATTACH_TASK(_resource_ctx);
+        SCOPED_ATTACH_TASK(_query_thread_context);
         auto st = tablet->calc_delete_bitmap_between_segments(rowset_id, segments, delete_bitmap);
         if (!st.ok()) {
             LOG(WARNING) << "failed to calc delete bitmap between segments, tablet_id: "
