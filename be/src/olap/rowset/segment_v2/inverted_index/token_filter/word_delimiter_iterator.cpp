@@ -27,9 +27,9 @@ std::vector<char> WordDelimiterIterator::initializeDelimTable() {
     std::vector<char> tab(256);
     for (int32_t i = 0; i < 256; i++) {
         char code = 0;
-        if (u_islower(i)) {
+        if (u_isULowercase(i)) {
             code |= LOWER;
-        } else if (u_isupper(i)) {
+        } else if (u_isUUppercase(i)) {
             code |= UPPER;
         } else if (u_isdigit(i)) {
             code |= DIGIT;
