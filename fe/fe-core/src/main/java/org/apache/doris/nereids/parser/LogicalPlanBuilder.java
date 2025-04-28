@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.parser;
 
+import com.google.common.base.Strings;
 import org.apache.doris.alter.QuotaType;
 import org.apache.doris.analysis.AnalyzeProperties;
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
@@ -34,11 +35,14 @@ import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.StageAndPattern;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.TableName;
+import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.analysis.TableValuedFunctionRef;
 import org.apache.doris.analysis.UserDesc;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.AccessPrivilege;
+import org.apache.doris.catalog.AccessPrivilegeWithCols;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.BuiltinAggregateFunctions;
 import org.apache.doris.catalog.BuiltinTableGeneratingFunctions;
@@ -627,6 +631,7 @@ import org.apache.doris.nereids.trees.plans.commands.RefreshMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ReplayCommand;
 import org.apache.doris.nereids.trees.plans.commands.ResumeJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.ResumeMTMVCommand;
+import org.apache.doris.nereids.trees.plans.commands.RevokeTablePrivilegeCommand;
 import org.apache.doris.nereids.trees.plans.commands.SetDefaultStorageVaultCommand;
 import org.apache.doris.nereids.trees.plans.commands.SetOptionsCommand;
 import org.apache.doris.nereids.trees.plans.commands.SetTransactionCommand;
@@ -6908,5 +6913,74 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         );
 
         return new CreateResourceCommand(createResourceInfo);
+    }
+
+    @Override
+    public LogicalPlan visitRevokeTablePrivilege(DorisParser.RevokeTablePrivilegeContext ctx) {
+        List<AccessPrivilegeWithCols> accessPrivilegeWithCols = visitPrivilegeList(ctx.privilegeList());
+
+        List<String> parts = visitMultipartIdentifierOrAsterisk(ctx.multipartIdentifierOrAsterisk());
+        int size = parts.size();
+        String tbl = parts.get(size - 1);
+        String ctl = "";
+        String db = "";
+
+        if (Env.isStoredTableNamesLowerCase() && !Strings.isNullOrEmpty(tbl)) {
+            tbl = tbl.toLowerCase();
+        }
+        if (size >= 2) {
+            db = parts.get(size - 2);
+        }
+        if (size >= 3) {
+            ctl = parts.get(size - 3);
+        }
+        TablePattern tablePattern = new TablePattern(ctl, db, tbl);
+
+        if (ctx.ROLE() != null) {
+            String role = visitIdentifierOrText(ctx.identifierOrText());
+            return new RevokeTablePrivilegeCommand(
+                accessPrivilegeWithCols,
+                tablePattern,
+                Optional.empty(),
+                Optional.of(role));
+        }
+
+        UserIdentity userIdentity = visitUserIdentify(ctx.userIdentify());
+        return new RevokeTablePrivilegeCommand(
+            accessPrivilegeWithCols,
+            tablePattern,
+            Optional.of(userIdentity),
+            Optional.empty());
+    }
+
+    @Override
+    public AccessPrivilegeWithCols visitPrivilege(DorisParser.PrivilegeContext ctx) {
+        AccessPrivilegeWithCols accessPrivilegeWithCols;
+        if (ctx.ALL() != null) {
+            AccessPrivilege accessPrivilege = AccessPrivilege.ALL;
+            accessPrivilegeWithCols = new AccessPrivilegeWithCols(accessPrivilege, ImmutableList.of());
+        } else {
+            String privilegeName = ctx.name.strictIdentifier().getText();
+            AccessPrivilege accessPrivilege = AccessPrivilege.fromName(privilegeName);
+            List<String> columns = ctx.identifierList() == null
+                ? ImmutableList.of() : visitIdentifierList(ctx.identifierList());
+            accessPrivilegeWithCols = new AccessPrivilegeWithCols(accessPrivilege, columns);
+        }
+
+        return accessPrivilegeWithCols;
+    }
+
+    @Override
+    public List<AccessPrivilegeWithCols> visitPrivilegeList(DorisParser.PrivilegeListContext ctx) {
+        return ctx.privilege().stream()
+            .map(this::visitPrivilege)
+            .collect(Collectors.toList());
+    }
+
+    @Override
+    public List<String> visitMultipartIdentifierOrAsterisk(DorisParser.MultipartIdentifierOrAsteriskContext ctx) {
+        return ctx.parts.stream()
+            .map(RuleContext::getText)
+            .collect(ImmutableList.toImmutableList());
     }
 }
