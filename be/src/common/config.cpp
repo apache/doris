@@ -925,7 +925,7 @@ DEFINE_Int32(multi_table_max_wait_tables, "5");
 // Doris treats it as a high priority task.
 // high priority tasks use a separate thread pool for flush and do not block rpc by memory cleanup logic.
 // this threshold is mainly used to identify routine load tasks and should not be modified if not necessary.
-DEFINE_mInt32(load_task_high_priority_threshold_second, "120");
+DEFINE_mInt32(load_task_high_priority_threshold_second, "600");
 
 // The min timeout of load rpc (add batch, close, etc.)
 // Because a load rpc may be blocked for a while.
