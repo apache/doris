@@ -118,6 +118,8 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
                         queryAuditEventList.size(), event.queryId);
                 return;
             }
+            event.pushToAuditLogQueueTime = System.currentTimeMillis();
+            queryAuditEventList.add(event);
         } finally {
             queryAuditEventLogWriteUnlock();
         }
