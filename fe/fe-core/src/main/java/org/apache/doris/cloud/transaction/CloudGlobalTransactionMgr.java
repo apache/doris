@@ -146,6 +146,7 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Random;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -159,6 +160,11 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     private TxnStateCallbackFactory callbackFactory;
     private final Map<Long, Long> subTxnIdToTxnId = new ConcurrentHashMap<>();
     private Map<Long, AtomicInteger> waitToCommitTxnCountMap = new ConcurrentHashMap<>();
+
+    // dbId -> tableId -> txnId
+    private Map<Long, Map<Long, Long>> lastTxnIdMap = Maps.newConcurrentMap();
+    // dbId -> txnId -> signature
+    private Map<Long, Map<Long, Long>> txnLastSignatureMap = Maps.newConcurrentMap();
 
     public CloudGlobalTransactionMgr() {
         this.callbackFactory = new TxnStateCallbackFactory();
@@ -537,7 +543,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         }
 
         if (!mowTableList.isEmpty()) {
-            sendCalcDeleteBitmaptask(dbId, transactionId, backendToPartitionInfos,
+            List<Long> mowTableIds = mowTableList.stream().map(Table::getId).collect(Collectors.toList());
+            sendCalcDeleteBitmaptask(dbId, transactionId, backendToPartitionInfos, mowTableIds,
                     Config.calculate_delete_bitmap_task_timeout_seconds);
         }
 
@@ -1042,10 +1049,15 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
     private void sendCalcDeleteBitmaptask(long dbId, long transactionId,
             Map<Long, List<TCalcDeleteBitmapPartitionInfo>> backendToPartitionInfos,
+            List<Long> mowTableIds,
             long calculateDeleteBitmapTaskTimeoutSeconds) throws UserException {
         if (backendToPartitionInfos == null) {
             throw new UserException("failed to send calculate delete bitmap task to be,transactionId=" + transactionId
                     + ",but backendToPartitionInfos is null");
+        }
+        if (mowTableIds == null) {
+            throw new UserException("failed to send calculate delete bitmap task to be, transactionId=" + transactionId
+                    + ", because mowTableIds is null");
         }
         if (backendToPartitionInfos.isEmpty()) {
             return;
@@ -1056,19 +1068,45 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         MarkedCountDownLatch<Long, Long> countDownLatch = new MarkedCountDownLatch<Long, Long>(
                 totalTaskNum);
         AgentBatchTask batchTask = new AgentBatchTask();
+
+        long signature = getTxnLastSignature(dbId, transactionId);
+        if (signature == -1) {
+            // use txn_id as signature for every txn in first time
+            signature = transactionId;
+        } else {
+            // If there exists other interleaved txns on the same table before,
+            // we can not accept the response of previous calc delete bitmap task which is created
+            // by the current transaction before because the delete bitmap written in those tasks
+            // maybe be removed in MS.
+            // So we change the signature to avoid to accept the response of previous calc delete bitmap task
+            boolean hasOtherInterleavedTxnBefore = mowTableIds.stream()
+                    .anyMatch(tableId -> {
+                        long lastTxnId = getTableLastTxnId(dbId, tableId);
+                        return lastTxnId != -1 && lastTxnId != transactionId;
+                    });
+            if (hasOtherInterleavedTxnBefore) {
+                signature = UUID.randomUUID().getLeastSignificantBits();
+            }
+        }
+        setTxnLastSignature(dbId, transactionId, signature);
+        for (long tableId : mowTableIds) {
+            setTableLastTxnId(dbId, tableId, transactionId);
+        }
+
         for (Map.Entry<Long, List<TCalcDeleteBitmapPartitionInfo>> entry : backendToPartitionInfos.entrySet()) {
             CalcDeleteBitmapTask task = new CalcDeleteBitmapTask(entry.getKey(),
                     transactionId,
                     dbId,
                     entry.getValue(),
+                    signature,
                     countDownLatch);
             countDownLatch.addMark(entry.getKey(), transactionId);
             // add to AgentTaskQueue for handling finish report.
             // not check return value, because the add will success
             AgentTaskQueue.addTask(task);
             batchTask.addTask(task);
-            LOG.info("send calculate delete bitmap task to be {}, txn_id {}, partitionInfos={}", entry.getKey(),
-                    transactionId, entry.getValue());
+            LOG.info("send calculate delete bitmap task to be {}, txn_id {}, signature {}, partitionInfos={}",
+                    entry.getKey(), transactionId, signature, entry.getValue());
         }
         AgentTaskExecutor.submit(batchTask);
 
@@ -1163,6 +1201,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             if (MetricRepo.isInit) {
                 MetricRepo.HISTO_COMMIT_AND_PUBLISH_LATENCY.update(commitAndPublishTime);
             }
+            clearTxnLastSignature(db.getId(), transactionId);
         }
         return res;
     }
@@ -1222,7 +1261,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             List<SubTransactionState> subTransactionStates, List<OlapTable> mowTableList,
             Map<Long, List<TCalcDeleteBitmapPartitionInfo>> backendToPartitionInfos) throws UserException {
         if (!mowTableList.isEmpty()) {
-            sendCalcDeleteBitmaptask(dbId, transactionId, backendToPartitionInfos,
+            List<Long> mowTableIds = mowTableList.stream().map(Table::getId).collect(Collectors.toList());
+            sendCalcDeleteBitmaptask(dbId, transactionId, backendToPartitionInfos, mowTableIds,
                     Config.calculate_delete_bitmap_task_timeout_seconds_for_transaction_load);
         }
 
@@ -2184,5 +2224,57 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             long tableId = tableList.get(i).getId();
             waitToCommitTxnCountMap.get(tableId).decrementAndGet();
         }
+    }
+
+    public long getTableLastTxnId(long dbId, long tableId) {
+        Map<Long, Long> tabletIdToTxnId = lastTxnIdMap.get(dbId);
+        if (tabletIdToTxnId == null) {
+            return -1;
+        }
+        return tabletIdToTxnId.getOrDefault(tableId, -1L);
+    }
+
+    public void setTableLastTxnId(long dbId, long tableId, long txnId) {
+        lastTxnIdMap.compute(dbId, (k, v) -> {
+            if (v == null) {
+                v = Maps.newConcurrentMap();
+            }
+            LOG.debug("setTableLastTxnId dbId: {}, tableId: {}, txnId: {}", dbId, tableId, txnId);
+            v.put(tableId, txnId);
+            return v;
+        });
+    }
+
+    public void clearTableLastTxnId(long dbId, long tableId) {
+        lastTxnIdMap.computeIfPresent(dbId, (k, v) -> {
+            v.remove(tableId);
+            return v.isEmpty() ? null : v;
+        });
+    }
+
+    public long getTxnLastSignature(long dbId, long txnId) {
+        Map<Long, Long> txnIdToLastSignature = txnLastSignatureMap.get(dbId);
+        if (txnIdToLastSignature == null) {
+            return -1;
+        }
+        return txnIdToLastSignature.getOrDefault(txnId, -1L);
+    }
+
+    public void setTxnLastSignature(long dbId, long txnId, long signature) {
+        txnLastSignatureMap.compute(dbId, (k, v) -> {
+            if (v == null) {
+                v = Maps.newConcurrentMap();
+            }
+            LOG.debug("setTxnLastSignature dbId: {}, txnId: {}, signature: {}", dbId, txnId, signature);
+            v.put(txnId, signature);
+            return v;
+        });
+    }
+
+    public void clearTxnLastSignature(long dbId, long txnId) {
+        txnLastSignatureMap.computeIfPresent(dbId, (k, v) -> {
+            v.remove(txnId);
+            return v.isEmpty() ? null : v;
+        });
     }
 }
