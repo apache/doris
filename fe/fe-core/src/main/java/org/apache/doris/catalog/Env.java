@@ -202,6 +202,7 @@ import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.jobs.load.LabelProcessor;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetReplicaStatusCommand;
+import org.apache.doris.nereids.stats.HboPlanStatisticsManager;
 import org.apache.doris.nereids.trees.plans.commands.AlterSystemCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.AnalyzeCommand;
@@ -261,6 +262,7 @@ import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.resource.AdmissionControl;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.computegroup.ComputeGroupMgr;
+import org.apache.doris.resource.workloadgroup.BindWgToComputeGroupThread;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadRuntimeStatusMgr;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadSchedPolicyMgr;
@@ -532,6 +534,8 @@ public class Env {
     private PolicyMgr policyMgr;
 
     private AnalysisManager analysisManager;
+
+    private HboPlanStatisticsManager hboPlanStatisticsManager;
 
     private ExternalMetaCacheMgr extMetaCacheMgr;
 
@@ -820,6 +824,7 @@ public class Env {
         this.policyMgr = new PolicyMgr();
         this.extMetaCacheMgr = new ExternalMetaCacheMgr(isCheckpointCatalog);
         this.analysisManager = new AnalysisManager();
+        this.hboPlanStatisticsManager = new HboPlanStatisticsManager();
         this.statisticsCleaner = new StatisticsCleaner();
         this.statisticsAutoCollector = new StatisticsAutoCollector();
         this.statisticsJobAppender = new StatisticsJobAppender();
@@ -1952,6 +1957,8 @@ public class Env {
         WorkloadSchedPolicyPublisher wpPublisher = new WorkloadSchedPolicyPublisher(this);
         topicPublisherThread.addToTopicPublisherList(wpPublisher);
         topicPublisherThread.start();
+
+        new BindWgToComputeGroupThread().start();
 
         // auto analyze related threads.
         statisticsCleaner.start();
@@ -3260,6 +3267,9 @@ public class Env {
     }
 
     private void removeDroppedFrontends(ConcurrentLinkedQueue<String> removedFrontends) {
+        if (removedFrontends.size() == 0) {
+            return;
+        }
         if (!Strings.isNullOrEmpty(System.getProperty(FeConstants.METADATA_FAILURE_RECOVERY_KEY))) {
             // metadata recovery mode
             LOG.info("Metadata failure recovery({}), ignore removing dropped frontends",
@@ -3269,6 +3279,7 @@ public class Env {
 
         if (haProtocol != null && haProtocol instanceof BDBHA) {
             BDBHA bdbha = (BDBHA) haProtocol;
+            LOG.info("remove frontends, num {} frontends {}", removedFrontends.size(), removedFrontends);
             bdbha.removeDroppedMember(removedFrontends);
         }
     }
@@ -6866,6 +6877,10 @@ public class Env {
 
     public AnalysisManager getAnalysisManager() {
         return analysisManager;
+    }
+
+    public HboPlanStatisticsManager getHboPlanStatisticsManager() {
+        return hboPlanStatisticsManager;
     }
 
     public GlobalFunctionMgr getGlobalFunctionMgr() {

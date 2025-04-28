@@ -269,6 +269,8 @@ Status ProcessHashTableProbe<JoinOpType>::process(HashTableType& hash_table_ctx,
     }
 
     output_block->swap(mutable_block.to_block());
+    DCHECK_EQ(current_offset, output_block->rows());
+    COUNTER_UPDATE(_parent->_intermediate_rows_counter, current_offset);
 
     if (is_mark_join && JoinOpType != TJoinOp::RIGHT_SEMI_JOIN) {
         bool ignore_null_map =
@@ -315,13 +317,13 @@ Status ProcessHashTableProbe<JoinOpType>::finalize_block_with_filter(
     vectorized::ColumnPtr filter_ptr = output_block->get_by_position(filter_column_id).column;
     RETURN_IF_ERROR(
             vectorized::Block::filter_block(output_block, filter_column_id, column_to_keep));
+    if (!_parent_operator->can_do_lazy_materialized()) {
+        return Status::OK();
+    }
 
     auto do_lazy_materialize = [&](const std::vector<bool>& output_slot_flags,
                                    vectorized::ColumnVector<unsigned int>& row_indexs,
                                    int column_offset, vectorized::Block* source_block) {
-        if (!_have_other_join_conjunct) {
-            return;
-        }
         std::vector<int> column_ids;
         for (int i = 0; i < output_slot_flags.size(); ++i) {
             if (output_slot_flags[i] &&

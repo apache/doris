@@ -95,7 +95,7 @@ class PullupExpressionTest extends SqlTestBase {
                 .rewrite()
                 .getPlan().child(0);
         CascadesContext c2 = createCascadesContext(
-                "select * from T1 join T2 on T1.id = T2.id where T1.id = 1 and T2.id = 1",
+                "select * from T1 join T2 on T1.id = T2.id where T1.id = 2 and T2.id = 1",
                 connectContext
         );
         Plan p2 = PlanChecker.from(c2)
@@ -107,8 +107,12 @@ class PullupExpressionTest extends SqlTestBase {
         HyperGraph h2 = HyperGraph.builderForMv(p2).build();
         ComparisonResult res = HyperGraphComparator.isLogicCompatible(h1, h2, constructContext(p1, p2, c1));
         Assertions.assertEquals(2, res.getViewExpressions().size());
-        Assertions.assertEquals("(id = 1)", res.getViewExpressions().get(0).toSql());
-        Assertions.assertEquals("(id = 1)", res.getViewExpressions().get(1).toSql());
+        if (res.getViewExpressions().get(0).toSql().equals("(id = 2)")) {
+            Assertions.assertEquals("(id = 1)", res.getViewExpressions().get(1).toSql());
+        } else {
+            Assertions.assertEquals("(id = 1)", res.getViewExpressions().get(0).toSql());
+            Assertions.assertEquals("(id = 2)", res.getViewExpressions().get(1).toSql());
+        }
     }
 
     @Test

@@ -26,10 +26,10 @@
 #include <ostream>
 #include <utility>
 
+#include "absl/strings/substitute.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "exec/table_connector.h"
-#include "gutil/strings/substitute.h"
 #include "jni.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
@@ -363,7 +363,7 @@ Status JdbcConnector::_register_func_id(JNIEnv* env) {
         func_id = env->GetMethodID(clazz, func_name, func_sign);
         Status s = JniUtil::GetJniExceptionMsg(env);
         if (!s.ok()) {
-            return Status::InternalError(strings::Substitute(
+            return Status::InternalError(absl::Substitute(
                     "Jdbc connector _register_func_id meet error and error is $0", s.to_string()));
         }
         return s;
