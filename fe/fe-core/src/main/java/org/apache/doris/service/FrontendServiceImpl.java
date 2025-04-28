@@ -1270,7 +1270,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
 
-        if (!Env.getCurrentEnv().isMaster()) {
+        if (!Env.getCurrentEnv().isMaster() && request.auto_select_master) {
             status.setStatusCode(TStatusCode.NOT_MASTER);
             status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
             result.setMasterAddress(getMasterAddress());
@@ -1703,7 +1703,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
 
-        if (!Env.getCurrentEnv().isMaster()) {
+        if (!Env.getCurrentEnv().isMaster() && request.auto_select_master) {
             status.setStatusCode(TStatusCode.NOT_MASTER);
             status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
             result.setMasterAddress(getMasterAddress());
@@ -1931,7 +1931,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TRollbackTxnResult result = new TRollbackTxnResult();
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
-        if (!Env.getCurrentEnv().isMaster()) {
+        if (!Env.getCurrentEnv().isMaster() && request.auto_select_master) {
             status.setStatusCode(TStatusCode.NOT_MASTER);
             status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
             result.setMasterAddress(getMasterAddress());
@@ -2795,7 +2795,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
 
-        if (!Env.getCurrentEnv().isMaster()) {
+        if (!Env.getCurrentEnv().isMaster() && request.auto_select_master) {
             status.setStatusCode(TStatusCode.NOT_MASTER);
             status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
             result.setMasterAddress(getMasterAddress());
@@ -2899,7 +2899,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
 
-        if (!Env.getCurrentEnv().isMaster()) {
+        if (!Env.getCurrentEnv().isMaster() && request.auto_select_master) {
             status.setStatusCode(TStatusCode.NOT_MASTER);
             status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
             result.setMasterAddress(getMasterAddress());
@@ -3003,7 +3003,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
 
-        if (!Env.getCurrentEnv().isMaster()) {
+        if (!Env.getCurrentEnv().isMaster() && request.auto_select_master) {
             status.setStatusCode(TStatusCode.NOT_MASTER);
             status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
             result.setMasterAddress(getMasterAddress());
@@ -3261,7 +3261,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TGetMasterTokenResult result = new TGetMasterTokenResult();
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
-        if (!Env.getCurrentEnv().isMaster()) {
+        if (!Env.getCurrentEnv().isMaster() && request.auto_select_master) {
             status.setStatusCode(TStatusCode.NOT_MASTER);
             status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
             result.setMasterAddress(getMasterAddress());
@@ -3296,7 +3296,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
 
-        if (!Env.getCurrentEnv().isMaster()) {
+        if (!Env.getCurrentEnv().isMaster() && request.auto_select_master) {
             status.setStatusCode(TStatusCode.NOT_MASTER);
             status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
             result.setMasterAddress(getMasterAddress());
@@ -3402,7 +3402,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
 
-        if (!Env.getCurrentEnv().isMaster()) {
+        if (!Env.getCurrentEnv().isMaster() && request.auto_select_master) {
             status.setStatusCode(TStatusCode.NOT_MASTER);
             status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
             result.setMasterAddress(getMasterAddress());
@@ -3951,7 +3951,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
 
-        if (!Env.getCurrentEnv().isMaster()) {
+        if (!Env.getCurrentEnv().isMaster() && request.auto_select_master) {
             status.setStatusCode(TStatusCode.NOT_MASTER);
             status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
             result.setMasterAddress(getMasterAddress());
@@ -4111,7 +4111,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
 
-        if (!Env.getCurrentEnv().isMaster()) {
+        if (!Env.getCurrentEnv().isMaster() && request.auto_select_master) {
             status.setStatusCode(TStatusCode.NOT_MASTER);
             status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
             result.setMasterAddress(getMasterAddress());

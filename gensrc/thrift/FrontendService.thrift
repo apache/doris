@@ -470,6 +470,7 @@ struct TBeginTxnRequest {
     12: optional i64 backend_id
     // used for ccr
     13: optional i64 sub_txn_num = 0
+    14: optional bool auto_select_master
 }
 
 struct TBeginTxnResult {
@@ -658,6 +659,7 @@ struct TCommitTxnRequest {
     13: optional bool txn_insert
     14: optional list<TSubTxnInfo> sub_txn_infos
     15: optional bool only_commit   // only commit txn, without waiting txn publish
+    16: optional bool auto_select_master
 }
 
 struct TCommitTxnResult {
@@ -698,6 +700,7 @@ struct TRollbackTxnRequest {
     10: optional TTxnCommitAttachment txn_commit_attachment
     11: optional string token
     12: optional i64 db_id
+    13: optional bool auto_select_master
 }
 
 struct TRollbackTxnResult {
@@ -981,6 +984,7 @@ struct TLockBinlogRequest {
     7: optional string token
     8: optional string job_unique_id
     9: optional i64 lock_commit_seq // if not set, lock the latest binlog
+    10: optional bool auto_select_master
 }
 
 struct TLockBinlogResult {
@@ -1000,6 +1004,7 @@ struct TGetBinlogRequest {
     8: optional string token
     9: optional i64 prev_commit_seq
     10: optional i64 num_acquired // the max num of binlogs in a batch
+    11: optional bool auto_select_master
 }
 
 enum TBinlogType {
@@ -1185,6 +1190,7 @@ struct TGetSnapshotRequest {
     8: optional string snapshot_name
     9: optional TSnapshotType snapshot_type
     10: optional bool enable_compress;
+    11: optional bool auto_select_master
 }
 
 struct TGetSnapshotResult {
@@ -1220,6 +1226,7 @@ struct TRestoreSnapshotRequest {
     15: optional bool atomic_restore
     16: optional bool compressed;
     17: optional bool force_replace
+    18: optional bool auto_select_master
 }
 
 struct TRestoreSnapshotResult {
@@ -1283,6 +1290,7 @@ struct TGetMasterTokenRequest {
     1: optional string cluster
     2: optional string user
     3: optional string password
+    4: optional bool auto_select_master
 }
 
 struct TGetMasterTokenResult {
@@ -1422,6 +1430,7 @@ struct TGetMetaRequest {
     4: optional string user_ip
     5: optional string token
     6: optional TGetMetaDB db
+    7: optional bool auto_select_master
     // trash
 }
 
@@ -1485,6 +1494,7 @@ struct TGetBackendMetaRequest {
     4: optional string user_ip
     5: optional string token
     6: optional i64 backend_id
+    7: optional bool auto_select_master
 }
 
 struct TGetBackendMetaResult {
