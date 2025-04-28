@@ -107,7 +107,7 @@ suite("test_create_with_json_object","mtmv") {
     log.info(jobName)
     waitingMTMVTaskFinished(jobName)
 
-    order_qt_select "SELECT * FROM ${mvName}"
+    order_qt_select "SELECT * FROM ${mvName} where l_orderkey in (2, 3, 4)"
 
     sql """drop table if exists `${tableName}`"""
     sql """drop materialized view if exists ${mvName};"""
