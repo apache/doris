@@ -478,59 +478,6 @@ char* SimpleItoaWithCommas(__int128_t i, char* buffer, int32_t buffer_size);
 string ItoaKMGT(int64 i);
 string AccurateItoaKMGT(int64 i);
 
-// ----------------------------------------------------------------------
-// ParseDoubleRange()
-//    Parse an expression in 'text' of the form: <double><sep><double>
-//    where <double> may be a double-precision number and <sep> is a
-//    single char or "..", and must be one of the chars in parameter
-//    'separators', which may contain '-' or '.' (which means "..") or
-//    any chars not allowed in a double. If allow_unbounded_markers,
-//    <double> may also be a '?' to indicate unboundedness (if on the
-//    left of <sep>, means unbounded below; if on the right, means
-//    unbounded above). Depending on num_required_bounds, which may be
-//    0, 1, or 2, <double> may also be the empty string, indicating
-//    unboundedness. If require_separator is false, then a single
-//    <double> is acceptable and is parsed as a range bounded from
-//    below. We also check that the character following the range must
-//    be in acceptable_terminators. If null_terminator_ok, then it is
-//    also OK if the range ends in \0 or after len chars. If
-//    allow_currency is true, the first <double> may be optionally
-//    preceded by a '$', in which case *is_currency will be true, and
-//    the second <double> may similarly be preceded by a '$'. In these
-//    cases, the '$' will be ignored (otherwise it's an error). If
-//    allow_comparators is true, the expression in 'text' may also be
-//    of the form <comparator><double>, where <comparator> is '<' or
-//    '>' or '<=' or '>='. separators and require_separator are
-//    ignored in this format, but all other parameters function as for
-//    the first format. Return true if the expression parsed
-//    successfully; false otherwise. If successful, output params are:
-//    'end', which points to the char just beyond the expression;
-//    'from' and 'to' are set to the values of the <double>s, and are
-//    -inf and inf (or unchanged, depending on dont_modify_unbounded)
-//    if unbounded. Output params are undefined if false is
-//    returned. len is the input length, or -1 if text is
-//    '\0'-terminated, which is more efficient.
-// ----------------------------------------------------------------------
-struct DoubleRangeOptions {
-    const char* separators = nullptr;
-    bool require_separator;
-    const char* acceptable_terminators = nullptr;
-    bool null_terminator_ok;
-    bool allow_unbounded_markers;
-    uint32 num_required_bounds;
-    bool dont_modify_unbounded;
-    bool allow_currency;
-    bool allow_comparators;
-};
-
-// NOTE: The instruction below creates a Module titled
-// NumbersFunctions within the auto-generated Doxygen documentation.
-// This instruction is needed to expose global functions that are not
-// within a namespace.
-//
-bool ParseDoubleRange(const char* text, int len, const char** end, double* from, double* to,
-                      bool* is_currency, const DoubleRangeOptions& opts);
-
 // END DOXYGEN SplitFunctions grouping
 /* @} */
 
