@@ -76,7 +76,6 @@ MetaServiceImpl::MetaServiceImpl(std::shared_ptr<TxnKv> txn_kv,
     rate_limiter_ = rate_limiter;
     rate_limiter_->init(this);
     txn_lazy_committer_ = std::make_shared<TxnLazyCommitter>(txn_kv_);
-    init_delete_bitmap_update_lock_version_white_list();
 }
 
 MetaServiceImpl::~MetaServiceImpl() = default;
@@ -197,17 +196,6 @@ void get_tablet_idx(MetaServiceCode& code, std::string& msg, Transaction* txn,
         LOG(WARNING) << "unexpected error given_tablet_id=" << tablet_id
                      << " idx_pb_tablet_id=" << tablet_idx.tablet_id() << " key=" << hex(key);
         return;
-    }
-}
-
-void MetaServiceImpl::init_delete_bitmap_update_lock_version_white_list() {
-    std::string white_list = config::delete_bitmap_lock_version_white_list;
-    if (!white_list.empty()) {
-        auto white_list_vector = split(white_list, ',');
-        for (auto& item : white_list_vector) {
-            auto v = split(item, ':');
-            lock_version_white_list.insert({v[0], v[1]});
-        }
     }
 }
 
@@ -1833,16 +1821,27 @@ bool MetaServiceImpl::use_new_version_random() {
     return false;
 }
 
-void MetaServiceImpl::check_version(
-        std::string& use_version, std::string& instance_id,
-        std::unordered_map<std::string, std::string>& lock_version_white_list) {
+void MetaServiceImpl::check_version(std::string& use_version, std::string& instance_id) {
     if (config::use_delete_bitmap_lock_random_version && !use_new_version_random()) {
         use_version = "v1";
         return;
     }
-    auto it = lock_version_white_list.find(instance_id);
-    if (it != lock_version_white_list.end()) {
-        use_version = it->second;
+    std::string white_list = config::delete_bitmap_lock_version_white_list;
+    if (!white_list.empty()) {
+        auto white_list_vector = split(white_list, '%');
+        for (auto& item : white_list_vector) {
+            auto v = split(item, ':');
+            if (v.size() != 2) {
+                LOG(WARNING) << "failed to split config=" << item << ",white list=" << white_list;
+                continue;
+            }
+            trim(v[0]);
+            trim(v[1]);
+            if (instance_id == v[0]) {
+                use_version = v[1];
+                return;
+            }
+        }
     }
 }
 
@@ -2003,7 +2002,7 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
         LOG(WARNING) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
         return;
     }
-    check_version(use_version, instance_id, lock_version_white_list);
+    check_version(use_version, instance_id);
     RPC_RATE_LIMIT(update_delete_bitmap)
 
     uint64_t fdb_txn_size = 0;
@@ -2220,7 +2219,8 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
               << " total_value_count=" << total_value_count << " unlock=" << unlock
               << " total_txn_put_keys=" << total_txn_put_keys
               << " total_txn_put_bytes=" << total_txn_put_bytes
-              << " total_txn_size=" << total_txn_size;
+              << " total_txn_size=" << total_txn_size << " instance_id=" << instance_id
+              << " use_version=" << use_version;
 }
 
 void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* controller,
@@ -3112,7 +3112,9 @@ void MetaServiceImpl::get_delete_bitmap_update_lock(google::protobuf::RpcControl
         return;
     }
     RPC_RATE_LIMIT(get_delete_bitmap_update_lock)
-    check_version(use_version, instance_id, lock_version_white_list);
+    check_version(use_version, instance_id);
+    LOG(INFO) << "get_delete_bitmap_update_lock instance_id=" << instance_id
+              << " use_version=" << use_version;
     if (use_version == "v2") {
         get_delete_bitmap_update_lock_v2(controller, request, response, done, instance_id, code,
                                          msg, ss);
@@ -3141,7 +3143,9 @@ void MetaServiceImpl::remove_delete_bitmap_update_lock(
         return;
     }
     RPC_RATE_LIMIT(remove_delete_bitmap_update_lock)
-    check_version(use_version, instance_id, lock_version_white_list);
+    check_version(use_version, instance_id);
+    LOG(INFO) << "remove_delete_bitmap_update_lock instance_id=" << instance_id
+              << " use_version=" << use_version;
     if (use_version == "v2") {
         remove_delete_bitmap_update_lock_v2(controller, request, response, done, instance_id, code,
                                             msg, ss);

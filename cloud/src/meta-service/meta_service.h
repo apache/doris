@@ -350,15 +350,12 @@ private:
                                              std::string& msg, std::stringstream& ss);
 
     bool use_new_version_random();
-    void check_version(std::string& use_version, std::string& instance_id,
-                       std::unordered_map<std::string, std::string>& lock_version_white_list);
-    void init_delete_bitmap_update_lock_version_white_list();
+    void check_version(std::string& use_version, std::string& instance_id);
 
     std::shared_ptr<TxnKv> txn_kv_;
     std::shared_ptr<ResourceManager> resource_mgr_;
     std::shared_ptr<RateLimiter> rate_limiter_;
     std::shared_ptr<TxnLazyCommitter> txn_lazy_committer_;
-    std::unordered_map<std::string, std::string> lock_version_white_list;
 };
 
 class MetaServiceProxy final : public MetaService {
