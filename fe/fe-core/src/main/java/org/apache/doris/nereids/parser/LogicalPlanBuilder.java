@@ -832,9 +832,9 @@ import org.apache.doris.nereids.trees.plans.commands.load.LoadProperty;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadSeparator;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadSequenceClause;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadWhereClause;
-import org.apache.doris.nereids.trees.plans.commands.load.ShowCreateRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.load.PauseDataSyncJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.load.ResumeDataSyncJobCommand;
+import org.apache.doris.nereids.trees.plans.commands.load.ShowCreateRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.load.StopDataSyncJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.load.SyncJobName;
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshCatalogCommand;
@@ -6647,17 +6647,22 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitShowCreateRoutineLoad(DorisParser.ShowCreateRoutineLoadContext ctx) {
         boolean isAll = ctx.ALL() != null;
-        List<String> parts = visitMultipartIdentifier(ctx.multipartIdentifier());
-        int size = parts.size();
-        String label = parts.get(size - 1);
-        String dbName = null;
-        if (size >= 2) {
-            dbName = parts.get(size - 2);
+        List<String> labelParts = visitMultipartIdentifier(ctx.label);
+        int size = labelParts.size();
+        String jobName = labelParts.get(size - 1);
+        String dbName;
+        if (size == 1) {
+            dbName = null;
+        } else if (size == 2) {
+            dbName = labelParts.get(0);
+        } else {
+            throw new ParseException("only support [<db>.]<job_name>", ctx.label);
         }
-        LabelNameInfo labelNameInfo = new LabelNameInfo(dbName, label);
+        LabelNameInfo labelNameInfo = new LabelNameInfo(dbName, jobName);
         return new ShowCreateRoutineLoadCommand(labelNameInfo, isAll);
     }
 
+    @Override
     public LogicalPlan visitStopDataSyncJob(DorisParser.StopDataSyncJobContext ctx) {
         List<String> nameParts = visitMultipartIdentifier(ctx.name);
         int size = nameParts.size();
