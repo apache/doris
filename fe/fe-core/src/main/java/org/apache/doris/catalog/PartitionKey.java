@@ -652,8 +652,8 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
                 }
                 JsonPrimitive extend = jsonArray.get(jsonArray.size() - 1).getAsJsonPrimitive();
                 String extendStr = extend.getAsString();
-                // for compatibility, extend takes up the previous "unused" position, so the last element needs to be checked here
-                // if it is unused ignore it
+                // for compatibility, extend takes up the previous "unused" position
+                // so the last element needs to be checked here, if it is unused ignore it
                 if (!extendStr.equals("unused")) {
                     // parse extend record
                     Gson gson = new Gson();
