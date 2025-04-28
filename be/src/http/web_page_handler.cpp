@@ -26,7 +26,6 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "gutil/stl_util.h"
-#include "gutil/strings/numbers.h"
 #include "http/ev_http_server.h"
 #include "http/http_channel.h"
 #include "http/http_headers.h"

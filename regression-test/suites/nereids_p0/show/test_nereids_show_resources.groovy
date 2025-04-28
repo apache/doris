@@ -77,6 +77,13 @@ suite("test_nereids_show_resources") {
     assertEquals("jdbc", res2.get(0).get(1))
     assertEquals("jdbc", res2.get(size2 - 1).get(1))
 
+    def res3 = sql """SHOW RESOURCES WHERE NAME like 'test_resource_for_show_resources%'"""
+    def size3 = res3.size()
+    assertEquals("test_resource_for_show_resources", res3.get(0).get(0))
+    assertEquals("test_resource_for_show_resources", res3.get(size3 - 1).get(0))
+    assertEquals("jdbc", res3.get(0).get(1))
+    assertEquals("jdbc", res3.get(size3 - 1).get(1))
+
     def res4 = sql """SHOW RESOURCES like 'test_resource_for_show_resources%'"""
     def size4 = res4.size()
     assertEquals("test_resource_for_show_resources", res4.get(0).get(0))
