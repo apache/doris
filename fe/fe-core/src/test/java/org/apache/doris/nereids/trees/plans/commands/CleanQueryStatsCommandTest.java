@@ -47,9 +47,8 @@ public class CleanQueryStatsCommandTest extends TestWithFeService {
     }
 
     @Test
-    public void testAll() throws IOException {
+    public void testAllNormal() throws IOException {
         runBefore();
-        //normal
         new Expectations() {
             {
                 connectContext.isSkipAuth();
@@ -63,8 +62,11 @@ public class CleanQueryStatsCommandTest extends TestWithFeService {
         };
         CleanQueryStatsCommand command = new CleanQueryStatsCommand();
         Assertions.assertDoesNotThrow(() -> command.validate(connectContext));
+    }
 
-        //NoPriviledge
+    @Test
+    public void testAllNoPriviledge() throws IOException {
+        runBefore();
         new Expectations() {
             {
                 Env.getCurrentEnv();
