@@ -372,9 +372,10 @@ static void write_rowset(TabletSharedPtr* tablet, PUniqueId load_id, int64_t rep
     for (auto& tablet_rs : tablet_related_rs) {
         RowsetSharedPtr rowset = tablet_rs.second;
         TabletPublishStatistics stats;
+        std::shared_ptr<TabletTxnInfo> extend_tablet_txn_info_lifetime = nullptr;
         st = k_engine->txn_manager()->publish_txn(meta, write_req.partition_id, write_req.txn_id,
                                                   (*tablet)->tablet_id(), (*tablet)->tablet_uid(),
-                                                  version, &stats);
+                                                  version, &stats, extend_tablet_txn_info_lifetime);
         ASSERT_EQ(Status::OK(), st);
         st = (*tablet)->add_inc_rowset(rowset);
         ASSERT_EQ(Status::OK(), st);
