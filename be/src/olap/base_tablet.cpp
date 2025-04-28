@@ -1782,9 +1782,12 @@ void BaseTablet::agg_delete_bitmap_for_stale_rowsets(
             << ". start_version: " << start_version << ", end_version: " << end_version;
     // get pre rowsets
     std::vector<RowsetSharedPtr> pre_rowsets {};
-    for (const auto& it2 : _rs_version_map) {
-        if (it2.first.second < start_version) {
-            pre_rowsets.emplace_back(it2.second);
+    {
+        std::shared_lock rdlock(_meta_lock);
+        for (const auto& it2 : _rs_version_map) {
+            if (it2.first.second < start_version) {
+                pre_rowsets.emplace_back(it2.second);
+            }
         }
     }
     std::sort(pre_rowsets.begin(), pre_rowsets.end(), Rowset::comparator);

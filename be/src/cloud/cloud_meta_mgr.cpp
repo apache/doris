@@ -1309,8 +1309,7 @@ Status CloudMetaMgr::cloud_update_delete_bitmap_without_lock(const CloudTablet& 
         req.add_rowset_ids(std::get<0>(key).to_string());
         req.add_segment_ids(std::get<1>(key));
         req.add_versions(std::get<2>(key));
-        DCHECK(pre_rowset_agg_end_version > 0 ? pre_rowset_agg_end_version == std::get<2>(key)
-                                              : true)
+        DCHECK(pre_rowset_agg_end_version <= 0 || pre_rowset_agg_end_version == std::get<2>(key))
                 << "pre_rowset_agg_end_version=" << pre_rowset_agg_end_version
                 << " not equal to version=" << std::get<2>(key);
         // To save space, convert array and bitmap containers to run containers

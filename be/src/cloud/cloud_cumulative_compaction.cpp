@@ -371,9 +371,12 @@ Status CloudCumulativeCompaction::modify_rowsets() {
         _tablet->enable_unique_key_merge_on_write() && _input_rowsets.size() != 1) {
         OlapStopWatch watch;
         std::vector<RowsetSharedPtr> pre_rowsets {};
-        for (const auto& it2 : cloud_tablet()->rowset_map()) {
-            if (it2.first.second < _output_rowset->start_version()) {
-                pre_rowsets.emplace_back(it2.second);
+        {
+            std::shared_lock rlock(_tablet->get_header_lock());
+            for (const auto& it2 : cloud_tablet()->rowset_map()) {
+                if (it2.first.second < _output_rowset->start_version()) {
+                    pre_rowsets.emplace_back(it2.second);
+                }
             }
         }
         std::sort(pre_rowsets.begin(), pre_rowsets.end(), Rowset::comparator);
