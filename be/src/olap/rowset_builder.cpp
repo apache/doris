@@ -257,7 +257,7 @@ Status BaseRowsetBuilder::build_rowset() {
 }
 
 Status BaseRowsetBuilder::submit_calc_delete_bitmap_task() {
-    if (!_tablet->enable_unique_key_merge_on_write()) {
+    if (!_tablet->enable_unique_key_merge_on_write() || _rowset->num_segments() == 0) {
         return Status::OK();
     }
     std::lock_guard<std::mutex> l(_lock);
