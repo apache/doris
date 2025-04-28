@@ -17,10 +17,13 @@
 
 package org.apache.doris.mtmv;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.nereids.sqltest.SqlTestBase;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.SimpleColumnDefinition;
 import org.apache.doris.nereids.types.BigIntType;
@@ -38,16 +41,14 @@ import com.google.common.collect.Sets;
 import mockit.Expectations;
 import mockit.Mocked;
 import org.junit.Assert;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 public class MTMVPlanUtilTest extends SqlTestBase {
-    @Mocked
-    private SlotReference slot;
-    @Mocked
-    private TableIf slotTable;
 
     @Test
     public void testGenerateColumnsBySql() throws Exception {
@@ -72,6 +73,15 @@ public class MTMVPlanUtilTest extends SqlTestBase {
                 Maps.newHashMap());
         List<ColumnDefinition> expect = Lists.newArrayList(new ColumnDefinition("id", BigIntType.INSTANCE, true),
                 new ColumnDefinition("score", BigIntType.INSTANCE, true));
+        checkRes(expect, actual);
+
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put(PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN, "true");
+        actual = MTMVPlanUtil.generateColumnsBySql(querySql, connectContext, null,
+                Sets.newHashSet(), Lists.newArrayList(), properties);
+        expect = Lists.newArrayList(new ColumnDefinition("id", BigIntType.INSTANCE, true),
+                new ColumnDefinition("score", BigIntType.INSTANCE, true),
+                new ColumnDefinition(Column.ROW_STORE_COL, StringType.INSTANCE, false));
         checkRes(expect, actual);
 
         querySql = "select T1.id from T1 inner join T2 on T1.id = T2.id";
@@ -124,7 +134,7 @@ public class MTMVPlanUtilTest extends SqlTestBase {
     }
 
     @Test
-    public void testGetDataType() {
+    public void testGetDataType(@Mocked SlotReference slot, @Mocked TableIf slotTable) {
         new Expectations() {
             {
                 slot.getDataType();
@@ -228,5 +238,51 @@ public class MTMVPlanUtilTest extends SqlTestBase {
         Assert.assertEquals(DecimalV2Type.SYSTEM_DEFAULT, dataType);
 
         Config.enable_decimal_conversion = originalEnableDecimalConversion;
+    }
+
+    @Test
+    public void testGenerateColumns(@Mocked SlotReference slot, @Mocked Plan plan) {
+        new Expectations() {
+            {
+                plan.getOutput();
+                minTimes = 0;
+                result = Lists.newArrayList();
+            }
+        };
+        // test slots is empty
+        Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class, () ->
+                MTMVPlanUtil.generateColumns(plan, connectContext, null, null, null, null));
+
+        new Expectations() {
+            {
+                plan.getOutput();
+                minTimes = 0;
+                result = Lists.newArrayList(slot);
+            }
+        };
+
+        // test size of slots and SimpleColumnDefinitions is different
+        Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class, () ->
+                MTMVPlanUtil.generateColumns(plan, connectContext, null, null,
+                        Lists.newArrayList(new SimpleColumnDefinition("col1", "c1"),
+                                new SimpleColumnDefinition("col2", "c2")), null));
+
+        // test name format
+        Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class, () ->
+                MTMVPlanUtil.generateColumns(plan, connectContext, null, null,
+                        Lists.newArrayList(new SimpleColumnDefinition("", "c1")), null));
+
+        new Expectations() {
+            {
+                plan.getOutput();
+                minTimes = 0;
+                result = Lists.newArrayList(slot, slot);
+            }
+        };
+        // test repeat col name
+        Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class, () ->
+                MTMVPlanUtil.generateColumns(plan, connectContext, null, null,
+                        Lists.newArrayList(new SimpleColumnDefinition("col1", "c1"),
+                                new SimpleColumnDefinition("col1", "c2")), null));
     }
 }
