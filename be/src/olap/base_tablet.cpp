@@ -1867,18 +1867,43 @@ void BaseTablet::check_agg_delete_bitmap_for_stale_rowsets() {
                     ss << ", ";
                 }
                 ss << iter->first.to_string() << ": [";
-                for (auto it = iter->second.begin(); it != iter->second.end(); ++it) {
-                    if (it != iter->second.begin()) {
-                        ss << ", ";
+                // some versions are continuous, such as [8, 9, 10, 11, 13, 17, 18]
+                // print as [8-11, 13, 17-18]
+                int64_t last_start_version = -1;
+                int64_t last_end_version = -1;
+                for (int64_t version : iter->second) {
+                    if (last_start_version == -1) {
+                        last_start_version = version;
+                        last_end_version = version;
+                        continue;
                     }
-                    ss << *it;
+                    if (last_end_version + 1 == version) {
+                        last_end_version = version;
+                    } else {
+                        if (last_start_version == last_end_version) {
+                            ss << last_start_version << ", ";
+                        } else {
+                            ss << last_start_version << "-" << last_end_version << ", ";
+                        }
+                        last_start_version = version;
+                        last_end_version = version;
+                    }
                 }
+                if (last_start_version == last_end_version) {
+                    ss << last_start_version;
+                } else {
+                    ss << last_start_version << "-" << last_end_version;
+                }
+
                 ss << "]";
             }
             ss << "}.";
         }
         LOG(WARNING) << "failed check_agg_delete_bitmap_for_stale_rowsets for tablet_id="
                      << tablet_id() << ". " << ss.str();
+    } else {
+        LOG(INFO) << "succeed check_agg_delete_bitmap_for_stale_rowsets for tablet_id="
+                  << tablet_id();
     }
 }
 
