@@ -118,7 +118,7 @@ public:
     }
 
     void insert(const Field& x) override {
-        throw doris::Exception("ColumnFixedLengthObject do not support insert");
+        throw Exception(ErrorCode::INTERNAL_ERROR, "ColumnFixedLengthObject do not support insert");
     }
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override {
@@ -130,11 +130,10 @@ public:
         }
 
         if (start + length > src_col._item_count) {
-            throw doris::Exception(
-                    doris::ErrorCode::INTERNAL_ERROR,
-                    "Parameters start = {}, length = {} are out of bound in "
-                    "ColumnFixedLengthObject::insert_range_from method (data.size() = {})",
-                    start, length, src_col._item_count);
+            throw Exception(ErrorCode::INTERNAL_ERROR,
+                            "Parameters start = {}, length = {} are out of bound in "
+                            "ColumnFixedLengthObject::insert_range_from method (data.size() = {})",
+                            start, length, src_col._item_count);
         }
 
         size_t old_size = size();
@@ -165,12 +164,14 @@ public:
     }
 
     void pop_back(size_t n) override {
-        throw doris::Exception("ColumnFixedLengthObject do not support pop_back");
+        throw Exception(ErrorCode::INTERNAL_ERROR,
+                        "ColumnFixedLengthObject do not support pop_back");
     }
 
     StringRef serialize_value_into_arena(size_t n, Arena& arena,
                                          char const*& begin) const override {
-        throw doris::Exception("ColumnFixedLengthObject do not support serialize_value_into_arena");
+        throw Exception(ErrorCode::INTERNAL_ERROR,
+                        "ColumnFixedLengthObject do not support serialize_value_into_arena");
     }
 
     const char* deserialize_and_insert_from_arena(const char* pos) override {
@@ -184,29 +185,32 @@ public:
 
     [[noreturn]] ColumnPtr filter(const IColumn::Filter& filt,
                                   ssize_t result_size_hint) const override {
-        throw doris::Exception("ColumnFixedLengthObject do not support filter");
+        throw Exception(ErrorCode::INTERNAL_ERROR, "ColumnFixedLengthObject do not support filter");
     }
 
     [[noreturn]] size_t filter(const IColumn::Filter&) override {
-        throw doris::Exception("ColumnFixedLengthObject do not support filter");
+        throw Exception(ErrorCode::INTERNAL_ERROR, "ColumnFixedLengthObject do not support filter");
     }
 
     [[noreturn]] ColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override {
-        throw doris::Exception("ColumnFixedLengthObject do not support permute");
+        throw Exception(ErrorCode::INTERNAL_ERROR,
+                        "ColumnFixedLengthObject do not support permute");
     }
 
     [[noreturn]] int compare_at(size_t n, size_t m, const IColumn& rhs,
                                 int nan_direction_hint) const override {
-        throw doris::Exception("ColumnFixedLengthObject do not support compare_at");
+        throw Exception(ErrorCode::INTERNAL_ERROR,
+                        "ColumnFixedLengthObject do not support compare_at");
     }
 
     void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
                          IColumn::Permutation& res) const override {
-        throw doris::Exception("ColumnFixedLengthObject do not support get_permutation");
+        throw Exception(ErrorCode::INTERNAL_ERROR,
+                        "ColumnFixedLengthObject do not support get_permutation");
     }
 
     ColumnPtr index(const IColumn& indexes, size_t limit) const override {
-        throw doris::Exception("ColumnFixedLengthObject do not support index");
+        throw Exception(ErrorCode::INTERNAL_ERROR, "ColumnFixedLengthObject do not support index");
     }
 
     void get_indices_of_non_default_rows(IColumn::Offsets64& indices, size_t from,
