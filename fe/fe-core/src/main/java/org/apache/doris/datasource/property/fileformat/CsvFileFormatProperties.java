@@ -53,6 +53,7 @@ public class CsvFileFormatProperties extends FileFormatProperties {
     public static final String PROP_TRIM_DOUBLE_QUOTES = "trim_double_quotes";
 
     public static final String PROP_ENCLOSE = "enclose";
+    public static final String PROP_ESCAPE = "escape";
 
     private String headerType = "";
     private TTextSerdeType textSerdeType = TTextSerdeType.JSON_TEXT_SERDE;
@@ -62,24 +63,26 @@ public class CsvFileFormatProperties extends FileFormatProperties {
     private int skipLines;
     private byte enclose;
 
+    private byte escape;
+
     // used by tvf
     // User specified csv columns, it will override columns got from file
     private final List<Column> csvSchema = Lists.newArrayList();
 
     String defaultColumnSeparator = DEFAULT_COLUMN_SEPARATOR;
 
-    public CsvFileFormatProperties() {
-        super(TFileFormatType.FORMAT_CSV_PLAIN);
+    public CsvFileFormatProperties(String formatName) {
+        super(TFileFormatType.FORMAT_CSV_PLAIN, formatName);
     }
 
-    public CsvFileFormatProperties(String defaultColumnSeparator, TTextSerdeType textSerdeType) {
-        super(TFileFormatType.FORMAT_CSV_PLAIN);
+    public CsvFileFormatProperties(String defaultColumnSeparator, TTextSerdeType textSerdeType, String formatName) {
+        super(TFileFormatType.FORMAT_CSV_PLAIN, formatName);
         this.defaultColumnSeparator = defaultColumnSeparator;
         this.textSerdeType = textSerdeType;
     }
 
-    public CsvFileFormatProperties(String headerType) {
-        super(TFileFormatType.FORMAT_CSV_PLAIN);
+    public CsvFileFormatProperties(String headerType, String formatName) {
+        super(TFileFormatType.FORMAT_CSV_PLAIN, formatName);
         this.headerType = headerType;
     }
 
@@ -112,6 +115,16 @@ public class CsvFileFormatProperties extends FileFormatProperties {
                 enclose = (byte) enclosedString.charAt(0);
                 if (enclose == 0) {
                     throw new AnalysisException("enclose should not be byte [0].");
+                }
+            }
+
+            String escapeStr = getOrDefault(formatProperties, PROP_ESCAPE,
+                    "", isRemoveOriginProperty);
+            if (escapeStr != null) {
+                if (escapeStr.length() != 1) {
+                    throw new AnalysisException("escape must be single-char");
+                } else {
+                    escape = escapeStr.getBytes()[0];
                 }
             }
 
@@ -184,6 +197,10 @@ public class CsvFileFormatProperties extends FileFormatProperties {
 
     public byte getEnclose() {
         return enclose;
+    }
+
+    public byte getEscape() {
+        return escape;
     }
 
     public List<Column> getCsvSchema() {
