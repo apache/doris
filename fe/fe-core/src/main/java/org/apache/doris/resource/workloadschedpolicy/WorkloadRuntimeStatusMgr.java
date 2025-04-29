@@ -122,7 +122,8 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
                 if (now - lastWarnTime >= 1000) {
                     lastWarnTime = now;
                     // if queryAuditEventList is full, we don't put the event to queryAuditEventList.
-                    // so that the statistic info of this audit event will be ignored, and event will be logged directly.
+                    // so that the statistic info of this audit event will be ignored,
+                    // and event will be logged directly.
                     LOG.warn("audit log event queue size {} is full, this may cause audit log missing statistics."
                                     + "you can check whether qps is too high or "
                                     + "set audit_event_log_queue_size to a larger value in fe.conf. query id: {}",
