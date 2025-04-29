@@ -339,35 +339,8 @@ Status ScanLocalState<Derived>::_normalize_predicate(
                 return Status::OK();
             }
         } else {
-            /// TODO: The FE should ensure that all equality predicates are divided by AND, and there should no longer be cases where the root node is AND
-            vectorized::VExprSPtr left_child;
-            RETURN_IF_ERROR(
-                    _normalize_predicate(conjunct_expr_root->children()[0], context, left_child));
-            vectorized::VExprSPtr right_child;
-            RETURN_IF_ERROR(
-                    _normalize_predicate(conjunct_expr_root->children()[1], context, right_child));
-
-            if (left_child != nullptr && right_child != nullptr) {
-                conjunct_expr_root->set_children({left_child, right_child});
-                output_expr = conjunct_expr_root;
-                return Status::OK();
-            } else {
-                if (left_child == nullptr) {
-                    conjunct_expr_root->children()[0]->close(context,
-                                                             context->get_function_state_scope());
-                }
-                if (right_child == nullptr) {
-                    conjunct_expr_root->children()[1]->close(context,
-                                                             context->get_function_state_scope());
-                }
-                // here only close the and expr self, do not close the child
-                conjunct_expr_root->set_children({});
-                conjunct_expr_root->close(context, context->get_function_state_scope());
-            }
-
-            // here do not close VExpr* now
-            output_expr = left_child != nullptr ? left_child : right_child;
-            return Status::OK();
+            return Status::InternalError("conjunct root should not and expr, but now {}",
+                                         conjunct_expr_root->debug_string());
         }
     }
     output_expr = conjunct_expr_root;
@@ -638,11 +611,7 @@ Status ScanLocalState<Derived>::_normalize_in_and_eq_predicate(vectorized::VExpr
         while (iter->has_next()) {
             // column in (nullptr) is always false so continue to
             // dispose next item
-            /// TODO: This should not return nullptr, consider removing it.
-            if (nullptr == iter->get_value()) {
-                iter->next();
-                continue;
-            }
+            DCHECK(iter->get_value() != nullptr);
             auto* value = const_cast<void*>(iter->get_value());
             RETURN_IF_ERROR(_change_value_range<true>(
                     temp_range, value, ColumnValueRange<T>::add_fixed_value_range, ""));
@@ -786,10 +755,7 @@ Status ScanLocalState<Derived>::_normalize_not_in_and_not_eq_predicate(
         }
         while (iter->has_next()) {
             // column not in (nullptr) is always true
-            /// TODO: This should not return nullptr, consider removing it.
-            if (nullptr == iter->get_value()) {
-                continue;
-            }
+            DCHECK(iter->get_value() != nullptr);
             auto value = const_cast<void*>(iter->get_value());
             if (is_fixed_range) {
                 RETURN_IF_ERROR(_change_value_range<true>(
