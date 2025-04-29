@@ -74,7 +74,7 @@ public class AdminSetReplicaStatusCommand extends Command implements ForwardWith
         ctx.getEnv().setReplicaStatus(this);
     }
 
-    private void validate() throws AnalysisException {
+    public void validate() throws AnalysisException {
         // check auth
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");

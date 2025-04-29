@@ -68,7 +68,12 @@ public class AdminCancelRepairTableCommand extends Command implements ForwardWit
         ctx.getEnv().getTabletChecker().cancelRepairTable(this);
     }
 
-    private void validate(ConnectContext ctx) throws AnalysisException {
+    /**
+     * validate
+     * @param ctx ctx
+     * @throws AnalysisException AnalysisException
+     */
+    public void validate(ConnectContext ctx) throws AnalysisException {
         // check auth
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
