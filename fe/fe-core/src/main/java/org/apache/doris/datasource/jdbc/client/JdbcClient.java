@@ -33,6 +33,7 @@ import lombok.Getter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.File;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLClassLoader;
@@ -144,7 +145,22 @@ public abstract class JdbcClient {
                     + ", ConnectionPoolMaxWaitTime = " + config.getConnectionPoolMaxWaitTime()
                     + ", ConnectionPoolMaxLifeTime = " + config.getConnectionPoolMaxLifeTime());
         } catch (Exception e) {
-            throw new JdbcClientException(e.getMessage());
+            // If driver class loading failed (Hikari wraps it), clean cache and prompt retry
+            String msg = e.getMessage();
+            if (msg != null && msg.contains("Failed to load driver class")) {
+                try {
+                    URL url = new URL(JdbcResource.getFullDriverUrl(config.getDriverUrl()));
+                    classLoaderMap.remove(url);
+                    // Prompt user to verify driver validity and retry
+                    throw new JdbcClientException(
+                        String.format("Failed to load driver class `%s`. "
+                                        + "Please check that the driver JAR is valid and retry.",
+                                      config.getDriverClass()), e);
+                } catch (MalformedURLException ignore) {
+                    // ignore invalid URL when cleaning cache
+                }
+            }
+            throw new JdbcClientException(e.getMessage(), e);
         } finally {
             Thread.currentThread().setContextClassLoader(oldClassLoader);
         }
@@ -153,7 +169,12 @@ public abstract class JdbcClient {
     private synchronized void initializeClassLoader(JdbcClientConfig config) {
         try {
             URL[] urls = {new URL(JdbcResource.getFullDriverUrl(config.getDriverUrl()))};
-            if (classLoaderMap.containsKey(urls[0])) {
+            File driverFile = new File(urls[0].getPath());
+            if (!driverFile.exists()) {
+                throw new RuntimeException("JDBC driver file not found at path: "
+                        + JdbcResource.getFullDriverUrl(config.getDriverUrl()));
+            }
+            if (classLoaderMap.containsKey(urls[0]) && classLoaderMap.get(urls[0]) != null) {
                 this.classLoader = classLoaderMap.get(urls[0]);
             } else {
                 ClassLoader parent = getClass().getClassLoader();
@@ -161,7 +182,8 @@ public abstract class JdbcClient {
                 classLoaderMap.put(urls[0], this.classLoader);
             }
         } catch (MalformedURLException e) {
-            throw new RuntimeException("Error loading JDBC driver.", e);
+            throw new RuntimeException("Failed to load JDBC driver from path: "
+                    + config.getDriverUrl(), e);
         }
     }
 
