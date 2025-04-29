@@ -20,19 +20,23 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.gson.annotations.SerializedName;
+import org.apache.commons.lang3.StringUtils;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -74,6 +78,27 @@ public class TableName implements Writable {
         this.ctl = ctl;
         this.db = db;
         this.tbl = tbl;
+    }
+
+    public TableName(TableIf tableIf) throws AnalysisException {
+        String tableName = tableIf.getName();
+        if (StringUtils.isEmpty(tableName)) {
+            throw new AnalysisException("tableName is empty");
+        }
+        DatabaseIf db = tableIf.getDatabase();
+        if (db == null) {
+            throw new AnalysisException("db is null, tableName: " + tableName);
+        }
+        CatalogIf catalog = db.getCatalog();
+        if (catalog == null) {
+            throw new AnalysisException("catalog is null, dbName: " + db.getFullName());
+        }
+        if (Env.isStoredTableNamesLowerCase()) {
+            tableName = tableName.toLowerCase();
+        }
+        this.ctl = catalog.getName();
+        this.db = db.getFullName();
+        this.tbl = tableName;
     }
 
     public void analyze(Analyzer analyzer) throws AnalysisException {
