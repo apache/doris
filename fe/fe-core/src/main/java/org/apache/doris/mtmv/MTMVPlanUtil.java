@@ -48,7 +48,6 @@ import org.apache.doris.nereids.types.AggStateType;
 import org.apache.doris.nereids.types.CharType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DecimalV2Type;
-import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TinyIntType;
@@ -298,8 +297,6 @@ public class MTMVPlanUtil {
                     NullType.class, TinyIntType.INSTANCE);
             dataType = TypeCoercionUtils.replaceSpecifiedType(dataType,
                     DecimalV2Type.class, DecimalV2Type.SYSTEM_DEFAULT);
-            dataType = TypeCoercionUtils.replaceSpecifiedType(dataType,
-                    DecimalV3Type.class, DecimalV3Type.SYSTEM_DEFAULT);
             if (s.isColumnFromTable()) {
                 // check if external table
                 if ((!((SlotReference) s).getTable().isPresent()

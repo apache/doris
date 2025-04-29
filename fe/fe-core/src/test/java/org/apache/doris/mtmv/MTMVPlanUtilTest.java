@@ -29,7 +29,6 @@ import org.apache.doris.nereids.trees.plans.commands.info.SimpleColumnDefinition
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DecimalV2Type;
-import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TinyIntType;
@@ -228,11 +227,6 @@ public class MTMVPlanUtilTest extends SqlTestBase {
             }
         };
         boolean originalEnableDecimalConversion = Config.enable_decimal_conversion;
-        Config.enable_decimal_conversion = true;
-
-        dataType = MTMVPlanUtil.getDataType(slot, 1, connectContext, "pcol", Sets.newHashSet("slot_name"));
-        Assert.assertEquals(DecimalV3Type.SYSTEM_DEFAULT, dataType);
-
         Config.enable_decimal_conversion = false;
         dataType = MTMVPlanUtil.getDataType(slot, 1, connectContext, "pcol", Sets.newHashSet("slot_name"));
         Assert.assertEquals(DecimalV2Type.SYSTEM_DEFAULT, dataType);
