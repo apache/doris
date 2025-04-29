@@ -81,10 +81,12 @@ suite ("test_alter_table_property") {
 
     sql """ ALTER TABLE ${tableName} SET("storage_medium"="SSD") """
 
-    def result = sql "show create table ${tableName}"
-    logger.info("${result[0]}")
-    String rs = result[0]
-    assertTrue(rs.contains("\"storage_medium\" = \"ssd\""))
+    def result = sql_return_maparray """
+    show create table ${tableName}
+    """
+    logger.info(${result[0]})
+    def createTableStr = result[0]['Create Table']
+    assertTrue(createTableStr.contains("\"storage_medium\" = \"ssd\""))
 
     sql "DROP TABLE ${tableName}"
 }
