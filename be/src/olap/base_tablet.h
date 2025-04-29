@@ -137,6 +137,9 @@ public:
     static TabletSchemaSPtr tablet_schema_with_merged_max_schema_version(
             const std::vector<RowsetMetaSharedPtr>& rowset_metas);
 
+    Status get_compaction_schema(const std::vector<RowsetMetaSharedPtr>& rowset_metas,
+                                 TabletSchemaSPtr& target_schema);
+
     ////////////////////////////////////////////////////////////////////////////
     // begin MoW functions
     ////////////////////////////////////////////////////////////////////////////
@@ -283,6 +286,8 @@ public:
         std::shared_lock rlock(_meta_lock);
         return _max_version_schema;
     }
+
+    TabletSchemaSPtr calculate_variant_extended_schema() const;
 
     void traverse_rowsets(std::function<void(const RowsetSharedPtr&)> visitor,
                           bool include_stale = false) {

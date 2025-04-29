@@ -387,6 +387,21 @@ Status DataTypeNumberSerDe<T>::write_column_to_orc(const std::string& timezone,
     return Status::OK();
 }
 
+template <typename T>
+void DataTypeNumberSerDe<T>::write_one_cell_to_binary(const IColumn& src_column,
+                                                      ColumnString::Chars& chars,
+                                                      int64_t row_num) const {
+    const uint8_t type = static_cast<uint8_t>(TypeId<T>::value);
+    const auto& data_ref = assert_cast<const ColumnType&>(src_column).get_data_at(row_num);
+
+    const size_t old_size = chars.size();
+    const size_t new_size = old_size + sizeof(uint8_t) + data_ref.size;
+    chars.resize(new_size);
+
+    memcpy(chars.data() + old_size, reinterpret_cast<const char*>(&type), sizeof(uint8_t));
+    memcpy(chars.data() + old_size + sizeof(uint8_t), data_ref.data, data_ref.size);
+}
+
 /// Explicit template instantiations - to avoid code bloat in headers.
 template class DataTypeNumberSerDe<UInt8>;
 template class DataTypeNumberSerDe<UInt16>;

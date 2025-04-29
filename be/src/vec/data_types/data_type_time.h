@@ -79,6 +79,12 @@ public:
     const char* get_family_name() const override { return "timev2"; }
     UInt32 get_scale() const override { return _scale; }
 
+    Field get_type_field(const IColumn& column, size_t row) const override {
+        Field field;
+        column.get(row, field);
+        return VariantField(std::move(field), get_type_id(), 0, static_cast<int>(get_scale()));
+    }
+
 private:
     UInt32 _scale;
 };

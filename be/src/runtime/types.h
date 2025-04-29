@@ -66,16 +66,22 @@ struct TypeDescriptor {
     // Whether subtypes of a complex type is nullable
     std::vector<bool> contains_nulls;
 
+    // Only set if type == TYPE_VARIANT
+    int variant_max_subcolumns_count = 0;
+
     TypeDescriptor() : type(INVALID_TYPE), len(-1), precision(-1), scale(-1) {}
 
     // explicit TypeDescriptor(PrimitiveType type) :
-    TypeDescriptor(PrimitiveType type) : type(type), len(-1), precision(-1), scale(-1) {
+    TypeDescriptor(PrimitiveType type, int variant_max_subcolumns_count_ = -1)
+            : type(type), len(-1), precision(-1), scale(-1) {
         // TODO, should not initialize default values, force initialization by parameters or external.
         if (type == TYPE_DECIMALV2) {
             precision = 27;
             scale = 9;
         } else if (type == TYPE_DATETIMEV2) {
             scale = 6;
+        } else if (type == TYPE_VARIANT) {
+            variant_max_subcolumns_count = variant_max_subcolumns_count_;
         }
     }
 
@@ -176,7 +182,8 @@ struct TypeDescriptor {
 
     bool operator==(const TypeDescriptor& o) const {
         return type == o.type && len == o.len && precision == o.precision && scale == o.scale &&
-               result_is_nullable == o.result_is_nullable && contains_nulls == o.contains_nulls;
+               result_is_nullable == o.result_is_nullable && contains_nulls == o.contains_nulls &&
+               variant_max_subcolumns_count == o.variant_max_subcolumns_count;
     }
 
     bool operator!=(const TypeDescriptor& other) const { return !(*this == other); }
@@ -255,6 +262,8 @@ struct TypeDescriptor {
 
     // use to struct type add sub type
     void add_sub_type(TypeDescriptor sub_type, std::string field_name, bool is_nullable = true);
+
+    int32_t max_subcolumns_count() const { return variant_max_subcolumns_count; }
 
 private:
     /// Used to create a possibly nested type from the flattened Thrift representation.

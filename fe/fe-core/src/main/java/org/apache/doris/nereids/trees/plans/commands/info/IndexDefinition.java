@@ -112,7 +112,7 @@ public class IndexDefinition {
     /**
      * Check if the column type is supported for inverted index
      */
-    public boolean isSupportIdxType(DataType columnType) {
+    public static boolean isSupportIdxType(DataType columnType) {
         if (columnType.isArrayType()) {
             DataType itemType = ((ArrayType) columnType).getItemType();
             if (itemType.isArrayType()) {
@@ -318,5 +318,9 @@ public class IndexDefinition {
             sb.append(" COMMENT '" + comment + "'");
         }
         return sb.toString();
+    }
+
+    public Map<String, String> getProperties() {
+        return properties;
     }
 }
