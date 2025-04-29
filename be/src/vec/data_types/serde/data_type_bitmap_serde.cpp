@@ -144,6 +144,12 @@ void DataTypeBitMapSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbV
     auto& col = reinterpret_cast<ColumnBitmap&>(column);
     auto blob = static_cast<const JsonbBlobVal*>(arg);
     BitmapValue bitmap_value(blob->getBlob());
+    std::string_view data(blob->getBlob(), blob->getBlobLen());
+    LOG_INFO(
+            "xxx DataTypeBitMapSerDe::read_one_cell_from_jsonb: length: {}, content: {}, "
+            "bitmap_value type: {}, value: {}",
+            blob->getBlobLen(), data, static_cast<int>(bitmap_value.get_type_code()),
+            bitmap_value.to_string());
     col.insert_value(bitmap_value);
 }
 

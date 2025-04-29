@@ -315,6 +315,9 @@ Status DataTypeMapSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& 
 
 void DataTypeMapSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const {
     auto blob = static_cast<const JsonbBlobVal*>(arg);
+    std::string_view data(blob->getBlob(), blob->getBlobLen());
+    LOG_INFO("xxx DataTypeMapSerDe::read_one_cell_from_jsonb, length: {}, content: {}",
+             blob->getBlobLen(), data);
     column.deserialize_and_insert_from_arena(blob->getBlob());
 }
 
