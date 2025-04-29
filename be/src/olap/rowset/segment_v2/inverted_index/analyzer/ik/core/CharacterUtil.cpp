@@ -30,7 +30,13 @@ int32_t CharacterUtil::identifyCharType(int32_t rune) {
     UBlockCode block = ublock_getCode(rune);
 
     if (block == UBLOCK_CJK_UNIFIED_IDEOGRAPHS || block == UBLOCK_CJK_COMPATIBILITY_IDEOGRAPHS ||
-        block == UBLOCK_CJK_UNIFIED_IDEOGRAPHS_EXTENSION_A) {
+        block == UBLOCK_CJK_UNIFIED_IDEOGRAPHS_EXTENSION_A ||
+        block == UBLOCK_CJK_UNIFIED_IDEOGRAPHS_EXTENSION_B ||
+        block == UBLOCK_CJK_UNIFIED_IDEOGRAPHS_EXTENSION_C ||
+        block == UBLOCK_CJK_UNIFIED_IDEOGRAPHS_EXTENSION_D ||
+        block == UBLOCK_CJK_UNIFIED_IDEOGRAPHS_EXTENSION_E ||
+        block == UBLOCK_CJK_UNIFIED_IDEOGRAPHS_EXTENSION_F ||
+        block == UBLOCK_CJK_UNIFIED_IDEOGRAPHS_EXTENSION_G) {
         return CHAR_CHINESE;
     }
 
