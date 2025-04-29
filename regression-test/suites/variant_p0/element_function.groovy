@@ -16,7 +16,8 @@
 // under the License.
 
 suite("regression_test_variant_element_at", "p0")  {
-      sql """
+    sql """ DROP TABLE IF EXISTS element_fn_test """
+    sql """
         CREATE TABLE IF NOT EXISTS element_fn_test(
             k bigint,
             v variant,

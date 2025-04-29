@@ -76,6 +76,7 @@
 #include "runtime/thread_context.h"
 #include "util/time.h"
 #include "util/trace.h"
+#include "vec/common/schema_util.h"
 
 using std::vector;
 
@@ -174,6 +175,7 @@ Status Compaction::merge_input_rowsets() {
     }
 
     RowsetWriterContext ctx;
+    ctx.input_rs_readers = input_rs_readers;
     RETURN_IF_ERROR(construct_output_rowset_writer(ctx));
 
     // write merged rows to output rowset
@@ -290,7 +292,7 @@ Tablet* CompactionMixin::tablet() {
 }
 
 Status CompactionMixin::do_compact_ordered_rowsets() {
-    build_basic_info();
+    RETURN_IF_ERROR(build_basic_info());
     RowsetWriterContext ctx;
     RETURN_IF_ERROR(construct_output_rowset_writer(ctx));
 
@@ -324,7 +326,7 @@ Status CompactionMixin::do_compact_ordered_rowsets() {
     return Status::OK();
 }
 
-void CompactionMixin::build_basic_info() {
+Status CompactionMixin::build_basic_info() {
     for (auto& rowset : _input_rowsets) {
         const auto& rowset_meta = rowset->rowset_meta();
         auto index_size = rowset_meta->index_disk_size();
@@ -361,6 +363,10 @@ void CompactionMixin::build_basic_info() {
     std::transform(_input_rowsets.begin(), _input_rowsets.end(), rowset_metas.begin(),
                    [](const RowsetSharedPtr& rowset) { return rowset->rowset_meta(); });
     _cur_tablet_schema = _tablet->tablet_schema_with_merged_max_schema_version(rowset_metas);
+    if (!_cur_tablet_schema->need_record_variant_extended_schema()) {
+        RETURN_IF_ERROR(_tablet->get_compaction_schema(rowset_metas, _cur_tablet_schema));
+    }
+    return Status::OK();
 }
 
 bool CompactionMixin::handle_ordered_data_compaction() {
@@ -478,7 +484,7 @@ Status CompactionMixin::execute_compact_impl(int64_t permits) {
         _state = CompactionState::SUCCESS;
         return Status::OK();
     }
-    build_basic_info();
+    RETURN_IF_ERROR(build_basic_info());
 
     VLOG_DEBUG << "dump tablet schema: " << _cur_tablet_schema->dump_structure();
 
@@ -1362,6 +1368,9 @@ Status Compaction::check_correctness() {
                 _tablet->tablet_id(), _input_row_num, _stats.merged_rows, _stats.filtered_rows,
                 _output_rowset->num_rows());
     }
+    // check variant column path stats
+    RETURN_IF_ERROR(
+            vectorized::schema_util::check_path_stats(_input_rowsets, _output_rowset, _tablet));
     return Status::OK();
 }
 
@@ -1405,7 +1414,7 @@ void Compaction::_load_segment_to_cache() {
     }
 }
 
-void CloudCompactionMixin::build_basic_info() {
+Status CloudCompactionMixin::build_basic_info() {
     _output_version =
             Version(_input_rowsets.front()->start_version(), _input_rowsets.back()->end_version());
 
@@ -1415,6 +1424,10 @@ void CloudCompactionMixin::build_basic_info() {
     std::transform(_input_rowsets.begin(), _input_rowsets.end(), rowset_metas.begin(),
                    [](const RowsetSharedPtr& rowset) { return rowset->rowset_meta(); });
     _cur_tablet_schema = _tablet->tablet_schema_with_merged_max_schema_version(rowset_metas);
+    if (!_cur_tablet_schema->need_record_variant_extended_schema()) {
+        RETURN_IF_ERROR(_tablet->get_compaction_schema(rowset_metas, _cur_tablet_schema));
+    }
+    return Status::OK();
 }
 
 int64_t CloudCompactionMixin::get_compaction_permits() {
@@ -1437,7 +1450,7 @@ CloudCompactionMixin::CloudCompactionMixin(CloudStorageEngine& engine, CloudTabl
 Status CloudCompactionMixin::execute_compact_impl(int64_t permits) {
     OlapStopWatch watch;
 
-    build_basic_info();
+    RETURN_IF_ERROR(build_basic_info());
 
     LOG(INFO) << "start " << compaction_name() << ". tablet=" << _tablet->tablet_id()
               << ", output_version=" << _output_version << ", permits: " << permits;

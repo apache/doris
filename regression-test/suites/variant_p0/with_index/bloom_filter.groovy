@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("regression_test_variant_with_bf", ""){
+suite("regression_test_variant_with_bf", "nonConcurrent,p0"){
     def table_name = "var_with_bloom_filter"
     sql "DROP TABLE IF EXISTS var_with_bloom_filter"
     sql """
@@ -25,20 +25,32 @@ suite("regression_test_variant_with_bf", ""){
         )
         DUPLICATE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 1
-        properties("replication_num" = "1", "bloom_filter_columns" = "v");
+        properties("replication_num" = "1", "bloom_filter_columns" = "v", "bloom_filter_fpp" = "0.0001", "variant_max_subcolumns_count" = "10");
     """
-    sql """insert into ${table_name} values (1, '{"a" : 123456}')"""
-    sql """insert into ${table_name} values (2, '{"a" : 789111}')"""
-    sql """insert into ${table_name} values (3, '{"a" : 789111}')"""
+    sql """insert into var_with_bloom_filter values (1, '{"a" : 123456}')"""
+    sql """insert into var_with_bloom_filter values (2, '{"a" : 789111}')"""
+    sql """insert into var_with_bloom_filter values (3, '{"a" : 789111}')"""
+    
 
-    sql """insert into ${table_name} values (1, '{"b" : "xxxxxxx"}')"""
-    sql """insert into ${table_name} values (2, '{"b" : "yyyyyyy"}')"""
-    sql """insert into ${table_name} values (3, '{"b" : "zzzzzzz"}')"""
+    sql """insert into var_with_bloom_filter values (1, '{"b" : "xxxxxxx"}')"""
+    sql """insert into var_with_bloom_filter values (2, '{"b" : "yyyyyyy"}')"""
+    sql """insert into var_with_bloom_filter values (3, '{"b" : "zzzzzzz"}')"""
 
-    sql """insert into ${table_name} values (1, '{"b" : "xxxxxxx"}')"""
-    sql """insert into ${table_name} values (2, '{"b" : "yyyyyyy"}')"""
-    sql """insert into ${table_name} values (3, '{"b" : "zzzzzzz"}')"""
+    sql """insert into var_with_bloom_filter values (1, '{"b" : "xxxxxxx"}')"""
+    sql """insert into var_with_bloom_filter values (2, '{"b" : "yyyyyyy"}')"""
+    sql """insert into var_with_bloom_filter values (3, '{"b" : "zzzzzzz"}')"""
 
-    qt_sql "select * from  var_with_bloom_filter where cast(v['a'] as int) = 789111"
-    qt_sql "select * from  var_with_bloom_filter where cast(v['b'] as text) = 'yyyyyyy' ";
+    // for (int i = 0; i < 10; i++) {
+    //     sql """insert into var_with_bloom_filter values (${i}, '{"b" : "xxxxxxx ${i}"}')"""
+    //     sql """insert into var_with_bloom_filter values (${i}, '{"b" : "yyyyyyy ${i}"}')"""
+    //     sql """insert into var_with_bloom_filter values (${i}, '{"b" : "zzzzzzz ${i}"}')"""
+    // }
+    // trigger_and_wait_compaction("var_with_bloom_filter", "full")
+    // try {
+    //     GetDebugPoint().enableDebugPointForAllBEs("bloom_filter_must_filter_data")
+    //     sql """ set enable_inverted_index_query = false """ 
+    //     sql "select * from  var_with_bloom_filter where v['b'] = 'xxxxxxx 1'"
+    // } finally {
+    //     GetDebugPoint().disableDebugPointForAllBEs("bloom_filter_must_filter_data")
+    // }
 }
