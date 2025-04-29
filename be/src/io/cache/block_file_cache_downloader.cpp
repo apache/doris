@@ -190,6 +190,7 @@ void FileCacheBlockDownloader::download_file_cache_block(
                         {
                                 .is_index_data = meta.cache_type() == ::doris::FileCacheType::INDEX,
                                 .expiration_time = meta.expiration_time(),
+                                .is_dryrun = config::enable_reader_dryrun_when_download_file_cache,
                         },
                 .download_done = std::move(download_done),
         };
@@ -229,6 +230,7 @@ void FileCacheBlockDownloader::download_segment_file(const DownloadFileMeta& met
         // TODO(plat1ko):
         //  1. Directly append buffer data to file cache
         //  2. Provide `FileReader::async_read()` interface
+        DCHECK(meta.ctx.is_dryrun == config::enable_reader_dryrun_when_download_file_cache);
         auto st = file_reader->read_at(offset, {buffer.get(), size}, &bytes_read, &meta.ctx);
         if (!st.ok()) {
             LOG(WARNING) << "failed to download file: " << st;
