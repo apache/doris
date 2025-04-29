@@ -1954,9 +1954,9 @@ TEST(MetaServiceJobTest, DeleteBitmapUpdateLockCompatibilityTest) {
     config::use_delete_bitmap_lock_version = "v1";
     //1. normal test
     config::delete_bitmap_lock_version_white_list =
-            "instance_id1:v1%instance_id2:v2%instance_id3:v3%instance_id5:v1_2_3%仓库6:v2%Instance_"
-            "id7:v2%Instance_id*:v2%instance_id8v2%instance_id9;v2%instance_id10$v2%instance_id1:"
-            "v1%instance_id11 : v2 %%instance_id12:v2";
+            "instance_id1:v1;instance_id2:v2;instance_id3:v3;instance_id5:v1_2_3;仓库6:v2;Instance_"
+            "id7:v2;Instance_id*:v2;instance_id8v2;instance_id9;v2;instance_id10$v2;instance_id1:"
+            "v1;instance_id11 : v2 ;;instance_id12:v2";
     //after parse config,the test result should be:
     //instance_id1->v1 instance_id2->v2 instance_id3->v1 instance_id4->v1 instance_id5->v1 instance_id6->v1
     //instance_id7->v1 instance_id8->v1 instance_id9->v1 instance_id10->v1 instance_id11->v2 instance_id12->v2
@@ -2533,9 +2533,9 @@ TEST(MetaServiceJobTest, DeleteBitmapUpdateLockCompatibilityTest) {
 
     //3. 1000 item white list
     std::stringstream ss;
-    ss << "instance_id0:v2%";
+    ss << "instance_id0:v2;";
     for (int i = 1; i < 1000; i++) {
-        ss << "instance_id" << i << ":v1%";
+        ss << "instance_id" << i << ":v1;";
     }
     ss << "instance_id1000";
     config::delete_bitmap_lock_version_white_list = ss.str();

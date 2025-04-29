@@ -1828,7 +1828,7 @@ void MetaServiceImpl::check_version(std::string& use_version, std::string& insta
     }
     std::string white_list = config::delete_bitmap_lock_version_white_list;
     if (!white_list.empty()) {
-        auto white_list_vector = split(white_list, '%');
+        auto white_list_vector = split(white_list, ';');
         for (auto& item : white_list_vector) {
             auto v = split(item, ':');
             if (v.size() != 2) {
