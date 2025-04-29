@@ -2020,7 +2020,9 @@ void MetaServiceImpl::alter_cluster(google::protobuf::RpcController* controller,
         msg = r.second;
     } break;
     case AlterClusterRequest::DROP_CLUSTER: {
-        auto r = resource_mgr_->drop_cluster(instance_id, cluster);
+        bool safe_drop_on_sql_cluster = request->has_safe_drop_on_sql_cluster()
+                ? request->safe_drop_on_sql_cluster() : true;
+        auto r = resource_mgr_->drop_cluster(instance_id, cluster, safe_drop_on_sql_cluster);
         code = r.first;
         msg = r.second;
     } break;

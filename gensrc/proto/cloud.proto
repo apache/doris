@@ -1108,6 +1108,8 @@ message AlterClusterRequest {
     optional Operation op = 4;
     // for SQL mode rename cluster, rename to cluster name eq instance empty cluster name, need drop empty cluster
     optional bool replace_if_existing_empty_target_cluster = 5;
+    // if true, check if drop_cluster op on sql type cluster is in safe time
+    optional bool safe_drop_on_sql_cluster = 6 [default = true];
 }
 
 message AlterClusterResponse {
