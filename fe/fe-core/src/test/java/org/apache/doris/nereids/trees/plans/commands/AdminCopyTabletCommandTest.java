@@ -17,11 +17,8 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.backup.CatalogMocker;
-import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -40,26 +37,14 @@ public class AdminCopyTabletCommandTest {
     @Mocked
     private AccessControllerManager accessControllerManager;
     @Mocked
-    private InternalCatalog catalog;
-    @Mocked
     private ConnectContext connectContext;
-    private Database db;
 
-    private void runBefore() throws Exception {
-        db = CatalogMocker.mockDb();
+    private void runBefore() {
         new Expectations() {
             {
                 Env.getCurrentEnv();
                 minTimes = 0;
                 result = env;
-
-                env.getCatalogMgr().getCatalog(anyString);
-                minTimes = 0;
-                result = catalog;
-
-                catalog.getDb(anyString);
-                minTimes = 0;
-                result = db;
 
                 env.getAccessManager();
                 minTimes = 0;
@@ -86,17 +71,17 @@ public class AdminCopyTabletCommandTest {
         Map<String, String> properties = new HashMap<>();
         properties.put("version", "0");
         AdminCopyTabletCommand command = new AdminCopyTabletCommand(100, properties);
-        Assertions.assertDoesNotThrow(() -> command.validate(connectContext));
+        Assertions.assertDoesNotThrow(() -> command.validate());
 
         Map<String, String> properties2 = new HashMap<>();
         properties2.put("backend_id", "10");
         AdminCopyTabletCommand command2 = new AdminCopyTabletCommand(100, properties2);
-        Assertions.assertDoesNotThrow(() -> command2.validate(connectContext));
+        Assertions.assertDoesNotThrow(() -> command2.validate());
 
         Map<String, String> properties3 = new HashMap<>();
         properties3.put("expiration_minutes", "10");
         AdminCopyTabletCommand command3 = new AdminCopyTabletCommand(100, properties3);
-        Assertions.assertDoesNotThrow(() -> command3.validate(connectContext));
+        Assertions.assertDoesNotThrow(() -> command3.validate());
     }
 
     @Test
@@ -119,7 +104,7 @@ public class AdminCopyTabletCommandTest {
         Map<String, String> properties = new HashMap<>();
         properties.put("version", "0");
         AdminCopyTabletCommand command = new AdminCopyTabletCommand(100, properties);
-        Assertions.assertThrows(AnalysisException.class, () -> command.validate(connectContext),
+        Assertions.assertThrows(AnalysisException.class, () -> command.validate(),
                 "Access denied; you need (at least one of) the (Admin_priv) privilege(s) for this operation");
     }
 }

@@ -104,7 +104,7 @@ public class AdminCopyTabletCommand extends Command implements ForwardWithSync {
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        validate(ctx);
+        validate();
         ShowResultSet resultSet = handleCopyTablet();
         if (resultSet != null) {
             if (executor.isProxy()) {
@@ -118,7 +118,7 @@ public class AdminCopyTabletCommand extends Command implements ForwardWithSync {
     /**
      * validate
      */
-    public void validate(ConnectContext connectContext) throws AnalysisException {
+    public void validate() throws AnalysisException {
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
                     PrivPredicate.ADMIN.getPrivs().toString());
