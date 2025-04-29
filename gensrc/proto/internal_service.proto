@@ -51,6 +51,7 @@ message PTransmitDataParams {
     optional bool transfer_by_attachment = 10 [default = false];
     optional PUniqueId query_id = 11;
     optional PStatus exec_status = 12;
+    repeated PBlock blocks = 13;
 };
 
 message PTransmitDataResult {
