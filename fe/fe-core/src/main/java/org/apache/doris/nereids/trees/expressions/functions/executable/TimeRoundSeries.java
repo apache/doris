@@ -47,7 +47,7 @@ public class TimeRoundSeries {
     // get it's from be/src/vec/functions/function_datetime_floor_ceil.cpp##time_round
     private static LocalDateTime getDateCeilOrFloor(DATE tag, LocalDateTime date, int period, LocalDateTime origin,
             boolean getCeil) {
-        if (period <= 1) {
+        if (period < 1) {
             return null;
         }
 
