@@ -46,9 +46,11 @@ public enum RuleType {
     BINDING_ONE_ROW_RELATION_SLOT(RuleTypeClass.REWRITE),
     BINDING_RELATION(RuleTypeClass.REWRITE),
     BINDING_PROJECT_SLOT(RuleTypeClass.REWRITE),
+    BINDING_LOAD_PROJECT_SLOT(RuleTypeClass.REWRITE),
     BINDING_USING_JOIN_SLOT(RuleTypeClass.REWRITE),
     BINDING_JOIN_SLOT(RuleTypeClass.REWRITE),
     BINDING_FILTER_SLOT(RuleTypeClass.REWRITE),
+    BINDING_PRE_FILTER_SLOT(RuleTypeClass.REWRITE),
     BINDING_QUALIFY_PROJECT_SLOT(RuleTypeClass.REWRITE),
     BINDING_QUALIFY_AGGREGATE_SLOT(RuleTypeClass.REWRITE),
     BINDING_QUALIFY_HAVING_SLOT(RuleTypeClass.REWRITE),
@@ -244,6 +246,12 @@ public enum RuleType {
     EXTRACT_FILTER_FROM_JOIN(RuleTypeClass.REWRITE),
     REORDER_JOIN(RuleTypeClass.REWRITE),
     MERGE_PERCENTILE_TO_ARRAY(RuleTypeClass.REWRITE),
+
+    // rewrite load project for stream load
+    REWRITE_LOAD_PROJECT_FOR_STREAM_LOAD(RuleTypeClass.REWRITE),
+    // add post filter node for load
+    ADD_POST_FILTER_FOR_LOAD(RuleTypeClass.REWRITE),
+
     // Merge Consecutive plan
     MERGE_PROJECTS(RuleTypeClass.REWRITE),
     MERGE_FILTERS(RuleTypeClass.REWRITE),
