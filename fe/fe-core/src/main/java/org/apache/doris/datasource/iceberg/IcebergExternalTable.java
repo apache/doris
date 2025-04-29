@@ -187,7 +187,8 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
 
     @Override
     public long getNewestUpdateVersionOrTime() {
-        return getIcebergSnapshotCacheValue().getPartitionInfo().getNameToIcebergPartition().values().stream()
+        return IcebergUtils.getIcebergSnapshotCacheValue(Optional.empty(), getCatalog(), getDbName(), getName())
+                .getPartitionInfo().getNameToIcebergPartition().values().stream()
                 .mapToLong(IcebergPartition::getLastUpdateTime).max().orElse(0);
     }
 
