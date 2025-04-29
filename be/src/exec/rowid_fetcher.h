@@ -27,6 +27,7 @@
 
 #include "common/status.h"
 #include "exec/tablet_info.h" // DorisNodesInfo
+#include "olap/id_manager.h"
 #include "vec/core/block.h"
 #include "vec/data_types/data_type.h"
 
@@ -35,6 +36,11 @@ namespace doris {
 class DorisNodesInfo;
 class RuntimeState;
 class TupleDescriptor;
+
+struct FileMapping;
+struct IteratorKey;
+struct IteratorItem;
+struct HashOfIteratorKey;
 
 namespace vectorized {
 template <typename T>
@@ -70,9 +76,50 @@ private:
     FetchOption _fetch_option;
 };
 
+struct RowStoreReadStruct {
+    RowStoreReadStruct(std::string& buffer) : row_store_buffer(buffer) {};
+    std::string& row_store_buffer;
+    vectorized::DataTypeSerDeSPtrs serdes;
+    std::unordered_map<uint32_t, uint32_t> col_uid_to_idx;
+    std::vector<std::string> default_values;
+};
+
 class RowIdStorageReader {
 public:
     static Status read_by_rowids(const PMultiGetRequest& request, PMultiGetResponse* response);
+    static Status read_by_rowids(const PMultiGetRequestV2& request, PMultiGetResponseV2* response);
+
+private:
+    static Status read_doris_format_row(
+            const std::shared_ptr<IdFileMap>& id_file_map,
+            const std::shared_ptr<FileMapping>& file_mapping, int64_t row_id,
+            std::vector<SlotDescriptor>& slots, const TabletSchema& full_read_schema,
+            RowStoreReadStruct& row_store_read_struct, OlapReaderStatistics& stats,
+            int64_t* acquire_tablet_ms, int64_t* acquire_rowsets_ms, int64_t* acquire_segments_ms,
+            int64_t* lookup_row_data_ms,
+            std::unordered_map<IteratorKey, IteratorItem, HashOfIteratorKey>& iterator_map,
+            vectorized::Block& result_block);
+
+    static Status read_batch_doris_format_row(
+            const PRequestBlockDesc& request_block_desc, std::shared_ptr<IdFileMap> id_file_map,
+            const TUniqueId& query_id, vectorized::Block& result_block, OlapReaderStatistics& stats,
+            int64_t* acquire_tablet_ms, int64_t* acquire_rowsets_ms, int64_t* acquire_segments_ms,
+            int64_t* lookup_row_data_ms);
+
+    static Status read_batch_external_row(const PRequestBlockDesc& request_block_desc,
+                                          std::shared_ptr<IdFileMap> id_file_map,
+                                          std::shared_ptr<FileMapping> first_file_mapping,
+                                          const TUniqueId& query_id,
+                                          vectorized::Block& result_block, int64_t* init_reader_ms,
+                                          int64_t* get_block_ms);
 };
 
+template <typename Func>
+auto scope_timer_run(Func fn, int64_t* cost) -> decltype(fn()) {
+    MonotonicStopWatch watch;
+    watch.start();
+    auto res = fn();
+    *cost += watch.elapsed_time() / 1000 / 1000;
+    return res;
+}
 } // namespace doris
