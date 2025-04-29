@@ -20,10 +20,6 @@
 lexer grammar DorisLexer;
 
 @members {
-  /**
-   * When true, parser should throw ParseExcetion for unclosed bracketed comment.
-   */
-  public boolean has_unclosed_bracketed_comment = false;
 
   /**
    * Verify whether current token is a valid decimal token (which contains dot).
@@ -47,15 +43,6 @@ lexer grammar DorisLexer;
     }
   }
 
-  /**
-   * This method will be called when the character stream ends and try to find out the
-   * unclosed bracketed comment.
-   * If the method be called, it means the end of the entire character stream match,
-   * and we set the flag and fail later.
-   */
-  public void markUnclosedComment() {
-    has_unclosed_bracketed_comment = true;
-  }
 }
 
 SEMICOLON: ';';
@@ -675,7 +662,7 @@ SIMPLE_COMMENT
     ;
 
 BRACKETED_COMMENT
-    : COMMENT_START ( BRACKETED_COMMENT | . )*? ('*/' | {markUnclosedComment();} EOF) -> channel(2)
+    : COMMENT_START ( BRACKETED_COMMENT | . )*? '*/' -> channel(2)
     ;
 
 
