@@ -237,4 +237,403 @@ suite("test_limit_partition_mtmv") {
     assertTrue(showPartitionsResult.toString().contains("p_20380101_20380103"))
     assertTrue(showPartitionsResult.toString().contains("p_20200101_20200103"))
     order_qt_date_range_all "SELECT * FROM ${mvName} order by k1,k2"
+
+    sql """drop table if exists `${tableName}`"""
+    sql """drop materialized view if exists ${mvName};"""
+    // history list partition
+    sql """
+        CREATE TABLE `${tableName}` (
+          `k1` LARGEINT NOT NULL COMMENT '\"用户id\"',
+          `k2` DATE NOT NULL COMMENT '\"数据灌入日期时间\"'
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`k1`)
+        COMMENT 'OLAP'
+        PARTITION BY list(`k2`)
+        (
+        PARTITION p_20380101 VALUES IN ("2038-01-01"),
+        PARTITION p_20200101 VALUES IN ("2020-01-01")
+        )
+        DISTRIBUTED BY HASH(`k1`) BUCKETS 2
+        PROPERTIES ('replication_num' = '1') ;
+        """
+    sql """
+        insert into ${tableName} values(1,"2038-01-01"),(2,"2020-01-01");
+        """
+
+    sql """
+        CREATE MATERIALIZED VIEW ${mvName}
+            BUILD DEFERRED REFRESH AUTO ON MANUAL
+            partition by(`k2`)
+            DISTRIBUTED BY RANDOM BUCKETS 2
+            PROPERTIES (
+            'replication_num' = '1',
+            'partition_sync_limit'='100',
+            'partition_sync_time_unit'='YEAR'
+            )
+            AS
+            SELECT * FROM ${tableName};
+    """
+    showPartitionsResult = sql """show partitions from ${mvName}"""
+    logger.info("showPartitionsResult: " + showPartitionsResult.toString())
+    assertEquals(2, showPartitionsResult.size())
+    assertTrue(showPartitionsResult.toString().contains("p_20380101"))
+    assertTrue(showPartitionsResult.toString().contains("p_20200101"))
+
+    sql """
+            REFRESH MATERIALIZED VIEW ${mvName} AUTO
+        """
+    waitingMTMVTaskFinishedByMvName(mvName)
+    order_qt_history_list_init "SELECT * FROM ${mvName}"
+    // drop partition of base table ,MTMV should not care
+    sql """
+        alter table ${tableName} drop partition p_20380101;
+        """
+
+     sql """
+            REFRESH MATERIALIZED VIEW ${mvName} AUTO
+        """
+    waitingMTMVTaskFinishedByMvName(mvName)
+    showPartitionsResult = sql """show partitions from ${mvName}"""
+    logger.info("showPartitionsResult: " + showPartitionsResult.toString())
+    assertEquals(2, showPartitionsResult.size())
+    assertTrue(showPartitionsResult.toString().contains("p_20380101"))
+    assertTrue(showPartitionsResult.toString().contains("p_20200101"))
+    order_qt_history_list_drop_partition "SELECT * FROM ${mvName}"
+
+    // add some conflixt partition, will be remove history partition
+    sql """
+        alter table ${tableName} add partition p20380101_02 VALUES IN ("2038-01-01","2038-01-02");
+        """
+     sql """
+        insert into ${tableName} values(1,"2038-01-02");
+        """
+     sql """
+        REFRESH MATERIALIZED VIEW ${mvName} AUTO
+    """
+    waitingMTMVTaskFinishedByMvName(mvName)
+    showPartitionsResult = sql """show partitions from ${mvName}"""
+    logger.info("showPartitionsResult: " + showPartitionsResult.toString())
+    assertEquals(2, showPartitionsResult.size())
+    assertTrue(showPartitionsResult.toString().contains("20380101"))
+    assertTrue(showPartitionsResult.toString().contains("20380102"))
+    assertTrue(showPartitionsResult.toString().contains("p_20200101"))
+    order_qt_history_list_create_partition "SELECT * FROM ${mvName}"
+
+    sql """drop table if exists `${tableName}`"""
+    sql """drop materialized view if exists ${mvName};"""
+
+    // history range partition
+    sql """
+        CREATE TABLE `${tableName}` (
+          `k1` LARGEINT NOT NULL COMMENT '\"用户id\"',
+          `k2` DATE NOT NULL COMMENT '\"数据灌入日期时间\"'
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`k1`)
+        COMMENT 'OLAP'
+        PARTITION BY range(`k2`)
+        (
+        PARTITION p2038 VALUES [("2038-01-01"),("2038-01-03")),
+        PARTITION p2020 VALUES [("2020-01-01"),("2020-01-03"))
+        )
+        DISTRIBUTED BY HASH(`k1`) BUCKETS 2
+        PROPERTIES ('replication_num' = '1') ;
+        """
+    sql """
+        insert into ${tableName} values(1,"2038-01-02"),(2,"2020-01-02");
+        """
+
+    sql """
+        CREATE MATERIALIZED VIEW ${mvName}
+            BUILD DEFERRED REFRESH AUTO ON MANUAL
+            partition by(`k2`)
+            DISTRIBUTED BY RANDOM BUCKETS 2
+            PROPERTIES (
+            'replication_num' = '1',
+            'partition_sync_limit'='100',
+            'partition_sync_time_unit'='YEAR'
+            )
+            AS
+            SELECT * FROM ${tableName};
+    """
+    showPartitionsResult = sql """show partitions from ${mvName}"""
+    logger.info("showPartitionsResult: " + showPartitionsResult.toString())
+    assertEquals(2, showPartitionsResult.size())
+    assertTrue(showPartitionsResult.toString().contains("p_20380101_20380103"))
+    assertTrue(showPartitionsResult.toString().contains("p_20200101_20200103"))
+
+    sql """
+            REFRESH MATERIALIZED VIEW ${mvName} AUTO
+        """
+    waitingMTMVTaskFinishedByMvName(mvName)
+    order_qt_history_range_init "SELECT * FROM ${mvName}"
+
+    // drop partition of base table ,MTMV should not care
+    sql """
+        alter table ${tableName} drop partition p2038;
+        """
+
+     sql """
+        REFRESH MATERIALIZED VIEW ${mvName} AUTO
+    """
+    waitingMTMVTaskFinishedByMvName(mvName)
+    showPartitionsResult = sql """show partitions from ${mvName}"""
+    logger.info("showPartitionsResult: " + showPartitionsResult.toString())
+    assertEquals(2, showPartitionsResult.size())
+    assertTrue(showPartitionsResult.toString().contains("p_20380101_20380103"))
+    assertTrue(showPartitionsResult.toString().contains("p_20200101_20200103"))
+    order_qt_history_range_drop_partition "SELECT * FROM ${mvName}"
+
+    // add some conflixt partition, will be remove history partition
+    sql """
+        alter table ${tableName} add partition p20380102 VALUES [("2038-01-02"),  ("2038-01-04"));;
+        """
+     sql """
+        insert into ${tableName} values(1,"2038-01-03");
+        """
+     sql """
+        REFRESH MATERIALIZED VIEW ${mvName} AUTO
+    """
+    waitingMTMVTaskFinishedByMvName(mvName)
+    showPartitionsResult = sql """show partitions from ${mvName}"""
+    logger.info("showPartitionsResult: " + showPartitionsResult.toString())
+    assertEquals(2, showPartitionsResult.size())
+    assertTrue(showPartitionsResult.toString().contains("p_20380102_20380104"))
+    assertTrue(showPartitionsResult.toString().contains("p_20200101_20200103"))
+    order_qt_history_range_create_partition "SELECT * FROM ${mvName}"
+
+    sql """drop table if exists `${tableName}`"""
+    sql """drop materialized view if exists ${mvName};"""
+
+    // test less than partition
+    sql """
+        CREATE TABLE `${tableName}` (
+          `k1` LARGEINT NOT NULL COMMENT '\"用户id\"',
+          `k2` DATE NOT NULL COMMENT '\"数据灌入日期时间\"'
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`k1`)
+        COMMENT 'OLAP'
+        PARTITION BY range(`k2`)
+        (
+        PARTITION `p2020` VALUES LESS THAN ("2020-01-01"),
+        PARTITION `p2021` VALUES LESS THAN ("2021-01-01"),
+        PARTITION `other` VALUES LESS THAN (MAXVALUE)
+        )
+        DISTRIBUTED BY HASH(`k1`) BUCKETS 2
+        PROPERTIES ('replication_num' = '1') ;
+        """
+    sql """
+        insert into ${tableName} values(1,"2019-01-02"),(2,"2020-01-02"),(2,"2021-01-02");
+        """
+
+    sql """
+        CREATE MATERIALIZED VIEW ${mvName}
+            BUILD DEFERRED REFRESH AUTO ON MANUAL
+            partition by(`k2`)
+            DISTRIBUTED BY RANDOM BUCKETS 2
+            PROPERTIES (
+            'replication_num' = '1',
+            'partition_sync_limit'='100',
+            'partition_sync_time_unit'='YEAR'
+            )
+            AS
+            SELECT * FROM ${tableName};
+    """
+    showPartitionsResult = sql """show partitions from ${mvName}"""
+    logger.info("showPartitionsResult: " + showPartitionsResult.toString())
+    assertEquals(3, showPartitionsResult.size())
+    assertTrue(showPartitionsResult.toString().contains("p_00000101_20200101"))
+    assertTrue(showPartitionsResult.toString().contains("p_20200101_20210101"))
+    assertTrue(showPartitionsResult.toString().contains("p_20210101_MAXVALUE"))
+    sql """
+        REFRESH MATERIALIZED VIEW ${mvName} AUTO
+    """
+    waitingMTMVTaskFinishedByMvName(mvName)
+    order_qt_history_less_than_range_init "SELECT * FROM ${mvName}"
+    // drop partition of base table ,MTMV should not care
+    sql """
+        alter table ${tableName} drop partition p2020;
+        """
+
+     sql """
+        REFRESH MATERIALIZED VIEW ${mvName} AUTO
+    """
+    waitingMTMVTaskFinishedByMvName(mvName)
+    showPartitionsResult = sql """show partitions from ${mvName}"""
+    logger.info("showPartitionsResult: " + showPartitionsResult.toString())
+    assertEquals(3, showPartitionsResult.size())
+    assertTrue(showPartitionsResult.toString().contains("p_00000101_20200101"))
+    assertTrue(showPartitionsResult.toString().contains("p_20200101_20210101"))
+    assertTrue(showPartitionsResult.toString().contains("p_20210101_MAXVALUE"))
+    order_qt_history_less_than_range_drop_partition "SELECT * FROM ${mvName}"
+
+    sql """drop table if exists `${tableName}`"""
+    sql """drop materialized view if exists ${mvName};"""
+
+    // roll up
+    sql """
+        CREATE TABLE `${tableName}` (
+          `k1` LARGEINT NOT NULL COMMENT '\"用户id\"',
+          `k2` DATE NOT NULL COMMENT '\"数据灌入日期时间\"'
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`k1`)
+        COMMENT 'OLAP'
+        PARTITION BY range(`k2`)
+        (
+        PARTITION p20380101 VALUES [("2038-01-01"),("2038-01-02")),
+        PARTITION p20380102 VALUES [("2038-01-02"),("2038-01-03")),
+        PARTITION p2020 VALUES [("2020-01-01"),("2020-01-03"))
+        )
+        DISTRIBUTED BY HASH(`k1`) BUCKETS 2
+        PROPERTIES ('replication_num' = '1') ;
+        """
+    sql """
+        insert into ${tableName} values(1,"2038-01-01"),(2,"2038-01-02"),(3,"2020-01-02");
+        """
+
+    sql """
+        CREATE MATERIALIZED VIEW ${mvName}
+            BUILD DEFERRED REFRESH AUTO ON MANUAL
+            partition by (date_trunc(`k2`,'month'))
+            DISTRIBUTED BY RANDOM BUCKETS 2
+            PROPERTIES (
+            'replication_num' = '1',
+            'partition_sync_limit'='10000',
+            'partition_sync_time_unit'='MONTH'
+            )
+            AS
+            SELECT * FROM ${tableName};
+    """
+    showPartitionsResult = sql """show partitions from ${mvName}"""
+    logger.info("showPartitionsResult: " + showPartitionsResult.toString())
+    assertEquals(2, showPartitionsResult.size())
+    assertTrue(showPartitionsResult.toString().contains("p_20380101_20380201"))
+    assertTrue(showPartitionsResult.toString().contains("p_20200101_20200201"))
+
+    sql """
+            REFRESH MATERIALIZED VIEW ${mvName} AUTO
+        """
+    waitingMTMVTaskFinishedByMvName(mvName)
+    order_qt_rollup_init "SELECT * FROM ${mvName}"
+
+    // drop partition of base table ,MTMV should not care
+    sql """
+        alter table ${tableName} drop partition p2020;
+        """
+     sql """
+        REFRESH MATERIALIZED VIEW ${mvName} AUTO
+    """
+    waitingMTMVTaskFinishedByMvName(mvName)
+    showPartitionsResult = sql """show partitions from ${mvName}"""
+    logger.info("showPartitionsResult: " + showPartitionsResult.toString())
+    assertEquals(2, showPartitionsResult.size())
+    assertTrue(showPartitionsResult.toString().contains("p_20380101_20380201"))
+    assertTrue(showPartitionsResult.toString().contains("p_20200101_20200201"))
+    order_qt_rollup_drop_partition "SELECT * FROM ${mvName}"
+
+    // drop partial partition of base table ,Only the data of the remaining partitions will be retained in MTMV
+    sql """
+        alter table ${tableName} drop partition p20380101;
+        """
+     sql """
+        REFRESH MATERIALIZED VIEW ${mvName} AUTO
+    """
+    waitingMTMVTaskFinishedByMvName(mvName)
+    showPartitionsResult = sql """show partitions from ${mvName}"""
+    logger.info("showPartitionsResult: " + showPartitionsResult.toString())
+    assertEquals(2, showPartitionsResult.size())
+    assertTrue(showPartitionsResult.toString().contains("p_20380101_20380201"))
+    assertTrue(showPartitionsResult.toString().contains("p_20200101_20200201"))
+    order_qt_rollup_drop_partial_partition "SELECT * FROM ${mvName}"
+
+    sql """drop table if exists `${tableName}`"""
+    sql """drop materialized view if exists ${mvName};"""
+
+
+    // no partition
+    sql """
+        CREATE TABLE `${tableName}` (
+          `k1` LARGEINT NOT NULL COMMENT '\"用户id\"',
+          `k2` DATE NOT NULL COMMENT '\"数据灌入日期时间\"'
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`k1`)
+        COMMENT 'OLAP'
+        PARTITION BY range(`k2`)
+        (
+        PARTITION p2020 VALUES [("2020-01-01"),("2020-01-03"))
+        )
+        DISTRIBUTED BY HASH(`k1`) BUCKETS 2
+        PROPERTIES ('replication_num' = '1') ;
+        """
+    sql """
+        insert into ${tableName} values(2,"2020-01-02");
+        """
+
+    sql """
+        CREATE MATERIALIZED VIEW ${mvName}
+            BUILD DEFERRED REFRESH AUTO ON MANUAL
+            partition by(`k2`)
+            DISTRIBUTED BY RANDOM BUCKETS 2
+            PROPERTIES (
+            'replication_num' = '1',
+            'partition_sync_limit'='1',
+            'partition_sync_time_unit'='DAY'
+            )
+            AS
+            SELECT * FROM ${tableName};
+    """
+    showPartitionsResult = sql """show partitions from ${mvName}"""
+    logger.info("showPartitionsResult: " + showPartitionsResult.toString())
+    assertEquals(0, showPartitionsResult.size())
+
+    sql """
+            REFRESH MATERIALIZED VIEW ${mvName} AUTO
+        """
+    waitingMTMVTaskFinishedByMvName(mvName)
+    order_qt_no_partition "SELECT * FROM ${mvName}"
+
+    sql """drop materialized view if exists ${mvName};"""
+
+    // test large num
+    test {
+        sql """
+                CREATE MATERIALIZED VIEW ${mvName}
+                    BUILD DEFERRED REFRESH AUTO ON MANUAL
+                    partition by(`k2`)
+                    DISTRIBUTED BY RANDOM BUCKETS 2
+                    PROPERTIES (
+                    'replication_num' = '1',
+                    'partition_sync_limit'='2147483648',
+                    'partition_sync_time_unit'='DAY'
+                    )
+                    AS
+                    SELECT * FROM ${tableName};
+            """
+        exception "valid partition_sync_limit"
+    }
+    // Negative numbers are equivalent to not being set
+    sql """
+            CREATE MATERIALIZED VIEW ${mvName}
+                BUILD DEFERRED REFRESH AUTO ON MANUAL
+                partition by(`k2`)
+                DISTRIBUTED BY RANDOM BUCKETS 2
+                PROPERTIES (
+                'replication_num' = '1',
+                'partition_sync_limit'='-2',
+                'partition_sync_time_unit'='DAY'
+                )
+                AS
+                SELECT * FROM ${tableName};
+        """
+
+    showPartitionsResult = sql """show partitions from ${mvName}"""
+    logger.info("showPartitionsResult: " + showPartitionsResult.toString())
+    assertEquals(1, showPartitionsResult.size())
+    sql """
+            REFRESH MATERIALIZED VIEW ${mvName} AUTO
+        """
+    waitingMTMVTaskFinishedByMvName(mvName)
+    order_qt_default_sync_limit "SELECT * FROM ${mvName}"
+
+    sql """drop table if exists `${tableName}`"""
+    sql """drop materialized view if exists ${mvName};"""
 }

@@ -28,6 +28,7 @@ import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import mockit.Expectations;
 import mockit.Mocked;
@@ -37,6 +38,7 @@ import org.junit.Before;
 import org.junit.Test;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 public class MTMVTaskTest {
@@ -55,11 +57,15 @@ public class MTMVTaskTest {
     private MTMVPartitionInfo mtmvPartitionInfo;
     @Mocked
     private MTMVRefreshInfo mtmvRefreshInfo;
+    @Mocked
+    private MTMVRefreshContext refreshContext;
 
     @Before
     public void setUp()
             throws NoSuchMethodException, SecurityException, AnalysisException, DdlException, MetaNotFoundException {
-
+        Map<String, Set<String>> mappings = Maps.newHashMap();
+        mappings.put(poneName, Sets.newHashSet("p1"));
+        mappings.put(ptwoName, Sets.newHashSet("p2"));
         new Expectations() {
             {
                 mtmvUtil.getMTMV(anyLong, anyLong);
@@ -93,6 +99,10 @@ public class MTMVTaskTest {
                 mtmvRefreshInfo.getRefreshMethod();
                 minTimes = 0;
                 result = RefreshMethod.COMPLETE;
+
+                refreshContext.getPartitionMappings();
+                minTimes = 0;
+                result = mappings;
             }
         };
     }
@@ -101,7 +111,7 @@ public class MTMVTaskTest {
     public void testCalculateNeedRefreshPartitionsManualComplete() throws AnalysisException {
         MTMVTaskContext context = new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL, null, true);
         MTMVTask task = new MTMVTask(mtmv, relation, context);
-        List<String> result = task.calculateNeedRefreshPartitions(null);
+        List<String> result = task.calculateNeedRefreshPartitions(refreshContext);
         Assert.assertEquals(allPartitionNames, result);
     }
 
@@ -132,7 +142,7 @@ public class MTMVTaskTest {
     public void testCalculateNeedRefreshPartitionsSystemComplete() throws AnalysisException {
         MTMVTaskContext context = new MTMVTaskContext(MTMVTaskTriggerMode.SYSTEM);
         MTMVTask task = new MTMVTask(mtmv, relation, context);
-        List<String> result = task.calculateNeedRefreshPartitions(null);
+        List<String> result = task.calculateNeedRefreshPartitions(refreshContext);
         Assert.assertEquals(allPartitionNames, result);
     }
 
@@ -147,7 +157,7 @@ public class MTMVTaskTest {
         };
         MTMVTaskContext context = new MTMVTaskContext(MTMVTaskTriggerMode.SYSTEM);
         MTMVTask task = new MTMVTask(mtmv, relation, context);
-        List<String> result = task.calculateNeedRefreshPartitions(null);
+        List<String> result = task.calculateNeedRefreshPartitions(refreshContext);
         Assert.assertEquals(allPartitionNames, result);
     }
 
