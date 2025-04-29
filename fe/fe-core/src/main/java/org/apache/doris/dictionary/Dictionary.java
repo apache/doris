@@ -360,13 +360,12 @@ public class Dictionary extends Table {
     }
 
     public boolean dataCompleted() {
-        List<Long> aliveBEs = Env.getCurrentSystemInfo().getAllBackendByCurrentCluster(true);
+        List<Long> aliveBEs = Env.getCurrentSystemInfo().getAllBackendIds(true);
         if (dataDistributions.size() < aliveBEs.size()) {
             // greater is OK. may be BEs down.
             return false;
         }
         // if only there's alive BE not find in dataDistributions, return false
-        // TODO: BE selectivity for load.
         Set<Long> beIdsHasData = Sets.newHashSet();
         for (DictionaryDistribution distribution : dataDistributions) {
             if (distribution.getVersion() < version) {

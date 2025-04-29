@@ -382,8 +382,18 @@ public class DictionaryManager extends MasterDaemon implements Writable {
         });
     }
 
+    /**
+     * For task which auto submitted, if the status is already not OUT_OF_DATE, just skip this task because it have been
+     * loaded after task submitted.
+     *
+     * @param ctx must keep it null for auto scheduled task.
+     */
     public void dataLoad(ConnectContext ctx, Dictionary dictionary, boolean adaptiveLoad) throws Exception {
         Dictionary.DictionaryStatus oldStatus = dictionary.getStatus();
+        if (ctx == null && oldStatus != DictionaryStatus.OUT_OF_DATE) {
+            LOG.info("skip auto-triggered dataLoad of dictionary " + dictionary.getName());
+            return;
+        }
         // use atomic status as a lock.
         if (!dictionary.trySetStatus(Dictionary.DictionaryStatus.LOADING)) {
             throw new AnalysisException("Dictionary " + dictionary.getName() + " cannot load now, status is "
@@ -665,7 +675,7 @@ public class DictionaryManager extends MasterDaemon implements Writable {
             LOG.debug("Collecting all dictionaries status for " + queryDicts);
         }
         // traverse all backends
-        for (Long backendId : Env.getCurrentSystemInfo().getAllBackendByCurrentCluster(true)) {
+        for (Long backendId : Env.getCurrentSystemInfo().getAllBackendIds(true)) {
             Backend backend = Env.getCurrentSystemInfo().getBackend(backendId);
             BackendService.Client client = null;
             TNetworkAddress address = null;

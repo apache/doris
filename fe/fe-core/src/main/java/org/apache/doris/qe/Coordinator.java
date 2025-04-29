@@ -1729,9 +1729,13 @@ public class Coordinator implements CoordInterface {
                 // set when assign all BE job
                 int expectedInstanceNum = fragment.getParallelExecNum();
                 int count = 0;
-                // only get alive BEs in current cluster
-                List<Backend> aliveBackends = this.idToBackend.values().stream().filter(e -> e.isAlive())
-                        .collect(Collectors.toList());
+                DictionarySink sink = (DictionarySink) fragment.getSink();
+
+                List<Backend> aliveBackends = sink.getPartialLoadBEs() == null
+                        // Coordinator only support this cluster backends. we need all cluster backends in dict loading.
+                        ? Env.getCurrentSystemInfo().getAllClusterBackends(true)
+                        // only load part of BEs
+                        : sink.getPartialLoadBEs();
                 for (Backend backend : aliveBackends) {
                     TNetworkAddress execHostport = new TNetworkAddress(backend.getHost(), backend.getBePort());
                     Reference<Long> backendIdRef = new Reference<Long>(backend.getId());

@@ -158,17 +158,17 @@ public class BackendDistributedPlanWorkerManager implements DistributedPlanWorke
     }
 
     @Override
-    public List<Backend> getAllBackendsCurrentCluster(boolean needAlive) {
+    public List<Backend> getAllBackends(boolean needAlive) {
         List<Backend> backends = null;
         if (needAlive) {
             backends = Lists.newArrayList();
-            for (Map.Entry<Long, Backend> entry : currentClusterBackends.entrySet()) {
+            for (Map.Entry<Long, Backend> entry : this.allClusterBackends.get().entrySet()) {
                 if (entry.getValue().isQueryAvailable()) {
                     backends.add(entry.getValue());
                 }
             }
         } else {
-            backends = Lists.newArrayList(currentClusterBackends.values());
+            backends = Lists.newArrayList(this.allClusterBackends.get().values());
         }
         return backends;
     }

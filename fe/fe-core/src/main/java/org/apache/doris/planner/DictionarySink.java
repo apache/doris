@@ -19,6 +19,7 @@ package org.apache.doris.planner;
 
 import org.apache.doris.dictionary.Dictionary;
 import org.apache.doris.nereids.trees.plans.commands.info.DictionaryColumnDefinition;
+import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TDictLayoutType;
@@ -36,6 +37,10 @@ public class DictionarySink extends DataSink {
     private final List<String> columnNames;
     // not send to BE. use for UnassignedAllBEJob to adjust number of BEs to load.
     private final boolean allowAdaptiveLoad;
+    // if full load, keep it null.
+    private List<Backend> partialLoadBes = null;
+    // if we decided to do partial load in UnassignedAllBEJob, set this flag to true.
+    private boolean usingPartialLoad = false;
 
     public DictionarySink(Dictionary dictionary, boolean allowAdaptiveLoad, List<String> columnNames) {
         this.dictionary = dictionary;
@@ -49,6 +54,18 @@ public class DictionarySink extends DataSink {
 
     public boolean allowAdaptiveLoad() {
         return allowAdaptiveLoad;
+    }
+
+    public void setPartialLoadBEs(List<Backend> partialLoadBes) {
+        this.partialLoadBes = partialLoadBes;
+    }
+
+    public List<Backend> getPartialLoadBEs() {
+        return partialLoadBes;
+    }
+
+    public void setUsingPartialLoad(boolean usingPartialLoad) {
+        this.usingPartialLoad = usingPartialLoad;
     }
 
     @Override
@@ -66,7 +83,11 @@ public class DictionarySink extends DataSink {
 
         TDictionarySink tDictionarySink = new TDictionarySink();
         tDictionarySink.setDictionaryId(dictionary.getId());
-        tDictionarySink.setVersionId(dictionary.getVersion() + 1); // refresh make a new version
+        if (usingPartialLoad) {
+            tDictionarySink.setVersionId(dictionary.getVersion()); // complete existing version
+        } else {
+            tDictionarySink.setVersionId(dictionary.getVersion() + 1); // refresh make a new version
+        }
         tDictionarySink.setDictionaryName(dictionary.getName());
         tDictionarySink.setLayoutType(TDictLayoutType.valueOf(dictionary.getLayout().name()));
 

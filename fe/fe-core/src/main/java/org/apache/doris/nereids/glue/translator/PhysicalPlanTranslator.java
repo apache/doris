@@ -374,7 +374,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             //ATTN: this number MAY BE CHANGED when we do distributing because when we finished physical planning,
             // we got the source table version. and in distribute planning, basing on the src version we may find
             // there's some BE whose dictionary already have newest data we dont have to reload.
-            int aliveBENumber = Env.getCurrentSystemInfo().getAllBackendByCurrentCluster(true).size();
+            int aliveBENumber = Env.getCurrentSystemInfo().getAllClusterBackends(true).size();
             exchangeNode.setNumInstances(aliveBENumber);
         } else { // not change instances
             exchangeNode.setNumInstances(upstreamFragment.getPlanRoot().getNumInstances());

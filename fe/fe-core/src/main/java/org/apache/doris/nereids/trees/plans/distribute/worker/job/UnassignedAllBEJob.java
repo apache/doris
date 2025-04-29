@@ -74,8 +74,9 @@ public class UnassignedAllBEJob extends AbstractUnassignedJob {
                 bes = computeFullLoad(workerManager, inputJobs);
             } else {
                 // try to load only for the BEs which is outdated
-                bes = computePartiallLoad(workerManager, inputJobs, dictionary);
+                bes = computePartiallLoad(workerManager, inputJobs, dictionary, sink);
                 statementContext.setPartialLoadDictionary(true);
+                sink.setUsingPartialLoad(true);
             }
         } else {
             // we explicitly request all BEs to load data. or ExternalTable. (or EmptySetNode - should not happen)
@@ -126,7 +127,7 @@ public class UnassignedAllBEJob extends AbstractUnassignedJob {
         // for Coordinator to know the right parallelism of DictionarySink
         exchange.getFragment().setParallelExecNum(expectInstanceNum);
 
-        List<Backend> bes = workerManager.getAllBackendsCurrentCluster(true);
+        List<Backend> bes = workerManager.getAllBackends(true);
         if (bes.size() != expectInstanceNum) {
             // BE number changed when planning
             throw new IllegalArgumentException("BE number should be " + expectInstanceNum + ", but is " + bes.size());
@@ -135,17 +136,18 @@ public class UnassignedAllBEJob extends AbstractUnassignedJob {
     }
 
     private List<Backend> computePartiallLoad(DistributedPlanWorkerManager workerManager,
-            ListMultimap<ExchangeNode, AssignedJob> inputJobs, Dictionary dictionary) {
+            ListMultimap<ExchangeNode, AssignedJob> inputJobs, Dictionary dictionary, DictionarySink sink) {
         // dictionary's src version(bundled with dictionary's version) is same with usingVersion(otherwise FullLoad)
         // so we can just use the src version to find the outdated backends
-        List<Backend> outdateBEs = dictionary.filterOutdatedBEs(workerManager.getAllBackendsCurrentCluster(true));
+        List<Backend> outdateBEs = dictionary.filterOutdatedBEs(workerManager.getAllBackends(true));
 
         // reset all exchange node's instance number to the number of outdated backends
         PlanFragment fragment = inputJobs.keySet().iterator().next().getFragment(); // random one exchange
         for (ExchangeNode exchange : inputJobs.keySet()) {
             exchange.setNumInstances(outdateBEs.size());
         }
-        // for Coordinator to know the right parallelism of DictionarySink
+        // for Coordinator to know the right parallelism and BEs of DictionarySink
+        sink.setPartialLoadBEs(outdateBEs);
         fragment.setParallelExecNum(outdateBEs.size());
 
         return outdateBEs;
