@@ -39,7 +39,7 @@ import java.util.Objects;
  *      "backend_id" = "10001"
  *      "status" = "drop"/"bad"/"ok"
  */
-public class AdminSetReplicaStatusCommand extends Command {
+public class AdminSetReplicaStatusCommand extends Command implements ForwardWithSync {
 
     public static final String TABLET_ID = "tablet_id";
     public static final String BACKEND_ID = "backend_id";

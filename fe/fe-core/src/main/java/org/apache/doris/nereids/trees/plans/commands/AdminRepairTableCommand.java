@@ -39,7 +39,7 @@ import java.util.Objects;
 /**
  * AdminRepairTableCommand
  */
-public class AdminRepairTableCommand extends Command {
+public class AdminRepairTableCommand extends Command implements ForwardWithSync {
     private final TableRefInfo tableRefInfo;
     private List<String> partitions = Lists.newArrayList();
 
