@@ -47,6 +47,7 @@
 #include "io/cache/fs_file_cache_storage.h"
 #include "io/fs/file_meta_cache.h"
 #include "io/fs/local_file_reader.h"
+#include "olap/id_manager.h"
 #include "olap/memtable_memory_limiter.h"
 #include "olap/olap_define.h"
 #include "olap/options.h"
@@ -453,6 +454,7 @@ Status ExecEnv::_init_mem_env() {
         return Status::InternalError(ss.str());
     }
 
+    _id_manager = new IdManager();
     _cache_manager = CacheManager::create_global_instance();
 
     int64_t storage_cache_limit =
@@ -801,6 +803,9 @@ void ExecEnv::destroy() {
     // https://github.com/apache/doris/issues/24082#issuecomment-1712544039
     SAFE_DELETE(_cache_manager);
     _file_cache_open_fd_cache.reset(nullptr);
+
+    // _id_manager must be destoried after staroge engine
+    SAFE_DELETE(_id_manager);
 
     // _heartbeat_flags must be destoried after staroge engine
     SAFE_DELETE(_heartbeat_flags);
