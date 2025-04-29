@@ -438,7 +438,7 @@ jobject JdbcConnector::_get_reader_params(Block* block, JNIEnv* env, size_t colu
             slot->type()->get_primitive_type() == PrimitiveType::TYPE_JSONB) {
             jni_type = "string";
         } else {
-            jni_type = JniConnector::get_jni_type(slot->type());
+            jni_type = JniConnector::get_jni_type_with_different_string(slot->type());
         }
         required_fields << (i != 0 ? "," : "") << field;
         columns_types << (i != 0 ? "#" : "") << jni_type;

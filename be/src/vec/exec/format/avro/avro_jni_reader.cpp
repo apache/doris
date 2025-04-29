@@ -69,7 +69,7 @@ Status AvroJNIReader::init_fetch_table_reader(
     for (const auto& desc : _file_slot_descs) {
         std::string field = desc->col_name();
         column_names.emplace_back(field);
-        std::string type = JniConnector::get_jni_type(desc->type());
+        std::string type = JniConnector::get_jni_type_with_different_string(desc->type());
         if (index == 0) {
             required_fields << field;
             columns_types << type;

@@ -581,8 +581,11 @@ Status ScalarColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
         _converter = parquet::PhysicalToLogicalConverter::get_converter(
                 _field_schema, _field_schema->data_type, type, _ctz, is_dict_filter);
         if (!_converter->support()) {
-            return Status::InternalError("The column type of '{}' is not supported: {}",
-                                         _field_schema->name, _converter->get_error_msg());
+            return Status::InternalError(
+                    "The column type of '{}' is not supported: {}, is_dict_filter: {}, "
+                    "src_logical_type: {}, dst_logical_type: {}",
+                    _field_schema->name, _converter->get_error_msg(), is_dict_filter,
+                    _field_schema->data_type->get_name(), type->get_name());
         }
     }
     ColumnPtr resolved_column =

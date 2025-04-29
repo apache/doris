@@ -396,7 +396,7 @@ Status JniConnector::_fill_array_column(TableMetaAddress& address, MutableColumn
                                         DataTypePtr& data_type, size_t num_rows) {
     ColumnPtr& element_column = static_cast<ColumnArray&>(*doris_column).get_data_ptr();
     DataTypePtr& element_type = const_cast<DataTypePtr&>(
-            (reinterpret_cast<const DataTypeArray*>(remove_nullable(data_type).get()))
+            (assert_cast<const DataTypeArray*>(remove_nullable(data_type).get()))
                     ->get_nested_type());
     ColumnArray::Offsets64& offsets_data = static_cast<ColumnArray&>(*doris_column).get_offsets();
 
@@ -547,6 +547,108 @@ std::string JniConnector::get_jni_type(const DataTypePtr& data_type) {
         const DataTypeMap* map_type = reinterpret_cast<const DataTypeMap*>(type.get());
         buffer << "map<" << get_jni_type(map_type->get_key_type()) << ","
                << get_jni_type(map_type->get_value_type()) << ">";
+        return buffer.str();
+    }
+    default:
+        return "unsupported";
+    }
+}
+
+std::string JniConnector::get_jni_type_with_different_string(const DataTypePtr& data_type) {
+    DataTypePtr type = remove_nullable(data_type);
+    std::ostringstream buffer;
+    switch (data_type->get_primitive_type()) {
+    case TYPE_BOOLEAN:
+        return "boolean";
+    case TYPE_TINYINT:
+        return "tinyint";
+    case TYPE_SMALLINT:
+        return "smallint";
+    case TYPE_INT:
+        return "int";
+    case TYPE_BIGINT:
+        return "bigint";
+    case TYPE_LARGEINT:
+        return "largeint";
+    case TYPE_FLOAT:
+        return "float";
+    case TYPE_DOUBLE:
+        return "double";
+    case TYPE_IPV4:
+        return "ipv4";
+    case TYPE_IPV6:
+        return "ipv6";
+    case TYPE_VARCHAR: {
+        buffer << "varchar("
+               << assert_cast<const DataTypeString*>(remove_nullable(data_type).get())->len()
+               << ")";
+        return buffer.str();
+    }
+    case TYPE_DATE:
+        return "datev1";
+    case TYPE_DATEV2:
+        return "datev2";
+    case TYPE_DATETIME:
+        return "datetimev1";
+    case TYPE_DATETIMEV2:
+        [[fallthrough]];
+    case TYPE_TIMEV2: {
+        buffer << "datetimev2(" << data_type->get_scale() << ")";
+        return buffer.str();
+    }
+    case TYPE_BINARY:
+        return "binary";
+    case TYPE_CHAR: {
+        buffer << "char("
+               << assert_cast<const DataTypeString*>(remove_nullable(data_type).get())->len()
+               << ")";
+        return buffer.str();
+    }
+    case TYPE_STRING:
+        return "string";
+    case TYPE_DECIMALV2: {
+        buffer << "decimalv2(" << DecimalV2Value::PRECISION << "," << DecimalV2Value::SCALE << ")";
+        return buffer.str();
+    }
+    case TYPE_DECIMAL32: {
+        buffer << "decimal32(" << data_type->get_precision() << "," << data_type->get_scale()
+               << ")";
+        return buffer.str();
+    }
+    case TYPE_DECIMAL64: {
+        buffer << "decimal64(" << data_type->get_precision() << "," << data_type->get_scale()
+               << ")";
+        return buffer.str();
+    }
+    case TYPE_DECIMAL128I: {
+        buffer << "decimal128(" << data_type->get_precision() << "," << data_type->get_scale()
+               << ")";
+        return buffer.str();
+    }
+    case TYPE_STRUCT: {
+        const auto* type_struct =
+                assert_cast<const DataTypeStruct*>(remove_nullable(data_type).get());
+        buffer << "struct<";
+        for (int i = 0; i < type_struct->get_elements().size(); ++i) {
+            if (i != 0) {
+                buffer << ",";
+            }
+            buffer << type_struct->get_element_name(i) << ":"
+                   << get_jni_type_with_different_string(type_struct->get_element(i));
+        }
+        buffer << ">";
+        return buffer.str();
+    }
+    case TYPE_ARRAY: {
+        const auto* type_arr = assert_cast<const DataTypeArray*>(remove_nullable(data_type).get());
+        buffer << "array<" << get_jni_type_with_different_string(type_arr->get_nested_type())
+               << ">";
+        return buffer.str();
+    }
+    case TYPE_MAP: {
+        const auto* type_map = assert_cast<const DataTypeMap*>(remove_nullable(data_type).get());
+        buffer << "map<" << get_jni_type_with_different_string(type_map->get_key_type()) << ","
+               << get_jni_type_with_different_string(type_map->get_value_type()) << ">";
         return buffer.str();
     }
     default:

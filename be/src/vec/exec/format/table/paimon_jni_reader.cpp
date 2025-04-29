@@ -46,7 +46,7 @@ PaimonJniReader::PaimonJniReader(const std::vector<SlotDescriptor*>& file_slot_d
     std::vector<std::string> column_types;
     for (const auto& desc : _file_slot_descs) {
         column_names.emplace_back(desc->col_name());
-        column_types.emplace_back(JniConnector::get_jni_type(desc->type()));
+        column_types.emplace_back(JniConnector::get_jni_type_with_different_string(desc->type()));
     }
     std::map<String, String> params;
     params["db_name"] = range.table_format_params.paimon_params.db_name;
