@@ -71,15 +71,8 @@ HudiJniReader::HudiJniReader(const TFileScanRangeParams& scan_params,
         }
     }
 
-    if (_hudi_params.hudi_jni_scanner == "spark") {
-        _jni_connector = std::make_unique<JniConnector>("org/apache/doris/hudi/HudiJniScanner",
-                                                        params, required_fields);
-    } else {
-        // _hudi_params.hudi_jni_scanner == "hadoop"
-        // and default use hadoop hudi jni scanner
-        _jni_connector = std::make_unique<JniConnector>(
-                "org/apache/doris/hudi/HadoopHudiJniScanner", params, required_fields);
-    }
+    _jni_connector = std::make_unique<JniConnector>("org/apache/doris/hudi/HadoopHudiJniScanner",
+                                                    params, required_fields);
 }
 
 Status HudiJniReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {

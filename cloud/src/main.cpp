@@ -198,12 +198,15 @@ int main(int argc, char** argv) {
     }
 
     auto conf_file = args.get<std::string>(ARG_CONF);
-    if (!config::init(conf_file.c_str(), true)) {
+    if (!config::init(conf_file.c_str(), true, true, true)) {
         std::cerr << "failed to init config file, conf=" << conf_file << std::endl;
         return -1;
     }
+    if (config::custom_conf_path.empty()) {
+        config::custom_conf_path = conf_file;
+    }
     if (!std::filesystem::equivalent(conf_file, config::custom_conf_path) &&
-        !config::init(config::custom_conf_path.c_str(), false)) {
+        !config::init(config::custom_conf_path.c_str(), true, false, false)) {
         std::cerr << "failed to init custom config file, conf=" << config::custom_conf_path
                   << std::endl;
         return -1;

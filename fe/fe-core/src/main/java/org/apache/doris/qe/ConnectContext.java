@@ -1421,7 +1421,11 @@ public class ConnectContext {
         }
 
         if (Strings.isNullOrEmpty(cluster)) {
-            LOG.warn("cant get a valid compute group for user {} to use", getCurrentUserIdentity());
+            List<String> cloudClusterNames
+                    = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getCloudClusterNames();
+            LOG.warn("Can not get a valid compute group for user {} {} to use, all cluster: {}",
+                    getCurrentUserIdentity(),
+                    getQualifiedUser(), cloudClusterNames);
             ComputeGroupException exception = new ComputeGroupException(
                     "the user is not granted permission to the compute group",
                     ComputeGroupException.FailedTypeEnum.CURRENT_USER_NO_AUTH_TO_USE_ANY_COMPUTE_GROUP);
