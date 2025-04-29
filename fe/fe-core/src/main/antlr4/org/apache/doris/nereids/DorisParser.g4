@@ -192,7 +192,7 @@ supportedCreateStatement
         (WITH ROLLUP (rollupNames=identifierList)?)?                      #createTableLike
     | CREATE ROLE (IF NOT EXISTS)? name=identifierOrText (COMMENT STRING_LITERAL)?    #createRole
     | CREATE WORKLOAD GROUP (IF NOT EXISTS)?
-        name=identifierOrText properties=propertyClause?                        #createWorkloadGroup
+        name=identifierOrText (FOR computeGroup=identifierOrText)? properties=propertyClause? #createWorkloadGroup
     | CREATE CATALOG (IF NOT EXISTS)? catalogName=identifier
         (WITH RESOURCE resourceName=identifier)?
         (COMMENT STRING_LITERAL)? properties=propertyClause?                    #createCatalog
@@ -235,7 +235,7 @@ supportedAlterStatement
     | ALTER CATALOG name=identifier RENAME newName=identifier                       #alterCatalogRename
     | ALTER ROLE role=identifierOrText commentSpec                                        #alterRole
     | ALTER STORAGE VAULT name=multipartIdentifier properties=propertyClause                #alterStorageVault
-    | ALTER WORKLOAD GROUP name=identifierOrText
+    | ALTER WORKLOAD GROUP name=identifierOrText (FOR computeGroup=identifierOrText)?
         properties=propertyClause?                                                          #alterWorkloadGroup
     | ALTER CATALOG name=identifier SET PROPERTIES
         LEFT_PAREN propertyItemList RIGHT_PAREN                                             #alterCatalogProperties        
@@ -269,7 +269,7 @@ supportedDropStatement
     | DROP SQL_BLOCK_RULE (IF EXISTS)? identifierSeq                            #dropSqlBlockRule
     | DROP USER (IF EXISTS)? userIdentify                                       #dropUser
     | DROP STORAGE POLICY (IF EXISTS)? name=identifier                          #dropStoragePolicy
-    | DROP WORKLOAD GROUP (IF EXISTS)? name=identifierOrText                    #dropWorkloadGroup
+    | DROP WORKLOAD GROUP (IF EXISTS)? name=identifierOrText (FOR computeGroup=identifierOrText)?                    #dropWorkloadGroup
     | DROP CATALOG (IF EXISTS)? name=identifier                                 #dropCatalog
     | DROP FILE name=STRING_LITERAL
         ((FROM | IN) database=identifier)? properties=propertyClause            #dropFile
@@ -372,6 +372,9 @@ supportedShowStatement
 supportedLoadStatement
     : SYNC                                                                          #sync
     | createRoutineLoad                                                             #createRoutineLoadAlias
+    | STOP SYNC JOB name=multipartIdentifier                                        #stopDataSyncJob
+    | RESUME SYNC JOB name=multipartIdentifier                                      #resumeDataSyncJob
+    | PAUSE SYNC JOB name=multipartIdentifier                                       #pauseDataSyncJob
     | CREATE SYNC label=multipartIdentifier
           LEFT_PAREN channelDescriptions RIGHT_PAREN
           FROM BINLOG LEFT_PAREN propertyItemList RIGHT_PAREN
@@ -463,9 +466,6 @@ unsupportedLoadStatement
     : LOAD mysqlDataDesc
         (PROPERTIES LEFT_PAREN properties=propertyItemList RIGHT_PAREN)?
         (commentSpec)?                                                              #mysqlLoad
-    | STOP SYNC JOB name=multipartIdentifier                                        #stopDataSyncJob
-    | RESUME SYNC JOB name=multipartIdentifier                                      #resumeDataSyncJob
-    | PAUSE SYNC JOB name=multipartIdentifier                                       #pauseDataSyncJob
     | PAUSE ROUTINE LOAD FOR label=multipartIdentifier                              #pauseRoutineLoad
     | PAUSE ALL ROUTINE LOAD                                                        #pauseAllRoutineLoad
     | RESUME ROUTINE LOAD FOR label=multipartIdentifier                             #resumeRoutineLoad
