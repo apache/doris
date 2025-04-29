@@ -1881,6 +1881,24 @@ public class OlapScanNode extends ScanNode {
                 outputColumnUniqueIds.add(slot.getColumn().getUniqueId());
             }
         }
+        for (SlotDescriptor virtualSlot : context.getTupleDesc(this.getTupleId()).getSlots()) {
+            Expr virtualColumn = virtualSlot.getVirtualColumn();
+            if (virtualColumn == null) {
+                continue;
+            }
+            Set<Expr> slotRefs = Sets.newHashSet();
+            virtualColumn.collect(e -> e instanceof SlotRef, slotRefs);
+            Set<SlotId> virtualColumnInputSlotIds = slotRefs.stream()
+                    .filter(s -> s instanceof SlotRef)
+                    .map(s -> (SlotRef) s)
+                    .map(SlotRef::getSlotId)
+                    .collect(Collectors.toSet());
+            for (SlotDescriptor slot : context.getTupleDesc(this.getTupleId()).getSlots()) {
+                if (virtualColumnInputSlotIds.contains(slot.getId()) && slot.getColumn() != null) {
+                    outputColumnUniqueIds.add(slot.getColumn().getUniqueId());
+                }
+            }
+        }
     }
 
     @Override
