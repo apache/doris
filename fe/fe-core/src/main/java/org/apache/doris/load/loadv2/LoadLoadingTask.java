@@ -33,6 +33,8 @@ import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.FailMsg;
+import org.apache.doris.nereids.load.NereidsBrokerFileGroup;
+import org.apache.doris.nereids.load.NereidsLoadingTaskPlanner;
 import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.thrift.TBrokerFileStatus;
@@ -46,6 +48,7 @@ import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -78,7 +81,7 @@ public class LoadLoadingTask extends LoadTask {
     private final boolean enableMemTableOnSinkNode;
     private final int batchSize;
 
-    private LoadingTaskPlanner planner;
+    private NereidsLoadingTaskPlanner planner;
 
     private Profile jobProfile;
     private long beginTime;
@@ -118,9 +121,13 @@ public class LoadLoadingTask extends LoadTask {
     public void init(TUniqueId loadId, List<List<TBrokerFileStatus>> fileStatusList,
                      int fileNum, UserIdentity userInfo) throws UserException {
         this.loadId = loadId;
-        planner = new LoadingTaskPlanner(callback.getCallbackId(), txnId, db.getId(), table, brokerDesc, fileGroups,
-                strictMode, isPartialUpdate, timezone, this.timeoutS, this.loadParallelism, this.sendBatchParallelism,
-                userInfo, singleTabletLoadPerSink, enableMemTableOnSinkNode);
+        List<NereidsBrokerFileGroup> brokerFileGroups = new ArrayList<>(fileGroups.size());
+        for (BrokerFileGroup fileGroup : fileGroups) {
+            brokerFileGroups.add(fileGroup.toNereidsBrokerFileGroup());
+        }
+        planner = new NereidsLoadingTaskPlanner(callback.getCallbackId(), txnId, db.getId(), table, brokerDesc,
+                brokerFileGroups, strictMode, isPartialUpdate, timezone, timeoutS, loadParallelism,
+                sendBatchParallelism, userInfo, singleTabletLoadPerSink, enableMemTableOnSinkNode);
         planner.plan(loadId, fileStatusList, fileNum);
     }
 

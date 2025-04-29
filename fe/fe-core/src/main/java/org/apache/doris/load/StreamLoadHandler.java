@@ -24,7 +24,6 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.cloud.catalog.CloudEnv;
-import org.apache.doris.cloud.planner.CloudStreamLoadPlanner;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
@@ -34,13 +33,14 @@ import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.load.routineload.RoutineLoadJob;
+import org.apache.doris.nereids.load.NereidsCloudStreamLoadPlanner;
+import org.apache.doris.nereids.load.NereidsStreamLoadPlanner;
+import org.apache.doris.nereids.load.NereidsStreamLoadTask;
 import org.apache.doris.planner.GroupCommitPlanner;
-import org.apache.doris.planner.StreamLoadPlanner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
-import org.apache.doris.task.StreamLoadTask;
 import org.apache.doris.thrift.TPipelineFragmentParams;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TStreamLoadPutResult;
@@ -214,7 +214,7 @@ public class StreamLoadHandler {
      * For first-class multi-table scenarios, we should store the mapping between Txn and data source type in a common
      * place. Since there is only Kafka now, we should do this first.
      */
-    private void buildMultiTableStreamLoadTask(StreamLoadTask baseTaskInfo, long txnId) {
+    private void buildMultiTableStreamLoadTask(NereidsStreamLoadTask baseTaskInfo, long txnId) {
         try {
             RoutineLoadJob routineLoadJob = Env.getCurrentEnv().getRoutineLoadManager()
                     .getRoutineLoadJobByMultiLoadTaskTxnId(txnId);
@@ -233,16 +233,16 @@ public class StreamLoadHandler {
                     "get table read lock timeout, database=" + request.getDb() + ",table=" + table.getName());
         }
         try {
-            StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(request);
+            NereidsStreamLoadTask streamLoadTask = NereidsStreamLoadTask.fromTStreamLoadPutRequest(request);
             if (isMultiTableRequest) {
                 buildMultiTableStreamLoadTask(streamLoadTask, request.getTxnId());
             }
 
-            StreamLoadPlanner planner = null;
+            NereidsStreamLoadPlanner planner = null;
             if (Config.isCloudMode()) {
-                planner = new CloudStreamLoadPlanner(db, table, streamLoadTask, request.getCloudCluster());
+                planner = new NereidsCloudStreamLoadPlanner(db, table, streamLoadTask, request.getCloudCluster());
             } else {
-                planner = new StreamLoadPlanner(db, table, streamLoadTask);
+                planner = new NereidsStreamLoadPlanner(db, table, streamLoadTask);
             }
             int index = multiTableFragmentInstanceIdIndex != null
                     ? multiTableFragmentInstanceIdIndex.getAndIncrement() : 0;

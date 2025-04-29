@@ -76,8 +76,10 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalLoadProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPreFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalQualify;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
@@ -156,8 +158,14 @@ public class BindExpression implements AnalysisRuleFactory {
             RuleType.BINDING_PROJECT_SLOT.build(
                 logicalProject().thenApply(this::bindProject)
             ),
+            RuleType.BINDING_LOAD_PROJECT_SLOT.build(
+                logicalLoadProject().thenApply(this::bindLoadProject)
+            ),
             RuleType.BINDING_FILTER_SLOT.build(
                 logicalFilter().thenApply(this::bindFilter)
+            ),
+            RuleType.BINDING_PRE_FILTER_SLOT.build(
+                logicalPreFilter().thenApply(this::bindPreFilter)
             ),
             RuleType.BINDING_USING_JOIN_SLOT.build(
                 logicalUsingJoin().thenApply(this::bindUsingJoin)
@@ -688,6 +696,74 @@ public class BindExpression implements AnalysisRuleFactory {
         return project.withProjects(boundProjections.build());
     }
 
+    private Plan bindLoadProject(MatchingContext<LogicalLoadProject<Plan>> ctx) {
+        LogicalLoadProject<Plan> project = ctx.root;
+        CascadesContext cascadesContext = ctx.cascadesContext;
+
+        SimpleExprAnalyzer analyzer = buildSimpleExprAnalyzer(
+                project, cascadesContext, project.children(), true, true);
+
+        Builder<NamedExpression> boundProjections = ImmutableList.builderWithExpectedSize(project.getProjects().size());
+        StatementContext statementContext = ctx.statementContext;
+        for (Expression expression : project.getProjects()) {
+            Expression expr = analyzer.analyze(expression);
+            if (!(expr instanceof BoundStar)) {
+                boundProjections.add((NamedExpression) expr);
+            } else {
+                UnboundStar unboundStar = (UnboundStar) expression;
+                List<NamedExpression> excepts = unboundStar.getExceptedSlots();
+                Set<NamedExpression> boundExcepts = Suppliers.memoize(() -> analyzer.analyzeToSet(excepts)).get();
+                BoundStar boundStar = (BoundStar) expr;
+
+                List<Slot> slots = exceptStarSlots(boundExcepts, boundStar);
+
+                List<NamedExpression> replaces = unboundStar.getReplacedAlias();
+                if (!replaces.isEmpty()) {
+                    final Map<Expression, Expression> replaceMap = new HashMap<>();
+                    final Set<Expression> replaced = new HashSet<>();
+                    Supplier<List<NamedExpression>> boundReplaces = Suppliers.memoize(
+                            () -> analyzer.analyzeToList(replaces));
+                    for (NamedExpression replace : boundReplaces.get()) {
+                        Preconditions.checkArgument(replace instanceof Alias);
+                        Alias alias = (Alias) replace;
+                        UnboundSlot unboundSlot = new UnboundSlot(alias.getName());
+                        Expression slot = analyzer.analyze(unboundSlot);
+                        if (replaceMap.containsKey(slot)) {
+                            throw new AnalysisException("Duplicate replace column name: " + alias.getName());
+                        }
+                        replaceMap.put(slot, alias);
+                    }
+
+                    Collection c = CollectionUtils.intersection(boundExcepts, replaceMap.keySet());
+                    if (!c.isEmpty()) {
+                        throw new AnalysisException("Replace column name: " + c + " is in excepts");
+                    }
+                    for (Slot s : slots) {
+                        Expression e = ExpressionUtils.replace(s, replaceMap);
+                        if (s != e) {
+                            replaced.add(s);
+                        }
+                        boundProjections.add((NamedExpression) e);
+                    }
+
+                    if (replaced.size() != replaceMap.size()) {
+                        replaceMap.keySet().removeAll(replaced);
+                        throw new AnalysisException("Invalid replace column name: " + replaceMap.keySet());
+                    }
+                } else {
+                    boundProjections.addAll(slots);
+                }
+
+                // for create view stmt expand star
+                List<Slot> slotsForLambda = slots;
+                unboundStar.getIndexInSqlString().ifPresent(pair -> {
+                    statementContext.addIndexInSqlToString(pair, toSqlWithBackquote(slotsForLambda));
+                });
+            }
+        }
+        return project.withProjects(boundProjections.build());
+    }
+
     private Plan bindFilter(MatchingContext<LogicalFilter<Plan>> ctx) {
         LogicalFilter<Plan> filter = ctx.root;
         CascadesContext cascadesContext = ctx.cascadesContext;
@@ -702,6 +778,22 @@ public class BindExpression implements AnalysisRuleFactory {
             boundConjuncts.add(boundConjunct);
         }
         return new LogicalFilter<>(boundConjuncts.build(), filter.child());
+    }
+
+    private Plan bindPreFilter(MatchingContext<LogicalPreFilter<Plan>> ctx) {
+        LogicalPreFilter<Plan> filter = ctx.root;
+        CascadesContext cascadesContext = ctx.cascadesContext;
+
+        SimpleExprAnalyzer analyzer = buildSimpleExprAnalyzer(
+                filter, cascadesContext, filter.children(), true, true);
+        ImmutableSet.Builder<Expression> boundConjuncts = ImmutableSet.builderWithExpectedSize(
+                filter.getConjuncts().size());
+        for (Expression conjunct : filter.getConjuncts()) {
+            Expression boundConjunct = analyzer.analyze(conjunct);
+            boundConjunct = TypeCoercionUtils.castIfNotSameType(boundConjunct, BooleanType.INSTANCE);
+            boundConjuncts.add(boundConjunct);
+        }
+        return new LogicalPreFilter<>(boundConjuncts.build(), filter.child());
     }
 
     /**
