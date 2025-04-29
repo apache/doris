@@ -238,6 +238,10 @@ void CloudStorageEngine::stop() {
         _cumu_compaction_thread_pool->shutdown();
     }
     LOG(INFO) << "Cloud storage engine is stopped.";
+
+    if (_calc_tablet_delete_bitmap_task_thread_pool) {
+        _calc_tablet_delete_bitmap_task_thread_pool->shutdown();
+    }
 }
 
 bool CloudStorageEngine::stopped() {
