@@ -2077,6 +2077,17 @@ std::string BlockFileCache::clear_file_cache_directly() {
     int64_t normal_queue_size = _normal_queue.get_elements_num(cache_lock);
     int64_t disposible_queue_size = _disposable_queue.get_elements_num(cache_lock);
     int64_t ttl_queue_size = _ttl_queue.get_elements_num(cache_lock);
+
+    if (config::clear_fd_after_clear_file_cache) {
+        // clear FDCache to release fd
+        for (const auto& [file_key, file_blocks] : _files) {
+            for (const auto& [offset, file_block_cell] : file_blocks) {
+                AccessKeyAndOffset access_key_and_offset(file_key, offset);
+                FDCache::instance()->remove_file_reader(access_key_and_offset);
+            }
+        }
+    }
+
     _files.clear();
     _cur_cache_size = 0;
     _cur_ttl_size = 0;
