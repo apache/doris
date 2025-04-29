@@ -20,7 +20,6 @@ package org.apache.doris.persist;
 import org.apache.doris.analysis.CleanQueryStatsStmt.Scope;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.nereids.trees.plans.commands.CleanQueryStatsCommand;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.gson.annotations.SerializedName;
@@ -46,13 +45,6 @@ public class CleanQueryStatsInfo implements Writable {
         this.scope = scope;
     }
 
-    public CleanQueryStatsInfo(CleanQueryStatsCommand.Scope scope, String catalog, String dbName, String tableName) {
-        this.catalog = catalog;
-        this.dbName = dbName;
-        this.tableName = tableName;
-        this.scope = translateToLegacyScope(scope);
-    }
-
     public static CleanQueryStatsInfo read(DataInput in) throws IOException {
         return GsonUtils.GSON.fromJson(Text.readString(in), CleanQueryStatsInfo.class);
     }
@@ -76,9 +68,5 @@ public class CleanQueryStatsInfo implements Writable {
     @Override
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
-    }
-
-    private Scope translateToLegacyScope(CleanQueryStatsCommand.Scope scope) {
-        return Scope.valueOf(scope.name());
     }
 }

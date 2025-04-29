@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.CleanQueryStatsStmt;
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
@@ -40,7 +41,7 @@ import org.apache.commons.lang3.StringUtils;
  * CLEAN DATABASE QUERY STATS FROM db;
  * CLEAN TABLE QUERY STATS FROM db.table;
  */
-public class CleanQueryStatsCommand extends CleanCommand {
+public class CleanQueryStatsCommand extends Command implements ForwardWithSync {
     private String dbName;
     private TableNameInfo tableNameInfo;
     private Scope scope;
@@ -76,7 +77,7 @@ public class CleanQueryStatsCommand extends CleanCommand {
     }
 
     @Override
-    public void doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
+    public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         validate(ctx);
         handleCleanQueryStatsCommand(ctx);
     }
@@ -135,15 +136,16 @@ public class CleanQueryStatsCommand extends CleanCommand {
         switch (scope) {
             case ALL:
                 cleanQueryStatsInfo = new CleanQueryStatsInfo(
-                        Scope.ALL, env.getCurrentCatalog().getName(), null, null);
+                    translateToLegacyScope(Scope.ALL), env.getCurrentCatalog().getName(), null, null);
                 break;
             case DB:
                 cleanQueryStatsInfo = new CleanQueryStatsInfo(
-                        Scope.DB, env.getCurrentCatalog().getName(), tableNameInfo.getDb(), null);
+                    translateToLegacyScope(Scope.DB), env.getCurrentCatalog().getName(), tableNameInfo.getDb(), null);
                 break;
             case TABLE:
                 cleanQueryStatsInfo = new CleanQueryStatsInfo(
-                        Scope.TABLE, env.getCurrentCatalog().getName(), tableNameInfo.getDb(), tableNameInfo.getTbl());
+                    translateToLegacyScope(Scope.TABLE), env.getCurrentCatalog().getName(), tableNameInfo.getDb(),
+                        tableNameInfo.getTbl());
                 break;
             default:
                 throw new DdlException("Unknown scope: " + scope);
@@ -161,6 +163,10 @@ public class CleanQueryStatsCommand extends CleanCommand {
      */
     public enum Scope {
         ALL, DB, TABLE
+    }
+
+    private CleanQueryStatsStmt.Scope translateToLegacyScope(Scope scope) {
+        return CleanQueryStatsStmt.Scope.valueOf(scope.name());
     }
 
     @Override
