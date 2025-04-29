@@ -45,6 +45,7 @@ import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.mtmv.MTMVPlanUtil;
 import org.apache.doris.mtmv.MTMVRefreshContext;
+import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVState;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
 import org.apache.doris.mtmv.MTMVRefreshPartitionSnapshot;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
@@ -198,8 +199,11 @@ public class MTMVTask extends AbstractTask {
             // lock table order by id to avoid deadlock
             MetaLockUtils.readLockTables(tableIfs);
             try {
-                // check if column type has changed
-                checkColumnTypeIfChange(mtmv, ctx);
+                // if mtmv is schema_change, check if column type has changed
+                // If it's not in the schema_change state, the column type definitely won't change.
+                if (MTMVState.SCHEMA_CHANGE.equals(mtmv.getStatus().getState())) {
+                    checkColumnTypeIfChange(mtmv, ctx);
+                }
                 if (mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE) {
                     MTMVRelatedTableIf relatedTable = mtmv.getMvPartitionInfo().getRelatedTable();
                     if (!relatedTable.isValidRelatedTable()) {
