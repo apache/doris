@@ -6649,14 +6649,18 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitPauseRoutineLoad(DorisParser.PauseRoutineLoadContext ctx) {
-        List<String> parts = visitMultipartIdentifier(ctx.multipartIdentifier());
-        int size = parts.size();
-        String label = parts.get(size - 1);
+        List<String> labelParts = visitMultipartIdentifier(ctx.label);
+        String jobName;
         String dbName = null;
-        if (size >= 2) {
-            dbName = parts.get(size - 2);
+        if (labelParts.size() == 1) {
+            jobName = labelParts.get(0);
+        } else if (labelParts.size() == 2) {
+            dbName = labelParts.get(0);
+            jobName = labelParts.get(1);
+        } else {
+            throw new ParseException("only support [<db>.]<job_name>", ctx.label);
         }
-        LabelNameInfo labelNameInfo = new LabelNameInfo(dbName, label);
+        LabelNameInfo labelNameInfo = new LabelNameInfo(dbName, jobName);
         return new PauseRoutineLoadCommand(labelNameInfo);
     }
 
@@ -6667,14 +6671,18 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitResumeRoutineLoad(DorisParser.ResumeRoutineLoadContext ctx) {
-        List<String> parts = visitMultipartIdentifier(ctx.multipartIdentifier());
-        int size = parts.size();
-        String label = parts.get(size - 1);
+        List<String> labelParts = visitMultipartIdentifier(ctx.label);
+        String jobName;
         String dbName = null;
-        if (size >= 2) {
-            dbName = parts.get(size - 2);
+        if (labelParts.size() == 1) {
+            jobName = labelParts.get(0);
+        } else if (labelParts.size() == 2) {
+            dbName = labelParts.get(0);
+            jobName = labelParts.get(1);
+        } else {
+            throw new ParseException("only support [<db>.]<job_name>", ctx.label);
         }
-        LabelNameInfo labelNameInfo = new LabelNameInfo(dbName, label);
+        LabelNameInfo labelNameInfo = new LabelNameInfo(dbName, jobName);
         return new ResumeRoutineLoadCommand(labelNameInfo);
     }
 
@@ -6685,14 +6693,18 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitStopRoutineLoad(DorisParser.StopRoutineLoadContext ctx) {
-        List<String> parts = visitMultipartIdentifier(ctx.multipartIdentifier());
-        int size = parts.size();
-        String label = parts.get(size - 1);
+        List<String> labelParts = visitMultipartIdentifier(ctx.label);
+        String jobName;
         String dbName = null;
-        if (size >= 2) {
-            dbName = parts.get(size - 2);
+        if (labelParts.size() == 1) {
+            jobName = labelParts.get(0);
+        } else if (labelParts.size() == 2) {
+            dbName = labelParts.get(0);
+            jobName = labelParts.get(1);
+        } else {
+            throw new ParseException("only support [<db>.]<job_name>", ctx.label);
         }
-        LabelNameInfo labelNameInfo = new LabelNameInfo(dbName, label);
+        LabelNameInfo labelNameInfo = new LabelNameInfo(dbName, jobName);
         return new StopRoutineLoadCommand(labelNameInfo);
     }
 
