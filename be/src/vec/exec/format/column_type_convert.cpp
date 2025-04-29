@@ -371,13 +371,17 @@ std::unique_ptr<ColumnTypeConverter> ColumnTypeConverter::get_converter(const Da
         return _numeric_converter(src_type, dst_type);
     }
 
+    auto str_type = is_string_type(src_primitive_type)
+                            ? DataTypeFactory::instance().create_data_type(
+                                      PrimitiveType::TYPE_STRING, src_type->is_nullable())
+                            : src_type;
     // change to string type
     // example: decimal -> string
     if (is_string_type(dst_primitive_type)) {
         if (file_format == ORC) {
-            return _to_string_converter<ORC>(src_type, dst_type);
+            return _to_string_converter<ORC>(str_type, dst_type);
         } else {
-            return _to_string_converter<COMMON>(src_type, dst_type);
+            return _to_string_converter<COMMON>(str_type, dst_type);
         }
     }
 
@@ -385,9 +389,9 @@ std::unique_ptr<ColumnTypeConverter> ColumnTypeConverter::get_converter(const Da
     // example: string -> date
     if (is_string_type(src_primitive_type)) {
         if (file_format == ORC) {
-            return _from_string_converter<ORC>(src_type, dst_type);
+            return _from_string_converter<ORC>(str_type, dst_type);
         } else {
-            return _from_string_converter<COMMON>(src_type, dst_type);
+            return _from_string_converter<COMMON>(str_type, dst_type);
         }
     }
 
