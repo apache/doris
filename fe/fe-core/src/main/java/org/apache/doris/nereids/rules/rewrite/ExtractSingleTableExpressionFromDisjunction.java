@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -28,10 +29,12 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Paper: Quantifying TPC-H Choke Points and Their Optimizations
@@ -106,18 +109,20 @@ public class ExtractSingleTableExpressionFromDisjunction implements RewriteRuleF
             // only check table in first disjunct.
             // In our example, qualifiers = { n1, n2 }
             // try to extract
-            for (Slot inputSlot : disjuncts.get(0).getInputSlots()) {
-                String qualifier = String.join(".", inputSlot.getQualifier());
+            Set<String> qualifiers = disjuncts.get(0).getInputSlots().stream()
+                    .map(slot -> String.join(".", slot.getQualifier()))
+                    .collect(Collectors.toCollection(Sets::newLinkedHashSet));
+            for (String qualifier : qualifiers) {
                 List<Expression> extractForAll = Lists.newArrayList();
                 boolean success = true;
-                for (Expression expr : ExpressionUtils.extractDisjunction(conjunct)) {
+                for (Expression expr : disjuncts) {
                     Optional<Expression> extracted = extractSingleTableExpression(expr, qualifier);
                     if (!extracted.isPresent()) {
                         // extract failed
                         success = false;
                         break;
                     } else {
-                        extractForAll.add(extracted.get());
+                        extractForAll.addAll(ExpressionUtils.extractDisjunction(extracted.get()));
                     }
                 }
                 if (success) {
@@ -132,11 +137,46 @@ public class ExtractSingleTableExpressionFromDisjunction implements RewriteRuleF
     // example: expr=(n1.n_name = 'FRANCE' and n2.n_name = 'GERMANY'), qualifier="n1."
     // output: n1.n_name = 'FRANCE'
     private Optional<Expression> extractSingleTableExpression(Expression expr, String qualifier) {
+        // suppose the qualifier is table T, then the process steps are as follow:
+        // 1. split the expression into conjunctions: c1 and c2 and c3 and ...
+        // 2. for each conjunction ci, suppose its extract is Ei:
+        //    a) if ci's all slots come from T, then the whole ci is extracted, then Ei = ci;
+        //    b) if ci is an OR expression, then split ci into disjunctions:  ci => d1 or d2 or d3 or ...,
+        //       for each disjunction, extract it recuirsely, suppose after extract dj, we get ej,
+        //       if all the dj can extracted ej, then extract ci succ, which is Ei = e1 or e2 or e3 or ...,
+        //       if any dj extract failed, then extract ci fail
+        // 3. collect all the succ extracted Ei, and the result for table T is `E1 and E2 and E3 and ...`
+        //
+        // for example:
+        // suppose expr = (t1.a = 1 or (t2.b = 2 and t1.c = 3)) and (t1.d = 4 or t2.e = 5), qualifier = t1, then
+        // c1 = (t1.a = 1 or (t2.b = 2 and t1.c = 3)),
+        // because the whole c1 contains slot t2.b not belong to t1, so cannot extract the whole c1,
+        // but c1 is an OR expression, so split c1 into disjunctions:
+        // d1 => t1.a = 1, d2 => (t2.b = 2 and t1.c = 3)
+        // then after extract on d1, we get e1 = t1.a = 1, extract on d2, we get t1.c = 3,
+        // so we can extract E1 for c1:   t1.a = 1 or t1.c = 3
         List<Expression> output = Lists.newArrayList();
         List<Expression> conjuncts = ExpressionUtils.extractConjunction(expr);
         for (Expression conjunct : conjuncts) {
             if (isSingleTableExpression(conjunct, qualifier)) {
                 output.add(conjunct);
+            } else if (conjunct instanceof Or) {
+                List<Expression> disjuncts = ExpressionUtils.extractDisjunction(conjunct);
+                List<Expression> extracted = Lists.newArrayListWithExpectedSize(disjuncts.size());
+                boolean success = true;
+                for (Expression disjunct : disjuncts) {
+                    Optional<Expression> extractedDisjunct = extractSingleTableExpression(disjunct, qualifier);
+                    if (extractedDisjunct.isPresent()) {
+                        extracted.addAll(ExpressionUtils.extractDisjunction(extractedDisjunct.get()));
+                    } else {
+                        // extract failed
+                        success = false;
+                        break;
+                    }
+                }
+                if (success) {
+                    output.add(ExpressionUtils.or(extracted));
+                }
             }
         }
         if (output.isEmpty()) {
