@@ -310,6 +310,7 @@ int main(int argc, char** argv) {
             }
         };
         periodiccally_log_thread = std::thread {periodiccally_log};
+        pthread_setname_np(periodiccally_log_thread.native_handle(), "recycler_periodically_log");
     }
     // start service
     brpc::ServerOptions options;

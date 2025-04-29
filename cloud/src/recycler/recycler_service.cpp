@@ -208,6 +208,7 @@ void recycle_copy_jobs(const std::shared_ptr<TxnKv>& txn_kv, const std::string& 
         std::lock_guard lock(s_worker_mtx);
         s_worker.erase(instance_id);
     });
+    pthread_setname_np(worker.native_handle(), "recycler_worker");
     worker.detach();
 }
 
