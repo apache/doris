@@ -45,6 +45,8 @@ namespace doris::io {
 bvar::Adder<uint64_t> s3_read_counter("cached_remote_reader_s3_read");
 bvar::LatencyRecorder g_skip_cache_num("cached_remote_reader_skip_cache_num");
 bvar::Adder<uint64_t> g_skip_cache_sum("cached_remote_reader_skip_cache_sum");
+bvar::Adder<uint64_t> g_skip_local_cache_io_sum_bytes(
+        "cached_remote_reader_skip_local_cache_io_sum_bytes");
 
 CachedRemoteFileReader::CachedRemoteFileReader(FileReaderSPtr remote_file_reader,
                                                const FileReaderOptions& opts)
@@ -110,6 +112,7 @@ std::pair<size_t, size_t> CachedRemoteFileReader::s_align_size(size_t offset, si
 
 Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                                             const IOContext* io_ctx) {
+    const bool is_dryrun = io_ctx->is_dryrun;
     DCHECK(!closed());
     DCHECK(io_ctx);
     if (offset > size()) {
@@ -125,7 +128,7 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
     }
     ReadStatistics stats;
     auto defer_func = [&](int*) {
-        if (io_ctx->file_cache_stats) {
+        if (io_ctx->file_cache_stats && !is_dryrun) {
             // update stats in io_ctx, for query profile
             _update_stats(stats, io_ctx->file_cache_stats, io_ctx->is_inverted_index);
             // update stats increment in this reading procedure for file cache metrics
@@ -156,7 +159,9 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
                 size_t file_offset = cur_offset - iter->second->offset();
                 size_t reserve_bytes =
                         std::min(need_read_size, iter->second->range().size() - file_offset);
-                {
+                if (is_dryrun) [[unlikely]] {
+                    g_skip_local_cache_io_sum_bytes << reserve_bytes;
+                } else {
                     SCOPED_RAW_TIMER(&stats.local_read_timer);
                     if (!iter->second
                                  ->read(Slice(result.data + (cur_offset - offset), reserve_bytes),
@@ -241,7 +246,7 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
         }
         // copy from memory directly
         size_t right_offset = offset + bytes_req - 1;
-        if (empty_start <= right_offset && empty_end >= offset) {
+        if (empty_start <= right_offset && empty_end >= offset && !is_dryrun) {
             size_t copy_left_offset = offset < empty_start ? empty_start : offset;
             size_t copy_right_offset = right_offset < empty_end ? right_offset : empty_end;
             char* dst = result.data + (copy_left_offset - offset);
@@ -295,10 +300,14 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
              * the thread reads the data from remote too.
              */
             if (block_state == FileBlock::State::DOWNLOADED) {
-                size_t file_offset = current_offset - left;
-                SCOPED_RAW_TIMER(&stats.local_read_timer);
-                st = block->read(Slice(result.data + (current_offset - offset), read_size),
-                                 file_offset);
+                if (is_dryrun) [[unlikely]] {
+                    g_skip_local_cache_io_sum_bytes << read_size;
+                } else {
+                    size_t file_offset = current_offset - left;
+                    SCOPED_RAW_TIMER(&stats.local_read_timer);
+                    st = block->read(Slice(result.data + (current_offset - offset), read_size),
+                                     file_offset);
+                }
             }
             if (!st || block_state != FileBlock::State::DOWNLOADED) {
                 LOG(WARNING) << "Read data failed from file cache downloaded by others. err="
