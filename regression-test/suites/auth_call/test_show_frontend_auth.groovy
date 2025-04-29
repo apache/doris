@@ -34,7 +34,7 @@ suite("test_show_frontend_auth","p0,auth_call") {
     sql """grant select_priv on regression_test to ${user}"""
     def show_grants_result = sql """show grants for ${user}"""
     logger.info("show grants result: " + show_grants_result)
-    sql """revoke select_priv on internal.information_schema.* from ${user}"""
+    // sql """revoke select_priv on internal.information_schema.* from ${user}"""
 
     connect(user, "${pwd}", context.config.jdbcUrl) {
         try {
