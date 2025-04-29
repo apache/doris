@@ -17,27 +17,40 @@
 
 #include "vec/core/block.h"
 
+#include <concurrentqueue.h>
+#include <gen_cpp/Descriptors_types.h>
+#include <gen_cpp/Metrics_types.h>
 #include <gen_cpp/segment_v2.pb.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
+#include <gtest/gtest.h>
 
-#include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <string>
+#include <vector>
 
 #include "agent/be_exec_version_manager.h"
 #include "common/config.h"
+#include "common/object_pool.h"
 #include "gen_cpp/data.pb.h"
-#include "gtest/gtest_pred_impl.h"
+#include "runtime/define_primitive_type.h"
+#include "runtime/descriptor_helper.h"
+#include "runtime/descriptors.h"
+#include "testutil/column_helper.h"
 #include "util/bitmap_value.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_complex.h"
+#include "vec/columns/column_const.h"
 #include "vec/columns/column_decimal.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
+#include "vec/common/sip_hash.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
@@ -49,6 +62,7 @@
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
+#include "vec/data_types/data_type_struct.h"
 #include "vec/data_types/data_type_time_v2.h"
 #include "vec/runtime/vdatetime_value.h"
 
@@ -848,6 +862,523 @@ TEST(BlockTest, merge_with_shared_columns) {
         EXPECT_EQ(1034, column->size());
     }
     EXPECT_EQ(1034, src_block.rows());
+}
+
+namespace vectorized {
+template <typename T>
+void clear_blocks(moodycamel::ConcurrentQueue<T>& blocks,
+                  RuntimeProfile::Counter* memory_used_counter = nullptr);
+}
+
+TEST(BlockTest, clear_blocks) {
+    {
+        moodycamel::ConcurrentQueue<vectorized::Block> queue;
+
+        RuntimeProfile::Counter counter(TUnit::BYTES);
+        auto block1 = vectorized::ColumnHelper::create_block<vectorized::DataTypeInt32>({1, 2, 3});
+        auto block2 = vectorized::ColumnHelper::create_block<vectorized::DataTypeInt32>({1, 2, 3});
+
+        counter.update(block1.allocated_bytes());
+        counter.update(block2.allocated_bytes());
+
+        ASSERT_EQ(counter.value(), block1.allocated_bytes() + block2.allocated_bytes());
+
+        queue.enqueue(std::move(block1));
+        queue.enqueue(std::move(block2));
+
+        vectorized::clear_blocks(queue, &counter);
+        EXPECT_EQ(counter.value(), 0);
+
+        ASSERT_FALSE(queue.try_dequeue(block1));
+    }
+
+    {
+        moodycamel::ConcurrentQueue<std::unique_ptr<vectorized::Block>> queue;
+
+        RuntimeProfile::Counter counter(TUnit::BYTES);
+        auto block1 = std::make_unique<vectorized::Block>(
+                vectorized::ColumnHelper::create_block<vectorized::DataTypeInt32>({1, 2, 3}));
+        auto block2 = std::make_unique<vectorized::Block>(
+                vectorized::ColumnHelper::create_block<vectorized::DataTypeInt32>({4, 5, 6}));
+
+        counter.update(block1->allocated_bytes());
+        counter.update(block2->allocated_bytes());
+
+        ASSERT_EQ(counter.value(), block1->allocated_bytes() + block2->allocated_bytes());
+
+        queue.enqueue(std::move(block1));
+        queue.enqueue(std::move(block2));
+
+        vectorized::clear_blocks(queue, &counter);
+        EXPECT_EQ(counter.value(), 0);
+
+        ASSERT_FALSE(queue.try_dequeue(block1));
+    }
+}
+
+TEST(BlockTest, replace_by_position) {
+    auto block = vectorized::ColumnHelper::create_block<vectorized::DataTypeInt32>({1, 2, 3});
+    block.insert(0, vectorized::ColumnHelper::create_column_with_name<vectorized::DataTypeString>(
+                            {"a", "b", "c"}));
+
+    auto col = vectorized::ColumnHelper::create_column<vectorized::DataTypeInt32>({4, 5, 6});
+    block.replace_by_position(0, std::move(col));
+
+    ASSERT_EQ(block.get_by_position(0).column->get_int(0), 4);
+    ASSERT_EQ(block.get_by_position(0).column->get_int(1), 5);
+    ASSERT_EQ(block.get_by_position(0).column->get_int(2), 6);
+}
+
+TEST(BlockTest, compare_at) {
+    auto block = vectorized::ColumnHelper::create_block<vectorized::DataTypeInt32>({1, 2, 3});
+    auto ret = block.compare_at(0, 0, block, -1);
+    ASSERT_EQ(ret, 0);
+
+    ret = block.compare_at(0, 1, block, -1);
+    ASSERT_LT(ret, 0);
+
+    ret = block.compare_at(2, 1, block, -1);
+    ASSERT_GT(ret, 0);
+
+    block.insert(vectorized::ColumnHelper::create_column_with_name<vectorized::DataTypeInt32>(
+            {2, 2, 1}));
+    std::vector<uint32_t> compare_columns {1, 0};
+
+    ret = block.compare_at(0, 1, &compare_columns, block, -1);
+    ASSERT_LT(ret, 0);
+
+    ret = block.compare_at(1, 2, &compare_columns, block, -1);
+    ASSERT_GT(ret, 0);
+}
+
+TEST(BlockTest, same_bit) {
+    auto block = vectorized::ColumnHelper::create_block<vectorized::DataTypeInt32>({1, 1, 3});
+    std::vector<bool> same_bit = {false, true, false};
+    block.set_same_bit(same_bit.begin(), same_bit.end());
+    ASSERT_EQ(block.get_same_bit(0), false);
+    ASSERT_EQ(block.get_same_bit(1), true);
+    ASSERT_EQ(block.get_same_bit(2), false);
+
+    auto block2 = block;
+    block2.set_num_rows(2);
+    ASSERT_EQ(block2.rows(), 2);
+
+    int64_t length = 3;
+    block2.skip_num_rows(length);
+    ASSERT_EQ(1, length);
+    ASSERT_EQ(block2.rows(), 0);
+
+    block2 = block;
+    length = 1;
+    block2.skip_num_rows(length);
+    ASSERT_EQ(block2.rows(), 2);
+    ASSERT_EQ(block2.get_same_bit(0), true);
+
+    block2.skip_num_rows(length);
+    ASSERT_EQ(block2.rows(), 1);
+    ASSERT_EQ(block2.get_same_bit(0), false);
+
+    block.clear_same_bit();
+
+    ASSERT_EQ(block.get_same_bit(1), false);
+}
+
+TEST(BlockTest, dump) {
+    auto block = vectorized::ColumnHelper::create_block<vectorized::DataTypeInt32>({});
+    auto types = block.dump_types();
+    ASSERT_TRUE(types.find("Int32") != std::string::npos);
+
+    block.insert(vectorized::ColumnHelper::create_column_with_name<vectorized::DataTypeString>({}));
+    types = block.dump_types();
+    ASSERT_TRUE(types.find("String") != std::string::npos);
+
+    block.insert(
+            vectorized::ColumnHelper::create_column_with_name<vectorized::DataTypeFloat64>({}));
+    types = block.dump_types();
+    ASSERT_TRUE(types.find("Float64") != std::string::npos);
+
+    auto names = block.get_names();
+    for (const auto& name : names) {
+        ASSERT_EQ(name, "column");
+    }
+
+    auto dumped_names = block.dump_names();
+    ASSERT_TRUE(dumped_names.find(", ") != std::string::npos);
+    ASSERT_TRUE(dumped_names.find("column") != std::string::npos);
+
+    block = vectorized::ColumnHelper::create_block<vectorized::DataTypeInt32>({1, 2, 3});
+    block.insert(vectorized::ColumnHelper::create_column_with_name<vectorized::DataTypeString>(
+            {"a", "b", "c"}));
+
+    auto dumped_line = block.dump_one_line(1, 2);
+    ASSERT_EQ(dumped_line, "2 b");
+}
+
+TEST(BlockTest, merge_impl_ignore_overflow) {
+    auto block = vectorized::ColumnHelper::create_block<vectorized::DataTypeInt32>({});
+    block.insert(vectorized::ColumnHelper::create_column_with_name<vectorized::DataTypeString>({}));
+    block.insert(
+            vectorized::ColumnHelper::create_column_with_name<vectorized::DataTypeFloat64>({}));
+    auto block2 = vectorized::ColumnHelper::create_block<vectorized::DataTypeInt32>({});
+
+    auto mutable_block = vectorized::MutableBlock::build_mutable_block(&block);
+
+    auto st = mutable_block.merge_ignore_overflow(std::move(block2));
+    ASSERT_FALSE(st.ok());
+
+    block2 = vectorized::ColumnHelper::create_block<vectorized::DataTypeInt32>({});
+    block2.insert(
+            vectorized::ColumnHelper::create_column_with_name<vectorized::DataTypeString>({}));
+    block2.insert(
+            vectorized::ColumnHelper::create_column_with_name<vectorized::DataTypeFloat32>({}));
+
+    EXPECT_ANY_THROW(st = mutable_block.merge_impl_ignore_overflow(std::move(block2)));
+}
+
+TEST(BlockTest, merge_impl) {
+    auto block = vectorized::ColumnHelper::create_block<vectorized::DataTypeInt32>({});
+    block.insert(vectorized::ColumnHelper::create_column_with_name<vectorized::DataTypeString>({}));
+    block.insert(
+            vectorized::ColumnHelper::create_nullable_column_with_name<vectorized::DataTypeFloat64>(
+                    {1.0}, {0}));
+
+    block.get_by_position(2).column = nullptr;
+
+    auto mutable_block = vectorized::MutableBlock::build_mutable_block(nullptr);
+
+    auto st = mutable_block.merge(std::move(block));
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    auto block2 = vectorized::ColumnHelper::create_block<vectorized::DataTypeInt32>({});
+    block2.insert(
+            vectorized::ColumnHelper::create_column_with_name<vectorized::DataTypeString>({}));
+
+    st = mutable_block.merge_impl(std::move(block2));
+    ASSERT_FALSE(st);
+
+    block2 = vectorized::ColumnHelper::create_block<vectorized::DataTypeInt32>({1});
+    block2.insert(
+            vectorized::ColumnHelper::create_column_with_name<vectorized::DataTypeString>({"a"}));
+    block2.insert(
+            vectorized::ColumnHelper::create_column_with_name<vectorized::DataTypeFloat64>({}));
+
+    EXPECT_ANY_THROW(st = mutable_block.merge_impl(std::move(block2)));
+}
+
+TEST(BlockTest, ctor) {
+    TDescriptorTableBuilder builder;
+    TTupleDescriptorBuilder tuple_builder;
+    tuple_builder
+            .add_slot(
+                    TSlotDescriptorBuilder().type(PrimitiveType::TYPE_INT).nullable(false).build())
+            .add_slot(TSlotDescriptorBuilder()
+                              .type(PrimitiveType::TYPE_STRING)
+                              .set_isMaterialized(false)
+                              .build());
+    tuple_builder.build(&builder);
+
+    auto t_table = builder.desc_tbl();
+
+    ObjectPool pool;
+    DescriptorTbl* tbl;
+    auto st = DescriptorTbl::create(&pool, t_table, &tbl);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    auto slots = tbl->get_tuple_descriptor(0)->slots();
+
+    std::vector<SlotDescriptor> slot_descs;
+    for (auto* slot : slots) {
+        slot_descs.push_back(*slot);
+    }
+
+    vectorized::Block block(slot_descs, 1);
+    ASSERT_EQ(block.columns(), 2);
+    ASSERT_EQ(block.get_by_position(0).type->get_type_id(), vectorized::TypeIndex::Int32);
+    ASSERT_EQ(block.get_by_position(1).type->get_type_id(), vectorized::TypeIndex::Nullable);
+
+    {
+        auto mutable_block =
+                vectorized::MutableBlock::create_unique(tbl->get_tuple_descs(), 10, false);
+        ASSERT_EQ(mutable_block->columns(), 2);
+        auto mutable_block2 = vectorized::MutableBlock::create_unique();
+        mutable_block->swap(*mutable_block2);
+        ASSERT_EQ(mutable_block->columns(), 0);
+        ASSERT_EQ(mutable_block2->columns(), 2);
+    }
+
+    {
+        auto mutable_block =
+                vectorized::MutableBlock::create_unique(tbl->get_tuple_descs(), 10, true);
+        ASSERT_EQ(mutable_block->columns(), 1);
+        auto mutable_block2 = vectorized::MutableBlock::create_unique();
+        mutable_block->swap(*mutable_block2);
+        ASSERT_EQ(mutable_block->columns(), 0);
+        ASSERT_EQ(mutable_block2->columns(), 1);
+    }
+}
+
+TEST(BlockTest, insert_erase) {
+    auto block = vectorized::ColumnHelper::create_block<vectorized::DataTypeInt32>({});
+
+    auto column_with_name =
+            vectorized::ColumnHelper::create_column_with_name<vectorized::DataTypeString>({});
+    EXPECT_ANY_THROW(block.insert(2, column_with_name));
+    block.insert(0, column_with_name);
+
+    ASSERT_EQ(block.columns(), 2);
+    ASSERT_EQ(block.get_by_position(0).type->get_type_id(), vectorized::TypeIndex::String);
+
+    EXPECT_ANY_THROW(block.insert(3, std::move(column_with_name)));
+
+    column_with_name =
+            vectorized::ColumnHelper::create_column_with_name<vectorized::DataTypeFloat64>({});
+    block.insert(0, std::move(column_with_name));
+    ASSERT_EQ(block.columns(), 3);
+    ASSERT_EQ(block.get_by_position(0).type->get_type_id(), vectorized::TypeIndex::Float64);
+
+    std::set<size_t> positions = {0, 2};
+    block.erase(positions);
+
+    ASSERT_EQ(block.columns(), 1);
+    ASSERT_EQ(block.get_by_position(0).type->get_type_id(), vectorized::TypeIndex::String);
+
+    block.erase_tail(0);
+    ASSERT_EQ(block.columns(), 0);
+
+    EXPECT_ANY_THROW(block.erase("column"));
+    column_with_name =
+            vectorized::ColumnHelper::create_column_with_name<vectorized::DataTypeString>({});
+    block.insert(0, column_with_name);
+    EXPECT_NO_THROW(block.erase("column"));
+    ASSERT_EQ(block.columns(), 0);
+
+    EXPECT_ANY_THROW(block.safe_get_by_position(0));
+
+    ASSERT_EQ(block.try_get_by_name("column"), nullptr);
+    EXPECT_ANY_THROW(block.get_by_name("column"));
+    EXPECT_ANY_THROW(block.get_position_by_name("column"));
+    block.insert(0, column_with_name);
+
+    EXPECT_NO_THROW(auto item = block.get_by_name("column"));
+    ASSERT_NE(block.try_get_by_name("column"), nullptr);
+    EXPECT_EQ(block.get_position_by_name("column"), 0);
+
+    block.insert({nullptr, nullptr, BeConsts::BLOCK_TEMP_COLUMN_PREFIX});
+    EXPECT_NO_THROW(auto item = block.get_by_name(BeConsts::BLOCK_TEMP_COLUMN_PREFIX));
+
+    block.erase_tmp_columns();
+    ASSERT_EQ(block.try_get_by_name(BeConsts::BLOCK_TEMP_COLUMN_PREFIX), nullptr);
+
+    {
+        // test const block
+        const auto const_block = block;
+        EXPECT_EQ(const_block.try_get_by_name("column2"), nullptr);
+        EXPECT_ANY_THROW(const_block.get_by_name("column2"));
+        EXPECT_ANY_THROW(const_block.get_position_by_name("column2"));
+
+        EXPECT_NO_THROW(auto item = const_block.get_by_name("column"));
+        ASSERT_NE(const_block.try_get_by_name("column"), nullptr);
+        EXPECT_EQ(const_block.get_position_by_name("column"), 0);
+    }
+
+    block = vectorized::ColumnHelper::create_block<vectorized::DataTypeInt32>({});
+    block.insert({nullptr, std::make_shared<vectorized::DataTypeString>(), "col1"});
+
+    block.insert({nullptr, std::make_shared<vectorized::DataTypeString>(), "col2"});
+
+    vectorized::MutableBlock mutable_block(&block);
+    mutable_block.erase("col1");
+    ASSERT_EQ(mutable_block.columns(), 2);
+
+    EXPECT_ANY_THROW(mutable_block.erase("col1"));
+    ASSERT_EQ(mutable_block.columns(), 2);
+    mutable_block.erase("col2");
+    ASSERT_EQ(mutable_block.columns(), 1);
+}
+
+TEST(BlockTest, check_number_of_rows) {
+    auto block = vectorized::ColumnHelper::create_block<vectorized::DataTypeInt32>({});
+
+    block.insert({nullptr, nullptr, "null_col"});
+    EXPECT_NO_THROW(block.check_number_of_rows(true));
+    EXPECT_ANY_THROW(block.check_number_of_rows(false));
+
+    block.insert(
+            vectorized::ColumnHelper::create_column_with_name<vectorized::DataTypeString>({"abc"}));
+    EXPECT_ANY_THROW(block.check_number_of_rows(true));
+
+    EXPECT_ANY_THROW(block.columns_bytes());
+
+    ASSERT_GT(block.allocated_bytes(), 0);
+}
+
+TEST(BlockTest, clear_column_mem_not_keep) {
+    auto block = vectorized::ColumnHelper::create_block<vectorized::DataTypeInt32>({1, 2, 3});
+    block.insert(vectorized::ColumnHelper::create_column_with_name<vectorized::DataTypeString>(
+            {"abc", "efg", "hij"}));
+
+    std::vector<bool> column_keep_flags {false, true};
+
+    auto block2 = block;
+    block2.clear_column_mem_not_keep(column_keep_flags, false);
+    ASSERT_EQ(block2.get_by_position(0).column->size(), 0);
+    ASSERT_EQ(block2.get_by_position(1).column->size(), 3);
+
+    block.clear_column_mem_not_keep(column_keep_flags, true);
+    ASSERT_EQ(block.get_by_position(0).column->size(), 3);
+    ASSERT_EQ(block.get_by_position(1).column->size(), 3);
+}
+
+TEST(BlockTest, filter) {
+    {
+        // normal filter
+        auto block = vectorized::ColumnHelper::create_block<vectorized::DataTypeInt32>({1, 2, 3});
+        block.insert(vectorized::ColumnHelper::create_column_with_name<vectorized::DataTypeString>(
+                {"abc", "efg", "hij"}));
+
+        block.insert(vectorized::ColumnHelper::create_column_with_name<vectorized::DataTypeUInt8>(
+                {1, 1, 1}));
+        auto st = vectorized::Block::filter_block(&block, {0, 1}, 2, 2);
+        ASSERT_TRUE(st.ok()) << st.to_string();
+        ASSERT_EQ(block.rows(), 3);
+
+        block.insert(vectorized::ColumnHelper::create_column_with_name<vectorized::DataTypeUInt8>(
+                {0, 1, 0}));
+        st = vectorized::Block::filter_block(&block, {0, 1}, 2, 2);
+        ASSERT_TRUE(st.ok()) << st.to_string();
+        ASSERT_EQ(block.rows(), 1);
+
+        block.insert(
+                vectorized::ColumnHelper::create_column_with_name<vectorized::DataTypeUInt8>({0}));
+        auto block2 = block;
+        st = vectorized::Block::filter_block(&block2, {0, 1}, 2, 2);
+        ASSERT_TRUE(st.ok()) << st.to_string();
+        ASSERT_EQ(block2.rows(), 0);
+    }
+
+    {
+        // nullable filter column
+        auto block = vectorized::ColumnHelper::create_block<vectorized::DataTypeInt32>({1, 2, 3});
+        block.insert(vectorized::ColumnHelper::create_column_with_name<vectorized::DataTypeString>(
+                {"abc", "efg", "hij"}));
+
+        block.insert(vectorized::ColumnHelper::create_nullable_column_with_name<
+                     vectorized::DataTypeUInt8>({1, 1, 1}, {0, 1, 0}));
+        auto st = vectorized::Block::filter_block(&block, {0, 1}, 2, 2);
+        ASSERT_TRUE(st.ok()) << st.to_string();
+        ASSERT_EQ(block.rows(), 2);
+    }
+
+    {
+        // const filter column
+        auto block = vectorized::ColumnHelper::create_block<vectorized::DataTypeInt32>({1, 2, 3});
+        block.insert(vectorized::ColumnHelper::create_column_with_name<vectorized::DataTypeString>(
+                {"abc", "efg", "hij"}));
+
+        block.insert({vectorized::ColumnConst::create(vectorized::ColumnUInt8::create(1, 1), 3),
+                      std::make_shared<vectorized::DataTypeUInt8>(), "filter"});
+        auto st = vectorized::Block::filter_block(&block, {0, 1}, 2, 2);
+        ASSERT_TRUE(st.ok()) << st.to_string();
+        ASSERT_EQ(block.rows(), 3);
+
+        block.insert({vectorized::ColumnConst::create(vectorized::ColumnUInt8::create(1, 0), 3),
+                      std::make_shared<vectorized::DataTypeUInt8>(), "filter2"});
+        st = vectorized::Block::filter_block(&block, {0, 1}, 2, 2);
+        ASSERT_TRUE(st.ok()) << st.to_string();
+        ASSERT_EQ(block.rows(), 0);
+    }
+
+    {
+        // append_to_block_by_selector
+        auto block = vectorized::ColumnHelper::create_block<vectorized::DataTypeInt32>({1, 2, 3});
+        block.insert(vectorized::ColumnHelper::create_column_with_name<vectorized::DataTypeString>(
+                {"abc", "efg", "hij"}));
+
+        vectorized::IColumn::Selector selector(2);
+        selector[0] = 0;
+        selector[1] = 2;
+
+        vectorized::MutableBlock mutable_block(block.clone_empty());
+        auto st = block.append_to_block_by_selector(&mutable_block, selector);
+        ASSERT_TRUE(st.ok()) << st.to_string();
+        ASSERT_EQ(mutable_block.rows(), 2);
+        ASSERT_EQ(mutable_block.mutable_columns()[0]->get_int(0), 1);
+        ASSERT_EQ(mutable_block.mutable_columns()[0]->get_int(1), 3);
+    }
+}
+
+TEST(BlockTest, add_rows) {
+    auto block = vectorized::ColumnHelper::create_block<vectorized::DataTypeInt32>({1, 2, 3});
+    block.insert(vectorized::ColumnHelper::create_column_with_name<vectorized::DataTypeString>(
+            {"abc", "efg", "hij"}));
+
+    auto block2 = vectorized::ColumnHelper::create_block<vectorized::DataTypeInt32>({4});
+    block2.insert(
+            vectorized::ColumnHelper::create_column_with_name<vectorized::DataTypeString>({"lmn"}));
+
+    vectorized::MutableBlock mutable_block(&block);
+    mutable_block.add_row(&block2, 0);
+    ASSERT_EQ(mutable_block.rows(), 4);
+
+    vectorized::MutableBlock mutable_block2(&block2);
+    auto st = mutable_block2.add_rows(&block, {0, 2});
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    ASSERT_EQ(mutable_block2.rows(), 3);
+}
+
+TEST(BlockTest, others) {
+    auto block = vectorized::ColumnHelper::create_block<vectorized::DataTypeInt32>({1, 2, 3});
+    block.insert(vectorized::ColumnHelper::create_column_with_name<vectorized::DataTypeString>(
+            {"abc", "efg", "hij"}));
+
+    block.shrink_char_type_column_suffix_zero({1, 2});
+
+    SipHash hash;
+    block.update_hash(hash);
+
+    auto hash_value = hash.get64();
+    ASSERT_EQ(hash_value, 15311230698310402164ULL);
+
+    auto column = vectorized::ColumnHelper::create_column<vectorized::DataTypeString>(
+            {"lmn", "opq", "rst"});
+
+    block.replace_by_position(1, std::move(column));
+    SipHash hash2;
+    block.update_hash(hash2);
+    hash_value = hash2.get64();
+    ASSERT_EQ(hash_value, 16980601693179295243ULL);
+
+    std::vector<int> result_column_ids = {0, 1};
+    block.shuffle_columns(result_column_ids);
+    ASSERT_EQ(block.get_by_position(0).type->get_type_id(), vectorized::TypeIndex::Int32);
+    ASSERT_EQ(block.get_by_position(1).type->get_type_id(), vectorized::TypeIndex::String);
+
+    result_column_ids = {1, 0};
+    block.shuffle_columns(result_column_ids);
+    ASSERT_EQ(block.get_by_position(1).type->get_type_id(), vectorized::TypeIndex::Int32);
+    ASSERT_EQ(block.get_by_position(0).type->get_type_id(), vectorized::TypeIndex::String);
+
+    result_column_ids = {1};
+    block.shuffle_columns(result_column_ids);
+    ASSERT_EQ(block.get_by_position(0).type->get_type_id(), vectorized::TypeIndex::Int32);
+    ASSERT_EQ(block.columns(), 1);
+
+    vectorized::MutableBlock mutable_block(&block);
+    auto dumped = mutable_block.dump_data();
+    ASSERT_GT(dumped.size(), 0) << "Dumped data size: " << dumped.size();
+
+    mutable_block.clear_column_data();
+    ASSERT_EQ(mutable_block.get_column_by_position(0)->size(), 0);
+    ASSERT_TRUE(mutable_block.has("column"));
+    ASSERT_EQ(mutable_block.get_position_by_name("column"), 0);
+
+    auto dumped_names = mutable_block.dump_names();
+    ASSERT_TRUE(dumped_names.find("column") != std::string::npos);
+
+    block.clear_names();
+    dumped_names = block.dump_names();
+    ASSERT_TRUE(dumped_names.empty()) << "Dumped names: " << dumped_names;
 }
 
 } // namespace doris

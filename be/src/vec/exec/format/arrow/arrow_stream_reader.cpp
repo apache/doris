@@ -97,7 +97,7 @@ Status ArrowStreamReader::get_next_block(Block* block, size_t* read_rows, bool* 
             std::string column_name = batch.schema()->field(c)->name();
 
             try {
-                vectorized::ColumnWithTypeAndName& column_with_name =
+                const vectorized::ColumnWithTypeAndName& column_with_name =
                         block->get_by_name(column_name);
                 column_with_name.type->get_serde()->read_column_from_arrow(
                         column_with_name.column->assume_mutable_ref(), column, 0, num_rows, _ctzz);
