@@ -57,7 +57,7 @@ suite('test_execute_by_frontend') {
     sql "set enable_profile=true"
     def simpleSql1 = "select * from test_execute_by_frontend"
     sql "${simpleSql1}"
-    simpleSql2 = """select  cast("1"  as  Int)"""
+    def simpleSql2 = """select  cast("1"  as  Int)"""
     sql "${simpleSql2}"
     def isRecorded = false
     def wholeString = getProfileList()

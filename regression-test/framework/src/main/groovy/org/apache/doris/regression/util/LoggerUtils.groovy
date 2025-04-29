@@ -21,22 +21,26 @@ import com.google.common.collect.Sets
 
 class LoggerUtils {
     static Tuple2<Integer, String> getErrorInfo(Throwable t, File file) {
-        if (file.name.endsWith(".groovy")) {
-            def st = findRootErrorStackTrace(t, Sets.newLinkedHashSet(), file)
-            int lineNumber = -1
-            if (!st.is(null)) {
-                lineNumber = st.getLineNumber()
-            }
-            if (lineNumber == -1) {
+        try {
+            if (file.name.endsWith(".groovy")) {
+                def st = findRootErrorStackTrace(t, Sets.newLinkedHashSet(), file)
+                int lineNumber = -1
+                if (!st.is(null)) {
+                    lineNumber = st.getLineNumber()
+                }
+                if (lineNumber == -1) {
+                    return new Tuple2<Integer, String>(null, null)
+                }
+
+                List<String> lines = file.text.split("\n").toList()
+                String errorPrefixText = lines.subList(Math.max(0, lineNumber - 10), lineNumber).join("\n")
+                String errorSuffixText = lines.subList(lineNumber, Math.min(lines.size(), lineNumber + 10)).join("\n")
+                String errorText = "${errorPrefixText}\n^^^^^^^^^^^^^^^^^^^^^^^^^^ERROR LINE^^^^^^^^^^^^^^^^^^^^^^^^^^\n${errorSuffixText}".toString()
+                return new Tuple2<Integer, String>(lineNumber, errorText)
+            } else {
                 return new Tuple2<Integer, String>(null, null)
             }
-
-            List<String> lines = file.text.split("\n").toList()
-            String errorPrefixText = lines.subList(Math.max(0, lineNumber - 10), lineNumber).join("\n")
-            String errorSuffixText = lines.subList(lineNumber, Math.min(lines.size(), lineNumber + 10)).join("\n")
-            String errorText = "${errorPrefixText}\n^^^^^^^^^^^^^^^^^^^^^^^^^^ERROR LINE^^^^^^^^^^^^^^^^^^^^^^^^^^\n${errorSuffixText}".toString()
-            return new Tuple2<Integer, String>(lineNumber, errorText)
-        } else {
+        } catch (Exception e) {
             return new Tuple2<Integer, String>(null, null)
         }
     }
