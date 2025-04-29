@@ -784,7 +784,6 @@ void ExecEnv::destroy() {
     _buffered_reader_prefetch_thread_pool.reset(nullptr);
     _s3_file_upload_thread_pool.reset(nullptr);
     _send_batch_thread_pool.reset(nullptr);
-    _file_cache_open_fd_cache.reset(nullptr);
     _write_cooldown_meta_executors.reset(nullptr);
 
     SAFE_DELETE(_broker_client_cache);
@@ -798,6 +797,7 @@ void ExecEnv::destroy() {
     // cache_manager must be destoried after all cache.
     // https://github.com/apache/doris/issues/24082#issuecomment-1712544039
     SAFE_DELETE(_cache_manager);
+    _file_cache_open_fd_cache.reset(nullptr);
 
     // _heartbeat_flags must be destoried after staroge engine
     SAFE_DELETE(_heartbeat_flags);

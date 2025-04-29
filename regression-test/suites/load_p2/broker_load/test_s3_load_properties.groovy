@@ -19,7 +19,18 @@ suite("test_s3_load_properties", "p2") {
     def s3BucketName = getS3BucketName()
     def s3Endpoint = getS3Endpoint()
     def s3Region = getS3Region()
-    sql "create workload group if not exists broker_load_test properties ( 'cpu_share'='1024'); "
+
+    def forComputeGroupStr = "";
+
+    //cloud-mode
+    if (isCloudMode()) {
+        def clusters = sql " SHOW CLUSTERS; "
+        assertTrue(!clusters.isEmpty())
+        def validCluster = clusters[0][0]
+        forComputeGroupStr = " for  $validCluster "
+    }
+
+    sql "create workload group if not exists broker_load_test $forComputeGroupStr properties ( 'cpu_share'='1024'); "
 
     sql "set workload_group=broker_load_test;"
 

@@ -362,9 +362,6 @@ if [[ "${CLEAN}" -eq 1 && "${BUILD_BE}" -eq 0 && "${BUILD_FE}" -eq 0 && "${BUILD
     exit 0
 fi
 
-if [[ -z "${WITH_MYSQL}" ]]; then
-    WITH_MYSQL='OFF'
-fi
 if [[ -z "${GLIBC_COMPATIBILITY}" ]]; then
     if [[ "${TARGET_SYSTEM}" != 'Darwin' ]]; then
         GLIBC_COMPATIBILITY='ON'
@@ -520,7 +517,6 @@ echo "Get params:
     BUILD_HIVE_UDF                      -- ${BUILD_HIVE_UDF}
     PARALLEL                            -- ${PARALLEL}
     CLEAN                               -- ${CLEAN}
-    WITH_MYSQL                          -- ${WITH_MYSQL}
     GLIBC_COMPATIBILITY                 -- ${GLIBC_COMPATIBILITY}
     USE_AVX2                            -- ${USE_AVX2}
     USE_LIBCPP                          -- ${USE_LIBCPP}
@@ -619,7 +615,6 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DBUILD_BENCHMARK="${BUILD_BENCHMARK}" \
         -DBUILD_FS_BENCHMARK="${BUILD_FS_BENCHMARK}" \
         ${CMAKE_USE_CCACHE:+${CMAKE_USE_CCACHE}} \
-        -DWITH_MYSQL="${WITH_MYSQL}" \
         -DUSE_LIBCPP="${USE_LIBCPP}" \
         -DBUILD_META_TOOL="${BUILD_META_TOOL}" \
         -DBUILD_FILE_CACHE_MICROBENCH_TOOL="${BUILD_FILE_CACHE_MICROBENCH_TOOL}" \

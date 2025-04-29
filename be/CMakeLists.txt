@@ -137,8 +137,6 @@ message(STATUS "make test: ${MAKE_TEST}")
 option(BUILD_BENCHMARK "ON for make google benchmark or OFF for not" OFF)
 message(STATUS "make benchmark: ${BUILD_BENCHMARK}")
 
-option(WITH_MYSQL "Support access MySQL" ON)
-
 option(BUILD_FS_BENCHMARK "ON for building fs benchmark tool or OFF for not" OFF)
 message(STATUS "build fs benchmark tool: ${BUILD_FS_BENCHMARK}")
 
@@ -357,10 +355,6 @@ if (ARCH_ARM)
     add_definitions(-DLIBDIVIDE_NEON)
 endif()
 #
-
-if (WITH_MYSQL)
-    add_definitions(-DDORIS_WITH_MYSQL)
-endif()
 
 if (ENABLE_INJECTION_POINT)
     set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DENABLE_INJECTION_POINT")
@@ -600,10 +594,6 @@ set(DORIS_DEPENDENCIES
     ${COMMON_THIRDPARTY}
     ${KRB5_LIBS}
 )
-
-if (WITH_MYSQL)
-    set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} mysql)
-endif()
 
 if (USE_UNWIND)
     set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} libunwind)

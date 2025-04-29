@@ -113,24 +113,24 @@ void CloudWarmUpManager::handle_jobs() {
                     }
 
                     wait->add_count();
-                    _engine.file_cache_block_downloader().submit_download_task(
-                            io::DownloadFileMeta {
-                                    .path = storage_resource.value()->remote_segment_path(*rs,
-                                                                                          seg_id),
-                                    .file_size = rs->segment_file_size(seg_id),
-                                    .file_system = storage_resource.value()->fs,
-                                    .ctx =
-                                            {
-                                                    .expiration_time = expiration_time,
-                                            },
-                                    .download_done =
-                                            [wait](Status st) {
-                                                if (!st) {
-                                                    LOG_WARNING("Warm up error ").error(st);
-                                                }
-                                                wait->signal();
-                                            },
-                            });
+                    // clang-format off
+                    _engine.file_cache_block_downloader().submit_download_task(io::DownloadFileMeta {
+                            .path = storage_resource.value()->remote_segment_path(*rs, seg_id),
+                            .file_size = rs->segment_file_size(seg_id),
+                            .file_system = storage_resource.value()->fs,
+                            .ctx =
+                                    {
+                                            .expiration_time = expiration_time,
+                                            .is_dryrun = config::enable_reader_dryrun_when_download_file_cache,
+                                    },
+                            .download_done =
+                                    [wait](Status st) {
+                                        if (!st) {
+                                            LOG_WARNING("Warm up error ").error(st);
+                                        }
+                                        wait->signal();
+                                    },
+                    });
 
                     auto download_idx_file = [&](const io::Path& idx_path) {
                         io::DownloadFileMeta meta {
@@ -140,6 +140,7 @@ void CloudWarmUpManager::handle_jobs() {
                                 .ctx =
                                         {
                                                 .expiration_time = expiration_time,
+                                                .is_dryrun = config::enable_reader_dryrun_when_download_file_cache,
                                         },
                                 .download_done =
                                         [wait](Status st) {
@@ -149,6 +150,7 @@ void CloudWarmUpManager::handle_jobs() {
                                             wait->signal();
                                         },
                         };
+                        // clang-format on
                         _engine.file_cache_block_downloader().submit_download_task(std::move(meta));
                     };
                     auto schema_ptr = rs->tablet_schema();

@@ -82,10 +82,6 @@ else()
     add_thirdparty(tcmalloc WHOLELIBPATH ${GPERFTOOLS_HOME}/lib/libtcmalloc.a NOTADD)
 endif()
 
-if (WITH_MYSQL)
-    add_thirdparty(mysql LIBNAME "lib/libmysqlclient.a")
-endif()
-
 if (USE_UNWIND)
     add_thirdparty(libunwind LIBNAME "lib64/libunwind.a")
 endif()
