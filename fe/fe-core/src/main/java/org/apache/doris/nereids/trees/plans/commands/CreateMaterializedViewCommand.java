@@ -104,6 +104,7 @@ import java.util.stream.Collectors;
  * create synchronized materialized view
  */
 public class CreateMaterializedViewCommand extends Command implements ForwardWithSync {
+    private static final String SYNC_MV_PLANER_DISABLE_RULES = "HAVING_TO_FILTER";
     private final TableNameInfo name;
 
     private final LogicalPlan logicalPlan;
@@ -198,10 +199,20 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
             ConnectContext ctx) {
         StatementContext statementContext = ctx.getStatementContext();
         NereidsPlanner planner = new NereidsPlanner(statementContext);
-        // disable constant fold
-        ctx.getSessionVariable().setVarOnce(SessionVariable.DEBUG_SKIP_FOLD_CONSTANT, "true");
-        LogicalPlan plan = (LogicalPlan) planner.planWithLock(unboundPlan, PhysicalProperties.ANY,
-                ExplainCommand.ExplainLevel.ANALYZED_PLAN);
+        Set<String> tempDisableRules = ctx.getSessionVariable().getDisableNereidsRuleNames();
+        ctx.getSessionVariable().setDisableNereidsRules(SYNC_MV_PLANER_DISABLE_RULES);
+        ctx.getStatementContext().invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
+        LogicalPlan plan;
+        try {
+            // disable constant fold
+            ctx.getSessionVariable().setVarOnce(SessionVariable.DEBUG_SKIP_FOLD_CONSTANT, "true");
+            plan = (LogicalPlan) planner.planWithLock(unboundPlan, PhysicalProperties.ANY,
+                    ExplainCommand.ExplainLevel.ANALYZED_PLAN);
+        } finally {
+            // after operate, roll back the disable rules
+            ctx.getSessionVariable().setDisableNereidsRules(String.join(",", tempDisableRules));
+            ctx.getStatementContext().invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
+        }
         return Pair.of(plan, planner.getCascadesContext());
     }
 
@@ -646,7 +657,8 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
                 // if aggregate function use a value column param, the value column must be the one and only param
                 if (aggregateFunction.children().size() != 1 || aggregateFunction.child(0) != aggParamSlot) {
                     throw new AnalysisException(
-                            String.format("only allow %s as %s's param", aggParamSlot, aggregateFunction.getName()));
+                            String.format("only allow single column as %s's param, but meet %s",
+                                    aggregateFunction.getName(), aggregateFunction.child(0)));
                 }
                 // check the value columns' agg type is consistent with aggregate function
                 if (aggregateFunction instanceof Sum) {
