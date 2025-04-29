@@ -96,11 +96,9 @@ public class ExternalSchemaCache {
     }
 
     public void invalidateTableCache(String dbName, String tblName) {
-        SchemaCacheKey key = new SchemaCacheKey(dbName, tblName);
-        schemaCache.invalidate(key);
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("invalid schema cache for {}.{} in catalog {}", dbName, tblName, catalog.getName());
-        }
+        schemaCache.asMap().keySet().stream()
+            .filter(key -> key.dbName.equals(dbName) && key.tblName.equals(tblName))
+            .forEach(schemaCache::invalidate);
     }
 
     public void invalidateDbCache(String dbName) {
