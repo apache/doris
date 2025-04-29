@@ -216,20 +216,26 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::memory_
 template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator>
 void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::memory_check(
         size_t size) const {
-    sys_memory_check(size);
-    memory_tracker_check(size);
+    if (MemoryAllocator::need_check_and_tracking_memory()) {
+        sys_memory_check(size);
+        memory_tracker_check(size);
+    }
 }
 
 template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator>
 void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::consume_memory(
         size_t size) const {
-    CONSUME_THREAD_MEM_TRACKER(size);
+    if (MemoryAllocator::need_check_and_tracking_memory()) {
+        CONSUME_THREAD_MEM_TRACKER(size);
+    }
 }
 
 template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator>
 void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::release_memory(
         size_t size) const {
-    RELEASE_THREAD_MEM_TRACKER(size);
+    if (MemoryAllocator::need_check_and_tracking_memory()) {
+        RELEASE_THREAD_MEM_TRACKER(size);
+    }
 }
 
 template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator>

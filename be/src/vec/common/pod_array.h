@@ -33,6 +33,7 @@
 #include <utility>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "runtime/thread_context.h"
 #include "vec/common/allocator.h" // IWYU pragma: keep
 #include "vec/common/memcpy_small.h"
 
@@ -98,6 +99,7 @@ inline size_t round_up_to_power_of_two_or_zero(size_t n) {
   * TODO Allow greater alignment than alignof(T). Example: array of char aligned to page size.
   */
 static constexpr size_t EmptyPODArraySize = 1024;
+static constexpr size_t BUFFER_SIZE = (1ULL << 21); // 2M
 extern const char empty_pod_array[EmptyPODArraySize];
 
 /** Base class that depend only on size of element, not on element itself.
@@ -122,6 +124,7 @@ protected:
     char* c_start = null; /// Does not include pad_left.
     char* c_end = null;
     char* c_end_of_storage = null; /// Does not include pad_right.
+    char* c_end_peak = null;
 
     /// The amount of memory occupied by the num_elements of the elements.
     static size_t byte_size(size_t num_elements) {
@@ -143,6 +146,28 @@ protected:
         return byte_size(num_elements) + pad_right + pad_left;
     }
 
+    inline void tracking_memory_and_reserve(int64_t tracking_size) {
+        CONSUME_THREAD_MEM_TRACKER(tracking_size);
+        auto st = doris::thread_context()->thread_mem_tracker_mgr->try_reserve(BUFFER_SIZE);
+        if (!st.ok()) {
+            std::string err_msg =
+                    fmt::format("PODArray reserve memory failed, {}.", st.to_string());
+            if (doris::enable_thread_catch_bad_alloc) {
+                LOG(WARNING) << err_msg;
+                throw doris::Exception(doris::ErrorCode::MEM_ALLOC_FAILED, err_msg);
+            } else {
+                LOG_EVERY_N(WARNING, 1024) << err_msg;
+            }
+        }
+    }
+
+    inline void reset_peak() {
+        if (UNLIKELY(c_end - c_end_peak > BUFFER_SIZE)) {
+            tracking_memory_and_reserve(c_end - c_end_peak);
+            c_end_peak = c_end;
+        }
+    }
+
     void alloc_for_num_elements(size_t num_elements) {
         alloc(round_up_to_power_of_two_or_zero(minimum_memory_for_elements(num_elements)));
     }
@@ -151,9 +176,11 @@ protected:
     void alloc(size_t bytes, TAllocatorParams&&... allocator_params) {
         char* allocated = reinterpret_cast<char*>(
                 TAllocator::alloc(bytes, std::forward<TAllocatorParams>(allocator_params)...));
+        tracking_memory_and_reserve(pad_left);
 
         c_start = allocated + pad_left;
         c_end = c_start;
+        c_end_peak = c_start;
         c_end_of_storage = allocated + bytes - pad_right;
 
         if (pad_left) memset(c_start - ELEMENT_SIZE, 0, ELEMENT_SIZE);
@@ -164,6 +191,7 @@ protected:
 
         unprotect();
 
+        tracking_memory_and_reserve(c_end_peak - c_start + pad_left);
         TAllocator::free(c_start - pad_left, allocated_bytes());
     }
 
@@ -177,13 +205,22 @@ protected:
         unprotect();
 
         ptrdiff_t end_diff = c_end - c_start;
+        ptrdiff_t peak_diff = c_end_peak - c_start;
 
+        // Realloc can do 2 possible things:
+        // - expand existing memory region
+        // - allocate new memory block and free the old one
+        // Because we don't know which option will be picked we need to make sure there is enough
+        // memory for all options.
+        tracking_memory_and_reserve(peak_diff);
         char* allocated = reinterpret_cast<char*>(
                 TAllocator::realloc(c_start - pad_left, allocated_bytes(), bytes,
                                     std::forward<TAllocatorParams>(allocator_params)...));
+        tracking_memory_and_reserve(-peak_diff);
 
         c_start = allocated + pad_left;
         c_end = c_start + end_diff;
+        c_end_peak = c_start + peak_diff;
         c_end_of_storage = allocated + bytes - pad_right;
     }
 
@@ -259,7 +296,10 @@ public:
         resize_assume_reserved(n);
     }
 
-    void resize_assume_reserved(const size_t n) { c_end = c_start + byte_size(n); }
+    void resize_assume_reserved(const size_t n) {
+        c_end = c_start + byte_size(n);
+        reset_peak();
+    }
 
     const char* raw_data() const { return c_start; }
 
@@ -270,6 +310,7 @@ public:
 
         memcpy(c_end, ptr, ELEMENT_SIZE);
         c_end += byte_size(1);
+        reset_peak();
     }
 
     void protect() {
@@ -328,6 +369,7 @@ public:
     PODArray(size_t n) {
         this->alloc_for_num_elements(n);
         this->c_end += this->byte_size(n);
+        this->reset_peak();
     }
 
     PODArray(size_t n, const T& x) {
@@ -379,7 +421,10 @@ public:
     const_iterator cend() const { return t_end(); }
 
     void* get_end_ptr() const { return this->c_end; }
-    void set_end_ptr(void* ptr) { this->c_end = (char*)ptr; }
+    void set_end_ptr(void* ptr) {
+        this->c_end = (char*)ptr;
+        this->reset_peak();
+    }
 
     /// Same as resize, but zeroes new elements.
     void resize_fill(size_t n) {
@@ -389,6 +434,7 @@ public:
             memset(this->c_end, 0, this->byte_size(n - old_size));
         }
         this->c_end = this->c_start + this->byte_size(n);
+        this->reset_peak();
     }
 
     void resize_fill(size_t n, const T& value) {
@@ -398,6 +444,7 @@ public:
             std::fill(t_end(), t_end() + n - old_size, value);
         }
         this->c_end = this->c_start + this->byte_size(n);
+        this->reset_peak();
     }
 
     template <typename U, typename... TAllocatorParams>
@@ -408,6 +455,7 @@ public:
 
         new (t_end()) T(std::forward<U>(x));
         this->c_end += this->byte_size(1);
+        this->reset_peak();
     }
 
     template <typename U, typename... TAllocatorParams>
@@ -419,6 +467,7 @@ public:
             }
             std::fill(t_end(), t_end() + num, x);
             this->c_end = new_end;
+            this->reset_peak();
         }
     }
 
@@ -427,6 +476,7 @@ public:
                                          TAllocatorParams&&... allocator_params) {
         std::fill(t_end(), t_end() + num, x);
         this->c_end += sizeof(T) * num;
+        this->reset_peak();
     }
 
     /**
@@ -437,6 +487,7 @@ public:
     void push_back_without_reserve(U&& x, TAllocatorParams&&... allocator_params) {
         new (t_end()) T(std::forward<U>(x));
         this->c_end += this->byte_size(1);
+        this->reset_peak();
     }
 
     /** This method doesn't allow to pass parameters for Allocator,
@@ -450,6 +501,7 @@ public:
 
         new (t_end()) T(std::forward<Args>(args)...);
         this->c_end += this->byte_size(1);
+        this->reset_peak();
     }
 
     void pop_back() { this->c_end -= this->byte_size(1); }
@@ -482,6 +534,7 @@ public:
         memcpy_small_allow_read_write_overflow15(
                 this->c_end, reinterpret_cast<const void*>(&*from_begin), bytes_to_copy);
         this->c_end += bytes_to_copy;
+        this->reset_peak();
     }
 
     template <typename It1, typename It2>
@@ -501,6 +554,7 @@ public:
         memcpy(this->c_end - bytes_to_move, reinterpret_cast<const void*>(&*from_begin),
                bytes_to_copy);
         this->c_end += bytes_to_copy;
+        this->reset_peak();
     }
 
     template <typename It1, typename It2>
@@ -509,6 +563,7 @@ public:
         size_t bytes_to_copy = this->byte_size(from_end - from_begin);
         memcpy(this->c_end, reinterpret_cast<const void*>(&*from_begin), bytes_to_copy);
         this->c_end += bytes_to_copy;
+        this->reset_peak();
     }
 
     template <typename It1, typename It2>
@@ -517,6 +572,7 @@ public:
         memcpy_small_allow_read_write_overflow15(
                 this->c_end, reinterpret_cast<const void*>(&*from_begin), bytes_to_copy);
         this->c_end += bytes_to_copy;
+        this->reset_peak();
     }
 
     void swap(PODArray& rhs) {
@@ -534,9 +590,11 @@ public:
         auto swap_stack_heap = [this](PODArray& arr1, PODArray& arr2) {
             size_t stack_size = arr1.size();
             size_t stack_allocated = arr1.allocated_bytes();
+            size_t stack_peak_used = arr1.c_end_peak - arr1.c_start;
 
             size_t heap_size = arr2.size();
             size_t heap_allocated = arr2.allocated_bytes();
+            size_t heap_peak_used = arr2.c_end_peak - arr2.c_start;
 
             /// Keep track of the stack content we have to copy.
             char* stack_c_start = arr1.c_start;
@@ -545,12 +603,14 @@ public:
             arr1.c_start = arr2.c_start;
             arr1.c_end_of_storage = arr1.c_start + heap_allocated - arr2.pad_right - arr2.pad_left;
             arr1.c_end = arr1.c_start + this->byte_size(heap_size);
+            arr1.c_end_peak = arr1.c_start + heap_peak_used;
 
             /// Allocate stack space for arr2.
             arr2.alloc(stack_allocated);
             /// Copy the stack content.
             memcpy(arr2.c_start, stack_c_start, this->byte_size(stack_size));
             arr2.c_end = arr2.c_start + this->byte_size(stack_size);
+            arr2.c_end_peak = arr2.c_start + stack_peak_used;
         };
 
         auto do_move = [this](PODArray& src, PODArray& dest) {
@@ -559,14 +619,17 @@ public:
                 dest.alloc(src.allocated_bytes());
                 memcpy(dest.c_start, src.c_start, this->byte_size(src.size()));
                 dest.c_end = dest.c_start + this->byte_size(src.size());
+                dest.c_end_peak = dest.c_start + (src.c_end_peak - src.c_start);
 
                 src.c_start = Base::null;
                 src.c_end = Base::null;
                 src.c_end_of_storage = Base::null;
+                src.c_end_peak = Base::null;
             } else {
                 std::swap(dest.c_start, src.c_start);
                 std::swap(dest.c_end, src.c_end);
                 std::swap(dest.c_end_of_storage, src.c_end_of_storage);
+                std::swap(dest.c_end_peak, src.c_end_peak);
             }
         };
 
@@ -594,9 +657,11 @@ public:
 
             size_t lhs_size = this->size();
             size_t lhs_allocated = this->allocated_bytes();
+            size_t lhs_peak_used = this->c_end_peak - this->c_start;
 
             size_t rhs_size = rhs.size();
             size_t rhs_allocated = rhs.allocated_bytes();
+            size_t rhs_peak_used = rhs.c_end_peak - rhs.c_start;
 
             this->c_end_of_storage =
                     this->c_start + rhs_allocated - Base::pad_right - Base::pad_left;
@@ -604,6 +669,9 @@ public:
 
             this->c_end = this->c_start + this->byte_size(rhs_size);
             rhs.c_end = rhs.c_start + this->byte_size(lhs_size);
+
+            this->c_end_peak = this->c_start + rhs_peak_used;
+            rhs.c_end_peak = rhs.c_start + lhs_peak_used;
         } else if (this->is_allocated_from_stack() && !rhs.is_allocated_from_stack()) {
             swap_stack_heap(*this, rhs);
         } else if (!this->is_allocated_from_stack() && rhs.is_allocated_from_stack()) {
@@ -612,6 +680,7 @@ public:
             std::swap(this->c_start, rhs.c_start);
             std::swap(this->c_end, rhs.c_end);
             std::swap(this->c_end_of_storage, rhs.c_end_of_storage);
+            std::swap(this->c_end_peak, rhs.c_end_peak);
         }
     }
 
@@ -630,6 +699,7 @@ public:
         size_t bytes_to_copy = this->byte_size(required_capacity);
         memcpy(this->c_start, reinterpret_cast<const void*>(&*from_begin), bytes_to_copy);
         this->c_end = this->c_start + bytes_to_copy;
+        this->reset_peak();
     }
 
     void assign(const PODArray& from) { assign(from.begin(), from.end()); }

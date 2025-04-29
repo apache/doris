@@ -112,6 +112,13 @@ public:
                   nullptr, 0);
 #endif // defined(USE_JEMALLOC)
     }
+
+    static constexpr bool need_check_and_tracking_memory() { return true; }
+};
+
+class NoTrackingDefaultMemoryAllocator : public DefaultMemoryAllocator {
+public:
+    static constexpr bool need_check_and_tracking_memory() { return false; }
 };
 
 /** It would be better to put these Memory Allocators where they are used, such as in the orc memory pool and arrow memory pool.
@@ -139,6 +146,8 @@ public:
     static void free(void* p) __THROW { std::free(p); }
 
     static void release_unused() {}
+
+    static constexpr bool need_check_and_tracking_memory() { return true; }
 };
 
 class RecordSizeMemoryAllocator {
@@ -207,6 +216,8 @@ public:
     }
 
     static void release_unused() {}
+
+    static constexpr bool need_check_and_tracking_memory() { return true; }
 
 private:
     static std::unordered_map<void*, size_t> _allocated_sizes;
@@ -338,7 +349,12 @@ public:
             return buf;
         }
         memory_check(new_size);
-        consume_memory(new_size - old_size);
+        // Realloc can do 2 possible things:
+        // - expand existing memory region
+        // - allocate new memory block and free the old one
+        // Because we don't know which option will be picked we need to make sure there is enough
+        // memory for all options.
+        consume_memory(new_size);
 
         if (!use_mmap ||
             (old_size < doris::config::mmap_threshold && new_size < doris::config::mmap_threshold &&
@@ -347,7 +363,7 @@ public:
             /// Resize malloc'd memory region with no special alignment requirement.
             void* new_buf = MemoryAllocator::realloc(buf, new_size);
             if (nullptr == new_buf) {
-                release_memory(new_size - old_size);
+                release_memory(new_size);
                 throw_bad_alloc(fmt::format("Allocator: Cannot realloc from {} to {}.", old_size,
                                             new_size));
             }
@@ -355,6 +371,7 @@ public:
             add_address_sanitizers(new_buf, new_size);
 
             buf = new_buf;
+            release_memory(old_size);
             if constexpr (clear_memory)
                 if (new_size > old_size)
                     memset(reinterpret_cast<char*>(buf) + old_size, 0, new_size - old_size);
@@ -365,10 +382,11 @@ public:
             buf = clickhouse_mremap(buf, old_size, new_size, MREMAP_MAYMOVE, PROT_READ | PROT_WRITE,
                                     mmap_flags, -1, 0);
             if (MAP_FAILED == buf) {
-                release_memory(new_size - old_size);
+                release_memory(new_size);
                 throw_bad_alloc(fmt::format("Allocator: Cannot mremap memory chunk from {} to {}.",
                                             old_size, new_size));
             }
+            release_memory(old_size);
 
             /// No need for zero-fill, because mmap guarantees it.
 
@@ -386,6 +404,7 @@ public:
             remove_address_sanitizers(buf, old_size);
             free(buf, old_size);
             buf = new_buf;
+            release_memory(old_size);
         }
 
         return buf;
