@@ -117,7 +117,9 @@ public:
         return {reinterpret_cast<const char*>(&_data[n * _item_size]), _item_size};
     }
 
-    void insert(const Field& x) override { LOG(FATAL) << "insert not supported"; }
+    void insert(const Field& x) override {
+        throw doris::Exception("ColumnFixedLengthObject do not support insert");
+    }
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override {
         const auto& src_col = assert_cast<const ColumnFixedLengthObject&>(src);
@@ -162,17 +164,18 @@ public:
         memset(&_data[old_size * _item_size], 0, _item_size);
     }
 
-    void pop_back(size_t n) override { LOG(FATAL) << "pop_back not supported"; }
+    void pop_back(size_t n) override {
+        throw doris::Exception("ColumnFixedLengthObject do not support pop_back");
+    }
 
     StringRef serialize_value_into_arena(size_t n, Arena& arena,
                                          char const*& begin) const override {
-        LOG(FATAL) << "serialize_value_into_arena not supported";
-        __builtin_unreachable();
+        throw doris::Exception("ColumnFixedLengthObject do not support serialize_value_into_arena");
     }
 
     const char* deserialize_and_insert_from_arena(const char* pos) override {
-        LOG(FATAL) << "deserialize_and_insert_from_arena not supported";
-        __builtin_unreachable();
+        throw doris::Exception(
+                "ColumnFixedLengthObject do not support deserialize_and_insert_from_arena");
     }
 
     void update_hash_with_value(size_t n, SipHash& hash) const override {
@@ -181,41 +184,35 @@ public:
 
     [[noreturn]] ColumnPtr filter(const IColumn::Filter& filt,
                                   ssize_t result_size_hint) const override {
-        LOG(FATAL) << "filter not supported";
-        __builtin_unreachable();
+        throw doris::Exception("ColumnFixedLengthObject do not support filter");
     }
 
     [[noreturn]] size_t filter(const IColumn::Filter&) override {
-        LOG(FATAL) << "filter not supported";
-        __builtin_unreachable();
+        throw doris::Exception("ColumnFixedLengthObject do not support filter");
     }
 
     [[noreturn]] ColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override {
-        LOG(FATAL) << "permute not supported";
-        __builtin_unreachable();
+        throw doris::Exception("ColumnFixedLengthObject do not support permute");
     }
 
     [[noreturn]] int compare_at(size_t n, size_t m, const IColumn& rhs,
                                 int nan_direction_hint) const override {
-        LOG(FATAL) << "compare_at not supported";
-        __builtin_unreachable();
+        throw doris::Exception("ColumnFixedLengthObject do not support compare_at");
     }
 
     void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
                          IColumn::Permutation& res) const override {
-        LOG(FATAL) << "get_permutation not supported";
-        __builtin_unreachable();
+        throw doris::Exception("ColumnFixedLengthObject do not support get_permutation");
     }
 
     ColumnPtr index(const IColumn& indexes, size_t limit) const override {
-        LOG(FATAL) << "index not supported";
-        __builtin_unreachable();
+        throw doris::Exception("ColumnFixedLengthObject do not support index");
     }
 
     void get_indices_of_non_default_rows(IColumn::Offsets64& indices, size_t from,
                                          size_t limit) const override {
-        LOG(FATAL) << "get_indices_of_non_default_rows not supported in ColumnDictionary";
-        __builtin_unreachable();
+        throw doris::Exception(
+                "ColumnFixedLengthObject do not support get_indices_of_non_default_rows");
     }
 
     ColumnPtr replicate(const IColumn::Offsets& offsets) const override {
@@ -274,8 +271,8 @@ public:
     }
 
     void replace_column_data_default(size_t self_row = 0) override {
-        LOG(FATAL) << "replace_column_data_default not supported";
-        __builtin_unreachable();
+        throw doris::Exception(
+                "ColumnFixedLengthObject do not support replace_column_data_default");
     }
 
     void insert_many_continuous_binary_data(const char* data, const uint32_t* offsets,
