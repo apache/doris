@@ -237,11 +237,34 @@ private:
 template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator>
 class Allocator {
 public:
+    // Allocate memory range.
+    void* alloc(size_t size, size_t alignment = 0);
+
+    /** Enlarge memory range.
+      * Data from old range is moved to the beginning of new range.
+      * Address of memory range could change.
+      */
+    void* realloc(void* buf, size_t old_size, size_t new_size, size_t alignment = 0);
+
+    // Free memory range.
+    void free(void* buf, size_t size);
+
+    void release_unused() { MemoryAllocator::release_unused(); }
+
+protected:
+    static constexpr size_t get_stack_threshold() { return 0; }
+
+    bool sys_memory_exceed(size_t size, std::string* err_msg) const;
+    bool memory_tracker_exceed(size_t size, std::string* err_msg) const;
+
+private:
     void sys_memory_check(size_t size) const;
     void memory_tracker_check(size_t size) const;
     // If sys memory or tracker exceeds the limit, but there is no external catch bad_alloc,
     // alloc will continue to execute, so the consume memtracker is forced.
     void memory_check(size_t size) const;
+    void alloc_fault_probability() const;
+
     // Increases consumption of this tracker by 'bytes'.
     // some special cases:
     // 1. objects that inherit Allocator will not be shared by multiple queries.
@@ -255,163 +278,6 @@ public:
     void throw_bad_alloc(const std::string& err) const;
     void add_address_sanitizers(void* buf, size_t size) const;
     void remove_address_sanitizers(void* buf, size_t size) const;
-
-    void* alloc(size_t size, size_t alignment = 0);
-    void* realloc(void* buf, size_t old_size, size_t new_size, size_t alignment = 0);
-
-    /// Allocate memory range.
-    void* alloc_impl(size_t size, size_t alignment = 0) {
-        memory_check(size);
-        // consume memory in tracker before alloc, similar to early declaration.
-        consume_memory(size);
-        void* buf;
-        size_t record_size = size;
-
-        if (use_mmap && size >= doris::config::mmap_threshold) {
-            if (alignment > MMAP_MIN_ALIGNMENT)
-                throw doris::Exception(
-                        doris::ErrorCode::INVALID_ARGUMENT,
-                        "Too large alignment {}: more than page size when allocating {}.",
-                        alignment, size);
-
-            buf = mmap(nullptr, size, PROT_READ | PROT_WRITE, mmap_flags, -1, 0);
-            if (MAP_FAILED == buf) {
-                release_memory(size);
-                throw_bad_alloc(fmt::format("Allocator: Cannot mmap {}.", size));
-            }
-            if constexpr (MemoryAllocator::need_record_actual_size()) {
-                record_size = MemoryAllocator::allocated_size(buf);
-            }
-
-            /// No need for zero-fill, because mmap guarantees it.
-        } else {
-            if (alignment <= MALLOC_MIN_ALIGNMENT) {
-                if constexpr (clear_memory)
-                    buf = MemoryAllocator::calloc(size, 1);
-                else
-                    buf = MemoryAllocator::malloc(size);
-
-                if (nullptr == buf) {
-                    release_memory(size);
-                    throw_bad_alloc(fmt::format("Allocator: Cannot malloc {}.", size));
-                }
-                if constexpr (MemoryAllocator::need_record_actual_size()) {
-                    record_size = MemoryAllocator::allocated_size(buf);
-                }
-                add_address_sanitizers(buf, record_size);
-            } else {
-                buf = nullptr;
-                int res = MemoryAllocator::posix_memalign(&buf, alignment, size);
-
-                if (0 != res) {
-                    release_memory(size);
-                    throw_bad_alloc(
-                            fmt::format("Cannot allocate memory (posix_memalign) {}.", size));
-                }
-
-                if constexpr (clear_memory) memset(buf, 0, size);
-
-                if constexpr (MemoryAllocator::need_record_actual_size()) {
-                    record_size = MemoryAllocator::allocated_size(buf);
-                }
-                add_address_sanitizers(buf, record_size);
-            }
-        }
-        if constexpr (MemoryAllocator::need_record_actual_size()) {
-            consume_memory(record_size - size);
-        }
-        return buf;
-    }
-
-    /// Free memory range.
-    void free(void* buf, size_t size) {
-        if (use_mmap && size >= doris::config::mmap_threshold) {
-            if (0 != munmap(buf, size)) {
-                throw_bad_alloc(fmt::format("Allocator: Cannot munmap {}.", size));
-            }
-        } else {
-            remove_address_sanitizers(buf, size);
-            MemoryAllocator::free(buf);
-        }
-        release_memory(size);
-    }
-
-    void release_unused() { MemoryAllocator::release_unused(); }
-
-    /** Enlarge memory range.
-      * Data from old range is moved to the beginning of new range.
-      * Address of memory range could change.
-      */
-    void* realloc_impl(void* buf, size_t old_size, size_t new_size, size_t alignment = 0) {
-        if (old_size == new_size) {
-            /// nothing to do.
-            /// BTW, it's not possible to change alignment while doing realloc.
-            return buf;
-        }
-        memory_check(new_size);
-        // Realloc can do 2 possible things:
-        // - expand existing memory region
-        // - allocate new memory block and free the old one
-        // Because we don't know which option will be picked we need to make sure there is enough
-        // memory for all options.
-        consume_memory(new_size);
-
-        if (!use_mmap ||
-            (old_size < doris::config::mmap_threshold && new_size < doris::config::mmap_threshold &&
-             alignment <= MALLOC_MIN_ALIGNMENT)) {
-            remove_address_sanitizers(buf, old_size);
-            /// Resize malloc'd memory region with no special alignment requirement.
-            void* new_buf = MemoryAllocator::realloc(buf, new_size);
-            if (nullptr == new_buf) {
-                release_memory(new_size);
-                throw_bad_alloc(fmt::format("Allocator: Cannot realloc from {} to {}.", old_size,
-                                            new_size));
-            }
-            // usually, buf addr = new_buf addr, asan maybe not equal.
-            add_address_sanitizers(new_buf, new_size);
-
-            buf = new_buf;
-            release_memory(old_size);
-            if constexpr (clear_memory)
-                if (new_size > old_size)
-                    memset(reinterpret_cast<char*>(buf) + old_size, 0, new_size - old_size);
-        } else if (old_size >= doris::config::mmap_threshold &&
-                   new_size >= doris::config::mmap_threshold) {
-            /// Resize mmap'd memory region.
-            // On apple and freebsd self-implemented mremap used (common/mremap.h)
-            buf = clickhouse_mremap(buf, old_size, new_size, MREMAP_MAYMOVE, PROT_READ | PROT_WRITE,
-                                    mmap_flags, -1, 0);
-            if (MAP_FAILED == buf) {
-                release_memory(new_size);
-                throw_bad_alloc(fmt::format("Allocator: Cannot mremap memory chunk from {} to {}.",
-                                            old_size, new_size));
-            }
-            release_memory(old_size);
-
-            /// No need for zero-fill, because mmap guarantees it.
-
-            if constexpr (mmap_populate) {
-                // MAP_POPULATE seems have no effect for mremap as for mmap,
-                // Clear enlarged memory range explicitly to pre-fault the pages
-                if (new_size > old_size)
-                    memset(reinterpret_cast<char*>(buf) + old_size, 0, new_size - old_size);
-            }
-        } else {
-            // Big allocs that requires a copy.
-            void* new_buf = alloc(new_size, alignment);
-            memcpy(new_buf, buf, std::min(old_size, new_size));
-            add_address_sanitizers(new_buf, new_size);
-            remove_address_sanitizers(buf, old_size);
-            free(buf, old_size);
-            buf = new_buf;
-            release_memory(old_size);
-        }
-
-        return buf;
-    }
-
-protected:
-    static constexpr size_t get_stack_threshold() { return 0; }
 
     static constexpr bool clear_memory = clear_memory_;
 

@@ -323,10 +323,10 @@ inline doris::Status ThreadMemTrackerMgr::try_reserve(int64_t size, TryReserveCh
                     "reserve memory failed, size: {}, because query memory exceeded, memory "
                     "tracker: {}, "
                     "consumption: {}, limit: {}, peak: {}",
-                    MemCounter::print_bytes(size), _limiter_tracker->label(),
-                    MemCounter::print_bytes(_limiter_tracker->consumption()),
-                    MemCounter::print_bytes(_limiter_tracker->limit()),
-                    MemCounter::print_bytes(_limiter_tracker->peak_consumption()));
+                    PrettyPrinter::print_bytes(size), _limiter_tracker->label(),
+                    PrettyPrinter::print_bytes(_limiter_tracker->consumption()),
+                    PrettyPrinter::print_bytes(_limiter_tracker->limit()),
+                    PrettyPrinter::print_bytes(_limiter_tracker->peak_consumption()));
             return doris::Status::Error<ErrorCode::QUERY_MEMORY_EXCEEDED>(err_msg);
         }
     } else {
@@ -339,7 +339,7 @@ inline doris::Status ThreadMemTrackerMgr::try_reserve(int64_t size, TryReserveCh
                 auto err_msg = fmt::format(
                         "reserve memory failed, size: {}, because workload group memory exceeded, "
                         "workload group: {}",
-                        MemCounter::print_bytes(size), wg_ptr->memory_debug_string());
+                        PrettyPrinter::print_bytes(size), wg_ptr->memory_debug_string());
                 _limiter_tracker->release(size);         // rollback
                 _limiter_tracker->shrink_reserved(size); // rollback
                 return doris::Status::Error<ErrorCode::WORKLOAD_GROUP_MEMORY_EXCEEDED>(err_msg);
@@ -353,7 +353,8 @@ inline doris::Status ThreadMemTrackerMgr::try_reserve(int64_t size, TryReserveCh
         if (!doris::GlobalMemoryArbitrator::try_reserve_process_memory(size)) {
             auto err_msg = fmt::format(
                     "reserve memory failed, size: {}, because proccess memory exceeded, {}",
-                    MemCounter::print_bytes(size), GlobalMemoryArbitrator::process_mem_log_str());
+                    PrettyPrinter::print_bytes(size),
+                    GlobalMemoryArbitrator::process_mem_log_str());
             _limiter_tracker->release(size);         // rollback
             _limiter_tracker->shrink_reserved(size); // rollback
             if (wg_ptr) {

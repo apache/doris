@@ -146,12 +146,16 @@ protected:
         return byte_size(num_elements) + pad_right + pad_left;
     }
 
-    inline void tracking_memory_and_reserve(int64_t tracking_size) {
-        CONSUME_THREAD_MEM_TRACKER(tracking_size);
-        auto st = doris::thread_context()->thread_mem_tracker_mgr->try_reserve(BUFFER_SIZE);
-        if (!st.ok()) {
-            std::string err_msg =
-                    fmt::format("PODArray reserve memory failed, {}.", st.to_string());
+    // `tracking_and_check_memory` is called after alloc memory.
+    inline void tracking_and_check_memory(int64_t size) {
+        CONSUME_THREAD_MEM_TRACKER(size);
+        std::string err_msg;
+        // After `CONSUME_THREAD_MEM_TRACKER`, it is considered that `size` has been updated
+        // to the process memory and mem tracker.
+        // check whether BUFFER_SIZE can be allocated again.
+        if (TAllocator::sys_memory_exceed(BUFFER_SIZE, &err_msg) ||
+            TAllocator::memory_tracker_exceed(BUFFER_SIZE, &err_msg)) {
+            err_msg = fmt::format("PODArray reserve memory failed, {}.", err_msg);
             if (doris::enable_thread_catch_bad_alloc) {
                 LOG(WARNING) << err_msg;
                 throw doris::Exception(doris::ErrorCode::MEM_ALLOC_FAILED, err_msg);
@@ -163,7 +167,7 @@ protected:
 
     inline void reset_peak() {
         if (UNLIKELY(c_end - c_end_peak > BUFFER_SIZE)) {
-            tracking_memory_and_reserve(c_end - c_end_peak);
+            tracking_and_check_memory(c_end - c_end_peak);
             c_end_peak = c_end;
         }
     }
@@ -176,7 +180,7 @@ protected:
     void alloc(size_t bytes, TAllocatorParams&&... allocator_params) {
         char* allocated = reinterpret_cast<char*>(
                 TAllocator::alloc(bytes, std::forward<TAllocatorParams>(allocator_params)...));
-        tracking_memory_and_reserve(pad_left);
+        tracking_and_check_memory(pad_left);
 
         c_start = allocated + pad_left;
         c_end = c_start;
@@ -191,7 +195,7 @@ protected:
 
         unprotect();
 
-        tracking_memory_and_reserve(c_end_peak - c_start + pad_left);
+        tracking_and_check_memory(c_end_peak - c_start + pad_left);
         TAllocator::free(c_start - pad_left, allocated_bytes());
     }
 
@@ -212,11 +216,11 @@ protected:
         // - allocate new memory block and free the old one
         // Because we don't know which option will be picked we need to make sure there is enough
         // memory for all options.
-        tracking_memory_and_reserve(peak_diff);
+        tracking_and_check_memory(peak_diff);
         char* allocated = reinterpret_cast<char*>(
                 TAllocator::realloc(c_start - pad_left, allocated_bytes(), bytes,
                                     std::forward<TAllocatorParams>(allocator_params)...));
-        tracking_memory_and_reserve(-peak_diff);
+        tracking_and_check_memory(-peak_diff);
 
         c_start = allocated + pad_left;
         c_end = c_start + end_diff;
