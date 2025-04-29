@@ -454,7 +454,11 @@ public class DictionaryManager extends MasterDaemon implements Writable {
                 dictionary.trySetStatus(oldStatus); // revert status.
                 // already dropped. abort temporary version without lock.
                 // haven't increase version so use getVersion() + 1
-                abortNextVersion(ctx, dictionary, dictionary.getVersion() + 1);
+                if (ctx.getStatementContext().isPartialLoadDictionary()) {
+                    abortNextVersion(ctx, dictionary, dictionary.getVersion());
+                } else {
+                    abortNextVersion(ctx, dictionary, dictionary.getVersion() + 1);
+                }
                 throw new RuntimeException("Dictionary " + dictionary.getName() + " has been dropped during loading");
             }
             // need under read lock here.

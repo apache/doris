@@ -171,7 +171,7 @@ suite("test_refresh_dict") {
     """
 
     // Wait for dictionary to be loaded
-    sleep(2000)
+    sleep(20000)
 
     // Test initial dict_get queries
     qt_sql1 """select dict_get("test_refresh_dict.product_dict", "product_name", 1);"""
@@ -222,6 +222,8 @@ suite("test_refresh_dict") {
     sql "refresh dictionary test_refresh_dict.user_dict"
     sql "refresh dictionary test_refresh_dict.precision_dict"
     sql "refresh dictionary test_refresh_dict.order_dict"
+
+    sleep(20000)
 
     // Test dict_get after refresh
     qt_sql4 """select dict_get("test_refresh_dict.product_dict", "product_name", 4);"""

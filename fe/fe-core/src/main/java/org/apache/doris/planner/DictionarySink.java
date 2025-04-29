@@ -39,8 +39,6 @@ public class DictionarySink extends DataSink {
     private final boolean allowAdaptiveLoad;
     // if full load, keep it null.
     private List<Backend> partialLoadBes = null;
-    // if we decided to do partial load in UnassignedAllBEJob, set this flag to true.
-    private boolean usingPartialLoad = false;
 
     public DictionarySink(Dictionary dictionary, boolean allowAdaptiveLoad, List<String> columnNames) {
         this.dictionary = dictionary;
@@ -64,10 +62,6 @@ public class DictionarySink extends DataSink {
         return partialLoadBes;
     }
 
-    public void setUsingPartialLoad(boolean usingPartialLoad) {
-        this.usingPartialLoad = usingPartialLoad;
-    }
-
     @Override
     public String getExplainString(String prefix, TExplainLevel explainLevel) {
         StringBuilder strBuilder = new StringBuilder();
@@ -83,7 +77,7 @@ public class DictionarySink extends DataSink {
 
         TDictionarySink tDictionarySink = new TDictionarySink();
         tDictionarySink.setDictionaryId(dictionary.getId());
-        if (usingPartialLoad) {
+        if (this.partialLoadBes != null) { // for partial load
             tDictionarySink.setVersionId(dictionary.getVersion()); // complete existing version
         } else {
             tDictionarySink.setVersionId(dictionary.getVersion() + 1); // refresh make a new version

@@ -76,7 +76,6 @@ public class UnassignedAllBEJob extends AbstractUnassignedJob {
                 // try to load only for the BEs which is outdated
                 bes = computePartiallLoad(workerManager, inputJobs, dictionary, sink);
                 statementContext.setPartialLoadDictionary(true);
-                sink.setUsingPartialLoad(true);
             }
         } else {
             // we explicitly request all BEs to load data. or ExternalTable. (or EmptySetNode - should not happen)

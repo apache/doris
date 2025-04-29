@@ -694,9 +694,8 @@ public class BindSink implements AnalysisRuleFactory {
         // for sink columns D|B|A, link them with child's outputs
         for (Column column : sinkSchema) {
             if (upstreamOutputs.containsKey(column.getName())) {
-                // TODO: for dictionary the type should be exactly same. try to remove TypeCoercion here
-                Alias output = new Alias(TypeCoercionUtils.castIfNotSameType(upstreamOutputs.get(column.getName()),
-                        DataType.fromCatalogType(column.getType())), column.getName());
+                // dictionary's type must be same with source table.
+                Alias output = new Alias(upstreamOutputs.get(column.getName()), column.getName());
                 columnToOutput.put(column.getName(), output);
             } else {
                 throw new AnalysisException("Unknown column " + column.getName());

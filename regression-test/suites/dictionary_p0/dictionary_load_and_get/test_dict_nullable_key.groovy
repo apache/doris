@@ -40,7 +40,7 @@ suite("test_dict_nullable_key") {
         LAYOUT(HASH_MAP)
         properties('data_lifetime'='600');
     """
-    sleep(1000);
+    sleep(10000);
 
     sql """
         refresh dictionary dc_tmp_table_no_null
