@@ -78,10 +78,12 @@ public:
      * Drops a cluster
      *
      * @param cluster cluster to drop, only cluster name and cluster id are concered
+     * @param safe_drop if true, check if cluster is drop in safe time
      * @return empty string for success, otherwise failure reason returned
      */
     virtual std::pair<MetaServiceCode, std::string> drop_cluster(const std::string& instance_id,
-                                                                 const ClusterInfo& cluster);
+                                                                 const ClusterInfo& cluster,
+                                                                 bool safe_drop_on_sql_cluster = true);
 
     /**
      * Update a cluster
