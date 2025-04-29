@@ -86,7 +86,7 @@ struct MockAggsinkOperator : public AggSinkOperatorX {
 
 struct MockAggSourceOperator : public AggSourceOperatorX {
     MockAggSourceOperator() = default;
-    RowDescriptor& row_descriptor() override { return *mock_row_descriptor; }
+    const RowDescriptor& row_descriptor() override { return *mock_row_descriptor; }
     std::unique_ptr<RowDescriptor> mock_row_descriptor;
 };
 
