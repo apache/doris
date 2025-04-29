@@ -1017,6 +1017,13 @@ identifierOrTextOrAsterisk
     | ASTERISK
     ;
 
+identifierOrTextOrParen
+    : identifier
+    | STRING_LITERAL
+    | LEFT_PAREN
+    | RIGHT_PAREN
+    ;
+
 multipartIdentifierOrAsterisk
     : parts+=identifierOrAsterisk (DOT parts+=identifierOrAsterisk)*
     ;
@@ -1269,9 +1276,12 @@ hintStatement
     ;
 
 hintAssignment
-    : key=identifierOrText (EQ (constantValue=constant | identifierValue=identifier))?
+    : (key=identifierOrTextOrParen | distribute=distributeHintType) (EQ (constantValue=constant | identifierValue=identifier))?
     | constant
     ;
+
+distributeHintType
+    : LEFT_BRACKET (SHUFFLE | BROADCAST) RIGHT_BRACKET;
 
 updateAssignment
     : col=multipartIdentifier EQ (expression | DEFAULT)
@@ -1819,6 +1829,7 @@ nonReserved
     | BLOB
     | BOOLEAN
     | BRIEF
+    | BROADCAST
     | BROKER
     | BUCKETS
     | BUILD
@@ -2062,6 +2073,7 @@ nonReserved
     | SESSION
     | SESSION_USER
     | SHAPE
+    | SHUFFLE
     | SKEW
     | SNAPSHOT
     | SONAME

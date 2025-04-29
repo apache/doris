@@ -56,7 +56,7 @@ suite("query15") {
     qt_ds_shape_15 '''
     explain shape plan
     select  
-    /*+ leading(catalog_sales date_dim {customer customer_address}) */
+    /*+ leading(catalog_sales date_dim (customer customer_address)) */
     ca_zip
        ,sum(cs_sales_price)
  from catalog_sales

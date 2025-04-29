@@ -433,6 +433,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.hint.DistributeHint;
+import org.apache.doris.nereids.hint.LeadingHint;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.properties.SelectHint;
 import org.apache.doris.nereids.properties.SelectHintLeading;
@@ -1096,7 +1097,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 }
                 for (HintAssignmentContext kv : hintStatement.parameters) {
                     if (kv.key != null) {
-                        String parameterName = visitIdentifierOrText(kv.key);
+                        String parameterName = visitIdentifierOrTextOrParen(kv.key);
                         Optional<String> value = Optional.empty();
                         if (kv.constantValue != null) {
                             Literal literal = (Literal) visit(kv.constantValue);
@@ -2021,6 +2022,19 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public String visitIdentifierOrText(DorisParser.IdentifierOrTextContext ctx) {
         if (ctx.STRING_LITERAL() != null) {
             return ctx.STRING_LITERAL().getText().substring(1, ctx.STRING_LITERAL().getText().length() - 1);
+        } else {
+            return ctx.identifier().getText();
+        }
+    }
+
+    @Override
+    public String visitIdentifierOrTextOrParen(DorisParser.IdentifierOrTextOrParenContext ctx) {
+        if (ctx.LEFT_PAREN() != null) {
+            return ctx.LEFT_PAREN().getText();
+        } else if (ctx.RIGHT_PAREN() != null) {
+            return ctx.RIGHT_PAREN().getText();
+        } else if (ctx.STRING_LITERAL() != null) {
+            return stripQuotes(ctx.STRING_LITERAL().getText());
         } else {
             return ctx.identifier().getText();
         }
@@ -3845,7 +3859,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                             Map<String, Optional<String>> parameters = Maps.newLinkedHashMap();
                             for (HintAssignmentContext kv : hintStatement.parameters) {
                                 if (kv.key != null) {
-                                    String parameterName = visitIdentifierOrText(kv.key);
+                                    String parameterName = visitIdentifierOrTextOrParen(kv.key);
                                     Optional<String> value = Optional.empty();
                                     if (kv.constantValue != null) {
                                         Literal literal = (Literal) visit(kv.constantValue);
@@ -3863,10 +3877,17 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                             break;
                         case "leading":
                             List<String> leadingParameters = new ArrayList<>();
+                            int distributeIndex = 1;
                             for (HintAssignmentContext kv : hintStatement.parameters) {
                                 if (kv.key != null) {
-                                    String parameterName = visitIdentifierOrText(kv.key);
+                                    String parameterName = visitIdentifierOrTextOrParen(kv.key);
                                     leadingParameters.add(parameterName);
+                                } else if (kv.distributeHintType() != null) {
+                                    if (kv.distributeHintType().BROADCAST() != null) {
+                                        leadingParameters.add(LeadingHint.BROADCAST + "_" + distributeIndex++);
+                                    } else {
+                                        leadingParameters.add(LeadingHint.SHUFFLE + "_" + distributeIndex++);
+                                    }
                                 }
                             }
                             hints.add(new SelectHintLeading(hintName, leadingParameters));
@@ -3878,7 +3899,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                             List<String> useRuleParameters = new ArrayList<>();
                             for (HintAssignmentContext kv : hintStatement.parameters) {
                                 if (kv.key != null) {
-                                    String parameterName = visitIdentifierOrText(kv.key);
+                                    String parameterName = visitIdentifierOrTextOrParen(kv.key);
                                     useRuleParameters.add(parameterName);
                                 }
                             }
@@ -3887,7 +3908,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                         case "no_use_cbo_rule":
                             List<String> noUseRuleParameters = new ArrayList<>();
                             for (HintAssignmentContext kv : hintStatement.parameters) {
-                                String parameterName = visitIdentifierOrText(kv.key);
+                                String parameterName = visitIdentifierOrTextOrParen(kv.key);
                                 if (kv.key != null) {
                                     noUseRuleParameters.add(parameterName);
                                 }
