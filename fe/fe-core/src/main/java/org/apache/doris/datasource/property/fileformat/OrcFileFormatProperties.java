@@ -24,9 +24,20 @@ import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileTextScanRangeParams;
 import org.apache.doris.thrift.TResultFileSinkOptions;
 
+import com.google.common.collect.Maps;
+
 import java.util.Map;
 
 public class OrcFileFormatProperties extends FileFormatProperties {
+    public static final Map<String, TFileCompressType> ORC_COMPRESSION_TYPE_MAP = Maps.newHashMap();
+
+    static {
+        ORC_COMPRESSION_TYPE_MAP.put("plain", TFileCompressType.PLAIN);
+        ORC_COMPRESSION_TYPE_MAP.put("snappy", TFileCompressType.SNAPPYBLOCK);
+        ORC_COMPRESSION_TYPE_MAP.put("zlib", TFileCompressType.ZLIB);
+        ORC_COMPRESSION_TYPE_MAP.put("zstd", TFileCompressType.ZSTD);
+    }
+
     private TFileCompressType orcCompressionType = TFileCompressType.ZLIB;
 
     public OrcFileFormatProperties() {
@@ -36,11 +47,26 @@ public class OrcFileFormatProperties extends FileFormatProperties {
     @Override
     public void analyzeFileFormatProperties(Map<String, String> formatProperties, boolean isRemoveOriginProperty)
             throws AnalysisException {
+        // get compression type
+        // save compress type
+        if (formatProperties.containsKey(PROP_COMPRESS_TYPE)) {
+            if (ORC_COMPRESSION_TYPE_MAP.containsKey(
+                    formatProperties.get(PROP_COMPRESS_TYPE).toLowerCase())) {
+                this.orcCompressionType = ORC_COMPRESSION_TYPE_MAP.get(
+                        formatProperties.get(PROP_COMPRESS_TYPE).toLowerCase());
+                formatProperties.remove(PROP_COMPRESS_TYPE);
+            } else {
+                throw new AnalysisException("orc compression type ["
+                        + formatProperties.get(PROP_COMPRESS_TYPE) + "] is invalid,"
+                        + " please choose one among ZLIB, SNAPPY, ZSTD or PLAIN");
+            }
+        }
     }
 
     @Override
-    public TResultFileSinkOptions toTResultFileSinkOptions() {
-        return null;
+    public void fullTResultFileSinkOptions(TResultFileSinkOptions sinkOptions) {
+        sinkOptions.setOrcCompressionType(orcCompressionType);
+        sinkOptions.setOrcWriterVersion(1);
     }
 
     @Override

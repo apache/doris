@@ -31,8 +31,7 @@ public class WalFileFormatProperties extends FileFormatProperties {
     }
 
     @Override
-    public TResultFileSinkOptions toTResultFileSinkOptions() {
-        return null;
+    public void fullTResultFileSinkOptions(TResultFileSinkOptions sinkOptions) {
     }
 
     @Override
