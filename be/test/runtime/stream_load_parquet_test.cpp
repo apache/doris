@@ -64,4 +64,10 @@ namespace doris {
         SUCCEED();
     }
 
+    TEST_F(LoadPathMgrTest, NormalAllocation) {
+        std::string prefix;
+        Status status = _load_path_mgr->allocate_dir("tmp", "test_label", &prefix, 1024);
+        EXPECT_TRUE(status.ok());
+        EXPECT_FALSE(prefix.empty());
+    }
 } // namespace doris
