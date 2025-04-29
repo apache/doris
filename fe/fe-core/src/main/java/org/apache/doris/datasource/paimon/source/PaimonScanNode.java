@@ -40,6 +40,7 @@ import org.apache.doris.thrift.TPaimonFileDesc;
 import org.apache.doris.thrift.TPushAggOp;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
@@ -121,6 +122,11 @@ public class PaimonScanNode extends FileQueryScanNode {
         source = new PaimonSource(desc);
         serializedTable = encodeObjectToString(source.getPaimonTable());
         Preconditions.checkNotNull(source);
+    }
+
+    @VisibleForTesting
+    public void setSource(PaimonSource source) {
+        this.source = source;
     }
 
     @Override
@@ -211,17 +217,12 @@ public class PaimonScanNode extends FileQueryScanNode {
         SessionVariable.IgnoreSplitType ignoreSplitType = SessionVariable.IgnoreSplitType
                 .valueOf(sessionVariable.getIgnoreSplitType());
         List<Split> splits = new ArrayList<>();
-        int[] projected = desc.getSlots().stream().mapToInt(
-                slot -> (source.getPaimonTable().rowType().getFieldNames().indexOf(slot.getColumn().getName())))
-                .toArray();
-        ReadBuilder readBuilder = source.getPaimonTable().newReadBuilder();
-        List<org.apache.paimon.table.source.Split> paimonSplits = readBuilder.withFilter(predicates)
-                .withProjection(projected)
-                .newScan().plan().splits();
 
+        List<org.apache.paimon.table.source.Split> paimonSplits = getPaimonSplitFromAPI();
         boolean applyCountPushdown = getPushDownAggNoGroupingOp() == TPushAggOp.COUNT;
         // Just for counting the number of selected partitions for this paimon table
         Set<BinaryRow> selectedPartitionValues = Sets.newHashSet();
+        long realFileSplitSize = getRealFileSplitSize(0);
         for (org.apache.paimon.table.source.Split split : paimonSplits) {
             SplitStat splitStat = new SplitStat();
             splitStat.setRowCount(split.rowCount());
@@ -249,7 +250,7 @@ public class PaimonScanNode extends FileQueryScanNode {
                             try {
                                 List<Split> dorisSplits = FileSplitter.splitFile(
                                         locationPath,
-                                        getRealFileSplitSize(0),
+                                        realFileSplitSize,
                                         null,
                                         file.length(),
                                         -1,
@@ -289,9 +290,28 @@ public class PaimonScanNode extends FileQueryScanNode {
             splitStats.add(splitStat);
         }
 
+        // We need to set the target size for all splits so that we can calculate the proportion of each split later.
+        splits.forEach(s -> s.setTargetSplitSize(realFileSplitSize));
+
         this.selectedPartitionNum = selectedPartitionValues.size();
         // TODO: get total partition number
         return splits;
+    }
+
+    @VisibleForTesting
+    public List<org.apache.paimon.table.source.Split> getPaimonSplitFromAPI() {
+        int[] projected = desc.getSlots().stream().mapToInt(
+                slot -> source.getPaimonTable().rowType()
+                    .getFieldNames()
+                    .stream()
+                    .map(String::toLowerCase)
+                    .collect(Collectors.toList())
+                    .indexOf(slot.getColumn().getName()))
+            .toArray();
+        ReadBuilder readBuilder = source.getPaimonTable().newReadBuilder();
+        return readBuilder.withFilter(predicates)
+            .withProjection(projected)
+            .newScan().plan().splits();
     }
 
     private void createRawFileSplits(List<RawFile> rawFiles, List<Split> splits, long blockSize) throws UserException {
@@ -320,7 +340,8 @@ public class PaimonScanNode extends FileQueryScanNode {
         return FileFormatUtils.getFileFormatBySuffix(path).orElse(source.getFileFormatFromTableProperties());
     }
 
-    private boolean supportNativeReader(Optional<List<RawFile>> optRawFiles) {
+    @VisibleForTesting
+    public boolean supportNativeReader(Optional<List<RawFile>> optRawFiles) {
         if (!optRawFiles.isPresent()) {
             return false;
         }
