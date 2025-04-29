@@ -40,6 +40,7 @@ import org.apache.doris.datasource.hudi.HudiMvccSnapshot;
 import org.apache.doris.datasource.hudi.HudiSchemaCacheKey;
 import org.apache.doris.datasource.hudi.HudiSchemaCacheValue;
 import org.apache.doris.datasource.hudi.HudiUtils;
+import org.apache.doris.datasource.iceberg.IcebergMvccSnapshot;
 import org.apache.doris.datasource.iceberg.IcebergSchemaCacheKey;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.mvcc.EmptyMvccSnapshot;
@@ -209,7 +210,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
             } else {
                 if (supportedIcebergTable()) {
                     dlaType = DLAType.ICEBERG;
-                    dlaTable = new HiveDlaTable(this);
+                    dlaTable = new IcebergDlaTable(this);
                 } else if (supportedHoodieTable()) {
                     dlaType = DLAType.HUDI;
                     dlaTable = new HudiDlaTable(this);
@@ -313,6 +314,8 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         if (getDlaType() == DLAType.HUDI) {
             return ((HudiDlaTable) dlaTable).getHudiSchemaCacheValue(MvccUtil.getSnapshotFromContext(this))
                     .getSchema();
+        } else if (getDlaType() == DLAType.ICEBERG) {
+            return IcebergUtils.getIcebergSchema(this, getCatalog(), getDbName(), getName());
         }
         Optional<SchemaCacheValue> schemaCacheValue = cache.getSchemaValue(dbName, name);
         return schemaCacheValue.map(SchemaCacheValue::getSchema).orElse(null);
@@ -1047,8 +1050,12 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     public MvccSnapshot loadSnapshot(Optional<TableSnapshot> tableSnapshot) {
         if (getDlaType() == DLAType.HUDI) {
             return new HudiMvccSnapshot(HudiUtils.getPartitionValues(tableSnapshot, this));
+        } else if (getDlaType() == DLAType.ICEBERG) {
+            return new IcebergMvccSnapshot(
+                    IcebergUtils.getIcebergSnapshotCacheValue(tableSnapshot, getCatalog(), getDbName(), getName()));
+        } else {
+            return new EmptyMvccSnapshot();
         }
-        return new EmptyMvccSnapshot();
     }
 
     public boolean firstColumnIsString() {
@@ -1083,5 +1090,10 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
             default:
                 return Lists.newArrayList();
         }
+    }
+
+    public boolean isValidRelatedTable() {
+        makeSureInitialized();
+        return dlaTable.isValidRelatedTable();
     }
 }

@@ -73,4 +73,13 @@ public abstract class HMSDlaTable implements MTMVBaseTableIf {
     @Override
     public void beforeMTMVRefresh(MTMV mtmv) throws DdlException {
     }
+
+    /**
+     * If the table is supported as related table.
+     * For example, an Iceberg table may become unsupported after partition revolution.
+     * @return
+     */
+    protected boolean isValidRelatedTable() {
+        return true;
+    }
 }
