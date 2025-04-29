@@ -33,6 +33,7 @@ suite("test_hive_use_meta_cache", "p0,external,hive,external_docker,external_doc
                 String catalog = "test_${hivePrefix}_use_meta_cache_${use_meta_cache}"
                 String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
+                sql """set enable_fallback_to_original_planner=false"""
                 sql """drop catalog if exists ${catalog}"""
                 sql """create catalog if not exists ${catalog} properties (
                     'type'='hms',
