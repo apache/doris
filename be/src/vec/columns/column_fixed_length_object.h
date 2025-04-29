@@ -175,8 +175,8 @@ public:
     }
 
     const char* deserialize_and_insert_from_arena(const char* pos) override {
-        throw doris::Exception(
-                "ColumnFixedLengthObject do not support deserialize_and_insert_from_arena");
+        throw Exception(ErrorCode::INTERNAL_ERROR,
+                        "ColumnFixedLengthObject do not support deserialize_and_insert_from_arena");
     }
 
     void update_hash_with_value(size_t n, SipHash& hash) const override {
@@ -215,8 +215,8 @@ public:
 
     void get_indices_of_non_default_rows(IColumn::Offsets64& indices, size_t from,
                                          size_t limit) const override {
-        throw doris::Exception(
-                "ColumnFixedLengthObject do not support get_indices_of_non_default_rows");
+        throw Exception(ErrorCode::INTERNAL_ERROR,
+                        "ColumnFixedLengthObject do not support get_indices_of_non_default_rows");
     }
 
     ColumnPtr replicate(const IColumn::Offsets& offsets) const override {
@@ -275,8 +275,8 @@ public:
     }
 
     void replace_column_data_default(size_t self_row = 0) override {
-        throw doris::Exception(
-                "ColumnFixedLengthObject do not support replace_column_data_default");
+        throw Exception(ErrorCode::INTERNAL_ERROR,
+                        "ColumnFixedLengthObject do not support replace_column_data_default");
     }
 
     void insert_many_continuous_binary_data(const char* data, const uint32_t* offsets,
