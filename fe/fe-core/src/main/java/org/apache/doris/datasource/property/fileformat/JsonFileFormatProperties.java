@@ -81,6 +81,7 @@ public class JsonFileFormatProperties extends FileFormatProperties {
     public TFileAttributes toTFileAttributes() {
         TFileAttributes fileAttributes = new TFileAttributes();
         TFileTextScanRangeParams fileTextScanRangeParams = new TFileTextScanRangeParams();
+        fileTextScanRangeParams.setLineDelimiter(CsvFileFormatProperties.DEFAULT_LINE_DELIMITER);
         fileAttributes.setTextParams(fileTextScanRangeParams);
         fileAttributes.setJsonRoot(jsonRoot);
         fileAttributes.setJsonpaths(jsonPaths);
