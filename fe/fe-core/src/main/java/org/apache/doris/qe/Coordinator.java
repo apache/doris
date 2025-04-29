@@ -654,10 +654,15 @@ public class Coordinator implements CoordInterface {
         // LoadTask does not have context, not controlled by queue now
         if (context != null) {
             if (Config.enable_workload_group) {
-                this.setTWorkloadGroups(context.getEnv().getWorkloadGroupMgr().getWorkloadGroup(context));
+                List<TPipelineWorkloadGroup> wgList = context.getEnv().getWorkloadGroupMgr().getWorkloadGroup(context);
+                this.setTWorkloadGroups(wgList);
                 boolean shouldQueue = this.shouldQueue();
                 if (shouldQueue) {
-                    queryQueue = context.getEnv().getWorkloadGroupMgr().getWorkloadGroupQueryQueue(context);
+                    Set<Long> wgIdSet = Sets.newHashSet();
+                    for (TPipelineWorkloadGroup twg : wgList) {
+                        wgIdSet.add(twg.getId());
+                    }
+                    queryQueue = context.getEnv().getWorkloadGroupMgr().getWorkloadGroupQueryQueue(wgIdSet);
                     if (queryQueue == null) {
                         // This logic is actually useless, because when could not find query queue, it will
                         // throw exception during workload group manager.

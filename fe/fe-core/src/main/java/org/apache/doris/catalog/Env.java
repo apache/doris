@@ -262,6 +262,7 @@ import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.resource.AdmissionControl;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.computegroup.ComputeGroupMgr;
+import org.apache.doris.resource.workloadgroup.BindWgToComputeGroupThread;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadRuntimeStatusMgr;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadSchedPolicyMgr;
@@ -1960,6 +1961,8 @@ public class Env {
         WorkloadSchedPolicyPublisher wpPublisher = new WorkloadSchedPolicyPublisher(this);
         topicPublisherThread.addToTopicPublisherList(wpPublisher);
         topicPublisherThread.start();
+
+        new BindWgToComputeGroupThread().start();
 
         // auto analyze related threads.
         statisticsCleaner.start();
