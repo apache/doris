@@ -91,6 +91,7 @@ void JsonbSerializeUtil::jsonb_to_block(const DataTypeSerDeSPtrs& serdes, const 
                                         const std::unordered_map<uint32_t, uint32_t>& col_id_to_idx,
                                         Block& dst, const std::vector<std::string>& default_values,
                                         const std::unordered_set<int>& include_cids) {
+    LOG_INFO("xxx jsonb_to_block, data size: {}, content: {}", size, std::string_view(data, size));
     auto pdoc = JsonbDocument::checkAndCreateDocument(data, size);
     JsonbDocument& doc = *pdoc;
     size_t num_rows = dst.rows();
@@ -101,6 +102,14 @@ void JsonbSerializeUtil::jsonb_to_block(const DataTypeSerDeSPtrs& serdes, const 
             (include_cids.empty() || include_cids.contains(it->getKeyId()))) {
             MutableColumnPtr dst_column =
                     dst.get_by_position(col_it->second).column->assume_mutable();
+            std::string_view raw_data(it->value()->getValuePtr(), it->value()->size());
+            std::string_view key_str(it->getKeyStr(), it->klen());
+            LOG_INFO(
+                    "xxx jsonb_to_block, column name: {}, column type: {}, klen: {}, key_str; {}, "
+                    "value size: {}, value numPackedBytes: {}, content: {}",
+                    dst.get_by_position(col_it->second).name,
+                    dst.get_by_position(col_it->second).type->get_name(), it->klen(), key_str,
+                    it->value()->size(), it->value()->numPackedBytes(), raw_data);
             serdes[col_it->second]->read_one_cell_from_jsonb(*dst_column, it->value());
             ++filled_columns;
         }
