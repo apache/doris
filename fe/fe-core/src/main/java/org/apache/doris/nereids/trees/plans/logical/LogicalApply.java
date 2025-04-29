@@ -18,13 +18,13 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
-import org.apache.doris.nereids.trees.plans.PropagateFuncDeps;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 
@@ -41,7 +41,7 @@ import java.util.Optional;
  * @param <RIGHT_CHILD_TYPE> subquery.
  */
 public class LogicalApply<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends Plan>
-        extends LogicalBinary<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> implements PropagateFuncDeps {
+        extends LogicalBinary<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
     /**
      * SubQueryType
      */
@@ -275,5 +275,25 @@ public class LogicalApply<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends
         return new LogicalApply<>(groupExpression, logicalProperties, correlationSlot, subqueryType, isNot,
                 compareExpr, typeCoercionExpr, correlationFilter, markJoinSlotReference,
                 needAddSubOutputToProjects, inProject, isMarkJoinSlotNotNull, children.get(0), children.get(1));
+    }
+
+    @Override
+    public void computeUnique(DataTrait.Builder builder) {
+        builder.addUniqueSlot(left().getLogicalProperties().getTrait());
+    }
+
+    @Override
+    public void computeUniform(DataTrait.Builder builder) {
+        builder.addUniformSlot(left().getLogicalProperties().getTrait());
+    }
+
+    @Override
+    public void computeEqualSet(DataTrait.Builder builder) {
+        builder.addEqualSet(left().getLogicalProperties().getTrait());
+    }
+
+    @Override
+    public void computeFd(DataTrait.Builder builder) {
+        builder.addFuncDepsDG(left().getLogicalProperties().getTrait());
     }
 }
