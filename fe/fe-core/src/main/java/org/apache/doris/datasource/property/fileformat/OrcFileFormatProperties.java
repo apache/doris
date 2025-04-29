@@ -41,7 +41,7 @@ public class OrcFileFormatProperties extends FileFormatProperties {
     private TFileCompressType orcCompressionType = TFileCompressType.ZLIB;
 
     public OrcFileFormatProperties() {
-        super(TFileFormatType.FORMAT_ORC);
+        super(TFileFormatType.FORMAT_ORC, FileFormatProperties.FORMAT_ORC);
     }
 
     @Override
