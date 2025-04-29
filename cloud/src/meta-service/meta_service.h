@@ -316,6 +316,8 @@ public:
     MetaServiceResponseStatus fix_tablet_stats(std::string cloud_unique_id_str,
                                                std::string table_id_str);
 
+    void check_version(std::string& use_version, std::string& instance_id);
+
 private:
     std::pair<MetaServiceCode, std::string> alter_instance(
             const AlterInstanceRequest* request,
@@ -350,7 +352,6 @@ private:
                                              std::string& msg, std::stringstream& ss);
 
     bool use_new_version_random();
-    void check_version(std::string& use_version, std::string& instance_id);
 
     std::shared_ptr<TxnKv> txn_kv_;
     std::shared_ptr<ResourceManager> resource_mgr_;
@@ -735,6 +736,10 @@ public:
                          const GetSchemaDictRequest* request, GetSchemaDictResponse* response,
                          ::google::protobuf::Closure* done) override {
         call_impl(&cloud::MetaService::get_schema_dict, controller, request, response, done);
+    }
+
+    void check_version(std::string& use_version, std::string& instance_id) {
+        impl_->check_version(use_version, instance_id);
     }
 
 private:
