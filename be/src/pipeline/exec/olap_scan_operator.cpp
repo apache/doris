@@ -68,6 +68,15 @@ Status OlapScanLocalState::_init_profile() {
     if (config::is_cloud_mode()) {
         static const char* sync_rowset_timer_name = "SyncRowsetTime";
         _sync_rowset_timer = ADD_TIMER(_scanner_profile, sync_rowset_timer_name);
+        _sync_rowset_tablet_meta_cache_hit =
+                ADD_CHILD_COUNTER(_scanner_profile, "SyncRowsetTabletMetaCacheHitCount",
+                                  TUnit::UNIT, sync_rowset_timer_name);
+        _sync_rowset_tablet_meta_cache_miss =
+                ADD_CHILD_COUNTER(_scanner_profile, "SyncRowsetTabletMetaCacheMissCount",
+                                  TUnit::UNIT, sync_rowset_timer_name);
+        _sync_rowset_get_remote_tablet_meta_rpc_timer =
+                ADD_CHILD_COUNTER(_scanner_profile, "SyncRowsetGetRemoteTabletMetaRpcMs",
+                                  TUnit::TIME_MS, sync_rowset_timer_name);
         _sync_rowset_get_remote_rowsets_num =
                 ADD_CHILD_COUNTER(_scanner_profile, "SyncRowsetGetRemoteRowsetsCount", TUnit::UNIT,
                                   sync_rowset_timer_name);
@@ -479,6 +488,10 @@ Status OlapScanLocalState::hold_tablets() {
         }
         COUNTER_UPDATE(_sync_rowset_timer, duration_ns);
         for (const auto& sync_stats : sync_statistics) {
+            COUNTER_UPDATE(_sync_rowset_tablet_meta_cache_hit, sync_stats.tablet_meta_cache_hit);
+            COUNTER_UPDATE(_sync_rowset_tablet_meta_cache_miss, sync_stats.tablet_meta_cache_miss);
+            COUNTER_UPDATE(_sync_rowset_get_remote_tablet_meta_rpc_timer,
+                           sync_stats.get_remote_tablet_meta_rpc_ms);
             COUNTER_UPDATE(_sync_rowset_get_remote_rowsets_num, sync_stats.get_remote_rowsets_num);
             COUNTER_UPDATE(_sync_rowset_get_remote_rowsets_rpc_timer,
                            sync_stats.get_remote_rowsets_rpc_ms);
