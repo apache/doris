@@ -257,9 +257,7 @@ public abstract class Literal extends Expression implements LeafExpression {
         } else if (targetType.isDoubleType()) {
             return Literal.of(Double.parseDouble(desc));
         } else if (targetType.isCharType()) {
-            if (((CharType) targetType).getLen() >= desc.length()) {
-                return new CharLiteral(desc, ((CharType) targetType).getLen());
-            }
+            return new CharLiteral(desc, ((CharType) targetType).getLen());
         } else if (targetType.isVarcharType()) {
             if (this.dataType.isDoubleType() || this.dataType.isFloatType()) {
                 int pointZeroIndex = findPointZeroIndex(desc);

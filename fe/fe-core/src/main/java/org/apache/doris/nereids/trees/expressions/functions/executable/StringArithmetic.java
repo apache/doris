@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.CharLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
@@ -66,6 +67,8 @@ public class StringArithmetic {
             return new StringLiteral(value);
         } else if (first instanceof VarcharLiteral) {
             return new VarcharLiteral(value);
+        } else if (first instanceof CharLiteral) {
+            return new CharLiteral(value, value.length());
         }
         throw new AnalysisException("Unsupported string literal type: " + first.getClass().getSimpleName());
     }
