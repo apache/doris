@@ -1480,7 +1480,7 @@ bool SegmentIterator::_can_evaluated_by_vectorized(ColumnPredicate* predicate) {
     if (field_type == FieldType::OLAP_FIELD_TYPE_VARIANT) {
         // Use variant cast dst type
         field_type = TabletColumn::get_field_type_by_type(
-                _opts.target_cast_type_for_variants[_schema->column(cid)->name()].type);
+                _opts.target_cast_type_for_variants[_schema->column(cid)->name()]);
     }
     switch (predicate->type()) {
     case PredicateType::EQ:
@@ -2287,14 +2287,15 @@ Status SegmentIterator::_execute_common_expr(uint16_t* sel_rowid_idx, uint16_t& 
     DCHECK(!_remaining_conjunct_roots.empty());
     DCHECK(block->rows() != 0);
     size_t prev_columns = block->columns();
-    _opts.stats->expr_cond_input_rows += selected_size;
+    uint16_t original_size = selected_size;
+    _opts.stats->expr_cond_input_rows += original_size;
 
     vectorized::IColumn::Filter filter;
     RETURN_IF_ERROR(vectorized::VExprContext::execute_conjuncts_and_filter_block(
             _common_expr_ctxs_push_down, block, _columns_to_filter, prev_columns, filter));
 
     selected_size = _evaluate_common_expr_filter(sel_rowid_idx, selected_size, filter);
-    _opts.stats->rows_expr_cond_filtered += selected_size;
+    _opts.stats->rows_expr_cond_filtered += original_size - selected_size;
     return Status::OK();
 }
 

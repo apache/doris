@@ -97,7 +97,7 @@ public:
 
 private:
     void set_compression_type(const TFileCompressType::type& compress_type);
-    std::unique_ptr<orc::Type> _build_orc_type(const TypeDescriptor& type_descriptor,
+    std::unique_ptr<orc::Type> _build_orc_type(const DataTypePtr& type,
                                                const iceberg::NestedField* nested_field);
 
     std::unique_ptr<orc::ColumnVectorBatch> _create_row_batch(size_t sz);

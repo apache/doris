@@ -27,9 +27,9 @@
 #include <string>
 #include <type_traits>
 
+#include "absl/strings/substitute.h"
 #include "common/status.h"
 #include "gutil/endian.h"
-#include "gutil/strings/substitute.h"
 #include "olap/decimal12.h"
 #include "olap/olap_common.h"
 #include "olap/types.h"
@@ -37,8 +37,6 @@
 #include "vec/core/types.h"
 
 namespace doris {
-
-using strings::Substitute;
 
 using FullEncodeAscendingFunc = void (*)(const void* value, std::string* buf);
 using EncodeAscendingFunc = void (*)(const void* value, size_t index_size, std::string* buf);
@@ -210,8 +208,9 @@ public:
 
     static Status decode_ascending(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr) {
         if (encoded_key->size < sizeof(UnsignedCppType)) {
-            return Status::InvalidArgument(Substitute("Key too short, need=$0 vs real=$1",
-                                                      sizeof(UnsignedCppType), encoded_key->size));
+            return Status::InvalidArgument(absl::Substitute("Key too short, need=$0 vs real=$1",
+                                                            sizeof(UnsignedCppType),
+                                                            encoded_key->size));
         }
         UnsignedCppType unsigned_val;
         memcpy(&unsigned_val, encoded_key->data, sizeof(UnsignedCppType));
@@ -244,8 +243,9 @@ public:
 
     static Status decode_ascending(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr) {
         if (encoded_key->size < sizeof(UnsignedCppType)) {
-            return Status::InvalidArgument(Substitute("Key too short, need=$0 vs real=$1",
-                                                      sizeof(UnsignedCppType), encoded_key->size));
+            return Status::InvalidArgument(absl::Substitute("Key too short, need=$0 vs real=$1",
+                                                            sizeof(UnsignedCppType),
+                                                            encoded_key->size));
         }
         UnsignedCppType unsigned_val;
         memcpy(&unsigned_val, encoded_key->data, sizeof(UnsignedCppType));
