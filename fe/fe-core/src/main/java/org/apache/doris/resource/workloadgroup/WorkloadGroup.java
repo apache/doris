@@ -575,6 +575,19 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
                 row.add(queryQueueDetail == null ? "0" : String.valueOf(queryQueueDetail.first));
             } else if (QueryQueue.WAITING_QUERY_NUM.equals(key)) {
                 row.add(queryQueueDetail == null ? "0" : String.valueOf(queryQueueDetail.second));
+            } else if (COMPUTE_GROUP.equals(key)) {
+                String val = properties.get(key);
+                if (!StringUtils.isEmpty(val) && Config.isCloudMode()) {
+                    try {
+                        String cgName = Env.getCurrentEnv().getComputeGroupMgr().getComputeGroupByName(val).getName();
+                        if (!StringUtils.isEmpty(cgName)) {
+                            val = cgName;
+                        }
+                    } catch (Throwable t) {
+                        LOG.debug("get compute group failed, ", t);
+                    }
+                }
+                row.add(val);
             } else {
                 String val = properties.get(key);
                 if (StringUtils.isEmpty(val)) {

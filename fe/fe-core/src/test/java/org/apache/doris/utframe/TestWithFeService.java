@@ -164,7 +164,7 @@ public abstract class TestWithFeService {
         beforeCluster();
         createDorisCluster();
         runBeforeAll();
-        Env.getCurrentEnv().getWorkloadGroupMgr().tryCreateNormalWorkloadGroup();
+        Env.getCurrentEnv().getWorkloadGroupMgr().tryCreateNormalWorkloadGroup("default");
     }
 
     protected void beforeCluster() {
