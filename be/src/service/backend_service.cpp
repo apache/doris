@@ -17,6 +17,7 @@
 
 #include "service/backend_service.h"
 
+#include <absl/strings/str_split.h>
 #include <arrow/record_batch.h>
 #include <fmt/format.h>
 #include <gen_cpp/BackendService.h>
@@ -48,7 +49,6 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "gutil/strings/split.h"
 #include "http/http_client.h"
 #include "io/fs/local_file_system.h"
 #include "olap/olap_common.h"
@@ -215,7 +215,7 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
     }
     elapsed_time_map.emplace("get_binlog_info", watch.elapsed_time_microseconds());
 
-    std::vector<std::string> binlog_info_parts = strings::Split(binlog_info, ":");
+    std::vector<std::string> binlog_info_parts = absl::StrSplit(binlog_info, ":");
     if (binlog_info_parts.size() != 2) {
         status = Status::RuntimeError("failed to parse binlog info into 2 parts: {}", binlog_info);
         LOG(WARNING) << "failed to get binlog info from " << get_binlog_info_url

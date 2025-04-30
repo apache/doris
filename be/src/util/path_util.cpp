@@ -20,13 +20,10 @@
 // Use the POSIX version of dirname(3). See `man 3 dirname`
 #include <libgen.h>
 
-#include "gutil/strings/split.h"
 #include "gutil/strings/strip.h"
 
 using std::string;
 using std::vector;
-using strings::SkipEmpty;
-using strings::Split;
 
 namespace doris {
 namespace path_util {

@@ -112,7 +112,7 @@ public:
             do_dir_response(req->param("dir"), req, true);
         } else {
             std::vector<std::string> acquire_files =
-                    strings::Split(req->get_request_body(), "\n", strings::SkipWhitespace());
+                    absl::StrSplit(req->get_request_body(), "\n", strings::SkipWhitespace());
             HttpChannel::send_files(req, req->param("dir"), acquire_files);
         }
     }

@@ -18,6 +18,7 @@
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/Functions/FunctionBitmap.h
 // and modified by Doris
 
+#include <absl/strings/str_split.h>
 #include <glog/logging.h>
 #include <stdint.h>
 #include <string.h>
@@ -34,7 +35,6 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "gutil/strings/numbers.h"
-#include "gutil/strings/split.h"
 #include "util/bitmap_value.h"
 #include "util/hash_util.hpp"
 #include "util/murmur_hash3.h"
@@ -231,12 +231,26 @@ struct BitmapFromString {
             null_map[0] = 1;
             return Status::OK();
         }
+
+        auto split_and_parse = [&bits](const char* raw_str, size_t str_size) {
+            auto res = absl::StrSplit(std::string_view {raw_str, str_size}, ",");
+            uint64_t value = 0;
+            for (auto s : res) {
+                if (!safe_strtou64(std::string(s), &value)) {
+                    return false;
+                }
+                bits.push_back(value);
+            }
+            return true;
+        };
+
+        // split by comma
+
         for (size_t i = 0; i < input_rows_count; ++i) {
             const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
             int64_t str_size = offsets[i] - offsets[i - 1];
 
-            if ((str_size > INT32_MAX) ||
-                !(SplitStringAndParse({raw_str, (int)str_size}, ",", &safe_strtou64, &bits))) {
+            if ((str_size > INT32_MAX) || !split_and_parse(raw_str, str_size)) {
                 res.emplace_back();
                 null_map[i] = 1;
                 continue;

@@ -17,6 +17,7 @@
 
 #include "http/http_channel.h"
 
+#include <absl/strings/str_split.h>
 #include <event2/buffer.h>
 #include <event2/bufferevent.h>
 #include <event2/http.h>
@@ -28,7 +29,6 @@
 
 #include "common/logging.h"
 #include "common/status.h"
-#include "gutil/strings/split.h"
 #include "gutil/strings/strip.h"
 #include "http/http_headers.h"
 #include "http/http_request.h"
@@ -145,7 +145,7 @@ bool HttpChannel::compress_content(const std::string& accept_encoding, const std
     // Check if gzip compression is accepted by the caller. If so, compress the
     // content and replace the prerendered output.
     bool is_compressed = false;
-    std::vector<string> encodings = strings::Split(accept_encoding, ",");
+    std::vector<string> encodings = absl::StrSplit(accept_encoding, ",");
     for (string& encoding : encodings) {
         StripWhiteSpace(&encoding);
         if (encoding == "gzip") {

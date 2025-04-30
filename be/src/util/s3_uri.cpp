@@ -17,10 +17,10 @@
 
 #include "util/s3_uri.h"
 
-#include <algorithm>
+#include <absl/strings/str_split.h>
+
 #include <vector>
 
-#include "gutil/strings/split.h"
 #include "gutil/strings/strip.h"
 
 namespace doris {
@@ -42,14 +42,14 @@ Status S3URI::parse() {
     if (_location.empty()) {
         return Status::InvalidArgument("location is empty");
     }
-    std::vector<std::string> scheme_split = strings::Split(_location, _SCHEME_DELIM);
+    std::vector<std::string> scheme_split = absl::StrSplit(_location, _SCHEME_DELIM);
     std::string rest;
     if (scheme_split.size() == 2) {
         if (scheme_split[0] == _SCHEME_S3) {
             // has scheme, eg: s3://bucket1/path/to/file.txt
             rest = scheme_split[1];
             std::vector<std::string> authority_split =
-                    strings::Split(rest, strings::delimiter::Limit(_PATH_DELIM, 1));
+                    absl::StrSplit(rest, absl::MaxSplits(_PATH_DELIM, 1));
             if (authority_split.size() < 1) {
                 return Status::InvalidArgument("Invalid S3 URI: {}", _location);
             }
@@ -60,7 +60,7 @@ Status S3URI::parse() {
             // has scheme, eg: http(s)://host/bucket1/path/to/file.txt
             rest = scheme_split[1];
             std::vector<std::string> authority_split =
-                    strings::Split(rest, strings::delimiter::Limit(_PATH_DELIM, 2));
+                    absl::StrSplit(rest, absl::MaxSplits(_PATH_DELIM, 2));
             if (authority_split.size() != 3) {
                 return Status::InvalidArgument("Invalid S3 HTTP URI: {}", _location);
             }
@@ -82,8 +82,8 @@ Status S3URI::parse() {
         return Status::InvalidArgument("Invalid S3 key: {}", _location);
     }
     // Strip query and fragment if they exist
-    std::vector<std::string> _query_split = strings::Split(_key, _QUERY_DELIM);
-    std::vector<std::string> _fragment_split = strings::Split(_query_split[0], _FRAGMENT_DELIM);
+    std::vector<std::string> _query_split = absl::StrSplit(_key, _QUERY_DELIM);
+    std::vector<std::string> _fragment_split = absl::StrSplit(_query_split[0], _FRAGMENT_DELIM);
     _key = _fragment_split[0];
     return Status::OK();
 }

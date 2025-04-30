@@ -34,7 +34,6 @@ SET(SOURCE_FILES
         strings/charset.cc
         strings/memutil.cc
         strings/numbers.cc
-        strings/split.cc
         strings/strip.cc
         strings/stringpiece.cc
         strings/util.cc
