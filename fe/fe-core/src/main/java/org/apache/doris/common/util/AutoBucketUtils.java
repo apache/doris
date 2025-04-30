@@ -92,10 +92,10 @@ public class AutoBucketUtils {
         } else if (partitionSize <= SIZE_1GB) {
             return 2;
         } else {
-            if (Config.autobucket_partition_size_per_bucket_GB <= 0) {
-                Config.autobucket_partition_size_per_bucket_GB = 1;
+            if (Config.autobucket_partition_size_per_bucket_gb <= 0) {
+                Config.autobucket_partition_size_per_bucket_gb = 1;
             }
-            return  (int) ((partitionSize - 1) / (Config.autobucket_partition_size_per_bucket_GB * SIZE_1GB) + 1);
+            return  (int) ((partitionSize - 1) / (Config.autobucket_partition_size_per_bucket_gb * SIZE_1GB) + 1);
         }
     }
 
