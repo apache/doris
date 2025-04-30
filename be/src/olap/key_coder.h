@@ -388,8 +388,9 @@ public:
 
     static Status decode_ascending(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr) {
         if (encoded_key->size < sizeof(UnsignedCppType)) {
-            return Status::InvalidArgument(Substitute("Key too short, need=$0 vs real=$1",
-                                                      sizeof(UnsignedCppType), encoded_key->size));
+            return Status::InvalidArgument(absl::Substitute("Key too short, need=$0 vs real=$1",
+                                                            sizeof(UnsignedCppType),
+                                                            encoded_key->size));
         }
         UnsignedCppType unsigned_val;
         memcpy(&unsigned_val, encoded_key->data, sizeof(UnsignedCppType));

@@ -34,7 +34,6 @@ class KeyCoderTest : public testing::Test {
 public:
     KeyCoderTest() = default;
     virtual ~KeyCoderTest() = default;
-    
 };
 
 template <FieldType type>
@@ -109,8 +108,7 @@ typename CppTypeTraits<field_type>::CppType decode_float(const std::string& enco
     Slice encoded_key(encoded);
     typename CppTypeTraits<field_type>::CppType result;
     uint8_t* ptr = reinterpret_cast<uint8_t*>(&result);
-    Status status =
-            KeyCoderTraits<field_type>::decode_ascending(&encoded_key, sizeof(result), ptr);
+    Status status = KeyCoderTraits<field_type>::decode_ascending(&encoded_key, sizeof(result), ptr);
     EXPECT_TRUE(status.ok());
     return result;
 }
@@ -131,7 +129,7 @@ void test_encode_decode(typename CppTypeTraits<field_type>::CppType value) {
 
 template <FieldType field_type>
 void test_ordering(typename CppTypeTraits<field_type>::CppType a,
-                    typename CppTypeTraits<field_type>::CppType b) {
+                   typename CppTypeTraits<field_type>::CppType b) {
     std::string encoded_a = encode_float<field_type>(a);
     std::string encoded_b = encode_float<field_type>(b);
     if (a < b) {
