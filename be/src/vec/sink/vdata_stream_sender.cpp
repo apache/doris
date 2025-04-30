@@ -174,7 +174,7 @@ Status Channel::send_remote_block(std::unique_ptr<PBlock>&& block, bool eos) {
         }
     }
     if (eos || block->column_metas_size()) {
-        RETURN_IF_ERROR(_buffer->add_block({this, std::move(block), eos}));
+        RETURN_IF_ERROR(_buffer->add_block(this, {std::move(block), eos}));
     }
     return Status::OK();
 }
@@ -188,7 +188,7 @@ Status Channel::send_broadcast_block(std::shared_ptr<BroadcastPBlockHolder>& blo
         _eos_send = true;
     }
     if (eos || block->get_block()->column_metas_size()) {
-        RETURN_IF_ERROR(_buffer->add_block({this, block, eos}));
+        RETURN_IF_ERROR(_buffer->add_block(this, {block, eos}));
     }
     return Status::OK();
 }

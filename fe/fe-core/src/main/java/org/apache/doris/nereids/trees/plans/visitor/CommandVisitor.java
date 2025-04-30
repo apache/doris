@@ -47,6 +47,7 @@ import org.apache.doris.nereids.trees.plans.commands.CancelLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelMTMVTaskCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelWarmUpJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.CleanAllProfileCommand;
+import org.apache.doris.nereids.trees.plans.commands.CleanQueryStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.CopyIntoCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateCatalogCommand;
@@ -981,6 +982,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitStopRoutineLoadCommand(StopRoutineLoadCommand stopRoutineLoadCommand, C context) {
         return visitCommand(stopRoutineLoadCommand, context);
+    }
+
+    default R visitCleanQueryStatsCommand(CleanQueryStatsCommand cleanQueryStatsCommand, C context) {
+        return visitCommand(cleanQueryStatsCommand, context);
     }
 
     default R visitPauseDataSyncJobCommand(PauseDataSyncJobCommand pauseDataSyncJobCommand, C context) {

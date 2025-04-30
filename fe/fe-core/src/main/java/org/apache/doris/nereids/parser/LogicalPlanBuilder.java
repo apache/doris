@@ -562,6 +562,7 @@ import org.apache.doris.nereids.trees.plans.commands.CancelLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelMTMVTaskCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelWarmUpJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.CleanAllProfileCommand;
+import org.apache.doris.nereids.trees.plans.commands.CleanQueryStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.Constraint;
 import org.apache.doris.nereids.trees.plans.commands.CopyIntoCommand;
@@ -5472,9 +5473,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitAlterWorkloadGroup(AlterWorkloadGroupContext ctx) {
+        String cgName = ctx.computeGroup == null ? "" : stripQuotes(ctx.computeGroup.getText());
         Map<String, String> properties = ctx.propertyClause() != null
                         ? Maps.newHashMap(visitPropertyClause(ctx.propertyClause())) : Maps.newHashMap();
-        return new AlterWorkloadGroupCommand(ctx.name.getText(), properties);
+        return new AlterWorkloadGroupCommand(cgName, ctx.name.getText(), properties);
     }
 
     @Override
@@ -5791,10 +5793,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitCreateWorkloadGroup(CreateWorkloadGroupContext ctx) {
         String workloadGroupName = stripQuotes(ctx.name.getText());
+        String cgName = ctx.computeGroup == null ? "" : stripQuotes(ctx.computeGroup.getText());
         boolean ifNotExists = ctx.EXISTS() != null;
         Map<String, String> properties = ctx.propertyClause() != null
                                     ? Maps.newHashMap(visitPropertyClause(ctx.propertyClause())) : Maps.newHashMap();
-        return new CreateWorkloadGroupCommand(workloadGroupName, ifNotExists, properties);
+        return new CreateWorkloadGroupCommand(cgName, workloadGroupName, ifNotExists, properties);
     }
 
     @Override
@@ -5836,7 +5839,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitDropWorkloadGroup(DropWorkloadGroupContext ctx) {
-        return new DropWorkloadGroupCommand(ctx.name.getText(), ctx.EXISTS() != null);
+        String cgName = ctx.computeGroup == null ? "" : stripQuotes(ctx.computeGroup.getText());
+        return new DropWorkloadGroupCommand(cgName, ctx.name.getText(), ctx.EXISTS() != null);
     }
 
     @Override
@@ -6706,6 +6710,20 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
         LabelNameInfo labelNameInfo = new LabelNameInfo(dbName, jobName);
         return new StopRoutineLoadCommand(labelNameInfo);
+    }
+
+    public LogicalPlan visitCleanAllQueryStats(DorisParser.CleanAllQueryStatsContext ctx) {
+        return new CleanQueryStatsCommand();
+    }
+
+    @Override
+    public LogicalPlan visitCleanQueryStats(DorisParser.CleanQueryStatsContext ctx) {
+        if (ctx.database != null) {
+            return new CleanQueryStatsCommand(ctx.identifier().getText());
+        } else {
+            TableNameInfo tableNameInfo = new TableNameInfo(visitMultipartIdentifier(ctx.table));
+            return new CleanQueryStatsCommand(tableNameInfo);
+        }
     }
 
     @Override
