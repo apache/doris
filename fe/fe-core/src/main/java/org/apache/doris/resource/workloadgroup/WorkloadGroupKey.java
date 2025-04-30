@@ -35,7 +35,9 @@ public class WorkloadGroupKey {
 
     public static WorkloadGroupKey get(String computeGroup, String workloadGroupName) {
         Preconditions.checkState(!StringUtils.isEmpty(workloadGroupName));
-        return new WorkloadGroupKey(StringUtils.isEmpty(computeGroup) ? "" : computeGroup, workloadGroupName);
+        return new WorkloadGroupKey(
+                StringUtils.isEmpty(computeGroup) ? WorkloadGroupMgr.EMPTY_COMPUTE_GROUP : computeGroup,
+                workloadGroupName);
     }
 
     public String getComputeGroup() {

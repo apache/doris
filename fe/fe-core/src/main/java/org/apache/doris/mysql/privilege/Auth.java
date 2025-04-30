@@ -775,9 +775,13 @@ public class Auth implements Writable {
     private void grantInternal(UserIdentity userIdent, String role, WorkloadGroupPattern workloadGroupPattern,
             PrivBitSet privs, boolean errOnNonExist, boolean isReplay) throws DdlException {
         if (!isReplay) {
-            if (!"%".equals(workloadGroupPattern.getworkloadGroupName()) && !Env.getCurrentEnv().getWorkloadGroupMgr()
-                    .isWorkloadGroupExists(workloadGroupPattern.getworkloadGroupName())) {
-                throw new DdlException("Can not find workload group " + workloadGroupPattern.getworkloadGroupName());
+            if (!FeConstants.runningUnitTest) {
+                if (!"%".equals(workloadGroupPattern.getworkloadGroupName()) && !Env.getCurrentEnv()
+                        .getWorkloadGroupMgr()
+                        .isWorkloadGroupExists(workloadGroupPattern.getworkloadGroupName())) {
+                    throw new DdlException(
+                            "Can not find workload group " + workloadGroupPattern.getworkloadGroupName());
+                }
             }
         }
         writeLock();
