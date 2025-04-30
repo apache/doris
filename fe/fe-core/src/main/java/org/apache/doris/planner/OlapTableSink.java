@@ -248,8 +248,12 @@ public class OlapTableSink extends DataSink {
     public void init(TUniqueId loadId, long txnId, long dbId, long loadChannelTimeoutS,
             int sendBatchParallelism, boolean loadToSingleTablet, boolean isStrictMode,
             long txnExpirationS, TUniqueKeyUpdateMode uniquekeyUpdateMode,
+            TPartialUpdateNewRowPolicy partialUpdateNewKeyPolicy,
             HashSet<String> partialUpdateInputColumns) throws UserException {
         setPartialUpdateInfo(uniquekeyUpdateMode, partialUpdateInputColumns);
+        if (uniquekeyUpdateMode != TUniqueKeyUpdateMode.UPSERT) {
+            setPartialUpdateNewRowPolicy(partialUpdateNewKeyPolicy);
+        }
         init(loadId, txnId, dbId, loadChannelTimeoutS, sendBatchParallelism, loadToSingleTablet,
                 isStrictMode, txnExpirationS);
         for (Long partitionId : partitionIds) {
@@ -451,7 +455,7 @@ public class OlapTableSink extends DataSink {
             indexSchema.setIndexesDesc(indexDesc);
             schemaParam.addToIndexes(indexSchema);
         }
-        setPartialUpdateInfo(schemaParam, table, uniqueKeyUpdateMode);
+        setPartialUpdateInfoForParam(schemaParam, table, uniqueKeyUpdateMode);
         schemaParam.setInvertedIndexFileStorageFormat(table.getInvertedIndexFileStorageFormat());
         return schemaParam;
     }
@@ -509,12 +513,12 @@ public class OlapTableSink extends DataSink {
             indexSchema.setIndexesDesc(indexDesc);
             schemaParam.addToIndexes(indexSchema);
         }
-        setPartialUpdateInfo(schemaParam, table, uniqueKeyUpdateMode);
+        setPartialUpdateInfoForParam(schemaParam, table, uniqueKeyUpdateMode);
         schemaParam.setInvertedIndexFileStorageFormat(table.getInvertedIndexFileStorageFormat());
         return schemaParam;
     }
 
-    private void setPartialUpdateInfo(TOlapTableSchemaParam schemaParam, OlapTable table,
+    private void setPartialUpdateInfoForParam(TOlapTableSchemaParam schemaParam, OlapTable table,
             TUniqueKeyUpdateMode uniqueKeyUpdateMode) throws AnalysisException {
         // for backward compatibility
         schemaParam.setIsPartialUpdate(uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS);
