@@ -112,7 +112,7 @@ Status ArrowStreamReader::get_next_block(Block* block, size_t* read_rows, bool* 
     return Status::OK();
 }
 
-Status ArrowStreamReader::get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
+Status ArrowStreamReader::get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
                                       std::unordered_set<std::string>* missing_cols) {
     for (const auto& slot : _file_slot_descs) {
         name_to_type->emplace(slot->col_name(), slot->type());
