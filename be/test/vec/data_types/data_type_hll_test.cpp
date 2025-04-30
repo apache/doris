@@ -64,12 +64,13 @@ public:
 };
 
 TEST_P(DataTypeHLLTest, MetaInfoTest) {
-    TypeDescriptor hll_type_descriptor = {PrimitiveType::TYPE_HLL};
+    auto hll_type_descriptor =
+            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_HLL, false);
     auto col_meta = std::make_shared<PColumnMeta>();
     col_meta->set_type(PGenericType_TypeId_HLL);
     CommonDataTypeTest::DataTypeMetaInfo hll_meta_info_to_assert = {
             .type_id = TypeIndex::HLL,
-            .type_as_type_descriptor = &hll_type_descriptor,
+            .type_as_type_descriptor = hll_type_descriptor,
             .family_name = "HLL",
             .has_subtypes = false,
             .storage_field_type = doris::FieldType::OLAP_FIELD_TYPE_HLL,

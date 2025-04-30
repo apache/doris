@@ -45,6 +45,7 @@
 #include "vec/core/materialize_block.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_time_v2.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/runtime/vdatetime_value.h"
@@ -242,7 +243,11 @@ Status VMysqlTableWriter::_insert_row(vectorized::Block& block, size_t row) {
                     binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(int_val);
 
             char buf[64];
-            char* pos = value.to_string(buf, _vec_output_expr_ctxs[i]->root()->type().scale);
+            char* pos = value.to_string(
+                    buf,
+                    assert_cast<const DataTypeDateTimeV2*>(
+                            remove_nullable(_vec_output_expr_ctxs[i]->root()->data_type()).get())
+                            ->get_scale());
             std::string str(buf, pos - buf - 1);
             fmt::format_to(_insert_stmt_buffer, "'{}'", str);
             break;
@@ -250,7 +255,7 @@ Status VMysqlTableWriter::_insert_row(vectorized::Block& block, size_t row) {
         default: {
             fmt::memory_buffer err_out;
             fmt::format_to(err_out, "can't convert this type to mysql type. type = {}",
-                           _vec_output_expr_ctxs[i]->root()->type().type);
+                           _vec_output_expr_ctxs[i]->root()->data_type()->get_name());
             return Status::InternalError(fmt::to_string(err_out));
         }
         }

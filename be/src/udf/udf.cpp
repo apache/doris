@@ -30,6 +30,7 @@
 #include "runtime/runtime_state.h"
 #include "runtime/types.h"
 #include "vec/common/string_ref.h"
+#include "vec/data_types/data_type.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -37,8 +38,8 @@ namespace doris {
 static const int MAX_WARNINGS = 1000;
 
 std::unique_ptr<doris::FunctionContext> FunctionContext::create_context(
-        RuntimeState* state, const doris::TypeDescriptor& return_type,
-        const std::vector<doris::TypeDescriptor>& arg_types) {
+        RuntimeState* state, const vectorized::DataTypePtr& return_type,
+        const std::vector<vectorized::DataTypePtr>& arg_types) {
     auto ctx = std::unique_ptr<doris::FunctionContext>(new doris::FunctionContext());
     ctx->_state = state;
     ctx->_return_type = return_type;
@@ -107,11 +108,11 @@ bool FunctionContext::add_warning(const char* warning_msg) {
     }
 }
 
-const doris::TypeDescriptor* FunctionContext::get_arg_type(int arg_idx) const {
+const vectorized::DataTypePtr FunctionContext::get_arg_type(int arg_idx) const {
     if (arg_idx < 0 || arg_idx >= _arg_types.size()) {
         return nullptr;
     }
-    return &_arg_types[arg_idx];
+    return _arg_types[arg_idx];
 }
 
 bool FunctionContext::is_col_constant(int i) const {
@@ -132,7 +133,7 @@ int FunctionContext::get_num_args() const {
     return cast_set<int>(_arg_types.size());
 }
 
-const doris::TypeDescriptor& FunctionContext::get_return_type() const {
+const vectorized::DataTypePtr FunctionContext::get_return_type() const {
     return _return_type;
 }
 

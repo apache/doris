@@ -171,11 +171,11 @@ public:
 
     int64_t size() const;
 
-    Status get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
+    Status get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
                        std::unordered_set<std::string>* missing_cols) override;
 
     Status get_parsed_schema(std::vector<std::string>* col_names,
-                             std::vector<TypeDescriptor>* col_types) override;
+                             std::vector<DataTypePtr>* col_types) override;
 
     Status get_schema_col_name_attribute(std::vector<std::string>* col_names,
                                          std::vector<int32_t>* col_attributes,
@@ -204,7 +204,7 @@ public:
             std::unordered_map<std::string, orc::StringDictionary*>& column_name_to_dict_map,
             bool* is_stripe_filtered);
 
-    static TypeDescriptor convert_to_doris_type(const orc::Type* orc_type);
+    static DataTypePtr convert_to_doris_type(const orc::Type* orc_type);
     static std::string get_field_name_lower_case(const orc::Type* orc_type, int pos);
 
 protected:

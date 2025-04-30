@@ -25,7 +25,7 @@ import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
-import org.apache.doris.planner.StreamLoadPlanner;
+import org.apache.doris.nereids.load.NereidsStreamLoadPlanner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TKafkaLoadInfo;
@@ -137,9 +137,9 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
         TUniqueId loadId = new TUniqueId(id.getMostSignificantBits(), id.getLeastSignificantBits());
         // plan for each task, in case table has change(rollup or schema change)
         Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(routineLoadJob.getDbId());
-        StreamLoadPlanner planner = new StreamLoadPlanner(db,
+        NereidsStreamLoadPlanner planner = new NereidsStreamLoadPlanner(db,
                 (OlapTable) db.getTableOrMetaException(routineLoadJob.getTableId(),
-                Table.TableType.OLAP), routineLoadJob);
+                Table.TableType.OLAP), routineLoadJob.toNereidsRoutineLoadTaskInfo());
         TPipelineFragmentParams tExecPlanFragmentParams = routineLoadJob.plan(planner, loadId, txnId);
         TPlanFragment tPlanFragment = tExecPlanFragmentParams.getFragment();
         tPlanFragment.getOutputSink().getOlapTableSink().setTxnId(txnId);

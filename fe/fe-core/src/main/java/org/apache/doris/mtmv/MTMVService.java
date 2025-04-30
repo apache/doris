@@ -17,6 +17,7 @@
 
 package org.apache.doris.mtmv;
 
+import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.Table;
@@ -211,7 +212,15 @@ public class MTMVService implements EventListener {
     }
 
     private boolean shouldRefreshOnBaseTableDataChange(MTMV mtmv, TableIf table) {
-        if (mtmv.getExcludedTriggerTables().contains(table.getName())) {
+        TableName tableName = null;
+        try {
+            tableName = new TableName(table);
+        } catch (AnalysisException e) {
+            LOG.warn("skip refresh mtmv: {}, because get TableName failed: {}",
+                    mtmv.getName(), table.getName());
+            return false;
+        }
+        if (MTMVPartitionUtil.isTableExcluded(mtmv.getExcludedTriggerTables(), tableName)) {
             LOG.info("skip refresh mtmv: {}, because exclude trigger table: {}",
                     mtmv.getName(), table.getName());
             return false;

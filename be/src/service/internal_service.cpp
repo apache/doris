@@ -40,6 +40,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <sys/stat.h>
+#include <vec/data_types/data_type.h>
 #include <vec/exec/vjdbc_connector.h>
 #include <vec/sink/varrow_flight_result_writer.h>
 
@@ -892,7 +893,7 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
             return;
         }
         std::vector<std::string> col_names;
-        std::vector<TypeDescriptor> col_types;
+        std::vector<vectorized::DataTypePtr> col_types;
         st = reader->get_parsed_schema(&col_names, &col_types);
         if (!st.ok()) {
             LOG(WARNING) << "fetch table schema failed, errmsg=" << st;
@@ -905,7 +906,7 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
         }
         for (size_t idx = 0; idx < col_types.size(); ++idx) {
             PTypeDesc* type_desc = result->add_column_types();
-            col_types[idx].to_protobuf(type_desc);
+            col_types[idx]->to_protobuf(type_desc);
         }
         st.to_protobuf(result->mutable_status());
     });
