@@ -573,6 +573,7 @@ import org.apache.doris.nereids.trees.plans.commands.CreateFunctionCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateOutlineCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateResourceCommand;
@@ -599,6 +600,7 @@ import org.apache.doris.nereids.trees.plans.commands.DropFileCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropFunctionCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropMTMVCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropOutlineCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropRepositoryCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropResourceCommand;
@@ -1970,7 +1972,44 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         CreateRoutineLoadInfo createRoutineLoadInfo = new CreateRoutineLoadInfo(jobLabelInfo, tableName,
                 loadPropertyMap, properties, type, customProperties, mergeType, comment);
         return new CreateRoutineLoadCommand(createRoutineLoadInfo);
+    }
 
+    @Override
+    public Command visitCreateOutline(DorisParser.CreateOutlineContext ctx) {
+        String outlineName = stripQuotes(ctx.outline_name.getText());
+        boolean isReplace = ctx.REPLACE() != null;
+        if (ctx.query().size() == 0) {
+            // with sql_id
+        } else if (ctx.query().size() == 1) {
+            // only on query is declared
+            LogicalPlan logicalPlan = visitQuery(ctx.query().get(0));
+            String originalQuery = ctx.query().get(0).start.getInputStream()
+                    .getText(new org.antlr.v4.runtime.misc.Interval(ctx.query().get(0).start.getStartIndex(),
+                        ctx.query().get(0).stop.getStopIndex()));
+            int startIndex = ctx.query().get(0).start.getStartIndex();
+            return new CreateOutlineCommand(outlineName, isReplace, logicalPlan, originalQuery, startIndex, "");
+        } else if (ctx.query().size() == 2) {
+            // on query to query
+            LogicalPlan logicalPlan = visitQuery(ctx.query().get(0));
+            String originalQuery = ctx.query().get(0).start.getInputStream()
+                    .getText(new org.antlr.v4.runtime.misc.Interval(ctx.query().get(0).start.getStartIndex(),
+                    ctx.query().get(0).stop.getStopIndex()));
+            int startIndex = ctx.query().get(0).start.getStartIndex();
+            String targetQuery = ctx.query().get(1).start.getInputStream()
+                    .getText(new org.antlr.v4.runtime.misc.Interval(ctx.query().get(1).start.getStartIndex(),
+                    ctx.query().get(1).stop.getStopIndex()));
+            return new CreateOutlineCommand(outlineName, isReplace, logicalPlan,
+                    originalQuery, startIndex, targetQuery);
+        }
+
+        return new CreateOutlineCommand(outlineName, isReplace, null, "originalQuery", 0, "");
+    }
+
+    @Override
+    public Command visitDropOutline(DorisParser.DropOutlineContext ctx) {
+        String outlineName = stripQuotes(ctx.outline_name.getText());
+        boolean isExists = ctx.EXISTS() != null;
+        return new DropOutlineCommand(isExists, outlineName);
     }
 
     @Override
@@ -3580,7 +3619,17 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
      * visitor and only takes care of typing (We assume that the visitor returns an Expression here).
      */
     private Expression getExpression(ParserRuleContext ctx) {
-        return typedVisit(ctx);
+        Expression result = typedVisit(ctx);
+        if (result instanceof Literal) {
+            Placeholder parameter = new Placeholder(ConnectContext.get().getStatementContext().getNextPlaceholderId());
+            tokenPosToParameters.put(ctx.start, parameter);
+            ConnectContext.get().getStatementContext().getIdToPlaceholderRealExpr().put(parameter.getPlaceholderId(),
+                    result);
+            ConnectContext.get().getStatementContext().getConstantExpressionMap()
+                .put(parameter.getPlaceholderId(), Pair.of(ctx.start.getStartIndex(), ctx.start.getStopIndex()));
+            return parameter;
+        }
+        return result;
     }
 
     private LogicalPlan withExplain(LogicalPlan inputPlan, ExplainContext ctx) {
@@ -3798,6 +3847,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return tableList;
     }
 
+    /**
+     * with select hint need to be used to create logicalSelectHint logical plan
+     * @param logicalPlan child of select hint plan
+     * @param hintContexts hints used to be contexts of logicalSelectHint
+     * @return logicalSelectHint with child plan
+     */
     private LogicalPlan withHints(LogicalPlan logicalPlan, List<ParserRuleContext> selectHintContexts,
             List<ParserRuleContext> preAggOnHintContexts) {
         if (selectHintContexts.isEmpty() && preAggOnHintContexts.isEmpty()) {

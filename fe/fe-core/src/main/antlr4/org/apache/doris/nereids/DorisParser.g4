@@ -68,6 +68,7 @@ statementBase
     | supportedKillStatement            #supportedKillStatementAlias
     | supportedStatsStatement           #supportedStatsStatementAlias
     | supportedTransactionStatement     #supportedTransactionStatementAlias
+    | supportedOutlineStatement         #supportedOutlineStatementAlias
     | unsupportedStatement              #unsupported
     ;
 
@@ -378,6 +379,12 @@ supportedLoadStatement
           LEFT_PAREN channelDescriptions RIGHT_PAREN
           FROM BINLOG LEFT_PAREN propertyItemList RIGHT_PAREN
           properties=propertyClause?                                                #createDataSyncJob
+    ;
+
+supportedOutlineStatement
+    : CREATE (OR REPLACE)? OUTLINE outline_name=identifierOrText ON (query (TO query)? |
+      sql_id=STRING_LITERAL USING HINT_START identifier HINT_END )                  #createOutline
+    | DROP OUTLINE (IF EXISTS)? outline_name=identifierOrText                       #dropOutline
     ;
 
 supportedOtherStatement
@@ -1976,6 +1983,7 @@ nonReserved
     | ONLY
     | OPEN
     | OPTIMIZED
+    | OUTLINE
     | PARAMETER
     | PARSED
     | PASSWORD

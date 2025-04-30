@@ -55,6 +55,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.lang.reflect.Method;
+import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.Iterator;
 import java.util.List;
@@ -341,6 +342,21 @@ public class NereidsParser {
         LogicalPlanBuilder realLogicalPlanBuilder = new LogicalPlanBuilderForCreateView(
                 getHintMap(sql, tokenStream, DorisParser::selectHint));
         return (LogicalPlan) realLogicalPlanBuilder.visit(tree);
+    }
+
+    /**
+     * parser used for outline
+     * @param hintSql hint sql
+     * @param logicalPlan child plan
+     * @return logicalSelectHint plan with child plan
+     */
+    public LogicalPlan parseForOutline(String hintSql, LogicalPlan logicalPlan) {
+        CommonTokenStream tokenStream = parseAllTokens(hintSql);
+        LogicalPlanBuilder realLogicalPlanBuilder = new LogicalPlanBuilder(
+                getHintMap(hintSql, tokenStream, DorisParser::selectHint));
+        List<ParserRuleContext> selectHintContexts = new ArrayList<>(getHintMap(hintSql,
+                tokenStream, DorisParser::selectHint).values());
+        return realLogicalPlanBuilder.withSelectHint(logicalPlan, selectHintContexts);
     }
 
     public LogicalPlan parseForEncryption(String sql, Map<Pair<Integer, Integer>, String> indexInSqlToString) {

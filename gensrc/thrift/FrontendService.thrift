@@ -1608,6 +1608,23 @@ struct TPlanNodeRuntimeStatsItem {
     12: optional i32 instance_num
 }
 
+struct TFetchOutlineInfoRequest {
+}
+
+struct TOutlineInfo {
+    1: optional string outline_name
+    2: optional string visible_signature
+    3: optional string sql_id
+    4: optional string sql_text
+    5: optional string outline_target
+    6: optional string outline_data
+}
+
+struct TFetchOutlineInfoResult {
+    1: optional list<TOutlineInfo> outlineInfos
+}
+
+
 service FrontendService {
     TGetDbsResult getDbNames(1: TGetDbsParams params)
     TGetTablesResult getTableNames(1: TGetTablesParams params)
@@ -1710,4 +1727,6 @@ service FrontendService {
     TFetchRunningQueriesResult fetchRunningQueries(1: TFetchRunningQueriesRequest request)
 
     TFetchRoutineLoadJobResult fetchRoutineLoadJob(1: TFetchRoutineLoadJobRequest request)
+
+    TFetchOutlineInfoResult fetchOutlineInfo(1: TFetchOutlineInfoRequest request)
 }

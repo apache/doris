@@ -200,6 +200,7 @@ import org.apache.doris.mysql.authenticate.AuthenticatorManager;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.hint.OutlineMgr;
 import org.apache.doris.nereids.jobs.load.LabelProcessor;
 import org.apache.doris.nereids.stats.HboPlanStatisticsManager;
 import org.apache.doris.nereids.trees.plans.commands.AlterSystemCommand;
@@ -392,6 +393,7 @@ public class Env {
     private StreamLoadRecordMgr streamLoadRecordMgr;
     private TabletLoadIndexRecorderMgr tabletLoadIndexRecorderMgr;
     private RoutineLoadManager routineLoadManager;
+    private OutlineMgr outlineMgr;
     private GroupCommitManager groupCommitManager;
     private SqlBlockRuleMgr sqlBlockRuleMgr;
     private ExportMgr exportMgr;
@@ -714,6 +716,7 @@ public class Env {
         this.catalogMgr = new CatalogMgr();
         this.load = new Load();
         this.routineLoadManager = EnvFactory.getInstance().createRoutineLoadManager();
+        this.outlineMgr = new OutlineMgr();
         this.groupCommitManager = new GroupCommitManager();
         this.sqlBlockRuleMgr = new SqlBlockRuleMgr();
         this.exportMgr = new ExportMgr();
@@ -2406,6 +2409,13 @@ public class Env {
         return checksum;
     }
 
+    // outline persistence
+    public long loadOutline(DataInputStream in, long checksum) throws IOException, DdlException {
+        VariableMgr.read(in);
+        LOG.info("finished replay globalVariable from image");
+        return checksum;
+    }
+
     // load binlogs
     public long loadBinlogs(DataInputStream dis, long checksum) throws IOException {
         binlogManager.read(dis, checksum);
@@ -2422,6 +2432,12 @@ public class Env {
     public long loadRoutineLoadJobs(DataInputStream dis, long checksum) throws IOException {
         Env.getCurrentEnv().getRoutineLoadManager().readFields(dis);
         LOG.info("finished replay routineLoadJobs from image");
+        return checksum;
+    }
+
+    public long loadOutlines(DataInputStream dis, long checksum) throws IOException {
+        Env.getCurrentEnv().getOutlineMgr().readFields(dis);
+        LOG.info("finished replay outlines from image");
         return checksum;
     }
 
@@ -2730,6 +2746,11 @@ public class Env {
 
     public long saveRoutineLoadJobs(CountingDataOutputStream dos, long checksum) throws IOException {
         Env.getCurrentEnv().getRoutineLoadManager().write(dos);
+        return checksum;
+    }
+
+    public long saveOutlines(CountingDataOutputStream dos, long checksum) throws IOException {
+        Env.getCurrentEnv().getOutlineMgr().write(dos);
         return checksum;
     }
 
@@ -4663,6 +4684,10 @@ public class Env {
 
     public RoutineLoadManager getRoutineLoadManager() {
         return routineLoadManager;
+    }
+
+    public OutlineMgr getOutlineMgr() {
+        return outlineMgr;
     }
 
     public GroupCommitManager getGroupCommitManager() {
