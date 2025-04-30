@@ -575,8 +575,6 @@ public:
         arguments[0].column->get(0, param_value);
         auto param_type = arguments[0].type->get_type_as_type_descriptor().type;
         std::unique_ptr<segment_v2::InvertedIndexQueryParamFactory> query_param = nullptr;
-        RETURN_IF_ERROR(segment_v2::InvertedIndexQueryParamFactory::create_query_value(
-                param_type, &param_value, query_param));
         std::shared_ptr<roaring::Roaring> roaring = std::make_shared<roaring::Roaring>();
         RETURN_IF_ERROR(segment_v2::InvertedIndexQueryParamFactory::create_query_value(
                 param_type, &param_value, query_param));
