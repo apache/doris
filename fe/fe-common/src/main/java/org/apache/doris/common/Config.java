@@ -2832,6 +2832,14 @@ public class Config extends ConfigBase {
             "Maximal number of connections of Arrow Flight Server per FE."})
     public static int arrow_flight_max_connections = 4096;
 
+    @ConfField(mutable = true, masterOnly = true, description = {
+        "Auto Buckets中按照partition size去估算bucket数，存算一体partition size 1G估算一个bucket，但存算分离下partition size 10G估算一个bucket",
+        "In Auto Buckets, the number of buckets is estimated based on the partition size. "
+            + "For storage and computing integration, a partition size of 1G is estimated as one bucket."
+            + " but for cloud, a partition size of 10G is estimated as one bucket."
+    })
+    public static int autobucket_partition_size_per_bucket_GB = 1;
+
     @ConfField(description = {"(已弃用，被 arrow_flight_max_connection 替代) Arrow Flight Server中所有用户token的缓存上限，"
             + "超过后LRU淘汰, arrow flight sql是无状态的协议，连接通常不会主动断开，"
             + "bearer token 从 cache 淘汰的同时会 unregister Connection.",
