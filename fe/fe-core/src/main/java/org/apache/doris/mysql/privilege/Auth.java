@@ -63,6 +63,7 @@ import org.apache.doris.mysql.authenticate.AuthenticateType;
 import org.apache.doris.mysql.authenticate.ldap.LdapManager;
 import org.apache.doris.mysql.authenticate.ldap.LdapUserInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterUserInfo;
+import org.apache.doris.nereids.trees.plans.commands.RevokeTablePrivilegeCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateUserInfo;
 import org.apache.doris.persist.AlterUserOperationLog;
 import org.apache.doris.persist.LdapInfo;
@@ -852,6 +853,15 @@ public class Auth implements Writable {
                     true /* err on non exist */, false /* is replay */);
         } else {
             revokeInternal(stmt.getUserIdent(), stmt.getRoles(), false);
+        }
+    }
+
+    public void revokeTablePrivilegeCommand(RevokeTablePrivilegeCommand command) throws DdlException {
+        if (command.getTablePattern() != null) {
+            PrivBitSet privs = PrivBitSet.of(command.getPrivileges());
+            revokeInternal(command.getUserIdentity().orElse(null), command.getRole().orElse(null),
+                command.getTablePattern(), privs, command.getColPrivileges(),
+                true /* err on non exist */, false /* is replay */);
         }
     }
 
