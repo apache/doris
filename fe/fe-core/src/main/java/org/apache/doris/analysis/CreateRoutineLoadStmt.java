@@ -28,9 +28,7 @@ import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
-import org.apache.doris.datasource.property.fileformat.JsonFileFormatProperties;
 import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.AbstractDataSourceProperties;
@@ -218,6 +216,8 @@ public class CreateRoutineLoadStmt extends DdlStmt implements NotFallbackInParse
         if (comment != null) {
             this.comment = comment;
         }
+        String format = jobProperties.getOrDefault(FileFormatProperties.PROP_FORMAT, "csv");
+        fileFormatProperties = FileFormatProperties.createFileFormatProperties(format);
     }
 
     /*
@@ -322,40 +322,12 @@ public class CreateRoutineLoadStmt extends DdlStmt implements NotFallbackInParse
         return timezone;
     }
 
-    public String getFormat() {
-        return fileFormatProperties.getFormatName();
-    }
-
-    public boolean isStripOuterArray() {
-        return ((JsonFileFormatProperties) fileFormatProperties).isStripOuterArray();
-    }
-
-    public boolean isNumAsString() {
-        return ((JsonFileFormatProperties) fileFormatProperties).isNumAsString();
-    }
-
-    public boolean isFuzzyParse() {
-        return ((JsonFileFormatProperties) fileFormatProperties).isFuzzyParse();
-    }
-
-    public String getJsonPaths() {
-        return ((JsonFileFormatProperties) fileFormatProperties).getJsonPaths();
-    }
-
-    public byte getEnclose() {
-        return ((CsvFileFormatProperties) fileFormatProperties).getEnclose();
-    }
-
-    public byte getEscape() {
-        return ((CsvFileFormatProperties) fileFormatProperties).getEscape();
-    }
-
-    public String getJsonRoot() {
-        return ((JsonFileFormatProperties) fileFormatProperties).getJsonRoot();
-    }
-
     public LoadTask.MergeType getMergeType() {
         return mergeType;
+    }
+
+    public FileFormatProperties getFileFormatProperties() {
+        return fileFormatProperties;
     }
 
     public AbstractDataSourceProperties getDataSourceProperties() {
@@ -568,8 +540,6 @@ public class CreateRoutineLoadStmt extends DdlStmt implements NotFallbackInParse
         }
         timezone = TimeUtils.checkTimeZoneValidAndStandardize(jobProperties.getOrDefault(LoadStmt.TIMEZONE, timezone));
 
-        String format = jobProperties.getOrDefault(FileFormatProperties.PROP_FORMAT, "csv");
-        fileFormatProperties = FileFormatProperties.createFileFormatProperties(format);
         fileFormatProperties.analyzeFileFormatProperties(jobProperties, false);
     }
 

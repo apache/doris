@@ -120,7 +120,7 @@ public class CsvFileFormatProperties extends FileFormatProperties {
 
             String escapeStr = getOrDefault(formatProperties, PROP_ESCAPE,
                     "", isRemoveOriginProperty);
-            if (escapeStr != null) {
+            if (!Strings.isNullOrEmpty(escapeStr)) {
                 if (escapeStr.length() != 1) {
                     throw new AnalysisException("escape must be single-char");
                 } else {
