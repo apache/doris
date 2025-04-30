@@ -720,6 +720,9 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
 
     @Override
     public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
@@ -727,11 +730,21 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
             return false;
         }
         LogicalOlapScan that = (LogicalOlapScan) o;
-        return Objects.equals(virtualColumns, that.virtualColumns);
+        return selectedIndexId == that.selectedIndexId && indexSelected == that.indexSelected
+                && partitionPruned == that.partitionPruned && Objects.equals(preAggStatus, that.preAggStatus)
+                && Objects.equals(selectedTabletIds, that.selectedTabletIds)
+                && Objects.equals(manuallySpecifiedPartitions, that.manuallySpecifiedPartitions)
+                && Objects.equals(manuallySpecifiedTabletIds, that.manuallySpecifiedTabletIds)
+                && Objects.equals(selectedPartitionIds, that.selectedPartitionIds)
+                && Objects.equals(hints, that.hints)
+                && Objects.equals(tableSample, that.tableSample)
+                && Objects.equals(virtualColumns, that.virtualColumns);
     }
 
     @Override
     public int hashCode() {
-        return super.hashCode();
+        return Objects.hash(super.hashCode(), selectedIndexId, indexSelected, preAggStatus, cacheSlotWithSlotName,
+                selectedTabletIds, partitionPruned, manuallySpecifiedTabletIds, manuallySpecifiedPartitions,
+                selectedPartitionIds, hints, tableSample, virtualColumns);
     }
 }
