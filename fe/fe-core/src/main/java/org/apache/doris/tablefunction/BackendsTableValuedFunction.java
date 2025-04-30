@@ -17,9 +17,12 @@
 
 package org.apache.doris.tablefunction;
 
-import org.apache.doris.catalog.*;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.InfoSchemaDb;
+import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -87,7 +90,7 @@ public class BackendsTableValuedFunction extends MetadataTableValuedFunction {
             throw new AnalysisException("backends table-valued-function does not support any params");
         }
         if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(),
-            InternalCatalog.INTERNAL_CATALOG_NAME, InfoSchemaDb.DATABASE_NAME, PrivPredicate.SELECT)) {
+                InternalCatalog.INTERNAL_CATALOG_NAME, InfoSchemaDb.DATABASE_NAME, PrivPredicate.SELECT)) {
             String message = ErrorCode.ERR_DB_ACCESS_DENIED_ERROR.formatErrorMsg(
                     PrivPredicate.SELECT.getPrivs().toString(), InfoSchemaDb.DATABASE_NAME);
             throw new AnalysisException(message);

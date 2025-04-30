@@ -74,9 +74,9 @@ public class FrontendsDisksTableValuedFunction extends MetadataTableValuedFuncti
             throw new AnalysisException("frontends_disks table-valued-function does not support any params");
         }
         if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(),
-            InternalCatalog.INTERNAL_CATALOG_NAME, InfoSchemaDb.DATABASE_NAME, PrivPredicate.SELECT)) {
+                InternalCatalog.INTERNAL_CATALOG_NAME, InfoSchemaDb.DATABASE_NAME, PrivPredicate.SELECT)) {
             String message = ErrorCode.ERR_DB_ACCESS_DENIED_ERROR.formatErrorMsg(
-                PrivPredicate.SELECT.getPrivs().toString(), InfoSchemaDb.DATABASE_NAME);
+                    PrivPredicate.SELECT.getPrivs().toString(), InfoSchemaDb.DATABASE_NAME);
             throw new AnalysisException(message);
         }
     }
