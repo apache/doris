@@ -194,10 +194,10 @@ public class CreateViewTest {
     @Test
     public void testResetViewDefForRestore() {
         View view = new View();
-        view.setInlineViewDefWithSqlMode("SELECT `internal`.`test`.`test`.`k2` AS `k1`, " +
-                "FROM `internal`.`test`.`test`;", 1);
+        view.setInlineViewDefWithSqlMode("SELECT `internal`.`test`.`test`.`k2` AS `k1`, "
+                + "FROM `internal`.`test`.`test`;", 1);
         view.resetViewDefForRestore("test", "test1");
-        Assert.assertEquals("SELECT `internal`.`test1`.`test`.`k2` AS `k1`, " +
-                "FROM `internal`.`test1`.`test`;", view.getInlineViewDef());
+        Assert.assertEquals("SELECT `internal`.`test1`.`test`.`k2` AS `k1`, "
+                + "FROM `internal`.`test1`.`test`;", view.getInlineViewDef());
     }
 }
