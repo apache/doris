@@ -37,6 +37,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalDorisScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEsScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
@@ -159,6 +160,11 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
      */
     @Override
     public PhysicalProperties visitPhysicalJdbcScan(PhysicalJdbcScan jdbcScan, PlanContext context) {
+        return PhysicalProperties.STORAGE_ANY;
+    }
+
+    @Override
+    public PhysicalProperties visitPhysicalDorisScan(PhysicalDorisScan dorisScan, PlanContext context) {
         return PhysicalProperties.STORAGE_ANY;
     }
 

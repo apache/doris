@@ -43,6 +43,8 @@ public class JdbcExecutorFactory {
                 return "org/apache/doris/jdbc/TrinoJdbcExecutor";
             case GBASE:
                 return "org/apache/doris/jdbc/GbaseJdbcExecutor";
+            case DORIS:
+                return "org/apache/doris/jdbc/DorisAdbcExecutor";
             default:
                 throw new IllegalArgumentException("Unsupported jdbc type: " + type);
         }

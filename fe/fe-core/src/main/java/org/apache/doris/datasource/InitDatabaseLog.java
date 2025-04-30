@@ -44,6 +44,7 @@ public class InitDatabaseLog implements Writable {
         TEST,
         INFO_SCHEMA_DB,
         TRINO_CONNECTOR,
+        DORIS,
         UNKNOWN;
     }
 

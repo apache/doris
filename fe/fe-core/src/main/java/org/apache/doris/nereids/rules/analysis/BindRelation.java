@@ -74,6 +74,7 @@ import org.apache.doris.nereids.trees.plans.PreAggStatus;
 import org.apache.doris.nereids.trees.plans.algebra.Relation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
+import org.apache.doris.nereids.trees.plans.logical.LogicalDorisScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEsScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -434,6 +435,9 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 case ES_EXTERNAL_TABLE:
                 case ELASTICSEARCH:
                     return new LogicalEsScan(unboundRelation.getRelationId(), table, qualifierWithoutTableName);
+                case DORIS_EXTERNAL_TABLE:
+                case DORIS:
+                    return new LogicalDorisScan(unboundRelation.getRelationId(), table, qualifierWithoutTableName);
                 case TEST_EXTERNAL_TABLE:
                     return new LogicalTestScan(unboundRelation.getRelationId(), table, qualifierWithoutTableName);
                 default:

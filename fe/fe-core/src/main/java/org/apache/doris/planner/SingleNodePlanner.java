@@ -64,6 +64,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.Reference;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.FileQueryScanNode;
+import org.apache.doris.datasource.doris.source.DorisScanNode;
 import org.apache.doris.datasource.es.source.EsScanNode;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.source.HiveScanNode;
@@ -1961,6 +1962,9 @@ public class SingleNodePlanner {
             case JDBC:
                 scanNode = new JdbcScanNode(ctx.getNextNodeId(), tblRef.getDesc(), false);
                 break;
+            case DORIS:
+                scanNode = new DorisScanNode(ctx.getNextNodeId(), tblRef.getDesc());
+                break;
             case TABLE_VALUED_FUNCTION:
                 scanNode = ((TableValuedFunctionRef) tblRef).getScanNode(ctx.getNextNodeId(), sv);
                 break;
@@ -2010,6 +2014,9 @@ public class SingleNodePlanner {
             case JDBC_EXTERNAL_TABLE:
                 scanNode = new JdbcScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true);
                 break;
+            case DORIS_EXTERNAL_TABLE:
+                scanNode = new DorisScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true);
+                break;
             case LAKESOUl_EXTERNAL_TABLE:
                 scanNode = new LakeSoulScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true, sv);
                 break;
@@ -2021,7 +2028,8 @@ public class SingleNodePlanner {
         }
         if (scanNode instanceof OlapScanNode || scanNode instanceof EsScanNode
                 || scanNode instanceof OdbcScanNode || scanNode instanceof JdbcScanNode
-                || scanNode instanceof FileQueryScanNode || scanNode instanceof MysqlScanNode) {
+                || scanNode instanceof FileQueryScanNode || scanNode instanceof MysqlScanNode
+                || scanNode instanceof DorisScanNode) {
             if (analyzer.enableInferPredicate()) {
                 PredicatePushDown.visitScanNode(scanNode, tblRef.getJoinOp(), analyzer);
             }

@@ -58,7 +58,8 @@ enum TPlanNodeType {
   JDBC_SCAN_NODE,
   TEST_EXTERNAL_SCAN_NODE,
   PARTITION_SORT_NODE,
-  GROUP_COMMIT_SCAN_NODE
+  GROUP_COMMIT_SCAN_NODE,
+  DORIS_ADBC_SCAN_NODE
 }
 
 struct TKeyRange {
@@ -234,6 +235,12 @@ struct TEsScanRange {
   2: required string index   
   3: optional string type
   4: required i32 shard_id
+}
+
+// Doris arrow scan range
+struct TDorisArrowScanRange {
+  1: required string uri_str
+  2: required binary ticket
 }
 
 struct TFileTextScanRangeParams {
@@ -612,6 +619,7 @@ struct TScanRange {
   8: optional TExternalScanRange ext_scan_range
   9: optional TDataGenScanRange data_gen_scan_range
   10: optional TMetaScanRange meta_scan_range
+  11: optional TDorisArrowScanRange doris_arrow_scan_range
 }
 
 struct TMySQLScanNode {
@@ -793,6 +801,14 @@ struct TOlapScanNode {
   16: optional list<i32> distribute_column_ids
   17: optional i32 schema_version
   18: optional list<i32> topn_filter_source_node_ids //deprecated, move to TPlanNode.106
+}
+
+struct TDorisAdbcScanNode {
+  1: optional Types.TTupleId tuple_id
+  2: optional string table_name
+  3: optional string user
+  4: optional string passwd
+  5: optional map<string, string> fe_arrow_nodes
 }
 
 struct TEqJoinCondition {
@@ -1389,6 +1405,7 @@ struct TPlanNode {
 
   50: optional list<list<Exprs.TExpr>> distribute_expr_lists
   51: optional bool is_serial_operator
+  52: optional TDorisAdbcScanNode doris_adbc_scan_node
   // projections is final projections, which means projecting into results and materializing them into the output block.
   101: optional list<Exprs.TExpr> projections
   102: optional Types.TTupleId output_tuple_id

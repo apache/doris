@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalDorisScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEsScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
@@ -143,6 +144,11 @@ class CostModelV2 extends PlanVisitor<Cost, PlanContext> {
 
     @Override
     public Cost visitPhysicalJdbcScan(PhysicalJdbcScan physicalJdbcScan, PlanContext context) {
+        return calculateScanWithoutRF(context.getStatisticsWithCheck());
+    }
+
+    @Override
+    public Cost visitPhysicalDorisScan(PhysicalDorisScan physicalDorisScan, PlanContext context) {
         return calculateScanWithoutRF(context.getStatisticsWithCheck());
     }
 

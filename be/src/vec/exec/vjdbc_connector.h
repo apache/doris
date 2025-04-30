@@ -61,6 +61,9 @@ struct JdbcConnectorParam {
     int32_t connection_pool_max_wait_time = -1;
     int32_t connection_pool_max_life_time = -1;
     bool connection_pool_keep_alive = false;
+    std::string arrow_host_port;
+    std::string ticket;
+    std::string location_uri;
 
     const TupleDescriptor* tuple_desc = nullptr;
 };

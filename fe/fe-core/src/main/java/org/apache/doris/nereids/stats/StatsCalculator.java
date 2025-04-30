@@ -74,6 +74,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeTopN;
+import org.apache.doris.nereids.trees.plans.logical.LogicalDorisScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEsScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
@@ -106,6 +107,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalDorisScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEsScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalExcept;
@@ -819,6 +821,12 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     }
 
     @Override
+    public Statistics visitLogicalDorisScan(LogicalDorisScan dorisScan, Void context) {
+        dorisScan.getExpressions();
+        return computeCatalogRelation(dorisScan);
+    }
+
+    @Override
     public Statistics visitLogicalOdbcScan(LogicalOdbcScan odbcScan, Void context) {
         odbcScan.getExpressions();
         return computeCatalogRelation(odbcScan);
@@ -972,6 +980,11 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     @Override
     public Statistics visitPhysicalJdbcScan(PhysicalJdbcScan jdbcScan, Void context) {
         return computeCatalogRelation(jdbcScan);
+    }
+
+    @Override
+    public Statistics visitPhysicalDorisScan(PhysicalDorisScan dorisScan, Void context) {
+        return computeCatalogRelation(dorisScan);
     }
 
     @Override

@@ -4240,6 +4240,19 @@ public class Env {
                 }
             }
             sb.append("\n)");
+        }  else if (table.getType() == TableType.DORIS) {
+            DorisTable dorisTable = (DorisTable) table;
+            addTableComment(dorisTable, sb);
+            sb.append("\nPROPERTIES (\n");
+            sb.append("\"fe_nodes\" = \"").append(String.join(",", dorisTable.getFeNodes())).append("\",\n");
+            sb.append("\"fe_arrow_nodes\" = \"").append(String.join(",", dorisTable.getFeArrowNodes())).append("\",\n");
+            sb.append("\"be_nodes\" = \"").append(String.join(",", dorisTable.getBeNodes())).append("\",\n");
+            sb.append("\"user\" = \"").append(dorisTable.getUserName()).append("\",\n");
+            sb.append("\"password\" = \"").append(dorisTable.getPassword()).append("\",\n");
+            sb.append("\"table\" = \"").append(dorisTable.getExternalTableName()).append("\",\n");
+            sb.append("\"max_exec_be_num\" = \"").append(dorisTable.getExternalTableName()).append("\",\n");
+            sb.append("\"http_ssl_enabled\" = \"").append(dorisTable.isHttpSslEnabled()).append("\",\n");
+            sb.append("\n)");
         }
 
         createTableStmt.add(sb + ";");
