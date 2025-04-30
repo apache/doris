@@ -82,6 +82,7 @@ private:
         add_mapping<FieldType::OLAP_FIELD_TYPE_DECIMAL128I>();
         add_mapping<FieldType::OLAP_FIELD_TYPE_DECIMAL256>();
         add_mapping<FieldType::OLAP_FIELD_TYPE_IPV4>();
+        add_mapping<FieldType::OLAP_FIELD_TYPE_IPV6>();
         add_mapping<FieldType::OLAP_FIELD_TYPE_FLOAT>();
         add_mapping<FieldType::OLAP_FIELD_TYPE_DOUBLE>();
     }
