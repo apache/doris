@@ -2078,8 +2078,10 @@ std::string BlockFileCache::clear_file_cache_directly() {
     int64_t disposible_queue_size = _disposable_queue.get_elements_num(cache_lock);
     int64_t ttl_queue_size = _ttl_queue.get_elements_num(cache_lock);
 
+    int64_t clear_fd_duration = 0;
     if (config::clear_fd_after_clear_file_cache) {
         // clear FDCache to release fd
+        SCOPED_RAW_TIMER(&clear_fd_duration);
         for (const auto& [file_key, file_blocks] : _files) {
             for (const auto& [offset, file_block_cell] : file_blocks) {
                 AccessKeyAndOffset access_key_and_offset(file_key, offset);
@@ -2099,9 +2101,10 @@ std::string BlockFileCache::clear_file_cache_directly() {
     _ttl_queue.clear(cache_lock);
     ss << "finish clear_file_cache_directly"
        << " path=" << _cache_base_path
-       << " time_elapsed=" << duration_cast<milliseconds>(steady_clock::now() - start).count()
-       << " num_files=" << num_files << " cache_size=" << cache_size
-       << " index_queue_size=" << index_queue_size << " normal_queue_size=" << normal_queue_size
+       << " time_elapsed_ms=" << duration_cast<milliseconds>(steady_clock::now() - start).count()
+       << " fd_clear_time_ms=" << (clear_fd_duration / 1000000) << " num_files=" << num_files
+       << " cache_size=" << cache_size << " index_queue_size=" << index_queue_size
+       << " normal_queue_size=" << normal_queue_size
        << " disposible_queue_size=" << disposible_queue_size << "ttl_queue_size=" << ttl_queue_size;
 
     auto msg = ss.str();
