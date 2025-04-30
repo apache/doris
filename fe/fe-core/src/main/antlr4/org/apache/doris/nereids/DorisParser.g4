@@ -81,7 +81,6 @@ unsupportedStatement
     | unsupportedGrantRevokeStatement
     | unsupportedAdminStatement
     | unsupportedCancelStatement
-    | unsupportedCleanStatement
     | unsupportedRefreshStatement
     | unsupportedLoadStatement
     | unsupportedShowStatement
@@ -530,16 +529,13 @@ supportedRefreshStatement
 supportedCleanStatement
     : CLEAN ALL PROFILE                                                             #cleanAllProfile
     | CLEAN LABEL label=identifier? (FROM | IN) database=identifier                 #cleanLabel
+    | CLEAN QUERY STATS ((FOR database=identifier)
+        | ((FROM | IN) table=multipartIdentifier))                                  #cleanQueryStats
+    | CLEAN ALL QUERY STATS                                                         #cleanAllQueryStats
     ;
 
 unsupportedRefreshStatement
     : REFRESH LDAP (ALL | (FOR user=identifierOrText))                              #refreshLdap
-    ;
-
-unsupportedCleanStatement
-    : CLEAN QUERY STATS ((FOR database=identifier)
-        | ((FROM | IN) table=multipartIdentifier))                                  #cleanQueryStats
-    | CLEAN ALL QUERY STATS                                                         #cleanAllQueryStats
     ;
 
 supportedCancelStatement
