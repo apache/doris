@@ -126,8 +126,6 @@ public:
 
     bool is_range_value_convertible() const;
 
-    void convert_to_fixed_value();
-
     void convert_to_range_value();
 
     bool convert_to_avg_range_value(std::vector<OlapTuple>& begin_scan_keys,
