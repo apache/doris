@@ -54,6 +54,7 @@ import org.apache.doris.nereids.trees.plans.commands.load.LoadSequenceClause;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadWhereClause;
 import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.thrift.TPipelineWorkloadGroup;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
@@ -173,7 +174,7 @@ public class CreateRoutineLoadInfo {
 
     private byte escape;
 
-    private long workloadGroupId = -1;
+    private String workloadGroupName;
 
     /**
      * support partial columns load(Only Unique Key Columns)
@@ -410,17 +411,19 @@ public class CreateRoutineLoadInfo {
 
         String inputWorkloadGroupStr = jobProperties.get(WORKLOAD_GROUP);
         if (!StringUtils.isEmpty(inputWorkloadGroupStr)) {
-            try {
-                ConnectContext tmpCtx = new ConnectContext();
-                tmpCtx.setCurrentUserIdentity(ConnectContext.get().getCurrentUserIdentity());
-                tmpCtx.getSessionVariable().setWorkloadGroup(inputWorkloadGroupStr);
-                this.workloadGroupId = Env.getCurrentEnv().getWorkloadGroupMgr()
-                        .getWorkloadGroup(tmpCtx).get(0)
-                        .getId();
-            } catch (Throwable t) {
-                LOG.info("Get workload group failed when create routine load info, ", t);
-                throw t;
+            ConnectContext tmpCtx = new ConnectContext();
+            tmpCtx.setCurrentUserIdentity(ConnectContext.get().getCurrentUserIdentity());
+            tmpCtx.setQualifiedUser(ConnectContext.get().getCurrentUserIdentity().getQualifiedUser());
+            tmpCtx.getSessionVariable().setWorkloadGroup(inputWorkloadGroupStr);
+            if (Config.isCloudMode()) {
+                tmpCtx.setCloudCluster(ConnectContext.get().getCloudCluster());
             }
+            List<TPipelineWorkloadGroup> wgList = Env.getCurrentEnv().getWorkloadGroupMgr()
+                    .getWorkloadGroup(tmpCtx);
+            if (wgList.size() == 0) {
+                throw new UserException("Can not find workload group " + inputWorkloadGroupStr);
+            }
+            this.workloadGroupName = inputWorkloadGroupStr;
         }
 
         if (ConnectContext.get() != null) {
@@ -458,12 +461,13 @@ public class CreateRoutineLoadInfo {
      */
     public CreateRoutineLoadStmt translateToLegacyStmt(ConnectContext ctx) {
         return new CreateRoutineLoadStmt(labelNameInfo.transferToLabelName(), dbName, name, tableName, null,
-            ctx.getStatementContext().getOriginStatement(), ctx.getUserIdentity(),
-            jobProperties, typeName, routineLoadDesc,
-            desiredConcurrentNum, maxErrorNum, maxFilterRatio, maxBatchIntervalS, maxBatchRows, maxBatchSizeBytes,
-            execMemLimit, sendBatchParallelism, timezone, format, jsonPaths, jsonRoot, enclose, escape, workloadGroupId,
-            loadToSingleTablet, strictMode, isPartialUpdate, stripOuterArray, numAsString, fuzzyParse,
-            dataSourceProperties
+                ctx.getStatementContext().getOriginStatement(), ctx.getUserIdentity(),
+                jobProperties, typeName, routineLoadDesc,
+                desiredConcurrentNum, maxErrorNum, maxFilterRatio, maxBatchIntervalS, maxBatchRows, maxBatchSizeBytes,
+                execMemLimit, sendBatchParallelism, timezone, format, jsonPaths, jsonRoot, enclose, escape,
+                workloadGroupName,
+                loadToSingleTablet, strictMode, isPartialUpdate, stripOuterArray, numAsString, fuzzyParse,
+                dataSourceProperties
         );
     }
 }
