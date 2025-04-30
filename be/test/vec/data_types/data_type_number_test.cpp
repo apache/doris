@@ -124,12 +124,13 @@ public:
 };
 
 TEST_F(DataTypeNumberTest, MetaInfoTest) {
-    TypeDescriptor type_descriptor = {PrimitiveType::TYPE_TINYINT};
+    auto type_descriptor =
+            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_TINYINT, false);
     auto col_meta = std::make_shared<PColumnMeta>();
     col_meta->set_type(PGenericType_TypeId_INT8);
     CommonDataTypeTest::DataTypeMetaInfo meta_info_to_assert = {
             .type_id = TypeIndex::Int8,
-            .type_as_type_descriptor = &type_descriptor,
+            .type_as_type_descriptor = type_descriptor,
             .family_name = dt_int8.get_family_name(),
             .has_subtypes = false,
             .storage_field_type = doris::FieldType::OLAP_FIELD_TYPE_TINYINT,
@@ -149,15 +150,15 @@ TEST_F(DataTypeNumberTest, MetaInfoTest) {
     helper->meta_info_assert(tmp_dt, meta_info_to_assert);
 }
 TEST_F(DataTypeNumberTest, get_type_as_type_descriptor) {
-    EXPECT_EQ(dt_int8.get_type_as_type_descriptor(), TypeDescriptor(PrimitiveType::TYPE_TINYINT));
-    EXPECT_EQ(dt_int16.get_type_as_type_descriptor(), TypeDescriptor(PrimitiveType::TYPE_SMALLINT));
-    EXPECT_EQ(dt_int32.get_type_as_type_descriptor(), TypeDescriptor(PrimitiveType::TYPE_INT));
-    EXPECT_EQ(dt_int64.get_type_as_type_descriptor(), TypeDescriptor(PrimitiveType::TYPE_BIGINT));
-    EXPECT_EQ(dt_int128.get_type_as_type_descriptor(),
-              TypeDescriptor(PrimitiveType::TYPE_LARGEINT));
+    EXPECT_EQ(dt_int8.get_primitive_type(), PrimitiveType::TYPE_TINYINT);
+    EXPECT_EQ(dt_int16.get_primitive_type(), PrimitiveType::TYPE_SMALLINT);
+    EXPECT_EQ(dt_int32.get_primitive_type(), PrimitiveType::TYPE_INT);
+    EXPECT_EQ(dt_int64.get_primitive_type(), PrimitiveType::TYPE_BIGINT);
+    EXPECT_EQ(dt_int128.get_primitive_type(), PrimitiveType::TYPE_LARGEINT);
 
-    EXPECT_EQ(dt_uint8.get_type_as_type_descriptor(), TypeDescriptor(PrimitiveType::TYPE_BOOLEAN));
+    EXPECT_EQ(dt_uint8.get_primitive_type(), PrimitiveType::TYPE_BOOLEAN);
 }
+
 TEST_F(DataTypeNumberTest, get_storage_field_type) {
     EXPECT_EQ(dt_int8.get_storage_field_type(), doris::FieldType::OLAP_FIELD_TYPE_TINYINT);
     EXPECT_EQ(dt_int16.get_storage_field_type(), doris::FieldType::OLAP_FIELD_TYPE_SMALLINT);

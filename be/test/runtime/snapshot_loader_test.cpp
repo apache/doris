@@ -207,8 +207,7 @@ static void add_rowset(int64_t tablet_id, int32_t schema_hash, int64_t partition
     for (const auto& slot_desc : tuple_desc->slots()) {
         std::cout << "slot_desc: " << slot_desc->col_name() << std::endl;
         block.insert(vectorized::ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(),
-                                                       slot_desc->get_data_type_ptr(),
-                                                       slot_desc->col_name()));
+                                                       slot_desc->type(), slot_desc->col_name()));
     }
 
     std::cout << "total column " << block.mutate_columns().size() << std::endl;

@@ -66,7 +66,9 @@
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h" // Block
 #include "vec/data_types/data_type_factory.hpp"
+#include "vec/data_types/data_type_struct.h"
 #include "vec/data_types/serde/data_type_serde.h"
+#include "vec/functions/function_helpers.h"
 #include "vec/jsonb/serialize.h"
 
 namespace doris {
@@ -204,19 +206,29 @@ Status RowIDFetcher::_merge_rpc_results(const PMultiGetRequest& request,
     return Status::OK();
 }
 
-bool _has_char_type(const TypeDescriptor& desc) {
-    switch (desc.type) {
-    case TYPE_CHAR:
+bool _has_char_type(const vectorized::DataTypePtr& type) {
+    switch (type->get_primitive_type()) {
+    case TYPE_CHAR: {
         return true;
-    case TYPE_ARRAY:
-    case TYPE_MAP:
-    case TYPE_STRUCT:
-        for (int idx = 0; idx < desc.children.size(); ++idx) {
-            if (_has_char_type(desc.children[idx])) {
-                return true;
-            }
-        }
-        return false;
+    }
+    case TYPE_ARRAY: {
+        const auto* arr_type =
+                assert_cast<const vectorized::DataTypeArray*>(remove_nullable(type).get());
+        return _has_char_type(arr_type->get_nested_type());
+    }
+    case TYPE_MAP: {
+        const auto* map_type =
+                assert_cast<const vectorized::DataTypeMap*>(remove_nullable(type).get());
+        return _has_char_type(map_type->get_key_type()) ||
+               _has_char_type(map_type->get_value_type());
+    }
+    case TYPE_STRUCT: {
+        const auto* struct_type =
+                assert_cast<const vectorized::DataTypeStruct*>(remove_nullable(type).get());
+        return std::any_of(
+                struct_type->get_elements().begin(), struct_type->get_elements().end(),
+                [&](const vectorized::DataTypePtr& dt) -> bool { return _has_char_type(dt); });
+    }
     default:
         return false;
     }
@@ -275,8 +287,8 @@ Status RowIDFetcher::fetch(const vectorized::ColumnPtr& column_row_ids,
     std::vector<size_t> char_type_idx;
     for (size_t i = 0; i < _fetch_option.desc->slots().size(); i++) {
         const auto& column_desc = _fetch_option.desc->slots()[i];
-        const TypeDescriptor& type_desc = column_desc->type();
-        if (_has_char_type(type_desc)) {
+        const auto type = column_desc->type();
+        if (_has_char_type(type)) {
             char_type_idx.push_back(i);
         }
     }
