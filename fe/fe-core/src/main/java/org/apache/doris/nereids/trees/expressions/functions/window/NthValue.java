@@ -72,10 +72,10 @@ public class NthValue extends WindowFunction
         return child(0).getDataType();
     }
 
-    /*
-     * Check the second parameter of NthValue function.
-     * The second parameter must be a constant positive integer.
-     */
+    /**
+    * Check the second parameter of NthValue function.
+    * The second parameter must be a constant positive integer.
+    */
     public static void checkSecondParameter(NthValue nthValue) {
         Preconditions.checkArgument(nthValue.arity() == 2);
         Expression offset = nthValue.child(1);
