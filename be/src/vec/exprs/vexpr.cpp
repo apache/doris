@@ -184,8 +184,7 @@ bool VExpr::is_acting_on_a_slot(const VExpr& expr) {
 
 VExpr::VExpr(const TExprNode& node)
         : _node_type(node.node_type),
-          _opcode(node.__isset.opcode ? node.opcode : TExprOpcode::INVALID_OPCODE),
-          _type(TypeDescriptor::from_thrift(node.type)) {
+          _opcode(node.__isset.opcode ? node.opcode : TExprOpcode::INVALID_OPCODE) {
     if (node.__isset.fn) {
         _fn = node.fn;
     }
@@ -198,18 +197,18 @@ VExpr::VExpr(const TExprNode& node)
     if (node.node_type == TExprNodeType::NULL_LITERAL) {
         CHECK(is_nullable);
     }
-    _data_type = DataTypeFactory::instance().create_data_type(_type, is_nullable);
+    _data_type = get_data_type_with_default_argument(
+            DataTypeFactory::instance().create_data_type(node.type, is_nullable));
 }
 
 VExpr::VExpr(const VExpr& vexpr) = default;
 
-VExpr::VExpr(TypeDescriptor type, bool is_slotref, bool is_nullable)
-        : _opcode(TExprOpcode::INVALID_OPCODE), _type(std::move(type)) {
+VExpr::VExpr(DataTypePtr type, bool is_slotref)
+        : _opcode(TExprOpcode::INVALID_OPCODE),
+          _data_type(get_data_type_with_default_argument(type)) {
     if (is_slotref) {
         _node_type = TExprNodeType::SLOT_REF;
     }
-
-    _data_type = DataTypeFactory::instance().create_data_type(_type, is_nullable);
 }
 
 Status VExpr::prepare(RuntimeState* state, const RowDescriptor& row_desc, VExprContext* context) {
@@ -452,7 +451,7 @@ Status VExpr::check_expr_output_type(const VExprContextSPtrs& ctxs,
         return false;
     };
     for (int i = 0; i < ctxs.size(); i++) {
-        auto real_expr_type = ctxs[i]->root()->data_type();
+        auto real_expr_type = get_data_type_with_default_argument(ctxs[i]->root()->data_type());
         auto&& [name, expected_type] = name_and_types[i];
         if (!check_type_can_be_converted(real_expr_type, expected_type)) {
             return Status::InternalError(
@@ -499,7 +498,7 @@ Status VExpr::clone_if_not_exists(const VExprContextSPtrs& ctxs, RuntimeState* s
 std::string VExpr::debug_string() const {
     // TODO: implement partial debug string for member vars
     std::stringstream out;
-    out << " type=" << _type.debug_string();
+    out << " type=" << _data_type->get_name();
 
     if (!_children.empty()) {
         out << " children=" << debug_string(_children);
@@ -566,12 +565,12 @@ Status VExpr::get_const_col(VExprContext* context,
 }
 
 void VExpr::register_function_context(RuntimeState* state, VExprContext* context) {
-    std::vector<TypeDescriptor> arg_types;
+    std::vector<DataTypePtr> arg_types;
     for (auto& i : _children) {
-        arg_types.push_back(i->type());
+        arg_types.push_back(i->data_type());
     }
 
-    _fn_context_index = context->register_function_context(state, _type, arg_types);
+    _fn_context_index = context->register_function_context(state, _data_type, arg_types);
 }
 
 Status VExpr::init_function_context(RuntimeState* state, VExprContext* context,
@@ -655,20 +654,18 @@ Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBase
                                 ->get_storage_name_and_type_by_column_id(column_id);
                 auto storage_type = remove_nullable(storage_name_type->second);
                 auto target_type = remove_nullable(cast_expr->get_target_type());
-                auto origin_primitive_type = storage_type->get_type_as_type_descriptor().type;
-                auto target_primitive_type = target_type->get_type_as_type_descriptor().type;
+                auto origin_primitive_type = storage_type->get_primitive_type();
+                auto target_primitive_type = target_type->get_primitive_type();
                 if (is_complex_type(storage_type)) {
                     if (is_array(storage_type) && is_array(target_type)) {
                         auto nested_storage_type =
                                 (assert_cast<const DataTypeArray*>(storage_type.get()))
                                         ->get_nested_type();
-                        origin_primitive_type =
-                                nested_storage_type->get_type_as_type_descriptor().type;
+                        origin_primitive_type = nested_storage_type->get_primitive_type();
                         auto nested_target_type =
                                 (assert_cast<const DataTypeArray*>(target_type.get()))
                                         ->get_nested_type();
-                        target_primitive_type =
-                                nested_target_type->get_type_as_type_descriptor().type;
+                        target_primitive_type = nested_target_type->get_primitive_type();
                     } else {
                         continue;
                     }

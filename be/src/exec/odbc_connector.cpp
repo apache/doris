@@ -102,8 +102,9 @@ Status ODBCConnector::append(vectorized::Block* block,
             }
             auto& column_ptr = block->get_by_position(j).column;
             auto& type_ptr = block->get_by_position(j).type;
-            RETURN_IF_ERROR(convert_column_data(
-                    column_ptr, type_ptr, output_vexpr_ctxs[j]->root()->type(), i, table_type));
+            RETURN_IF_ERROR(convert_column_data(column_ptr, type_ptr,
+                                                output_vexpr_ctxs[j]->root()->data_type(), i,
+                                                table_type));
         }
 
         if (i < num_rows - 1 && _insert_stmt_buffer.size() < INSERT_BUFFER_SIZE) {
@@ -190,7 +191,7 @@ Status ODBCConnector::query() {
     for (int i = 0; i < _field_num; i++) {
         DataBinding* column_data = new DataBinding;
         column_data->target_type = SQL_C_CHAR;
-        auto type = _tuple_desc->slots()[i]->type().type;
+        auto type = _tuple_desc->slots()[i]->type()->get_primitive_type();
         column_data->buffer_length = (type == TYPE_HLL || type == TYPE_CHAR ||
                                       type == TYPE_VARCHAR || type == TYPE_STRING)
                                              ? big_column_size_buffer

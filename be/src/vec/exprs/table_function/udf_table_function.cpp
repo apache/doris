@@ -41,8 +41,7 @@ const char* EXECUTOR_EVALUATE_SIGNATURE = "(Ljava/util/Map;Ljava/util/Map;)J";
 const char* EXECUTOR_CLOSE_SIGNATURE = "()V";
 UDFTableFunction::UDFTableFunction(const TFunction& t_fn) : TableFunction(), _t_fn(t_fn) {
     _fn_name = _t_fn.name.function_name;
-    _return_type = DataTypeFactory::instance().create_data_type(
-            TypeDescriptor::from_thrift(t_fn.ret_type));
+    _return_type = DataTypeFactory::instance().create_data_type(t_fn.ret_type);
     // as the java-utdf function in java code is eg: ArrayList<String>
     // so we need a array column to save the execute result, and make_nullable could help deal with nullmap
     _return_type = make_nullable(std::make_shared<DataTypeArray>(make_nullable(_return_type)));

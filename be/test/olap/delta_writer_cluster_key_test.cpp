@@ -258,8 +258,7 @@ TEST_F(TestDeltaWriterClusterKey, vec_sequence_col) {
     vectorized::Block block;
     for (const auto& slot_desc : tuple_desc->slots()) {
         block.insert(vectorized::ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(),
-                                                       slot_desc->get_data_type_ptr(),
-                                                       slot_desc->col_name()));
+                                                       slot_desc->type(), slot_desc->col_name()));
     }
 
     auto rows = 4;
