@@ -134,7 +134,7 @@ public class StatisticsUtil {
     public static List<ResultRow> executeQuery(String template, Map<String, String> params) {
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
         String sql = stringSubstitutor.replace(template);
-        return execStatisticQuery(sql, true);
+        return execStatisticQuery(sql, true, GlobalVariable.statisticsQueryComputeGroup);
     }
 
     public static void execUpdate(String template, Map<String, String> params) throws Exception {
@@ -144,21 +144,34 @@ public class StatisticsUtil {
     }
 
     public static List<ResultRow> execStatisticQuery(String sql) {
-        return execStatisticQuery(sql, false);
+        return execStatisticQuery(sql, false, GlobalVariable.statisticsQueryComputeGroup);
     }
 
-    public static List<ResultRow> execStatisticQuery(String sql, boolean enableFileCache) {
+    public static List<ResultRow> execStatisticQuery(String sql, boolean enableFileCache, String cloudCluster) {
         if (!FeConstants.enableInternalSchemaDb) {
             return Collections.emptyList();
         }
         boolean useFileCacheForStat = (enableFileCache && Config.allow_analyze_statistics_info_polluting_file_cache);
         try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(useFileCacheForStat)) {
             if (Config.isCloudMode()) {
-                try {
-                    r.connectContext.getCloudCluster();
-                } catch (ComputeGroupException e) {
-                    LOG.warn("failed to connect to cloud cluster", e);
-                    return Collections.emptyList();
+                boolean clusterIsValid = false;
+                if (!StringUtils.isEmpty(cloudCluster)) {
+                    if (Env.getCurrentEnv().getComputeGroupMgr().isComputeGroupExists(cloudCluster)) {
+                        clusterIsValid = true;
+                    } else {
+                        LOG.info("user set a invalid compute group {}", cloudCluster);
+                    }
+                }
+
+                if (clusterIsValid) {
+                    r.connectContext.setCloudCluster(cloudCluster);
+                } else {
+                    try {
+                        r.connectContext.getCloudCluster();
+                    } catch (ComputeGroupException e) {
+                        LOG.warn("failed to connect to cloud cluster", e);
+                        return Collections.emptyList();
+                    }
                 }
             }
             StmtExecutor stmtExecutor = new StmtExecutor(r.connectContext, sql);

@@ -29,6 +29,7 @@ import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.qe.VariableMgr;
@@ -127,7 +128,7 @@ public class CacheHotspotManagerUtils {
         String sql = stringSubstitutor.replace(CONTAINS_CLUSTER_TEMPLATE);
         List<ResultRow> result = null;
         try {
-            result = StatisticsUtil.execStatisticQuery(sql, false);
+            result = StatisticsUtil.execStatisticQuery(sql, false, GlobalVariable.warmUpCacheQueryComputeGroup);
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
@@ -147,7 +148,7 @@ public class CacheHotspotManagerUtils {
         String sql = stringSubstitutor.replace(GET_CLUSTER_PARTITIONS_TEMPLATE);
         List<ResultRow> result = null;
         try {
-            result = StatisticsUtil.execStatisticQuery(sql, false);
+            result = StatisticsUtil.execStatisticQuery(sql, false, GlobalVariable.warmUpCacheQueryComputeGroup);
         } catch (Exception e) {
             throw new RuntimeException(e);
         }

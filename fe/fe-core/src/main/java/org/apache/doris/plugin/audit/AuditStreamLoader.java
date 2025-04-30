@@ -17,11 +17,14 @@
 
 package org.apache.doris.plugin.audit;
 
+import org.apache.doris.analysis.LoadStmt;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InternalSchema;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.qe.GlobalVariable;
 
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -68,6 +71,17 @@ public class AuditStreamLoader {
                 InternalSchema.AUDIT_SCHEMA.stream().map(c -> c.getName()).collect(
                         Collectors.joining(",")));
         conn.addRequestProperty("redirect-policy", "random-be");
+
+        if (Config.isCloudMode()) {
+            String cgName = GlobalVariable.auditPluginComputeGroup;
+            if (!StringUtils.isEmpty(cgName)) {
+                if (Env.getCurrentEnv().getComputeGroupMgr().isComputeGroupExists(cgName)) {
+                    conn.addRequestProperty(LoadStmt.KEY_CLOUD_CLUSTER, GlobalVariable.auditPluginComputeGroup);
+                } else {
+                    LOG.info("user set a invalid compute group {}", cgName);
+                }
+            }
+        }
         conn.setDoOutput(true);
         conn.setDoInput(true);
         return conn;

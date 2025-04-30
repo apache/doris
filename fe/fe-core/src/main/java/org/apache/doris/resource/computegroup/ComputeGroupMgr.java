@@ -72,4 +72,13 @@ public class ComputeGroupMgr {
         return ret;
     }
 
+    public boolean isComputeGroupExists(String cgName) {
+        CloudSystemInfoService cloudSystemInfoService = (CloudSystemInfoService) systemInfoService;
+        if (!StringUtils.isEmpty(cloudSystemInfoService.getCloudClusterIdByName(cgName))) {
+            return true;
+        } else {
+            return false;
+        }
+    }
+
 }
