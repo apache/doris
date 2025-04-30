@@ -56,7 +56,7 @@ public class ColumnStatisticsCacheLoader extends BasicAsyncCacheLoader<Statistic
         List<ResultRow> columnResults
                 = StatisticsRepository.loadColStats(key.catalogId, key.dbId, key.tableId, key.idxId, key.colName);
         ColumnStatistic columnStatistics = StatisticsUtil.deserializeToColumnStatistics(columnResults);
-        if (columnStatistics == null) {
+        if (columnStatistics == null || !columnStatistics.isValid()) {
             return Optional.empty();
         } else {
             return Optional.of(columnStatistics);
