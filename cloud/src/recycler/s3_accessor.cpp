@@ -213,7 +213,7 @@ S3Accessor::S3Accessor(S3Conf conf)
 S3Accessor::~S3Accessor() = default;
 
 std::string S3Accessor::get_key(const std::string& relative_path) const {
-    return conf_.prefix + '/' + relative_path;
+    return conf_.prefix.empty() ? relative_path : conf_.prefix + '/' + relative_path;
 }
 
 std::string S3Accessor::to_uri(const std::string& relative_path) const {
@@ -240,7 +240,8 @@ int S3Accessor::init() {
     static std::once_flag log_annotated_tags_key_once;
     std::call_once(log_annotated_tags_key_once, [&]() {
         LOG_INFO("start s3 accessor parallel worker pool");
-        worker_pool = std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
+        worker_pool =
+                std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism, "s3_accessor");
         worker_pool->start();
     });
     switch (conf_.provider) {
@@ -277,7 +278,11 @@ int S3Accessor::init() {
 #endif
     }
     default: {
-        uri_ = conf_.endpoint + '/' + conf_.bucket + '/' + conf_.prefix;
+        if (conf_.prefix.empty()) {
+            uri_ = conf_.endpoint + '/' + conf_.bucket;
+        } else {
+            uri_ = conf_.endpoint + '/' + conf_.bucket + '/' + conf_.prefix;
+        }
 
         static S3Environment s3_env;
 

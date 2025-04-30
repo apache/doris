@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#pragma once
+
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 #include <gtest/gtest.h>
@@ -42,6 +44,7 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_bitmap.h"
+#include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_hll.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
@@ -52,8 +55,6 @@ namespace doris::vectorized {
 
 class DataTypeJsonb;
 class TableFunction;
-template <typename T>
-class DataTypeDecimal;
 
 // for an input row with only one column, should use {AnyType(xxx)} to represent it because TestArray is same with
 // InputCell. just {} will be treated as copy-constructor rather than initializer list.
