@@ -2542,11 +2542,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     .map(s -> (SlotRef) s)
                     .map(SlotRef::getSlotId)
                     .collect(Collectors.toSet());
-            for (SlotDescriptor slot : scanNode.getTupleDesc().getSlots()) {
-                if (virtualColumnInputSlotIds.contains(slot.getId()) && slot.getColumn() != null) {
-                    requiredWithVirtualColumns.add(slot.getId());
-                }
-            }
+            requiredWithVirtualColumns.addAll(virtualColumnInputSlotIds);
         }
         // TODO: use smallest slot if do not need any slot in upper node
         SlotDescriptor smallest = scanNode.getTupleDesc().getSlots().get(0);
@@ -2577,16 +2573,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     }
 
     private TupleDescriptor generateTupleDesc(List<Slot> slotList, TableIf table, PlanTranslatorContext context) {
-        TupleDescriptor tupleDescriptor = context.generateTupleDesc();
-        tupleDescriptor.setTable(table);
-        for (Slot slot : slotList) {
-            context.createSlotDesc(tupleDescriptor, (SlotReference) slot, table);
-        }
-        return tupleDescriptor;
-    }
-
-    private TupleDescriptor generateTupleDescWithVirtualColumns(List<Slot> slotList, List<Expression> virtualColumns,
-            TableIf table, PlanTranslatorContext context) {
         TupleDescriptor tupleDescriptor = context.generateTupleDesc();
         tupleDescriptor.setTable(table);
         for (Slot slot : slotList) {
