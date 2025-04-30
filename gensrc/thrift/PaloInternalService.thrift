@@ -358,6 +358,7 @@ struct TQueryOptions {
 
   146: optional bool fuzzy_disable_runtime_filter_in_be = false;
 
+  163: optional bool inverted_index_compatible_read = false
   // upgrade options. keep them same in every branch.
   200: optional bool new_is_ip_address_in_range = false;
 
