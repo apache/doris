@@ -18,9 +18,8 @@
 #include "util/path_util.h"
 
 // Use the POSIX version of dirname(3). See `man 3 dirname`
+#include <absl/strings/strip.h>
 #include <libgen.h>
-
-#include "gutil/strings/strip.h"
 
 using std::string;
 using std::vector;
@@ -34,7 +33,8 @@ std::string join_path_segments(const string& a, const string& b) {
     } else if (b.empty()) {
         return a;
     } else {
-        return StripSuffixString(a, "/") + "/" + StripPrefixString(b, "/");
+        return std::string(absl::StripSuffix(a, "/")) + "/" +
+               std::string(absl::StripSuffix(b, "/"));
     }
 }
 

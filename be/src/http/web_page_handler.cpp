@@ -25,7 +25,6 @@
 #include "absl/strings/substitute.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "gutil/stl_util.h"
 #include "http/ev_http_server.h"
 #include "http/http_channel.h"
 #include "http/http_headers.h"
@@ -58,11 +57,9 @@ WebPageHandler::WebPageHandler(EvHttpServer* server, ExecEnv* exec_env)
     register_template_page("/", "Home", root_callback, false /* is_on_nav_bar */);
 }
 
-WebPageHandler::~WebPageHandler() {
-    STLDeleteValues(&_page_map);
-}
+WebPageHandler::~WebPageHandler() = default;
 
-void WebPageHandler::register_template_page(const std::string& path, const string& alias,
+void WebPageHandler::register_template_page(const std::string& path, const std::string& alias,
                                             const TemplatePageHandlerCallback& callback,
                                             bool is_on_nav_bar) {
     // Relative path which will be used to find .mustache file in _www_path
@@ -76,7 +73,7 @@ void WebPageHandler::register_template_page(const std::string& path, const strin
     register_page(path, alias, wrapped_cb, is_on_nav_bar);
 }
 
-void WebPageHandler::register_page(const std::string& path, const string& alias,
+void WebPageHandler::register_page(const std::string& path, const std::string& alias,
                                    const PageHandlerCallback& callback, bool is_on_nav_bar) {
     std::unique_lock lock(_map_lock);
     CHECK(_page_map.find(path) == _page_map.end());
@@ -210,7 +207,7 @@ void WebPageHandler::render_main_template(const std::string& content, std::strin
     mustache::RenderTemplate(kMainTemplate, _www_path, ej.value(), output);
 }
 
-void WebPageHandler::render(const string& path, const EasyJson& ej, bool use_style,
+void WebPageHandler::render(const std::string& path, const EasyJson& ej, bool use_style,
                             std::stringstream* output) {
     if (mustache_template_available(path)) {
         mustache::RenderTemplate(mustache_partial_tag(path), _www_path, ej.value(), output);

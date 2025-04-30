@@ -17,11 +17,10 @@
 
 #include "util/s3_uri.h"
 
+#include <absl/strings/ascii.h>
 #include <absl/strings/str_split.h>
 
 #include <vector>
-
-#include "gutil/strings/strip.h"
 
 namespace doris {
 
@@ -77,7 +76,7 @@ Status S3URI::parse() {
     } else {
         return Status::InvalidArgument("Invalid S3 URI: {}", _location);
     }
-    StripWhiteSpace(&_key);
+    absl::StripAsciiWhitespace(&_key);
     if (_key.empty()) {
         return Status::InvalidArgument("Invalid S3 key: {}", _location);
     }

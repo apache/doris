@@ -1242,7 +1242,7 @@ struct FromIso8601DateV2 {
 
             int iso_string_format_value = 0;
 
-            vector<int> src_string_values;
+            std::vector<int> src_string_values;
             src_string_values.reserve(10);
 
             //The maximum length of the current iso8601 format is 10.

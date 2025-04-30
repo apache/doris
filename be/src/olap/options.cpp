@@ -17,6 +17,7 @@
 
 #include "olap/options.h"
 
+#include <absl/strings/ascii.h>
 #include <absl/strings/str_split.h>
 #include <ctype.h>
 #include <rapidjson/document.h>
@@ -31,7 +32,6 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "gutil/strings/strip.h"
 #include "io/cache/file_cache_common.h"
 #include "io/fs/local_file_system.h"
 #include "olap/olap_define.h"
@@ -78,7 +78,7 @@ Status parse_root_path(const string& root_path, StorePath* path) {
     std::vector<string> tmp_vec = absl::StrSplit(root_path, ",", absl::SkipWhitespace());
 
     // parse root path name
-    StripWhiteSpace(&tmp_vec[0]);
+    absl::StripAsciiWhitespace(&tmp_vec[0]);
     tmp_vec[0].erase(tmp_vec[0].find_last_not_of('/') + 1);
     if (tmp_vec[0].empty() || tmp_vec[0][0] != '/') {
         return Status::Error<INVALID_ARGUMENT>("invalid store path. path={}", tmp_vec[0]);
@@ -112,8 +112,8 @@ Status parse_root_path(const string& root_path, StorePath* path) {
             value = pair.second;
         }
 
-        StripWhiteSpace(&property);
-        StripWhiteSpace(&value);
+        absl::StripAsciiWhitespace(&property);
+        absl::StripAsciiWhitespace(&value);
         if (property == CAPACITY_UC) {
             capacity_str = value;
         } else if (property == MEDIUM_UC) {

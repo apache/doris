@@ -105,7 +105,7 @@ Status FoldConstantExecutor::fold_constant_vexpr(const TFoldConstantParams& para
             TPrimitiveType::type t_type = doris::to_thrift(res_type.type);
             // collect result
             PExprResult expr_result;
-            string result;
+            std::string result;
             const auto& column_ptr = tmp_block.get_by_position(result_column).column;
             const auto& column_type = tmp_block.get_by_position(result_column).type;
             // 4 from fe: Config.be_exec_version maybe need remove after next version, now in 2.1

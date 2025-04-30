@@ -42,7 +42,6 @@
 
 #include "common/config.h"
 #include "common/logging.h"
-#include "gutil/strings/strip.h"
 #include "http/http_client.h"
 #include "http/utils.h"
 #include "io/fs/file_system.h"
