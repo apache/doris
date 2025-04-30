@@ -50,13 +50,9 @@ namespace doris::vectorized {
   */
 class DataTypeNothing final : public IDataType {
 public:
-    static constexpr bool is_parametric = false;
-
     const char* get_family_name() const override { return "Nothing"; }
     TypeIndex get_type_id() const override { return TypeIndex::Nothing; }
-    TypeDescriptor get_type_as_type_descriptor() const override {
-        return TypeDescriptor(INVALID_TYPE);
-    }
+    PrimitiveType get_primitive_type() const override { return PrimitiveType::INVALID_TYPE; }
 
     doris::FieldType get_storage_field_type() const override {
         return doris::FieldType::OLAP_FIELD_TYPE_NONE;

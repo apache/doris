@@ -56,7 +56,7 @@ class SlotDescriptor {
 public:
     MOCK_DEFINE(virtual ~SlotDescriptor() = default;)
     SlotId id() const { return _id; }
-    const TypeDescriptor& type() const { return _type; }
+    const vectorized::DataTypePtr type() const { return _type; }
     TupleId parent() const { return _parent; }
     // Returns the column index of this slot, including partition keys.
     // (e.g., col_pos - num_partition_keys = the table column this slot corresponds to)
@@ -64,7 +64,8 @@ public:
     // Returns the field index in the generated llvm struct for this slot's tuple
     int field_idx() const { return _field_idx; }
     bool is_materialized() const { return _is_materialized; }
-    bool is_nullable() const { return _is_nullable; }
+    bool is_nullable() const { return _type->is_nullable(); }
+    vectorized::DataTypePtr get_data_type_ptr() const;
 
     const std::string& col_name() const { return _col_name; }
     const std::string& col_name_lower_case() const { return _col_name_lower_case; }
@@ -74,8 +75,6 @@ public:
     std::string debug_string() const;
 
     vectorized::MutableColumnPtr get_empty_mutable_column() const;
-
-    MOCK_FUNCTION doris::vectorized::DataTypePtr get_data_type_ptr() const;
 
     int32_t col_unique_id() const { return _col_unique_id; }
 
@@ -88,7 +87,7 @@ public:
     bool is_sequence_col() const { return _col_name == SEQUENCE_COL; }
 
     const std::string& col_default_value() const { return _col_default_value; }
-    PrimitiveType col_type() const { return _type.type; }
+    PrimitiveType col_type() const { return _type->get_primitive_type(); }
 
 private:
     friend class DescriptorTbl;
@@ -101,10 +100,9 @@ private:
     friend class TabletSchema;
 
     MOCK_REMOVE(const) SlotId _id;
-    const TypeDescriptor _type;
+    MOCK_REMOVE(const) vectorized::DataTypePtr _type;
     const TupleId _parent;
     const int _col_pos;
-    bool _is_nullable;
     const std::string _col_name;
     const std::string _col_name_lower_case;
 

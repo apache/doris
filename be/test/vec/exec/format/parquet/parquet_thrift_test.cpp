@@ -126,9 +126,9 @@ TEST_F(ParquetThriftReaderTest, complex_nested_file) {
     ASSERT_EQ(schemaDescriptor.get_column_index("income"), 1);
     auto income = schemaDescriptor.get_column("income");
     // should be parsed as ARRAY<ARRAY<INT32>>
-    ASSERT_TRUE(income->type.type == TYPE_ARRAY);
+    ASSERT_TRUE(income->data_type->get_primitive_type() == TYPE_ARRAY);
     ASSERT_TRUE(income->children.size() == 1);
-    ASSERT_TRUE(income->children[0].type.type == TYPE_ARRAY);
+    ASSERT_TRUE(income->children[0].data_type->get_primitive_type() == TYPE_ARRAY);
     ASSERT_TRUE(income->children[0].children.size() == 1);
     auto i_physical = income->children[0].children[0];
     // five levels for ARRAY<ARRAY<INT32>>
@@ -142,8 +142,9 @@ TEST_F(ParquetThriftReaderTest, complex_nested_file) {
     // should be parsed as ARRAY<MAP<STRUCT<STRING,STRING>>>
     ASSERT_TRUE(hobby->children.size() == 1 && hobby->children[0].children.size() == 1 &&
                 hobby->children[0].children[0].children.size() == 2);
-    ASSERT_TRUE(hobby->type.type == TYPE_ARRAY && hobby->children[0].type.type == TYPE_MAP &&
-                hobby->children[0].children[0].type.type == TYPE_STRUCT);
+    ASSERT_TRUE(hobby->data_type->get_primitive_type() == TYPE_ARRAY &&
+                hobby->children[0].data_type->get_primitive_type() == TYPE_MAP &&
+                hobby->children[0].children[0].data_type->get_primitive_type() == TYPE_STRUCT);
     // hobby(opt) --- bag(rep) --- array_element(opt) --- map(rep)
     //                                                      \------- key(req)
     //                                                      \------- value(opt)
@@ -187,13 +188,13 @@ static Status get_column_values(io::FileReaderSPtr file_reader, tparquet::Column
     cctz::time_zone ctz;
     TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
     auto _converter = parquet::PhysicalToLogicalConverter::get_converter(
-            field_schema, field_schema->type, data_type, &ctz, false);
+            field_schema, field_schema->data_type, data_type, &ctz, false);
     if (!_converter->support()) {
         return Status::InternalError("Not support");
     }
 
     ColumnPtr src_column = _converter->get_physical_column(
-            field_schema->physical_type, field_schema->type, doris_column, data_type, false);
+            field_schema->physical_type, field_schema->data_type, doris_column, data_type, false);
     DataTypePtr& resolved_type = _converter->get_physical_type();
 
     io::BufferedFileStreamReader stream_reader(file_reader, start_offset, chunk_size, 1024);
@@ -264,7 +265,7 @@ static Status get_column_values(io::FileReaderSPtr file_reader, tparquet::Column
                     chunk_reader.decode_values(data_column, resolved_type, run_length_map, false));
         }
     }
-    return _converter->convert(src_column, field_schema->type, data_type, doris_column, false);
+    return _converter->convert(src_column, field_schema->data_type, data_type, doris_column, false);
 }
 
 // Only the unit test depend on this, but it is wrong, should not use TTupleDesc to create tuple desc, not
@@ -287,16 +288,16 @@ static doris::TupleDescriptor* create_tuple_desc(
     for (int i = 0; i < column_descs.size(); ++i) {
         TSlotDescriptor t_slot_desc;
         if (column_descs[i].type == TYPE_DECIMAL128I) {
-            t_slot_desc.__set_slotType(TypeDescriptor::create_decimalv3_type(27, 9).to_thrift());
+            t_slot_desc.__set_slotType(
+                    DataTypeFactory::instance()
+                            .create_data_type(PrimitiveType::TYPE_DECIMAL128I, false, 27, 9)
+                            ->to_thrift());
         } else {
-            TypeDescriptor descriptor(column_descs[i].type);
-            if (column_descs[i].precision >= 0) {
-                descriptor.precision = column_descs[i].precision;
-            }
-            if (column_descs[i].scale >= 0) {
-                descriptor.scale = column_descs[i].scale;
-            }
-            t_slot_desc.__set_slotType(descriptor.to_thrift());
+            t_slot_desc.__set_slotType(DataTypeFactory::instance()
+                                               .create_data_type(column_descs[i].type, false,
+                                                                 column_descs[i].precision,
+                                                                 column_descs[i].scale)
+                                               ->to_thrift());
         }
         t_slot_desc.__set_colName(column_descs[i].name);
         t_slot_desc.__set_columnPos(i);
@@ -351,7 +352,7 @@ static void create_block(std::unique_ptr<vectorized::Block>& block) {
             // binary is not supported, use string instead
             {"binary_col", TYPE_STRING, sizeof(StringRef), true},
             // 64-bit-length, see doris::get_slot_size in primitive_type.cpp
-            {"timestamp_col", TYPE_DATETIMEV2, sizeof(int128_t), true},
+            {"timestamp_col", TYPE_DATETIMEV2, sizeof(int128_t), true, 0, 6},
             {"decimal_col", TYPE_DECIMAL128I, sizeof(Decimal128V3), true},
             {"char_col", TYPE_CHAR, sizeof(StringRef), true},
             {"varchar_col", TYPE_VARCHAR, sizeof(StringRef), true},
@@ -363,7 +364,7 @@ static void create_block(std::unique_ptr<vectorized::Block>& block) {
     auto tuple_slots = tuple_desc->slots();
     block = vectorized::Block::create_unique();
     for (const auto& slot_desc : tuple_slots) {
-        auto data_type = slot_desc->get_data_type_ptr();
+        auto data_type = slot_desc->type();
         MutableColumnPtr data_column = data_type->create_column();
         block->insert(
                 ColumnWithTypeAndName(std::move(data_column), data_type, slot_desc->col_name()));

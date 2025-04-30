@@ -77,7 +77,7 @@ public:
      * @param src_type colum type from file meta data
      * @param dst_type column type from FE planner(the changed column type)
      */
-    static std::unique_ptr<ColumnTypeConverter> get_converter(const TypeDescriptor& src_type,
+    static std::unique_ptr<ColumnTypeConverter> get_converter(const DataTypePtr& src_type,
                                                               const DataTypePtr& dst_type,
                                                               FileFormat file_format);
 
@@ -104,7 +104,7 @@ public:
      * According to the hive standard, if certain values fail to be converted(eg. string `row1` to int value),
      * these values are replaced by nulls.
      */
-    ColumnPtr get_column(const TypeDescriptor& src_type, ColumnPtr& dst_column,
+    ColumnPtr get_column(const DataTypePtr& src_type, ColumnPtr& dst_column,
                          const DataTypePtr& dst_type);
 
     /**
@@ -131,11 +131,9 @@ class ConsistentConverter : public ColumnTypeConverter {
  */
 class UnsupportedConverter : public ColumnTypeConverter {
 public:
-    UnsupportedConverter(const TypeDescriptor& src_type, const DataTypePtr& dst_type) {
-        std::string src_type_str = std::string(getTypeName(
-                DataTypeFactory::instance().create_data_type(src_type, false)->get_type_id()));
-        std::string dst_type_str =
-                std::string(getTypeName(remove_nullable(dst_type)->get_type_id()));
+    UnsupportedConverter(const DataTypePtr& src_type, const DataTypePtr& dst_type) {
+        std::string src_type_str = src_type->get_name();
+        std::string dst_type_str = dst_type->get_name();
         _error_msg = src_type_str + " => " + dst_type_str;
     }
 
@@ -554,7 +552,8 @@ public:
         MutableColumnPtr to_col = remove_nullable(dst_col->get_ptr())->assume_mutable();
 
         size_t rows = from_col->size();
-        auto& string_col = static_cast<ColumnString&>(*from_col->assume_mutable().get());
+        auto& string_col =
+                *assert_cast<const ColumnString*>(from_col.get())->assume_mutable().get();
         size_t start_idx = to_col->size();
         to_col->resize(start_idx + rows);
         auto& data = static_cast<DstColumnType*>(to_col.get())->get_data();

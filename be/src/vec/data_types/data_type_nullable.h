@@ -59,9 +59,8 @@ public:
     }
     const char* get_family_name() const override { return "Nullable"; }
     TypeIndex get_type_id() const override { return TypeIndex::Nullable; }
-
-    TypeDescriptor get_type_as_type_descriptor() const override {
-        return TypeDescriptor(nested_data_type->get_type_as_type_descriptor());
+    PrimitiveType get_primitive_type() const override {
+        return nested_data_type->get_primitive_type();
     }
 
     doris::FieldType get_storage_field_type() const override {
@@ -121,6 +120,16 @@ public:
         return std::make_shared<DataTypeNullableSerDe>(nested_data_type->get_serde(nesting_level),
                                                        nesting_level);
     }
+    UInt32 get_precision() const override { return nested_data_type->get_precision(); }
+    UInt32 get_scale() const override { return nested_data_type->get_scale(); }
+    void to_protobuf(PTypeDesc* ptype, PTypeNode* node, PScalarType* scalar_type) const override {
+        nested_data_type->to_protobuf(ptype, node, scalar_type);
+    }
+#ifdef BE_TEST
+    void to_thrift(TTypeDesc& thrift_type, TTypeNode& node) const override {
+        nested_data_type->to_thrift(thrift_type, node);
+    }
+#endif
 
 private:
     DataTypePtr nested_data_type;

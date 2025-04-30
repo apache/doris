@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "vec/data_types/data_type_array.h"
+
 #include <execinfo.h> // for backtrace on Linux
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
@@ -310,13 +312,11 @@ protected:
 TEST_F(DataTypeArrayTest, MetaInfoTest) {
     for (int i = 0; i < array_types.size(); i++) {
         auto& type = array_types[i];
-        auto& desc = array_descs[i];
         auto array_type = assert_cast<const DataTypeArray*>(remove_nullable(type).get());
         auto nested_type =
                 assert_cast<const DataTypeArray*>(remove_nullable(type).get())->get_nested_type();
 
-        TypeDescriptor arr_type_descriptor = {PrimitiveType::TYPE_ARRAY};
-        arr_type_descriptor.add_sub_type(desc[0].type_desc.children[0]);
+        auto arr_type_descriptor = type;
         auto col_meta = std::make_shared<PColumnMeta>();
         array_type->to_pb_column_meta(col_meta.get());
         Array a;
@@ -324,7 +324,7 @@ TEST_F(DataTypeArrayTest, MetaInfoTest) {
 
         DataTypeMetaInfo arr_meta_info_to_assert = {
                 .type_id = TypeIndex::Array,
-                .type_as_type_descriptor = &arr_type_descriptor,
+                .type_as_type_descriptor = remove_nullable(arr_type_descriptor),
                 .family_name = "Array",
                 .has_subtypes = true,
                 .storage_field_type = doris::FieldType::OLAP_FIELD_TYPE_ARRAY,

@@ -108,15 +108,15 @@ public:
         std::shared_ptr<InState> state = std::make_shared<InState>();
         context->set_function_state(scope, state);
         DCHECK(context->get_num_args() >= 1);
-        if (context->get_arg_type(0)->type == PrimitiveType::TYPE_NULL) {
+        if (context->get_arg_type(0)->get_primitive_type() == PrimitiveType::TYPE_NULL) {
             state->hybrid_set.reset(create_set(TYPE_BOOLEAN, 0, true));
-        } else if (context->get_arg_type(0)->type == PrimitiveType::TYPE_CHAR ||
-                   context->get_arg_type(0)->type == PrimitiveType::TYPE_VARCHAR ||
-                   context->get_arg_type(0)->type == PrimitiveType::TYPE_STRING) {
+        } else if (context->get_arg_type(0)->get_primitive_type() == PrimitiveType::TYPE_CHAR ||
+                   context->get_arg_type(0)->get_primitive_type() == PrimitiveType::TYPE_VARCHAR ||
+                   context->get_arg_type(0)->get_primitive_type() == PrimitiveType::TYPE_STRING) {
             // the StringValue's memory is held by FunctionContext, so we can use StringValueSet here directly
             state->hybrid_set.reset(create_string_value_set(get_size_with_out_null(context)));
         } else {
-            state->hybrid_set.reset(create_set(context->get_arg_type(0)->type,
+            state->hybrid_set.reset(create_set(context->get_arg_type(0)->get_primitive_type(),
                                                get_size_with_out_null(context), true));
         }
 
@@ -163,7 +163,7 @@ public:
         for (const auto& arg : arguments) {
             Field param_value;
             arg.column->get(0, param_value);
-            auto param_type = arg.type->get_type_as_type_descriptor().type;
+            auto param_type = arg.type->get_primitive_type();
             if (param_value.is_null()) {
                 // predicate like column NOT IN (NULL, '') should not push down to index.
                 if (negative) {
@@ -331,8 +331,8 @@ private:
                     set_datas.push_back(set_data);
                 }
             }
-            std::unique_ptr<HybridSetBase> hybrid_set(
-                    create_set(context->get_arg_type(0)->type, set_datas.size(), true));
+            std::unique_ptr<HybridSetBase> hybrid_set(create_set(
+                    context->get_arg_type(0)->get_primitive_type(), set_datas.size(), true));
             for (auto& set_data : set_datas) {
                 hybrid_set->insert((void*)(set_data.data), set_data.size);
             }

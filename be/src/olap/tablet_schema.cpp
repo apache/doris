@@ -682,7 +682,7 @@ vectorized::AggregateFunctionPtr TabletColumn::get_aggregate_function(
     vectorized::AggregateFunctionPtr function = nullptr;
 
     auto type = vectorized::DataTypeFactory::instance().create_data_type(*this);
-    if (type && type->get_type_as_type_descriptor().type == PrimitiveType::TYPE_AGG_STATE) {
+    if (type && type->get_primitive_type() == PrimitiveType::TYPE_AGG_STATE) {
         function = get_aggregate_function_union(type, current_be_exec_version);
     } else {
         std::string origin_name = TabletColumn::get_string_by_aggregation_type(_aggregation);

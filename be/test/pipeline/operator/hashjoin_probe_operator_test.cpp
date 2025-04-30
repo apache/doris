@@ -445,7 +445,13 @@ TEST_F(HashJoinProbeOperatorTest, CheckSlot) {
     ASSERT_TRUE(sink_operator);
 
     auto desc_tbl = _helper.runtime_state->desc_tbl();
-    desc_tbl._slot_desc_map[4]->_is_nullable = !desc_tbl._slot_desc_map[4]->_is_nullable;
+    if (desc_tbl._slot_desc_map[4]->type()->is_nullable()) {
+        desc_tbl._slot_desc_map[4]->_type =
+                vectorized::remove_nullable(desc_tbl._slot_desc_map[4]->_type);
+    } else {
+        desc_tbl._slot_desc_map[4]->_type =
+                vectorized::make_nullable(desc_tbl._slot_desc_map[4]->_type);
+    }
     _helper.runtime_state->set_desc_tbl(&desc_tbl);
 
     auto st = probe_operator->init(tnode, _helper.runtime_state.get());

@@ -240,8 +240,8 @@ std::unique_ptr<SchemaScanner> SchemaScanner::create(TSchemaTableType::type type
 void SchemaScanner::_init_block(vectorized::Block* src_block) {
     const std::vector<SchemaScanner::ColumnDesc>& columns_desc(get_column_desc());
     for (int i = 0; i < columns_desc.size(); ++i) {
-        TypeDescriptor descriptor(columns_desc[i].type);
-        auto data_type = vectorized::DataTypeFactory::instance().create_data_type(descriptor, true);
+        auto data_type = vectorized::DataTypeFactory::instance().create_data_type(
+                columns_desc[i].type, true);
         src_block->insert(vectorized::ColumnWithTypeAndName(data_type->create_column(), data_type,
                                                             columns_desc[i].name));
     }

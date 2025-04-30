@@ -150,58 +150,58 @@ Status MetaScanner::_fill_block_with_remote_data(const std::vector<MutableColumn
                     null_col.get_null_map_data().push_back(0);
                     col_ptr = null_col.get_nested_column_ptr().get();
                 }
-                switch (slot_desc->type().type) {
+                switch (slot_desc->type()->get_primitive_type()) {
                 case TYPE_BOOLEAN: {
                     bool data = cell.boolVal;
-                    reinterpret_cast<vectorized::ColumnVector<vectorized::UInt8>*>(col_ptr)
+                    assert_cast<vectorized::ColumnVector<vectorized::UInt8>*>(col_ptr)
                             ->insert_value((uint8_t)data);
                     break;
                 }
                 case TYPE_TINYINT: {
                     int8_t data = (int8_t)cell.intVal;
-                    reinterpret_cast<vectorized::ColumnVector<vectorized::Int8>*>(col_ptr)
-                            ->insert_value(data);
+                    assert_cast<vectorized::ColumnVector<vectorized::Int8>*>(col_ptr)->insert_value(
+                            data);
                     break;
                 }
                 case TYPE_SMALLINT: {
                     int16_t data = (int16_t)cell.intVal;
-                    reinterpret_cast<vectorized::ColumnVector<vectorized::Int16>*>(col_ptr)
+                    assert_cast<vectorized::ColumnVector<vectorized::Int16>*>(col_ptr)
                             ->insert_value(data);
                     break;
                 }
                 case TYPE_INT: {
                     int32_t data = cell.intVal;
-                    reinterpret_cast<vectorized::ColumnVector<vectorized::Int32>*>(col_ptr)
+                    assert_cast<vectorized::ColumnVector<vectorized::Int32>*>(col_ptr)
                             ->insert_value(data);
                     break;
                 }
                 case TYPE_BIGINT: {
                     int64_t data = cell.longVal;
-                    reinterpret_cast<vectorized::ColumnVector<vectorized::Int64>*>(col_ptr)
+                    assert_cast<vectorized::ColumnVector<vectorized::Int64>*>(col_ptr)
                             ->insert_value(data);
                     break;
                 }
                 case TYPE_FLOAT: {
                     double data = cell.doubleVal;
-                    reinterpret_cast<vectorized::ColumnVector<vectorized::Float32>*>(col_ptr)
+                    assert_cast<vectorized::ColumnVector<vectorized::Float32>*>(col_ptr)
                             ->insert_value(data);
                     break;
                 }
                 case TYPE_DOUBLE: {
                     double data = cell.doubleVal;
-                    reinterpret_cast<vectorized::ColumnVector<vectorized::Float64>*>(col_ptr)
+                    assert_cast<vectorized::ColumnVector<vectorized::Float64>*>(col_ptr)
                             ->insert_value(data);
                     break;
                 }
                 case TYPE_DATEV2: {
                     uint32_t data = (uint32_t)cell.longVal;
-                    reinterpret_cast<vectorized::ColumnVector<vectorized::UInt32>*>(col_ptr)
+                    assert_cast<vectorized::ColumnVector<vectorized::UInt32>*>(col_ptr)
                             ->insert_value(data);
                     break;
                 }
                 case TYPE_DATETIMEV2: {
                     uint64_t data = cell.longVal;
-                    reinterpret_cast<vectorized::ColumnVector<vectorized::UInt64>*>(col_ptr)
+                    assert_cast<vectorized::ColumnVector<vectorized::UInt64>*>(col_ptr)
                             ->insert_value(data);
                     break;
                 }
@@ -209,14 +209,14 @@ Status MetaScanner::_fill_block_with_remote_data(const std::vector<MutableColumn
                 case TYPE_CHAR:
                 case TYPE_VARCHAR: {
                     std::string data = cell.stringVal;
-                    reinterpret_cast<vectorized::ColumnString*>(col_ptr)->insert_data(
-                            data.c_str(), data.length());
+                    assert_cast<vectorized::ColumnString*>(col_ptr)->insert_data(data.c_str(),
+                                                                                 data.length());
                     break;
                 }
                 default: {
                     std::string error_msg =
                             fmt::format("Invalid column type {} on column: {}.",
-                                        slot_desc->type().debug_string(), slot_desc->col_name());
+                                        slot_desc->type()->get_name(), slot_desc->col_name());
                     return Status::InternalError(std::string(error_msg));
                 }
                 }

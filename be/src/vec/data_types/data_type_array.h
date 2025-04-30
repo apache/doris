@@ -59,11 +59,7 @@ public:
     DataTypeArray(const DataTypePtr& nested_);
 
     TypeIndex get_type_id() const override { return TypeIndex::Array; }
-    TypeDescriptor get_type_as_type_descriptor() const override {
-        TypeDescriptor desc(TYPE_ARRAY);
-        desc.add_sub_type(nested->get_type_as_type_descriptor());
-        return desc;
-    }
+    PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_ARRAY; }
 
     doris::FieldType get_storage_field_type() const override {
         return doris::FieldType::OLAP_FIELD_TYPE_ARRAY;
@@ -115,6 +111,21 @@ public:
         return std::make_shared<DataTypeArraySerDe>(nested->get_serde(nesting_level + 1),
                                                     nesting_level);
     };
+
+    void to_protobuf(PTypeDesc* ptype, PTypeNode* node, PScalarType* scalar_type) const override {
+        node->set_type(TTypeNodeType::ARRAY);
+        node->set_contains_null(nested->is_nullable());
+        nested->to_protobuf(ptype);
+    }
+
+#ifdef BE_TEST
+    void to_thrift(TTypeDesc& thrift_type, TTypeNode& node) const override {
+        node.type = TTypeNodeType::ARRAY;
+        node.__isset.contains_nulls = true;
+        node.contains_nulls.push_back(nested->is_nullable());
+        nested->to_thrift(thrift_type);
+    }
+#endif
 };
 
 } // namespace doris::vectorized

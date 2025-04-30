@@ -57,9 +57,6 @@ public:
 
     std::string to_string(const IColumn& column, size_t row_num) const override;
     std::string to_string(double int_val) const;
-    TypeDescriptor get_type_as_type_descriptor() const override {
-        return TypeDescriptor(TYPE_TIMEV2);
-    }
 
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
     void to_string_batch(const IColumn& column, ColumnString& column_to) const final {
@@ -76,6 +73,7 @@ public:
         return std::make_shared<DataTypeTimeV2SerDe>(_scale, nesting_level);
     };
     TypeIndex get_type_id() const override { return TypeIndex::TimeV2; }
+    PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_TIMEV2; }
     const char* get_family_name() const override { return "timev2"; }
     UInt32 get_scale() const override { return _scale; }
 

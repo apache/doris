@@ -46,7 +46,7 @@ PaimonJniReader::PaimonJniReader(const std::vector<SlotDescriptor*>& file_slot_d
     std::vector<std::string> column_types;
     for (const auto& desc : _file_slot_descs) {
         column_names.emplace_back(desc->col_name());
-        column_types.emplace_back(JniConnector::get_jni_type(desc->type()));
+        column_types.emplace_back(JniConnector::get_jni_type_with_different_string(desc->type()));
     }
     std::map<String, String> params;
     params["db_name"] = range.table_format_params.paimon_params.db_name;
@@ -104,7 +104,7 @@ Status PaimonJniReader::get_next_block(Block* block, size_t* read_rows, bool* eo
     return _jni_connector->get_next_block(block, read_rows, eof);
 }
 
-Status PaimonJniReader::get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
+Status PaimonJniReader::get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
                                     std::unordered_set<std::string>* missing_cols) {
     for (const auto& desc : _file_slot_descs) {
         name_to_type->emplace(desc->col_name(), desc->type());

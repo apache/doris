@@ -41,8 +41,8 @@ namespace doris {
 
 class RowDescriptor;
 
-Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::DataType>* result,
-                             const std::string& timezone);
+Status convert_to_arrow_type(const vectorized::DataTypePtr& type,
+                             std::shared_ptr<arrow::DataType>* result, const std::string& timezone);
 
 Status get_arrow_schema_from_block(const vectorized::Block& block,
                                    std::shared_ptr<arrow::Schema>* result,

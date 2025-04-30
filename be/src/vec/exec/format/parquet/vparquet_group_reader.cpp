@@ -193,7 +193,8 @@ bool RowGroupReader::_can_filter_by_dict(int slot_id,
             break;
         }
     }
-    if (!slot->type().is_string_type()) {
+    if (!is_string_type(slot->type()->get_primitive_type()) &&
+        !is_var_len_object(slot->type()->get_primitive_type())) {
         return false;
     }
     if (column_metadata.type != tparquet::Type::BYTE_ARRAY) {
@@ -686,7 +687,7 @@ Status RowGroupReader::_fill_missing_columns(
         if (kv.second == nullptr) {
             // no default column, fill with null
             auto mutable_column = block->get_by_name(kv.first).column->assume_mutable();
-            auto* nullable_column = static_cast<vectorized::ColumnNullable*>(mutable_column.get());
+            auto* nullable_column = assert_cast<vectorized::ColumnNullable*>(mutable_column.get());
             nullable_column->insert_many_defaults(rows);
         } else {
             // fill with default value

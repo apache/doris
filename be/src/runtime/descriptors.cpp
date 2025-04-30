@@ -34,7 +34,13 @@
 #include "runtime/primitive_type.h"
 #include "util/string_util.h"
 #include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_factory.hpp"
+#include "vec/data_types/data_type_map.h"
+#include "vec/data_types/data_type_struct.h"
+#include "vec/functions/function_helpers.h"
 
 namespace doris {
 
@@ -42,10 +48,10 @@ const int RowDescriptor::INVALID_IDX = -1;
 
 SlotDescriptor::SlotDescriptor(const TSlotDescriptor& tdesc)
         : _id(tdesc.id),
-          _type(TypeDescriptor::from_thrift(tdesc.slotType)),
+          _type(vectorized::DataTypeFactory::instance().create_data_type(
+                  tdesc.slotType, tdesc.nullIndicatorBit != -1)),
           _parent(tdesc.parent),
           _col_pos(tdesc.columnPos),
-          _is_nullable(tdesc.nullIndicatorBit != -1),
           _col_name(tdesc.colName),
           _col_name_lower_case(to_lower(tdesc.colName)),
           _col_unique_id(tdesc.col_unique_id),
@@ -59,10 +65,10 @@ SlotDescriptor::SlotDescriptor(const TSlotDescriptor& tdesc)
 
 SlotDescriptor::SlotDescriptor(const PSlotDescriptor& pdesc)
         : _id(pdesc.id()),
-          _type(TypeDescriptor::from_protobuf(pdesc.slot_type())),
+          _type(vectorized::DataTypeFactory::instance().create_data_type(
+                  pdesc.slot_type(), pdesc.null_indicator_bit() != -1)),
           _parent(pdesc.parent()),
           _col_pos(pdesc.column_pos()),
-          _is_nullable(pdesc.null_indicator_bit() != -1),
           _col_name(pdesc.col_name()),
           _col_name_lower_case(to_lower(pdesc.col_name())),
           _col_unique_id(pdesc.col_unique_id()),
@@ -76,10 +82,9 @@ SlotDescriptor::SlotDescriptor(const PSlotDescriptor& pdesc)
 #ifdef BE_TEST
 SlotDescriptor::SlotDescriptor()
         : _id(0),
-          _type(TypeDescriptor {}),
+          _type(nullptr),
           _parent(0),
           _col_pos(0),
-          _is_nullable(false),
           _col_unique_id(0),
           _slot_idx(0),
           _field_idx(-1),
@@ -91,38 +96,34 @@ SlotDescriptor::SlotDescriptor()
 void SlotDescriptor::to_protobuf(PSlotDescriptor* pslot) const {
     pslot->set_id(_id);
     pslot->set_parent(_parent);
-    _type.to_protobuf(pslot->mutable_slot_type());
+    _type->to_protobuf(pslot->mutable_slot_type());
     pslot->set_column_pos(_col_pos);
     pslot->set_byte_offset(0);
     pslot->set_null_indicator_byte(0);
-    pslot->set_null_indicator_bit(_is_nullable ? 0 : -1);
+    pslot->set_null_indicator_bit(_type->is_nullable() ? 0 : -1);
     pslot->set_col_name(_col_name);
     pslot->set_slot_idx(_slot_idx);
     pslot->set_is_materialized(_is_materialized);
     pslot->set_col_unique_id(_col_unique_id);
     pslot->set_is_key(_is_key);
     pslot->set_is_auto_increment(_is_auto_increment);
-    pslot->set_col_type(_type.type);
+    pslot->set_col_type(_type->get_primitive_type());
     for (const std::string& path : _column_paths) {
         pslot->add_column_paths(path);
     }
 }
 
-vectorized::MutableColumnPtr SlotDescriptor::get_empty_mutable_column() const {
-    auto data_type = get_data_type_ptr();
-    if (data_type) {
-        return data_type->create_column();
-    }
-    return nullptr;
+vectorized::DataTypePtr SlotDescriptor::get_data_type_ptr() const {
+    return vectorized::get_data_type_with_default_argument(type());
 }
 
-vectorized::DataTypePtr SlotDescriptor::get_data_type_ptr() const {
-    return vectorized::DataTypeFactory::instance().create_data_type(type(), is_nullable());
+vectorized::MutableColumnPtr SlotDescriptor::get_empty_mutable_column() const {
+    return type()->create_column();
 }
 
 std::string SlotDescriptor::debug_string() const {
     std::stringstream out;
-    out << "Slot(id=" << _id << " type=" << _type << " col=" << _col_pos
+    out << "Slot(id=" << _id << " type=" << _type->get_name() << " col=" << _col_pos
         << ", colname=" << _col_name << ", nullable=" << is_nullable() << ")";
     return out.str();
 }
@@ -334,7 +335,9 @@ void TupleDescriptor::add_slot(SlotDescriptor* slot) {
     if (slot->is_materialized()) {
         ++_num_materialized_slots;
 
-        if (slot->type().is_string_type() || slot->type().is_collection_type()) {
+        if (is_complex_type(slot->type()->get_primitive_type()) ||
+            is_var_len_object(slot->type()->get_primitive_type()) ||
+            is_string_type(slot->type()->get_primitive_type())) {
             _has_varlen_slots = true;
         }
     }

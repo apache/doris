@@ -91,6 +91,9 @@ constexpr size_t max_decimal_precision<Decimal256>() {
     return BeConsts::MAX_DECIMAL256_PRECISION;
 }
 
+// Change precision to default value for DecimalV2. This transformation needs to be removed later.
+DataTypePtr get_data_type_with_default_argument(DataTypePtr type);
+
 DataTypePtr create_decimal(UInt64 precision, UInt64 scale, bool use_v2);
 
 /// Implements Decimal(P, S), where P is precision, S is scale.
@@ -150,22 +153,12 @@ public:
     const char* get_family_name() const override { return "Decimal"; }
     std::string do_get_name() const override;
     TypeIndex get_type_id() const override { return TypeId<T>::value; }
-    TypeDescriptor get_type_as_type_descriptor() const override {
-        TypeDescriptor desc;
-        if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal32>>) {
-            desc = TypeDescriptor(TYPE_DECIMAL32);
-        } else if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal64>>) {
-            desc = TypeDescriptor(TYPE_DECIMAL64);
-        } else if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal128V3>>) {
-            desc = TypeDescriptor(TYPE_DECIMAL128I);
-        } else if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal256>>) {
-            desc = TypeDescriptor(TYPE_DECIMAL256);
-        } else {
-            desc = TypeDescriptor(TYPE_DECIMALV2);
-        }
-        desc.scale = scale;
-        desc.precision = precision;
-        return desc;
+    PrimitiveType get_primitive_type() const override {
+        return IsDecimal256<T>     ? PrimitiveType::TYPE_DECIMAL256
+               : IsDecimal128V3<T> ? PrimitiveType::TYPE_DECIMAL128I
+               : IsDecimalV2<T>    ? PrimitiveType::TYPE_DECIMALV2
+               : IsDecimal64<T>    ? PrimitiveType::TYPE_DECIMAL64
+                                   : PrimitiveType::TYPE_DECIMAL32;
     }
 
     doris::FieldType get_storage_field_type() const override {
@@ -251,6 +244,10 @@ public:
         return UINT32_MAX == original_scale ? scale : original_scale;
     }
     T get_scale_multiplier() const { return get_scale_multiplier(scale); }
+    void to_protobuf(PTypeDesc* ptype, PTypeNode* node, PScalarType* scalar_type) const override {
+        scalar_type->set_precision(precision);
+        scalar_type->set_scale(scale);
+    }
 
     /// @returns multiplier for U to become T with correct scale
     template <typename U>
@@ -270,7 +267,7 @@ public:
 
     bool parse_from_string(const std::string& str, T* res) const;
 
-    static void check_type_precision(const vectorized::UInt32 precision) {
+    static void check_type_precision(const UInt32 precision) {
         if (precision > max_decimal_precision<T>() || precision < 1) {
             throw Exception(ErrorCode::INTERNAL_ERROR,
                             "meet invalid precision: real_precision={}, max_decimal_precision={}, "
@@ -279,7 +276,7 @@ public:
         }
     }
 
-    static void check_type_scale(const vectorized::UInt32 scale) {
+    static void check_type_scale(const UInt32 scale) {
         if (scale > max_decimal_precision<T>()) {
             throw Exception(ErrorCode::INTERNAL_ERROR,
                             "meet invalid scale: real_scale={}, max_decimal_precision={}", scale,

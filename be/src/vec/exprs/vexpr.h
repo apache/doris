@@ -84,7 +84,7 @@ public:
 
     VExpr(const TExprNode& node);
     VExpr(const VExpr& vexpr);
-    VExpr(TypeDescriptor type, bool is_slotref, bool is_nullable);
+    VExpr(DataTypePtr type, bool is_slotref);
     // only used for test
     VExpr() = default;
     virtual ~VExpr() = default;
@@ -147,8 +147,6 @@ public:
 
     DataTypePtr& data_type() { return _data_type; }
 
-    TypeDescriptor type() { return _type; }
-
     bool is_slot_ref() const { return _node_type == TExprNodeType::SLOT_REF; }
 
     bool is_column_ref() const { return _node_type == TExprNodeType::COLUMN_REF; }
@@ -190,7 +188,7 @@ public:
 
     bool is_nullable() const { return _data_type->is_nullable(); }
 
-    PrimitiveType result_type() const { return _type.type; }
+    PrimitiveType result_type() const { return _data_type->get_primitive_type(); }
 
     static Status create_expr(const TExprNode& expr_node, VExprSPtr& expr);
 
@@ -315,7 +313,6 @@ protected:
     TExprNodeType::type _node_type;
     // Used to check what opcode
     TExprOpcode::type _opcode;
-    TypeDescriptor _type;
     DataTypePtr _data_type;
     VExprSPtrs _children; // in few hundreds
     TFunction _fn;

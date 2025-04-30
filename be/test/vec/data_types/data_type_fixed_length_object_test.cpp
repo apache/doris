@@ -63,12 +63,12 @@ public:
 };
 
 TEST_P(DataTypeFixedLengthObjectTest, MetaInfoTest) {
-    TypeDescriptor bitmap_type_descriptor = {PrimitiveType::INVALID_TYPE};
+    auto bitmap_type_descriptor = std::make_shared<DataTypeFixedLengthObject>();
     auto col_meta = std::make_shared<PColumnMeta>();
     col_meta->set_type(PGenericType_TypeId_FIXEDLENGTHOBJECT);
     CommonDataTypeTest::DataTypeMetaInfo bitmap_meta_info_to_assert = {
             .type_id = TypeIndex::FixedLengthObject,
-            .type_as_type_descriptor = &bitmap_type_descriptor,
+            .type_as_type_descriptor = bitmap_type_descriptor,
             .family_name = "DataTypeFixedLengthObject",
             .has_subtypes = false,
             .storage_field_type = doris::FieldType::OLAP_FIELD_TYPE_NONE,

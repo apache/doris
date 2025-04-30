@@ -64,7 +64,6 @@ class PageIndex;
 class ShardedKVCache;
 class VExprContext;
 } // namespace vectorized
-struct TypeDescriptor;
 } // namespace doris
 
 namespace doris::vectorized {
@@ -130,11 +129,11 @@ public:
 
     int64_t size() const { return _file_reader->size(); }
 
-    Status get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
+    Status get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
                        std::unordered_set<std::string>* missing_cols) override;
 
     Status get_parsed_schema(std::vector<std::string>* col_names,
-                             std::vector<TypeDescriptor>* col_types) override;
+                             std::vector<DataTypePtr>* col_types) override;
 
     Statistics& statistics() { return _statistics; }
 

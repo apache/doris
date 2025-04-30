@@ -29,7 +29,9 @@
 #include "vec/columns/column_string.h"
 #include "vec/core/block.h"
 #include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_decimal.h"
+#include "vec/data_types/data_type_factory.hpp"
 #include "vec/functions/function_string.h"
 
 namespace doris::vectorized {
@@ -53,9 +55,12 @@ TEST(function_money_format_test, money_format_with_decimalV2) {
 
     auto money_format = FunctionMoneyFormat<MoneyFormatDecimalImpl>::create();
     std::unique_ptr<RuntimeState> runtime_state = std::make_unique<RuntimeState>();
-    TypeDescriptor return_type = {PrimitiveType::TYPE_VARCHAR};
-    TypeDescriptor arg_type = {PrimitiveType::TYPE_DECIMALV2};
-    std::vector<TypeDescriptor> arg_types = {arg_type};
+    auto return_type =
+            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_VARCHAR, false);
+    auto arg_type = DataTypeFactory::instance().create_data_type(
+            PrimitiveType::TYPE_DECIMALV2, false, BeConsts::MAX_DECIMALV2_PRECISION,
+            BeConsts::MAX_DECIMALV2_SCALE);
+    std::vector<DataTypePtr> arg_types = {arg_type};
 
     auto context = FunctionContext::create_context(runtime_state.get(), return_type, arg_types);
 

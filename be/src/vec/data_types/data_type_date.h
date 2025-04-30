@@ -48,9 +48,7 @@ namespace doris::vectorized {
 class DataTypeDate final : public DataTypeNumberBase<Int64> {
 public:
     TypeIndex get_type_id() const override { return TypeIndex::Date; }
-    TypeDescriptor get_type_as_type_descriptor() const override {
-        return TypeDescriptor(TYPE_DATE);
-    }
+    PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_DATE; }
 
     doris::FieldType get_storage_field_type() const override {
         return doris::FieldType::OLAP_FIELD_TYPE_DATE;

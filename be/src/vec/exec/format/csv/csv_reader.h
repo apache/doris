@@ -49,7 +49,6 @@ class RuntimeState;
 namespace io {
 struct IOContext;
 } // namespace io
-struct TypeDescriptor;
 
 namespace vectorized {
 struct ScannerCounter;
@@ -201,7 +200,7 @@ public:
 
     Status init_reader(bool is_query);
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
-    Status get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
+    Status get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
                        std::unordered_set<std::string>* missing_cols) override;
 
     // get schema of csv file from first one line or first two lines.
@@ -210,7 +209,7 @@ public:
     // 2. header_type is CSV_WITH_NAMES, get schema from first line.
     // 3. header_type is CSV_WITH_NAMES_AND_TYPES, get schema from first two line.
     Status get_parsed_schema(std::vector<std::string>* col_names,
-                             std::vector<TypeDescriptor>* col_types) override;
+                             std::vector<DataTypePtr>* col_types) override;
 
     Status close() override;
 
@@ -222,7 +221,6 @@ private:
     Status _fill_empty_line(Block* block, std::vector<MutableColumnPtr>& columns, size_t* rows);
     Status _line_split_to_values(const Slice& line, bool* success);
     void _split_line(const Slice& line);
-    Status _check_array_format(std::vector<Slice>& split_values, bool* is_success);
     bool _is_null(const Slice& slice);
     bool _is_array(const Slice& slice);
     void _init_system_properties();
@@ -238,7 +236,7 @@ private:
     Status _parse_col_nums(size_t* col_nums);
     Status _parse_col_names(std::vector<std::string>* col_names);
     // TODO(ftw): parse type
-    Status _parse_col_types(size_t col_nums, std::vector<TypeDescriptor>* col_types);
+    Status _parse_col_types(size_t col_nums, std::vector<DataTypePtr>* col_types);
 
     // check the utf8 encoding of a line.
     // return error status to stop processing.

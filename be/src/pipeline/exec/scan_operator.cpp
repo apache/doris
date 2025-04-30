@@ -34,6 +34,8 @@
 #include "runtime/types.h"
 #include "runtime_filter/runtime_filter_consumer_helper.h"
 #include "util/runtime_profile.h"
+#include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_array.h"
 #include "vec/exec/scan/scanner_context.h"
 #include "vec/exprs/vcast_expr.h"
 #include "vec/exprs/vectorized_fn_call.h"
@@ -121,14 +123,15 @@ Status ScanLocalState<Derived>::_normalize_conjuncts(RuntimeState* state) {
     // The conjuncts is always on output tuple, so use _output_tuple_desc;
     std::vector<SlotDescriptor*> slots = p._output_tuple_desc->slots();
 
-    auto init_value_range = [&](SlotDescriptor* slot, const TypeDescriptor& type_desc) {
-        switch (type_desc.type) {
-#define M(NAME)                                                                    \
-    case TYPE_##NAME: {                                                            \
-        ColumnValueRange<TYPE_##NAME> range(slot->col_name(), slot->is_nullable(), \
-                                            type_desc.precision, type_desc.scale); \
-        _slot_id_to_value_range[slot->id()] = std::pair {slot, range};             \
-        break;                                                                     \
+    auto init_value_range = [&](SlotDescriptor* slot, const vectorized::DataTypePtr type_desc) {
+        switch (type_desc->get_primitive_type()) {
+#define M(NAME)                                                                        \
+    case TYPE_##NAME: {                                                                \
+        ColumnValueRange<TYPE_##NAME> range(slot->col_name(), slot->is_nullable(),     \
+                                            cast_set<int>(type_desc->get_precision()), \
+                                            cast_set<int>(type_desc->get_scale()));    \
+        _slot_id_to_value_range[slot->id()] = std::pair {slot, range};                 \
+        break;                                                                         \
     }
 #define APPLY_FOR_PRIMITIVE_TYPE(M) \
     M(TINYINT)                      \
@@ -162,9 +165,12 @@ Status ScanLocalState<Derived>::_normalize_conjuncts(RuntimeState* state) {
     };
 
     for (auto& slot : slots) {
-        auto type = slot->type().type;
-        if (slot->type().type == TYPE_ARRAY) {
-            type = slot->type().children[0].type;
+        auto type = slot->type()->get_primitive_type();
+        if (type == TYPE_ARRAY) {
+            type = assert_cast<const vectorized::DataTypeArray*>(
+                           vectorized::remove_nullable(slot->type()).get())
+                           ->get_nested_type()
+                           ->get_primitive_type();
             if (type == TYPE_ARRAY) {
                 continue;
             }
@@ -323,7 +329,7 @@ Status ScanLocalState<Derived>::_normalize_predicate(
                 RETURN_IF_ERROR(status);
             }
             if (pdt == PushDownType::ACCEPTABLE && slotref != nullptr &&
-                slotref->type().is_variant_type()) {
+                slotref->data_type()->get_primitive_type() == PrimitiveType::TYPE_VARIANT) {
                 // remaining it in the expr tree, in order to filter by function if the pushdown
                 // predicate is not applied
                 output_expr = conjunct_expr_root; // remaining in conjunct tree
@@ -440,19 +446,22 @@ bool ScanLocalState<Derived>::_is_predicate_acting_on_slot(
     // if the slot is a complex type(array/map/struct), we do not push down the predicate, because
     // we delete pack these type into predict column, and origin pack action is wrong. we should
     // make sense to push down this complex type after we delete predict column.
-    if (is_complex_type(remove_nullable(slot_ref->data_type()))) {
+    if (is_complex_type(slot_ref->data_type()->get_primitive_type())) {
         return false;
     }
     *slot_desc = entry->second.first;
     DCHECK(child_contains_slot != nullptr);
-    if (child_contains_slot->type().type != (*slot_desc)->type().type ||
-        child_contains_slot->type().precision != (*slot_desc)->type().precision ||
-        child_contains_slot->type().scale != (*slot_desc)->type().scale) {
+    if (child_contains_slot->data_type()->get_primitive_type() !=
+                (*slot_desc)->type()->get_primitive_type() ||
+        child_contains_slot->data_type()->get_precision() !=
+                (*slot_desc)->type()->get_precision() ||
+        child_contains_slot->data_type()->get_scale() != (*slot_desc)->type()->get_scale()) {
         if (!_ignore_cast(*slot_desc, child_contains_slot.get())) {
             // the type of predicate not match the slot's type
             return false;
         }
-    } else if (child_contains_slot->type().is_datetime_type() &&
+    } else if (child_contains_slot->data_type()->get_primitive_type() ==
+                       PrimitiveType::TYPE_DATETIME &&
                child_contains_slot->node_type() == doris::TExprNodeType::CAST_EXPR) {
         // Expr `CAST(CAST(datetime_col AS DATE) AS DATETIME) = datetime_literal` should not be
         // push down.
@@ -481,20 +490,28 @@ std::string ScanLocalState<Derived>::debug_string(int indentation_level) const {
 
 template <typename Derived>
 bool ScanLocalState<Derived>::_ignore_cast(SlotDescriptor* slot, vectorized::VExpr* expr) {
-    if (slot->type().is_string_type() && expr->type().is_string_type()) {
+    if (is_string_type(slot->type()->get_primitive_type()) &&
+        is_string_type(expr->data_type()->get_primitive_type())) {
         return true;
     }
     // only one level cast expr could push down for variant type
     // check if expr is cast and it's children is slot
-    if (slot->type().is_variant_type()) {
+    if (slot->type()->get_primitive_type() == PrimitiveType::TYPE_VARIANT) {
         return expr->node_type() == TExprNodeType::CAST_EXPR &&
                expr->children().at(0)->is_slot_ref();
     }
-    if (slot->type().is_array_type()) {
-        if (slot->type().children[0].type == expr->type().type) {
+    if (slot->type()->get_primitive_type() == PrimitiveType::TYPE_ARRAY) {
+        if (assert_cast<const vectorized::DataTypeArray*>(
+                    vectorized::remove_nullable(slot->type()).get())
+                    ->get_nested_type()
+                    ->get_primitive_type() == expr->data_type()->get_primitive_type()) {
             return true;
         }
-        if (slot->type().children[0].is_string_type() && expr->type().is_string_type()) {
+        if (is_string_type(assert_cast<const vectorized::DataTypeArray*>(
+                                   vectorized::remove_nullable(slot->type()).get())
+                                   ->get_nested_type()
+                                   ->get_primitive_type()) &&
+            is_string_type(expr->data_type()->get_primitive_type())) {
             return true;
         }
     }
@@ -1095,7 +1112,8 @@ Status ScanLocalState<Derived>::_get_topn_filters(RuntimeState* state) {
 template <typename Derived>
 void ScanLocalState<Derived>::_filter_and_collect_cast_type_for_variant(
         const vectorized::VExpr* expr,
-        std::unordered_map<std::string, std::vector<TypeDescriptor>>& colname_to_cast_types) {
+        std::unordered_map<std::string, std::vector<vectorized::DataTypePtr>>&
+                colname_to_cast_types) {
     auto& p = _parent->cast<typename Derived::Parent>();
     const auto* cast_expr = dynamic_cast<const vectorized::VCastExpr*>(expr);
     if (cast_expr != nullptr) {
@@ -1108,8 +1126,8 @@ void ScanLocalState<Derived>::_filter_and_collect_cast_type_for_variant(
         }
         std::vector<SlotDescriptor*> slots = output_tuple_desc()->slots();
         SlotDescriptor* src_slot_desc = p._slot_id_to_slot_desc[src_slot->slot_id()];
-        TypeDescriptor type_desc = cast_expr->get_target_type()->get_type_as_type_descriptor();
-        if (src_slot_desc->type().is_variant_type()) {
+        auto type_desc = cast_expr->get_target_type();
+        if (src_slot_desc->type()->get_primitive_type() == PrimitiveType::TYPE_VARIANT) {
             colname_to_cast_types[src_slot_desc->col_name()].push_back(type_desc);
         }
     }
@@ -1120,7 +1138,7 @@ void ScanLocalState<Derived>::_filter_and_collect_cast_type_for_variant(
 
 template <typename Derived>
 void ScanLocalState<Derived>::get_cast_types_for_variants() {
-    std::unordered_map<std::string, std::vector<TypeDescriptor>> colname_to_cast_types;
+    std::unordered_map<std::string, std::vector<vectorized::DataTypePtr>> colname_to_cast_types;
     for (auto it = _conjuncts.begin(); it != _conjuncts.end();) {
         auto& conjunct = *it;
         if (conjunct->root()) {

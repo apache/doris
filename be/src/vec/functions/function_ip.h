@@ -711,7 +711,7 @@ public:
         std::shared_ptr<roaring::Roaring> max_roaring = std::make_shared<roaring::Roaring>();
         std::shared_ptr<roaring::Roaring> null_bitmap = std::make_shared<roaring::Roaring>();
 
-        auto param_type = data_type_with_name.second->get_type_as_type_descriptor().type;
+        auto param_type = data_type_with_name.second->get_primitive_type();
         std::unique_ptr<segment_v2::InvertedIndexQueryParamFactory> query_param = nullptr;
         // >= min ip
         RETURN_IF_ERROR(segment_v2::InvertedIndexQueryParamFactory::create_query_value(

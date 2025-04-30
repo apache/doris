@@ -514,7 +514,7 @@ Status HashJoinProbeOperatorX::prepare(RuntimeState* state) {
                         std::find(_hash_output_slot_ids.begin(), _hash_output_slot_ids.end(),
                                   slot_desc->id()) != _hash_output_slot_ids.end());
                 if (init_finalize_flag && output_slot_flags.back() &&
-                    slot_desc->type().is_variant_type()) {
+                    slot_desc->type()->get_primitive_type() == PrimitiveType::TYPE_VARIANT) {
                     _need_finalize_variant_column = true;
                 }
             }
