@@ -23,7 +23,6 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.analysis.NormalizeAggregate;
 import org.apache.doris.nereids.rules.rewrite.NormalizeToSlot.NormalizeToSlotContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
-import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -41,6 +40,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -98,8 +98,8 @@ public class MergePercentileToArray extends OneRewriteRuleFactory {
 
             PercentileArray percentileArray;
             Expression secondArg = allPercentIsLiteral
-                    ? new Cast(percentArrayLiteral, ArrayType.of(DoubleType.INSTANCE))
-                    : new Cast(percentArray, ArrayType.of(DoubleType.INSTANCE));
+                    ? TypeCoercionUtils.castIfNotSameType(percentArrayLiteral, ArrayType.of(DoubleType.INSTANCE))
+                    : TypeCoercionUtils.castIfNotSameType(percentArray, ArrayType.of(DoubleType.INSTANCE));
             if (entry.getKey().isDistinct) {
                 percentileArray = new PercentileArray(true, entry.getKey().getExpression(), secondArg);
             } else {
