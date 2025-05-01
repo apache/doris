@@ -15,6 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import static java.util.concurrent.TimeUnit.SECONDS
+
+import org.awaitility.Awaitility
+
 suite("test_dict_load_and_get_hash_map") {
     def dbName  = "test_dict_load_and_get_hash_map_db"    
 
@@ -46,15 +50,20 @@ suite("test_dict_load_and_get_hash_map") {
         properties('data_lifetime'='600');
     """ 
 
-    sleep(1000);
-
-    test {
-        sql """
-            refresh dictionary dc_single_key_with_duplicate
-        """
-        exception "The key has duplicate data in HashMapDictionary"
+    for (int _ = 0; _ < 30 ; _++)
+    {
+        try {
+            sql "refresh dictionary dc_single_key_with_duplicate"
+            assert false
+        } catch (Exception e) {
+            if (e.getMessage().contains("The key has duplicate data in HashMapDictionary")) {
+                break;
+            } else {
+                logger.info("refresh dictionary dc_single_key_with_duplicate failed: " + e.getMessage())
+            }
+        }
+        sleep(1000)
     }
-
 
     sql """
         create table single_key_without_duplicate(
@@ -83,14 +92,8 @@ suite("test_dict_load_and_get_hash_map") {
         )
         LAYOUT(HASH_MAP)
         properties('data_lifetime'='600');
-    """     
-
-    sleep(1000);    
-
-
-    sql """
-        refresh dictionary dc_single_key_without_duplicate
     """
+    waitDictionaryReady("dc_single_key_without_duplicate")
     
     qt_sql_constant"""
         select dict_get("${dbName}.dc_single_key_without_duplicate", "str_not_null", 1)  ,  
@@ -185,13 +188,8 @@ suite("test_dict_load_and_get_hash_map") {
         )
         LAYOUT(HASH_MAP)
         properties('data_lifetime'='600');
-    """     
-
-    sleep(1000);    
-
-    sql """
-        refresh dictionary dc_multi_key_table
-    """     
+    """
+    waitDictionaryReady("dc_multi_key_table")  
 
     qt_sql_constant"""
         select dict_get_many("${dbName}.dc_multi_key_table", ["int_not_null" , "int_null" , "str_not_null" , "str_null"], struct(1, 1.0, 'abc'))  ,  

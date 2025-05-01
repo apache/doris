@@ -54,7 +54,7 @@ suite("test_dict_get_many") {
         LAYOUT(HASH_MAP)
         properties('data_lifetime'='600');
     """
-    sleep(5000)
+    waitAllDictionariesReady()
 
     qt_sql1 """ select dict_get("test_dict_get_many.single_key_dict", "k1", 1)  ,  dict_get("test_dict_get_many.single_key_dict", "k1", 2),dict_get("test_dict_get_many.single_key_dict", "k1", 3) """  
     qt_sql2 """ select dict_get("test_dict_get_many.single_key_dict", "k3", 1)  ,  dict_get("test_dict_get_many.single_key_dict", "k3", 2),dict_get("test_dict_get_many.single_key_dict", "k3", 3) """  

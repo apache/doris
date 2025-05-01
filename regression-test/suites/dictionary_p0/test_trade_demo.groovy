@@ -177,10 +177,9 @@ suite('test_trade_demo') {
     (30, 10004, 1007, 40000, 2400, 4800.0000, 120, '2024-02-23 03:00:00', '2024022303');
     """
 
-    sleep(500)
+    sql "sync"
     sql 'refresh dictionary advertiser_dict'
     sql 'refresh dictionary creative_dict'
-    sleep(1500)
 
     order_qt_sql1 '''
     SELECT 

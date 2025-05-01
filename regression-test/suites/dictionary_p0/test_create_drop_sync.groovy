@@ -48,8 +48,8 @@ suite('test_create_drop_sync') {
         LAYOUT(HASH_MAP)
         properties('data_lifetime'='600');
     """
+    waitAllDictionariesReady()
 
-    sleep(1000)
     // check dictionary is created
     def dict_res = sql "SHOW DICTIONARIES"
     assertEquals(dict_res.size(), 1)

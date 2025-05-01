@@ -170,7 +170,7 @@ public class DictionaryManager extends MasterDaemon implements Writable {
                             "Dictionary " + info.getDictName() + " already exists in database " + info.getDbName());
                 }
             }
-            // 2. Create dictionary object
+            // 2. Create dictionary object. the origin status is OUT_OF_DATE.
             Dictionary dictionary = new Dictionary(info, ++uniqueId);
             // Add to dictionaryIds map. no throw here. so schedule below is safe.
             idToDictionary.put(dictionary.getId(), dictionary);

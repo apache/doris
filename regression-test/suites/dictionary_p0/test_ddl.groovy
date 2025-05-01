@@ -279,7 +279,7 @@ suite("test_ddl") {
     """
 
     // test refresh result for multiple key columns dictionary
-    sleep(10000)
+    waitAllDictionariesReady()
     def refresh_res = (sql "show dictionaries")[0]
     assertTrue(refresh_res[1] == "dic_multi_key" && refresh_res[4] == "NORMAL")
 

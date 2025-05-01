@@ -15,6 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import static java.util.concurrent.TimeUnit.SECONDS
+
+import org.awaitility.Awaitility
+
 suite("test_dict_load_and_get_ip_trie") {
     def dbName  = "test_dict_load_and_get_ip_trie_db"  
 
@@ -45,16 +49,21 @@ suite("test_dict_load_and_get_ip_trie") {
         )
         LAYOUT(IP_TRIE)
         properties('data_lifetime'='600');
-    """ 
-
-
-    sleep(1000);
-
-    test {
-        sql """
-            refresh dictionary dc_single_key_with_duplicate
-        """
-        exception "The CIDR has duplicate data in IpAddressDictionary"
+    """
+    
+    for (int _ = 0; _ < 30 ; _++)
+    {
+        try {
+            sql "refresh dictionary dc_single_key_with_duplicate"
+            assert false
+        } catch (Exception e) {
+            if (e.getMessage().contains("The CIDR has duplicate data in IpAddressDictionary")) {
+                break;
+            } else {
+                logger.info("refresh dictionary dc_single_key_with_duplicate failed: " + e.getMessage())
+            }
+        }
+        sleep(1000)
     }
 
     sql """
@@ -69,7 +78,7 @@ suite("test_dict_load_and_get_ip_trie") {
     """     
 
     sql """insert into ip_trie_table values(1,"192.168.1.0/24", 1000, 1);"""       
-     sql """insert into ip_trie_table values(2,"192.168.1.128/25", 100, null);"""      
+    sql """insert into ip_trie_table values(2,"192.168.1.128/25", 100, null);"""      
 
     sql """
         create dictionary ip_trie_dict using ip_trie_table
@@ -78,11 +87,9 @@ suite("test_dict_load_and_get_ip_trie") {
             int_not_null VALUE
         )
         LAYOUT(IP_TRIE)
-        properties('data_lifetime'='600');        
-    """ 
-
-    sleep(1000);    
-
+        properties('data_lifetime'='600');
+    """
+    waitDictionaryReady("ip_trie_dict")
 
     sql """ refresh dictionary ip_trie_dict; """        
 

@@ -73,8 +73,7 @@ suite("test_dict_get_nullable") {
         LAYOUT(IP_TRIE)
         properties('data_lifetime'='600');
     """
-
-    sleep(20000)
+    waitAllDictionariesReady()
 
     qt_sql1 """ select dict_get("test_dictionary_function.single_key_dict", "k2", null) """  
     qt_sql2 """ select dict_get("test_dictionary_function.single_key_dict", "k2", 1) """ 

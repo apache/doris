@@ -15,6 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import static java.util.concurrent.TimeUnit.SECONDS
+
+import org.awaitility.Awaitility
+
 suite("test_dict_nullable_key") {
     sql "drop database if exists test_dict_nullable_key_db"
     sql "create database test_dict_nullable_key_db"
@@ -40,7 +44,7 @@ suite("test_dict_nullable_key") {
         LAYOUT(HASH_MAP)
         properties('data_lifetime'='600');
     """
-    sleep(10000);
+    waitAllDictionariesReady()
 
     sql """
         refresh dictionary dc_tmp_table_no_null
@@ -69,13 +73,20 @@ suite("test_dict_nullable_key") {
         LAYOUT(HASH_MAP)
         properties('data_lifetime'='600');
     """
-    sleep(10000)
 
-    test {
-        sql """
-            refresh dictionary tmp_table_null
-        """
-        exception "key column k0 has null value"
+    for (int _ = 0; _ < 30 ; _++)
+    {
+        try {
+            sql "refresh dictionary tmp_table_null"
+            assert false
+        } catch (Exception e) {
+            if (e.getMessage().contains("key column k0 has null value")) {
+                break;
+            } else {
+                logger.info("refresh dictionary tmp_table_null failed: " + e.getMessage())
+            }
+        }
+        sleep(1000)
     }
 
     sql """
@@ -90,7 +101,7 @@ suite("test_dict_nullable_key") {
         LAYOUT(HASH_MAP)
         properties('data_lifetime'='600','skip_null_key'='true');
     """
-    sleep(10000)
+    waitAllDictionariesReady()
 
     sql """
         refresh dictionary tmp_table_null

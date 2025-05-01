@@ -119,7 +119,7 @@ public class Dictionary extends Table {
         this.columns = null;
         this.lastUpdateTime = 0;
         this.dataLifetimeSecs = 0;
-        this.status.set(DictionaryStatus.NORMAL); // not replay by gson
+        this.status.set(DictionaryStatus.OUT_OF_DATE); // not replay by gson
         this.layout = null;
         this.version = 0;
         this.skipNullKey = false;
@@ -138,7 +138,8 @@ public class Dictionary extends Table {
         this.columns = info.getColumns();
         this.lastUpdateTime = createTime;
         this.dataLifetimeSecs = info.getDataLifetime();
-        this.status.set(DictionaryStatus.NORMAL);
+        // no data in the beginning so it's OUT_OF_DATE
+        this.status.set(DictionaryStatus.OUT_OF_DATE);
         this.layout = info.getLayout();
         this.version = 1;
         this.skipNullKey = info.skipNullKey();
