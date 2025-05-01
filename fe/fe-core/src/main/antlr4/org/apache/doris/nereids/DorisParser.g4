@@ -225,7 +225,18 @@ supportedCreateStatement
             passwordOption commentSpec?                            #createUser
     | CREATE EXTERNAL? RESOURCE (IF NOT EXISTS)?
             name=identifierOrText properties=propertyClause?                        #createResource
+    | CREATE DICTIONARY (IF NOT EXISTS)? name = multipartIdentifier
+		USING source = multipartIdentifier
+		LEFT_PAREN dictionaryColumnDefs RIGHT_PAREN
+        LAYOUT LEFT_PAREN layoutType=identifier RIGHT_PAREN
+        properties=propertyClause?         # createDictionary
     ;
+
+dictionaryColumnDefs:
+	dictionaryColumnDef (COMMA dictionaryColumnDef)*;
+
+dictionaryColumnDef:
+	colName = identifier columnType = (KEY | VALUE) ;
 
 supportedAlterStatement
     : ALTER SYSTEM alterSystemClause                                                        #alterSystem
@@ -283,6 +294,7 @@ supportedDropStatement
     | DROP ROW POLICY (IF EXISTS)? policyName=identifier
         ON tableName=multipartIdentifier
         (FOR (userIdentify | ROLE roleName=identifier))?                        #dropRowPolicy
+    | DROP DICTIONARY (IF EXISTS)? name=multipartIdentifier                     #dropDictionary
     ;
 
 supportedShowStatement
@@ -357,8 +369,7 @@ supportedShowStatement
     | SHOW TABLE CREATION ((FROM | IN) database=multipartIdentifier)?
         (LIKE STRING_LITERAL)?                                                      #showTableCreation
     | SHOW TABLET STORAGE FORMAT VERBOSE?                                           #showTabletStorageFormat
-    | SHOW TABLET tabletId=INTEGER_VALUE                                            #showTabletId
-    | SHOW QUERY PROFILE queryIdPath=STRING_LITERAL? limitClause?                    #showQueryProfile
+    | SHOW QUERY PROFILE queryIdPath=STRING_LITERAL? limitClause?                   #showQueryProfile
     | SHOW CONVERT_LSC ((FROM | IN) database=multipartIdentifier)?                  #showConvertLsc
     | SHOW FULL? TABLES ((FROM | IN) database=multipartIdentifier)? wildWhere?      #showTables
     | SHOW FULL? VIEWS ((FROM | IN) database=multipartIdentifier)? wildWhere?       #showViews
@@ -366,6 +377,8 @@ supportedShowStatement
     | SHOW (DATABASES | SCHEMAS) (FROM catalog=identifier)? wildWhere?              #showDatabases
     | SHOW TABLETS FROM tableName=multipartIdentifier partitionSpec?
         wildWhere? sortClause? limitClause?                                         #showTabletsFromTable
+    | SHOW TABLET tabletId=INTEGER_VALUE                                            #showTabletId
+    | SHOW DICTIONARIES wildWhere?                                                  #showDictionaries
     ;
 
 supportedLoadStatement
@@ -524,6 +537,7 @@ supportedRefreshStatement
     : REFRESH CATALOG name=identifier propertyClause?                               #refreshCatalog
     | REFRESH DATABASE name=multipartIdentifier propertyClause?                     #refreshDatabase
     | REFRESH TABLE name=multipartIdentifier                                        #refreshTable
+    | REFRESH DICTIONARY name=multipartIdentifier                                   #refreshDictionary
     ;
 
 supportedCleanStatement
@@ -887,7 +901,7 @@ supportedUnsetStatement
 supportedUseStatement
      : SWITCH catalog=identifier                                                      #switchCatalog
      | USE (catalog=identifier DOT)? database=identifier                              #useDatabase
-     ;
+    ;
 
 unsupportedUseStatement
     : USE ((catalog=identifier DOT)? database=identifier)? ATSIGN cluster=identifier #useCloudCluster
@@ -907,6 +921,7 @@ supportedDescribeStatement
         (properties=propertyItemList)? RIGHT_PAREN tableAlias   #describeTableValuedFunction
     | explainCommand multipartIdentifier ALL                    #describeTableAll
     | explainCommand multipartIdentifier specifiedPartition?    #describeTable
+    | explainCommand DICTIONARY multipartIdentifier             #describeDictionary
     ;
 
 constraint
@@ -1864,6 +1879,8 @@ nonReserved
     | DEMAND
     | DIAGNOSE
     | DIAGNOSIS
+    | DICTIONARIES
+    | DICTIONARY
     | DISTINCTPC
     | DISTINCTPCSA
     | DO
@@ -1902,6 +1919,7 @@ nonReserved
     | GROUPING
     | GROUPS
     | HASH
+    | HASH_MAP
     | HDFS
     | HELP
     | HINT_END
@@ -1918,6 +1936,7 @@ nonReserved
     | INCREMENTAL
     | INDEXES
     | INVERTED
+    | IP_TRIE
     | IPV4
     | IPV6
     | IS_NOT_NULL_PRED
