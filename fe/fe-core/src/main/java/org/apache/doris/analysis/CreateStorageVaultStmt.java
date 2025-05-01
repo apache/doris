@@ -31,7 +31,6 @@ import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
-import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
 
 import java.util.Map;
