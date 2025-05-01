@@ -28,12 +28,16 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import lombok.Getter;
+import lombok.Setter;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * External catalog for elasticsearch
@@ -43,10 +47,13 @@ public class EsExternalCatalog extends ExternalCatalog {
     public static final String DEFAULT_DB = "default_db";
 
     private static final Logger LOG = LogManager.getLogger(EsExternalCatalog.class);
+    @Setter
     private EsRestClient esRestClient;
     private static final List<String> REQUIRED_PROPERTIES = ImmutableList.of(
             EsResource.HOSTS
     );
+    // Available node
+    private Set<EsNodeInfo> availableNodesInfo;
 
     /**
      * Default constructor for EsExternalCatalog.
@@ -54,6 +61,7 @@ public class EsExternalCatalog extends ExternalCatalog {
     public EsExternalCatalog(long catalogId, String name, String resource, Map<String, String> props, String comment) {
         super(catalogId, name, InitCatalogLog.Type.ES, comment);
         this.catalogProperty = new CatalogProperty(resource, processCompatibleProperties(props));
+        this.availableNodesInfo = ConcurrentHashMap.newKeySet();
     }
 
     private Map<String, String> processCompatibleProperties(Map<String, String> props) {
@@ -126,11 +134,15 @@ public class EsExternalCatalog extends ExternalCatalog {
 
     @Override
     protected void initLocalObjectsImpl() {
-        esRestClient = new EsRestClient(getNodes(), getUsername(), getPassword(), enableSsl());
+        esRestClient = createEsRestClient(getNodes(), getUsername(), getPassword(), enableSsl());
         if (!esRestClient.health()) {
             throw new DorisEsException("Failed to connect to ES cluster,"
                     + " please check your ES cluster or your ES catalog configuration.");
         }
+    }
+
+    protected EsRestClient createEsRestClient(String[] nodes, String username, String password, boolean enableSsl) {
+        return new EsRestClient(nodes, username, password, enableSsl);
     }
 
     @Override
@@ -157,5 +169,46 @@ public class EsExternalCatalog extends ExternalCatalog {
                 throw new DdlException("Required property '" + requiredProperty + "' is missing");
             }
         }
+    }
+
+    public void detectAvailableNodesInfo() {
+        if (availableNodesInfo == null) {
+            availableNodesInfo = ConcurrentHashMap.newKeySet();
+        }
+        try {
+            List<EsNodeInfo> nodeInfos = esRestClient.getHttpNodesList();
+            if (nodeInfos == null) {
+                return;
+            }
+            for (EsNodeInfo nodeInfo : nodeInfos) {
+                String[] nodes = {nodeInfo.getHost() + ":" + nodeInfo.getPublishAddress().getPort()};
+                EsRestClient esRestClient = createEsRestClient(nodes, getUsername(), getPassword(), enableSsl());
+                if (esRestClient.health()) {
+                    availableNodesInfo.add(nodeInfo);
+                } else {
+                    availableNodesInfo.remove(nodeInfo);
+                }
+            }
+        } catch (Exception e) {
+            LOG.error("Failed to detect available nodes info", e);
+        }
+    }
+
+    public Set<EsNodeInfo> getAvailableNodesInfo() {
+        if (availableNodesInfo == null) {
+            availableNodesInfo = ConcurrentHashMap.newKeySet();
+        }
+        if (availableNodesInfo.isEmpty()) {
+            try {
+                detectAvailableNodesInfo();
+            } catch (Exception e) {
+                return availableNodesInfo;
+            }
+        }
+        return Collections.unmodifiableSet(availableNodesInfo);
+    }
+
+    public void clearAvailableNodesInfo() {
+        availableNodesInfo.clear();
     }
 }
