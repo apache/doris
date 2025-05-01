@@ -290,4 +290,8 @@ public class MTMVJob extends AbstractJob<MTMVTask, MTMVTaskContext> {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
+    @Override
+    public boolean needPersist() {
+        return false;
+    }
 }

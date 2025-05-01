@@ -186,24 +186,15 @@ public class MTMVRelationManager implements MTMVHookService {
         }
     }
 
-    @Override
-    public void createMTMV(MTMV mtmv) throws DdlException {
-
-    }
-
-    @Override
-    public void dropMTMV(MTMV mtmv) throws DdlException {
-
-    }
-
     /**
      * modify `tableMTMVs` by MTMVRelation
      *
      * @param mtmv
      * @param dbId
+     * @param isReplay
      */
     @Override
-    public void registerMTMV(MTMV mtmv, Long dbId) {
+    public void registerMTMV(MTMV mtmv, Long dbId, boolean isReplay) {
         refreshMTMVCache(mtmv.getRelation(), new BaseTableInfo(mtmv, dbId));
     }
 
@@ -213,12 +204,12 @@ public class MTMVRelationManager implements MTMVHookService {
      * @param mtmv
      */
     @Override
-    public void deregisterMTMV(MTMV mtmv) {
+    public void deregisterMTMV(MTMV mtmv, boolean isReplay) {
         removeMTMV(new BaseTableInfo(mtmv));
     }
 
     @Override
-    public void alterMTMV(MTMV mtmv, AlterMTMV alterMTMV) throws DdlException {
+    public void alterMTMV(MTMV mtmv, AlterMTMV alterMTMV, boolean isReplay) throws DdlException {
 
     }
 
@@ -260,6 +251,7 @@ public class MTMVRelationManager implements MTMVHookService {
     @Override
     public void alterTable(Table table, String oldTableName) {
         BaseTableInfo baseTableInfo = new BaseTableInfo(table);
+        // TODO: 2025/1/24 zd has bug, only call once .follower will have bug.
         baseTableInfo.setTableName(oldTableName);
         if (table instanceof MTMV) {
             removeMTMV(baseTableInfo);
