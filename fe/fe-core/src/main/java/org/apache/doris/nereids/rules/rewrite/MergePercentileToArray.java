@@ -32,7 +32,9 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Percentile;
 import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileArray;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
+import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -77,18 +79,31 @@ public class MergePercentileToArray extends OneRewriteRuleFactory {
         List<AggregateFunction> newPercentileArrays = Lists.newArrayList();
 
         for (Map.Entry<DistinctAndExpr, List<AggregateFunction>> entry : funcMap.entrySet()) {
-            List<Expression> literals = new ArrayList<>();
+            List<Expression> percentList = new ArrayList<>();
+            boolean allPercentIsLiteral = true;
             for (AggregateFunction aggFunc : entry.getValue()) {
-                literals.add(aggFunc.child(1));
+                Expression percent = aggFunc.child(1);
+                percentList.add(percent);
+                if (allPercentIsLiteral && !(percent instanceof Literal)) {
+                    allPercentIsLiteral = false;
+                }
             }
-            Array array = new Array(literals.toArray(new Expression[0]));
-            PercentileArray percentileArray;
-            if (entry.getKey().isDistinct) {
-                percentileArray = new PercentileArray(true, entry.getKey().getExpression(), new Cast(array,
-                        ArrayType.of(DoubleType.INSTANCE)));
+            ArrayLiteral percentArrayLiteral = null;
+            Array percentArray = null;
+            if (allPercentIsLiteral) {
+                percentArrayLiteral = new ArrayLiteral((List) percentList);
             } else {
-                percentileArray = new PercentileArray(entry.getKey().getExpression(), new Cast(array,
-                        ArrayType.of(DoubleType.INSTANCE)));
+                percentArray = new Array(percentList.toArray(new Expression[0]));
+            }
+
+            PercentileArray percentileArray;
+            Expression secondArg = allPercentIsLiteral
+                    ? new Cast(percentArrayLiteral, ArrayType.of(DoubleType.INSTANCE))
+                    : new Cast(percentArray, ArrayType.of(DoubleType.INSTANCE));
+            if (entry.getKey().isDistinct) {
+                percentileArray = new PercentileArray(true, entry.getKey().getExpression(), secondArg);
+            } else {
+                percentileArray = new PercentileArray(entry.getKey().getExpression(), secondArg);
             }
             newPercentileArrays.add(percentileArray);
         }
