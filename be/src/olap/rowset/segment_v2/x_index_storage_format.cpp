@@ -23,7 +23,7 @@
 
 namespace doris::segment_v2 {
 
-XIndexStorageFormat::XIndexStorageFormat(XIndexFileWriter* x_file_writer)
+XIndexStorageFormat::XIndexStorageFormat(IndexFileWriter* x_file_writer)
         : _x_file_writer(x_file_writer) {}
 
 void XIndexStorageFormat::sort_files(std::vector<FileInfo>& file_infos) {

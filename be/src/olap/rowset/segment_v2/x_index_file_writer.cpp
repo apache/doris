@@ -35,10 +35,10 @@
 
 namespace doris::segment_v2 {
 
-XIndexFileWriter::XIndexFileWriter(io::FileSystemSPtr fs, std::string index_path_prefix,
-                                   std::string rowset_id, int64_t seg_id,
-                                   InvertedIndexStorageFormatPB storage_format,
-                                   io::FileWriterPtr file_writer, bool can_use_ram_dir)
+IndexFileWriter::IndexFileWriter(io::FileSystemSPtr fs, std::string index_path_prefix,
+                                 std::string rowset_id, int64_t seg_id,
+                                 InvertedIndexStorageFormatPB storage_format,
+                                 io::FileWriterPtr file_writer, bool can_use_ram_dir)
         : _fs(std::move(fs)),
           _index_path_prefix(std::move(index_path_prefix)),
           _rowset_id(std::move(rowset_id)),
@@ -56,14 +56,14 @@ XIndexFileWriter::XIndexFileWriter(io::FileSystemSPtr fs, std::string index_path
     }
 }
 
-Status XIndexFileWriter::initialize(InvertedIndexDirectoryMap& indices_dirs) {
+Status IndexFileWriter::initialize(InvertedIndexDirectoryMap& indices_dirs) {
     _indices_dirs = std::move(indices_dirs);
     return Status::OK();
 }
 
-Status XIndexFileWriter::_insert_directory_into_map(int64_t index_id,
-                                                    const std::string& index_suffix,
-                                                    std::shared_ptr<DorisFSDirectory> dir) {
+Status IndexFileWriter::_insert_directory_into_map(int64_t index_id,
+                                                   const std::string& index_suffix,
+                                                   std::shared_ptr<DorisFSDirectory> dir) {
     auto key = std::make_pair(index_id, index_suffix);
     auto [it, inserted] = _indices_dirs.emplace(key, std::move(dir));
     if (!inserted) {
@@ -78,7 +78,7 @@ Status XIndexFileWriter::_insert_directory_into_map(int64_t index_id,
     return Status::OK();
 }
 
-Result<std::shared_ptr<DorisFSDirectory>> XIndexFileWriter::open(const TabletIndex* index_meta) {
+Result<std::shared_ptr<DorisFSDirectory>> IndexFileWriter::open(const TabletIndex* index_meta) {
     auto local_fs_index_path = InvertedIndexDescriptor::get_temporary_index_path(
             _tmp_dir, _rowset_id, _seg_id, index_meta->index_id(), index_meta->get_index_suffix());
     auto dir = std::shared_ptr<DorisFSDirectory>(DorisFSDirectoryFactory::getDirectory(
@@ -92,7 +92,7 @@ Result<std::shared_ptr<DorisFSDirectory>> XIndexFileWriter::open(const TabletInd
     return dir;
 }
 
-Status XIndexFileWriter::delete_index(const TabletIndex* index_meta) {
+Status IndexFileWriter::delete_index(const TabletIndex* index_meta) {
     DBUG_EXECUTE_IF("XIndexFileWriter::delete_index_index_meta_nullptr", { index_meta = nullptr; });
     if (!index_meta) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT>("Index metadata is null.");
@@ -117,7 +117,7 @@ Status XIndexFileWriter::delete_index(const TabletIndex* index_meta) {
     return Status::OK();
 }
 
-Status XIndexFileWriter::add_into_searcher_cache() {
+Status IndexFileWriter::add_into_searcher_cache() {
     auto index_file_reader =
             std::make_unique<XIndexFileReader>(_fs, _index_path_prefix, _storage_format);
     auto st = index_file_reader->init();
@@ -158,7 +158,7 @@ Status XIndexFileWriter::add_into_searcher_cache() {
     return Status::OK();
 }
 
-Result<std::unique_ptr<IndexSearcherBuilder>> XIndexFileWriter::_construct_index_searcher_builder(
+Result<std::unique_ptr<IndexSearcherBuilder>> IndexFileWriter::_construct_index_searcher_builder(
         const DorisCompoundReader* dir) {
     std::vector<std::string> files;
     dir->list(&files);
@@ -172,7 +172,7 @@ Result<std::unique_ptr<IndexSearcherBuilder>> XIndexFileWriter::_construct_index
     return IndexSearcherBuilder::create_index_searcher_builder(reader_type);
 }
 
-Status XIndexFileWriter::close() {
+Status IndexFileWriter::close() {
     DCHECK(!_closed) << debug_string();
     _closed = true;
     if (_indices_dirs.empty()) {
@@ -212,7 +212,7 @@ Status XIndexFileWriter::close() {
     return Status::OK();
 }
 
-std::string XIndexFileWriter::debug_string() const {
+std::string IndexFileWriter::debug_string() const {
     std::stringstream indices_dirs;
     for (const auto& [index, dir] : _indices_dirs) {
         indices_dirs << "index id is: " << index.first << " , index suffix is: " << index.second

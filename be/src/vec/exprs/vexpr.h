@@ -268,6 +268,12 @@ public:
         }
     }
 
+    virtual void prepare_virtual_slots(
+            const std::map<SlotId, vectorized::VExprContextSPtr>& _slot_id_to_virtual_column_expr);
+#ifdef BE_TEST
+    void set_node_type(TExprNodeType::type node_type) { _node_type = node_type; }
+#endif
+
 protected:
     /// Simple debug string that provides no expr subclass-specific information
     std::string debug_string(const std::string& expr_name) const {

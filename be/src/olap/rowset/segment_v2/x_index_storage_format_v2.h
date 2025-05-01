@@ -35,7 +35,7 @@ struct FileMetadata {
 
 class XIndexStorageFormatV2 : public XIndexStorageFormat {
 public:
-    XIndexStorageFormatV2(XIndexFileWriter* file_writer);
+    XIndexStorageFormatV2(IndexFileWriter* file_writer);
     ~XIndexStorageFormatV2() override = default;
 
     Status write() override;

@@ -317,7 +317,7 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                                  << ", err: " << st;
                     return st;
                 }
-                auto x_index_file_writer = std::make_unique<XIndexFileWriter>(
+                auto x_index_file_writer = std::make_unique<IndexFileWriter>(
                         fs, std::move(index_path_prefix),
                         output_rowset_meta->rowset_id().to_string(), seg_ptr->id(),
                         output_rowset_schema->get_inverted_index_storage_format(),
@@ -356,11 +356,11 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                     InvertedIndexDescriptor::get_index_file_path_prefix(local_segment_path(
                             _tablet->tablet_path(), output_rowset_meta->rowset_id().to_string(),
                             seg_ptr->id()))};
-            std::vector<ColumnId> return_columns;
+
             std::vector<std::pair<int64_t, int64_t>> inverted_index_writer_signs;
             _olap_data_convertor->reserve(_alter_inverted_indexes.size());
+            std::unique_ptr<IndexFileWriter> x_index_file_writer = nullptr;
 
-            std::unique_ptr<XIndexFileWriter> x_index_file_writer = nullptr;
             if (output_rowset_schema->get_inverted_index_storage_format() >=
                 InvertedIndexStorageFormatPB::V2) {
                 auto idx_file_reader_iter = _index_file_readers.find(
@@ -382,16 +382,17 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                     return st;
                 }
                 auto dirs = DORIS_TRY(idx_file_reader_iter->second->get_all_directories());
-                x_index_file_writer = std::make_unique<XIndexFileWriter>(
+                x_index_file_writer = std::make_unique<IndexFileWriter>(
                         fs, index_path_prefix, output_rowset_meta->rowset_id().to_string(),
                         seg_ptr->id(), output_rowset_schema->get_inverted_index_storage_format(),
                         std::move(file_writer));
                 RETURN_IF_ERROR(x_index_file_writer->initialize(dirs));
             } else {
-                x_index_file_writer = std::make_unique<XIndexFileWriter>(
+                x_index_file_writer = std::make_unique<IndexFileWriter>(
                         fs, index_path_prefix, output_rowset_meta->rowset_id().to_string(),
                         seg_ptr->id(), output_rowset_schema->get_inverted_index_storage_format());
             }
+            std::vector<ColumnId> return_columns;
             // create inverted index writer
             for (auto inverted_index : _alter_inverted_indexes) {
                 DCHECK_EQ(inverted_index.columns.size(), 1);
@@ -412,8 +413,7 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                 }
                 auto column = output_rowset_schema->column(column_idx);
                 // variant column is not support for building index
-                auto is_support_inverted_index =
-                        IndexColumnWriter::check_support_inverted_index(column);
+                auto is_support_inverted_index = IndexWriter::check_support_inverted_index(column);
                 DBUG_EXECUTE_IF("IndexBuilder::handle_single_rowset_support_inverted_index",
                                 { is_support_inverted_index = false; })
                 if (!is_support_inverted_index) {
@@ -424,11 +424,11 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                 return_columns.emplace_back(column_idx);
                 std::unique_ptr<Field> field(FieldFactory::create(column));
                 const auto* index_meta = output_rowset_schema->inverted_index(column);
-                std::unique_ptr<segment_v2::IndexColumnWriter> inverted_index_builder;
+                std::unique_ptr<segment_v2::IndexWriter> inverted_index_builder;
                 try {
-                    RETURN_IF_ERROR(segment_v2::IndexColumnWriter::create(
-                            field.get(), &inverted_index_builder, x_index_file_writer.get(),
-                            index_meta));
+                    RETURN_IF_ERROR(
+                            segment_v2::IndexWriter::create(field.get(), &inverted_index_builder,
+                                                            x_index_file_writer.get(), index_meta));
                     DBUG_EXECUTE_IF(
                             "IndexBuilder::handle_single_rowset_index_column_writer_create_error", {
                                 _CLTHROWA(CL_ERR_IO,

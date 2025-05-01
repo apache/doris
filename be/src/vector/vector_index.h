@@ -17,57 +17,55 @@
 
 #pragma once
 
+#include <memory>
+#include <roaring/roaring.hh>
+
 #include "common/status.h"
 
-struct SearchResult {
-    int rows;
-    std::vector<float> distances;
-    std::vector<int64_t> ids;
-    void* stat; //统计分析
+namespace lucene::store {
+class Directory;
+}
 
-    SearchResult() {
-        rows = 0;
-        stat = nullptr;
-    }
+namespace doris::segment_v2 {
+struct SearchResult {
+    SearchResult() = default;
+
     float get_distance(int idx) {
-        if (idx < 0 || idx >= static_cast<int>(distances.size())) {
+        if (idx < 0 || idx >= static_cast<int>(row_ids->cardinality())) {
             throw std::out_of_range("Invalid distance index");
         }
         return distances[idx];
     }
-    int64_t get_id(int idx) {
-        if (idx < 0 || idx >= static_cast<int>(ids.size())) {
-            throw std::out_of_range("Invalid ID index");
-        }
-        return ids[idx];
-    }
-    void reset() {
-        rows = 0;
-        distances.clear();
-        ids.clear();
-    }
-    bool has_rows() { return rows > 0; }
-    int row_count() { return rows; }
+
+    std::unique_ptr<float[]> distances;
+    std::shared_ptr<roaring::Roaring> row_ids;
 };
 
 struct SearchParameters {
-    virtual ~SearchParameters() {}
+    roaring::Roaring* row_ids = nullptr;
 };
 
 class VectorIndex {
 public:
     enum class Metric { L2, COSINE, INNER_PRODUCT, UNKNOWN };
 
-    virtual doris::Status add(int n, const float* vec) = 0;
+    /** Add n vectors of dimension d to the index.
+     *
+     * Vectors are implicitly assigned labels ntotal .. ntotal + n - 1
+     * This function slices the input vectors in chunks smaller than
+     * blocksize_add and calls add_core.
+     * @param n      number of vectors
+     * @param x      input matrix, size n * d
+     */
+    virtual doris::Status add(int n, const float* x) = 0;
 
-    virtual doris::Status search(const float* query_vec, int k, SearchResult* result,
-                                 const SearchParameters* params = nullptr) = 0;
-    //virtual Status save(FileWriter* writer);
-    virtual doris::Status save() = 0;
+    virtual doris::Status search(const float* query_vec, int k, const SearchParameters& params,
+                                 SearchResult& result) = 0;
 
-    //virtual Status load(FileReader* reader);
-    virtual doris::Status load(Metric type) = 0;
-    //void reset();
+    virtual doris::Status save(lucene::store::Directory*) = 0;
+
+    virtual doris::Status load(lucene::store::Directory*) = 0;
+
     static std::string metric_to_string(Metric metric) {
         switch (metric) {
         case Metric::L2:
@@ -92,4 +90,11 @@ public:
         }
     }
     virtual ~VectorIndex() = default;
+
+    size_t get_dimension() const { return _dimension; }
+
+protected:
+    size_t _dimension = 0;
 };
+
+} // namespace doris::segment_v2

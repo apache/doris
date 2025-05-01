@@ -71,7 +71,7 @@
 namespace doris {
 namespace segment_v2 {
 
-bool IndexColumnWriter::check_support_inverted_index(const TabletColumn& column) {
+bool IndexWriter::check_support_inverted_index(const TabletColumn& column) {
     // bellow types are not supported in inverted index for extracted columns
     static std::set<FieldType> invalid_types = {
             FieldType::OLAP_FIELD_TYPE_DOUBLE,
@@ -88,14 +88,13 @@ bool IndexColumnWriter::check_support_inverted_index(const TabletColumn& column)
     return true;
 }
 
-bool IndexColumnWriter::check_support_ann_index(const TabletColumn& column) {
+bool IndexWriter::check_support_ann_index(const TabletColumn& column) {
     // bellow types are not supported in inverted index for extracted columns
     return column.is_array_type();
 }
 
-Status IndexColumnWriter::create(const Field* field, std::unique_ptr<IndexColumnWriter>* res,
-                                 XIndexFileWriter* index_file_writer,
-                                 const TabletIndex* index_meta) {
+Status IndexWriter::create(const Field* field, std::unique_ptr<IndexWriter>* res,
+                           IndexFileWriter* index_file_writer, const TabletIndex* index_meta) {
     const auto* typeinfo = field->type_info();
     FieldType type = typeinfo->type();
     std::string field_name;
@@ -127,8 +126,8 @@ Status IndexColumnWriter::create(const Field* field, std::unique_ptr<IndexColumn
     }
 
     if (index_meta->index_type() == IndexType::ANN) {
-        *res = std::make_unique<AnnIndexColumnWriter>(field_name, index_file_writer, index_meta,
-                                                      single_field);
+        *res = std::make_unique<AnnIndexWriter>(field_name, index_file_writer, index_meta,
+                                                single_field);
         RETURN_IF_ERROR((*res)->init());
         return Status::OK();
     }

@@ -72,6 +72,8 @@ public:
             block.get_by_position(result).column =
                     DataTypeUInt8().create_column_const(elem.column->size(), 0u);
         }
+        LOG_INFO("is_null_pred, result column idx: {}, result_size {}", result,
+                 block.get_by_position(result).column->size());
         return Status::OK();
     }
 };

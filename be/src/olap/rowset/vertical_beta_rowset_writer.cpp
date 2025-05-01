@@ -170,7 +170,7 @@ Status VerticalBetaRowsetWriter<T>::_create_segment_writer(
     RETURN_IF_ERROR(BaseBetaRowsetWriter::create_file_writer(seg_id, segment_file_writer));
     DCHECK(segment_file_writer != nullptr);
 
-    XIndexFileWriterPtr x_index_file_writer;
+    IndexFileWriterPtr x_index_file_writer;
     if (context.tablet_schema->has_inverted_index()) {
         RETURN_IF_ERROR(RowsetWriter::create_x_index_file_writer(seg_id, &x_index_file_writer));
     }

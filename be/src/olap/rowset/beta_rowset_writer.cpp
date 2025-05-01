@@ -192,7 +192,7 @@ Result<std::vector<size_t>> SegmentFileCollection::segments_file_size(int seg_id
 
 InvertedIndexFileCollection::~InvertedIndexFileCollection() = default;
 
-Status InvertedIndexFileCollection::add(int seg_id, XIndexFileWriterPtr&& index_writer) {
+Status InvertedIndexFileCollection::add(int seg_id, IndexFileWriterPtr&& index_writer) {
     std::lock_guard lock(_lock);
     if (_x_index_file_writers.find(seg_id) != _x_index_file_writers.end()) [[unlikely]] {
         DCHECK(false);
@@ -983,7 +983,7 @@ Status BaseBetaRowsetWriter::create_file_writer(uint32_t segment_id, io::FileWri
 }
 
 Status BaseBetaRowsetWriter::create_x_index_file_writer(uint32_t segment_id,
-                                                        XIndexFileWriterPtr* index_file_writer) {
+                                                        IndexFileWriterPtr* index_file_writer) {
     RETURN_IF_ERROR(RowsetWriter::create_x_index_file_writer(segment_id, index_file_writer));
     // used for inverted index format v1
     (*index_file_writer)->set_file_writer_opts(_context.get_file_writer_options());
@@ -998,7 +998,7 @@ Status BetaRowsetWriter::create_segment_writer_for_segcompaction(
     io::FileWriterPtr file_writer;
     RETURN_IF_ERROR(_create_file_writer(path, file_writer));
 
-    XIndexFileWriterPtr index_file_writer;
+    IndexFileWriterPtr index_file_writer;
     if (_context.tablet_schema->has_inverted_index()) {
         io::FileWriterPtr idx_file_writer;
         std::string prefix(InvertedIndexDescriptor::get_index_file_path_prefix(path));
@@ -1007,7 +1007,7 @@ Status BetaRowsetWriter::create_segment_writer_for_segcompaction(
             std::string index_path = InvertedIndexDescriptor::get_index_file_path_v2(prefix);
             RETURN_IF_ERROR(_create_file_writer(index_path, idx_file_writer));
         }
-        index_file_writer = std::make_unique<XIndexFileWriter>(
+        index_file_writer = std::make_unique<IndexFileWriter>(
                 _context.fs(), prefix, _context.rowset_id.to_string(), _num_segcompacted,
                 _context.tablet_schema->get_inverted_index_storage_format(),
                 std::move(idx_file_writer));

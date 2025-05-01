@@ -61,8 +61,8 @@ public:
     Status next_block_with_aggregation(Block* block, bool* eof) override;
 
     uint64_t merged_rows() const override {
-        DCHECK(_vcollect_iter);
-        return _vcollect_iter->merged_rows();
+        DCHECK(_rowwise_iter);
+        return _rowwise_iter->merged_rows();
     }
 
     std::vector<RowLocation> current_block_row_locations() { return _block_row_locations; }
@@ -95,7 +95,7 @@ private:
 
 private:
     size_t _id;
-    std::shared_ptr<RowwiseIterator> _vcollect_iter;
+    std::shared_ptr<RowwiseIterator> _rowwise_iter;
     IteratorRowRef _next_row {{}, -1, false};
 
     bool _eof = false;
