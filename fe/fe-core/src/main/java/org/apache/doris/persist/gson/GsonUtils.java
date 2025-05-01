@@ -172,6 +172,7 @@ import org.apache.doris.datasource.test.TestExternalTable;
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalCatalog;
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalDatabase;
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalTable;
+import org.apache.doris.dictionary.Dictionary;
 import org.apache.doris.fs.PersistentFileSystem;
 import org.apache.doris.fs.remote.AzureFileSystem;
 import org.apache.doris.fs.remote.BrokerFileSystem;
@@ -498,7 +499,8 @@ public class GsonUtils {
             .registerSubtype(MysqlTable.class, MysqlTable.class.getSimpleName())
             .registerSubtype(OdbcTable.class, OdbcTable.class.getSimpleName())
             .registerSubtype(SchemaTable.class, SchemaTable.class.getSimpleName())
-            .registerSubtype(View.class, View.class.getSimpleName());
+            .registerSubtype(View.class, View.class.getSimpleName())
+            .registerSubtype(Dictionary.class, Dictionary.class.getSimpleName());
 
     // runtime adapter for class "PartitionInfo"
     private static RuntimeTypeAdapterFactory<PartitionInfo> partitionInfoTypeAdapterFactory

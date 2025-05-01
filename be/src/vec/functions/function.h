@@ -29,6 +29,7 @@
 #include <utility>
 
 #include "common/exception.h"
+#include "common/logging.h"
 #include "common/status.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "udf/udf.h"
@@ -135,6 +136,8 @@ protected:
       *   and wrap result in Nullable column where NULLs are in all rows where any of arguments are NULL.
       */
     virtual bool use_default_implementation_for_nulls() const { return true; }
+
+    virtual bool skip_return_type_check() const { return false; }
 
     /** If function arguments has single low cardinality column and all other arguments are constants, call function on nested column.
       * Otherwise, convert all low cardinality columns to ordinary columns.
@@ -265,6 +268,9 @@ class FunctionBuilderImpl : public IFunctionBuilder {
 public:
     FunctionBasePtr build(const ColumnsWithTypeAndName& arguments,
                           const DataTypePtr& return_type) const final {
+        if (skip_return_type_check()) {
+            return build_impl(arguments, return_type);
+        }
         const DataTypePtr& func_return_type = get_return_type(arguments);
         if (func_return_type == nullptr) {
             throw doris::Exception(
@@ -335,6 +341,8 @@ protected:
       */
     virtual bool use_default_implementation_for_nulls() const { return true; }
 
+    virtual bool skip_return_type_check() const { return false; }
+
     virtual bool need_replace_null_data_to_default() const { return false; }
 
     /** If use_default_implementation_for_nulls() is true, than change arguments for get_return_type() and build_impl().
@@ -373,6 +381,8 @@ public:
 
     /// Override this functions to change default implementation behavior. See details in IMyFunction.
     bool use_default_implementation_for_nulls() const override { return true; }
+
+    bool skip_return_type_check() const override { return false; }
 
     bool need_replace_null_data_to_default() const override { return false; }
 
@@ -459,6 +469,8 @@ protected:
     bool use_default_implementation_for_nulls() const final {
         return function->use_default_implementation_for_nulls();
     }
+
+    bool skip_return_type_check() const final { return function->skip_return_type_check(); }
     bool need_replace_null_data_to_default() const final {
         return function->need_replace_null_data_to_default();
     }
@@ -557,6 +569,8 @@ protected:
     bool use_default_implementation_for_nulls() const override {
         return function->use_default_implementation_for_nulls();
     }
+
+    bool skip_return_type_check() const override { return function->skip_return_type_check(); }
 
     bool need_replace_null_data_to_default() const override {
         return function->need_replace_null_data_to_default();

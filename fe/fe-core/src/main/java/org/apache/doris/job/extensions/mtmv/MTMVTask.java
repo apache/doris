@@ -82,7 +82,6 @@ import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import java.util.UUID;
 
 public class MTMVTask extends AbstractTask {
     private static final Logger LOG = LogManager.getLogger(MTMVTask.class);
@@ -112,7 +111,7 @@ public class MTMVTask extends AbstractTask {
     public static final ImmutableMap<String, Integer> COLUMN_TO_INDEX;
 
     static {
-        ImmutableMap.Builder<String, Integer> builder = new ImmutableMap.Builder();
+        ImmutableMap.Builder<String, Integer> builder = new ImmutableMap.Builder<String, Integer>();
         for (int i = 0; i < SCHEMA.size(); i++) {
             builder.put(SCHEMA.get(i).getName().toLowerCase(), i);
         }
@@ -499,11 +498,6 @@ public class MTMVTask extends AbstractTask {
         builder.append(needRefreshPartitions.size());
         builder.append(")");
         return builder.toString();
-    }
-
-    private TUniqueId generateQueryId() {
-        UUID taskId = UUID.randomUUID();
-        return new TUniqueId(taskId.getMostSignificantBits(), taskId.getLeastSignificantBits());
     }
 
     private void after() {

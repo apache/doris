@@ -216,6 +216,11 @@ public class StatementContext implements Closeable {
 
     private boolean privChecked;
 
+    /// for dictionary sink.
+    private List<Backend> usedBackendsDistributing; // report used backends after done distribute planning.
+    private long dictionaryUsedSrcVersion; // base table data version used in this refreshing.
+    private boolean partialLoadDictionary = false; // really used partial load.
+
     private boolean prepareStage = false;
 
     public StatementContext() {
@@ -785,6 +790,30 @@ public class StatementContext implements Closeable {
 
     public void setPrivChecked(boolean privChecked) {
         this.privChecked = privChecked;
+    }
+
+    public List<Backend> getUsedBackendsDistributing() {
+        return usedBackendsDistributing;
+    }
+
+    public void setUsedBackendsDistributing(List<Backend> usedBackends) {
+        this.usedBackendsDistributing = usedBackends;
+    }
+
+    public long getDictionaryUsedSrcVersion() {
+        return dictionaryUsedSrcVersion;
+    }
+
+    public void setDictionaryUsedSrcVersion(long dictionaryUsedSrcVersion) {
+        this.dictionaryUsedSrcVersion = dictionaryUsedSrcVersion;
+    }
+
+    public boolean isPartialLoadDictionary() {
+        return partialLoadDictionary;
+    }
+
+    public void setPartialLoadDictionary(boolean partialLoadDictionary) {
+        this.partialLoadDictionary = partialLoadDictionary;
     }
 
     public void setPrepareStage(boolean isPrepare) {

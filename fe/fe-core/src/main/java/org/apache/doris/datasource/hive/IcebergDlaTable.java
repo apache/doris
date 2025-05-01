@@ -103,6 +103,15 @@ public class IcebergDlaTable extends HMSDlaTable {
     }
 
     @Override
+    public MTMVSnapshotIf getTableSnapshot(Optional<MvccSnapshot> snapshot) throws AnalysisException {
+        hmsTable.makeSureInitialized();
+        IcebergSnapshotCacheValue snapshotValue =
+                IcebergUtils.getOrFetchSnapshotCacheValue(
+                        snapshot, hmsTable.getCatalog(), hmsTable.getDbName(), hmsTable.getName());
+        return new MTMVSnapshotIdSnapshot(snapshotValue.getSnapshot().getSnapshotId());
+    }
+
+    @Override
     boolean isPartitionColumnAllowNull() {
         return true;
     }
