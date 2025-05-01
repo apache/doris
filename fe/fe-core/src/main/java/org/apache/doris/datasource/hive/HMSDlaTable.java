@@ -69,6 +69,8 @@ public abstract class HMSDlaTable implements MTMVBaseTableIf {
     abstract MTMVSnapshotIf getTableSnapshot(MTMVRefreshContext context, Optional<MvccSnapshot> snapshot)
             throws AnalysisException;
 
+    abstract MTMVSnapshotIf getTableSnapshot(Optional<MvccSnapshot> snapshot) throws AnalysisException;
+
     abstract boolean isPartitionColumnAllowNull();
 
     @Override
