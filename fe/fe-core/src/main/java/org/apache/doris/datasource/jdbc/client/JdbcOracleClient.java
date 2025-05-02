@@ -145,10 +145,15 @@ public class JdbcOracleClient extends JdbcClient {
              *    In this case, doris can not determine p and s, so doris can not determine data type.
              */
             case "NUMBER":
-                int precision = fieldSchema.getColumnSize().orElse(0);
-                int scale = fieldSchema.getDecimalDigits().orElse(0);
-                if (scale <= 0) {
-                    precision -= scale;
+                int actualPrecision = fieldSchema.requiredColumnSize();
+                int decimalDigits = fieldSchema.getDecimalDigits().orElse(0);
+
+                if (actualPrecision == 0 && decimalDigits == 0) {
+                    return Type.UNSUPPORTED;
+                }
+
+                if (decimalDigits <= 0) {
+                    int precision = actualPrecision - decimalDigits;
                     if (precision < 3) {
                         return Type.TINYINT;
                     } else if (precision < 5) {
@@ -158,13 +163,15 @@ public class JdbcOracleClient extends JdbcClient {
                     } else if (precision < 19) {
                         return Type.BIGINT;
                     } else if (precision < 39) {
-                        // LARGEINT supports up to 38 numbers.
                         return Type.LARGEINT;
                     } else {
                         return ScalarType.createStringType();
                     }
                 }
-                // scale > 0
+
+                int precision = actualPrecision;
+                int scale = decimalDigits;
+
                 if (precision < scale) {
                     precision = scale;
                 }
