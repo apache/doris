@@ -233,7 +233,7 @@ struct BitmapFromString {
         }
 
         auto split_and_parse = [&bits](const char* raw_str, size_t str_size) {
-            auto res = absl::StrSplit(std::string_view {raw_str, str_size}, ",");
+            auto res = absl::StrSplit(std::string_view {raw_str, str_size}, ",", absl::SkipEmpty());
             uint64_t value = 0;
             for (auto s : res) {
                 if (!safe_strtou64(std::string(s), &value)) {
