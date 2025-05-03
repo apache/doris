@@ -157,7 +157,7 @@ static void read_orc_line(int64_t line, std::string block_dump) {
     runtime_profile = std::make_unique<RuntimeProfile>("ExternalRowIDFetcher");
 
     auto vf = FileScanner::create_unique(runtime_state.get(), runtime_profile.get(), &params,
-                                          &colname_to_slot_id, tuple_desc);
+                                         &colname_to_slot_id, tuple_desc);
     EXPECT_TRUE(vf->prepare_for_read_one_line(range).ok());
     ExternalFileMappingInfo external_info(0, range, false);
     int64_t init_reader_ms = 0;

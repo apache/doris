@@ -24,8 +24,8 @@
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_descriptors.h"
 #include "testutil/mock/mock_runtime_state.h"
-#include "vec/functions/in.h"
 #include "vec/exprs/vexpr_context.h"
+#include "vec/functions/in.h"
 
 namespace doris::vectorized {
 TEST(MockInExprTest, test) {

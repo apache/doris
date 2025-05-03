@@ -213,7 +213,7 @@ static void read_parquet_lines(std::vector<std::string> numeric_types,
     runtime_profile = std::make_unique<RuntimeProfile>("ExternalRowIDFetcher");
 
     auto vf = FileScanner::create_unique(&runtime_state, runtime_profile.get(), &scan_params,
-                                          &colname_to_slot_id, tuple_desc);
+                                         &colname_to_slot_id, tuple_desc);
     EXPECT_TRUE(vf->prepare_for_read_one_line(scan_range).ok());
     ExternalFileMappingInfo external_info(0, scan_range, false);
     int64_t init_reader_ms = 0;

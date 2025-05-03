@@ -59,7 +59,7 @@ public:
 
     //only used for FileScanner read one line.
     Scanner(RuntimeState* state, RuntimeProfile* profile)
-        : _state(state), _limit(1), _profile(profile), _total_rf_num(0) {
+            : _state(state), _limit(1), _profile(profile), _total_rf_num(0) {
         DorisMetrics::instance()->scanner_cnt->increment(1);
     };
 
