@@ -82,8 +82,8 @@ public:
 
     //only used for read one line.
     FileScanner(RuntimeState* state, RuntimeProfile* profile, const TFileScanRangeParams* params,
-                 const std::unordered_map<std::string, int>* colname_to_slot_id,
-                 TupleDescriptor* tuple_desc)
+                const std::unordered_map<std::string, int>* colname_to_slot_id,
+                TupleDescriptor* tuple_desc)
             : Scanner(state, profile),
               _params(params),
               _col_name_to_slot_id(colname_to_slot_id),

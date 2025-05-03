@@ -69,10 +69,10 @@
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_struct.h"
 #include "vec/data_types/serde/data_type_serde.h"
-#include "vec/functions/function_helpers.h"
 #include "vec/exec/format/orc/vorc_reader.h"
 #include "vec/exec/format/parquet/vparquet_reader.h"
 #include "vec/exec/scan/file_scanner.h"
+#include "vec/functions/function_helpers.h"
 #include "vec/jsonb/serialize.h"
 
 namespace doris {
