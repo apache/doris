@@ -1243,7 +1243,7 @@ Status FileScanner::_generate_truncate_columns(bool need_to_get_parsed_schema) {
         }
         DCHECK(_source_file_col_names.size() == _source_file_col_types.size());
         for (int i = 0; i < _source_file_col_names.size(); ++i) {
-            _source_file_col_name_types[_source_file_col_names[i]] = &_source_file_col_types[i];
+            _source_file_col_name_types[_source_file_col_names[i]] = _source_file_col_types[i];
         }
     }
     return Status::OK();
