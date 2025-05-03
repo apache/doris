@@ -2122,7 +2122,7 @@ std::map<std::string, double> BlockFileCache::get_stats() {
     stats["hits_ratio_1h"] = (double)_hit_ratio_1h->get_value();
 
     stats["index_queue_max_size"] = (double)_index_queue.get_max_size();
-    stats["index_queue_curr_size"] = (double)_cur_index_queue_element_count_metrics->get_value();
+    stats["index_queue_curr_size"] = (double)_cur_index_queue_cache_size_metrics->get_value();
     stats["index_queue_max_elements"] = (double)_index_queue.get_max_element_size();
     stats["index_queue_curr_elements"] =
             (double)_cur_index_queue_element_count_metrics->get_value();
@@ -2134,14 +2134,14 @@ std::map<std::string, double> BlockFileCache::get_stats() {
             (double)_cur_ttl_cache_lru_queue_element_count_metrics->get_value();
 
     stats["normal_queue_max_size"] = (double)_normal_queue.get_max_size();
-    stats["normal_queue_curr_size"] = (double)_cur_normal_queue_element_count_metrics->get_value();
+    stats["normal_queue_curr_size"] = (double)_cur_normal_queue_cache_size_metrics->get_value();
     stats["normal_queue_max_elements"] = (double)_normal_queue.get_max_element_size();
     stats["normal_queue_curr_elements"] =
             (double)_cur_normal_queue_element_count_metrics->get_value();
 
     stats["disposable_queue_max_size"] = (double)_disposable_queue.get_max_size();
     stats["disposable_queue_curr_size"] =
-            (double)_cur_disposable_queue_element_count_metrics->get_value();
+            (double)_cur_disposable_queue_cache_size_metrics->get_value();
     stats["disposable_queue_max_elements"] = (double)_disposable_queue.get_max_element_size();
     stats["disposable_queue_curr_elements"] =
             (double)_cur_disposable_queue_element_count_metrics->get_value();
