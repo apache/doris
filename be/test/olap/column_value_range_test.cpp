@@ -159,10 +159,34 @@ TEST_F(ColumnValueRangeTest, test_column_value_range_set_contain_null) {
 }
 
 TEST_F(ColumnValueRangeTest, test_column_value_range_is_in_range) {
-    ColumnValueRange<TYPE_INT> range("test_col", 10, 20, true);
-
-    EXPECT_TRUE(range.is_in_range(15));
-    EXPECT_FALSE(range.is_in_range(25));
+    {
+        ColumnValueRange<TYPE_INT> range("test_col", 10, 20, true);
+        range._high_op = FILTER_LESS;
+        range._low_op = FILTER_LARGER;
+        EXPECT_TRUE(range.is_in_range(15));
+        EXPECT_FALSE(range.is_in_range(25));
+    }
+    {
+        ColumnValueRange<TYPE_INT> range("test_col", 10, 20, true);
+        range._high_op = FILTER_LESS;
+        range._low_op = FILTER_LARGER_OR_EQUAL;
+        EXPECT_TRUE(range.is_in_range(15));
+        EXPECT_FALSE(range.is_in_range(25));
+    }
+    {
+        ColumnValueRange<TYPE_INT> range("test_col", 10, 20, true);
+        range._high_op = FILTER_LESS_OR_EQUAL;
+        range._low_op = FILTER_LARGER;
+        EXPECT_TRUE(range.is_in_range(15));
+        EXPECT_FALSE(range.is_in_range(25));
+    }
+    {
+        ColumnValueRange<TYPE_INT> range("test_col", 10, 20, true);
+        range._high_op = FILTER_LESS_OR_EQUAL;
+        range._low_op = FILTER_LARGER_OR_EQUAL;
+        EXPECT_TRUE(range.is_in_range(15));
+        EXPECT_FALSE(range.is_in_range(25));
+    }
 }
 
 TEST_F(ColumnValueRangeTest, test_column_value_range_has_intersection) {
@@ -1025,6 +1049,43 @@ TEST_F(ColumnValueRangeTest, test_has_intersection_complete_coverage) {
         ColumnValueRange<TYPE_INT> range3("col3");
         range3.set_empty_value_range();
         EXPECT_FALSE(range1.has_intersection(range3));
+    }
+
+    {
+        // !is_fixed_value_range() && range.is_fixed_value_range()
+        ColumnValueRange<TYPE_INT> range1("col1");
+        EXPECT_TRUE(range1.add_fixed_value(10));
+        EXPECT_TRUE(range1.add_fixed_value(20));
+        EXPECT_TRUE(range1.add_fixed_value(30));
+
+        ColumnValueRange<TYPE_INT> range2("col2", 0, 100, true);
+        EXPECT_TRUE(range1.has_intersection(range2));
+    }
+    {
+        // _low_value == range._high_value
+        ColumnValueRange<TYPE_INT> range1("col1", 50, 100, true);
+        ColumnValueRange<TYPE_INT> range2("col2", 0, 50, true);
+        range1._low_op = FILTER_LARGER_OR_EQUAL;
+        range2._high_op = FILTER_LESS_OR_EQUAL;
+        EXPECT_TRUE(range1.has_intersection(range2));
+    }
+
+    {
+        // _low_value == range._high_value
+        ColumnValueRange<TYPE_INT> range1("col1", 50, 100, true);
+        ColumnValueRange<TYPE_INT> range2("col2", 0, 50, true);
+        range1._low_op = FILTER_LARGER_OR_EQUAL;
+        range2._high_op = FILTER_LESS;
+        EXPECT_FALSE(range1.has_intersection(range2));
+    }
+    {
+        // range._low_value == _high_value
+        ColumnValueRange<TYPE_INT> range1("col1", 0, 50, true);
+        ColumnValueRange<TYPE_INT> range2("col2", 50, 100, true);
+        range1._low_op = FILTER_LARGER;
+        range1._high_op = FILTER_LESS;
+        range2._high_op = FILTER_LESS_OR_EQUAL;
+        EXPECT_FALSE(range1.has_intersection(range2));
     }
 }
 
