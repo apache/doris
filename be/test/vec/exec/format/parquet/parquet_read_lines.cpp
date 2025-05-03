@@ -159,8 +159,7 @@ static void read_parquet_lines(std::vector<std::string> numeric_types,
     static_cast<void>(p_reader->set_fill_columns(partition_columns, missing_columns));
     BlockUPtr block = Block::create_unique();
     for (const auto& slot_desc : tuple_desc->slots()) {
-        auto data_type =
-                vectorized::DataTypeFactory::instance().create_data_type(slot_desc->type(), true);
+        auto data_type = make_nullable(slot_desc->type());
         MutableColumnPtr data_column = data_type->create_column();
         block->insert(
                 ColumnWithTypeAndName(std::move(data_column), data_type, slot_desc->col_name()));

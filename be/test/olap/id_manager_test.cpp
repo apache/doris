@@ -88,7 +88,7 @@ TEST(IdFileMapTest, ConcurrentAddAndGet) {
     rowset_id.init(2);
 
     for (int i = 0; i < 10; ++i) {
-        threads.emplace_back([&]() {
+        threads.emplace_back([i, &id_file_map, &tablet_id, &rowset_id]() {
             for (int j = 0; j < 100; ++j) {
                 uint32_t segment_id = i * 1000 + j;
 

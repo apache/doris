@@ -722,6 +722,9 @@ void ExecEnv::destroy() {
     _load_stream_map_pool.reset();
     SAFE_STOP(_write_cooldown_meta_executors);
 
+    // _id_manager must be destoried before tablet schema cache
+    SAFE_DELETE(_id_manager);
+
     // StorageEngine must be destoried before _cache_manager destory
     SAFE_STOP(_storage_engine);
     _storage_engine.reset();
@@ -803,9 +806,6 @@ void ExecEnv::destroy() {
     // https://github.com/apache/doris/issues/24082#issuecomment-1712544039
     SAFE_DELETE(_cache_manager);
     _file_cache_open_fd_cache.reset(nullptr);
-
-    // _id_manager must be destoried after staroge engine
-    SAFE_DELETE(_id_manager);
 
     // _heartbeat_flags must be destoried after staroge engine
     SAFE_DELETE(_heartbeat_flags);
