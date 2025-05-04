@@ -19,6 +19,8 @@
 
 #include <bthread/countdown_event.h>
 
+#include <chrono>
+
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
@@ -175,9 +177,9 @@ Result<std::shared_ptr<CloudTablet>> CloudTabletMgr::get_tablet(int64_t tablet_i
         auto load_tablet = [this, &key, warmup_data, sync_delete_bitmap,
                             sync_stats](int64_t tablet_id) -> std::shared_ptr<CloudTablet> {
             TabletMetaSharedPtr tablet_meta;
-            auto start = std::chrono::high_resolution_clock::now();
+            auto start = std::chrono::steady_clock::now();
             auto st = _engine.meta_mgr().get_tablet_meta(tablet_id, &tablet_meta);
-            auto end = std::chrono::high_resolution_clock::now();
+            auto end = std::chrono::steady_clock::now();
             if (sync_stats) {
                 sync_stats->get_remote_tablet_meta_rpc_ns +=
                         std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count();
