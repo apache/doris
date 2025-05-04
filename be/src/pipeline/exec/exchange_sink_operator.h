@@ -235,7 +235,7 @@ private:
     // The sink buffer can be shared among multiple ExchangeSinkLocalState instances,
     // or each ExchangeSinkLocalState can have its own sink buffer.
     std::shared_ptr<ExchangeSinkBuffer> _create_buffer(
-            RuntimeState* state const std::vector<InstanceLoId>& sender_ins_ids);
+            RuntimeState* state, const std::vector<InstanceLoId>& sender_ins_ids);
     std::shared_ptr<ExchangeSinkBuffer> _sink_buffer = nullptr;
     RuntimeState* _state = nullptr;
 
