@@ -77,7 +77,7 @@ bool StringFunctions::compile_regex(const StringRef& pattern, std::string* error
         auto options_split = split(options_value.to_string(), ",");
         for (const auto& option : options_split) {
             if (iequal("ignore_invalid_escape", option)) {
-                //options.set_ignore_replace_escape(true);
+                options.set_ignore_replace_escape(true);
             } else {
                 // "none" do nothing, and could add more options for future extensibility.
             }
