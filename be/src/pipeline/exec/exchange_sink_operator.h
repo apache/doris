@@ -189,6 +189,10 @@ public:
                           const std::vector<TUniqueId>& fragment_instance_ids);
     Status init(const TDataSink& tsink) override;
 
+    // The state is from pipeline fragment context, it will be saved in ExchangeSinkOperator
+    // and it will be passed to exchange sink buffer. So that exchange sink buffer should not
+    // be used after pipeline fragment ctx. All operations in Exchange Sink Buffer should hold
+    // TaskExecutionContext.
     Status prepare(RuntimeState* state) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
