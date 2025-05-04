@@ -189,8 +189,6 @@ public:
                           const std::vector<TUniqueId>& fragment_instance_ids);
     Status init(const TDataSink& tsink) override;
 
-    RuntimeState* state() { return _state; }
-
     Status prepare(RuntimeState* state) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
@@ -217,7 +215,8 @@ public:
     // Therefore, a shared sink buffer is used here to limit the number of concurrent RPCs.
     // (Note: This does not reduce the total number of RPCs.)
     // In a merge sort scenario, there are only n RPCs, so a shared sink buffer is not needed.
-    std::shared_ptr<ExchangeSinkBuffer> get_sink_buffer(InstanceLoId sender_ins_id);
+    std::shared_ptr<ExchangeSinkBuffer> get_sink_buffer(RuntimeState* state,
+                                                        InstanceLoId sender_ins_id);
     vectorized::VExprContextSPtrs& tablet_sink_expr_ctxs() { return _tablet_sink_expr_ctxs; }
 
 private:
@@ -232,7 +231,7 @@ private:
     // The sink buffer can be shared among multiple ExchangeSinkLocalState instances,
     // or each ExchangeSinkLocalState can have its own sink buffer.
     std::shared_ptr<ExchangeSinkBuffer> _create_buffer(
-            const std::vector<InstanceLoId>& sender_ins_ids);
+            RuntimeState* state const std::vector<InstanceLoId>& sender_ins_ids);
     std::shared_ptr<ExchangeSinkBuffer> _sink_buffer = nullptr;
     RuntimeState* _state = nullptr;
 
