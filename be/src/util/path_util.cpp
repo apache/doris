@@ -34,7 +34,7 @@ std::string join_path_segments(const string& a, const string& b) {
         return a;
     } else {
         return std::string(absl::StripSuffix(a, "/")) + "/" +
-               std::string(absl::StripSuffix(b, "/"));
+               std::string(absl::StripPrefix(b, "/"));
     }
 }
 
