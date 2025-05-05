@@ -1497,8 +1497,8 @@ private:
             function = FunctionTo<DataType>::Type::create();
         }
 
-        /// Check conversion using underlying function
-        { function->get_return_type(ColumnsWithTypeAndName(1, {nullptr, from_type, ""})); }
+        // /// Check conversion using underlying function
+        // { function->get_return_type(ColumnsWithTypeAndName(1, {nullptr, from_type, ""})); }
 
         return [function](FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           const uint32_t result, size_t input_rows_count) {
