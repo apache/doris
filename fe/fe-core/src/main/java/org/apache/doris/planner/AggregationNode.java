@@ -398,19 +398,21 @@ public class AggregationNode extends PlanNode {
         if (aggInfo.getAggregateExprs() != null && aggInfo.getMaterializedAggregateExprs().size() > 0) {
             List<String> labels = aggInfo.getMaterializedAggregateExprLabels();
             if (labels.isEmpty()) {
-                output.append(detailPrefix).append("output: ")
-                        .append(getExplainString(aggInfo.getMaterializedAggregateExprs())).append("\n");
+                output.append(detailPrefix).append("output:\n")
+                        .append(getExplainString(aggInfo.getMaterializedAggregateExprs(),
+                                detailPrefix)).append("\n");
             } else {
                 output.append(detailPrefix).append("output: ")
                         .append(StringUtils.join(labels, ", ")).append("\n");
             }
         }
         // TODO: group by can be very long. Break it into multiple lines
-        output.append(detailPrefix).append("group by: ")
-                .append(getExplainString(aggInfo.getGroupingExprs()))
+        output.append(detailPrefix).append("group by:\n")
+                .append(getExplainString(aggInfo.getGroupingExprs(), detailPrefix))
                 .append("\n");
         if (!conjuncts.isEmpty()) {
-            output.append(detailPrefix).append("having: ").append(getExplainString(conjuncts)).append("\n");
+            output.append(detailPrefix).append("having:\n")
+                    .append(getExplainString(conjuncts, detailPrefix)).append("\n");
         }
         output.append(detailPrefix).append("sortByGroupKey:").append(sortByGroupKey != null).append("\n");
         output.append(detailPrefix).append(String.format(
