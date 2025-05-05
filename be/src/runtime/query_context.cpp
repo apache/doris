@@ -147,10 +147,12 @@ QueryContext::~QueryContext() {
                 MemTracker::print_bytes(query_mem_tracker->peak_consumption()));
     }
     uint64_t group_id = 0;
+    std::string wg_name = "";
     if (_workload_group) {
         group_id = _workload_group->id(); // before remove
         _workload_group->remove_mem_tracker_limiter(query_mem_tracker);
         _workload_group->remove_query(_query_id);
+        wg_name = _workload_group->name();
     }
 
     _exec_env->runtime_query_statistics_mgr()->set_query_finished(print_id(_query_id));
@@ -186,7 +188,8 @@ QueryContext::~QueryContext() {
     _exec_env->spill_stream_mgr()->async_cleanup_query(_query_id);
     DorisMetrics::instance()->query_ctx_cnt->increment(-1);
     // the only one msg shows query's end. any other msg should append to it if need.
-    LOG(INFO) << fmt::format("Query {} deconstructed, mem_tracker: {}", print_id(this->_query_id),
+    LOG(INFO) << fmt::format("Query {} deconstructed, use wg: {}, query type: {}, mem_tracker: {}",
+                             print_id(this->_query_id), wg_name, _query_options.query_type,
                              mem_tracker_msg);
 }
 

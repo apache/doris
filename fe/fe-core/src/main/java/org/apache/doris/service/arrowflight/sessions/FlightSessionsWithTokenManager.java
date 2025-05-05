@@ -20,6 +20,7 @@ package org.apache.doris.service.arrowflight.sessions;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ConnectScheduler;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.arrowflight.tokens.FlightTokenDetails;
 import org.apache.doris.service.arrowflight.tokens.FlightTokenManager;
@@ -65,12 +66,19 @@ public class FlightSessionsWithTokenManager implements FlightSessionsManager {
         flightTokenDetails.setCreatedSession(true);
         ConnectContext connectContext = FlightSessionsManager.buildConnectContext(peerIdentity,
                 flightTokenDetails.getUserIdentity(), flightTokenDetails.getRemoteIp());
-        ExecuteEnv.getInstance().getScheduler().submit(connectContext);
-        if (!ExecuteEnv.getInstance().getScheduler().registerConnection(connectContext)) {
-            String err = "Reach limit of connections, increase `qe_max_connection` in fe.conf, or decrease "
-                    + "`arrow_flight_token_cache_size` to evict unused bearer tokens and it connections faster";
-            connectContext.getState().setError(ErrorCode.ERR_TOO_MANY_USER_CONNECTIONS, err);
-            throw new IllegalArgumentException(err);
+        ConnectScheduler connectScheduler = ExecuteEnv.getInstance().getScheduler();
+        connectScheduler.submit(connectContext);
+        int res = connectScheduler.registerConnection(connectContext);
+        if (res >= 0) {
+            long userConnLimit = connectContext.getEnv().getAuth().getMaxConn(connectContext.getQualifiedUser());
+            String errMsg = String.format(
+                    "Reach limit of connections. Total: %d, User: %d, Current: %d. "
+                            + "Increase `qe_max_connection` in fe.conf or user's `max_user_connections`,"
+                            + " or decrease `arrow_flight_token_cache_size` "
+                            + "to evict unused bearer tokens and it connections faster",
+                    connectScheduler.getMaxConnections(), userConnLimit, res);
+            connectContext.getState().setError(ErrorCode.ERR_TOO_MANY_USER_CONNECTIONS, errMsg);
+            throw new IllegalArgumentException(errMsg);
         }
         return connectContext;
     }

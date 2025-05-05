@@ -67,8 +67,6 @@ enum class FileCachePolicy : uint8_t;
 
 namespace doris::vectorized {
 
-const static Slice _s_null_slice = Slice("\\N");
-
 void EncloseCsvTextFieldSplitter::do_split(const Slice& line, std::vector<Slice>* splitted_values) {
     const char* data = line.data;
     const auto& column_sep_positions = _text_line_reader_ctx->column_sep_positions();
@@ -656,7 +654,9 @@ Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
         int col_idx = _col_idxs[i];
         // col idx is out of range, fill with null.
         const Slice& value =
-                col_idx < _split_values.size() ? _split_values[col_idx] : _s_null_slice;
+                col_idx < _split_values.size()
+                        ? _split_values[col_idx]
+                        : Slice {_options.null_format, static_cast<size_t>(_options.null_len)};
         Slice slice {value.data, value.size};
 
         IColumn* col_ptr = columns[i];
@@ -719,6 +719,8 @@ Status CsvReader::_validate_line(const Slice& line, bool* success) {
         if (!_is_load) {
             return Status::InternalError<false>("Only support csv data in utf8 codec");
         } else {
+            _counter->num_rows_filtered++;
+            *success = false;
             RETURN_IF_ERROR(_state->append_error_msg_to_file(
                     [&]() -> std::string { return std::string(line.data, line.size); },
                     [&]() -> std::string {
@@ -727,10 +729,7 @@ Status CsvReader::_validate_line(const Slice& line, bool* success) {
                                        "Unable to display, only support csv data in utf8 codec",
                                        ", please check the data encoding");
                         return fmt::to_string(error_msg);
-                    },
-                    &_line_reader_eof));
-            _counter->num_rows_filtered++;
-            *success = false;
+                    }));
             return Status::OK();
         }
     }
@@ -748,6 +747,8 @@ Status CsvReader::_line_split_to_values(const Slice& line, bool* success) {
         if (_split_values.size() != _file_slot_descs.size()) {
             std::string cmp_str =
                     _split_values.size() > _file_slot_descs.size() ? "more than" : "less than";
+            _counter->num_rows_filtered++;
+            *success = false;
             RETURN_IF_ERROR(_state->append_error_msg_to_file(
                     [&]() -> std::string { return std::string(line.data, line.size); },
                     [&]() -> std::string {
@@ -771,10 +772,7 @@ Status CsvReader::_line_split_to_values(const Slice& line, bool* success) {
                         }
                         fmt::format_to(error_msg, "result values:[{}]", fmt::to_string(values));
                         return fmt::to_string(error_msg);
-                    },
-                    &_line_reader_eof));
-            _counter->num_rows_filtered++;
-            *success = false;
+                    }));
             return Status::OK();
         }
     }
@@ -797,6 +795,8 @@ Status CsvReader::_check_array_format(std::vector<Slice>& split_values, bool* is
         }
         const Slice& value = split_values[j];
         if (slot_desc->type().is_array_type() && !_is_null(value) && !_is_array(value)) {
+            _counter->num_rows_filtered++;
+            *is_success = false;
             RETURN_IF_ERROR(_state->append_error_msg_to_file(
                     [&]() -> std::string { return std::string(value.data, value.size); },
                     [&]() -> std::string {
@@ -804,10 +804,7 @@ Status CsvReader::_check_array_format(std::vector<Slice>& split_values, bool* is
                         fmt::format_to(err_msg, "Invalid format for array column({})",
                                        slot_desc->col_name());
                         return fmt::to_string(err_msg);
-                    },
-                    &_line_reader_eof));
-            _counter->num_rows_filtered++;
-            *is_success = false;
+                    }));
             return Status::OK();
         }
     }

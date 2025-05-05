@@ -21,7 +21,8 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
-import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
+import org.apache.doris.nereids.trees.expressions.functions.ComputePrecision;
+import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -38,12 +39,9 @@ import java.util.Set;
 /**
  * ScalarFunction 'named_struct'.
  */
-public class CreateNamedStruct extends ScalarFunction
-        implements ExplicitlyCastableSignature, AlwaysNotNullable {
+public class CreateNamedStruct extends ScalarFunction implements CustomSignature, ComputePrecision, AlwaysNotNullable {
 
-    public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(StructType.SYSTEM_DEFAULT).args()
-    );
+    public static final FunctionSignature SIGNATURE = FunctionSignature.ret(StructType.SYSTEM_DEFAULT).args();
 
     /**
      * constructor with 0 or more arguments.
@@ -83,14 +81,14 @@ public class CreateNamedStruct extends ScalarFunction
     }
 
     @Override
-    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitCreateNamedStruct(this, context);
+    public FunctionSignature computePrecision(FunctionSignature signature) {
+        return signature;
     }
 
     @Override
-    public List<FunctionSignature> getSignatures() {
+    public FunctionSignature customSignature() {
         if (arity() == 0) {
-            return SIGNATURES;
+            return SIGNATURE;
         } else {
             ImmutableList.Builder<StructField> structFields = ImmutableList.builder();
             for (int i = 0; i < arity(); i = i + 2) {
@@ -98,8 +96,14 @@ public class CreateNamedStruct extends ScalarFunction
                 structFields.add(new StructField(nameLiteral.getStringValue(),
                         children.get(i + 1).getDataType(), true, ""));
             }
-            return ImmutableList.of(FunctionSignature.ret(new StructType(structFields.build()))
-                    .args(children.stream().map(ExpressionTrait::getDataType).toArray(DataType[]::new)));
+            return FunctionSignature.ret(new StructType(structFields.build()))
+                    .args(children.stream().map(ExpressionTrait::getDataType).toArray(DataType[]::new));
         }
     }
+
+    @Override
+    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
+        return visitor.visitCreateNamedStruct(this, context);
+    }
+
 }

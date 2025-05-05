@@ -23,6 +23,7 @@
 #include <string_view>
 #include <utility>
 
+#include "agent/be_exec_version_manager.h"
 #include "common/object_pool.h"
 #include "vec/exprs/table_function/table_function.h"
 #include "vec/exprs/table_function/vexplode.h"
@@ -32,6 +33,7 @@
 #include "vec/exprs/table_function/vexplode_map.h"
 #include "vec/exprs/table_function/vexplode_numbers.h"
 #include "vec/exprs/table_function/vexplode_split.h"
+#include "vec/exprs/table_function/vexplode_v2.h"
 #include "vec/exprs/table_function/vposexplode.h"
 #include "vec/utils/util.hpp"
 
@@ -61,13 +63,20 @@ const std::unordered_map<std::string, std::function<std::unique_ptr<TableFunctio
                 {"explode_map", TableFunctionCreator<VExplodeMapTableFunction> {}},
                 {"explode_json_object", TableFunctionCreator<VExplodeJsonObjectTableFunction> {}},
                 {"posexplode", TableFunctionCreator<VPosExplodeTableFunction> {}},
-                {"explode", TableFunctionCreator<VExplodeTableFunction> {}}};
+                {"explode", TableFunctionCreator<VExplodeV2TableFunction> {}},
+                {"explode_old", TableFunctionCreator<VExplodeTableFunction> {}}};
+
+const std::unordered_map<std::string, std::string> TableFunctionFactory::_function_to_replace = {
+        {"explode", "explode_old"}};
 
 Status TableFunctionFactory::get_fn(const std::string& fn_name_raw, ObjectPool* pool,
-                                    TableFunction** fn) {
+                                    TableFunction** fn,
+                                    int be_version = BeExecVersionManager::get_newest_version()) {
     bool is_outer = match_suffix(fn_name_raw, COMBINATOR_SUFFIX_OUTER);
     std::string fn_name_real =
             is_outer ? remove_suffix(fn_name_raw, COMBINATOR_SUFFIX_OUTER) : fn_name_raw;
+
+    temporary_function_update(be_version, fn_name_real);
 
     auto fn_iterator = _function_map.find(fn_name_real);
     if (fn_iterator != _function_map.end()) {

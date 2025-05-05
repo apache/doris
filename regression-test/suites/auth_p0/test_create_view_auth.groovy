@@ -53,7 +53,7 @@ suite("test_create_view_auth","p0,auth") {
             sql "create view ${dbName}.v1 as select * from ${dbName}.${tableName};"
         } catch (Exception e) {
             log.info(e.getMessage())
-            assertTrue(e.getMessage().contains("Admin_priv,Select_priv"))
+            assertTrue(e.getMessage().contains("denied"))
         }
     }
     sql """drop table if exists ${dbName}.${tableName}"""

@@ -56,7 +56,7 @@ suite("test_alter_view_auth","p0,auth") {
             sql "alter view ${dbName}.${viewName} as select * from ${dbName}.${tableName};"
         } catch (Exception e) {
             log.info(e.getMessage())
-            assertTrue(e.getMessage().contains("Admin_priv,Select_priv"))
+            assertTrue(e.getMessage().contains("denied"))
         }
     }
     try_sql """drop table if exists ${dbName}.${tableName}"""

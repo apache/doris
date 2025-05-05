@@ -1,0 +1,29 @@
+From 89e0bc5fa4949b68503f7b6892128cc8fc5bc1d4 Mon Sep 17 00:00:00 2001
+From: Steve Licking <steve.licking@intel.com>
+Date: Fri, 31 Dec 2021 10:54:05 -0800
+Subject: [PATCH] THRIFT-5492: Add readEnd to TBufferedTransport client: cpp
+ Patch: Steve Licking
+
+---
+ lib/cpp/src/thrift/transport/TBufferTransports.h | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/lib/cpp/src/thrift/transport/TBufferTransports.h b/lib/cpp/src/thrift/transport/TBufferTransports.h
+index 179934ba0..6feb540af 100644
+--- a/lib/cpp/src/thrift/transport/TBufferTransports.h
++++ b/lib/cpp/src/thrift/transport/TBufferTransports.h
+@@ -270,6 +270,11 @@ public:
+    */
+   uint32_t readAll(uint8_t* buf, uint32_t len) { return TBufferBase::readAll(buf, len); }
+ 
++  uint32_t readEnd() override {
++    resetConsumedMessageSize();
++    return 0;
++  }
++
+ protected:
+   void initPointers() {
+     setReadBuffer(rBuf_.get(), 0);
+-- 
+2.39.3
+

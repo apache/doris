@@ -60,7 +60,8 @@ Status VTableFunctionNode::init(const TPlanNode& tnode, RuntimeState* state) {
         auto root = ctx->root();
         const std::string& tf_name = root->fn().name.function_name;
         TableFunction* fn = nullptr;
-        RETURN_IF_ERROR(TableFunctionFactory::get_fn(tf_name, _pool, &fn));
+        RETURN_IF_ERROR(
+                TableFunctionFactory::get_fn(tf_name, _pool, &fn, state->be_exec_version()));
         fn->set_expr_context(ctx);
         _fns.push_back(fn);
     }

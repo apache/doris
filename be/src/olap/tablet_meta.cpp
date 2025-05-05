@@ -1067,11 +1067,25 @@ bool DeleteBitmap::empty() const {
 }
 
 uint64_t DeleteBitmap::cardinality() const {
+    std::shared_lock l {lock};
     uint64_t res = 0;
     for (auto entry : delete_bitmap) {
-        res += entry.second.cardinality();
+        if (std::get<1>(entry.first) != DeleteBitmap::INVALID_SEGMENT_ID) {
+            res += entry.second.cardinality();
+        }
     }
     return res;
+}
+
+uint64_t DeleteBitmap::get_delete_bitmap_count() const {
+    std::shared_lock l(lock);
+    uint64_t count = 0;
+    for (auto it = delete_bitmap.begin(); it != delete_bitmap.end(); it++) {
+        if (std::get<1>(it->first) != DeleteBitmap::INVALID_SEGMENT_ID) {
+            count++;
+        }
+    }
+    return count;
 }
 
 bool DeleteBitmap::contains_agg_without_cache(const BitmapKey& bmk, uint32_t row_id) const {

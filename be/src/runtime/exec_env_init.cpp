@@ -344,7 +344,7 @@ void ExecEnv::init_file_cache_factory(std::vector<doris::CachePath>& cache_paths
                 doris::parse_conf_cache_paths(doris::config::file_cache_path, cache_paths);
         if (!olap_res) {
             LOG(FATAL) << "parse config file cache path failed, path="
-                       << doris::config::file_cache_path;
+                       << doris::config::file_cache_path << " err: " << olap_res;
             exit(-1);
         }
 
@@ -548,6 +548,8 @@ void ExecEnv::init_mem_tracker() {
             MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "S3FileBuffer");
     _stream_load_pipe_tracker =
             MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::LOAD, "StreamLoadPipe");
+    _parquet_meta_tracker =
+            MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::QUERY, "ParquetMeta");
 }
 
 void ExecEnv::_register_metrics() {

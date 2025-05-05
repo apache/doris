@@ -66,24 +66,22 @@ suite("test_ddl_view_auth","p0,auth_call") {
             exception 'denied'
         }
     }
-    sql """grant select_priv(id) on ${dbName}.${tableName} to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
-        test {
-            sql """CREATE VIEW ${dbName}.${viewName} (k1, v1)
-                AS
-                SELECT id as k1, SUM(id) FROM ${dbName}.${tableName}
-                WHERE id = 1 GROUP BY k1;"""
-            exception 'denied'
-        }
-        def res = sql """SHOW VIEW from ${tableName} from ${dbName}"""
-        assertTrue(res.size() == 0)
-    }
-    sql """CREATE VIEW ${dbName}.${viewName} (k1, v1)
-            AS
-            SELECT id as k1, SUM(id) FROM ${dbName}.${tableName}
-            WHERE id = 1 GROUP BY k1;"""
-    sql """grant Create_priv on ${dbName}.${viewName} to ${user}"""
-    sql """drop view ${dbName}.${viewName}"""
+     sql """grant Create_priv on ${dbName}.${viewName} to ${user}"""
+     connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+             test {
+                 sql """CREATE VIEW ${dbName}.${viewName} (k1, v1)
+                     AS
+                     SELECT id as k1, SUM(id) FROM ${dbName}.${tableName}
+                     WHERE id = 1 GROUP BY k1;"""
+                 exception "denied"
+             }
+             test {
+                 sql """SHOW VIEW from ${tableName} from ${dbName}"""
+                 exception 'denied'
+             }
+         }
+    sql """grant select_priv on ${dbName}.${tableName} to ${user}"""
+
     connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
         sql """CREATE VIEW ${dbName}.${viewName} (k1, v1)
             AS
@@ -92,16 +90,6 @@ suite("test_ddl_view_auth","p0,auth_call") {
 
         def res = sql """SHOW VIEW from ${tableName} from ${dbName}"""
         assertTrue(res.size() == 1)
-    }
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
-        sql """set enable_fallback_to_original_planner=false;"""
-        test {
-            sql """CREATE VIEW ${dbName}.${viewName} (k1, v1)
-                AS
-                SELECT username as k1, SUM(id) FROM ${dbName}.${tableName}
-                WHERE id = 1 GROUP BY k1;"""
-            exception 'denied'
-        }
     }
 
     // ddl alter

@@ -2015,7 +2015,19 @@ public class SchemaChangeHandler extends AlterHandler {
                             index.setIndexId(existedIdx.getIndexId());
                             index.setColumns(existedIdx.getColumns());
                             index.setProperties(existedIdx.getProperties());
-                            index.setColumnUniqueIds(existedIdx.getColumnUniqueIds());
+                            for (Column column : olapTable.getBaseSchema()) {
+                                if (!column.getType().isVariantType()) {
+                                    continue;
+                                }
+                                // variant type column can not support for building index
+                                for (String indexColumn : existedIdx.getColumns()) {
+                                    if (column.getName().equalsIgnoreCase(indexColumn)) {
+                                        throw new DdlException("BUILD INDEX operation failed: The "
+                                                + indexDef.getIndexName() + " index can not be built on the "
+                                                + indexColumn + " column, because it is a variant type column.");
+                                    }
+                                }
+                            }
                             if (indexDef.getPartitionNames().isEmpty()) {
                                 invertedIndexOnPartitions.put(index.getIndexId(), olapTable.getPartitionNames());
                             } else {
@@ -2228,6 +2240,11 @@ public class SchemaChangeHandler extends AlterHandler {
             throw new UserException("Table compaction policy only support for "
                                                 + PropertyAnalyzer.TIME_SERIES_COMPACTION_POLICY
                                                 + " or " + PropertyAnalyzer.SIZE_BASED_COMPACTION_POLICY);
+        }
+
+        if (compactionPolicy != null && compactionPolicy.equals(PropertyAnalyzer.TIME_SERIES_COMPACTION_POLICY)
+                && olapTable.getKeysType() == KeysType.UNIQUE_KEYS) {
+            throw new UserException("Time series compaction policy is not supported for unique key table");
         }
 
         Map<String, Long> timeSeriesCompactionConfig = new HashMap<>();
@@ -2594,7 +2611,6 @@ public class SchemaChangeHandler extends AlterHandler {
                 indexDef.checkColumn(column, olapTable.getKeysType(),
                         olapTable.getTableProperty().getEnableUniqueKeyMergeOnWrite(),
                                                                         disableInvertedIndexV1ForVariant);
-                indexDef.getColumnUniqueIds().add(column.getUniqueId());
             } else {
                 throw new DdlException("index column does not exist in table. invalid column: " + col);
             }
@@ -2605,7 +2621,6 @@ public class SchemaChangeHandler extends AlterHandler {
         // so here update column name in CreateIndexClause after checkColumn for indexDef,
         // there will use the column name in olapTable instead of the column name in CreateIndexClause.
         alterIndex.setColumns(indexDef.getColumns());
-        alterIndex.setColumnUniqueIds(indexDef.getColumnUniqueIds());
         newIndexes.add(alterIndex);
         return false;
     }

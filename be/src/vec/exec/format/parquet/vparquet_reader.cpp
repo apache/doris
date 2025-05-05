@@ -559,6 +559,7 @@ Status ParquetReader::get_next_block(Block* block, size_t* read_rows, bool* eof)
         return Status::OK();
     }
 
+    std::vector<std::string> original_block_column_name = block->get_names();
     if (!_hive_use_column_names) {
         for (auto i = 0; i < block->get_names().size(); i++) {
             auto& col = block->get_by_position(i);
@@ -582,7 +583,7 @@ Status ParquetReader::get_next_block(Block* block, size_t* read_rows, bool* eof)
 
     if (!_hive_use_column_names) {
         for (auto i = 0; i < block->columns(); i++) {
-            block->get_by_position(i).name = (*_column_names)[i];
+            block->get_by_position(i).name = original_block_column_name[i];
         }
         block->initialize_index_by_name();
     }

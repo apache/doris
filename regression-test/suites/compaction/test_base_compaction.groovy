@@ -64,7 +64,8 @@ suite("test_base_compaction") {
         UNIQUE KEY(L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER)
         DISTRIBUTED BY HASH(L_ORDERKEY) BUCKETS 1
         PROPERTIES (
-          "replication_num" = "1"
+          "replication_num" = "1",
+          "disable_auto_compaction" = "true"
         )
 
     """

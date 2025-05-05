@@ -43,7 +43,6 @@ public class IndexDef {
     private Map<String, String> properties;
     private boolean isBuildDeferred = false;
     private PartitionNames partitionNames;
-    private List<Integer> columnUniqueIds = Lists.newArrayList();
     public static final int MIN_NGRAM_SIZE = 1;
     public static final int MAX_NGRAM_SIZE = 255;
     public static final int MIN_BF_SIZE = 64;
@@ -201,10 +200,6 @@ public class IndexDef {
 
     public List<String> getPartitionNames() {
         return partitionNames == null ? Lists.newArrayList() : partitionNames.getPartitionNames();
-    }
-
-    public List<Integer> getColumnUniqueIds() {
-        return columnUniqueIds;
     }
 
     public enum IndexType {

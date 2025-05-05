@@ -439,6 +439,8 @@ public:
      */
     uint64_t cardinality() const;
 
+    uint64_t get_delete_bitmap_count() const;
+
     /**
      * Sets the bitmap of specific segment, it's may be insertion or replacement
      *

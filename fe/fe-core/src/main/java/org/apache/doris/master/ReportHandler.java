@@ -89,6 +89,7 @@ import org.apache.doris.thrift.TTabletMetaInfo;
 import org.apache.doris.thrift.TTaskType;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.LinkedHashMultimap;
 import com.google.common.collect.LinkedListMultimap;
 import com.google.common.collect.ListMultimap;
 import com.google.common.collect.Lists;
@@ -494,7 +495,7 @@ public class ReportHandler extends Daemon {
 
         // dbid -> txn id -> [partition info]
         Map<Long, SetMultimap<Long, TPartitionVersionInfo>> transactionsToPublish = Maps.newHashMap();
-        ListMultimap<Long, Long> transactionsToClear = LinkedListMultimap.create();
+        SetMultimap<Long, Long> transactionsToClear = LinkedHashMultimap.create();
 
         // db id -> tablet id
         ListMultimap<Long, Long> tabletRecoveryMap = LinkedListMultimap.create();
@@ -1237,11 +1238,11 @@ public class ReportHandler extends Daemon {
         AgentTaskExecutor.submit(batchTask);
     }
 
-    private static void handleClearTransactions(ListMultimap<Long, Long> transactionsToClear, long backendId) {
+    private static void handleClearTransactions(SetMultimap<Long, Long> transactionsToClear, long backendId) {
         AgentBatchTask batchTask = new AgentBatchTask();
         for (Long transactionId : transactionsToClear.keySet()) {
             ClearTransactionTask clearTransactionTask = new ClearTransactionTask(backendId,
-                    transactionId, transactionsToClear.get(transactionId));
+                    transactionId, Lists.newArrayList(transactionsToClear.get(transactionId)));
             batchTask.addTask(clearTransactionTask);
         }
         AgentTaskExecutor.submit(batchTask);

@@ -33,6 +33,16 @@ abstract class SuiteScript extends Script {
     }
 
     void suite(String suiteName, String group = getDefaultGroups(new File(context.config.suitePath), context.file), Closure suiteBody) {
+        if (!group.contains("nonConcurrent")) {
+            def sr = new File(context.config.suitePath)
+            String path = sr.relativePath(context.file.parentFile)
+            if (path.contains("nonConcurrent")) {
+                def a = group.split(",").toList()
+                a.add("nonConcurrent")
+                group = a.join(",")
+            }
+        }
+
         if (!group.split(',').any {
             def match = it =~ /^p\d+$/
             if (match.find())

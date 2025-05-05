@@ -94,6 +94,7 @@ Status VRowDistribution::automatic_create_partition() {
     request.__set_db_id(_vpartition->db_id());
     request.__set_table_id(_vpartition->table_id());
     request.__set_partitionValues(_partitions_need_create);
+    request.__set_write_single_replica(_write_single_replica);
 
     VLOG_NOTICE << "automatic partition rpc begin request " << request;
     TNetworkAddress master_addr = ExecEnv::GetInstance()->master_info()->network_address;
@@ -127,6 +128,7 @@ static TCreatePartitionResult cast_as_create_result(TReplacePartitionResult& arg
     result.nodes = std::move(arg.nodes);
     result.partitions = std::move(arg.partitions);
     result.tablets = std::move(arg.tablets);
+    result.slave_tablets = std::move(arg.slave_tablets);
     return result;
 }
 
@@ -138,6 +140,7 @@ Status VRowDistribution::_replace_overwriting_partition() {
     request.__set_overwrite_group_id(_vpartition->get_overwrite_group_id());
     request.__set_db_id(_vpartition->db_id());
     request.__set_table_id(_vpartition->table_id());
+    request.__set_write_single_replica(_write_single_replica);
 
     // only request for partitions not recorded for replacement
     std::set<int64_t> id_deduper;
@@ -291,9 +294,8 @@ Status VRowDistribution::_generate_rows_distribution_for_non_auto_partition(
         std::vector<RowPartTabletIds>& row_part_tablet_ids) {
     auto num_rows = block->rows();
 
-    bool stop_processing = false;
     RETURN_IF_ERROR(_tablet_finder->find_tablets(_state, block, num_rows, _partitions,
-                                                 _tablet_indexes, stop_processing, _skip));
+                                                 _tablet_indexes, _skip));
     if (has_filtered_rows) {
         for (int i = 0; i < num_rows; i++) {
             _skip[i] = _skip[i] || _block_convertor->filter_map()[i];
@@ -359,11 +361,9 @@ Status VRowDistribution::_generate_rows_distribution_for_auto_partition(
     auto partition_col = block->get_by_position(partition_keys[0]);
     _missing_map.clear();
     _missing_map.reserve(partition_col.column->size());
-    bool stop_processing = false;
 
     RETURN_IF_ERROR(_tablet_finder->find_tablets(_state, block, num_rows, _partitions,
-                                                 _tablet_indexes, stop_processing, _skip,
-                                                 &_missing_map));
+                                                 _tablet_indexes, _skip, &_missing_map));
 
     // the missing vals for auto partition are also skipped.
     if (has_filtered_rows) {
@@ -390,7 +390,6 @@ Status VRowDistribution::_generate_rows_distribution_for_auto_overwrite(
     // for auto-partition's, find and save origins in _partitions and replace them. at meanwhile save the missing values for auto
     //  partition. then we find partition again to get replaced partitions in _partitions. this time _missing_map is ignored cuz
     //  we already saved missing values.
-    bool stop_processing = false;
     if (_vpartition->is_auto_partition() &&
         _state->query_options().enable_auto_create_when_overwrite) {
         // allow auto create partition for missing rows.
@@ -400,8 +399,7 @@ Status VRowDistribution::_generate_rows_distribution_for_auto_overwrite(
         _missing_map.reserve(partition_col.column->size());
 
         RETURN_IF_ERROR(_tablet_finder->find_tablets(_state, block, num_rows, _partitions,
-                                                     _tablet_indexes, stop_processing, _skip,
-                                                     &_missing_map));
+                                                     _tablet_indexes, _skip, &_missing_map));
 
         // allow and really need to create during auto-detect-overwriting.
         if (!_missing_map.empty()) {
@@ -409,7 +407,7 @@ Status VRowDistribution::_generate_rows_distribution_for_auto_overwrite(
         }
     } else {
         RETURN_IF_ERROR(_tablet_finder->find_tablets(_state, block, num_rows, _partitions,
-                                                     _tablet_indexes, stop_processing, _skip));
+                                                     _tablet_indexes, _skip));
     }
     RETURN_IF_ERROR(_replace_overwriting_partition());
 
@@ -419,8 +417,7 @@ Status VRowDistribution::_generate_rows_distribution_for_auto_overwrite(
         _state->query_options().enable_auto_create_when_overwrite) {
         // here _missing_map is just a placeholder
         RETURN_IF_ERROR(_tablet_finder->find_tablets(_state, block, num_rows, _partitions,
-                                                     _tablet_indexes, stop_processing, _skip,
-                                                     &_missing_map));
+                                                     _tablet_indexes, _skip, &_missing_map));
         if (VLOG_TRACE_IS_ON) {
             std::string tmp;
             for (auto v : _missing_map) {
@@ -430,7 +427,7 @@ Status VRowDistribution::_generate_rows_distribution_for_auto_overwrite(
         }
     } else {
         RETURN_IF_ERROR(_tablet_finder->find_tablets(_state, block, num_rows, _partitions,
-                                                     _tablet_indexes, stop_processing, _skip));
+                                                     _tablet_indexes, _skip));
     }
     if (has_filtered_rows) {
         for (int i = 0; i < num_rows; i++) {

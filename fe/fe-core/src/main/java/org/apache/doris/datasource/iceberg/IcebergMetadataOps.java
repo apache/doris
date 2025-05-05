@@ -86,6 +86,9 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
     @Override
     public void close() {
+        if (catalog != null) {
+            catalog = null;
+        }
     }
 
     @Override

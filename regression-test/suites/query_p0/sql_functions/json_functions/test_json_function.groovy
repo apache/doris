@@ -77,4 +77,6 @@ suite("test_json_function", "arrow_flight_sql") {
     qt_sql """SELECT JSON_CONTAINS('','1','\$.a')"""
     qt_sql """SELECT JSON_CONTAINS('""','1','\$.a')"""
     qt_sql """SELECT JSON_CONTAINS("",'1','\$.a')"""
+
+    qt_sql """select k6, json_extract_string(cast(k7 as json), "\$.a") as x10 from test_query_db.baseall group by k6, x10 order by 1,2; """
 }

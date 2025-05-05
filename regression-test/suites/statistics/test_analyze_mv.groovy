@@ -283,7 +283,7 @@ suite("test_analyze_mv") {
         );
     """
 
-    createMV("create materialized view mv1 as select key2 from mvTestAgg;")
+    createMV("create materialized view mv1 as select key2 from mvTestAgg group by key2;")
     createMV("create materialized view mv3 as select key1, key2, sum(value1), max(value2), min(value3) from mvTestAgg group by key1, key2;")
     createMV("create materialized view mv6 as select key1, sum(value1) from mvTestAgg group by key1;")
     sql """alter table mvTestAgg ADD ROLLUP rollup1(key1, value1)"""

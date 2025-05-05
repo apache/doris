@@ -26,6 +26,7 @@
 
 namespace doris {
 
+template <typename T>
 class Counts {
 public:
     Counts() = default;
@@ -40,7 +41,7 @@ public:
         }
     }
 
-    void increment(int64_t key, uint32_t i) {
+    void increment(T key, uint32_t i) {
         auto item = _counts.find(key);
         if (item != _counts.end()) {
             item->second += i;
@@ -50,8 +51,7 @@ public:
     }
 
     uint32_t serialized_size() const {
-        return sizeof(uint32_t) + sizeof(int64_t) * _counts.size() +
-               sizeof(uint32_t) * _counts.size();
+        return sizeof(uint32_t) + sizeof(T) * _counts.size() + sizeof(uint32_t) * _counts.size();
     }
 
     void serialize(uint8_t* writer) const {
@@ -59,8 +59,8 @@ public:
         memcpy(writer, &size, sizeof(uint32_t));
         writer += sizeof(uint32_t);
         for (auto& cell : _counts) {
-            memcpy(writer, &cell.first, sizeof(int64_t));
-            writer += sizeof(int64_t);
+            memcpy(writer, &cell.first, sizeof(T));
+            writer += sizeof(T);
             memcpy(writer, &cell.second, sizeof(uint32_t));
             writer += sizeof(uint32_t);
         }
@@ -71,18 +71,17 @@ public:
         memcpy(&size, type_reader, sizeof(uint32_t));
         type_reader += sizeof(uint32_t);
         for (uint32_t i = 0; i < size; ++i) {
-            int64_t key;
+            T key;
             uint32_t count;
-            memcpy(&key, type_reader, sizeof(int64_t));
-            type_reader += sizeof(int64_t);
+            memcpy(&key, type_reader, sizeof(T));
+            type_reader += sizeof(T);
             memcpy(&count, type_reader, sizeof(uint32_t));
             type_reader += sizeof(uint32_t);
             _counts.emplace(std::make_pair(key, count));
         }
     }
 
-    double get_percentile(std::vector<std::pair<int64_t, uint32_t>>& counts,
-                          double position) const {
+    double get_percentile(std::vector<std::pair<T, uint32_t>>& counts, double position) const {
         long lower = long(std::floor(position));
         long higher = long(std::ceil(position));
 
@@ -90,7 +89,7 @@ public:
         for (; iter != counts.end() && iter->second < lower + 1; ++iter)
             ;
 
-        int64_t lower_key = iter->first;
+        T lower_key = iter->first;
         if (higher == lower) {
             return lower_key;
         }
@@ -99,7 +98,7 @@ public:
             iter++;
         }
 
-        int64_t higher_key = iter->first;
+        T higher_key = iter->first;
         if (lower_key == higher_key) {
             return lower_key;
         }
@@ -114,9 +113,9 @@ public:
             return 0.0;
         }
 
-        std::vector<std::pair<int64_t, uint32_t>> elems(_counts.begin(), _counts.end());
+        std::vector<std::pair<T, uint32_t>> elems(_counts.begin(), _counts.end());
         sort(elems.begin(), elems.end(),
-             [](const std::pair<int64_t, uint32_t> l, const std::pair<int64_t, uint32_t> r) {
+             [](const std::pair<T, uint32_t> l, const std::pair<T, uint32_t> r) {
                  return l.first < r.first;
              });
 
@@ -132,7 +131,7 @@ public:
     }
 
 private:
-    std::unordered_map<int64_t, uint32_t> _counts;
+    std::unordered_map<T, uint32_t> _counts;
 };
 
 } // namespace doris

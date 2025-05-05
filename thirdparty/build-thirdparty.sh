@@ -1345,7 +1345,7 @@ build_aws_sdk() {
     "${CMAKE_CMD}" -G "${GENERATOR}" -B"${BUILD_DIR}" -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
         -DCMAKE_PREFIX_PATH="${TP_INSTALL_DIR}" -DBUILD_SHARED_LIBS=OFF -DENABLE_TESTING=OFF \
         -DCURL_LIBRARY_RELEASE="${TP_INSTALL_DIR}/lib/libcurl.a" -DZLIB_LIBRARY_RELEASE="${TP_INSTALL_DIR}/lib/libz.a" \
-        -DBUILD_ONLY="core;s3;s3-crt;transfer" \
+        -DBUILD_ONLY="core;s3;s3-crt;transfer;identity-management;sts" \
         -DCMAKE_CXX_FLAGS="-Wno-nonnull -Wno-deprecated-declarations ${warning_dangling_reference}" -DCPP_STANDARD=17
 
     cd "${BUILD_DIR}"
@@ -1368,6 +1368,8 @@ build_aws_sdk() {
     strip_lib libaws-cpp-sdk-transfer.a
     strip_lib libaws-checksums.a
     strip_lib libaws-c-compression.a
+    strip_lib libaws-cpp-sdk-identity-management.a
+    strip_lib libaws-cpp-sdk-sts.a
 }
 
 # lzma
@@ -1789,8 +1791,39 @@ build_base64() {
     "${BUILD_SYSTEM}" install
 }
 
+# icu
+build_icu() {
+    check_if_source_exist "${ICU_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${ICU_SOURCE}/icu4c/source"
+
+    rm -rf "${BUILD_DIR}"
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+
+    ../configure --prefix="${TP_INSTALL_DIR}" \
+        --enable-static \
+        --disable-shared \
+        --enable-release \
+        --disable-tests \
+        --disable-samples \
+        --disable-fuzzer
+
+    make -j "${PARALLEL}"
+    make install
+}
+
+# jindofs
+build_jindofs() {
+    check_if_source_exist "${JINDOFS_SOURCE}"
+
+    rm -rf "${TP_INSTALL_DIR}/jindofs_libs/"
+    mkdir -p "${TP_INSTALL_DIR}/jindofs_libs/"
+    cp -r ${TP_SOURCE_DIR}/${JINDOFS_SOURCE}/* "${TP_INSTALL_DIR}/jindofs_libs/"
+}
+
 if [[ "${#packages[@]}" -eq 0 ]]; then
     packages=(
+        jindofs
         libunixodbc
         openssl
         libevent
@@ -1856,6 +1889,7 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         ali_sdk
         base64
         brotli
+        icu
     )
     if [[ "$(uname -s)" == 'Darwin' ]]; then
         read -r -a packages <<<"binutils gettext ${packages[*]}"
