@@ -178,7 +178,6 @@ public:
                     vector_const_const(sources->get_data(), arg1.get<Int32>(),
                                        arg2.get<NativeType>(), col_to->get_data(),
                                        null_map->get_data());
-
                 } else if (arg1_const && !arg2_const) {
                     Field arg1;
                     arg1_col->get(0, arg1);
@@ -244,18 +243,42 @@ private:
             memset(null_map.data(), 1, sizeof(UInt8) * dates.size());
             return;
         }
-        for (int i = 0; i < dates.size(); ++i) {
-            SET_NULLMAP_IF_FALSE((time_round_reinterpret_two_args(dates[i], period, res[i])));
+
+        // expand codes for const input periods
+#define EXPAND_CODE_FOR_CONST_INPUT(X)                                                            \
+    case X: {                                                                                     \
+        for (int i = 0; i < dates.size(); ++i) {                                                  \
+            SET_NULLMAP_IF_FALSE((time_round_reinterpret_two_args<X>(dates[i], period, res[i]))); \
+        }                                                                                         \
+        return;                                                                                   \
+    }
+#define EXPANDER(z, n, text) EXPAND_CODE_FOR_CONST_INPUT(n)
+        switch (period) {
+            // expand for some constant period
+            BOOST_PP_REPEAT(12, EXPANDER, ~)
+        default:
+            for (int i = 0; i < dates.size(); ++i) {
+                SET_NULLMAP_IF_FALSE((time_round_reinterpret_two_args(dates[i], period, res[i])));
+            }
         }
+#undef EXPAND_CODE_FOR_CONST_INPUT
+#undef EXPANDER
     }
 
     static void vector_const_const(const PaddedPODArray<NativeType>& dates, const Int32 period,
                                    NativeType origin_date, PaddedPODArray<NativeType>& res,
                                    NullMap& null_map) {
+        if (auto cast_date = binary_cast<NativeType, DateValueType>(origin_date);
+            cast_date == DateValueType::FIRST_DAY) {
+            vector_const_period(dates, period, res, null_map);
+            return;
+        }
+
         if (period < 1) {
             memset(null_map.data(), 1, sizeof(UInt8) * dates.size());
             return;
         }
+
         // expand codes for const input periods
 #define EXPAND_CODE_FOR_CONST_INPUT(X)                                   \
     case X: {                                                            \
@@ -264,7 +287,7 @@ private:
             res[i] = origin_date;                                        \
             auto ts2 = binary_cast<NativeType, DateValueType>(dates[i]); \
             auto& ts1 = (DateValueType&)(res[i]);                        \
-            SET_NULLMAP_IF_FALSE(time_round_two_args(ts2, X, ts1))       \
+            SET_NULLMAP_IF_FALSE(time_round_two_args<X>(ts2, X, ts1))    \
         }                                                                \
         return;                                                          \
     }
@@ -368,17 +391,27 @@ private:
         }
     }
 
-    ALWAYS_INLINE static bool time_round_reinterpret_two_args(NativeType date, Int32 period,
-                                                              NativeType& res) {
+    template <int const_period = 0>
+    static bool time_round_reinterpret_two_args(NativeType date, Int32 period, NativeType& res) {
         auto ts_arg = binary_cast<NativeType, DateValueType>(date);
         auto& ts_res = (DateValueType&)(res);
 
-        if (can_use_optimize(period)) {
-            floor_opt(ts_arg, ts_res, period);
-            return true;
+        if constexpr (const_period == 0) {
+            if (can_use_optimize(period)) {
+                floor_opt(ts_arg, ts_res, period);
+                return true;
+            } else {
+                ts_res = DateValueType::FIRST_DAY;
+                return time_round_two_args(ts_arg, period, ts_res);
+            }
         } else {
-            ts_res = DateValueType::FIRST_DAY;
-            return time_round_two_args(ts_arg, period, ts_res);
+            if (can_use_optimize(const_period)) {
+                floor_opt(ts_arg, ts_res, const_period);
+                return true;
+            } else {
+                ts_res = DateValueType::FIRST_DAY;
+                return time_round_two_args<const_period>(ts_arg, const_period, ts_res);
+            }
         }
     }
 
@@ -443,6 +476,7 @@ private:
         }
     }
 
+    template <Int32 const_period = 0>
     static bool time_round_two_args(const DateValueType& ts_arg, const Int32 period,
                                     DateValueType& ts_res) {
         int64_t diff;
@@ -582,7 +616,14 @@ private:
         }
 
         //round down/up inside time period(several time-units)
-        int64_t delta_inside_period = diff >= 0 ? diff % period : (diff % period + period) % period;
+        int64_t delta_inside_period;
+        if constexpr (const_period != 0) {
+            delta_inside_period = diff >= 0 ? diff % const_period
+                                            : (diff % const_period + const_period) % const_period;
+        } else {
+            delta_inside_period = diff >= 0 ? diff % period : (diff % period + period) % period;
+        }
+
         int64_t step = diff - delta_inside_period +
                        (Flag::Type == FLOOR        ? 0
                         : delta_inside_period == 0 ? 0
