@@ -93,6 +93,8 @@ public:
 
     int64_t num_rows_filtered() const;
 
+    RuntimeProfile* profile() { return _profile; }
+
 protected:
     virtual void _init_profile(RuntimeProfile* profile);
 
@@ -110,6 +112,7 @@ protected:
     RuntimeProfile* _profile = nullptr;
     RuntimeProfile::Counter* _close_wait_timer = nullptr;
     RuntimeProfile::Counter* _wait_flush_limit_timer = nullptr;
+    RuntimeProfile::Counter* _file_close_timer = nullptr;
 
     MonotonicStopWatch _lock_watch;
 };
