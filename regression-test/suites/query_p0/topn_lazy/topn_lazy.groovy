@@ -17,7 +17,7 @@
 
 suite("topn_lazy") {
     sql """
-        set enable_lazy_materialization=true;
+        set enable_topn_lazy_materialization=true;
         set runtime_filter_mode=GLOBAL;
         set TOPN_FILTER_RATIO=0.5;
         set disable_join_reorder=true;

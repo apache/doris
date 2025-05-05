@@ -156,7 +156,7 @@ suite("test_hive_topn_lazy_mat", "p0,external,hive,external_docker,external_dock
 
 
         sql """
-        set enable_lazy_materialization=true;
+        set enable_topn_lazy_materialization=true;
         set runtime_filter_mode=GLOBAL;
         set TOPN_FILTER_RATIO=0.5;
         set disable_join_reorder=true;
@@ -195,7 +195,7 @@ suite("test_hive_topn_lazy_mat", "p0,external,hive,external_docker,external_dock
         runTopNLazyMatTests()
 
 
-        sql """ set enable_lazy_materialization=false; """
+        sql """ set enable_topn_lazy_materialization=false; """
         runTopNLazyMatTests()
 
 
