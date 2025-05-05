@@ -66,6 +66,7 @@ public class SchemaTable extends Table {
                                     .column("CREATE_TIME", ScalarType.createType(PrimitiveType.DATETIME))
                                     .column("UPDATE_TIME", ScalarType.createType(PrimitiveType.DATETIME))
                                     .column("CHECK_TIME", ScalarType.createType(PrimitiveType.DATETIME))
+                                    .column("ACCESS_TIME", ScalarType.createType(PrimitiveType.DATETIME))
                                     .column("TABLE_COLLATION", ScalarType.createVarchar(MY_CS_NAME_SIZE))
                                     .column("CHECKSUM", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("CREATE_OPTIONS", ScalarType.createVarchar(255))

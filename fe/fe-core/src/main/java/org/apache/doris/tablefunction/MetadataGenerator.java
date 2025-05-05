@@ -1464,6 +1464,7 @@ public class MetadataGenerator {
                     trow.addToColumnValue(new TCell().setStringVal(
                             TimeUtils.longToTimeStringWithTimeZone(partition.getVisibleVersionTime(), timeZone)));
                     trow.addToColumnValue(new TCell().setStringVal("NULL")); // CHECK_TIME (not available)
+                    trow.addToColumnValue(new TCell().setStringVal("NULL")); // ACCESS_TIME (not available)
                     trow.addToColumnValue(new TCell().setIntVal(0)); // CHECKSUM (not available)
                     trow.addToColumnValue(new TCell().setStringVal("")); // PARTITION_COMMENT (not available)
                     trow.addToColumnValue(new TCell().setStringVal("")); // NODEGROUP (not available)

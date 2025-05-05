@@ -1098,6 +1098,12 @@ public class ShowExecutor {
                 } else {
                     row.add(null);
                 }
+                // Access_time
+                if (table.getAccessTime() > 0) {
+                    row.add(TimeUtils.longToTimeString(table.getAccessTime()));
+                } else {
+                    row.add(null);
+                }
                 // Collation
                 row.add("utf-8");
                 // Checksum

@@ -138,6 +138,8 @@ public interface TableIf {
 
     void setNewFullSchema(List<Column> newSchema);
 
+    void setAccessTime();
+
     Column getColumn(String name);
 
     String getMysqlType();
@@ -166,6 +168,8 @@ public interface TableIf {
     long getIndexLength();
 
     long getLastCheckTime();
+
+    long getAccessTime();
 
     String getComment(boolean escapeQuota);
 

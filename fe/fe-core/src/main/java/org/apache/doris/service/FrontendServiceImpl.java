@@ -670,6 +670,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         table.readLock();
                         try {
                             long lastCheckTime = table.getLastCheckTime() <= 0 ? 0 : table.getLastCheckTime();
+                            long accessTime = table.getAccessTime() <= 0 ? 0 : table.getAccessTime();
                             TTableStatus status = new TTableStatus();
                             status.setName(table.getName());
                             status.setType(table.getMysqlType());
@@ -679,6 +680,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                             status.setLastCheckTime(lastCheckTime / 1000);
                             status.setUpdateTime(table.getUpdateTime() / 1000);
                             status.setCheckTime(lastCheckTime / 1000);
+                            status.setAccessTime(accessTime / 1000);
                             status.setCollation("utf-8");
                             status.setRows(table.getCachedRowCount());
                             status.setDataLength(table.getDataLength());
