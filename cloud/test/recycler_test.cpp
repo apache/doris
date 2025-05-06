@@ -3155,9 +3155,19 @@ MetaServiceCode remove_delete_bitmap_lock(MetaServiceProxy* meta_service, int64_
     return res.status().code();
 }
 
+void remove_delete_bitmap_lock(MetaServiceProxy* meta_service, int64_t table_id) {
+    std::string lock_key =
+            meta_delete_bitmap_update_lock_key({"test_check_compaction_key", table_id, -1});
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    txn->remove(lock_key);
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+}
+
 TEST(CheckerTest, check_compaction_key) {
     config::enable_compaction_key_check = true;
     config::compaction_key_check_expiration_diff_seconds = 0;
+    config::use_delete_bitmap_lock_version = "v2";
     std::string instance_id = "test_check_compaction_key";
     [[maybe_unused]] auto sp = SyncPoint::get_instance();
     std::unique_ptr<int, std::function<void(int*)>> defer(
@@ -3168,12 +3178,16 @@ TEST(CheckerTest, check_compaction_key) {
         ret->second = true;
     });
     sp->enable_processing();
+    int64_t table_id = 2;
 
+    //test 1:
+    //1.compaction get lock and write compaction key, but not release lock
+    //2.after lock expired, load get lock, compaction key is removed
     auto meta_service = get_meta_service();
-    auto res_code = get_delete_bitmap_lock(meta_service.get(), 2, -1, 123);
+    auto res_code = get_delete_bitmap_lock(meta_service.get(), table_id, -1, 123);
     ASSERT_EQ(res_code, MetaServiceCode::OK);
     std::this_thread::sleep_for(std::chrono::seconds(6));
-    res_code = get_delete_bitmap_lock(meta_service.get(), 2, 100, -1);
+    res_code = get_delete_bitmap_lock(meta_service.get(), table_id, 100, -1);
     ASSERT_EQ(res_code, MetaServiceCode::OK);
 
     auto txn_kv = std::make_shared<MemTxnKv>();
@@ -3186,16 +3200,34 @@ TEST(CheckerTest, check_compaction_key) {
     InstanceChecker checker(meta_service->txn_kv(), instance_id);
     ASSERT_EQ(checker.init(instance), 0);
     ASSERT_EQ(checker.do_mow_compaction_key_check(), 0);
+    res_code = remove_delete_bitmap_lock(meta_service.get(), table_id, 100, -1);
 
-    std::this_thread::sleep_for(std::chrono::seconds(6));
-    res_code = get_delete_bitmap_lock(meta_service.get(), 2, -1, 124);
+    //test 2:
+    //1.compaction a get lock and write compaction key, release lock
+    //2.compaction b get lock and write compaction key, but not release lock
+    //3.after compaction b's compaction key expired, checker found it
+    res_code = get_delete_bitmap_lock(meta_service.get(), table_id, -1, 124);
     ASSERT_EQ(res_code, MetaServiceCode::OK);
-    res_code = get_delete_bitmap_lock(meta_service.get(), 2, -1, 125);
+    res_code = remove_delete_bitmap_lock(meta_service.get(), table_id, -1, 124);
     ASSERT_EQ(res_code, MetaServiceCode::OK);
-    res_code = remove_delete_bitmap_lock(meta_service.get(), 2, -1, 124);
-    config::compaction_key_check_expiration_diff_seconds = 5;
-    std::this_thread::sleep_for(std::chrono::seconds(6));
-    ASSERT_EQ(checker.do_mow_compaction_key_check(), 0);
+    res_code = get_delete_bitmap_lock(meta_service.get(), table_id, -1, 125, 0);
+    ASSERT_EQ(res_code, MetaServiceCode::OK);
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+    ASSERT_EQ(checker.do_mow_compaction_key_check(), -1);
+    std::this_thread::sleep_for(std::chrono::seconds(5));
+
+
+    //test 3:
+    //1.compaction a get lock and write compaction key, but not release lock
+    //2.compaction key is expired
+    //2.remove delete bitmap lock accidentally（it should not happen）
+    //3.checker found residual compaction key
+    table_id = 3;
+    res_code = get_delete_bitmap_lock(meta_service.get(), table_id, -1, 126, 0);
+    ASSERT_EQ(res_code, MetaServiceCode::OK);
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+    remove_delete_bitmap_lock(meta_service.get(), table_id);
+    ASSERT_EQ(checker.do_mow_compaction_key_check(), -1);
 }
 
 TEST(RecyclerTest, delete_rowset_data) {

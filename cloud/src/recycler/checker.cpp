@@ -1229,8 +1229,6 @@ int InstanceChecker::do_mow_compaction_key_check() {
                 return -1;
             }
             int64_t expiration = mow_tablet_compaction.expiration();
-            LOG(INFO) << "table_id=" << table_id << ",initiator=" << initiator
-                      << ",expiration=" << expiration;
             //check compaction key failed should meet both following two condition:
             //1.compaction key is expired
             //2.table lock key is not found or key is not expired
