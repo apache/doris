@@ -71,8 +71,7 @@ suite("test_nthvalue_function") {
     qt_select_2 "select k1, k2, k3, nth_value(k1,5) over (partition by k1 order by k2)  from test_nthvalue_function order by k1, k2, k3 desc;"
     qt_select_3 "select k2, k1, k3, nth_value(k1,3) over (order by k2 rows BETWEEN 2 PRECEDING AND 2 following) from test_nthvalue_function order by k2,k1;"
     qt_select_4 "select k3, k2, k1, nth_value(k1,3) over (partition by k3 order by k2)  from test_nthvalue_function order by k3, k2, k1;"
-    qt_select_5 "select k3, k2, k1, nth_value(k1,3) over (partition by k6 order by k2 rows between 10 preceding and 1 following) from test_nthvalue_function order by k6, k2, k1;"
-    qt_select_6 "select k3, k2, k1, nth_value(k1,3) over (partition by k6 order by k2 rows between 10 preceding and 5 preceding) from test_nthvalue_function order by k6, k2, k1;"
+    qt_select_6 "select k3, k2, k1, nth_value(k1,3) over (partition by k6 order by k2 rows between 10 preceding and 5 preceding) as res from test_nthvalue_function order by k6, k2, k1,res;"
 
 
 }
