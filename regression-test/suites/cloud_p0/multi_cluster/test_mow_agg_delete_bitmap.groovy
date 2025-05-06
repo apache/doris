@@ -27,6 +27,7 @@ suite('test_mow_agg_delete_bitmap', 'multi_cluster,docker') {
     options.setBeNum(1)
     options.feConfigs += [
         'cloud_cluster_check_interval_second=1',
+        'enable_workload_group=false',
     ]
     options.beConfigs += [
         'enable_debug_points=true',

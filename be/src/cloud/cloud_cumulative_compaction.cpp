@@ -381,13 +381,17 @@ Status CloudCumulativeCompaction::modify_rowsets() {
         }
         std::sort(pre_rowsets.begin(), pre_rowsets.end(), Rowset::comparator);
         auto pre_rowsets_delete_bitmap = std::make_shared<DeleteBitmap>(_tablet->tablet_id());
-        cloud_tablet()->agg_delete_bitmap_for_compaction(_output_rowset->start_version(),
-                                                         _output_rowset->end_version(), pre_rowsets,
-                                                         pre_rowsets_delete_bitmap);
+        std::map<std::string, int64_t> pre_rowset_to_versions;
+        cloud_tablet()->agg_delete_bitmap_for_compaction(
+                _output_rowset->start_version(), _output_rowset->end_version(), pre_rowsets,
+                pre_rowsets_delete_bitmap, pre_rowset_to_versions);
         // update delete bitmap to ms
+        DBUG_EXECUTE_IF(
+                "CumulativeCompaction.modify_rowsets.cloud_update_delete_bitmap_without_lock.block",
+                DBUG_BLOCK);
         auto status = _engine.meta_mgr().cloud_update_delete_bitmap_without_lock(
-                *cloud_tablet(), pre_rowsets_delete_bitmap.get(), _output_rowset->start_version(),
-                _output_rowset->end_version());
+                *cloud_tablet(), pre_rowsets_delete_bitmap.get(), pre_rowset_to_versions,
+                _output_rowset->start_version(), _output_rowset->end_version());
         if (!status.ok()) {
             LOG(WARNING) << "failed to agg pre rowsets delete bitmap to ms. tablet_id="
                          << _tablet->tablet_id() << ", pre rowset num=" << pre_rowsets.size()
@@ -429,8 +433,9 @@ Status CloudCumulativeCompaction::process_old_version_delete_bitmap() {
                                         "test fail to update delete bitmap for tablet_id {}",
                                         cloud_tablet()->tablet_id());
                             });
+            std::map<std::string, int64_t> rowset_to_versions;
             RETURN_IF_ERROR(_engine.meta_mgr().cloud_update_delete_bitmap_without_lock(
-                    *cloud_tablet(), new_delete_bitmap.get()));
+                    *cloud_tablet(), new_delete_bitmap.get(), rowset_to_versions));
 
             Version version(_input_rowsets.front()->start_version(),
                             _input_rowsets.back()->end_version());

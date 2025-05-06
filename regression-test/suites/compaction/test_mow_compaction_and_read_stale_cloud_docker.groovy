@@ -25,6 +25,7 @@ suite("test_mow_compaction_and_read_stale_cloud_docker", "docker") {
     options.setFeNum(1)
     options.setBeNum(1)
     options.enableDebugPoints()
+    options.feConfigs.add("enable_workload_group=false")
     options.beConfigs.add('compaction_promotion_version_count=5')
     options.beConfigs.add('tablet_rowset_stale_sweep_time_sec=0')
     options.beConfigs.add('vacuum_stale_rowsets_interval_s=10')

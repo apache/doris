@@ -1439,6 +1439,8 @@ message UpdateDeleteBitmapRequest {
     // remove delete_bitmap of pre rowsets since it is agged when compaction
     optional int64 pre_rowset_agg_start_version = 15;
     optional int64 pre_rowset_agg_end_version = 16;
+    // when update delete_bitmap of pre rowsets, check the rowset exists
+    repeated int64 pre_rowset_versions = 17;
 }
 
 message UpdateDeleteBitmapResponse {
