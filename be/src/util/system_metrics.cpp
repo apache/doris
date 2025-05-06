@@ -491,17 +491,17 @@ void SystemMetrics::update_allocator_metrics() {
     LOG(INFO) << "Memory tracking is not available with address sanitizer builds.";
 #elif defined(USE_JEMALLOC)
     _memory_metrics->memory_jemalloc_allocated_bytes->set_value(
-            MemInfo::get_je_metrics("stats.allocated"));
+            MemInfo::get_jemallctl_value<int64_t>("stats.allocated"));
     _memory_metrics->memory_jemalloc_active_bytes->set_value(
-            MemInfo::get_je_metrics("stats.active"));
+            MemInfo::get_jemallctl_value<int64_t>("stats.active"));
     _memory_metrics->memory_jemalloc_metadata_bytes->set_value(
-            MemInfo::get_je_metrics("stats.metadata"));
+            MemInfo::get_jemallctl_value<int64_t>("stats.metadata"));
     _memory_metrics->memory_jemalloc_resident_bytes->set_value(
-            MemInfo::get_je_metrics("stats.resident"));
+            MemInfo::get_jemallctl_value<int64_t>("stats.resident"));
     _memory_metrics->memory_jemalloc_mapped_bytes->set_value(
-            MemInfo::get_je_metrics("stats.mapped"));
+            MemInfo::get_jemallctl_value<int64_t>("stats.mapped"));
     _memory_metrics->memory_jemalloc_retained_bytes->set_value(
-            MemInfo::get_je_metrics("stats.retained"));
+            MemInfo::get_jemallctl_value<int64_t>("stats.retained"));
     _memory_metrics->memory_jemalloc_tcache_bytes->set_value(
             MemInfo::get_je_all_arena_metrics("tcache_bytes"));
     _memory_metrics->memory_jemalloc_pactive_num->set_value(
