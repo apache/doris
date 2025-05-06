@@ -76,13 +76,19 @@ public class RecordPlanAndTryToMvRewrite extends DefaultPlanRewriter<Void> imple
                                 )
                         )));
         // plan pre normalize
-        Plan finalPlan = MaterializedViewUtils.rewriteByRules(cascadesContext,
-                childContext -> {
-                    Rewriter.getCteChildrenRewriter(childContext, recordMvBeforeJobs).execute();
-                    return childContext.getRewritePlan();
-                }, plan, plan, false, false);
-        statementContext.addTmpPlanForMvRewrite(finalPlan);
-
+        Plan finalPlan;
+        try {
+            finalPlan = MaterializedViewUtils.rewriteByRules(cascadesContext,
+                    childContext -> {
+                        Rewriter.getCteChildrenRewriter(childContext, recordMvBeforeJobs).execute();
+                        return childContext.getRewritePlan();
+                    }, plan, plan, false, false);
+            statementContext.addTmpPlanForMvRewrite(finalPlan);
+        } catch (Exception e) {
+            LOG.error("mv rewrite in rbo rewrite pre normalize fail, sql hash is {}",
+                    cascadesContext.getConnectContext().getSqlHash(), e);
+            return plan;
+        }
         boolean containMaterializedViewHook = MaterializedViewUtils.containMaterializedViewHook(
                 cascadesContext.getStatementContext());
         if (!containMaterializedViewHook) {
@@ -103,6 +109,7 @@ public class RecordPlanAndTryToMvRewrite extends DefaultPlanRewriter<Void> imple
         } catch (Exception e) {
             LOG.error("mv rewrite in rbo rewrite fail, sql hash is {}",
                     cascadesContext.getConnectContext().getSqlHash(), e);
+            return plan;
         }
         if (plansWhichContainMv.isEmpty()) {
             return plan;

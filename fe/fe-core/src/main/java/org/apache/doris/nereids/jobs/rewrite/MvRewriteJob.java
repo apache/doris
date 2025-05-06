@@ -49,7 +49,7 @@ public class MvRewriteJob implements RewriteJob {
     public void execute(JobContext jobContext) {
         CascadesContext cascadesContext = jobContext.getCascadesContext();
         for (PlannerHook hook : cascadesContext.getStatementContext().getPlannerHooks()) {
-            // call hook manually
+            // call hook manually to generate materialization context
             hook.afterAnalyze(cascadesContext);
         }
         if (cascadesContext.getMaterializationContexts().isEmpty()) {
