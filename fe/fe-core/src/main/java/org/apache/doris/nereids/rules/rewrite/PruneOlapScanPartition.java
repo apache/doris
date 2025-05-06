@@ -72,7 +72,7 @@ public class PruneOlapScanPartition implements RewriteRuleFactory {
                         LogicalOlapScan scan = ctx.root;
                         OlapTable table = scan.getTable();
                         return prunePartition(scan, table, null, ctx);
-                     }).toRule(RuleType.OLAP_SCAN_PARTITION_PRUNE),
+                    }).toRule(RuleType.OLAP_SCAN_PARTITION_PRUNE),
                 logicalFilter(logicalOlapScan())
                     .when(p -> !p.child().isPartitionPruned())
                     .thenApply(ctx -> {
@@ -153,13 +153,13 @@ public class PruneOlapScanPartition implements RewriteRuleFactory {
             }
         }
         NereidsSortedPartitionsCacheManager sortedPartitionsCacheManager = Env.getCurrentEnv()
-            .getSortedPartitionsCacheManager();
+                .getSortedPartitionsCacheManager();
         List<Long> manuallySpecifiedPartitions = scan.getManuallySpecifiedPartitions();
         Map<Long, PartitionItem> idToPartitions;
         Optional<SortedPartitionRanges<Long>> sortedPartitionRanges = Optional.empty();
         if (manuallySpecifiedPartitions.isEmpty()) {
             Optional<SortedPartitionRanges<?>> sortedPartitionRangesOpt
-                = sortedPartitionsCacheManager.get(table, scan);
+                    = sortedPartitionsCacheManager.get(table, scan);
             if (sortedPartitionRangesOpt.isPresent()) {
                 sortedPartitionRanges = (Optional) sortedPartitionRangesOpt;
             }
@@ -167,12 +167,12 @@ public class PruneOlapScanPartition implements RewriteRuleFactory {
         } else {
             Map<Long, PartitionItem> allPartitions = partitionInfo.getAllPartitions();
             idToPartitions = allPartitions.keySet().stream()
-                .filter(manuallySpecifiedPartitions::contains)
-                .collect(Collectors.toMap(Function.identity(), allPartitions::get));
+                    .filter(manuallySpecifiedPartitions::contains)
+                    .collect(Collectors.toMap(Function.identity(), allPartitions::get));
         }
         List<Long> prunedPartitions = PartitionPruner.prune(
-            partitionSlots, filter.getPredicate(), idToPartitions, ctx.cascadesContext,
-            PartitionTableType.OLAP, sortedPartitionRanges);
+                partitionSlots, filter.getPredicate(), idToPartitions, ctx.cascadesContext,
+                PartitionTableType.OLAP, sortedPartitionRanges);
         return prunedPartitions;
     }
 

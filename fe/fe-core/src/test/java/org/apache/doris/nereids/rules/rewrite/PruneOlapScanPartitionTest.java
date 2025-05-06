@@ -166,8 +166,8 @@ class PruneOlapScanPartitionTest extends TestWithFeService implements MemoPatter
                 .getMaterializedIndices(MaterializedIndex.IndexExtState.ALL).iterator().next()
                 .getTablets().iterator().next();
         Tablet tablet2 = tbl.getPartition("p20211125")
-            .getMaterializedIndices(MaterializedIndex.IndexExtState.ALL).iterator().next()
-            .getTablets().iterator().next();
+                .getMaterializedIndices(MaterializedIndex.IndexExtState.ALL).iterator().next()
+                .getTablets().iterator().next();
 
         test("test.single_not_null", "", String.valueOf(tablet1.getId()), 1);
         test("test.single_not_null", "", tablet1.getId() + ", " + tablet2.getId(), 2);
