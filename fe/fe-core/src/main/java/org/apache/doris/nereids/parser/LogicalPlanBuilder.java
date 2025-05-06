@@ -848,8 +848,8 @@ import org.apache.doris.nereids.trees.plans.commands.load.LoadWhereClause;
 import org.apache.doris.nereids.trees.plans.commands.load.PauseDataSyncJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.load.PauseRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.load.ResumeDataSyncJobCommand;
-import org.apache.doris.nereids.trees.plans.commands.load.ShowCreateRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.load.ResumeRoutineLoadCommand;
+import org.apache.doris.nereids.trees.plans.commands.load.ShowCreateRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.load.StopDataSyncJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.load.StopRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.load.SyncJobName;
@@ -6672,13 +6672,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public LogicalPlan visitShowCreateRoutineLoad(DorisParser.ShowCreateRoutineLoadContext ctx) {
         boolean isAll = ctx.ALL() != null;
         List<String> labelParts = visitMultipartIdentifier(ctx.label);
-        int size = labelParts.size();
-        String jobName = labelParts.get(size - 1);
-        String dbName;
-        if (size == 1) {
-            dbName = null;
-        } else if (size == 2) {
+        String jobName;
+        String dbName = null;
+        if (labelParts.size() == 1) {
+            jobName = labelParts.get(0);
+        } else if (labelParts.size() == 2) {
             dbName = labelParts.get(0);
+            jobName = labelParts.get(1);
         } else {
             throw new ParseException("only support [<db>.]<job_name>", ctx.label);
         }
@@ -6686,6 +6686,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return new ShowCreateRoutineLoadCommand(labelNameInfo, isAll);
     }
 
+    @Override
     public LogicalPlan visitPauseRoutineLoad(DorisParser.PauseRoutineLoadContext ctx) {
         List<String> labelParts = visitMultipartIdentifier(ctx.label);
         String jobName;
