@@ -80,6 +80,7 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
         engineNames.add("odbc");
         engineNames.add("mysql");
         engineNames.add("broker");
+        engineNames.add("doris");
     }
 
     // if auto bucket enable, rewrite distribution bucket num &&

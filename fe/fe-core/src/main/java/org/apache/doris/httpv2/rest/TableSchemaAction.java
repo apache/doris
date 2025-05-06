@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
@@ -33,7 +34,9 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
+import org.apache.doris.httpv2.rest.response.GsonSchemaResponse;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.gson.Gson;
@@ -51,6 +54,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
@@ -190,4 +194,53 @@ public class TableSchemaAction extends RestBaseController {
         }
         return ResponseEntityBuilder.ok();
     }
+
+    @RequestMapping(path = {"/api/{" + DB_KEY + "}/{" + TABLE_KEY + "}/_gson_schema",
+        "/api/{" + CATALOG_KEY + "}/{" + DB_KEY + "}/{" + TABLE_KEY + "}/_gson_schema"}, method = RequestMethod.GET)
+    protected Object gsonSchema(
+            @PathVariable(value = CATALOG_KEY, required = false) String catalogName,
+            @PathVariable(value = DB_KEY) final String dbName,
+            @PathVariable(value = TABLE_KEY) final String tblName,
+            HttpServletRequest request, HttpServletResponse response) {
+        executeCheckPassword(request, response);
+        GsonSchemaResponse gsonSchemaResponse = new GsonSchemaResponse();
+        if (StringUtils.isBlank(catalogName)) {
+            catalogName = InternalCatalog.INTERNAL_CATALOG_NAME;
+        }
+
+        try {
+            String fullDbName = getFullDbName(dbName);
+            checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), catalogName, fullDbName, tblName,
+                    PrivPredicate.SELECT);
+            TableIf table;
+            try {
+                CatalogIf catalog = StringUtils.isNotBlank(catalogName) ? Env.getCurrentEnv().getCatalogMgr()
+                        .getCatalogOrAnalysisException(catalogName) : Env.getCurrentInternalCatalog();
+                DatabaseIf db = catalog.getDbOrMetaException(fullDbName);
+                table = db.getTableOrMetaException(tblName);
+            } catch (MetaNotFoundException | AnalysisException e) {
+                return ResponseEntityBuilder.okWithCommonError(e.getMessage());
+            }
+            table.readLock();
+            try {
+                List<String> jsonColumns = table.getBaseSchema().stream()
+                        .map(GsonUtils.GSON::toJson)
+                        .collect(Collectors.toList());
+                gsonSchemaResponse.setJsonColumns(jsonColumns);
+                if (table instanceof OlapTable) {
+                    gsonSchemaResponse.setKeysType(((OlapTable) table).getKeysType());
+                } else {
+                    gsonSchemaResponse.setKeysType(KeysType.UNKNOWN);
+                }
+            } finally {
+                table.readUnlock();
+            }
+        } catch (Exception e) {
+            return ResponseEntityBuilder.okWithCommonError(e.getMessage());
+        }
+
+        return ResponseEntityBuilder.ok(gsonSchemaResponse);
+    }
+
+
 }

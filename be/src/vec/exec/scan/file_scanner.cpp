@@ -72,6 +72,7 @@
 #include "vec/exec/format/table/paimon_reader.h"
 #include "vec/exec/format/table/transactional_hive_reader.h"
 #include "vec/exec/format/table/trino_connector_jni_reader.h"
+#include "vec/exec/format/table/arrow_result_jni_reader.h"
 #include "vec/exec/format/text/text_reader.h"
 #include "vec/exec/format/wal/wal_reader.h"
 #include "vec/exec/scan/scan_node.h"
@@ -1023,6 +1024,12 @@ Status FileScanner::_get_next_reader() {
                 _cur_reader = TrinoConnectorJniReader::create_unique(_file_slot_descs, _state,
                                                                      _profile, range);
                 init_status = ((TrinoConnectorJniReader*)(_cur_reader.get()))
+                                      ->init_reader(_colname_to_value_range);
+            } else if (range.__isset.table_format_params &&
+                       range.table_format_params.table_format_type == "arrow_result") {
+                _cur_reader = ArrowResultJniReader::create_unique(_file_slot_descs, _state,
+                                                                  _profile, range);
+                init_status = ((ArrowResultJniReader*)(_cur_reader.get()))
                                       ->init_reader(_colname_to_value_range);
             }
             break;

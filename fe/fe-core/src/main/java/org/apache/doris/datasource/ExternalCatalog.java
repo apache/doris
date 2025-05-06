@@ -39,6 +39,7 @@ import org.apache.doris.common.Version;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalSchemaCache.SchemaCacheKey;
+import org.apache.doris.datasource.doris.RemoteDorisExternalDatabase;
 import org.apache.doris.datasource.es.EsExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalDatabase;
@@ -987,6 +988,8 @@ public abstract class ExternalCatalog
                 return new PaimonExternalDatabase(this, dbId, localDbName, remoteDbName);
             case TRINO_CONNECTOR:
                 return new TrinoConnectorExternalDatabase(this, dbId, localDbName, remoteDbName);
+            case REMOTE_DORIS:
+                return new RemoteDorisExternalDatabase(this, dbId, localDbName, remoteDbName);
             default:
                 break;
         }

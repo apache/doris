@@ -324,6 +324,15 @@ private:
     bool _connection_pool_keep_alive;
 };
 
+class RemoteDorisTableDescriptor : public TableDescriptor {
+public:
+    RemoteDorisTableDescriptor(const TTableDescriptor& tdesc);
+    ~RemoteDorisTableDescriptor() override;
+    std::string debug_string() const override;
+
+private:
+};
+
 class TupleDescriptor {
 public:
     TupleDescriptor(TupleDescriptor&&) = delete;

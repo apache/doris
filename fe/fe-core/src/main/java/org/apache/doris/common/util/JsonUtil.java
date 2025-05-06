@@ -78,4 +78,16 @@ public class JsonUtil {
     public static <T> T readValue(String text, Class<T> clazz) throws JsonProcessingException {
         return objectMapper.readValue(text, clazz);
     }
+
+    public static Integer safeGetAsInt(ObjectNode node, String field) {
+        JsonNode value = node.get(field);
+        return (value == null || value.isNull()) ? null : value.asInt();
+    }
+
+    public static String convertNodeToString(JsonNode node) {
+        if (node == null || node.isNull()) {
+            return null;
+        }
+        return node.isTextual() ? node.asText() : node.toString();
+    }
 }
