@@ -144,6 +144,9 @@ Status JdbcConnector::open(RuntimeState* state, bool read) {
         ctor_params.__set_connection_pool_cache_clear_time(
                 config::jdbc_connection_pool_cache_clear_time_sec);
         ctor_params.__set_connection_pool_keep_alive(_conn_param.connection_pool_keep_alive);
+        ctor_params.__set_arrow_host_port(_conn_param.arrow_host_port);
+        ctor_params.__set_ticket(_conn_param.ticket);
+        ctor_params.__set_location_uri(_conn_param.location_uri);
 
         jbyteArray ctor_params_bytes;
         // Pushed frame will be popped when jni_frame goes out-of-scope.
