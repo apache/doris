@@ -1204,7 +1204,7 @@ Status FragmentMgr::exec_external_plan_fragment(const TScanOpenParams& params,
     for (const SlotDescriptor* slot : tuple_desc->slots()) {
         TScanColumnDesc col;
         col.__set_name(slot->col_name());
-        col.__set_type(to_thrift(slot->type().type));
+        col.__set_type(to_thrift(slot->type()->get_primitive_type()));
         selected_columns->emplace_back(std::move(col));
     }
 
