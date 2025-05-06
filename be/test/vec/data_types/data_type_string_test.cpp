@@ -105,7 +105,7 @@ TEST_F(DataTypeStringTest, MetaInfoTest) {
             .is_value_unambiguously_represented_in_contiguous_memory_region = true,
             .default_field = Field(""),
     };
-    auto tmp_dt = DataTypeFactory::instance().create_data_type(TypeIndex::String);
+    auto tmp_dt = DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_STRING, false);
     helper->meta_info_assert(tmp_dt, meta_info_to_assert);
 }
 TEST_F(DataTypeStringTest, ser_deser) {

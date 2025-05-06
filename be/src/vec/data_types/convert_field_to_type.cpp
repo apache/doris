@@ -66,6 +66,9 @@ public:
     [[noreturn]] String operator()(const UInt128& x) const {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
     }
+    [[noreturn]] String operator()(const Int128& x) const {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
+    }
     [[noreturn]] String operator()(const Array& x) const {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
     }
@@ -175,15 +178,11 @@ Field convert_numeric_type_impl(const Field& from) {
 
 template <typename To>
 void convert_numric_type(const Field& from, const IDataType& type, Field* to) {
-    if (from.get_type() == Field::Types::UInt64) {
-        *to = convert_numeric_type_impl<UInt64, To>(from);
-    } else if (from.get_type() == Field::Types::Int64) {
+    if (from.get_type() == PrimitiveType::TYPE_BIGINT) {
         *to = convert_numeric_type_impl<Int64, To>(from);
-    } else if (from.get_type() == Field::Types::Float64) {
+    } else if (from.get_type() == PrimitiveType::TYPE_DOUBLE) {
         *to = convert_numeric_type_impl<Float64, To>(from);
-    } else if (from.get_type() == Field::Types::UInt128) {
-        // *to = convert_numeric_type_impl<UInt128, To>(from);
-    } else if (from.get_type() == Field::Types::Int128) {
+    } else if (from.get_type() == PrimitiveType::TYPE_LARGEINT) {
         *to = convert_numeric_type_impl<Int128, To>(from);
     } else {
         throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
@@ -200,7 +199,7 @@ void convert_field_to_typeImpl(const Field& src, const IDataType& type,
     }
     WhichDataType which_type(type);
     // TODO add more types
-    if (type.is_value_represented_by_number() && src.get_type() != Field::Types::String) {
+    if (type.is_value_represented_by_number() && !is_string_type(src.get_type())) {
         if (which_type.is_uint8()) {
             return convert_numric_type<UInt8>(src, type, to);
         }
@@ -237,14 +236,13 @@ void convert_field_to_typeImpl(const Field& src, const IDataType& type,
         if (which_type.is_float64()) {
             return convert_numric_type<Float64>(src, type, to);
         }
-        if ((which_type.is_date() || which_type.is_date_time()) &&
-            src.get_type() == Field::Types::UInt64) {
+        if ((which_type.is_date() || which_type.is_date_time()) && is_date_type(src.get_type())) {
             /// We don't need any conversion UInt64 is under type of Date and DateTime
             *to = src;
             return;
         }
     } else if (which_type.is_string_or_fixed_string()) {
-        if (src.get_type() == Field::Types::String) {
+        if (is_string_type(src.get_type())) {
             *to = src;
             return;
         }
@@ -252,7 +250,7 @@ void convert_field_to_typeImpl(const Field& src, const IDataType& type,
         *to = apply_visitor(FieldVisitorToStringSimple(), src);
         return;
     } else if (which_type.is_json()) {
-        if (src.get_type() == Field::Types::JSONB) {
+        if (src.get_type() == PrimitiveType::TYPE_JSONB) {
             *to = src;
             return;
         }
@@ -263,7 +261,7 @@ void convert_field_to_typeImpl(const Field& src, const IDataType& type,
                          cast_set<UInt32, size_t, false>(writer.getOutput()->getSize()));
         return;
     } else if (which_type.is_variant_type()) {
-        if (src.get_type() == Field::Types::VariantMap) {
+        if (src.get_type() == PrimitiveType::TYPE_VARIANT) {
             *to = src;
             return;
         }
@@ -272,7 +270,7 @@ void convert_field_to_typeImpl(const Field& src, const IDataType& type,
                                type.get_name(), src.get_type());
         return;
     } else if (const DataTypeArray* type_array = typeid_cast<const DataTypeArray*>(&type)) {
-        if (src.get_type() == Field::Types::Array) {
+        if (src.get_type() == PrimitiveType::TYPE_ARRAY) {
             const Array& src_arr = src.get<Array>();
             size_t src_arr_size = src_arr.size();
             const auto& element_type = *(type_array->get_nested_type());

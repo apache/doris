@@ -162,16 +162,16 @@ public:
     }
 
     doris::FieldType get_storage_field_type() const override {
-        if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal32>>) {
+        if constexpr (std::is_same_v<T, Decimal32>) {
             return doris::FieldType::OLAP_FIELD_TYPE_DECIMAL32;
         }
-        if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal64>>) {
+        if constexpr (std::is_same_v<T, Decimal64>) {
             return doris::FieldType::OLAP_FIELD_TYPE_DECIMAL64;
         }
-        if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal128V3>>) {
+        if constexpr (std::is_same_v<T, Decimal128V3>) {
             return doris::FieldType::OLAP_FIELD_TYPE_DECIMAL128I;
         }
-        if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal256>>) {
+        if constexpr (std::is_same_v<T, Decimal256>) {
             return doris::FieldType::OLAP_FIELD_TYPE_DECIMAL256;
         }
         return doris::FieldType::OLAP_FIELD_TYPE_DECIMAL;

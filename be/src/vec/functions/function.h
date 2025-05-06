@@ -77,8 +77,10 @@ void has_variadic_argument_types(...);
 
 template <typename T>
 concept HasGetVariadicArgumentTypesImpl = requires(T t) {
-    { t.get_variadic_argument_types_impl() } -> std::same_as<DataTypes>;
-};
+                                              {
+                                                  t.get_variadic_argument_types_impl()
+                                                  } -> std::same_as<DataTypes>;
+                                          };
 
 bool have_null_column(const Block& block, const ColumnNumbers& args);
 bool have_null_column(const ColumnsWithTypeAndName& args);
@@ -603,56 +605,5 @@ using FunctionPtr = std::shared_ptr<IFunction>;
   */
 ColumnPtr wrap_in_nullable(const ColumnPtr& src, const Block& block, const ColumnNumbers& args,
                            uint32_t result, size_t input_rows_count);
-
-#define NUMERIC_TYPE_TO_COLUMN_TYPE(M) \
-    M(UInt8, ColumnUInt8)              \
-    M(Int8, ColumnInt8)                \
-    M(Int16, ColumnInt16)              \
-    M(Int32, ColumnInt32)              \
-    M(Int64, ColumnInt64)              \
-    M(Int128, ColumnInt128)            \
-    M(Float32, ColumnFloat32)          \
-    M(Float64, ColumnFloat64)
-
-#define DECIMAL_TYPE_TO_COLUMN_TYPE(M)           \
-    M(Decimal32, ColumnDecimal<Decimal32>)       \
-    M(Decimal64, ColumnDecimal<Decimal64>)       \
-    M(Decimal128V2, ColumnDecimal<Decimal128V2>) \
-    M(Decimal128V3, ColumnDecimal<Decimal128V3>) \
-    M(Decimal256, ColumnDecimal<Decimal256>)
-
-#define STRING_TYPE_TO_COLUMN_TYPE(M) \
-    M(String, ColumnString)           \
-    M(JSONB, ColumnString)
-
-#define TIME_TYPE_TO_COLUMN_TYPE(M) \
-    M(Date, ColumnInt64)            \
-    M(DateTime, ColumnInt64)        \
-    M(DateV2, ColumnUInt32)         \
-    M(DateTimeV2, ColumnUInt64)
-
-#define IP_TYPE_TO_COLUMN_TYPE(M) \
-    M(IPv4, ColumnIPv4)           \
-    M(IPv6, ColumnIPv6)
-
-#define COMPLEX_TYPE_TO_COLUMN_TYPE(M) \
-    M(Array, ColumnArray)              \
-    M(Map, ColumnMap)                  \
-    M(Struct, ColumnStruct)            \
-    M(VARIANT, ColumnObject)           \
-    M(BitMap, ColumnBitmap)            \
-    M(HLL, ColumnHLL)                  \
-    M(QuantileState, ColumnQuantileState)
-
-#define TYPE_TO_BASIC_COLUMN_TYPE(M) \
-    NUMERIC_TYPE_TO_COLUMN_TYPE(M)   \
-    DECIMAL_TYPE_TO_COLUMN_TYPE(M)   \
-    STRING_TYPE_TO_COLUMN_TYPE(M)    \
-    TIME_TYPE_TO_COLUMN_TYPE(M)      \
-    IP_TYPE_TO_COLUMN_TYPE(M)
-
-#define TYPE_TO_COLUMN_TYPE(M)   \
-    TYPE_TO_BASIC_COLUMN_TYPE(M) \
-    COMPLEX_TYPE_TO_COLUMN_TYPE(M)
 
 } // namespace doris::vectorized
