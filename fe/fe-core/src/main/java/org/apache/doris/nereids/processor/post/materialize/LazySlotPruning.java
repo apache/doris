@@ -174,7 +174,7 @@ public class LazySlotPruning extends DefaultPlanRewriter<LazySlotPruning.Context
         Map<Slot, Slot> singleSlotAliasMap = new HashMap<>();
         for (NamedExpression ne : project.getProjects()) {
             if (ne instanceof Alias && ne.child(0) instanceof Slot) {
-                singleSlotAliasMap.put(ne.toSlot(), (Slot) ne.child(1));
+                singleSlotAliasMap.put(ne.toSlot(), (Slot) ne.child(0));
             }
         }
 
