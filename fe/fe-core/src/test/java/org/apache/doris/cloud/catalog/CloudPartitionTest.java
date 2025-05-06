@@ -46,11 +46,11 @@ public class CloudPartitionTest {
     public void testIsCachedVersionExpired() {
         // test isCachedVersionExpired
         CloudPartition part = createPartition(1, 2, 3);
-        SessionVariable.cachedCloudPartitionVersionExpirationMs = 0;
+        SessionVariable.cloudPartitionVersionCacheTtlMs = 0;
         Assertions.assertTrue(part.isCachedVersionExpired());
-        SessionVariable.cachedCloudPartitionVersionExpirationMs = -10086;
+        SessionVariable.cloudPartitionVersionCacheTtlMs = -10086;
         part.setCachedVisibleVersion(2, 10086L); // update version and last cache time
-        SessionVariable.cachedCloudPartitionVersionExpirationMs = 10000;
+        SessionVariable.cloudPartitionVersionCacheTtlMs = 10000;
         Assertions.assertFalse(part.isCachedVersionExpired()); // not expired due to long expiration duration
         Assertions.assertEquals(2, part.getCachedVisibleVersion());
 
@@ -87,7 +87,7 @@ public class CloudPartitionTest {
         };
         // CHECKSTYLE ON
 
-        SessionVariable.cachedCloudPartitionVersionExpirationMs = -1; // disable cache
+        SessionVariable.cloudPartitionVersionCacheTtlMs = -1; // disable cache
             {
                 // test single get version
                 Assertions.assertEquals(2, part.getVisibleVersion()); // should not get from cache
@@ -106,7 +106,7 @@ public class CloudPartitionTest {
             }
 
         // enable change expiration and make it cached in long duration
-        SessionVariable.cachedCloudPartitionVersionExpirationMs = 100000;
+        SessionVariable.cloudPartitionVersionCacheTtlMs = 100000;
             {
                 // test single get version
                 Assertions.assertEquals(2, part.getVisibleVersion()); // cached version
@@ -125,7 +125,7 @@ public class CloudPartitionTest {
             }
 
         // enable change expiration and make it expired
-        SessionVariable.cachedCloudPartitionVersionExpirationMs = 500;
+        SessionVariable.cloudPartitionVersionCacheTtlMs = 500;
         try {
             Thread.sleep(550);
         } catch (InterruptedException e) {
