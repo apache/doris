@@ -62,6 +62,10 @@ public:
         // Initialize random generator once
         std::random_device rd;
         _random_gen.seed(rd());
+        // Initialize lastTimestamp with current time
+        _last_timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                  std::chrono::system_clock::now().time_since_epoch())
+                                  .count();
     }
 
     boost::uuids::uuid next_uuid() {
@@ -71,6 +75,12 @@ public:
         uint64_t millis =
                 std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch())
                         .count();
+
+        if (millis <= _last_timestamp) {
+            millis = _last_timestamp;
+        } else {
+            _last_timestamp = millis;
+        }
 
         uint16_t counter = _counter.fetch_add(1, std::memory_order_relaxed) & 0xFF;
 
@@ -115,6 +125,7 @@ private:
     std::atomic<uint16_t> _counter {0};
     std::mt19937_64 _random_gen;
     std::uniform_int_distribution<uint64_t> _random_dist;
+    std::atomic<uint64_t> _last_timestamp;
 };
 
 } // namespace doris
