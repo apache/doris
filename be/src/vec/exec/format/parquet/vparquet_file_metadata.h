@@ -27,8 +27,8 @@ namespace doris::vectorized {
 
 class FileMetaData {
 public:
-    FileMetaData(tparquet::FileMetaData& metadata);
-    ~FileMetaData() = default;
+    FileMetaData(tparquet::FileMetaData& metadata, size_t mem_size);
+    ~FileMetaData();
     Status init_schema();
     const FieldDescriptor& schema() const { return _schema; }
     const tparquet::FileMetaData& to_thrift();
@@ -36,10 +36,12 @@ public:
         _schema.iceberg_sanitize(read_columns);
     }
     std::string debug_string() const;
+    size_t get_mem_size() const { return _mem_size; }
 
 private:
     tparquet::FileMetaData _metadata;
     FieldDescriptor _schema;
+    size_t _mem_size;
 };
 
 } // namespace doris::vectorized
