@@ -70,7 +70,7 @@ public class S3FileSystemTest {
         properties = new HashMap<>();
         properties.put("AWS_ACCESS_KEY", System.getenv().getOrDefault("AWS_AK", ""));
         properties.put("AWS_SECRET_KEY", System.getenv().getOrDefault("AWS_SK", ""));
-        properties.put("AWS_ENDPOINT", "http://s3.bj.bcebos.com");
+        properties.put("AWS_ENDPOINT", "http://s3.ap-northeast-1.amazonaws.com");
         properties.put(PropertyConverter.USE_PATH_STYLE, "false");
         properties.put("AWS_REGION", "bj");
         content =

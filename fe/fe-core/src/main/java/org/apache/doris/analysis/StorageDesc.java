@@ -50,7 +50,10 @@ public class StorageDesc extends ResourceDesc {
     public StorageDesc(String name, StorageBackend.StorageType storageType, Map<String, String> properties) {
         this.name = name;
         this.storageType = storageType;
-        this.storageProperties = StorageProperties.createPrimary(properties);
+        if (!storageType.equals(StorageBackend.StorageType.BROKER)) {
+            this.storageType = StorageBackend.StorageType.convertToStorageType(storageType.toString());
+            this.storageProperties = StorageProperties.createPrimary(properties);
+        }
         this.properties = properties;
     }
 

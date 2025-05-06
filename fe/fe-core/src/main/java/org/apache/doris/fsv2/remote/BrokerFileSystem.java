@@ -27,6 +27,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.datasource.property.PropertyConverter;
+import org.apache.doris.datasource.property.storage.BrokerProperties;
 import org.apache.doris.fs.operations.BrokerFileOperations;
 import org.apache.doris.fs.operations.OpParams;
 import org.apache.doris.service.FrontendOptions;
@@ -81,6 +82,8 @@ public class BrokerFileSystem extends RemoteFileSystem {
         properties.putAll(PropertyConverter.convertToHadoopFSProperties(properties));
         this.properties = properties;
         this.operations = new BrokerFileOperations(name, properties);
+        // support broker properties in future
+        this.storageProperties = new BrokerProperties(properties);
     }
 
     public Pair<TPaloBrokerService.Client, TNetworkAddress> getBroker() {
@@ -600,7 +603,7 @@ public class BrokerFileSystem extends RemoteFileSystem {
         } catch (TException e) {
             needReturn = false;
             return new Status(Status.ErrCode.COMMON_ERROR, "failed to listLocatedFiles, remote path: "
-                + remotePath + ". msg: " + e.getMessage() + ", broker: " + BrokerUtil.printBroker(name, address));
+                    + remotePath + ". msg: " + e.getMessage() + ", broker: " + BrokerUtil.printBroker(name, address));
         } finally {
             if (needReturn) {
                 ClientPool.brokerPool.returnObject(address, client);
@@ -628,7 +631,7 @@ public class BrokerFileSystem extends RemoteFileSystem {
             TBrokerOperationStatus operationStatus = response.getOpStatus();
             if (operationStatus.getStatusCode() != TBrokerOperationStatusCode.OK) {
                 throw new UserException("failed to get path isSplittable, remote path: " + remotePath + ". msg: "
-                    + operationStatus.getMessage() + ", broker: " + BrokerUtil.printBroker(name, address));
+                        + operationStatus.getMessage() + ", broker: " + BrokerUtil.printBroker(name, address));
             }
             boolean result = response.isSplittable();
             LOG.info("finished to get path isSplittable, remote path {} with format {}, isSplittable: {}",
@@ -637,7 +640,7 @@ public class BrokerFileSystem extends RemoteFileSystem {
         } catch (TException e) {
             needReturn = false;
             throw new UserException("failed to get path isSplittable, remote path: "
-                + remotePath + ". msg: " + e.getMessage() + ", broker: " + BrokerUtil.printBroker(name, address));
+                    + remotePath + ". msg: " + e.getMessage() + ", broker: " + BrokerUtil.printBroker(name, address));
         } finally {
             if (needReturn) {
                 ClientPool.brokerPool.returnObject(address, client);

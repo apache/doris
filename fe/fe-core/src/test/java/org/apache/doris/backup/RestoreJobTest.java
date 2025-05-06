@@ -125,7 +125,7 @@ public class RestoreJobTest {
 
     @Injectable
     private Repository repo = new Repository(repoId, "repo", false, "bos://my_repo",
-            FileSystemFactory.get(Maps.newHashMap()));
+            FileSystemFactory.get("broker", Maps.newHashMap()));
 
     private BackupMeta backupMeta;
 
@@ -248,7 +248,7 @@ public class RestoreJobTest {
 
                 for (Tablet tablet : index.getTablets()) {
                     List<String> files = Lists.newArrayList(tablet.getId() + ".dat",
-                            tablet.getId() + ".idx",  tablet.getId() + ".hdr");
+                            tablet.getId() + ".idx", tablet.getId() + ".hdr");
                     BackupTabletInfo tabletInfo = new BackupTabletInfo(tablet.getId(), files);
                     idxInfo.sortedTabletInfoList.add(tabletInfo);
                 }

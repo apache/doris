@@ -33,6 +33,15 @@ public class FileSystemFactory {
         return get(storageProperties);
     }
 
+    public static RemoteFileSystem get(StorageBackend.StorageType storageType, Map<String, String> properties)
+            throws UserException {
+        if (storageType.equals(StorageBackend.StorageType.BROKER)) {
+            return new BrokerFileSystem("broker", properties);
+        }
+        StorageProperties storageProperties = StorageProperties.createPrimary(properties);
+        return get(storageProperties);
+    }
+
     public static RemoteFileSystem get(StorageProperties storageProperties) {
         return StorageTypeMapper.create(storageProperties);
     }

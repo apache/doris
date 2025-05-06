@@ -592,6 +592,8 @@ public class GsonUtils {
                     org.apache.doris.fsv2.remote.ObjFileSystem.class.getSimpleName())
             .registerSubtype(org.apache.doris.fsv2.remote.S3FileSystem.class,
                     org.apache.doris.fsv2.remote.S3FileSystem.class.getSimpleName())
+            .registerSubtype(org.apache.doris.fsv2.remote.BrokerFileSystem.class,
+                    org.apache.doris.fsv2.remote.BrokerFileSystem.class.getSimpleName())
             .registerSubtype(org.apache.doris.fsv2.remote.AzureFileSystem.class,
                     org.apache.doris.fsv2.remote.AzureFileSystem.class.getSimpleName());
 

@@ -22,7 +22,6 @@ import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
-import org.apache.doris.datasource.property.constants.BosProperties;
 import org.apache.doris.thrift.TStorageBackendType;
 
 import com.google.common.base.Strings;
@@ -48,13 +47,13 @@ public class StorageBackend implements ParseNode {
             StorageType storageType, Map<String, String> properties) {
         this.storageDesc = new StorageDesc(storageName, storageType, properties);
         this.location = location;
-        boolean convertedToS3 = BosProperties.tryConvertBosToS3(properties, storageType);
+        /*boolean convertedToS3 = BosProperties.tryConvertBosToS3(properties, storageType);
         if (convertedToS3) {
             this.storageDesc.setStorageType(StorageBackend.StorageType.S3);
             this.location = BosProperties.convertPathToS3(location);
         } else {
             this.location = location;
-        }
+        }*/
     }
 
     public void setStorageDesc(StorageDesc storageDesc) {

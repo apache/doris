@@ -236,8 +236,10 @@ public class Repository implements Writable, GsonPostProcessable {
 
     @Override
     public void gsonPostProcess() {
-        StorageProperties storageProperties = StorageProperties.createPrimary(this.fileSystem.properties);
-        this.fileSystem = FileSystemFactory.get(storageProperties);
+        if (!BrokerFileSystem.class.equals(fileSystem.getClass())) {
+            StorageProperties storageProperties = StorageProperties.createPrimary(this.fileSystem.properties);
+            this.fileSystem = FileSystemFactory.get(storageProperties);
+        }
     }
 
     public long getId() {
