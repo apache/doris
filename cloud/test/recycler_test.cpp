@@ -3216,7 +3216,6 @@ TEST(CheckerTest, check_compaction_key) {
     ASSERT_EQ(checker.do_mow_compaction_key_check(), -1);
     std::this_thread::sleep_for(std::chrono::seconds(5));
 
-
     //test 3:
     //1.compaction a get lock and write compaction key, but not release lock
     //2.compaction key is expired
