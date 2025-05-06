@@ -938,7 +938,7 @@ TEST_F(ColumnStringTest, TestConcat) {
     ColumnNumbers arguments = {0, 1};
 
     FunctionStringConcat func_concat;
-    auto fn_ctx = FunctionContext::create_context(nullptr, TypeDescriptor {}, {});
+    auto fn_ctx = FunctionContext::create_context(nullptr, nullptr, {});
     {
         auto status =
                 func_concat.open(fn_ctx.get(), FunctionContext::FunctionStateScope::FRAGMENT_LOCAL);

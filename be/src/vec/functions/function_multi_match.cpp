@@ -73,7 +73,7 @@ Status FunctionMultiMatch::evaluate_inverted_index(
 
     // query
     auto query_str = arguments[1].column->get_data_at(0);
-    auto param_type = arguments[1].type->get_type_as_type_descriptor().type;
+    auto param_type = arguments[1].type->get_primitive_type();
     if (!is_string_type(param_type)) {
         return Status::Error<ErrorCode::INVERTED_INDEX_INVALID_PARAMETERS>(
                 "arguments for multi_match must be string");

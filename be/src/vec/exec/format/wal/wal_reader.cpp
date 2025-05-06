@@ -97,7 +97,7 @@ Status WalReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
     return Status::OK();
 }
 
-Status WalReader::get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
+Status WalReader::get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
                               std::unordered_set<std::string>* missing_cols) {
     std::string col_ids;
     RETURN_IF_ERROR(_wal_reader->read_header(_version, col_ids));

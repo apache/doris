@@ -38,8 +38,10 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalInlineTable;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
+import org.apache.doris.nereids.trees.plans.logical.LogicalLoadProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPreAggOnHint;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPreFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalQualify;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
@@ -177,6 +179,10 @@ public abstract class PlanVisitor<R, C> implements CommandVisitor<R, C>, Relatio
         return visit(filter, context);
     }
 
+    public R visitLogicalPreFilter(LogicalPreFilter<? extends Plan> filter, C context) {
+        return visit(filter, context);
+    }
+
     public R visitLogicalQualify(LogicalQualify<? extends Plan> filter, C context) {
         return visit(filter, context);
     }
@@ -210,6 +216,10 @@ public abstract class PlanVisitor<R, C> implements CommandVisitor<R, C>, Relatio
     }
 
     public R visitLogicalProject(LogicalProject<? extends Plan> project, C context) {
+        return visit(project, context);
+    }
+
+    public R visitLogicalLoadProject(LogicalLoadProject<? extends Plan> project, C context) {
         return visit(project, context);
     }
 

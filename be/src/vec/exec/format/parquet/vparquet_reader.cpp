@@ -429,8 +429,8 @@ Status ParquetReader::set_fill_columns(
     const FieldDescriptor& schema = _file_metadata->schema();
     for (auto& read_col : _read_columns) {
         _lazy_read_ctx.all_read_columns.emplace_back(read_col);
-        PrimitiveType column_type = schema.get_column(read_col)->type.type;
-        if (column_type == TYPE_ARRAY || column_type == TYPE_MAP || column_type == TYPE_STRUCT) {
+        auto column_type = schema.get_column(read_col)->data_type->get_primitive_type();
+        if (is_complex_type(column_type)) {
             _lazy_read_ctx.has_complex_type = true;
         }
         if (predicate_columns.size() > 0) {
@@ -492,7 +492,7 @@ Status ParquetReader::set_fill_columns(
 }
 
 Status ParquetReader::get_parsed_schema(std::vector<std::string>* col_names,
-                                        std::vector<TypeDescriptor>* col_types) {
+                                        std::vector<DataTypePtr>* col_types) {
     RETURN_IF_ERROR(_open_file());
     _t_metadata = &_file_metadata->to_thrift();
 
@@ -501,19 +501,19 @@ Status ParquetReader::get_parsed_schema(std::vector<std::string>* col_names,
     for (int i = 0; i < schema_desc.size(); ++i) {
         // Get the Column Reader for the boolean column
         col_names->emplace_back(schema_desc.get_column(i)->name);
-        col_types->emplace_back(schema_desc.get_column(i)->type);
+        col_types->emplace_back(make_nullable(schema_desc.get_column(i)->data_type));
     }
     return Status::OK();
 }
 
-Status ParquetReader::get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
+Status ParquetReader::get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
                                   std::unordered_set<std::string>* missing_cols) {
     const auto& schema_desc = _file_metadata->schema();
     std::unordered_set<std::string> column_names;
     schema_desc.get_column_names(&column_names);
     for (auto& name : column_names) {
         auto field = schema_desc.get_column(name);
-        name_to_type->emplace(name, field->type);
+        name_to_type->emplace(name, field->data_type);
     }
     for (auto& col : _missing_cols) {
         missing_cols->insert(col);
@@ -727,12 +727,12 @@ std::vector<io::PrefetchRange> ParquetReader::_generate_random_access_ranges(
     size_t total_io_size = 0;
     std::function<void(const FieldSchema*, const tparquet::RowGroup&)> scalar_range =
             [&](const FieldSchema* field, const tparquet::RowGroup& row_group) {
-                if (field->type.type == TYPE_ARRAY) {
+                if (field->data_type->get_primitive_type() == TYPE_ARRAY) {
                     scalar_range(&field->children[0], row_group);
-                } else if (field->type.type == TYPE_MAP) {
+                } else if (field->data_type->get_primitive_type() == TYPE_MAP) {
                     scalar_range(&field->children[0].children[0], row_group);
                     scalar_range(&field->children[0].children[1], row_group);
-                } else if (field->type.type == TYPE_STRUCT) {
+                } else if (field->data_type->get_primitive_type() == TYPE_STRUCT) {
                     for (int i = 0; i < field->children.size(); ++i) {
                         scalar_range(&field->children[i], row_group);
                     }

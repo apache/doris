@@ -62,7 +62,7 @@ public abstract class FileFormatProperties {
      * generate TResultFileSinkOptions according to the properties of specified file format
      * You must call method `analyzeFileFormatProperties` once before calling method `toTResultFileSinkOptions`
      */
-    public abstract TResultFileSinkOptions toTResultFileSinkOptions();
+    public abstract void fullTResultFileSinkOptions(TResultFileSinkOptions sinkOptions);
 
     /**
      * generate TFileAttributes according to the properties of specified file format

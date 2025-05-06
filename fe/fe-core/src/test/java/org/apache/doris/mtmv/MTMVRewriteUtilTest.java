@@ -17,6 +17,7 @@
 
 package org.apache.doris.mtmv;
 
+import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.common.AnalysisException;
@@ -105,7 +106,7 @@ public class MTMVRewriteUtilTest {
 
                 MTMVPartitionUtil.isMTMVPartitionSync((MTMVRefreshContext) any, anyString,
                         (Set<BaseTableInfo>) any,
-                        (Set<String>) any);
+                        (Set<TableName>) any);
                 minTimes = 0;
                 result = true;
 
@@ -126,7 +127,7 @@ public class MTMVRewriteUtilTest {
 
                 MTMVPartitionUtil.isMTMVPartitionSync((MTMVRefreshContext) any, anyString,
                         (Set<BaseTableInfo>) any,
-                        (Set<String>) any);
+                        (Set<TableName>) any);
                 minTimes = 0;
                 result = false;
             }
@@ -156,7 +157,7 @@ public class MTMVRewriteUtilTest {
 
                 MTMVPartitionUtil.isMTMVPartitionSync((MTMVRefreshContext) any, anyString,
                         (Set<BaseTableInfo>) any,
-                        (Set<String>) any);
+                        (Set<TableName>) any);
                 minTimes = 0;
                 result = false;
             }
@@ -177,7 +178,7 @@ public class MTMVRewriteUtilTest {
 
                 MTMVPartitionUtil.isMTMVPartitionSync((MTMVRefreshContext) any, anyString,
                         (Set<BaseTableInfo>) any,
-                        (Set<String>) any);
+                        (Set<TableName>) any);
                 minTimes = 0;
                 result = false;
             }
@@ -210,7 +211,7 @@ public class MTMVRewriteUtilTest {
             {
                 MTMVPartitionUtil.isMTMVPartitionSync((MTMVRefreshContext) any, anyString,
                         (Set<BaseTableInfo>) any,
-                        (Set<String>) any);
+                        (Set<TableName>) any);
                 minTimes = 0;
                 result = false;
             }

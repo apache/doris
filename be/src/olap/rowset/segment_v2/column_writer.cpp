@@ -273,7 +273,7 @@ Status ColumnWriter::create_agg_state_writer(const ColumnWriterOptions& opts,
                                              std::unique_ptr<ColumnWriter>* writer) {
     auto data_type = vectorized::DataTypeFactory::instance().create_data_type(*column);
     const auto* agg_state_type = assert_cast<const vectorized::DataTypeAggState*>(data_type.get());
-    auto type = agg_state_type->get_serialized_type()->get_type_as_type_descriptor().type;
+    auto type = agg_state_type->get_serialized_type()->get_primitive_type();
     if (type == PrimitiveType::TYPE_STRING || type == PrimitiveType::INVALID_TYPE ||
         type == PrimitiveType::TYPE_OBJECT) {
         *writer = std::unique_ptr<ColumnWriter>(new ScalarColumnWriter(

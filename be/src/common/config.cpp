@@ -925,7 +925,7 @@ DEFINE_Int32(multi_table_max_wait_tables, "5");
 // Doris treats it as a high priority task.
 // high priority tasks use a separate thread pool for flush and do not block rpc by memory cleanup logic.
 // this threshold is mainly used to identify routine load tasks and should not be modified if not necessary.
-DEFINE_mInt32(load_task_high_priority_threshold_second, "120");
+DEFINE_mInt32(load_task_high_priority_threshold_second, "600");
 
 // The min timeout of load rpc (add batch, close, etc.)
 // Because a load rpc may be blocked for a while.
@@ -1096,6 +1096,7 @@ DEFINE_mInt64(cache_lock_held_long_tail_threshold_us, "30000000");
 DEFINE_mBool(enable_file_cache_keep_base_compaction_output, "false");
 DEFINE_mInt64(file_cache_remove_block_qps_limit, "1000");
 DEFINE_mInt64(file_cache_background_gc_interval_ms, "100");
+DEFINE_mBool(enable_reader_dryrun_when_download_file_cache, "true");
 DEFINE_mInt64(file_cache_background_monitor_interval_ms, "5000");
 DEFINE_mInt64(file_cache_background_ttl_gc_interval_ms, "3000");
 DEFINE_mInt64(file_cache_background_ttl_gc_batch, "1000");

@@ -40,7 +40,6 @@ class TFileScanRangeParams;
 namespace io {
 struct IOContext;
 } // namespace io
-struct TypeDescriptor;
 
 namespace vectorized {
 class Block;

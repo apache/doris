@@ -30,7 +30,6 @@ import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
-import org.apache.doris.common.security.authentication.AuthenticationConfig;
 import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.system.SystemInfoService;
@@ -83,10 +82,10 @@ public class HdfsStorageVaultTest {
                 "type", "hdfs",
                 "path", "abs/",
                 S3Properties.VALIDITY_CHECK, "false",
-                HdfsStorageVault.HADOOP_FS_NAME, "default"));
+                HdfsStorageVault.PropertyKey.HADOOP_FS_NAME, "default"));
         Map<String, String> properties = vault.getCopiedProperties();
         // To check if the properties is carried correctly
-        Assertions.assertEquals(properties.get(HdfsStorageVault.HADOOP_FS_NAME), "default");
+        Assertions.assertEquals(properties.get(HdfsStorageVault.PropertyKey.HADOOP_FS_NAME), "default");
         mgr.createHdfsVault(vault);
     }
 
@@ -237,9 +236,9 @@ public class HdfsStorageVaultTest {
             Assumptions.assumeTrue(!Strings.isNullOrEmpty(hadoopUser), "HADOOP_USER isNullOrEmpty.");
 
             ImmutableMap<String, String> properties = ImmutableMap.of(
-                    HdfsStorageVault.HADOOP_FS_NAME, hadoopFsName,
-                    AuthenticationConfig.HADOOP_USER_NAME, hadoopUser,
-                    HdfsStorageVault.VAULT_PATH_PREFIX, "testCheckConnectivityUtPrefix"
+                    HdfsStorageVault.PropertyKey.HADOOP_FS_NAME, hadoopFsName,
+                    HdfsStorageVault.PropertyKey.HADOOP_USER_NAME, hadoopUser,
+                    HdfsStorageVault.PropertyKey.VAULT_PATH_PREFIX, "testCheckConnectivityUtPrefix"
             );
 
             HdfsStorageVault vault = new HdfsStorageVault("testHdfsVault", false, false);
@@ -253,9 +252,9 @@ public class HdfsStorageVaultTest {
     @Test
     public void testCheckConnectivityException() {
         ImmutableMap<String, String> properties = ImmutableMap.of(
-                HdfsStorageVault.HADOOP_FS_NAME, "hdfs://localhost:10000",
-                AuthenticationConfig.HADOOP_USER_NAME, "notExistUser",
-                HdfsStorageVault.VAULT_PATH_PREFIX, "testCheckConnectivityUtPrefix"
+                HdfsStorageVault.PropertyKey.HADOOP_FS_NAME, "hdfs://localhost:10000",
+                HdfsStorageVault.PropertyKey.HADOOP_USER_NAME, "notExistUser",
+                HdfsStorageVault.PropertyKey.VAULT_PATH_PREFIX, "testCheckConnectivityUtPrefix"
         );
 
         HdfsStorageVault vault = new HdfsStorageVault("testHdfsVault", false, false);
@@ -267,9 +266,9 @@ public class HdfsStorageVaultTest {
     @Test
     public void testIgnoreCheckConnectivity() throws DdlException {
         ImmutableMap<String, String> properties = ImmutableMap.of(
-                HdfsStorageVault.HADOOP_FS_NAME, "hdfs://localhost:10000",
-                AuthenticationConfig.HADOOP_USER_NAME, "notExistUser",
-                HdfsStorageVault.VAULT_PATH_PREFIX, "testCheckConnectivityUtPrefix",
+                HdfsStorageVault.PropertyKey.HADOOP_FS_NAME, "hdfs://localhost:10000",
+                HdfsStorageVault.PropertyKey.HADOOP_USER_NAME, "notExistUser",
+                HdfsStorageVault.PropertyKey.VAULT_PATH_PREFIX, "testCheckConnectivityUtPrefix",
                 S3Properties.VALIDITY_CHECK, "false"
         );
 

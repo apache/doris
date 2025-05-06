@@ -27,12 +27,6 @@
 
 namespace doris {
 
-class MockSlotDescriptor : public SlotDescriptor {
-public:
-    doris::vectorized::DataTypePtr get_data_type_ptr() const override { return type; }
-    vectorized::DataTypePtr type;
-};
-
 class MockTupleDescriptor : public TupleDescriptor {
 public:
     const std::vector<SlotDescriptor*>& slots() const override { return Slots; }
@@ -46,8 +40,8 @@ public:
     MockRowDescriptor(std::vector<vectorized::DataTypePtr> types, ObjectPool* pool) {
         std::vector<SlotDescriptor*> slots;
         for (auto type : types) {
-            auto* slot = pool->add(new MockSlotDescriptor());
-            slot->type = type;
+            auto* slot = pool->add(new SlotDescriptor());
+            slot->_type = type;
             slots.push_back(slot);
             _num_slots++;
         }
@@ -68,8 +62,8 @@ public:
     MockDescriptorTbl(std::vector<vectorized::DataTypePtr> types, ObjectPool* pool) {
         std::vector<SlotDescriptor*> slots;
         for (auto type : types) {
-            auto* slot = pool->add(new MockSlotDescriptor());
-            slot->type = type;
+            auto* slot = pool->add(new SlotDescriptor());
+            slot->_type = type;
             slots.push_back(slot);
         }
         auto* tuple_desc = pool->add(new MockTupleDescriptor());

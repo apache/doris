@@ -63,20 +63,22 @@ bool PhysicalToLogicalConverter::is_decimal_type(doris::PrimitiveType type) {
 }
 
 ColumnPtr PhysicalToLogicalConverter::get_physical_column(tparquet::Type::type src_physical_type,
-                                                          TypeDescriptor src_logical_type,
+                                                          DataTypePtr src_logical_type,
                                                           ColumnPtr& dst_logical_column,
                                                           const DataTypePtr& dst_logical_type,
                                                           bool is_dict_filter) {
     if (is_dict_filter) {
         src_physical_type = tparquet::Type::INT32;
-        src_logical_type = TypeDescriptor(PrimitiveType::TYPE_INT);
+        src_logical_type = DataTypeFactory::instance().create_data_type(
+                PrimitiveType::TYPE_INT, dst_logical_type->is_nullable());
     }
 
     if (!_convert_params->is_type_compatibility && is_consistent() &&
         _logical_converter->is_consistent()) {
         if (_cached_src_physical_type == nullptr) {
-            _cached_src_physical_type = DataTypeFactory::instance().create_data_type(
-                    src_logical_type, dst_logical_type->is_nullable());
+            _cached_src_physical_type = dst_logical_type->is_nullable()
+                                                ? make_nullable(src_logical_type)
+                                                : remove_nullable(src_logical_type);
         }
         return dst_logical_column;
     }
@@ -121,7 +123,7 @@ ColumnPtr PhysicalToLogicalConverter::get_physical_column(tparquet::Type::type s
         // call mutable function `doris_nullable_column->get_null_map_column_ptr()` which will set `_need_update_has_null = true`.
         // Because some operations such as agg will call `has_null()` to set `_need_update_has_null = false`.
         auto* doris_nullable_column = const_cast<ColumnNullable*>(
-                static_cast<const ColumnNullable*>(dst_logical_column.get()));
+                assert_cast<const ColumnNullable*>(dst_logical_column.get()));
         return ColumnNullable::create(_cached_src_physical_column,
                                       doris_nullable_column->get_null_map_column_ptr());
     }
@@ -129,18 +131,17 @@ ColumnPtr PhysicalToLogicalConverter::get_physical_column(tparquet::Type::type s
     return _cached_src_physical_column;
 }
 
-static void get_decimal_converter(FieldSchema* field_schema, TypeDescriptor src_logical_type,
+static void get_decimal_converter(FieldSchema* field_schema, DataTypePtr src_logical_type,
                                   const DataTypePtr& dst_logical_type,
                                   ConvertParams* convert_params,
                                   std::unique_ptr<PhysicalToLogicalConverter>& physical_converter) {
     const tparquet::SchemaElement& parquet_schema = field_schema->parquet_schema;
     if (is_decimal(remove_nullable(dst_logical_type))) {
-        src_logical_type = create_decimal(parquet_schema.precision, parquet_schema.scale, false)
-                                   ->get_type_as_type_descriptor();
+        src_logical_type = create_decimal(parquet_schema.precision, parquet_schema.scale, false);
     }
 
     tparquet::Type::type src_physical_type = parquet_schema.type;
-    PrimitiveType src_logical_primitive = src_logical_type.type;
+    PrimitiveType src_logical_primitive = src_logical_type->get_primitive_type();
 
     if (src_physical_type == tparquet::Type::FIXED_LEN_BYTE_ARRAY) {
         switch (src_logical_primitive) {
@@ -197,7 +198,7 @@ static void get_decimal_converter(FieldSchema* field_schema, TypeDescriptor src_
 }
 
 std::unique_ptr<PhysicalToLogicalConverter> PhysicalToLogicalConverter::get_converter(
-        FieldSchema* field_schema, TypeDescriptor src_logical_type,
+        FieldSchema* field_schema, DataTypePtr src_logical_type,
         const DataTypePtr& dst_logical_type, cctz::time_zone* ctz, bool is_dict_filter) {
     std::unique_ptr<ConvertParams> convert_params = std::make_unique<ConvertParams>();
     const tparquet::SchemaElement& parquet_schema = field_schema->parquet_schema;
@@ -206,18 +207,19 @@ std::unique_ptr<PhysicalToLogicalConverter> PhysicalToLogicalConverter::get_conv
     std::unique_ptr<PhysicalToLogicalConverter> physical_converter;
     if (is_dict_filter) {
         src_physical_type = tparquet::Type::INT32;
-        src_logical_type = TypeDescriptor(PrimitiveType::TYPE_INT);
+        src_logical_type = DataTypeFactory::instance().create_data_type(
+                PrimitiveType::TYPE_INT, dst_logical_type->is_nullable());
     }
-    PrimitiveType src_logical_primitive = src_logical_type.type;
+    PrimitiveType src_logical_primitive = src_logical_type->get_primitive_type();
 
     if (field_schema->is_type_compatibility) {
-        if (src_logical_type.is<TYPE_SMALLINT>()) {
+        if (src_logical_primitive == TYPE_SMALLINT) {
             physical_converter = std::make_unique<UnsignedIntegerConverter<TYPE_SMALLINT>>();
-        } else if (src_logical_type.is<TYPE_INT>()) {
+        } else if (src_logical_primitive == TYPE_INT) {
             physical_converter = std::make_unique<UnsignedIntegerConverter<TYPE_INT>>();
-        } else if (src_logical_type.is<TYPE_BIGINT>()) {
+        } else if (src_logical_primitive == TYPE_BIGINT) {
             physical_converter = std::make_unique<UnsignedIntegerConverter<TYPE_BIGINT>>();
-        } else if (src_logical_type.is<TYPE_LARGEINT>()) {
+        } else if (src_logical_primitive == TYPE_LARGEINT) {
             physical_converter = std::make_unique<UnsignedIntegerConverter<TYPE_LARGEINT>>();
         } else {
             physical_converter =
@@ -232,23 +234,22 @@ std::unique_ptr<PhysicalToLogicalConverter> PhysicalToLogicalConverter::get_conv
         } else {
             physical_converter = std::make_unique<ConsistentPhysicalConverter>();
         }
-    } else if (src_logical_type.is<TYPE_TINYINT>()) {
+    } else if (src_logical_primitive == TYPE_TINYINT) {
         physical_converter = std::make_unique<LittleIntPhysicalConverter<TYPE_TINYINT>>();
-    } else if (src_logical_type.is<TYPE_SMALLINT>()) {
+    } else if (src_logical_primitive == TYPE_SMALLINT) {
         physical_converter = std::make_unique<LittleIntPhysicalConverter<TYPE_SMALLINT>>();
     } else if (is_decimal_type(src_logical_primitive)) {
         get_decimal_converter(field_schema, src_logical_type, dst_logical_type,
                               convert_params.get(), physical_converter);
-    } else if (src_logical_type.is<TYPE_DATEV2>()) {
+    } else if (src_logical_primitive == TYPE_DATEV2) {
         physical_converter = std::make_unique<Int32ToDate>();
-    } else if (src_logical_type.is<TYPE_DATETIMEV2>()) {
+    } else if (src_logical_primitive == TYPE_DATETIMEV2) {
         if (src_physical_type == tparquet::Type::INT96) {
             // int96 only stores nanoseconds in standard parquet file
             convert_params->reset_time_scale_if_missing(9);
             physical_converter = std::make_unique<Int96toTimestamp>();
         } else if (src_physical_type == tparquet::Type::INT64) {
-            convert_params->reset_time_scale_if_missing(
-                    remove_nullable(dst_logical_type)->get_scale());
+            convert_params->reset_time_scale_if_missing(dst_logical_type->get_scale());
             physical_converter = std::make_unique<Int64ToTimestamp>();
         } else {
             physical_converter =

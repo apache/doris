@@ -558,8 +558,7 @@ TEST_F(TestDeltaWriter, vec_write) {
     vectorized::Block block;
     for (const auto& slot_desc : tuple_desc->slots()) {
         block.insert(vectorized::ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(),
-                                                       slot_desc->get_data_type_ptr(),
-                                                       slot_desc->col_name()));
+                                                       slot_desc->type(), slot_desc->col_name()));
     }
 
     auto columns = block.mutate_columns();
@@ -722,8 +721,7 @@ TEST_F(TestDeltaWriter, vec_sequence_col) {
     vectorized::Block block;
     for (const auto& slot_desc : tuple_desc->slots()) {
         block.insert(vectorized::ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(),
-                                                       slot_desc->get_data_type_ptr(),
-                                                       slot_desc->col_name()));
+                                                       slot_desc->type(), slot_desc->col_name()));
     }
 
     generate_data(&block, 123, 456, 100);
@@ -846,7 +844,7 @@ TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
         vectorized::Block block;
         for (const auto& slot_desc : tuple_desc->slots()) {
             block.insert(vectorized::ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(),
-                                                           slot_desc->get_data_type_ptr(),
+                                                           slot_desc->type(),
                                                            slot_desc->col_name()));
         }
 
@@ -876,7 +874,7 @@ TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
         vectorized::Block block;
         for (const auto& slot_desc : tuple_desc->slots()) {
             block.insert(vectorized::ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(),
-                                                           slot_desc->get_data_type_ptr(),
+                                                           slot_desc->type(),
                                                            slot_desc->col_name()));
         }
 

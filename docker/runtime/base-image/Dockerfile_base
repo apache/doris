@@ -28,11 +28,14 @@ ARG TARGETARCH
 
 RUN sed -i -e 's/^APT/# APT/' -e 's/^DPkg/# DPkg/' /etc/apt/apt.conf.d/docker-clean && \
     apt-get update -y &&  DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    patchelf gdb binutils binutils-common mysql-client iperf3\
+    patchelf gdb binutils binutils-common mysql-client iperf3 \
     curl wget less vim htop iproute2 numactl jq iotop sysstat \
     tcpdump iputils-ping dnsutils strace lsof blktrace tzdata \
     bpfcc-tools linux-headers-realtime linux-tools-realtime silversearcher-ag \
+    google-perftools libperl-dev python2-dev \
     net-tools ca-certificates openssl && apt-get clean && rm -rf /var/lib/apt/lists/* && mkdir -p /usr/lib/jvm/ && \
+    ln -sf /usr/lib/linux-tools/`ls /usr/lib/linux-tools/`/perf /usr/bin/perf &&\
+    ln -s /usr/bin/google-pprof /usr/bin/pprof && \
     if echo $TARGETARCH | grep 'arm64' >>/dev/null ; then \
         wget -c http://selectdb-doris-1308700295.cos.ap-beijing.myqcloud.com/toolkit/jdk/bisheng-jdk-17.0.10-linux-aarch64.tar.gz  -O - | tar -xz -C /usr/lib/jvm/ && mv /usr/lib/jvm/bisheng-jdk-17.0.10/ /usr/lib/jvm/jdk-17 && \
         wget -c http://selectdb-doris-1308700295.cos.ap-beijing.myqcloud.com/toolkit/jdk/bisheng-jdk-8u352-linux-aarch64.tar.gz  -O - | tar -xz -C /usr/lib/jvm/ && mv /usr/lib/jvm/bisheng-jdk1.8.0_352/ /usr/lib/jvm/jdk-8; \
@@ -44,3 +47,6 @@ RUN sed -i -e 's/^APT/# APT/' -e 's/^DPkg/# DPkg/' /etc/apt/apt.conf.d/docker-cl
 COPY --from=apache/doris:debug-latest /doris-debug /opt/apache-doris/
 
 WORKDIR /opt/apache-doris
+
+# The last update at: April 29, 2025.
+# The docker image tag is changed to: base-2.0

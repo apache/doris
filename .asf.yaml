@@ -127,8 +127,10 @@ github:
     - freemandealer
     - shuke987
     - wm1581066
-    - yujun777
     - doris-robot
-    - LiBinfeng-01
+    - echo-hhj
+    - yuanyuan8983
+    - yz-jayhua
+    - ixzc
 notifications:
   pullrequests_status:  commits@doris.apache.org

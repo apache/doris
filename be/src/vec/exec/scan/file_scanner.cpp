@@ -480,7 +480,7 @@ Status FileScanner::_check_output_block_types() {
         if (format_type == TFileFormatType::FORMAT_PARQUET ||
             format_type == TFileFormatType::FORMAT_ORC) {
             for (auto slot : _output_tuple_desc->slots()) {
-                if (slot->type().is_complex_type()) {
+                if (is_complex_type(slot->type()->get_primitive_type())) {
                     return Status::InternalError(
                             "Parquet/orc doesn't support complex types in broker/stream load, "
                             "please use tvf(table value function) to insert complex types.");
@@ -522,14 +522,7 @@ Status FileScanner::_init_src_block(Block* block) {
                 _sequence_map_col_uid = slot->col_unique_id();
             }
         }
-        if (it == _name_to_col_type.end()) {
-            // not exist in file, using type from _input_tuple_desc
-            RETURN_IF_CATCH_EXCEPTION(data_type = DataTypeFactory::instance().create_data_type(
-                                              slot->type(), slot->is_nullable()));
-        } else {
-            RETURN_IF_CATCH_EXCEPTION(
-                    data_type = DataTypeFactory::instance().create_data_type(it->second, true));
-        }
+        data_type = it == _name_to_col_type.end() ? slot->type() : make_nullable(it->second);
         MutableColumnPtr data_column = data_type->create_column();
         _src_block.insert(
                 ColumnWithTypeAndName(std::move(data_column), data_type, slot->col_name()));
@@ -561,20 +554,24 @@ Status FileScanner::_cast_to_input_block(Block* block) {
             // skip columns which does not exist in file
             continue;
         }
-        if (slot_desc->type().is_variant_type()) {
+        if (slot_desc->type()->get_primitive_type() == PrimitiveType::TYPE_VARIANT) {
             // skip variant type
             continue;
         }
         auto& arg = _src_block_ptr->get_by_name(slot_desc->col_name());
         auto return_type = slot_desc->get_data_type_ptr();
         // remove nullable here, let the get_function decide whether nullable
-        auto data_type = vectorized::DataTypeFactory::instance().create_data_type(
-                remove_nullable(return_type)->get_type_as_type_descriptor());
+        auto data_type = get_data_type_with_default_argument(remove_nullable(return_type));
         ColumnsWithTypeAndName arguments {
                 arg, {data_type->create_column(), data_type, slot_desc->col_name()}};
         auto func_cast = SimpleFunctionFactory::instance().get_function(
                 "CAST", arguments, return_type,
                 {.enable_decimal256 = runtime_state()->enable_decimal256()});
+        if (!func_cast) {
+            return Status::InternalError("Function CAST[arg={}, col name={}, return={}] not found!",
+                                         arg.type->get_name(), slot_desc->col_name(),
+                                         return_type->get_name());
+        }
         idx = _src_block_name_to_idx[slot_desc->col_name()];
         RETURN_IF_ERROR(
                 func_cast->execute(nullptr, *_src_block_ptr, {idx}, idx, arg.column->size()));
@@ -806,21 +803,30 @@ Status FileScanner::_truncate_char_or_varchar_columns(Block* block) {
         if (!slot_desc->is_materialized()) {
             continue;
         }
-        const TypeDescriptor& type_desc = slot_desc->type();
-        if (type_desc.type != TYPE_VARCHAR && type_desc.type != TYPE_CHAR) {
+        const auto& type = slot_desc->type();
+        if (type->get_primitive_type() != TYPE_VARCHAR && type->get_primitive_type() != TYPE_CHAR) {
             ++idx;
             continue;
         }
         auto iter = _source_file_col_name_types.find(slot_desc->col_name());
         if (iter != _source_file_col_name_types.end()) {
-            const TypeDescriptor* file_type_desc =
-                    _source_file_col_name_types[slot_desc->col_name()];
-            if ((type_desc.len > 0) &&
-                (type_desc.len < file_type_desc->len || file_type_desc->len < 0)) {
-                _truncate_char_or_varchar_column(block, idx, type_desc.len);
+            const auto file_type_desc = _source_file_col_name_types[slot_desc->col_name()];
+            int l = -1;
+            if (auto* ftype = check_and_get_data_type<DataTypeString>(
+                        remove_nullable(file_type_desc).get())) {
+                l = ftype->len();
+            }
+            if ((assert_cast<const DataTypeString*>(remove_nullable(type).get())->len() > 0) &&
+                (assert_cast<const DataTypeString*>(remove_nullable(type).get())->len() < l ||
+                 l < 0)) {
+                _truncate_char_or_varchar_column(
+                        block, idx,
+                        assert_cast<const DataTypeString*>(remove_nullable(type).get())->len());
             }
         } else {
-            _truncate_char_or_varchar_column(block, idx, type_desc.len);
+            _truncate_char_or_varchar_column(
+                    block, idx,
+                    assert_cast<const DataTypeString*>(remove_nullable(type).get())->len());
         }
         ++idx;
     }
@@ -1202,7 +1208,7 @@ Status FileScanner::_get_next_reader() {
             }
             DCHECK(_source_file_col_names.size() == _source_file_col_types.size());
             for (int i = 0; i < _source_file_col_names.size(); ++i) {
-                _source_file_col_name_types[_source_file_col_names[i]] = &_source_file_col_types[i];
+                _source_file_col_name_types[_source_file_col_names[i]] = _source_file_col_types[i];
             }
         }
         _cur_reader_eof = false;

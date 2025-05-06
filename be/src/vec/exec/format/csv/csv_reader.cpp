@@ -569,7 +569,7 @@ Status CsvReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
     return Status::OK();
 }
 
-Status CsvReader::get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
+Status CsvReader::get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
                               std::unordered_set<std::string>* missing_cols) {
     for (const auto& slot : _file_slot_descs) {
         name_to_type->emplace(slot->col_name(), slot->type());
@@ -578,7 +578,7 @@ Status CsvReader::get_columns(std::unordered_map<std::string, TypeDescriptor>* n
 }
 
 Status CsvReader::get_parsed_schema(std::vector<std::string>* col_names,
-                                    std::vector<TypeDescriptor>* col_types) {
+                                    std::vector<DataTypePtr>* col_types) {
     size_t read_line = 0;
     bool is_parse_name = false;
     RETURN_IF_ERROR(_prepare_parse(&read_line, &is_parse_name));
@@ -595,7 +595,8 @@ Status CsvReader::get_parsed_schema(std::vector<std::string>* col_names,
         }
 
         for (size_t j = 0; j < col_names->size(); ++j) {
-            col_types->emplace_back(TypeDescriptor::create_string_type());
+            col_types->emplace_back(
+                    DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_STRING, true));
         }
     } else { // parse csv file with names and types
         RETURN_IF_ERROR(_parse_col_names(col_names));
@@ -787,32 +788,6 @@ void CsvReader::_split_line(const Slice& line) {
     _fields_splitter->split_line(line, &_split_values);
 }
 
-Status CsvReader::_check_array_format(std::vector<Slice>& split_values, bool* is_success) {
-    // if not the array format, filter this line and return error url
-    for (int j = 0; j < _file_slot_descs.size(); ++j) {
-        auto* slot_desc = _file_slot_descs[j];
-        if (!slot_desc->is_materialized()) {
-            continue;
-        }
-        const Slice& value = split_values[j];
-        if (slot_desc->type().is_array_type() && !_is_null(value) && !_is_array(value)) {
-            _counter->num_rows_filtered++;
-            *is_success = false;
-            RETURN_IF_ERROR(_state->append_error_msg_to_file(
-                    [&]() -> std::string { return std::string(value.data, value.size); },
-                    [&]() -> std::string {
-                        fmt::memory_buffer err_msg;
-                        fmt::format_to(err_msg, "Invalid format for array column({})",
-                                       slot_desc->col_name());
-                        return fmt::to_string(err_msg);
-                    }));
-            return Status::OK();
-        }
-    }
-    *is_success = true;
-    return Status::OK();
-}
-
 bool CsvReader::_is_null(const Slice& slice) {
     return slice.size == 2 && slice.data[0] == '\\' && slice.data[1] == 'N';
 }
@@ -977,10 +952,10 @@ Status CsvReader::_parse_col_names(std::vector<std::string>* col_names) {
 }
 
 // TODO(ftw): parse type
-Status CsvReader::_parse_col_types(size_t col_nums, std::vector<TypeDescriptor>* col_types) {
+Status CsvReader::_parse_col_types(size_t col_nums, std::vector<DataTypePtr>* col_types) {
     // delete after.
     for (size_t i = 0; i < col_nums; ++i) {
-        col_types->emplace_back(TypeDescriptor::create_string_type());
+        col_types->emplace_back(make_nullable(std::make_shared<DataTypeString>()));
     }
 
     // 1. check _line_reader_eof

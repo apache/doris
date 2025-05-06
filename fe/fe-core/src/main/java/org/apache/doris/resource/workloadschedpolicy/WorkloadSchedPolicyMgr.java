@@ -34,6 +34,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.resource.Tag;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.thrift.TCompareOperator;
 import org.apache.doris.thrift.TUserIdentity;
@@ -447,10 +448,24 @@ public class WorkloadSchedPolicyMgr extends MasterDaemon implements Writable, Gs
 
         String workloadGroupNameStr = properties.get(WorkloadSchedPolicy.WORKLOAD_GROUP);
         if (workloadGroupNameStr != null && !workloadGroupNameStr.isEmpty()) {
-            Long wgId = Env.getCurrentEnv().getWorkloadGroupMgr().getWorkloadGroupIdByName(workloadGroupNameStr);
-            if (wgId == null) {
-                throw new UserException("unknown workload group:" + workloadGroupNameStr);
+            String cg = Config.isCloudMode() ? Tag.VALUE_DEFAULT_COMPUTE_GROUP_NAME : Tag.VALUE_DEFAULT_TAG;
+            String wg = "";
+            String[] ss = workloadGroupNameStr.split("\\.");
+            if (ss.length == 1) {
+                wg = ss[0];
+            } else if (ss.length == 2) {
+                cg = ss[0];
+                wg = ss[1];
+            } else {
+                throw new UserException("invalid workload group format: " + workloadGroupNameStr);
             }
+            ConnectContext tmpCtx = new ConnectContext();
+            tmpCtx.setComputeGroup(
+                    Env.getCurrentEnv().getComputeGroupMgr().getComputeGroupByName(cg));
+            tmpCtx.getSessionVariable().setWorkloadGroup(wg);
+            tmpCtx.setCurrentUserIdentity(UserIdentity.ROOT);
+            Long wgId = Env.getCurrentEnv().getWorkloadGroupMgr().getWorkloadGroup(tmpCtx)
+                    .get(0).getId();
             wgIdList.add(wgId);
         }
     }

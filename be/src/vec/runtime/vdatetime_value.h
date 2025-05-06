@@ -219,6 +219,8 @@ static RE2 time_zone_offset_format_reg(R"(^[+-]{1}\d{2}\:\d{2}$)");
 
 uint8_t mysql_week_mode(uint32_t mode);
 
+inline uint32_t calc_daynr(uint16_t year, uint8_t month, uint8_t day);
+
 struct DateV2ValueType {
     uint32_t day_ : 5;
     uint32_t month_ : 4;
@@ -266,7 +268,6 @@ public:
               _year(0) {} // before int128  16 bytes  --->  after int64 8 bytes
 
     const static VecDateTimeValue FIRST_DAY;
-    const static VecDateTimeValue FIRST_SUNDAY;
 
     // The data format of DATE/DATETIME is different in storage layer and execute layer.
     // So we should use different creator to get data from value.
@@ -768,10 +769,7 @@ private:
               _year(year) {}
 };
 
-inline const VecDateTimeValue VecDateTimeValue::FIRST_DAY(false, TYPE_DATETIME, 0, 0, 0, 1970, 1,
-                                                          1);
-inline const VecDateTimeValue VecDateTimeValue::FIRST_SUNDAY(false, TYPE_DATETIME, 0, 0, 0, 1970, 1,
-                                                             4);
+inline const VecDateTimeValue VecDateTimeValue::FIRST_DAY(false, TYPE_DATETIME, 0, 0, 0, 1, 1, 1);
 
 template <typename T>
 class DateV2Value {
@@ -792,7 +790,6 @@ public:
     DateV2Value(const DateV2Value<T>& other) = default;
 
     const static DateV2Value<T> FIRST_DAY;
-    const static DateV2Value<T> FIRST_SUNDAY;
 
     static DateV2Value create_from_olap_date(uint64_t value) {
         DateV2Value<T> date;
@@ -1375,9 +1372,7 @@ private:
 };
 
 template <typename T>
-inline const DateV2Value<T> DateV2Value<T>::FIRST_DAY = DateV2Value<T>(1970, 1, 1, 0, 0, 0, 0);
-template <typename T>
-inline const DateV2Value<T> DateV2Value<T>::FIRST_SUNDAY = DateV2Value<T>(1970, 1, 4, 0, 0, 0, 0);
+inline const DateV2Value<T> DateV2Value<T>::FIRST_DAY = DateV2Value<T>(0001, 1, 1, 0, 0, 0, 0);
 
 // only support DATE - DATE (no support DATETIME - DATETIME)
 std::size_t operator-(const VecDateTimeValue& v1, const VecDateTimeValue& v2);
@@ -1620,9 +1615,9 @@ public:
         return res >= 0 ? res <= DAY_AFTER_EPOCH : -res <= DAY_BEFORE_EPOCH;
     }
 
-    static date_day_offset_dict& get();
+    static date_day_offset_dict& get() { return instance; }
 
-    static bool get_dict_init();
+    static bool get_dict_init() { return DATE_DAY_OFFSET_ITEMS_INIT; }
 
     inline DateV2Value<DateV2ValueType> operator[](int day) const {
         int index = day + DAY_BEFORE_EPOCH;
@@ -1634,8 +1629,42 @@ public:
         }
     }
 
-    int daynr(int year, int month, int day) const;
+    int daynr(int year, int month, int day) const {
+        return DATE_DAY_OFFSET_DICT[year - START_YEAR][month - 1][day - 1];
+    }
 };
+
+inline uint32_t calc_daynr(uint16_t year, uint8_t month, uint8_t day) {
+    // date_day_offet_dict range from [1900-01-01, 2039-12-31]
+    if (date_day_offset_dict::can_speed_up_calc_daynr(year) &&
+        LIKELY(date_day_offset_dict::get_dict_init())) {
+        return date_day_offset_dict::get().daynr(year, month, day);
+    }
+
+    uint32_t delsum = 0;
+    int y = year;
+
+    if (year == 0 && month == 0) {
+        return 0;
+    }
+    if (year == 0 && month == 1 && day == 1) {
+        return 1;
+    }
+
+    /* Cast to int to be able to handle month == 0 */
+    delsum = 365 * y + 31 * (month - 1) + day;
+    if (month <= 2) {
+        // No leap year
+        y--;
+    } else {
+        // This is great!!!
+        // 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12
+        // 0, 0, 3, 3, 4, 4, 5, 5, 5,  6,  7,  8
+        delsum -= (month * 4 + 23) / 10;
+    }
+    // Every 400 year has 97 leap year, 100, 200, 300 are not leap year.
+    return delsum + y / 4 - y / 100 + y / 400;
+}
 
 template <typename T>
 struct DateTraits {};

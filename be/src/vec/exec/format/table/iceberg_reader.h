@@ -54,8 +54,6 @@ class TupleDescriptor;
 namespace io {
 struct IOContext;
 } // namespace io
-struct TypeDescriptor;
-
 namespace vectorized {
 template <typename T>
 class ColumnStr;
@@ -119,9 +117,9 @@ protected:
     Status _equality_delete_base(const std::vector<TIcebergDeleteFileDesc>& delete_files);
     virtual std::unique_ptr<GenericReader> _create_equality_reader(
             const TFileRangeDesc& delete_desc) = 0;
-    void _generate_equality_delete_block(
-            Block* block, const std::vector<std::string>& equality_delete_col_names,
-            const std::vector<TypeDescriptor>& equality_delete_col_types);
+    void _generate_equality_delete_block(Block* block,
+                                         const std::vector<std::string>& equality_delete_col_names,
+                                         const std::vector<DataTypePtr>& equality_delete_col_types);
     // Equality delete should read the primary columns. Add the missing columns
     Status _expand_block_if_need(Block* block);
     // Remove the added delete columns
@@ -140,7 +138,6 @@ protected:
     const std::string ICEBERG_ROW_POS = "pos";
     const std::string ICEBERG_FILE_PATH = "file_path";
     const std::vector<std::string> delete_file_col_names {ICEBERG_ROW_POS, ICEBERG_FILE_PATH};
-    const std::vector<TypeDescriptor> delete_file_col_types {{TYPE_STRING}, {TYPE_BIGINT}};
     const int ICEBERG_FILE_PATH_INDEX = 0;
     const int ICEBERG_FILE_POS_INDEX = 1;
     const int READ_DELETE_FILE_BATCH_SIZE = 102400;
