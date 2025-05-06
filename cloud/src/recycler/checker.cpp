@@ -194,7 +194,7 @@ int Checker::start() {
             }
 
             if (config::enable_compaction_key_check) {
-                if (int ret = checker->do_compaction_key_check(); ret != 0) {
+                if (int ret = checker->do_mow_compaction_key_check(); ret != 0) {
                     success = false;
                 }
             }
@@ -1195,7 +1195,7 @@ int InstanceChecker::do_delete_bitmap_storage_optimize_check() {
     return (failed_tablets_num > 0) ? 1 : 0;
 }
 
-int InstanceChecker::do_compaction_key_check() {
+int InstanceChecker::do_mow_compaction_key_check() {
     std::unique_ptr<RangeGetIterator> it;
     std::string begin = mow_tablet_compaction_key({instance_id_, 0, 0});
     std::string end = mow_tablet_compaction_key({instance_id_, INT64_MAX, 0});
@@ -1224,18 +1224,43 @@ int InstanceChecker::do_compaction_key_check() {
             // 0x01 "meta" ${instance_id} "mow_tablet_comp" ${table_id} ${initiator}
             auto table_id = std::get<int64_t>(std::get<0>(out[3]));
             auto initiator = std::get<int64_t>(std::get<0>(out[4]));
-            LOG(INFO) << "table_id=" << table_id << ",initiator=" << initiator;
             if (!mow_tablet_compaction.ParseFromArray(v.data(), v.size())) [[unlikely]] {
                 LOG(WARNING) << "failed to parse MowTabletCompactionPB";
                 return -1;
             }
             int64_t expiration = mow_tablet_compaction.expiration();
+            LOG(INFO) << "table_id=" << table_id << ",initiator=" << initiator
+                      << ",expiration=" << expiration;
+            //check compaction key failed should meet both following two condition:
+            //1.compaction key is expired
+            //2.table lock key is not found or key is not expired
             if (expiration < now - config::compaction_key_check_expiration_diff_seconds) {
-                LOG(WARNING) << fmt::format(
-                        "[compaction key check fails] compaction key check fail for "
-                        "instance_id={}, tablet_id={}, initiator={}, expiration={},now={} ",
-                        instance_id_, table_id, initiator, expiration, now);
-                return -1;
+                std::string lock_key =
+                        meta_delete_bitmap_update_lock_key({instance_id_, table_id, -1});
+                std::string lock_val;
+                err = txn->get(lock_key, &lock_val);
+                std::string reason = "";
+                if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+                    reason = "table lock key not found";
+
+                } else {
+                    DeleteBitmapUpdateLockPB lock_info;
+                    if (!lock_info.ParseFromString(lock_val)) [[unlikely]] {
+                        LOG(WARNING) << "failed to parse DeleteBitmapUpdateLockPB";
+                        return -1;
+                    }
+                    if (lock_info.expiration() > now) {
+                        reason = "table lock is not expired";
+                    }
+                }
+                if (reason != "") {
+                    LOG(WARNING) << fmt::format(
+                            "[compaction key check fails] compaction key check fail for "
+                            "instance_id={}, table_id={}, initiator={}, expiration={}, now={}, "
+                            "reason={}",
+                            instance_id_, table_id, initiator, expiration, now, reason);
+                    return -1;
+                }
             }
         }
         begin = it->next_begin_key(); // Update to next smallest key for iteration

@@ -3141,6 +3141,20 @@ MetaServiceCode get_delete_bitmap_lock(MetaServiceProxy* meta_service, int64_t t
     return res.status().code();
 }
 
+MetaServiceCode remove_delete_bitmap_lock(MetaServiceProxy* meta_service, int64_t table_id,
+                                          int64_t lock_id, int64_t initiator) {
+    brpc::Controller cntl;
+    RemoveDeleteBitmapUpdateLockRequest req;
+    RemoveDeleteBitmapUpdateLockResponse res;
+    req.set_cloud_unique_id("test_cloud_unique_id");
+    req.set_table_id(table_id);
+    req.set_lock_id(lock_id);
+    req.set_initiator(initiator);
+    meta_service->remove_delete_bitmap_update_lock(
+            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+    return res.status().code();
+}
+
 TEST(CheckerTest, check_compaction_key) {
     config::enable_compaction_key_check = true;
     config::compaction_key_check_expiration_diff_seconds = 0;
@@ -3171,7 +3185,17 @@ TEST(CheckerTest, check_compaction_key) {
     obj_info->set_id("1");
     InstanceChecker checker(meta_service->txn_kv(), instance_id);
     ASSERT_EQ(checker.init(instance), 0);
-    ASSERT_EQ(checker.do_compaction_key_check(), 0);
+    ASSERT_EQ(checker.do_mow_compaction_key_check(), 0);
+
+    std::this_thread::sleep_for(std::chrono::seconds(6));
+    res_code = get_delete_bitmap_lock(meta_service.get(), 2, -1, 124);
+    ASSERT_EQ(res_code, MetaServiceCode::OK);
+    res_code = get_delete_bitmap_lock(meta_service.get(), 2, -1, 125);
+    ASSERT_EQ(res_code, MetaServiceCode::OK);
+    res_code = remove_delete_bitmap_lock(meta_service.get(), 2, -1, 124);
+    config::compaction_key_check_expiration_diff_seconds = 5;
+    std::this_thread::sleep_for(std::chrono::seconds(6));
+    ASSERT_EQ(checker.do_mow_compaction_key_check(), 0);
 }
 
 TEST(RecyclerTest, delete_rowset_data) {
