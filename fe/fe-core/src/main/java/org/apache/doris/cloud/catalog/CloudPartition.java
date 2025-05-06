@@ -117,7 +117,7 @@ public class CloudPartition extends Partition {
     }
 
     public boolean isCachedVersionExpired() {
-        long cacheExpirationMs = SessionVariable.cachedCloudPartitionVersionExpirationMs;
+        long cacheExpirationMs = SessionVariable.cloudPartitionVersionCacheTtlMs;
         if (cacheExpirationMs <= 0) { // always expired
             return true;
         }
@@ -247,7 +247,7 @@ public class CloudPartition extends Partition {
             return new ArrayList<>();
         }
 
-        if (SessionVariable.cachedCloudPartitionVersionExpirationMs <= 0) { // No cached versions will be used
+        if (SessionVariable.cloudPartitionVersionCacheTtlMs <= 0) { // No cached versions will be used
             return getSnapshotVisibleVersionFromMs(partitions);
         }
 
@@ -264,8 +264,8 @@ public class CloudPartition extends Partition {
         }
 
         if (LOG.isDebugEnabled()) {
-            LOG.debug("cachedCloudPartitionVersionExpirationMs={}, numPartitions={}, numFilteredPartitions={}",
-                    SessionVariable.cachedCloudPartitionVersionExpirationMs,
+            LOG.debug("cloudPartitionVersionCacheTtlMs={}, numPartitions={}, numFilteredPartitions={}",
+                    SessionVariable.cloudPartitionVersionCacheTtlMs,
                     partitions.size(), partitions.size() - expiredPartitions.size());
         }
 
