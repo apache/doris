@@ -94,8 +94,10 @@ static doris::TupleDescriptor* create_tuple_desc(
             t_slot_desc.__set_slotType(TypeDescriptor::create_decimalv2_type(27, 9).to_thrift());
         } else {
             TypeDescriptor descriptor(column_descs[i].type);
-            if (column_descs[i].precision >= 0 && column_descs[i].scale >= 0) {
+            if (column_descs[i].precision >= 0) {
                 descriptor.precision = column_descs[i].precision;
+            }
+            if (column_descs[i].scale >= 0) {
                 descriptor.scale = column_descs[i].scale;
             }
             t_slot_desc.__set_slotType(descriptor.to_thrift());
