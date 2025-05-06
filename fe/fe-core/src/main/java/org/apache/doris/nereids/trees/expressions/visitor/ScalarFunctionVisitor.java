@@ -316,6 +316,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthFloor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthName;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsBetween;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MultiMatch;
@@ -324,6 +325,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.MultiSearchAl
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash332;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash364;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Negative;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.NextDay;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NgramSearch;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NormalCdf;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NotNullOrEmpty;
@@ -412,6 +414,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.StX;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StY;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StartsWith;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StrToDate;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StrToMap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Strcmp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StructElement;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SubBitmap;
@@ -465,6 +468,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.WeeksDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WeeksSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WidthBucket;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Xor;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.XpathString;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.XxHash32;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.XxHash64;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Year;
@@ -1084,6 +1088,10 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(monthsAdd, context);
     }
 
+    default R visitMonthsBetween(MonthsBetween monthsBetween, C context) {
+        return visitScalarFunction(monthsBetween, context);
+    }
+
     default R visitYearsAdd(YearsAdd yearsAdd, C context) {
         return visitScalarFunction(yearsAdd, context);
     }
@@ -1668,6 +1676,10 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(negative, context);
     }
 
+    default R visitNextDay(NextDay nextDay, C context) {
+        return visitScalarFunction(nextDay, context);
+    }
+
     default R visitNgramSearch(NgramSearch ngramSearch, C context) {
         return visitScalarFunction(ngramSearch, context);
     }
@@ -2024,6 +2036,10 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(strToDate, context);
     }
 
+    default R visitStrToMap(StrToMap strToMap, C context) {
+        return visitScalarFunction(strToMap, context);
+    }
+
     default R visitStringRegexPredicate(StringRegexPredicate stringRegexPredicate, C context) {
         return visitScalarFunction(stringRegexPredicate, context);
     }
@@ -2300,6 +2316,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitXor(Xor xor, C context) {
         return visitScalarFunction(xor, context);
+    }
+
+    default R visitXpathString(XpathString xpathString, C context) {
+        return visitScalarFunction(xpathString, context);
     }
 
     // struct function

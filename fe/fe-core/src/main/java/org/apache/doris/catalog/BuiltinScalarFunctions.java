@@ -315,6 +315,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthFloor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthName;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsBetween;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MultiMatch;
@@ -323,6 +324,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.MultiSearchAl
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash332;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash364;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Negative;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.NextDay;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NgramSearch;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NormalCdf;
@@ -414,6 +416,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.StX;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StY;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StartsWith;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StrToDate;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StrToMap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Strcmp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StructElement;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SubBitmap;
@@ -468,6 +471,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.WeeksDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WeeksSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WidthBucket;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Xor;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.XpathString;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.XxHash32;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.XxHash64;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Year;
@@ -802,6 +806,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(MonthFloor.class, "month_floor"),
             scalar(MonthName.class, "monthname"),
             scalar(MonthsAdd.class, "months_add", "add_months"),
+            scalar(MonthsBetween.class, "months_between"),
             scalar(MonthsDiff.class, "months_diff"),
             scalar(MonthsSub.class, "months_sub"),
             scalar(MultiMatchAny.class, "multi_match_any"),
@@ -809,6 +814,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(MurmurHash332.class, "murmur_hash3_32"),
             scalar(MurmurHash364.class, "murmur_hash3_64"),
             scalar(Negative.class, "negative"),
+            scalar(NextDay.class, "next_day"),
             scalar(NonNullable.class, "non_nullable"),
             scalar(NormalCdf.class, "normal_cdf"),
             scalar(NotNullOrEmpty.class, "not_null_or_empty"),
@@ -907,6 +913,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(StartsWith.class, "starts_with"),
             scalar(Strcmp.class, "strcmp"),
             scalar(StrToDate.class, "str_to_date"),
+            scalar(StrToMap.class, "str_to_map"),
             scalar(SubBitmap.class, "sub_bitmap"),
             scalar(SubReplace.class, "sub_replace"),
             scalar(Substring.class, "substr", "substring"),
@@ -962,6 +969,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(XxHash32.class, "xxhash_32"),
             scalar(XxHash64.class, "xxhash_64"),
             scalar(Xor.class, "xor"),
+            scalar(XpathString.class, "xpath_string"),
             scalar(Year.class, "year"),
             scalar(YearCeil.class, "year_ceil"),
             scalar(YearFloor.class, "year_floor"),
