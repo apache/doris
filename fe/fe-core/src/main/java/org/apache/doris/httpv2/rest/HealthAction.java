@@ -33,6 +33,8 @@ import java.util.Map;
 
 @RestController
 public class HealthAction extends RestBaseController {
+    public static final String TOTAL_BACKEND_NUM = "total_backend_num";
+    public static final String ONLINE_BACKEND_NUM = "online_backend_num";
 
     @RequestMapping(path = "/api/health", method = RequestMethod.GET)
     public Object execute(HttpServletRequest request, HttpServletResponse response) {
@@ -45,8 +47,8 @@ public class HealthAction extends RestBaseController {
         }
 
         Map<String, Object> result = new HashMap<>();
-        result.put("total_backend_num", Env.getCurrentSystemInfo().getAllBackendIds(false).size());
-        result.put("online_backend_num", Env.getCurrentSystemInfo().getAllBackendIds(true).size());
+        result.put(TOTAL_BACKEND_NUM, Env.getCurrentSystemInfo().getAllBackendIds(false).size());
+        result.put(ONLINE_BACKEND_NUM, Env.getCurrentSystemInfo().getAllBackendIds(true).size());
         return ResponseEntityBuilder.ok(result);
     }
 }
