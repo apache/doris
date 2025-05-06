@@ -2135,6 +2135,12 @@ void calc_delete_bitmap_callback(CloudStorageEngine& engine, const TAgentTaskReq
     CloudEngineCalcDeleteBitmapTask engine_task(engine, calc_delete_bitmap_req, &error_tablet_ids,
                                                 &succ_tablet_ids);
     SCOPED_ATTACH_TASK(engine_task.mem_tracker());
+    if (req.signature != calc_delete_bitmap_req.transaction_id) {
+        // transaction_id may not be the same as req.signature, so add a log here
+        LOG_INFO("begin to execute calc delete bitmap task")
+                .tag("signature", req.signature)
+                .tag("transaction_id", calc_delete_bitmap_req.transaction_id);
+    }
     status = engine_task.execute();
 
     TFinishTaskRequest finish_task_request;

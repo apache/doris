@@ -280,7 +280,16 @@ Status CloudTabletCalcDeleteBitmapTask::handle() const {
                      << ", status=" << status;
         return status;
     }
-
+    DBUG_EXECUTE_IF("CloudCalcDbmTask.handle.return.block",
+                    auto target_tablet_id = dp->param<int64_t>("tablet_id", 0);
+                    if (target_tablet_id == tablet->tablet_id()) {DBUG_BLOCK});
+    DBUG_EXECUTE_IF("CloudCalcDbmTask.handle.return.inject_err", {
+        auto target_tablet_id = dp->param<int64_t>("tablet_id", 0);
+        if (target_tablet_id == tablet->tablet_id()) {
+            LOG_INFO("inject error when CloudTabletCalcDeleteBitmapTask::handle");
+            return Status::InternalError("injected error");
+        }
+    });
     LOG(INFO) << "calculate delete bitmap successfully on tablet"
               << ", table_id=" << tablet->table_id() << ", transaction_id=" << _transaction_id
               << ", tablet_id=" << tablet->tablet_id() << ", num_rows=" << rowset->num_rows()
