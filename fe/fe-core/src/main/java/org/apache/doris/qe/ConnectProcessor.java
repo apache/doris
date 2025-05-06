@@ -103,7 +103,7 @@ public abstract class ConnectProcessor {
 
     private static final Logger LOG = LogManager.getLogger(ConnectProcessor.class);
     protected final ConnectContext ctx;
-    protected StmtExecutor executor = null;
+    protected StmtExecutor executor;
     protected ConnectType connectType;
     protected ArrayList<StmtExecutor> returnResultFromRemoteExecutor = new ArrayList<>();
 
@@ -254,7 +254,6 @@ public abstract class ConnectProcessor {
         } catch (Exception ignored) {
             // saved use handleQueryException
         }
-        this.executor = null;
         this.getConnectContext().setStatementContext(null);
     }
 
