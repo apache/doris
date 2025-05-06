@@ -377,7 +377,6 @@ public abstract class ConnectProcessor {
                     }
                     auditAfterExec(auditStmt, executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog(),
                             true);
-                    LOG.debug("Write audit logs for query {}", DebugUtil.printId(ctx.queryId));
                     // execute failed, skip remaining stmts
                     if (ctx.getState().getStateType() == MysqlStateType.ERR) {
                         break;

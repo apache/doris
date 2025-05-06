@@ -87,7 +87,7 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
                     auditEvent.shuffleSendBytes = queryStats.shuffle_send_bytes;
                     auditEvent.shuffleSendRows = queryStats.shuffle_send_rows;
                 }
-                boolean ret = Env.getCurrentAuditEventProcessor().handleAuditEvent(auditEvent, true);
+                boolean ret = Env.getCurrentAuditEventProcessor().handleAuditEvent(auditEvent);
                 if (!ret) {
                     missedLogCount++;
                 } else {
@@ -110,9 +110,10 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
         queryAuditEventLogWriteLock();
         try {
             if (queryAuditEventList.size() >= Config.audit_event_log_queue_size) {
-                LOG.warn("audit log event queue size {} is full, this may cause audit log missed."
-                                + "you can check whether qps is too high or reset audit_event_log_queue_size",
-                        queryAuditEventList.size());
+                LOG.warn("audit log event queue size {} is full, this may cause audit log missing statistics."
+                                + "you can check whether qps is too high or "
+                                + "set audit_event_log_queue_size to a larger value in fe.conf. query id: {}",
+                        queryAuditEventList.size(), event.queryId);
                 return;
             }
             event.pushToAuditLogQueueTime = System.currentTimeMillis();
@@ -122,7 +123,7 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
         }
     }
 
-    public List<AuditEvent> getQueryNeedAudit() {
+    private List<AuditEvent> getQueryNeedAudit() {
         List<AuditEvent> ret = new ArrayList<>();
         long currentTime = System.currentTimeMillis();
         queryAuditEventLogWriteLock();
