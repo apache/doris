@@ -15,26 +15,28 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource;
+package org.apache.doris.datasource.doris.source;
 
-public enum TableFormatType {
-    HIVE("hive"),
-    ICEBERG("iceberg"),
-    HUDI("hudi"),
-    PAIMON("paimon"),
-    MAX_COMPUTE("max_compute"),
-    TRANSACTIONAL_HIVE("transactional_hive"),
-    LAKESOUL("lakesoul"),
-    TRINO_CONNECTOR("trino_connector"),
-    ARROW_RESULT("arrow_result");
+import com.google.common.collect.Maps;
+import org.apache.doris.common.util.LocationPath;
+import org.apache.doris.datasource.FileSplit;
 
-    private final String tableFormatType;
+public class RemoteDorisSplit extends FileSplit {
+    private static final LocationPath DUMMY_PATH = new LocationPath("/dummyPath", Maps.newHashMap());
+    private final String location;
+    private final byte[] ticket;
 
-    TableFormatType(String tableFormatType) {
-        this.tableFormatType = tableFormatType;
+    public RemoteDorisSplit(String location, byte[] ticket) {
+        super(DUMMY_PATH, 0, 0, 0, 0, null, null);
+        this.location = location;
+        this.ticket = ticket;
     }
 
-    public String value() {
-        return tableFormatType;
+    public byte[] getTicket() {
+        return ticket;
+    }
+
+    public String getLocation() {
+        return location;
     }
 }

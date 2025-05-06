@@ -64,6 +64,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.Reference;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.FileQueryScanNode;
+import org.apache.doris.datasource.doris.source.RemoteDorisScanNode;
 import org.apache.doris.datasource.es.source.EsScanNode;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.source.HiveScanNode;
@@ -2009,6 +2010,9 @@ public class SingleNodePlanner {
                 break;
             case JDBC_EXTERNAL_TABLE:
                 scanNode = new JdbcScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true);
+                break;
+            case DORIS_EXTERNAL_TABLE:
+                scanNode = new RemoteDorisScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true, sv);
                 break;
             case LAKESOUl_EXTERNAL_TABLE:
                 scanNode = new LakeSoulScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true, sv);

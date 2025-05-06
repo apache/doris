@@ -101,7 +101,7 @@ public class VectorTable {
             assert params.get("columns_types").isEmpty();
             return createReadableTable(new ColumnType[0], new String[0], Long.parseLong(params.get("meta_address")));
         }
-        String[] requiredFields = params.get("required_fields").split(",");
+        String[] requiredFields = params.get("required_fields").split(",", -1);
         String[] types = params.get("columns_types").split("#");
         long metaAddress = Long.parseLong(params.get("meta_address"));
         // Get sql string from configuration map
