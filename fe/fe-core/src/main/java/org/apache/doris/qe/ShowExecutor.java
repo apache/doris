@@ -2262,8 +2262,13 @@ public class ShowExecutor {
         resultSet = new ShowResultSet(showExportStmt.getMetaData(), infos);
     }
 
-    private void handleShowBackends() {
+    private void handleShowBackends() throws AnalysisException {
         final ShowBackendsStmt showStmt = (ShowBackendsStmt) stmt;
+        try {
+            showStmt.analyze(null);
+        } catch (Exception e) {
+            throw (AnalysisException) e;
+        }
         List<List<String>> backendInfos = BackendsProcDir.getBackendInfos();
 
         backendInfos.sort(new Comparator<List<String>>() {
@@ -2276,8 +2281,13 @@ public class ShowExecutor {
         resultSet = new ShowResultSet(showStmt.getMetaData(), backendInfos);
     }
 
-    private void handleShowFrontends() {
+    private void handleShowFrontends() throws AnalysisException {
         final ShowFrontendsStmt showStmt = (ShowFrontendsStmt) stmt;
+        try {
+            showStmt.analyze(null);
+        } catch (Exception e) {
+            throw (AnalysisException) e;
+        }
 
         List<List<String>> infos = Lists.newArrayList();
         FrontendsProcNode.getFrontendsInfo(Env.getCurrentEnv(), showStmt.getDetailType(), infos);
