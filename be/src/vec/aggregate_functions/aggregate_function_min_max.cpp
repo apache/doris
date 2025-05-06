@@ -50,7 +50,7 @@ AggregateFunctionPtr create_aggregate_function_single_value(const String& name,
     const DataTypePtr& argument_type = remove_nullable(argument_types[0]);
     WhichDataType which(argument_type);
 
-    if (which.idx == TypeIndex::String) {
+    if (which.idx == TypeIndex::String || which.idx == TypeIndex::JSONB) {
         return creator_without_type::create<
                 AggregateFunctionsSingleValue<Data<SingleValueDataString>>>(argument_types,
                                                                             result_is_nullable);
