@@ -40,10 +40,10 @@ suite("test_fe_cached_partition_version", 'docker') {
     options.connectToFollower = true
     for (def j = 0; j < 2; j++) {
         docker(options) {
-            def tbl = 'test_cached_cloud_partition_version_expiration_ms'
+            def tbl = 'test_cloud_partition_version_cache_ttl_ms'
             sql """ DROP TABLE IF EXISTS ${tbl} """
             try {
-                sql """set global cached_cloud_partition_version_expiration_ms=0"""
+                sql """set global cloud_partition_version_cache_ttl_ms=0"""
                 sql """
                     CREATE TABLE IF NOT EXISTS ${tbl} (
                         region VARCHAR(50) NOT NULL COMMENT "地区",
@@ -71,7 +71,7 @@ suite("test_fe_cached_partition_version", 'docker') {
                 assertEquals(2, result.size())
 
                 // very large expiration time, test it is old
-                sql """set global cached_cloud_partition_version_expiration_ms=10000000"""
+                sql """set global cloud_partition_version_cache_ttl_ms=10000000"""
                 // trigger cache version of shanghai
                 result = sql_return_maparray """ select * from ${tbl} where region = 'Shanghai' """
                 assertEquals(1, result.size())
@@ -103,7 +103,7 @@ suite("test_fe_cached_partition_version", 'docker') {
                 }
 
                 // test small expiration
-                sql """set global cached_cloud_partition_version_expiration_ms=1000"""
+                sql """set global cloud_partition_version_cache_ttl_ms=1000"""
                 Thread.sleep(1100)
                 // all 4 inserts should be seen after expiration, select and refresh expiration
                 result = sql_return_maparray """ select * from ${tbl} """
@@ -141,7 +141,7 @@ suite("test_fe_cached_partition_version", 'docker') {
 
                 // test no expiration, disable cache partition version 
                 insert_sql """INSERT INTO ${tbl} VALUES ('Guangzhou', 1})""", 1
-                sql """set global cached_cloud_partition_version_expiration_ms=0"""
+                sql """set global cloud_partition_version_cache_ttl_ms=0"""
                 result = sql_return_maparray """ select * from ${tbl} """
                 assertEquals(6, result.size())
 
