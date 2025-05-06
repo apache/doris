@@ -37,12 +37,13 @@ import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
 public class MTMVPlanUtil {
@@ -75,11 +76,15 @@ public class MTMVPlanUtil {
         ctx.getSessionVariable().showHiddenColumns = false;
         ctx.getSessionVariable().allowModifyMaterializedViewData = true;
         // Disable add default limit rule to avoid refresh data wrong
+        List<RuleType> disableRules = Arrays.asList(
+                RuleType.COMPRESSED_MATERIALIZE_AGG,
+                RuleType.COMPRESSED_MATERIALIZE_SORT,
+                RuleType.ELIMINATE_CONST_JOIN_CONDITION,
+                RuleType.CONSTANT_PROPAGATION,
+                RuleType.ADD_DEFAULT_LIMIT
+        );
         ctx.getSessionVariable().setDisableNereidsRules(
-                String.join(",", ImmutableSet.of(
-                        "COMPRESSED_MATERIALIZE_AGG", "COMPRESSED_MATERIALIZE_SORT",
-                        "ELIMINATE_CONST_JOIN_CONDITION",
-                        RuleType.ADD_DEFAULT_LIMIT.name())));
+                disableRules.stream().map(RuleType::name).collect(Collectors.joining(",")));
         ctx.setStartTime();
         if (parentContext != null) {
             ctx.changeDefaultCatalog(parentContext.getDefaultCatalog());
