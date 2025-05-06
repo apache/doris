@@ -82,7 +82,7 @@ public class SaltJoinTest extends TestWithFeService implements MemoPatternMatchS
     @Test
     public void testRightJoin() {
         PlanChecker.from(connectContext)
-                .analyze("select * from test_skew9 tl right join [shuffle(skew(tl.b(1,2)))] test_skew10 tr on tl.b = tr.b;")
+                .analyze("select * from test_skew9 tl right join [shuffle(skew(tr.b(1,2)))] test_skew10 tr on tl.b = tr.b;")
                 .rewrite()
                 .printlnTree()
                 .matches(
@@ -103,7 +103,7 @@ public class SaltJoinTest extends TestWithFeService implements MemoPatternMatchS
 
     @Test
     public void testRightJoinPhysicalPlan() {
-        String sql = "select * from test_skew9 tl right join [shuffle(skew(tl.b(1,2)))] test_skew10 tr on tl.b = tr.b;";
+        String sql = "select * from test_skew9 tl right join [shuffle(skew(tr.b(1,2)))] test_skew10 tr on tl.b = tr.b;";
         PlanChecker.from(connectContext).checkExplain(sql, planner -> {
             Plan plan = planner.getOptimizedPlan();
             MatchingUtils.assertMatches(plan,
@@ -139,18 +139,57 @@ public class SaltJoinTest extends TestWithFeService implements MemoPatternMatchS
                 .printlnTree()
                 .matches(
                         logicalJoin(
+                                logicalOlapScan(),
+                                logicalOlapScan()
+                        ).when(join -> join.getHashJoinConjuncts().size() == 1 && join.getJoinType() == JoinType.INNER_JOIN)
+                );
+    }
+
+    @Test void testLeftJoinSkewValueIsNull() {
+        PlanChecker.from(connectContext)
+                .analyze("select * from test_skew9 tl left join [shuffle(skew(tl.b(null)))] test_skew10 tr on tl.b = tr.b")
+                .rewrite()
+                .printlnTree()
+                .matches(
+                        logicalJoin(
                                 logicalProject(
                                         logicalOlapScan()),
                                 logicalProject(
+                                        logicalJoin(
+                                                logicalProject(
+                                                        logicalGenerate(
+                                                                logicalUnion())),
+                                                logicalOlapScan()
+                                        ).when(join -> join.getJoinType() == JoinType.RIGHT_OUTER_JOIN))
+                        ).when(join -> join.getHashJoinConjuncts().size() == 2 && join.getJoinType() == JoinType.LEFT_OUTER_JOIN)
+                );
+    }
+
+    @Test void testRightJoinSkewValueIsNull() {
+        PlanChecker.from(connectContext)
+                .analyze("select * from test_skew9 tl right join [shuffle(skew(tr.b(null)))] test_skew10 tr on tl.b = tr.b")
+                .rewrite()
+                .printlnTree()
+                .matches(
+                        logicalJoin(
+                                logicalProject(
+                                        logicalJoin(
+                                                logicalProject(
+                                                        logicalGenerate(
+                                                                logicalUnion())),
+                                                logicalOlapScan()
+                                        ).when(join -> join.getJoinType() == JoinType.RIGHT_OUTER_JOIN)
+                                ),
+                                logicalProject(
                                         logicalOlapScan())
-                        ).when(join -> join.getHashJoinConjuncts().size() == 2 && join.getJoinType() == JoinType.INNER_JOIN)
+                        ).when(join -> join.getHashJoinConjuncts().size() == 2 && join.getJoinType() == JoinType.RIGHT_OUTER_JOIN)
                 );
     }
 
     @Test
     public void testLeading() {
         PlanChecker.from(connectContext)
-                .analyze("select /*+leading(tl shuffle (skew(tl.b(1,2))) tr) */ * from test_skew9 tl right join test_skew10 tr on tl.b=tr.b;")
+                .analyze("select /*+leading(tl shuffle (skew(tr.b(1,2))) tr) */ * from test_skew9 tl right join test_skew10 tr on tl.b=tr.b;")
                 .rewrite()
                 .printlnTree()
                 .matches(

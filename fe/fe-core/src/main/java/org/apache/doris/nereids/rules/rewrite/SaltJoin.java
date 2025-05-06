@@ -24,6 +24,7 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
@@ -102,19 +103,14 @@ import java.util.stream.Collectors;
  *       |  +--LogicalUnion(outputs=[skewValue], constantExprsList(1,2))
  *       +--LogicalOlapScan(t2)
  *
- * case3:
+ * case3: not optimize, because rows will not be output in join when join key is null
  * LogicalJoin(type:inner, t1.a=t2.a, hint:skew(t1.a(null)))
  *   +--LogicalOlapScan(t2)
  *   +--LogicalOlapScan(t1)
  * ->
- * LogicalJoin (type:inner, t1.a=t2.a and r1=r2)
- *   |--LogicalProject (t1.a, if (t1.a is null random(0, 999), 0) AS r1))
- *   | +--LogicalOlapScan(t1)
- *   +--LogicalProject (projections: t2.a, if(explodeNumber IS NULL, 0, explodeNumber) as r2)
- *     +--LogicalJoin (type=right_outer_join, t2.a <=> skewValue)
- *       |--LogicalGenerate(generators=[explode_numbers(1000)], generatorOutput=[explodeNumber])
- *       |  +--LogicalUnion(outputs=[skewValue], constantExprsList(null))
- *       +--LogicalOlapScan(t2)
+ * LogicalJoin(type:inner, t1.a=t2.a)
+ *   +--LogicalOlapScan(t2)
+ *   +--LogicalOlapScan(t1)
  * */
 public class SaltJoin extends OneRewriteRuleFactory {
     private static final String RANDOM_COLUMN_NAME_LEFT = "r1";
@@ -144,7 +140,9 @@ public class SaltJoin extends OneRewriteRuleFactory {
         if (!skewExpr.isSlot()) {
             return null;
         }
-        if (!join.left().getOutput().contains((Slot) skewExpr)) {
+        if ((join.getJoinType().isLeftOuterJoin() || join.getJoinType().isInnerJoin())
+                && !join.left().getOutput().contains((Slot) skewExpr)
+                || join.getJoinType().isRightOuterJoin() && !join.right().getOutput().contains((Slot) skewExpr)) {
             return null;
         }
 
@@ -152,15 +150,18 @@ public class SaltJoin extends OneRewriteRuleFactory {
         Expression rightSkewExpr = null;
         Expression skewConjunct = null;
         for (Expression conjunct : join.getHashJoinConjuncts()) {
-            if (skewExpr.equals(conjunct.child(0))) {
-                leftSkewExpr = conjunct.child(0);
-                rightSkewExpr = conjunct.child(1);
-                skewConjunct = conjunct;
-                break;
-            } else if (skewExpr.equals(conjunct.child(1))) {
-                leftSkewExpr = conjunct.child(1);
-                rightSkewExpr = conjunct.child(1);
-                skewConjunct = conjunct;
+            if (skewExpr.equals(conjunct.child(0)) || skewExpr.equals(conjunct.child(1))) {
+                if (join.left().getOutputSet().contains((Slot) conjunct.child(0))
+                        && join.right().getOutputSet().contains((Slot) conjunct.child(1))) {
+                    skewConjunct = conjunct;
+                } else if (join.left().getOutputSet().contains((Slot) conjunct.child(1))
+                        && join.right().getOutputSet().contains((Slot) conjunct.child(0))) {
+                    skewConjunct = ((ComparisonPredicate) conjunct).commute();
+                } else {
+                    return null;
+                }
+                leftSkewExpr = skewConjunct.child(0);
+                rightSkewExpr = skewConjunct.child(1);
                 break;
             }
         }
