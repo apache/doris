@@ -523,6 +523,9 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
     _col_name = column.name();
     _col_name_lower_case = to_lower(_col_name);
     _type = TabletColumn::get_field_type_by_string(column.type());
+    if (column.has_encoding()) {
+        _encoding_type = column.encoding();
+    }
     _is_key = column.is_key();
     _is_nullable = column.is_nullable();
     _is_auto_increment = column.is_auto_increment();

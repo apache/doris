@@ -22,6 +22,18 @@ include "Types.thrift"
 include "Exprs.thrift"
 include "Partitions.thrift"
 
+// Same as EncodingTypePB
+enum TEncodingType {
+    UNKNOWN_ENCODING = 0;
+    DEFAULT_ENCODING = 1;
+    PLAIN_ENCODING = 2;
+    PREFIX_ENCODING = 3;
+    RLE = 4;
+    DICT_ENCODING = 5;
+    BIT_SHUFFLE = 6;
+    FOR_ENCODING = 7; // Frame-Of-Reference
+}
+
 struct TColumn {
     1: required string column_name
     2: required Types.TColumnType column_type
@@ -43,6 +55,7 @@ struct TColumn {
     18: optional bool is_auto_increment = false;
     19: optional i32 cluster_key_id = -1
     20: optional i32 be_exec_version = -1
+    21: optional i32 encoding_type
 }
 
 struct TSlotDescriptor {

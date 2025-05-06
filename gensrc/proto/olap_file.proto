@@ -344,6 +344,7 @@ message ColumnPB {
     // only reference by variant sparse columns
     optional int32 parent_unique_id = 23;
     optional int32 be_exec_version = 24;
+    optional segment_v2.EncodingTypePB encoding = 25 [default=DEFAULT_ENCODING];
 }
 
 // Dictionary of Schema info, to reduce TabletSchemaCloudPB fdb kv size

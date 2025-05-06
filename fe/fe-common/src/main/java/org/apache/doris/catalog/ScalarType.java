@@ -609,6 +609,10 @@ public class ScalarType extends Type {
         return type.toString().toLowerCase();
     }
 
+    public String toSql(int depth, EncodingTree encodingTree)  {
+        return toSql(depth) + EncodingTree.toSql(encodingTree);
+    }
+
     @Override
     public String toSql(int depth) {
         StringBuilder stringBuilder = new StringBuilder();

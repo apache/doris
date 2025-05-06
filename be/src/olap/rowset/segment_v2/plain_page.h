@@ -51,6 +51,11 @@ public:
             return Status::OK();
         }
         size_t old_size = _buffer.size();
+        size_t remain_size = _options.data_page_size - old_size;
+        auto to_add = std::max<size_t>(1, remain_size / SIZE_OF_TYPE);
+        if (to_add < *count) {
+            *count = to_add;
+        }
         // This may need a large memory, should return error if could not allocated
         // successfully, to avoid BE OOM.
         RETURN_IF_CATCH_EXCEPTION(_buffer.resize(old_size + *count * SIZE_OF_TYPE));
@@ -196,8 +201,22 @@ public:
         return Status::OK();
     }
 
+    char* get_data(size_t index) const {
+        return &_data.data[PLAIN_PAGE_HEADER_SIZE + index * SIZE_OF_TYPE];
+    }
+
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst) override {
-        return Status::NotSupported("plain page not implement vec op now");
+        DCHECK(_parsed) << "Must call init() firstly(plan page)";
+        if (PREDICT_FALSE(*n == 0 || _cur_idx >= _num_elems)) {
+            *n = 0;
+            return Status::OK();
+        }
+        const size_t max_fetch = std::min(*n, static_cast<size_t>(_num_elems - _cur_idx));
+        dst->insert_many_fix_len_data(get_data(_cur_idx), max_fetch);
+        *n = max_fetch;
+        _cur_idx += max_fetch;
+
+        return Status::OK();
     }
 
     size_t count() const override {

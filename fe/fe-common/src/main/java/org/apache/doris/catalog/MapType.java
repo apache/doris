@@ -104,12 +104,23 @@ public class MapType extends Type {
     }
 
     @Override
-    public String toSql(int depth) {
+    public String toSql(int depth, EncodingTree encodingTree) {
+        EncodingTree keyEncodingTree = null;
+        EncodingTree valueEncodingTree = null;
+        if (encodingTree != null) {
+            keyEncodingTree = encodingTree.child(0);
+            valueEncodingTree = encodingTree.child(1);
+        }
         if (depth >= MAX_NESTING_DEPTH) {
             return "map<...>";
         }
         return String.format("map<%s,%s>",
-                keyType.toSql(depth + 1), valueType.toSql(depth + 1));
+                keyType.toSql(depth + 1, keyEncodingTree), valueType.toSql(depth + 1, valueEncodingTree));
+    }
+
+    @Override
+    public String toSql(int depth) {
+        return toSql(depth, null);
     }
 
     @Override

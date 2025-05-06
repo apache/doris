@@ -42,11 +42,13 @@ import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * column definition
@@ -54,7 +56,7 @@ import java.util.Set;
  */
 public class ColumnDefinition {
     private final String name;
-    private DataType type;
+    private TypeAndEncoding type;
     private boolean isKey;
     private AggregateType aggType;
     private boolean isNullable;
@@ -73,11 +75,12 @@ public class ColumnDefinition {
         this(name, type, isKey, aggType, isNullable, defaultValue, comment, true);
     }
 
-    public ColumnDefinition(String name, DataType type, boolean isKey, AggregateType aggType,
+    // Used by LogicalPlanBuilder
+    public ColumnDefinition(String name, TypeAndEncoding typeAndEncoding, boolean isKey, AggregateType aggType,
             ColumnNullableType nullableType, long autoIncInitValue, Optional<DefaultValue> defaultValue,
             Optional<DefaultValue> onUpdateDefaultValue, String comment,
             Optional<GeneratedColumnDesc> generatedColumnDesc) {
-        this(name, type, isKey, aggType, nullableType, autoIncInitValue, defaultValue, onUpdateDefaultValue,
+        this(name, typeAndEncoding, isKey, aggType, nullableType, autoIncInitValue, defaultValue, onUpdateDefaultValue,
                 comment, true, generatedColumnDesc);
     }
 
@@ -87,7 +90,7 @@ public class ColumnDefinition {
     public ColumnDefinition(String name, DataType type, boolean isKey, AggregateType aggType, boolean isNullable,
             Optional<DefaultValue> defaultValue, String comment, boolean isVisible) {
         this.name = name;
-        this.type = type;
+        this.type = TypeAndEncoding.forDefaultEncoding(type);
         this.isKey = isKey;
         this.aggType = aggType;
         this.isNullable = isNullable;
@@ -99,25 +102,7 @@ public class ColumnDefinition {
     /**
      * constructor
      */
-    private ColumnDefinition(String name, DataType type, boolean isKey, AggregateType aggType,
-            boolean isNullable, long autoIncInitValue, Optional<DefaultValue> defaultValue,
-            Optional<DefaultValue> onUpdateDefaultValue, String comment, boolean isVisible) {
-        this.name = name;
-        this.type = type;
-        this.isKey = isKey;
-        this.aggType = aggType;
-        this.isNullable = isNullable;
-        this.autoIncInitValue = autoIncInitValue;
-        this.defaultValue = defaultValue;
-        this.onUpdateDefaultValue = onUpdateDefaultValue;
-        this.comment = comment;
-        this.isVisible = isVisible;
-    }
-
-    /**
-     * constructor
-     */
-    public ColumnDefinition(String name, DataType type, boolean isKey, AggregateType aggType,
+    public ColumnDefinition(String name, TypeAndEncoding type, boolean isKey, AggregateType aggType,
             ColumnNullableType nullableType, long autoIncInitValue, Optional<DefaultValue> defaultValue,
             Optional<DefaultValue> onUpdateDefaultValue, String comment, boolean isVisible,
             Optional<GeneratedColumnDesc> generatedColumnDesc) {
@@ -125,7 +110,7 @@ public class ColumnDefinition {
         this.type = type;
         this.isKey = isKey;
         this.aggType = aggType;
-        this.isNullable = nullableType.getNullable(type.toCatalogDataType().getPrimitiveType());
+        this.isNullable = nullableType.getNullable(type.getDataType().toCatalogDataType().getPrimitiveType());
         this.autoIncInitValue = autoIncInitValue;
         this.defaultValue = defaultValue;
         this.onUpdateDefaultValue = onUpdateDefaultValue;
@@ -147,7 +132,7 @@ public class ColumnDefinition {
     }
 
     public DataType getType() {
-        return type;
+        return type.getDataType();
     }
 
     public AggregateType getAggType() {
@@ -188,7 +173,7 @@ public class ColumnDefinition {
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("`").append(name).append("` ");
-        sb.append(type.toSql()).append(" ");
+        sb.append(getType().toSql()).append(" ");
 
         if (aggType != null && aggType != AggregateType.NONE) {
             sb.append(aggType.name()).append(" ");
@@ -212,14 +197,14 @@ public class ColumnDefinition {
             String value = defaultValue.get().getValue();
             if (value != null) {
                 DefaultValueExprDef exprDef = defaultValue.get().getDefaultValueExprDef();
-                if (!type.isBitmapType() && !type.isHllType()) {
+                if (!getType().isBitmapType() && !getType().isHllType()) {
                     if (exprDef != null) {
                         sb.append("DEFAULT ").append(value).append(" ");
                     } else {
                         sb.append("DEFAULT ").append("\"").append(SqlUtils.escapeQuota(value)).append("\"")
                                 .append(" ");
                     }
-                } else if (type.isBitmapType()) {
+                } else if (getType().isBitmapType()) {
                     sb.append("DEFAULT ").append(exprDef.getExprName()).append(" ");
                 }
             } else {
@@ -255,25 +240,71 @@ public class ColumnDefinition {
         }
     }
 
+    private TypeAndEncoding updateCharacterTypeLength(TypeAndEncoding dataType) {
+        if (dataType.getDataType() instanceof ArrayType) {
+            TypeAndEncoding item = dataType.children.get(0);
+            TypeAndEncoding newItem = updateCharacterTypeLength(item);
+            ArrayType newArrayType = ArrayType.of(newItem.getDataType());
+            dataType.setDataType(newArrayType);
+            dataType.setChildren(Lists.newArrayList(newItem));
+            return dataType;
+        } else if (dataType.getDataType() instanceof MapType) {
+            TypeAndEncoding key = updateCharacterTypeLength((dataType.children.get(0)));
+            TypeAndEncoding value = updateCharacterTypeLength((dataType.children.get(1)));
+            MapType newMapType = MapType.of(key.getDataType(), value.getDataType());
+            dataType.setDataType(newMapType);
+            dataType.setChildren(Lists.newArrayList(key, value));
+            return dataType;
+        } else if (dataType.getDataType() instanceof StructType) {
+            List<TypeAndEncoding> newChildren =
+                    dataType.children.stream().map(this::updateCharacterTypeLength).collect(Collectors.toList());
+            StructType structType = (StructType) dataType.getDataType();
+            if (structType.getFields().size() != newChildren.size()) {
+                throw new AnalysisException("StructType field size not match encoding size");
+            }
+            List<StructField> newFields = Lists.newArrayList();
+            for (int i = 0; i < newChildren.size(); i++) {
+                StructField newStructFiled =
+                        structType.getFields().get(i).withDataType(newChildren.get(i).getDataType());
+                newFields.add(newStructFiled);
+            }
+            dataType.setDataType(new StructType(newFields));
+            dataType.setChildren(newChildren);
+            return dataType;
+        } else {
+            DataType localDataType = dataType.getDataType();
+            if (localDataType.isStringLikeType() && !((CharacterType) localDataType).isLengthSet()) {
+                if (localDataType instanceof CharType) {
+                    dataType.setDataType(new CharType(1));
+                    return dataType;
+                } else if (localDataType instanceof VarcharType) {
+                    dataType.setDataType(new VarcharType(VarcharType.MAX_VARCHAR_LENGTH));
+                    return dataType;
+                }
+            }
+            return dataType;
+        }
+    }
+
     private void checkKeyColumnType(boolean isOlap) {
         if (isOlap) {
-            if (type.isFloatLikeType()) {
+            if (getType().isFloatLikeType()) {
                 throw new AnalysisException("Float or double can not used as a key, use decimal instead.");
-            } else if (type.isStringType()) {
+            } else if (getType().isStringType()) {
                 throw new AnalysisException("String Type should not be used in key column[" + name + "]");
-            } else if (type.isArrayType()) {
+            } else if (getType().isArrayType()) {
                 throw new AnalysisException("Array can only be used in the non-key column of"
                         + " the duplicate table at present.");
-            } else if (type.isBitmapType() || type.isHllType() || type.isQuantileStateType()) {
+            } else if (getType().isBitmapType() || getType().isHllType() || getType().isQuantileStateType()) {
                 throw new AnalysisException("Key column can not set complex type:" + name);
-            } else if (type.isJsonType()) {
+            } else if (getType().isJsonType()) {
                 throw new AnalysisException("JsonType type should not be used in key column[" + getName() + "].");
-            } else if (type.isVariantType()) {
+            } else if (getType().isVariantType()) {
                 throw new AnalysisException("Variant type should not be used in key column[" + getName() + "].");
-            } else if (type.isMapType()) {
+            } else if (getType().isMapType()) {
                 throw new AnalysisException("Map can only be used in the non-key column of"
                         + " the duplicate table at present.");
-            } else if (type.isStructType()) {
+            } else if (getType().isStructType()) {
                 throw new AnalysisException("Struct can only be used in the non-key column of"
                         + " the duplicate table at present.");
             }
@@ -291,11 +322,11 @@ public class ColumnDefinition {
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e);
         }
-        type.validateDataType();
+        getType().validateDataType();
         type = updateCharacterTypeLength(type);
-        if (type.isArrayType()) {
+        if (type.getDataType().isArrayType()) {
             int depth = 0;
-            DataType curType = type;
+            DataType curType = type.getDataType();
             while (curType.isArrayType()) {
                 curType = ((ArrayType) curType).getItemType();
                 depth++;
@@ -304,7 +335,7 @@ public class ColumnDefinition {
                 throw new AnalysisException("Type exceeds the maximum nesting depth of 9");
             }
         }
-        if (type.isHllType() || type.isQuantileStateType() || type.isBitmapType()) {
+        if (getType().isHllType() || getType().isQuantileStateType() || getType().isBitmapType()) {
             if (isKey) {
                 throw new AnalysisException("Key column can not set complex type:" + name);
             }
@@ -334,9 +365,9 @@ public class ColumnDefinition {
             }
             // check if aggregate type is valid
             if (aggType != AggregateType.GENERIC
-                    && !aggType.checkCompatibility(type.toCatalogDataType().getPrimitiveType())) {
+                    && !aggType.checkCompatibility(type.getDataType().toCatalogDataType().getPrimitiveType())) {
                 throw new AnalysisException(String.format("Aggregate type %s is not compatible with primitive type %s",
-                        aggType, type.toSql()));
+                        aggType, type.getDataType().toSql()));
             }
             if (aggType == AggregateType.GENERIC) {
                 if (!SessionVariable.enableAggState()) {
@@ -383,32 +414,32 @@ public class ColumnDefinition {
         }
 
         // check default value
-        if (type.isHllType()) {
+        if (type.getDataType().isHllType()) {
             if (defaultValue.isPresent()) {
                 throw new AnalysisException("Hll type column can not set default value");
             }
             defaultValue = Optional.of(DefaultValue.HLL_EMPTY_DEFAULT_VALUE);
-        } else if (type.isBitmapType()) {
+        } else if (type.getDataType().isBitmapType()) {
             if (defaultValue.isPresent() && isOlap && defaultValue.get() != DefaultValue.NULL_DEFAULT_VALUE
                     && !defaultValue.get().getValue().equals(DefaultValue.BITMAP_EMPTY_DEFAULT_VALUE.getValue())) {
                 throw new AnalysisException("Bitmap type column default value only support "
                         + DefaultValue.BITMAP_EMPTY_DEFAULT_VALUE);
             }
             defaultValue = Optional.of(DefaultValue.BITMAP_EMPTY_DEFAULT_VALUE);
-        } else if (type.isArrayType() && defaultValue.isPresent() && isOlap
+        } else if (type.getDataType().isArrayType() && defaultValue.isPresent() && isOlap
                 && defaultValue.get() != DefaultValue.NULL_DEFAULT_VALUE && !defaultValue.get()
                 .getValue().equals(DefaultValue.ARRAY_EMPTY_DEFAULT_VALUE.getValue())) {
             throw new AnalysisException("Array type column default value only support null or "
                     + DefaultValue.ARRAY_EMPTY_DEFAULT_VALUE);
-        } else if (type.isMapType()) {
+        } else if (type.getDataType().isMapType()) {
             if (defaultValue.isPresent() && defaultValue.get() != DefaultValue.NULL_DEFAULT_VALUE) {
                 throw new AnalysisException("Map type column default value just support null");
             }
-        } else if (type.isStructType()) {
+        } else if (type.getDataType().isStructType()) {
             if (defaultValue.isPresent() && defaultValue.get() != DefaultValue.NULL_DEFAULT_VALUE) {
                 throw new AnalysisException("Struct type column default value just support null");
             }
-        } else if (type.isJsonType() || type.isVariantType()) {
+        } else if (type.getDataType().isJsonType() || type.getDataType().isVariantType()) {
             if (defaultValue.isPresent() && defaultValue.get() != DefaultValue.NULL_DEFAULT_VALUE) {
                 throw new AnalysisException("Json or Variant type column default value just support null");
             }
@@ -422,9 +453,9 @@ public class ColumnDefinition {
 
         if (defaultValue.isPresent()
                 && defaultValue.get().getValue() != null
-                && type.toCatalogDataType().isScalarType()) {
+                && type.getDataType().toCatalogDataType().isScalarType()) {
             try {
-                ColumnDef.validateDefaultValue(type.toCatalogDataType(),
+                ColumnDef.validateDefaultValue(type.getDataType().toCatalogDataType(),
                         defaultValue.get().getValue(), defaultValue.get().getDefaultValueExprDef());
             } catch (Exception e) {
                 throw new AnalysisException(e.getMessage(), e);
@@ -432,9 +463,9 @@ public class ColumnDefinition {
         }
         if (onUpdateDefaultValue.isPresent()
                 && onUpdateDefaultValue.get().getValue() != null
-                && type.toCatalogDataType().isScalarType()) {
+                && type.getDataType().toCatalogDataType().isScalarType()) {
             try {
-                ColumnDef.validateDefaultValue(type.toCatalogDataType(),
+                ColumnDef.validateDefaultValue(type.getDataType().toCatalogDataType(),
                         onUpdateDefaultValue.get().getValue(), onUpdateDefaultValue.get().getDefaultValueExprDef());
             } catch (Exception e) {
                 throw new AnalysisException("meet error when validating the on update value of column["
@@ -460,34 +491,34 @@ public class ColumnDefinition {
         }
 
         // from old planner CreateTableStmt's analyze method, after call columnDef.analyze(engineName.equals("olap"));
-        if (isOlap && type.isComplexType()) {
+        if (isOlap && type.getDataType().isComplexType()) {
             if (isKey) {
-                throw new AnalysisException(type.toCatalogDataType().getPrimitiveType()
+                throw new AnalysisException(type.getDataType().toCatalogDataType().getPrimitiveType()
                         + " can only be used in the non-key column at present.");
             }
-            if (type.isAggStateType()) {
+            if (type.getDataType().isAggStateType()) {
                 if (aggType == null) {
-                    throw new AnalysisException(type.toCatalogDataType().getPrimitiveType()
+                    throw new AnalysisException(type.getDataType().toCatalogDataType().getPrimitiveType()
                             + " column must have aggregation type");
                 } else {
                     if (aggType != AggregateType.GENERIC
                             && aggType != AggregateType.NONE
                             && aggType != AggregateType.REPLACE
                             && aggType != AggregateType.REPLACE_IF_NOT_NULL) {
-                        throw new AnalysisException(type.toCatalogDataType().getPrimitiveType()
+                        throw new AnalysisException(type.getDataType().toCatalogDataType().getPrimitiveType()
                                 + " column can't support aggregation " + aggType);
                     }
                 }
             } else {
                 if (aggType != null && aggType != AggregateType.NONE && aggType != AggregateType.REPLACE
                         && aggType != AggregateType.REPLACE_IF_NOT_NULL) {
-                    throw new AnalysisException(type.toCatalogDataType().getPrimitiveType()
+                    throw new AnalysisException(type.getDataType().toCatalogDataType().getPrimitiveType()
                             + " column can't support aggregation " + aggType);
                 }
             }
         }
 
-        if (type.isTimeType()) {
+        if (type.getDataType().isTimeType()) {
             throw new AnalysisException("Time type is not supported for olap table");
         }
         validateGeneratedColumnInfo();
@@ -497,7 +528,8 @@ public class ColumnDefinition {
      * translate to catalog create table stmt
      */
     public Column translateToCatalogStyle() {
-        Column column = new Column(name, type.toCatalogDataType(), isKey, aggType, isNullable,
+        Column column = new Column(name, getType().toCatalogDataType(), type.toEncodingTree(), isKey, aggType,
+                isNullable,
                 autoIncInitValue, defaultValue.map(DefaultValue::getValue).orElse(null), comment, isVisible,
                 defaultValue.map(DefaultValue::getDefaultValueExprDef).orElse(null), Column.COLUMN_UNIQUE_ID_INIT_VALUE,
                 defaultValue.map(DefaultValue::getValue).orElse(null), onUpdateDefaultValue.isPresent(),
@@ -512,7 +544,8 @@ public class ColumnDefinition {
      * translate to catalog column for schema change
      */
     public Column translateToCatalogStyleForSchemaChange() {
-        Column column = new Column(name, type.toCatalogDataType(), isKey, aggType, isNullable,
+        Column column = new Column(name, getType().toCatalogDataType(), type.toEncodingTree(), isKey, aggType,
+                isNullable,
                 autoIncInitValue, defaultValue.map(DefaultValue::getValue).orElse(null), comment, isVisible,
                 defaultValue.map(DefaultValue::getDefaultValueExprDef).orElse(null), Column.COLUMN_UNIQUE_ID_INIT_VALUE,
                 defaultValue.map(DefaultValue::getRawValue).orElse(null), onUpdateDefaultValue.isPresent(),
@@ -536,11 +569,6 @@ public class ColumnDefinition {
 
     public static ColumnDefinition newSequenceColumnDefinition(DataType type) {
         return new ColumnDefinition(Column.SEQUENCE_COL, type, false, null, true,
-                Optional.empty(), "sequence column hidden column", false);
-    }
-
-    public static ColumnDefinition newSequenceColumnDefinition(DataType type, AggregateType aggregateType) {
-        return new ColumnDefinition(Column.SEQUENCE_COL, type, false, aggregateType, true,
                 Optional.empty(), "sequence column hidden column", false);
     }
 

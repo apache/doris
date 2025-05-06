@@ -942,6 +942,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.StepPartition;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TableRefInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TagOptions;
+import org.apache.doris.nereids.trees.plans.commands.info.TypeAndEncoding;
 import org.apache.doris.nereids.trees.plans.commands.info.WarmUpItem;
 import org.apache.doris.nereids.trees.plans.commands.insert.BatchInsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
@@ -3617,12 +3618,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public ColumnDefinition visitColumnDef(ColumnDefContext ctx) {
         String colName = ctx.colName.getText();
-        DataType colType = ctx.type instanceof PrimitiveDataTypeContext
+        TypeAndEncoding typeAndEncoding = ctx.type instanceof PrimitiveDataTypeContext
                 ? visitPrimitiveDataType(((PrimitiveDataTypeContext) ctx.type))
                 : ctx.type instanceof ComplexDataTypeContext
                         ? visitComplexDataType((ComplexDataTypeContext) ctx.type)
                         : visitAggStateDataType((AggStateDataTypeContext) ctx.type);
-        colType = colType.conversion();
+        typeAndEncoding.conversion();
         boolean isKey = ctx.KEY() != null;
         ColumnNullableType nullableType = ColumnNullableType.DEFAULT;
         if (ctx.NOT() != null) {
@@ -3705,8 +3706,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         Optional<GeneratedColumnDesc> desc = ctx.generatedExpr != null
                 ? Optional.of(new GeneratedColumnDesc(ctx.generatedExpr.getText(), getExpression(ctx.generatedExpr)))
                 : Optional.empty();
-        return new ColumnDefinition(colName, colType, isKey, aggType, nullableType, autoIncInitValue, defaultValue,
-                onUpdateDefaultValue, comment, desc);
+        return new ColumnDefinition(colName, typeAndEncoding, isKey, aggType, nullableType, autoIncInitValue,
+                defaultValue, onUpdateDefaultValue, comment, desc);
     }
 
     @Override
@@ -4487,7 +4488,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-    public DataType visitAggStateDataType(AggStateDataTypeContext ctx) {
+    public TypeAndEncoding visitAggStateDataType(AggStateDataTypeContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> {
             List<Pair<DataType, Boolean>> dataTypeWithNullables = ctx.dataTypes.stream()
                     .map(this::visitDataTypeWithNullable)
@@ -4503,12 +4504,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 // TODO use function binder to check function exists
                 throw new ParseException("Can not found function '" + functionName + "'", ctx);
             }
-            return new AggStateType(functionName, dataTypes, nullables);
+            return TypeAndEncoding.wrap(new AggStateType(functionName, dataTypes, nullables), null, null);
         });
     }
 
     @Override
-    public DataType visitPrimitiveDataType(PrimitiveDataTypeContext ctx) {
+    public TypeAndEncoding visitPrimitiveDataType(PrimitiveDataTypeContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> {
             String dataType = ctx.primitiveColType().type.getText().toLowerCase(Locale.ROOT);
             if (dataType.equalsIgnoreCase("all")) {
@@ -4516,20 +4517,36 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             }
             List<String> l = Lists.newArrayList(dataType);
             ctx.INTEGER_VALUE().stream().map(ParseTree::getText).forEach(l::add);
-            return DataType.convertPrimitiveFromStrings(l);
+            String encoding = ctx.encoding != null
+                    ? LogicalPlanBuilderAssistant.escapeBackSlash(
+                    ctx.encoding.getText().substring(1, ctx.encoding.getText().length() - 1))
+                    : "";
+
+            DataType type = DataType.convertPrimitiveFromStrings(l);
+            return TypeAndEncoding.wrap(type, encoding, null);
         });
     }
 
     @Override
-    public DataType visitComplexDataType(ComplexDataTypeContext ctx) {
+    public TypeAndEncoding visitComplexDataType(ComplexDataTypeContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> {
             switch (ctx.complex.getType()) {
                 case DorisParser.ARRAY:
-                    return ArrayType.of(typedVisit(ctx.dataType(0)), true);
+                    TypeAndEncoding child = typedVisit(ctx.dataType(0));
+                    return TypeAndEncoding.wrap(ArrayType.of(child.getDataType(), true), null,
+                            Lists.newArrayList(child));
                 case DorisParser.MAP:
-                    return MapType.of(typedVisit(ctx.dataType(0)), typedVisit(ctx.dataType(1)));
+                    TypeAndEncoding key = typedVisit(ctx.dataType(0));
+                    TypeAndEncoding value = typedVisit(ctx.dataType(1));
+                    return TypeAndEncoding.wrap(MapType.of(key.getDataType(), value.getDataType()), null,
+                            Lists.newArrayList(key, value));
                 case DorisParser.STRUCT:
-                    return new StructType(visitComplexColTypeList(ctx.complexColTypeList()));
+                    List<Pair<StructField, TypeAndEncoding>> structFields =
+                            visitComplexColTypeList(ctx.complexColTypeList());
+                    StructType type = new StructType(structFields.stream().map(Pair::key).collect(Collectors.toList()));
+                    List<TypeAndEncoding> children = structFields.stream().map(Pair::value)
+                            .collect(Collectors.toList());
+                    return TypeAndEncoding.wrap(type, null, children);
                 default:
                     throw new AnalysisException("do not support " + ctx.complex.getText() + " type for Nereids");
             }
@@ -4537,12 +4554,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-    public List<StructField> visitComplexColTypeList(ComplexColTypeListContext ctx) {
+    public List<Pair<StructField, TypeAndEncoding>> visitComplexColTypeList(ComplexColTypeListContext ctx) {
         return ctx.complexColType().stream().map(this::visitComplexColType).collect(ImmutableList.toImmutableList());
     }
 
     @Override
-    public StructField visitComplexColType(ComplexColTypeContext ctx) {
+    public Pair<StructField, TypeAndEncoding> visitComplexColType(ComplexColTypeContext ctx) {
         String comment;
         if (ctx.commentSpec() != null) {
             comment = ctx.commentSpec().STRING_LITERAL().getText();
@@ -4550,7 +4567,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         } else {
             comment = "";
         }
-        return new StructField(ctx.identifier().getText(), typedVisit(ctx.dataType()), true, comment);
+        TypeAndEncoding typeAndEncoding = typedVisit(ctx.dataType());
+        return Pair.of(new StructField(ctx.identifier().getText(), typeAndEncoding.getDataType(), true, comment),
+                typeAndEncoding);
     }
 
     private String parseConstant(ConstantContext context) {

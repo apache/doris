@@ -129,14 +129,20 @@ public class ArrayType extends Type {
     }
 
     @Override
-    public String toSql(int depth) {
+    public String toSql(int depth, EncodingTree encodingTree) {
         StringBuilder typeStr = new StringBuilder();
-        typeStr.append("array<").append(itemType.toSql(depth + 1));
+        EncodingTree itemEncoding = encodingTree != null ? encodingTree.child(0) : null;
+        typeStr.append("array<").append(itemType.toSql(depth + 1, itemEncoding));
         if (!containsNull) {
             typeStr.append(" not null");
         }
         typeStr.append(">");
         return typeStr.toString();
+    }
+
+    @Override
+    public String toSql(int depth) {
+        return toSql(depth, null);
     }
 
     @Override
