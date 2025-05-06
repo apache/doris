@@ -375,6 +375,11 @@ EncodingInfo::EncodingInfo(TraitsClass traits)
     }
 }
 
+Status EncodingInfo::get(FieldType filed_type, EncodingTypePB encoding_type,
+                         const EncodingInfo** out) {
+    return s_encoding_info_resolver.get(filed_type, encoding_type, out);
+}
+
 Status EncodingInfo::get(const TypeInfo* type_info, EncodingTypePB encoding_type,
                          const EncodingInfo** out) {
     return s_encoding_info_resolver.get(type_info->type(), encoding_type, out);
