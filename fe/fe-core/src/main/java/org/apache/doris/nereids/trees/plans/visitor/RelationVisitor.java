@@ -22,6 +22,7 @@ import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalDorisScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEsScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
@@ -37,6 +38,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalTestScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeOlapScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalDorisScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEsScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
@@ -110,6 +112,10 @@ public interface RelationVisitor<R, C> {
         return visitLogicalCatalogRelation(jdbcScan, context);
     }
 
+    default R visitLogicalDorisScan(LogicalDorisScan dorisScan, C context) {
+        return visitLogicalCatalogRelation(dorisScan, context);
+    }
+
     default R visitLogicalOdbcScan(LogicalOdbcScan odbcScan, C context) {
         return visitLogicalCatalogRelation(odbcScan, context);
     }
@@ -161,6 +167,10 @@ public interface RelationVisitor<R, C> {
 
     default R visitPhysicalJdbcScan(PhysicalJdbcScan jdbcScan, C context) {
         return visitPhysicalCatalogRelation(jdbcScan, context);
+    }
+
+    default R visitPhysicalDorisScan(PhysicalDorisScan dorisScan, C context) {
+        return visitPhysicalCatalogRelation(dorisScan, context);
     }
 
     default R visitPhysicalOdbcScan(PhysicalOdbcScan odbcScan, C context) {
