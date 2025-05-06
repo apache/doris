@@ -33,7 +33,7 @@ suite("test_ddl") {
         sql """
         create dictionary dic1
         (
-            col1 KEY, 
+            col1 KEY,
             col2 VALUE,
             col3 VALUE
         )LAYOUT(HASH_MAP)
@@ -46,7 +46,7 @@ suite("test_ddl") {
         sql """
         create dictionary dic1 using dc
         (
-            col1 KEY, 
+            col1 KEY,
             col2 VALUE,
             col3 VALUE
         )LAYOUT(HASH_MAP)
@@ -59,7 +59,7 @@ suite("test_ddl") {
         sql """
         create dictionary dic1 using dcxxx
         (
-            col1 KEY, 
+            col1 KEY,
             col2 VALUE,
             col3 VALUE
         )LAYOUT(HASH_MAP)
@@ -72,7 +72,7 @@ suite("test_ddl") {
         sql """
         create dictionary dic1 using dc
         (
-            col1 KEY, 
+            col1 KEY,
             col2 VALUE,
             col3 VALUE
         )LAYOUT(HASH_MAP)
@@ -85,7 +85,7 @@ suite("test_ddl") {
         sql """
         create dictionary dic1 using dc
         (
-            k0 KEY, 
+            k0 KEY,
             k1 VALUE,
             k1 VARCHAR
         )LAYOUT(HASH_MAP)
@@ -98,7 +98,7 @@ suite("test_ddl") {
         sql """
         create dictionary dic1 using dc
         (
-            k1 KEY, 
+            k1 KEY,
             k0 VALUE,
             k0 VALUE
         )LAYOUT(HASH_MAP)
@@ -120,7 +120,7 @@ suite("test_ddl") {
         sql """
         create dictionary dic1 using ctype
         (
-            k1 KEY, 
+            k1 KEY,
             k0 VALUE
         )LAYOUT(HASH_MAP)
         properties('data_lifetime'='600');
@@ -182,7 +182,7 @@ suite("test_ddl") {
         sql """
         create dictionary dic_trie2 using dc
         (
-            k0 KEY, 
+            k0 KEY,
             k1 VALUE
         )LAYOUT(IP_TRIE)
         properties('data_lifetime'='600');
@@ -194,7 +194,7 @@ suite("test_ddl") {
         sql """
         create dictionary dic_trie using dc
         (
-            k1 KEY, 
+            k1 KEY,
             k0 VALUE
         )LAYOUT(IP_TRIE)
         properties('x' = '1');
@@ -211,9 +211,7 @@ suite("test_ddl") {
         )LAYOUT(HASH_MAP)
         properties('data_lifetime'='600', "x"="x", "y"="y");
     """
-    def origin_res = (sql "show dictionaries")[0]
-    log.info(origin_res.toString())
-    assertTrue(origin_res[1] == "dic1" && (origin_res[4] == "NORMAL" || origin_res[4] == "LOADING"))
+    waitAllDictionariesReady()
 
     // normal ip_trie
     sql """
@@ -242,7 +240,7 @@ suite("test_ddl") {
 
     // test drop
     sql "drop dictionary dic1"
-    origin_res = sql "show dictionaries"
+    def origin_res = sql "show dictionaries"
     assertEquals(origin_res.size(), 1)
 
     // drop databases

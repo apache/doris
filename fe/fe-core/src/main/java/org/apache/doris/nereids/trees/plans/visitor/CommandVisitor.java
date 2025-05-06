@@ -214,8 +214,11 @@ import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTable
 import org.apache.doris.nereids.trees.plans.commands.load.CreateDataSyncJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.load.CreateRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.load.PauseDataSyncJobCommand;
+import org.apache.doris.nereids.trees.plans.commands.load.PauseRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.load.ResumeDataSyncJobCommand;
+import org.apache.doris.nereids.trees.plans.commands.load.ResumeRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.load.StopDataSyncJobCommand;
+import org.apache.doris.nereids.trees.plans.commands.load.StopRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshDictionaryCommand;
@@ -997,6 +1000,18 @@ public interface CommandVisitor<R, C> {
 
     default R visitAdminCopyTabletCommand(AdminCopyTabletCommand adminCopyTabletCommand, C context) {
         return visitCommand(adminCopyTabletCommand, context);
+    }
+
+    default R visitPauseRoutineLoadCommand(PauseRoutineLoadCommand routineLoadCommand, C context) {
+        return visitCommand(routineLoadCommand, context);
+    }
+
+    default R visitResumeRoutineLoadCommand(ResumeRoutineLoadCommand resumeRoutineLoadCommand, C context) {
+        return visitCommand(resumeRoutineLoadCommand, context);
+    }
+
+    default R visitStopRoutineLoadCommand(StopRoutineLoadCommand stopRoutineLoadCommand, C context) {
+        return visitCommand(stopRoutineLoadCommand, context);
     }
 
     default R visitCleanQueryStatsCommand(CleanQueryStatsCommand cleanQueryStatsCommand, C context) {

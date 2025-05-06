@@ -109,4 +109,47 @@ public class WorkloadGroupTest {
         }
         Assert.assertEquals(hasException, true);
     }
+
+    @Test
+    public void testWorkloadGroupKey() {
+        // equal
+        WorkloadGroupKey eqKey1 = WorkloadGroupKey.get("cg1", "wg1");
+        WorkloadGroupKey eqKey2 = WorkloadGroupKey.get("cg1", "wg1");
+        WorkloadGroupKey eqKey3 = WorkloadGroupKey.get("cg1", "wg2");
+        Assert.assertTrue(eqKey1.equals(eqKey1));
+        Assert.assertTrue(eqKey1.equals(eqKey2));
+        Assert.assertTrue(eqKey2.equals(eqKey1));
+        Assert.assertTrue(eqKey1.hashCode() == eqKey2.hashCode());
+
+        Assert.assertFalse(eqKey3.equals(eqKey1));
+        Assert.assertFalse(eqKey1.equals(eqKey3));
+        Assert.assertTrue(eqKey1.hashCode() != eqKey3.hashCode());
+
+        WorkloadGroupKey eqKey4 = WorkloadGroupKey.get("cg2", "wg2");
+        Assert.assertFalse(eqKey4.equals(eqKey3));
+        Assert.assertFalse(eqKey3.equals(eqKey4));
+        Assert.assertFalse(eqKey4.hashCode() == eqKey3.hashCode());
+
+
+        // test wg name exception
+        try {
+            WorkloadGroupKey.get("cg1", "");
+            Assert.fail();
+        } catch (IllegalStateException e) {
+            Assert.assertTrue(true);
+        }
+
+
+        // test null equal
+        Assert.assertTrue(!eqKey1.equals(null));
+
+        WorkloadGroupKey nullkey2 = WorkloadGroupKey.get(null, "wg1");
+        WorkloadGroupKey nullkey3 = WorkloadGroupKey.get("", "wg1");
+        Assert.assertTrue(nullkey2.equals(nullkey3));
+        Assert.assertTrue(nullkey3.equals(nullkey2));
+
+        Assert.assertFalse(nullkey2.equals(eqKey1));
+        Assert.assertFalse(eqKey1.equals(nullkey2));
+
+    }
 }
