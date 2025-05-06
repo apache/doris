@@ -230,6 +230,8 @@ supportedCreateStatement
 		LEFT_PAREN dictionaryColumnDefs RIGHT_PAREN
         LAYOUT LEFT_PAREN layoutType=identifier RIGHT_PAREN
         properties=propertyClause?         # createDictionary
+    | CREATE STORAGE VAULT (IF NOT EXISTS)?
+            name=identifierOrText properties=propertyClause?                        #createStorageVault
     ;
 
 dictionaryColumnDefs:
@@ -800,8 +802,6 @@ unsupportedCreateStatement
     : CREATE (DATABASE | SCHEMA) (IF NOT EXISTS)? name=multipartIdentifier
         properties=propertyClause?                                              #createDatabase
     | CREATE (READ ONLY)? REPOSITORY name=identifier WITH storageBackend        #createRepository
-    | CREATE STORAGE VAULT (IF NOT EXISTS)?
-        name=identifierOrText properties=propertyClause?                        #createStorageVault
     | CREATE WORKLOAD POLICY (IF NOT EXISTS)? name=identifierOrText
         (CONDITIONS LEFT_PAREN workloadPolicyConditions RIGHT_PAREN)?
         (ACTIONS LEFT_PAREN workloadPolicyActions RIGHT_PAREN)?

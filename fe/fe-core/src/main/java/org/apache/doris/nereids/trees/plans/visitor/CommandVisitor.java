@@ -63,6 +63,7 @@ import org.apache.doris.nereids.trees.plans.commands.CreateProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateResourceCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateSqlBlockRuleCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateStorageVaultCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableLikeCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateUserCommand;
@@ -1048,5 +1049,9 @@ public interface CommandVisitor<R, C> {
 
     default R visitCreateResourceCommand(CreateResourceCommand createResourceCommand, C context) {
         return visitCommand(createResourceCommand, context);
+    }
+
+    default R visitCreateStorageVaultCommand(CreateStorageVaultCommand createStorageVaultCommand, C context) {
+        return visitCommand(createStorageVaultCommand, context);
     }
 }
