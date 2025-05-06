@@ -223,6 +223,7 @@ public class AutoBucketUtilsTest {
     // Occasional failure, so ignore these tests
     // It works on Mac and development machine, but it reports an error on CI pipeline. I don't know what it is,
     // so @Ignore
+
     @Ignore
     @Test
     public void test100MB(@Mocked Env env, @Mocked EditLog editLog, @Mocked SystemInfoService systemInfoService)
@@ -316,7 +317,7 @@ public class AutoBucketUtilsTest {
     @Ignore
     @Test
     public void test1T_1_In_Cloud(@Mocked Env env, @Mocked EditLog editLog, @Mocked SystemInfoService systemInfoService)
-        throws Exception {
+            throws Exception {
         Config.autobucket_partition_size_per_bucket_gb = 5;
         Config.cloud_unique_id = "cloud_mode";
         long estimatePartitionSize = AutoBucketUtils.SIZE_1TB;
