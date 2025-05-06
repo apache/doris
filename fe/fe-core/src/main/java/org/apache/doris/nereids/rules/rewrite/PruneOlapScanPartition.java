@@ -98,11 +98,8 @@ public class PruneOlapScanPartition implements RewriteRuleFactory {
                                       OlapTable table,
                                       LogicalFilter filter,
                                       MatchingContext ctx) {
-        List<Long> prunedPartitionsByTablets = prunePartitionByTabletIds(scan, table);
-        List<Long> prunedPartitionsByFilters = null;
-        if (filter != null) {
-            prunedPartitionsByFilters = prunePartitionByFilters(scan, table, filter, ctx);
-        }
+        List<Long> prunedPartitionsByFilters = prunePartitionByFilters(scan, table, filter, ctx);
+        List<Long> prunedPartitionsByTablets = prunePartitionByTabletIds(scan, table, prunedPartitionsByFilters);
 
         List<Long> prunedPartitions;
         if (prunedPartitionsByTablets == null && prunedPartitionsByFilters == null) {
@@ -129,6 +126,9 @@ public class PruneOlapScanPartition implements RewriteRuleFactory {
                                                OlapTable table,
                                                LogicalFilter filter,
                                                MatchingContext ctx) {
+        if (filter == null) {
+            return null;
+        }
         Set<String> partitionColumnNameSet = Utils.execWithReturnVal(table::getPartitionColumnNames);
         if (partitionColumnNameSet.isEmpty()) {
             return null;
@@ -176,23 +176,14 @@ public class PruneOlapScanPartition implements RewriteRuleFactory {
         return prunedPartitions;
     }
 
-    private List<Long> prunePartitionByTabletIds(LogicalOlapScan scan, OlapTable table) {
+    private List<Long> prunePartitionByTabletIds(LogicalOlapScan scan, OlapTable table, List<Long> prunedPartitionsByFilters) {
         if (scan.getManuallySpecifiedTabletIds().size() == 0) {
             return null;
         }
-        PartitionInfo partitionInfo = table.getPartitionInfo();
-        Map<Long, PartitionItem> partitions = partitionInfo.getAllPartitions();
-        List<Long> manuallySpecifiedPartitions = scan.getManuallySpecifiedPartitions();
 
         Set<Long> selectedPartitions = new LinkedHashSet<>();
-        if (!manuallySpecifiedPartitions.isEmpty()) {
-            for (Entry<Long, PartitionItem> entry : partitions.entrySet()) {
-                if (manuallySpecifiedPartitions.contains(entry.getKey())) {
-                    selectedPartitions.add(entry.getKey());
-                }
-            }
-        } else {
-            selectedPartitions.addAll(partitions.keySet());
+        if (prunedPartitionsByFilters != null) {
+            selectedPartitions.addAll(prunedPartitionsByFilters);
         }
 
         Set<Long> manuallySpecifiedTabletIds = ImmutableSet.copyOf(scan.getManuallySpecifiedTabletIds());
