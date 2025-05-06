@@ -25,6 +25,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.persist.DropWorkloadGroupOperationLog;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.computegroup.ComputeGroup;
@@ -127,13 +128,13 @@ public class WorkloadGroupMgrTest {
         WorkloadGroup wg1 = new WorkloadGroup(wgId1, wgName1, properties1);
         workloadGroupMgr.createWorkloadGroup(cg1, wg1, false);
 
-        Pair<String, String> key1 = Pair.of(cg1, wgName1);
-        Map<Pair<String, String>, WorkloadGroup> nameToRG = workloadGroupMgr.getNameToWorkloadGroup();
+        WorkloadGroupKey key1 = WorkloadGroupKey.get(cg1, wgName1);
+        Map<WorkloadGroupKey, WorkloadGroup> nameToRG = workloadGroupMgr.getNameToWorkloadGroup();
         Assert.assertEquals(1, nameToRG.size());
         Assert.assertTrue(nameToRG.containsKey(key1));
         WorkloadGroup group1 = nameToRG.get(key1);
-        Assert.assertEquals(key1.second, group1.getName());
-        Assert.assertEquals(key1.first, group1.getComputeGroup());
+        Assert.assertEquals(key1.getWorkloadGroupName(), group1.getName());
+        Assert.assertEquals(key1.getComputeGroup(), group1.getComputeGroup());
 
         Map<Long, WorkloadGroup> idToRG = workloadGroupMgr.getIdToWorkloadGroup();
         Assert.assertEquals(1, idToRG.size());
@@ -150,7 +151,7 @@ public class WorkloadGroupMgrTest {
         WorkloadGroup wg2 = new WorkloadGroup(wgId2, wgName2, properties2);
         workloadGroupMgr.createWorkloadGroup(cg2, wg2, false);
 
-        Pair<String, String> key2 = Pair.of(cg2, wgName2);
+        WorkloadGroupKey key2 = WorkloadGroupKey.get(cg2, wgName2);
         nameToRG = workloadGroupMgr.getNameToWorkloadGroup();
         Assert.assertEquals(2, nameToRG.size());
         Assert.assertTrue(nameToRG.containsKey(key2));
@@ -158,7 +159,7 @@ public class WorkloadGroupMgrTest {
         idToRG = workloadGroupMgr.getIdToWorkloadGroup();
         Assert.assertEquals(2, idToRG.size());
         Assert.assertTrue(idToRG.containsKey(group2.getId()));
-        Assert.assertTrue(key2.first.equals(wg2.getComputeGroup()));
+        Assert.assertTrue(key2.getComputeGroup().equals(wg2.getComputeGroup()));
 
         // 3 test memory limit exceeds
         Map<String, String> properties3 = Maps.newHashMap();
@@ -294,7 +295,7 @@ public class WorkloadGroupMgrTest {
         prop1.put(WorkloadGroup.CPU_SHARE, "10");
         workloadGroupMgr.createWorkloadGroup(cgName1, new WorkloadGroup(wgId1, wgName1, prop1), false);
         Assert.assertTrue(Long.valueOf(
-                workloadGroupMgr.getNameToWorkloadGroup().get(Pair.of(cgName1, wgName1)).getProperties()
+                workloadGroupMgr.getNameToWorkloadGroup().get(WorkloadGroupKey.get(cgName1, wgName1)).getProperties()
                         .get(WorkloadGroup.CPU_SHARE)) == 10);
 
         // test alter failed
@@ -311,7 +312,7 @@ public class WorkloadGroupMgrTest {
 
         // test alter success
         workloadGroupMgr.alterWorkloadGroup(cgName1, wgName1, prop2);
-        WorkloadGroup wg = workloadGroupMgr.getNameToWorkloadGroup().get(Pair.of(cgName1, wgName1));
+        WorkloadGroup wg = workloadGroupMgr.getNameToWorkloadGroup().get(WorkloadGroupKey.get(cgName1, wgName1));
         Assert.assertTrue(Long.valueOf(wg.getProperties().get(WorkloadGroup.CPU_SHARE)) == 20);
     }
 
@@ -333,7 +334,7 @@ public class WorkloadGroupMgrTest {
         prop1.put(WorkloadGroup.CPU_SHARE, "123");
         WorkloadGroup wg1 = new WorkloadGroup(wgId1, wgName1, prop1);
         wgMgr.getIdToWorkloadGroup().put(wgId1, wg1);
-        wgMgr.getNameToWorkloadGroup().put(Pair.of(WorkloadGroupMgr.EMPTY_COMPUTE_GROUP, wgName1), wg1);
+        wgMgr.getNameToWorkloadGroup().put(WorkloadGroupKey.get(WorkloadGroupMgr.EMPTY_COMPUTE_GROUP, wgName1), wg1);
         wgMgr.getIdToQueryQueue().put(wgId1, new QueryQueue(0, 0, 0, 0, 0));
 
         long wgId2 = 2;
@@ -342,7 +343,7 @@ public class WorkloadGroupMgrTest {
         prop2.put(WorkloadGroup.CPU_SHARE, "123");
         WorkloadGroup wg2 = new WorkloadGroup(wgId2, wgName2, prop2);
         wgMgr.getIdToWorkloadGroup().put(wgId2, wg2);
-        wgMgr.getNameToWorkloadGroup().put(Pair.of(WorkloadGroupMgr.EMPTY_COMPUTE_GROUP, wgName2), wg2);
+        wgMgr.getNameToWorkloadGroup().put(WorkloadGroupKey.get(WorkloadGroupMgr.EMPTY_COMPUTE_GROUP, wgName2), wg2);
         wgMgr.getIdToQueryQueue().put(wgId2, new QueryQueue(0, 0, 0, 0, 0));
 
         long wgId3 = 3;
@@ -351,7 +352,7 @@ public class WorkloadGroupMgrTest {
         prop3.put(WorkloadGroup.CPU_SHARE, "123");
         WorkloadGroup wg3 = new WorkloadGroup(wgId3, wgName3, prop3);
         wgMgr.getIdToWorkloadGroup().put(wgId3, wg3);
-        wgMgr.getNameToWorkloadGroup().put(Pair.of(WorkloadGroupMgr.EMPTY_COMPUTE_GROUP, wgName3), wg3);
+        wgMgr.getNameToWorkloadGroup().put(WorkloadGroupKey.get(WorkloadGroupMgr.EMPTY_COMPUTE_GROUP, wgName3), wg3);
         wgMgr.getIdToQueryQueue().put(wgId3, new QueryQueue(0, 0, 0, 0, 0));
 
 
@@ -392,9 +393,9 @@ public class WorkloadGroupMgrTest {
         Assert.assertTrue(wgMgr.getIdToWorkloadGroup().get(wgId4).equals(wg4));
 
         for (String cgName : cgSet) {
-            WorkloadGroup wg11 = wgMgr.getNameToWorkloadGroup().get(Pair.of(cgName, wgName1));
-            WorkloadGroup wg22 = wgMgr.getNameToWorkloadGroup().get(Pair.of(cgName, wgName2));
-            WorkloadGroup wg33 = wgMgr.getNameToWorkloadGroup().get(Pair.of(cgName, wgName3));
+            WorkloadGroup wg11 = wgMgr.getNameToWorkloadGroup().get(WorkloadGroupKey.get(cgName, wgName1));
+            WorkloadGroup wg22 = wgMgr.getNameToWorkloadGroup().get(WorkloadGroupKey.get(cgName, wgName2));
+            WorkloadGroup wg33 = wgMgr.getNameToWorkloadGroup().get(WorkloadGroupKey.get(cgName, wgName3));
 
             Assert.assertTrue(wgMgr.getIdToWorkloadGroup().containsKey(wg11.getId()));
             Assert.assertTrue(wgMgr.getIdToWorkloadGroup().containsKey(wg22.getId()));
@@ -559,5 +560,40 @@ public class WorkloadGroupMgrTest {
                     workloadGroupMgr.alterWorkloadGroup(cg1, "wg1", properties);
                 }
         }
+    }
+
+    @Test
+    public void testReplayWorkloadGroup() {
+        WorkloadGroupMgr wgMgr = new WorkloadGroupMgr();
+        Assert.assertTrue(wgMgr.getNameToWorkloadGroup().size() == 0);
+        Assert.assertTrue(wgMgr.getIdToWorkloadGroup().size() == 0);
+
+
+        // 1 test replay create
+        WorkloadGroup wg1 = new WorkloadGroup(1, "wg1", Maps.newHashMap());
+        wgMgr.replayCreateWorkloadGroup(wg1);
+
+        Assert.assertTrue(wgMgr.getNameToWorkloadGroup().size() == 1);
+        Assert.assertTrue(wgMgr.getIdToWorkloadGroup().size() == 1);
+        Assert.assertTrue(wgMgr.getNameToWorkloadGroup().get(wg1.getWorkloadGroupKey())
+                .equals(wgMgr.getIdToWorkloadGroup().get(wg1.getId())));
+
+        // 2 test replay alter
+        Map<String, String> pop2 = Maps.newHashMap();
+        pop2.put("cpu_share", "2345");
+        WorkloadGroup wg2 = new WorkloadGroup(1, "wg1", pop2);
+        wgMgr.replayAlterWorkloadGroup(wg2);
+        Assert.assertTrue(wgMgr.getNameToWorkloadGroup().get(wg2.getWorkloadGroupKey())
+                .equals(wgMgr.getIdToWorkloadGroup().get(wg2.getId())));
+        Assert.assertTrue(wgMgr.getNameToWorkloadGroup().get(wg2.getWorkloadGroupKey()).getProperties().get("cpu_share")
+                .equals("2345"));
+        Assert.assertTrue(wgMgr.getNameToWorkloadGroup().size() == 1);
+        Assert.assertTrue(wgMgr.getIdToWorkloadGroup().size() == 1);
+
+        // 3 test replay drop
+        DropWorkloadGroupOperationLog dropLog = new DropWorkloadGroupOperationLog(1);
+        wgMgr.replayDropWorkloadGroup(dropLog);
+        Assert.assertTrue(wgMgr.getNameToWorkloadGroup().size() == 0);
+        Assert.assertTrue(wgMgr.getIdToWorkloadGroup().size() == 0);
     }
 }
