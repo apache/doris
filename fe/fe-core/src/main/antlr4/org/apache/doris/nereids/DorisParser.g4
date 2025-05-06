@@ -385,6 +385,11 @@ supportedLoadStatement
     : SYNC                                                                          #sync
     | createRoutineLoad                                                             #createRoutineLoadAlias
     | SHOW ALL? CREATE ROUTINE LOAD FOR label=multipartIdentifier                   #showCreateRoutineLoad
+    | PAUSE ROUTINE LOAD FOR label=multipartIdentifier                              #pauseRoutineLoad
+    | PAUSE ALL ROUTINE LOAD                                                        #pauseAllRoutineLoad
+    | RESUME ROUTINE LOAD FOR label=multipartIdentifier                             #resumeRoutineLoad
+    | RESUME ALL ROUTINE LOAD                                                       #resumeAllRoutineLoad
+    | STOP ROUTINE LOAD FOR label=multipartIdentifier                               #stopRoutineLoad
     | STOP SYNC JOB name=multipartIdentifier                                        #stopDataSyncJob
     | RESUME SYNC JOB name=multipartIdentifier                                      #resumeDataSyncJob
     | PAUSE SYNC JOB name=multipartIdentifier                                       #pauseDataSyncJob
@@ -479,11 +484,6 @@ unsupportedLoadStatement
     : LOAD mysqlDataDesc
         (PROPERTIES LEFT_PAREN properties=propertyItemList RIGHT_PAREN)?
         (commentSpec)?                                                              #mysqlLoad
-    | PAUSE ROUTINE LOAD FOR label=multipartIdentifier                              #pauseRoutineLoad
-    | PAUSE ALL ROUTINE LOAD                                                        #pauseAllRoutineLoad
-    | RESUME ROUTINE LOAD FOR label=multipartIdentifier                             #resumeRoutineLoad
-    | RESUME ALL ROUTINE LOAD                                                       #resumeAllRoutineLoad
-    | STOP ROUTINE LOAD FOR label=multipartIdentifier                               #stopRoutineLoad
     | SHOW ALL? ROUTINE LOAD ((FOR label=multipartIdentifier) | wildWhere?)         #showRoutineLoad
     | SHOW ROUTINE LOAD TASK ((FROM | IN) database=identifier)? wildWhere?          #showRoutineLoadTask
     | SHOW CREATE LOAD FOR label=multipartIdentifier                                #showCreateLoad
