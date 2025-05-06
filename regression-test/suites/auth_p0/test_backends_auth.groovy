@@ -33,6 +33,8 @@ suite("test_backends_auth","p0,auth") {
     }
 
     sql """grant select_priv on regression_test to ${user}"""
+    sql """grant select_priv on internal.information_schema.* to ${user}"""
+    sql """revoke select_priv on internal.information_schema.* from ${user}"""
 
     connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
@@ -49,7 +51,7 @@ suite("test_backends_auth","p0,auth") {
         }
     }
 
-    sql """grant admin_priv on *.*.* to ${user}"""
+    sql """grant select_priv on internal.information_schema.* to ${user}"""
 
     connect(user, "${pwd}", context.config.jdbcUrl) {
          sql """
