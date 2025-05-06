@@ -45,12 +45,12 @@ package org.apache.doris.common;
 // |                            rand_b                             |
 // +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 
-import java.time.Instant;
 import java.util.Random;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.locks.ReentrantLock;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.LockSupport;
 
 public class UUIDv7Generator {
     private static final UUIDv7Generator INSTANCE = new UUIDv7Generator();
@@ -58,14 +58,16 @@ public class UUIDv7Generator {
     private static final AtomicInteger COUNTER = new AtomicInteger(0);
     private static final long VERSION = 7L << 12;
     private static final long VARIANT = 2L << 62;
+    private static final long MAX_SEQUENCE = 0xFFF;
+    private static final int SPIN_THRESHOLD = 10;
+    private static final long PARK_NANOS = 100L; // 100 nanoseconds
 
-    // For synchronizing timestamp access
-    private final ReentrantLock lock = new ReentrantLock();
-    private long lastTimestamp = 0;
+    private final AtomicLong timestampAndSequence;
 
     private UUIDv7Generator() {
-        // Initialize with current timestamp
-        lastTimestamp = Instant.now().toEpochMilli();
+        // Initialize with current timestamp and 0 sequence
+        long initialTimestamp = System.currentTimeMillis();
+        timestampAndSequence = new AtomicLong((initialTimestamp << 12));
     }
 
     public static UUIDv7Generator getInstance() {
@@ -73,34 +75,50 @@ public class UUIDv7Generator {
     }
 
     public UUID nextUUID() {
-        lock.lock();
-        try {
-            // Get current timestamp
-            long timestamp = Instant.now().toEpochMilli();
+        int spinCount = 0;
+        while (true) {
+            long currentTimestamp = System.currentTimeMillis();
+            long current = timestampAndSequence.get();
+            long timestamp = current >>> 12;
+            long sequence = current & MAX_SEQUENCE;
 
-            // Ensure the timestamp is monotonic
-            if (timestamp <= lastTimestamp) {
-                timestamp = lastTimestamp;
-            } else {
-                lastTimestamp = timestamp;
+            if (currentTimestamp < timestamp || (currentTimestamp == timestamp && sequence >= MAX_SEQUENCE)) {
+                if (spinCount < SPIN_THRESHOLD) {
+                    spinCount++;
+                    continue;
+                }
+                LockSupport.parkNanos(PARK_NANOS);
+                continue;
             }
 
-            // Get counter value (12 bits)
-            int counter = COUNTER.getAndIncrement() & 0xFFF;
+            long next;
+            if (currentTimestamp > timestamp) {
+                next = currentTimestamp << 12;
+            } else {
+                next = current + 1;
+            }
 
-            // Generate random bits for the lower part
-            long random = RANDOM.nextLong();
-
-            // Build UUID components
-            // Timestamp (48 bits) + Version (4 bits) + Counter (12 bits)
-            long msb = (timestamp << 16) | VERSION | counter;
-
-            // Variant (2 bits) + Random (62 bits)
-            long lsb = VARIANT | (random & 0x3FFFFFFFFFFFFFFFL);
-
-            return new UUID(msb, lsb);
-        } finally {
-            lock.unlock();
+            if (timestampAndSequence.compareAndSet(current, next)) {
+                return generateUUID(next >>> 12, next & MAX_SEQUENCE);
+            }
+            spinCount++;
         }
+    }
+
+    private UUID generateUUID(long timestamp, long sequence) {
+        // Get counter value (12 bits)
+        int counter = (int) (sequence & 0xFFF);
+
+        // Generate random bits for the lower part
+        long random = RANDOM.nextLong();
+
+        // Build UUID components
+        // Timestamp (48 bits) + Version (4 bits) + Counter (12 bits)
+        long msb = (timestamp << 16) | VERSION | counter;
+
+        // Variant (2 bits) + Random (62 bits)
+        long lsb = VARIANT | (random & 0x3FFFFFFFFFFFFFFFL);
+
+        return new UUID(msb, lsb);
     }
 }
