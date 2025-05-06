@@ -29,9 +29,7 @@
     assertTrue(remaining_dicts.contains("area_dict"))
 
     // validate dict status NORMAL
-    dict_res.each { row ->
-        assertTrue(row[4] == "NORMAL", row[4])
-    }
+    waitAllDictionariesReady()
 
     // validate dict version and get it
     sql "refresh dictionary area_dict"
