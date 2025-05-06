@@ -22,7 +22,6 @@ import org.apache.doris.analysis.CreateStorageVaultStmt;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.base.Preconditions;
