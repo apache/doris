@@ -50,6 +50,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.dictionary.LayoutType;
 import org.apache.doris.job.common.IntervalUnit;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
@@ -130,6 +131,7 @@ import org.apache.doris.nereids.DorisParser.ComplexDataTypeContext;
 import org.apache.doris.nereids.DorisParser.ConstantContext;
 import org.apache.doris.nereids.DorisParser.CreateAliasFunctionContext;
 import org.apache.doris.nereids.DorisParser.CreateCatalogContext;
+import org.apache.doris.nereids.DorisParser.CreateDictionaryContext;
 import org.apache.doris.nereids.DorisParser.CreateEncryptkeyContext;
 import org.apache.doris.nereids.DorisParser.CreateFileContext;
 import org.apache.doris.nereids.DorisParser.CreateIndexContext;
@@ -152,6 +154,8 @@ import org.apache.doris.nereids.DorisParser.DataTypeWithNullableContext;
 import org.apache.doris.nereids.DorisParser.DecimalLiteralContext;
 import org.apache.doris.nereids.DorisParser.DeleteContext;
 import org.apache.doris.nereids.DorisParser.DereferenceContext;
+import org.apache.doris.nereids.DorisParser.DescribeDictionaryContext;
+import org.apache.doris.nereids.DorisParser.DictionaryColumnDefContext;
 import org.apache.doris.nereids.DorisParser.DropAllBrokerClauseContext;
 import org.apache.doris.nereids.DorisParser.DropBrokerClauseContext;
 import org.apache.doris.nereids.DorisParser.DropCatalogContext;
@@ -159,6 +163,7 @@ import org.apache.doris.nereids.DorisParser.DropCatalogRecycleBinContext;
 import org.apache.doris.nereids.DorisParser.DropColumnClauseContext;
 import org.apache.doris.nereids.DorisParser.DropConstraintContext;
 import org.apache.doris.nereids.DorisParser.DropDatabaseContext;
+import org.apache.doris.nereids.DorisParser.DropDictionaryContext;
 import org.apache.doris.nereids.DorisParser.DropEncryptkeyContext;
 import org.apache.doris.nereids.DorisParser.DropFileContext;
 import org.apache.doris.nereids.DorisParser.DropFunctionContext;
@@ -261,6 +266,7 @@ import org.apache.doris.nereids.DorisParser.RecoverPartitionContext;
 import org.apache.doris.nereids.DorisParser.RecoverTableContext;
 import org.apache.doris.nereids.DorisParser.RefreshCatalogContext;
 import org.apache.doris.nereids.DorisParser.RefreshDatabaseContext;
+import org.apache.doris.nereids.DorisParser.RefreshDictionaryContext;
 import org.apache.doris.nereids.DorisParser.RefreshMTMVContext;
 import org.apache.doris.nereids.DorisParser.RefreshMethodContext;
 import org.apache.doris.nereids.DorisParser.RefreshScheduleContext;
@@ -328,6 +334,7 @@ import org.apache.doris.nereids.DorisParser.ShowDataTypesContext;
 import org.apache.doris.nereids.DorisParser.ShowDatabaseIdContext;
 import org.apache.doris.nereids.DorisParser.ShowDeleteContext;
 import org.apache.doris.nereids.DorisParser.ShowDiagnoseTabletContext;
+import org.apache.doris.nereids.DorisParser.ShowDictionariesContext;
 import org.apache.doris.nereids.DorisParser.ShowDynamicPartitionContext;
 import org.apache.doris.nereids.DorisParser.ShowEncryptKeysContext;
 import org.apache.doris.nereids.DorisParser.ShowEventsContext;
@@ -565,10 +572,12 @@ import org.apache.doris.nereids.trees.plans.commands.CancelLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelMTMVTaskCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelWarmUpJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.CleanAllProfileCommand;
+import org.apache.doris.nereids.trees.plans.commands.CleanQueryStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.Constraint;
 import org.apache.doris.nereids.trees.plans.commands.CopyIntoCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateCatalogCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateDictionaryCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateEncryptkeyCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateFileCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateFunctionCommand;
@@ -595,6 +604,7 @@ import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinComman
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand.IdType;
 import org.apache.doris.nereids.trees.plans.commands.DropConstraintCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropDatabaseCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropDictionaryCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropEncryptkeyCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropExpiredStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropFileCommand;
@@ -615,6 +625,7 @@ import org.apache.doris.nereids.trees.plans.commands.DropWorkloadGroupCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropWorkloadPolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
+import org.apache.doris.nereids.trees.plans.commands.ExplainDictionaryCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExportCommand;
 import org.apache.doris.nereids.trees.plans.commands.HelpCommand;
 import org.apache.doris.nereids.trees.plans.commands.KillAnalyzeJobCommand;
@@ -662,6 +673,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowDatabaseIdCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDatabasesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDeleteCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDiagnoseTabletCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowDictionariesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDynamicPartitionCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowEncryptKeysCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowEventsCommand;
@@ -761,6 +773,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.CreateViewInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.commands.info.DecommissionBackendOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DefaultValue;
+import org.apache.doris.nereids.trees.plans.commands.info.DictionaryColumnDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.DistributionDescriptor;
 import org.apache.doris.nereids.trees.plans.commands.info.DropAllBrokerOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropBackendOp;
@@ -842,6 +855,7 @@ import org.apache.doris.nereids.trees.plans.commands.load.StopDataSyncJobCommand
 import org.apache.doris.nereids.trees.plans.commands.load.SyncJobName;
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshDatabaseCommand;
+import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshDictionaryCommand;
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.use.SwitchCommand;
 import org.apache.doris.nereids.trees.plans.commands.use.UseCommand;
@@ -1109,6 +1123,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 LogicalPlanBuilderAssistant.escapeBackSlash(commentSpec.substring(1, commentSpec.length() - 1));
     }
 
+    /**
+     * This function may be used in some task like InsertTask, RefreshDictionary, etc. the target could be many type of
+     * tables.
+     */
     @Override
     public LogicalPlan visitInsertTable(InsertTableContext ctx) {
         boolean isOverwrite = ctx.INTO() == null;
@@ -6668,6 +6686,21 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return new AdminCancelRepairTableCommand(tableRefInfo);
     }
 
+    public LogicalPlan visitCleanAllQueryStats(DorisParser.CleanAllQueryStatsContext ctx) {
+        return new CleanQueryStatsCommand();
+    }
+
+    @Override
+    public LogicalPlan visitCleanQueryStats(DorisParser.CleanQueryStatsContext ctx) {
+        if (ctx.database != null) {
+            return new CleanQueryStatsCommand(ctx.identifier().getText());
+        } else {
+            TableNameInfo tableNameInfo = new TableNameInfo(visitMultipartIdentifier(ctx.table));
+            return new CleanQueryStatsCommand(tableNameInfo);
+        }
+    }
+
+    @Override
     public LogicalPlan visitStopDataSyncJob(DorisParser.StopDataSyncJobContext ctx) {
         List<String> nameParts = visitMultipartIdentifier(ctx.name);
         int size = nameParts.size();
@@ -6931,5 +6964,135 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         );
 
         return new CreateResourceCommand(createResourceInfo);
+    }
+
+    @Override
+    public LogicalPlan visitCreateDictionary(CreateDictionaryContext ctx) {
+        List<String> nameParts = visitMultipartIdentifier(ctx.name);
+        String dbName = null;
+        String dictName = null;
+        if (nameParts.size() == 1) {
+            dictName = nameParts.get(0);
+        } else if (nameParts.size() == 2) {
+            dbName = nameParts.get(0);
+            dictName = nameParts.get(1);
+        } else {
+            throw new AnalysisException("Dictionary name should be [db.]dictionary_name");
+        }
+
+        // the source tableName parts
+        String sCatalogName = null;
+        String sDbName = null;
+        String sTableName = null;
+        List<String> sourceNames = visitMultipartIdentifier(ctx.source);
+        if (sourceNames.size() == 1) {
+            sTableName = sourceNames.get(0);
+        } else if (sourceNames.size() == 2) {
+            sDbName = sourceNames.get(0);
+            sTableName = sourceNames.get(1);
+        } else if (sourceNames.size() == 3) {
+            sCatalogName = sourceNames.get(0);
+            sDbName = sourceNames.get(1);
+            sTableName = sourceNames.get(2);
+        } else {
+            throw new AnalysisException("nameParts in create table should be [ctl.][db.]tbl");
+        }
+
+        List<DictionaryColumnDefinition> columns = new ArrayList<>();
+        for (DictionaryColumnDefContext colCtx : ctx.dictionaryColumnDefs().dictionaryColumnDef()) {
+            String colName = colCtx.colName.getText();
+            boolean isKey = colCtx.columnType.getType() == DorisParser.KEY;
+            columns.add(new DictionaryColumnDefinition(colName, isKey));
+        }
+
+        Map<String, String> properties = ctx.properties != null ? Maps.newHashMap(visitPropertyClause(ctx.properties))
+                : Maps.newHashMap();
+
+        LayoutType layoutType;
+        try {
+            layoutType = LayoutType.of(ctx.layoutType.getText());
+        } catch (IllegalArgumentException e) {
+            throw new AnalysisException(
+                    "Unknown layout type: " + ctx.layoutType.getText() + ". must be IP_TRIE or HASH_MAP");
+        }
+
+        return new CreateDictionaryCommand(ctx.EXISTS() != null, // if not exists
+                dbName, dictName, sCatalogName, sDbName, sTableName, columns, properties, layoutType);
+    }
+
+    @Override
+    public LogicalPlan visitDropDictionary(DropDictionaryContext ctx) {
+        List<String> nameParts = visitMultipartIdentifier(ctx.name);
+        if (nameParts.size() == 0 || nameParts.size() > 2) {
+            throw new AnalysisException("Dictionary name should be [db.]dictionary_name");
+        }
+        String dbName;
+        String dictName;
+        if (nameParts.size() == 1) { // only dict name
+            dbName = null;
+            dictName = nameParts.get(0);
+        } else {
+            dbName = nameParts.get(0);
+            dictName = nameParts.get(1);
+        }
+
+        return new DropDictionaryCommand(dbName, dictName, ctx.EXISTS() != null);
+    }
+
+    @Override
+    public Plan visitShowDictionaries(ShowDictionariesContext ctx) {
+        String wild = null;
+        if (ctx.wildWhere() != null) {
+            if (ctx.wildWhere().LIKE() != null) {
+                // if like, it's a pattern
+                wild = stripQuotes(ctx.wildWhere().STRING_LITERAL().getText());
+            } else if (ctx.wildWhere().WHERE() != null) {
+                // if where, it's a expression
+                wild = ctx.wildWhere().expression().getText();
+            }
+        }
+        try {
+            return new ShowDictionariesCommand(wild);
+        } catch (org.apache.doris.common.AnalysisException e) {
+            throw new ParseException(e.getMessage());
+        }
+    }
+
+    @Override
+    public Plan visitDescribeDictionary(DescribeDictionaryContext ctx) {
+        List<String> nameParts = visitMultipartIdentifier(ctx.multipartIdentifier());
+        if (nameParts.size() == 0 || nameParts.size() > 2) {
+            throw new AnalysisException("Dictionary name should be [db.]dictionary_name");
+        }
+        String dbName;
+        String dictName;
+        if (nameParts.size() == 1) { // only dict name
+            dbName = null;
+            dictName = nameParts.get(0);
+        } else {
+            dbName = nameParts.get(0);
+            dictName = nameParts.get(1);
+        }
+
+        return new ExplainDictionaryCommand(dbName, dictName);
+    }
+
+    @Override
+    public LogicalPlan visitRefreshDictionary(RefreshDictionaryContext ctx) {
+        List<String> nameParts = visitMultipartIdentifier(ctx.name);
+        if (nameParts.size() == 0 || nameParts.size() > 2) {
+            throw new AnalysisException("Dictionary name should be [db.]dictionary_name");
+        }
+        String dbName;
+        String dictName;
+        if (nameParts.size() == 1) { // only dict name
+            dbName = null;
+            dictName = nameParts.get(0);
+        } else {
+            dbName = nameParts.get(0);
+            dictName = nameParts.get(1);
+        }
+
+        return new RefreshDictionaryCommand(dbName, dictName);
     }
 }

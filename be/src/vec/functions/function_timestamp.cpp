@@ -229,7 +229,8 @@ private:
             null_map[index] = 1;
         } else {
             if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {
-                if (context->get_return_type().type == doris::PrimitiveType::TYPE_DATETIME) {
+                if (context->get_return_type()->get_primitive_type() ==
+                    doris::PrimitiveType::TYPE_DATETIME) {
                     ts_val.to_datetime();
                 } else {
                     ts_val.cast_to_date();

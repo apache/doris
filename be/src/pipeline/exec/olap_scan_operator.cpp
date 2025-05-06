@@ -276,7 +276,7 @@ Status OlapScanLocalState::_should_push_down_function_filter(vectorized::Vectori
             pdt = PushDownType::UNACCEPTABLE;
             return Status::OK();
         } else {
-            DCHECK(children[1 - i]->type().is_string_type());
+            DCHECK(is_string_type(children[1 - i]->data_type()->get_primitive_type()));
             std::shared_ptr<ColumnPtrWrapper> const_col_wrapper;
             RETURN_IF_ERROR(children[1 - i]->get_const_col(expr_ctx, &const_col_wrapper));
             if (const auto* const_column = check_and_get_column<vectorized::ColumnConst>(
@@ -474,7 +474,8 @@ Status OlapScanLocalState::hold_tablets() {
                     return Status::OK();
                 });
             }
-            RETURN_IF_ERROR(cloud::bthread_fork_join(tasks, 10));
+            RETURN_IF_ERROR(
+                    cloud::bthread_fork_join(tasks, config::init_scanner_sync_rowsets_parallelism));
         }
         COUNTER_UPDATE(_sync_rowset_timer, duration_ns);
         for (const auto& sync_stats : sync_statistics) {

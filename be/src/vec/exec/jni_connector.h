@@ -257,11 +257,7 @@ public:
     Status close();
 
     static std::string get_jni_type(const DataTypePtr& data_type);
-
-    /**
-     * Map PrimitiveType to hive type.
-     */
-    static std::string get_jni_type(const TypeDescriptor& desc);
+    static std::string get_jni_type_with_different_string(const DataTypePtr& data_type);
 
     static Status to_java_table(Block* block, size_t num_rows, const ColumnNumbers& arguments,
                                 std::unique_ptr<long[]>& meta);

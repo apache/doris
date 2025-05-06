@@ -29,7 +29,6 @@ namespace doris {
 class ObjectPool;
 class RuntimeState;
 class RuntimeProfile;
-struct TypeDescriptor;
 
 namespace vectorized {
 
@@ -60,7 +59,7 @@ private:
 
     std::vector<std::string> _create_partition_values(vectorized::Block& block, int position);
 
-    std::string _to_partition_value(const TypeDescriptor& type_desc,
+    std::string _to_partition_value(const DataTypePtr& type_desc,
                                     const ColumnWithTypeAndName& partition_column, int position);
 
     std::string _compute_file_name();

@@ -73,12 +73,13 @@ public:
 };
 
 TEST_F(DataTypeIPTest, MetaInfoTest) {
-    TypeDescriptor ipv4_type_descriptor = {PrimitiveType::TYPE_IPV4};
+    auto ipv4_type_descriptor =
+            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_IPV4, false);
     auto col_meta = std::make_shared<PColumnMeta>();
     col_meta->set_type(PGenericType_TypeId_IPV4);
     DataTypeMetaInfo ipv4_meta_info_to_assert = {
             .type_id = TypeIndex::IPv4,
-            .type_as_type_descriptor = &ipv4_type_descriptor,
+            .type_as_type_descriptor = ipv4_type_descriptor,
             .family_name = "IPv4",
             .has_subtypes = false,
             .storage_field_type = doris::FieldType::OLAP_FIELD_TYPE_IPV4,
@@ -94,12 +95,13 @@ TEST_F(DataTypeIPTest, MetaInfoTest) {
             .is_value_unambiguously_represented_in_contiguous_memory_region = true,
             .default_field = UInt64(0),
     };
-    TypeDescriptor ipv6_type_descriptor = {PrimitiveType::TYPE_IPV6};
+    auto ipv6_type_descriptor =
+            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_IPV6, false);
     auto col_meta6 = std::make_shared<PColumnMeta>();
     col_meta6->set_type(PGenericType_TypeId_IPV6);
     DataTypeMetaInfo ipv6_meta_info = {
             .type_id = TypeIndex::IPv6,
-            .type_as_type_descriptor = &ipv6_type_descriptor,
+            .type_as_type_descriptor = ipv6_type_descriptor,
             .family_name = "IPv6",
             .has_subtypes = false,
             .storage_field_type = doris::FieldType::OLAP_FIELD_TYPE_IPV6,
