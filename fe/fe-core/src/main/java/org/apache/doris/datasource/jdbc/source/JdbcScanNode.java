@@ -57,6 +57,7 @@ import com.google.common.base.MoreObjects;
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -428,27 +429,29 @@ public class JdbcScanNode extends ExternalScanNode {
             if (dateStr.contains(".")) {
                 // For Oracle, we need to use to_timestamp for fractional seconds
                 // Extract date part and fractional seconds part
-                String[] parts = dateStr.split("\\.");
-                String datePart = parts[0];
-                String fractionPart = parts[1];
-                
-                // Determine the format model based on the length of fractional seconds
-                String formatModel;
-                if (fractionPart.length() <= 3) {
-                    // Milliseconds (up to 3 digits)
-                    formatModel = "yyyy-mm-dd hh24:mi:ss.FF3";
-                } else {
-                    // Microseconds (up to 6 digits)
-                    formatModel = "yyyy-mm-dd hh24:mi:ss.FF6";
-                }
-                
+                String formatModel = getString(dateStr);
                 return "to_timestamp('" + dateStr + "', '" + formatModel + "')";
             }
-            
             // Regular datetime without fractional seconds
             return "to_date('" + dateStr + "', 'yyyy-mm-dd hh24:mi:ss')";
         }
         return expr.toExternalSql(TableType.JDBC_EXTERNAL_TABLE, tbl);
+    }
+
+    @NotNull
+    private static String getString(String dateStr) {
+        String[] parts = dateStr.split("\\.");
+        String fractionPart = parts[1];
+        // Determine the format model based on the length of fractional seconds
+        String formatModel;
+        if (fractionPart.length() <= 3) {
+            // Milliseconds (up to 3 digits)
+            formatModel = "yyyy-mm-dd hh24:mi:ss.FF3";
+        } else {
+            // Microseconds (up to 6 digits)
+            formatModel = "yyyy-mm-dd hh24:mi:ss.FF6";
+        }
+        return formatModel;
     }
 
     private static String handleTrinoDateFormat(Expr expr, TableIf tbl) {
