@@ -30,6 +30,7 @@
 #include "pipeline/exec/distinct_streaming_aggregation_operator.h"
 #include "pipeline/exec/empty_set_operator.h"
 #include "pipeline/exec/es_scan_operator.h"
+#include "pipeline/exec/doris_adbc_scan_operator.h"
 #include "pipeline/exec/exchange_sink_operator.h"
 #include "pipeline/exec/exchange_source_operator.h"
 #include "pipeline/exec/file_scan_operator.h"
@@ -773,6 +774,7 @@ DECLARE_OPERATOR(GroupCommitLocalState)
 DECLARE_OPERATOR(JDBCScanLocalState)
 DECLARE_OPERATOR(FileScanLocalState)
 DECLARE_OPERATOR(EsScanLocalState)
+DECLARE_OPERATOR(DorisAdbcScanLocalState)
 DECLARE_OPERATOR(AnalyticLocalState)
 DECLARE_OPERATOR(SortLocalState)
 DECLARE_OPERATOR(SpillSortLocalState)
