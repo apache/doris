@@ -17,9 +17,9 @@
 
 #include "olap/wal/wal_table.h"
 
+#include <absl/strings/str_split.h>
 #include <thrift/protocol/TDebugProtocol.h>
 
-#include "gutil/strings/split.h"
 #include "http/action/http_stream.h"
 #include "http/action/stream_load.h"
 #include "http/ev_http_server.h"
@@ -204,7 +204,7 @@ Status WalTable::_construct_sql_str(const std::string& wal, const std::string& l
     std::string columns;
     RETURN_IF_ERROR(_read_wal_header(wal, columns));
     std::vector<std::string> column_id_vector =
-            strings::Split(columns, ",", strings::SkipWhitespace());
+            absl::StrSplit(columns, ",", absl::SkipWhitespace());
     std::map<int64_t, std::string> column_info_map;
     RETURN_IF_ERROR(_get_column_info(_db_id, _table_id, column_info_map));
     std::stringstream ss_name;

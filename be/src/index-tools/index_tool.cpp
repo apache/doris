@@ -40,7 +40,6 @@
 #ifdef __clang__
 #pragma clang diagnostic pop
 #endif
-#include "gutil/strings/strip.h"
 #include "io/fs/local_file_system.h"
 #include "olap/rowset/segment_v2/inverted_index/query/conjunction_query.h"
 #include "olap/rowset/segment_v2/inverted_index_compound_reader.h"

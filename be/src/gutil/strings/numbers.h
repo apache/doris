@@ -147,36 +147,6 @@ inline char* FastUIntToBuffer(unsigned int i, char* buffer) {
     return (sizeof(i) == 4 ? FastUInt32ToBuffer(i, buffer) : FastUInt64ToBuffer(i, buffer));
 }
 
-// ----------------------------------------------------------------------
-// FastInt32ToBufferLeft()
-// FastUInt32ToBufferLeft()
-// FastInt64ToBufferLeft()
-// FastUInt64ToBufferLeft()
-//
-// Like the Fast*ToBuffer() functions above, these are intended for speed.
-// Unlike the Fast*ToBuffer() functions, however, these functions write
-// their output to the beginning of the buffer (hence the name, as the
-// output is left-aligned).  The caller is responsible for ensuring that
-// the buffer has enough space to hold the output.
-//
-// Returns a pointer to the end of the string (i.e. the null character
-// terminating the string).
-// ----------------------------------------------------------------------
-
-char* FastInt32ToBufferLeft(int32 i, char* buffer);   // at least 12 bytes
-char* FastUInt32ToBufferLeft(uint32 i, char* buffer); // at least 12 bytes
-char* FastInt64ToBufferLeft(int64 i, char* buffer);   // at least 22 bytes
-char* FastUInt64ToBufferLeft(uint64 i, char* buffer); // at least 22 bytes
-
-// Just define these in terms of the above.
-inline char* FastUInt32ToBuffer(uint32 i, char* buffer) {
-    FastUInt32ToBufferLeft(i, buffer);
-    return buffer;
-}
-inline char* FastUInt64ToBuffer(uint64 i, char* buffer) {
-    FastUInt64ToBufferLeft(i, buffer);
-    return buffer;
-}
 
 // ----------------------------------------------------------------------
 // HexDigitsPrefix()
@@ -351,34 +321,6 @@ struct strict_autodigit_greater {
     }
 };
 
-// ----------------------------------------------------------------------
-// SimpleItoa()
-//    Description: converts an integer to a string.
-//    Faster than printf("%d").
-//
-//    Return value: string
-// ----------------------------------------------------------------------
-inline string SimpleItoa(int32 i) {
-    char buf[16]; // Longest is -2147483648
-    return string(buf, FastInt32ToBufferLeft(i, buf));
-}
-
-// We need this overload because otherwise SimpleItoa(5U) wouldn't compile.
-inline string SimpleItoa(uint32 i) {
-    char buf[16]; // Longest is 4294967295
-    return string(buf, FastUInt32ToBufferLeft(i, buf));
-}
-
-inline string SimpleItoa(int64 i) {
-    char buf[32]; // Longest is -9223372036854775808
-    return string(buf, FastInt64ToBufferLeft(i, buf));
-}
-
-// We need this overload because otherwise SimpleItoa(5ULL) wouldn't compile.
-inline string SimpleItoa(uint64 i) {
-    char buf[32]; // Longest is 18446744073709551615
-    return string(buf, FastUInt64ToBufferLeft(i, buf));
-}
 
 // SimpleAtoi converts a string to an integer.
 // Uses safe_strto?() for actual parsing, so strict checking is

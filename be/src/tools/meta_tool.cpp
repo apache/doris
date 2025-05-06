@@ -28,7 +28,6 @@
 
 #include "common/status.h"
 #include "gutil/strings/numbers.h"
-#include "gutil/strings/split.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/local_file_system.h"
 #include "json2pb/pb_to_json.h"
@@ -180,7 +179,7 @@ void batch_delete_meta(const std::string& tablet_file) {
     std::unordered_map<std::string, std::unique_ptr<DataDir>> dir_map;
     while (std::getline(infile, line)) {
         total_num++;
-        std::vector<string> v = strings::Split(line, ",");
+        std::vector<string> v = absl::StrSplit(line, ",");
         if (v.size() != 3) {
             std::cout << "invalid line in tablet_file: " << line << std::endl;
             err_num++;

@@ -18,6 +18,7 @@
 #include "util/cgroup_util.h"
 
 #include <absl/strings/escaping.h>
+#include <absl/strings/str_split.h>
 
 #include <algorithm>
 #include <fstream>
@@ -25,13 +26,10 @@
 #include <vector>
 
 #include "gutil/stringprintf.h"
-#include "gutil/strings/split.h"
 #include "io/fs/local_file_system.h"
 #include "util/error_util.h"
 #include "util/string_parser.hpp"
 
-using strings::Split;
-using strings::SkipWhitespace;
 using std::pair;
 
 namespace doris {
@@ -72,7 +70,7 @@ Status CGroupUtil::find_global_cgroupv1(const string& subsystem, string* path) {
         if (!proc_cgroups.good()) {
             continue;
         }
-        std::vector<string> fields = Split(line, ":");
+        std::vector<string> fields = absl::StrSplit(line, ":");
         // ":" in the path does not appear to be escaped - bail in the unusual case that
         // we get too many tokens.
         if (fields.size() != 3) {
@@ -80,7 +78,7 @@ Status CGroupUtil::find_global_cgroupv1(const string& subsystem, string* path) {
                     "Could not parse line from /proc/self/cgroup - had {} > 3 tokens: '{}'",
                     fields.size(), line);
         }
-        std::vector<string> subsystems = Split(fields[1], ",");
+        std::vector<string> subsystems = absl::StrSplit(fields[1], ",");
         auto it = std::find(subsystems.begin(), subsystems.end(), subsystem);
         if (it != subsystems.end()) {
             *path = std::move(fields[2]);
@@ -119,7 +117,7 @@ Status CGroupUtil::find_cgroupv1_mounts(const string& subsystem, pair<string, st
         if (!mountinfo.good()) {
             continue;
         }
-        std::vector<string> fields = Split(line, " ", SkipWhitespace());
+        std::vector<string> fields = absl::StrSplit(line, " ", absl::SkipWhitespace());
         if (fields.size() < 7) {
             return Status::InvalidArgument(
                     "Could not parse line from /proc/self/mountinfo - had {} > 7 tokens: '{}'",
@@ -129,7 +127,8 @@ Status CGroupUtil::find_cgroupv1_mounts(const string& subsystem, pair<string, st
             continue;
         }
         // This is a cgroup mount. Check if it's the mount we're looking for.
-        std::vector<string> cgroup_opts = Split(fields[fields.size() - 1], ",", SkipWhitespace());
+        std::vector<string> cgroup_opts =
+                absl::StrSplit(fields[fields.size() - 1], ",", absl::SkipWhitespace());
         auto it = std::find(cgroup_opts.begin(), cgroup_opts.end(), subsystem);
         if (it == cgroup_opts.end()) {
             continue;
@@ -244,7 +243,7 @@ void CGroupUtil::read_int_metric_from_cgroup_file(
     std::string line;
     while (cgroup_file.good() && !cgroup_file.eof()) {
         getline(cgroup_file, line);
-        std::vector<std::string> fields = strings::Split(line, " ", strings::SkipWhitespace());
+        std::vector<std::string> fields = absl::StrSplit(line, " ", absl::SkipWhitespace());
         if (fields.size() < 2) {
             continue;
         }
