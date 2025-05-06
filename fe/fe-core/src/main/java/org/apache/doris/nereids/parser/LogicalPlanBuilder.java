@@ -850,8 +850,11 @@ import org.apache.doris.nereids.trees.plans.commands.load.LoadSeparator;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadSequenceClause;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadWhereClause;
 import org.apache.doris.nereids.trees.plans.commands.load.PauseDataSyncJobCommand;
+import org.apache.doris.nereids.trees.plans.commands.load.PauseRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.load.ResumeDataSyncJobCommand;
+import org.apache.doris.nereids.trees.plans.commands.load.ResumeRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.load.StopDataSyncJobCommand;
+import org.apache.doris.nereids.trees.plans.commands.load.StopRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.load.SyncJobName;
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshDatabaseCommand;
@@ -6684,6 +6687,66 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public LogicalPlan visitAdminCancelRepairTable(DorisParser.AdminCancelRepairTableContext ctx) {
         TableRefInfo tableRefInfo = visitBaseTableRefContext(ctx.baseTableRef());
         return new AdminCancelRepairTableCommand(tableRefInfo);
+    }
+
+    public LogicalPlan visitPauseRoutineLoad(DorisParser.PauseRoutineLoadContext ctx) {
+        List<String> labelParts = visitMultipartIdentifier(ctx.label);
+        String jobName;
+        String dbName = null;
+        if (labelParts.size() == 1) {
+            jobName = labelParts.get(0);
+        } else if (labelParts.size() == 2) {
+            dbName = labelParts.get(0);
+            jobName = labelParts.get(1);
+        } else {
+            throw new ParseException("only support [<db>.]<job_name>", ctx.label);
+        }
+        LabelNameInfo labelNameInfo = new LabelNameInfo(dbName, jobName);
+        return new PauseRoutineLoadCommand(labelNameInfo);
+    }
+
+    @Override
+    public LogicalPlan visitPauseAllRoutineLoad(DorisParser.PauseAllRoutineLoadContext ctx) {
+        return new PauseRoutineLoadCommand();
+    }
+
+    @Override
+    public LogicalPlan visitResumeRoutineLoad(DorisParser.ResumeRoutineLoadContext ctx) {
+        List<String> labelParts = visitMultipartIdentifier(ctx.label);
+        String jobName;
+        String dbName = null;
+        if (labelParts.size() == 1) {
+            jobName = labelParts.get(0);
+        } else if (labelParts.size() == 2) {
+            dbName = labelParts.get(0);
+            jobName = labelParts.get(1);
+        } else {
+            throw new ParseException("only support [<db>.]<job_name>", ctx.label);
+        }
+        LabelNameInfo labelNameInfo = new LabelNameInfo(dbName, jobName);
+        return new ResumeRoutineLoadCommand(labelNameInfo);
+    }
+
+    @Override
+    public LogicalPlan visitResumeAllRoutineLoad(DorisParser.ResumeAllRoutineLoadContext ctx) {
+        return new ResumeRoutineLoadCommand();
+    }
+
+    @Override
+    public LogicalPlan visitStopRoutineLoad(DorisParser.StopRoutineLoadContext ctx) {
+        List<String> labelParts = visitMultipartIdentifier(ctx.label);
+        String jobName;
+        String dbName = null;
+        if (labelParts.size() == 1) {
+            jobName = labelParts.get(0);
+        } else if (labelParts.size() == 2) {
+            dbName = labelParts.get(0);
+            jobName = labelParts.get(1);
+        } else {
+            throw new ParseException("only support [<db>.]<job_name>", ctx.label);
+        }
+        LabelNameInfo labelNameInfo = new LabelNameInfo(dbName, jobName);
+        return new StopRoutineLoadCommand(labelNameInfo);
     }
 
     public LogicalPlan visitCleanAllQueryStats(DorisParser.CleanAllQueryStatsContext ctx) {

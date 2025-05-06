@@ -126,6 +126,7 @@ suite('test_dictionary_fe_failover', 'docker') {
         sql "REFRESH DICTIONARY dict3"
         def finalDictResult = sql "SHOW DICTIONARIES"
         assertEquals(finalDictResult.size(), 3)
+        waitAllDictionariesReady()
 
         // check dictionary availability
         qt_sql1 """
@@ -154,4 +155,3 @@ suite('test_dictionary_fe_failover', 'docker') {
         """
     }
 }
- 
