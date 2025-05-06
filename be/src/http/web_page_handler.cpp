@@ -57,7 +57,11 @@ WebPageHandler::WebPageHandler(EvHttpServer* server, ExecEnv* exec_env)
     register_template_page("/", "Home", root_callback, false /* is_on_nav_bar */);
 }
 
-WebPageHandler::~WebPageHandler() = default;
+WebPageHandler::~WebPageHandler() {
+    for (auto& handler : _page_map) {
+        delete handler.second;
+    }
+}
 
 void WebPageHandler::register_template_page(const std::string& path, const std::string& alias,
                                             const TemplatePageHandlerCallback& callback,
