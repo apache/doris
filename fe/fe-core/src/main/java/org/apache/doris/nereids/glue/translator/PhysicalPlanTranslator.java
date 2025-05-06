@@ -2313,8 +2313,14 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 TopnFilter filter = context.getTopnFilterContext().getTopnFilter(topN);
                 List<Pair<Integer, Integer>> targets = new ArrayList<>();
                 for (Map.Entry<ScanNode, Expr> entry : filter.legacyTargets.entrySet()) {
-                    targets.add(Pair.of(entry.getKey().getId().asInt(),
-                            ((SlotRef) entry.getValue()).getDesc().getId().asInt()));
+                    Set<SlotRef> inputSlots = entry.getValue().getInputSlotRef();
+                    if (inputSlots.size() != 1) {
+                        LOG.warn("topn filter targets error: " + inputSlots);
+                    } else {
+                        SlotRef slot = inputSlots.iterator().next();
+                        targets.add(Pair.of(entry.getKey().getId().asInt(),
+                                (slot.getDesc().getId().asInt())));
+                    }
                 }
                 sortNode.setTopnFilterTargets(targets);
             }
