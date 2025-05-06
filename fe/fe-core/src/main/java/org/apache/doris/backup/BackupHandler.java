@@ -54,6 +54,8 @@ import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.fs.remote.AzureFileSystem;
 import org.apache.doris.fs.remote.RemoteFileSystem;
 import org.apache.doris.fs.remote.S3FileSystem;
+import org.apache.doris.nereids.trees.plans.commands.RestoreCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.TableRefInfo;
 import org.apache.doris.persist.BarrierLog;
 import org.apache.doris.task.DirMoveTask;
 import org.apache.doris.task.DownloadTask;
@@ -318,6 +320,47 @@ public class BackupHandler extends MasterDaemon implements Writable {
         }
     }
 
+    public void process(RestoreCommand command) throws DdlException {
+        if (Config.isCloudMode()) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
+                    "BACKUP and RESTORE are not supported by the cloud mode yet");
+        }
+
+        // check if repo exist
+        String repoName = command.getRepoName();
+        Repository repository = null;
+        if (!repoName.equals(Repository.KEEP_ON_LOCAL_REPO_NAME)) {
+            repository = repoMgr.getRepo(repoName);
+            if (repository == null) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
+                        "Repository " + repoName + " does not exist");
+            }
+        }
+
+        // check if db exist
+        String dbName = command.getDbName();
+        Database db = env.getInternalCatalog().getDbOrDdlException(dbName);
+
+        // Try to get sequence lock.
+        // We expect at most one operation on a repo at same time.
+        // But this operation may take a few seconds with lock held.
+        // So we use tryLock() to give up this operation if we can not get lock.
+        tryLock();
+        try {
+            // Check if there is backup or restore job running on this database
+            AbstractJob currentJob = getCurrentJob(db.getId());
+            if (currentJob != null && !currentJob.isDone()) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
+                        "Can only run one backup or restore job of a database at same time "
+                        + ", current running: label = " + currentJob.getLabel() + " jobId = "
+                        + currentJob.getJobId() + ", to run label = " + command.getLabel());
+            }
+            restore(repository, db, command);
+        } finally {
+            seqlock.unlock();
+        }
+    }
+
     // the entry method of submitting a backup or restore job
     public void process(AbstractBackupStmt stmt) throws DdlException {
         if (Config.isCloudMode()) {
@@ -534,6 +577,36 @@ public class BackupHandler extends MasterDaemon implements Writable {
         LOG.info("finished to submit backup job: {}", backupJob);
     }
 
+    public void restore(Repository repository, Database db, RestoreCommand command) throws DdlException {
+        List<BackupJobInfo> infos = Lists.newArrayList();
+        Status status = repository.getSnapshotInfoFile(command.getLabel(), command.getBackupTimestamp(), infos);
+        if (!status.ok()) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
+                    "Failed to get info of snapshot '" + command.getLabel() + "' because: "
+                    + status.getErrMsg() + ". Maybe specified wrong backup timestamp");
+        }
+
+        // Check if all restore objects are exist in this snapshot.
+        // Also remove all unrelated objs
+        Preconditions.checkState(infos.size() == 1);
+        BackupJobInfo jobInfo = infos.get(0);
+
+        checkAndFilterRestoreObjsExistInSnapshot(jobInfo, command);
+
+        // Create a restore job
+        RestoreJob restoreJob = new RestoreJob(command.getLabel(), command.getBackupTimestamp(),
+                db.getId(), db.getFullName(), jobInfo, true, command.getReplicaAlloc(),
+                command.getTimeoutMs(), command.getMetaVersion(), command.reserveReplica(),
+                command.reserveDynamicPartitionEnable(), command.isBeingSynced(), command.isCleanTables(),
+                command.isCleanPartitions(), command.isAtomicRestore(), env, repository.getId());
+
+        env.getEditLog().logRestoreJob(restoreJob);
+
+        // must put to dbIdToBackupOrRestoreJob after edit log, otherwise the state of job may be changed.
+        addBackupOrRestoreJob(db.getId(), restoreJob);
+        LOG.info("finished to submit restore job: {}", restoreJob);
+    }
+
     private void restore(Repository repository, Database db, RestoreStmt stmt) throws DdlException {
         BackupJobInfo jobInfo;
         if (stmt.isLocal()) {
@@ -666,6 +739,65 @@ public class BackupHandler extends MasterDaemon implements Writable {
         } finally {
             jobLock.unlock();
         }
+    }
+
+    private void checkAndFilterRestoreObjsExistInSnapshot(BackupJobInfo jobInfo,
+                                                          RestoreCommand command)
+            throws DdlException {
+        // case1: exclude table ref
+        if (command.isExclude()) {
+            for (TableRefInfo tableRefInfo : command.getTableRefInfos()) {
+                TableRef tableRef = tableRefInfo.translateToLegacyTableRef();
+                String tblName = tableRef.getName().getTbl();
+                TableType tableType = jobInfo.getTypeByTblName(tblName);
+                if (tableType == null) {
+                    LOG.info("Ignore error : exclude table " + tblName + " does not exist in snapshot "
+                            + jobInfo.name);
+                    continue;
+                }
+                if (tableRef.hasExplicitAlias()) {
+                    ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
+                            "The table alias in exclude clause does not make sense");
+                }
+                jobInfo.removeTable(tableRef, tableType);
+            }
+            return;
+        }
+        // case2: include table ref
+        Set<String> olapTableNames = Sets.newHashSet();
+        Set<String> viewNames = Sets.newHashSet();
+        Set<String> odbcTableNames = Sets.newHashSet();
+        for (TableRefInfo tableRefInfo : command.getTableRefInfos()) {
+            TableRef tblRef = tableRefInfo.translateToLegacyTableRef();
+            String tblName = tblRef.getName().getTbl();
+            TableType tableType = jobInfo.getTypeByTblName(tblName);
+            if (tableType == null) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
+                        "Table " + tblName + " does not exist in snapshot " + jobInfo.name);
+            }
+            switch (tableType) {
+                case OLAP:
+                    checkAndFilterRestoreOlapTableExistInSnapshot(jobInfo.backupOlapTableObjects, tblRef);
+                    olapTableNames.add(tblName);
+                    break;
+                case VIEW:
+                    viewNames.add(tblName);
+                    break;
+                case ODBC:
+                    odbcTableNames.add(tblName);
+                    break;
+                default:
+                    break;
+            }
+
+            // set alias
+            if (tblRef.hasExplicitAlias()) {
+                jobInfo.setAlias(tblName, tblRef.getExplicitAlias());
+            }
+        }
+        jobInfo.retainOlapTables(olapTableNames);
+        jobInfo.retainView(viewNames);
+        jobInfo.retainOdbcTables(odbcTableNames);
     }
 
     private void checkAndFilterRestoreObjsExistInSnapshot(BackupJobInfo jobInfo,
