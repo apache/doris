@@ -41,6 +41,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
 import com.google.protobuf.ByteString;
+import doris.segment_v2.SegmentV2.EncodingTypePB;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -83,6 +84,10 @@ public class Column implements GsonPostProcessable {
     private String name;
     @SerializedName(value = "type")
     private Type type;
+
+    @SerializedName(value = "encoding")
+    private EncodingTypePB encoding;
+
     // column is key: aggregate type is null
     // column is not key and has no aggregate type: aggregate type is none
     // column is not key and has aggregate type: aggregate type is name of aggregate function.
@@ -231,6 +236,17 @@ public class Column implements GsonPostProcessable {
             DefaultValueExprDef defaultValueExprDef, int colUniqueId, String realDefaultValue,
             boolean hasOnUpdateDefaultValue, DefaultValueExprDef onUpdateDefaultValueExprDef,
             GeneratedColumnInfo generatedColumnInfo, Set<String> generatedColumnsThatReferToThis) {
+        this(name, type, null, isKey, aggregateType, isAllowNull, autoIncInitValue, defaultValue, comment, visible,
+                defaultValueExprDef, colUniqueId, realDefaultValue, hasOnUpdateDefaultValue,
+                onUpdateDefaultValueExprDef, generatedColumnInfo, generatedColumnsThatReferToThis);
+    }
+
+    public Column(String name, Type type, EncodingTree encodingTree, boolean isKey, AggregateType aggregateType,
+            boolean isAllowNull,
+            long autoIncInitValue, String defaultValue, String comment, boolean visible,
+            DefaultValueExprDef defaultValueExprDef, int colUniqueId, String realDefaultValue,
+            boolean hasOnUpdateDefaultValue, DefaultValueExprDef onUpdateDefaultValueExprDef,
+            GeneratedColumnInfo generatedColumnInfo, Set<String> generatedColumnsThatReferToThis) {
         this.name = name;
         if (this.name == null) {
             this.name = "";
@@ -239,6 +255,12 @@ public class Column implements GsonPostProcessable {
         this.type = type;
         if (this.type == null) {
             this.type = Type.NULL;
+        }
+        if (encodingTree != null) {
+            this.encoding = EncodingTypePB.forNumber(encodingTree.getEncodingNumber());
+        }
+        if (this.encoding == null || encoding == EncodingTypePB.UNKNOWN_ENCODING) {
+            this.encoding = EncodingTypePB.DEFAULT_ENCODING;
         }
 
         this.aggregationType = aggregateType;
@@ -254,7 +276,7 @@ public class Column implements GsonPostProcessable {
         this.stats = new ColumnStats();
         this.visible = visible;
         this.children = new ArrayList<>();
-        createChildrenColumn(this.type, this);
+        createChildrenColumn(this.type, encodingTree, this);
         this.uniqueId = colUniqueId;
         this.hasOnUpdateDefaultValue = hasOnUpdateDefaultValue;
         this.onUpdateDefaultValueExprDef = onUpdateDefaultValueExprDef;
@@ -273,13 +295,13 @@ public class Column implements GsonPostProcessable {
         }
     }
 
-    public Column(String name, Type type, boolean isKey, AggregateType aggregateType,
+    public Column(String name, Type type, EncodingTree encodingTree, boolean isKey, AggregateType aggregateType,
             boolean isAllowNull, long autoIncInitValue, String defaultValue, String comment,
             boolean visible, DefaultValueExprDef defaultValueExprDef, int colUniqueId,
             String realDefaultValue, boolean hasOnUpdateDefaultValue,
             DefaultValueExprDef onUpdateDefaultValueExprDef, int clusterKeyId,
             GeneratedColumnInfo generatedColumnInfo, Set<String> generatedColumnsThatReferToThis) {
-        this(name, type, isKey, aggregateType, isAllowNull, autoIncInitValue, defaultValue, comment,
+        this(name, type, encodingTree, isKey, aggregateType, isAllowNull, autoIncInitValue, defaultValue, comment,
                 visible, defaultValueExprDef, colUniqueId, realDefaultValue,
                 hasOnUpdateDefaultValue, onUpdateDefaultValueExprDef, generatedColumnInfo,
                 generatedColumnsThatReferToThis);
@@ -319,24 +341,38 @@ public class Column implements GsonPostProcessable {
         this.onUpdateDefaultValueExprDef = column.onUpdateDefaultValueExprDef;
         this.clusterKeyId = column.getClusterKeyId();
         this.generatedColumnInfo = column.generatedColumnInfo;
+        this.encoding = column.encoding;
     }
 
-    public void createChildrenColumn(Type type, Column column) {
+    public void createChildrenColumn(Type type, EncodingTree encodingTree, Column column) {
         if (type.isArrayType()) {
-            Column c = new Column(COLUMN_ARRAY_CHILDREN, ((ArrayType) type).getItemType());
+            EncodingTree itemEncodingTree = encodingTree == null ? null : encodingTree.child(0);
+            Column c = new Column(COLUMN_ARRAY_CHILDREN, ((ArrayType) type).getItemType(), itemEncodingTree, false,
+                    null, false, -1, null, "", true, null,
+                    COLUMN_UNIQUE_ID_INIT_VALUE, null, false, null);
             c.setIsAllowNull(((ArrayType) type).getContainsNull());
             column.addChildrenColumn(c);
         } else if (type.isMapType()) {
-            Column k = new Column(COLUMN_MAP_KEY, ((MapType) type).getKeyType());
-            Column v = new Column(COLUMN_MAP_VALUE, ((MapType) type).getValueType());
+            EncodingTree keyEncodingTree = encodingTree == null ? null : encodingTree.child(0);
+            Column k = new Column(COLUMN_MAP_KEY, ((MapType) type).getKeyType(), keyEncodingTree, false, null, false,
+                    -1, null, "", true, null,
+                    COLUMN_UNIQUE_ID_INIT_VALUE, null, false, null);
+            EncodingTree valueEncodingTree = encodingTree == null ? null : encodingTree.child(1);
+            Column v = new Column(COLUMN_MAP_VALUE, ((MapType) type).getValueType(), valueEncodingTree, false, null,
+                    false, -1, null, "", true, null,
+                    COLUMN_UNIQUE_ID_INIT_VALUE, null, false, null);
             k.setIsAllowNull(((MapType) type).getIsKeyContainsNull());
             v.setIsAllowNull(((MapType) type).getIsValueContainsNull());
             column.addChildrenColumn(k);
             column.addChildrenColumn(v);
         } else if (type.isStructType()) {
             ArrayList<StructField> fields = ((StructType) type).getFields();
-            for (StructField field : fields) {
-                Column c = new Column(field.getName(), field.getType());
+            for (int i = 0; i < fields.size(); i++) {
+                StructField field = fields.get(i);
+                EncodingTree fieldEncodingTree = encodingTree == null ? null : encodingTree.child(i);
+                Column c = new Column(field.getName(), field.getType(), fieldEncodingTree, false, null, false, -1, null,
+                        "", true, null,
+                        COLUMN_UNIQUE_ID_INIT_VALUE, null, false, null);
                 c.setIsAllowNull(field.getContainsNull());
                 column.addChildrenColumn(c);
             }
@@ -607,6 +643,7 @@ public class Column implements GsonPostProcessable {
 
         TColumnType tColumnType = new TColumnType();
         tColumnType.setType(this.getDataType().toThrift());
+        setTColumnEncoding(tColumn, this.encoding);
         tColumnType.setLen(this.getStrLen());
         tColumnType.setPrecision(this.getPrecision());
         tColumnType.setScale(this.getScale());
@@ -650,9 +687,17 @@ public class Column implements GsonPostProcessable {
         return tColumn;
     }
 
-    private void setChildrenTColumn(Column children, TColumn tColumn) {
+    private static void setTColumnEncoding(TColumn tColumn, EncodingTypePB encoding) {
+        if (encoding != null && encoding != EncodingTypePB.UNKNOWN_ENCODING
+                && encoding != EncodingTypePB.DEFAULT_ENCODING)  {
+            tColumn.setEncodingType(encoding.getNumber());
+        }
+    }
+
+    private void setChildrenTColumn(Column children, TColumn tParentColumn) {
         TColumn childrenTColumn = new TColumn();
         childrenTColumn.setColumnName(children.name);
+        setTColumnEncoding(childrenTColumn, children.encoding);
 
         TColumnType childrenTColumnType = new TColumnType();
         childrenTColumnType.setType(children.getDataType().toThrift());
@@ -666,12 +711,12 @@ public class Column implements GsonPostProcessable {
         // TODO: If we don't set the aggregate type for children, the type will be
         //  considered as TAggregationType::SUM after deserializing in BE.
         //  For now, we make children inherit the aggregate type from their parent.
-        if (tColumn.getAggregationType() != null) {
-            childrenTColumn.setAggregationType(tColumn.getAggregationType());
+        if (tParentColumn.getAggregationType() != null) {
+            childrenTColumn.setAggregationType(tParentColumn.getAggregationType());
         }
         childrenTColumn.setClusterKeyId(children.clusterKeyId);
 
-        tColumn.children_column.add(childrenTColumn);
+        tParentColumn.children_column.add(childrenTColumn);
         toChildrenThrift(children, childrenTColumn);
     }
 
@@ -976,15 +1021,27 @@ public class Column implements GsonPostProcessable {
         return toSql(isUniqueTable, false);
     }
 
+    private EncodingTree constructEncodingTree() {
+        if (encoding == null) {
+            return null;
+        }
+        List<EncodingTree> encodings = new ArrayList<>();
+        children.forEach(c -> {
+            EncodingTree encodingTree = c.constructEncodingTree();
+            encodings.add(encodingTree);
+        });
+        return new EncodingTree(encoding.getNumber(), encodings);
+    }
+
     public String toSql(boolean isUniqueTable, boolean isCompatible) {
         StringBuilder sb = new StringBuilder();
         sb.append("`").append(name).append("` ");
-        String typeStr = type.toSql();
 
         // show change datetimeV2/dateV2 to datetime/date
         if (isCompatible) {
-            sb.append(type.hideVersionForVersionColumn(true));
+            sb.append(type.hideVersionForVersionColumn(true, constructEncodingTree()));
         } else {
+            String typeStr = type.toSql(constructEncodingTree());
             sb.append(typeStr);
         }
         if (aggregationType != null && aggregationType != AggregateType.NONE && !isUniqueTable
