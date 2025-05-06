@@ -547,6 +547,7 @@ PhysicalResultSink
 
 -- !union_all_const_char10_res --
 2	2024-01-04
+12222222	2024-01-03 10:00:00
 
 -- !union_all_and_project_pull_up_res --
 

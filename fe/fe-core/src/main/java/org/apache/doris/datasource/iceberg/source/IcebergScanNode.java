@@ -48,6 +48,7 @@ import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPushAggOp;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import org.apache.commons.lang3.exception.ExceptionUtils;
@@ -101,6 +102,12 @@ public class IcebergScanNode extends FileQueryScanNode {
     private int formatVersion;
     private PreExecutionAuthenticator preExecutionAuthenticator;
     private TableScan icebergTableScan;
+
+    // for test
+    @VisibleForTesting
+    public IcebergScanNode(PlanNodeId id, TupleDescriptor desc, SessionVariable sv) {
+        super(id, desc, "ICEBERG_SCAN_NODE", StatisticalType.ICEBERG_SCAN_NODE, false, sv);
+    }
 
     /**
      * External file scan node for Query iceberg table
@@ -249,7 +256,8 @@ public class IcebergScanNode extends FileQueryScanNode {
         });
     }
 
-    private TableScan createTableScan() {
+    @VisibleForTesting
+    public TableScan createTableScan() {
         if (icebergTableScan != null) {
             return icebergTableScan;
         }
@@ -368,7 +376,8 @@ public class IcebergScanNode extends FileQueryScanNode {
                                 createTableScan().filter()).iterator()) {
                     int cnt = 0;
                     while (matchingManifest.hasNext()) {
-                        cnt += matchingManifest.next().addedFilesCount();
+                        ManifestFile next = matchingManifest.next();
+                        cnt += next.addedFilesCount() + next.existingFilesCount();
                         if (cnt >= sessionVariable.getNumFilesInBatchMode()) {
                             return true;
                         }
@@ -470,7 +479,8 @@ public class IcebergScanNode extends FileQueryScanNode {
         return !col.isAllowNull();
     }
 
-    private long getCountFromSnapshot() {
+    @VisibleForTesting
+    public long getCountFromSnapshot() {
         Long specifiedSnapshot = getSpecifiedSnapshot();
 
         Snapshot snapshot = specifiedSnapshot == null

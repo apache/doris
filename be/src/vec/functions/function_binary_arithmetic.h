@@ -1049,12 +1049,9 @@ public:
         std::shared_ptr<BinaryArithmeticState> state = std::make_shared<BinaryArithmeticState>();
         context->set_function_state(scope, state);
 
-        state->left_type =
-                DataTypeFactory::instance().create_data_type(*context->get_arg_type(0), false);
-        state->right_type =
-                DataTypeFactory::instance().create_data_type(*context->get_arg_type(1), false);
-        state->result_type =
-                DataTypeFactory::instance().create_data_type(context->get_return_type(), false);
+        state->left_type = remove_nullable(context->get_arg_type(0));
+        state->right_type = remove_nullable(context->get_arg_type(1));
+        state->result_type = remove_nullable(context->get_return_type());
         const auto* left_generic = state->left_type.get();
         const auto* right_generic = state->right_type.get();
         const auto* result_generic = state->result_type.get();

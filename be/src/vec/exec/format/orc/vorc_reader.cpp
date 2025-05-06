@@ -355,7 +355,7 @@ Status OrcReader::init_reader(
 }
 
 Status OrcReader::get_parsed_schema(std::vector<std::string>* col_names,
-                                    std::vector<TypeDescriptor>* col_types) {
+                                    std::vector<DataTypePtr>* col_types) {
     RETURN_IF_ERROR(_create_file_reader());
     const auto& root_type = _is_acid ? _remove_acid(_reader->getType()) : _reader->getType();
     for (int i = 0; i < root_type.getSubtypeCount(); ++i) {
@@ -681,8 +681,8 @@ std::tuple<bool, orc::Literal, orc::PredicateDataType> OrcReader::_make_orc_lite
     auto literal_data = literal->get_column_ptr()->get_data_at(0);
     auto* slot = _tuple_descriptor->slots()[slot_ref->column_id()];
     auto slot_type = slot->type();
-    auto primitive_type = slot_type.type;
-    auto src_type = OrcReader::convert_to_doris_type(orc_type).type;
+    auto primitive_type = slot_type->get_primitive_type();
+    auto src_type = OrcReader::convert_to_doris_type(orc_type)->get_primitive_type();
     // should not down predicate for string type change from other type
     if (src_type != primitive_type && !is_string_type(src_type) && is_string_type(primitive_type)) {
         LOG(WARNING) << "Unsupported Push Down Schema Changed Column " << primitive_type << " to "
@@ -690,11 +690,11 @@ std::tuple<bool, orc::Literal, orc::PredicateDataType> OrcReader::_make_orc_lite
         return std::make_tuple(false, orc::Literal(false), orc::PredicateDataType::LONG);
     }
     switch (primitive_type) {
-#define M(NAME)                                                                \
-    case TYPE_##NAME: {                                                        \
-        auto [valid, orc_literal] = convert_to_orc_literal<TYPE_##NAME>(       \
-                orc_type, literal_data, slot_type.precision, slot_type.scale); \
-        return std::make_tuple(valid, orc_literal, predicate_type);            \
+#define M(NAME)                                                                              \
+    case TYPE_##NAME: {                                                                      \
+        auto [valid, orc_literal] = convert_to_orc_literal<TYPE_##NAME>(                     \
+                orc_type, literal_data, slot_type->get_precision(), slot_type->get_scale()); \
+        return std::make_tuple(valid, orc_literal, predicate_type);                          \
     }
 #define APPLY_FOR_PRIMITIVE_TYPE(M) \
     M(TINYINT)                      \
@@ -1096,8 +1096,7 @@ Status OrcReader::set_fill_columns(
     if (_tuple_descriptor != nullptr) {
         for (const auto& each : _tuple_descriptor->slots()) {
             PrimitiveType column_type = each->col_type();
-            if (column_type == TYPE_ARRAY || column_type == TYPE_MAP ||
-                column_type == TYPE_STRUCT) {
+            if (is_complex_type(column_type)) {
                 _has_complex_type = true;
                 break;
             }
@@ -1372,68 +1371,73 @@ void OrcReader::_init_file_description() {
     }
 }
 
-TypeDescriptor OrcReader::convert_to_doris_type(const orc::Type* orc_type) {
+DataTypePtr OrcReader::convert_to_doris_type(const orc::Type* orc_type) {
     switch (orc_type->getKind()) {
     case orc::TypeKind::BOOLEAN:
-        return {PrimitiveType::TYPE_BOOLEAN};
+        return DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_BOOLEAN, true);
     case orc::TypeKind::BYTE:
-        return {PrimitiveType::TYPE_TINYINT};
+        return DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_TINYINT, true);
     case orc::TypeKind::SHORT:
-        return {PrimitiveType::TYPE_SMALLINT};
+        return DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_SMALLINT, true);
     case orc::TypeKind::INT:
-        return {PrimitiveType::TYPE_INT};
+        return DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, true);
     case orc::TypeKind::LONG:
-        return {PrimitiveType::TYPE_BIGINT};
+        return DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_BIGINT, true);
     case orc::TypeKind::FLOAT:
-        return {PrimitiveType::TYPE_FLOAT};
+        return DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_FLOAT, true);
     case orc::TypeKind::DOUBLE:
-        return {PrimitiveType::TYPE_DOUBLE};
+        return DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_DOUBLE, true);
     case orc::TypeKind::STRING:
-        return {PrimitiveType::TYPE_STRING};
+        return DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_STRING, true);
     case orc::TypeKind::BINARY:
-        return {PrimitiveType::TYPE_STRING};
+        return DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_STRING, true);
     case orc::TypeKind::TIMESTAMP:
-        return {PrimitiveType::TYPE_DATETIMEV2};
+        return DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_DATETIMEV2, true, 0,
+                                                            6);
     case orc::TypeKind::DECIMAL:
-        if (orc_type->getPrecision() == 0) {
-            return TypeDescriptor::create_decimalv3_type(decimal_precision_for_hive11,
-                                                         decimal_scale_for_hive11);
-        }
-        return TypeDescriptor::create_decimalv3_type(cast_set<int>(orc_type->getPrecision()),
-                                                     cast_set<int>(orc_type->getScale()));
+        return DataTypeFactory::instance().create_data_type(
+                PrimitiveType::TYPE_DECIMAL128I, true,
+                orc_type->getPrecision() == 0 ? decimal_precision_for_hive11
+                                              : cast_set<int>(orc_type->getPrecision()),
+                orc_type->getPrecision() == 0 ? decimal_scale_for_hive11
+                                              : cast_set<int>(orc_type->getScale()));
     case orc::TypeKind::DATE:
-        return {PrimitiveType::TYPE_DATEV2};
+        return DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_DATEV2, true);
     case orc::TypeKind::VARCHAR:
-        return TypeDescriptor::create_varchar_type(cast_set<int>(orc_type->getMaximumLength()));
+        return DataTypeFactory::instance().create_data_type(
+                PrimitiveType::TYPE_VARCHAR, true, 0, 0,
+                cast_set<int>(orc_type->getMaximumLength()));
     case orc::TypeKind::CHAR:
-        return TypeDescriptor::create_char_type(cast_set<int>(orc_type->getMaximumLength()));
+        return DataTypeFactory::instance().create_data_type(
+                PrimitiveType::TYPE_CHAR, true, 0, 0, cast_set<int>(orc_type->getMaximumLength()));
     case orc::TypeKind::TIMESTAMP_INSTANT:
-        return {PrimitiveType::TYPE_DATETIMEV2};
+        return DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_DATETIMEV2, true, 0,
+                                                            6);
     case orc::TypeKind::LIST: {
-        TypeDescriptor list_type(PrimitiveType::TYPE_ARRAY);
-        list_type.add_sub_type(convert_to_doris_type(orc_type->getSubtype(0)));
-        return list_type;
+        return make_nullable(
+                std::make_shared<DataTypeArray>(convert_to_doris_type(orc_type->getSubtype(0))));
     }
     case orc::TypeKind::MAP: {
-        TypeDescriptor map_type(PrimitiveType::TYPE_MAP);
-        map_type.add_sub_type(convert_to_doris_type(orc_type->getSubtype(0)));
-        map_type.add_sub_type(convert_to_doris_type(orc_type->getSubtype(1)));
-        return map_type;
+        return make_nullable(
+                std::make_shared<DataTypeMap>(convert_to_doris_type(orc_type->getSubtype(0)),
+                                              convert_to_doris_type(orc_type->getSubtype(1))));
     }
     case orc::TypeKind::STRUCT: {
-        TypeDescriptor struct_type(PrimitiveType::TYPE_STRUCT);
+        DataTypes res_data_types;
+        std::vector<std::string> names;
         for (int i = 0; i < orc_type->getSubtypeCount(); ++i) {
-            struct_type.add_sub_type(convert_to_doris_type(orc_type->getSubtype(i)),
-                                     get_field_name_lower_case(orc_type, i));
+            res_data_types.push_back(convert_to_doris_type(orc_type->getSubtype(i)));
+            names.push_back(get_field_name_lower_case(orc_type, i));
         }
-        return struct_type;
+        return make_nullable(std::make_shared<DataTypeStruct>(res_data_types, names));
     }
     default:
-        return {PrimitiveType::INVALID_TYPE};
+        throw Exception(Status::InternalError("Orc type is not supported!"));
+        return nullptr;
     }
 }
 
-Status OrcReader::get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
+Status OrcReader::get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
                               std::unordered_set<std::string>* missing_cols) {
     const auto& root_type = _reader->getType();
     for (int i = 0; i < root_type.getSubtypeCount(); ++i) {
@@ -1781,8 +1785,8 @@ Status OrcReader::_fill_doris_data_column(const std::string& col_name,
         auto& doris_struct = static_cast<ColumnStruct&>(*data_column);
         std::map<int, int> read_fields;
         std::set<int> missing_fields;
-        const DataTypeStruct* doris_struct_type =
-                reinterpret_cast<const DataTypeStruct*>(remove_nullable(data_type).get());
+        const auto* doris_struct_type =
+                assert_cast<const DataTypeStruct*>(remove_nullable(data_type).get());
         for (int i = 0; i < doris_struct.tuple_size(); ++i) {
             bool is_missing_col = true;
             for (int j = 0; j < orc_column_type->getSubtypeCount(); ++j) {
@@ -1833,11 +1837,11 @@ Status OrcReader::_orc_column_to_doris_column(const std::string& col_name, Colum
                                               const orc::Type* orc_column_type,
                                               const orc::ColumnVectorBatch* cvb,
                                               size_t num_values) {
-    TypeDescriptor src_type = convert_to_doris_type(orc_column_type);
+    auto src_type = convert_to_doris_type(orc_column_type);
     bool is_dict_filter_col = false;
     for (const std::pair<std::string, int>& dict_col : _dict_filter_cols) {
         if (col_name == dict_col.first) {
-            src_type = TypeDescriptor(PrimitiveType::TYPE_INT);
+            src_type = DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, true);
             is_dict_filter_col = true;
             break;
         }
@@ -2349,7 +2353,8 @@ bool OrcReader::_can_filter_by_dict(int slot_id) {
     if (slot == nullptr) {
         return false;
     }
-    if (!slot->type().is_string_type()) {
+    if (!is_string_type(slot->type()->get_primitive_type()) &&
+        !is_var_len_object(slot->type()->get_primitive_type())) {
         return false;
     }
 

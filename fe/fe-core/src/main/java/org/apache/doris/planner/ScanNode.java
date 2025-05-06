@@ -41,6 +41,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -243,6 +244,10 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
         if (desc.getTable() != null) {
             computeColumnsFilter(getColumns(), partitionsInfo);
         }
+    }
+
+    public TableIf getTableIf() {
+        return desc.getTable();
     }
 
     public static ColumnRange createColumnRange(SlotDescriptor desc,

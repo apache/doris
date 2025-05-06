@@ -379,9 +379,9 @@ std::vector<std::string> VHiveTableWriter::_create_partition_values(vectorized::
         int partition_column_idx = _partition_columns_input_index[i];
         vectorized::ColumnWithTypeAndName partition_column =
                 block.get_by_position(partition_column_idx);
-        std::string value =
-                _to_partition_value(_vec_output_expr_ctxs[partition_column_idx]->root()->type(),
-                                    partition_column, position);
+        std::string value = _to_partition_value(
+                _vec_output_expr_ctxs[partition_column_idx]->root()->data_type(), partition_column,
+                position);
 
         // Check if value contains only printable ASCII characters
         bool is_valid = true;
@@ -412,7 +412,7 @@ std::vector<std::string> VHiveTableWriter::_create_partition_values(vectorized::
     return partition_values;
 }
 
-std::string VHiveTableWriter::_to_partition_value(const TypeDescriptor& type_desc,
+std::string VHiveTableWriter::_to_partition_value(const DataTypePtr& type_desc,
                                                   const ColumnWithTypeAndName& partition_column,
                                                   int position) {
     ColumnPtr column;
@@ -426,7 +426,7 @@ std::string VHiveTableWriter::_to_partition_value(const TypeDescriptor& type_des
         column = partition_column.column;
     }
     auto [item, size] = column->get_data_at(position);
-    switch (type_desc.type) {
+    switch (type_desc->get_primitive_type()) {
     case TYPE_BOOLEAN: {
         vectorized::Field field =
                 vectorized::check_and_get_column<const ColumnUInt8>(*column)->operator[](position);
@@ -482,32 +482,32 @@ std::string VHiveTableWriter::_to_partition_value(const TypeDescriptor& type_des
                 binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(*(int64_t*)item);
 
         char buf[64];
-        char* pos = value.to_string(buf, type_desc.scale);
+        char* pos = value.to_string(buf, type_desc->get_scale());
         return std::string(buf, pos - buf - 1);
     }
     case TYPE_DECIMALV2: {
         Decimal128V2 value = *(Decimal128V2*)(item);
-        return value.to_string(type_desc.scale);
+        return value.to_string(type_desc->get_scale());
     }
     case TYPE_DECIMAL32: {
         Decimal32 value = *(Decimal32*)(item);
-        return value.to_string(type_desc.scale);
+        return value.to_string(type_desc->get_scale());
     }
     case TYPE_DECIMAL64: {
         Decimal64 value = *(Decimal64*)(item);
-        return value.to_string(type_desc.scale);
+        return value.to_string(type_desc->get_scale());
     }
     case TYPE_DECIMAL128I: {
         Decimal128V3 value = *(Decimal128V3*)(item);
-        return value.to_string(type_desc.scale);
+        return value.to_string(type_desc->get_scale());
     }
     case TYPE_DECIMAL256: {
         Decimal256 value = *(Decimal256*)(item);
-        return value.to_string(type_desc.scale);
+        return value.to_string(type_desc->get_scale());
     }
     default: {
         throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
-                               "Unsupported type for partition {}", type_desc.debug_string());
+                               "Unsupported type for partition {}", type_desc->get_name());
     }
     }
 }

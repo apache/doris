@@ -269,7 +269,8 @@ public class View extends Table implements GsonPostProcessable {
     public void resetViewDefForRestore(String srcDbName, String dbName) {
         // the source db name is not setted in old BackupMeta, keep compatible with the old one.
         if (srcDbName != null) {
-            inlineViewDef = inlineViewDef.replaceAll(srcDbName, dbName);
+            // replace dbName with a regular expression
+            inlineViewDef = inlineViewDef.replaceAll("(?<=`internal`\\.`)([^`]+)(?=`\\.`)", dbName);
         }
     }
 

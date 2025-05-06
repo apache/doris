@@ -32,7 +32,7 @@ suite("grace_period") {
     CREATE TABLE IF NOT EXISTS orders_partition (
       o_orderkey       integer not null,
       o_custkey        integer not null,
-      o_orderstatus    char(1) not null,
+      o_orderstatus    char(20) not null,
       o_totalprice     decimalv3(15,2) not null,
       o_orderdate      date not null,
       o_orderpriority  char(15) not null,  
