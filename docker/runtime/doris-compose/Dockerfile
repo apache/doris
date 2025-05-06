@@ -48,14 +48,13 @@ RUN curl -f https://repo1.maven.org/maven2/org/jacoco/jacoco/${JACOCO_VERSION}/j
     unzip jacoco.zip -d /jacoco
 
 # cloud
-COPY --chmod=777 README.md cloud/output* output/ms* /opt/apache-doris/cloud/
+COPY --chmod=777 README.md cloud/output* /opt/apache-doris/cloud/
 RUN mkdir /opt/apache-doris/fdb
 RUN if [ -d /opt/apache-doris/cloud/bin ]; then                            \
         sed -i 's/\<chmod\>/echo/g' /opt/apache-doris/cloud/bin/start.sh ; \
     fi
 
 # fe and be
-COPY --chmod=777 output_dict_image /opt/apache-doris/
+COPY --chmod=777 output /opt/apache-doris/
 # in docker, run 'chmod 755 doris_be' first time cost 1min, remove it.
 RUN sed -i 's/\<chmod\>/echo/g' /opt/apache-doris/be/bin/start_be.sh
-

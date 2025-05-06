@@ -20,6 +20,7 @@
 
 #include "util/os_util.h"
 
+#include <absl/strings/str_split.h>
 #include <fcntl.h>
 #include <glog/logging.h>
 #include <sys/resource.h>
@@ -32,12 +33,10 @@
 
 #include "gutil/macros.h"
 #include "gutil/strings/numbers.h"
-#include "gutil/strings/split.h"
 #include "io/fs/local_file_system.h"
 
 using std::string;
 using std::vector;
-using strings::Split;
 
 namespace doris {
 
@@ -75,7 +74,7 @@ Status parse_stat(const std::string& buffer, std::string* name, ThreadStats* sta
     }
     string extracted_name = buffer.substr(open_paren + 1, close_paren - (open_paren + 1));
     string rest = buffer.substr(close_paren + 2);
-    std::vector<string> splits = Split(rest, " ", strings::SkipEmpty());
+    std::vector<string> splits = absl::StrSplit(rest, " ", absl::SkipEmpty());
     if (splits.size() < kMaxOffset) {
         return Status::IOError("Unrecognised /proc format");
     }

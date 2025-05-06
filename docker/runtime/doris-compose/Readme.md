@@ -59,6 +59,14 @@ The `<image>` is the name you want the docker image to have.
 python -m pip install --user -r docker/runtime/doris-compose/requirements.txt
 ```
 
+if it failed, change content of `requirements.txt` to:
+
+```Dockerfile
+pyyaml==5.3.1
+docker==6.1.3
+......
+```
+
 ## Usage
 
 ### Notice

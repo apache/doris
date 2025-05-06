@@ -17,6 +17,8 @@
 
 #include "http/action/batch_download_action.h"
 
+#include <absl/strings/str_split.h>
+
 #include <memory>
 #include <string>
 #include <utility>
@@ -25,7 +27,6 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "gutil/strings/split.h"
 #include "http/http_channel.h"
 #include "http/http_method.h"
 #include "http/http_request.h"
@@ -151,7 +152,7 @@ void BatchDownloadAction::_handle(HttpRequest* req, const std::string& dir_path)
 
 void BatchDownloadAction::_handle_batch_download(HttpRequest* req, const std::string& dir_path) {
     std::vector<std::string> files =
-            strings::Split(req->get_request_body(), "\n", strings::SkipWhitespace());
+            absl::StrSplit(req->get_request_body(), "\n", absl::SkipWhitespace());
     if (files.empty()) {
         std::string error_msg = "No file specified in request body.";
         LOG(WARNING) << "handle batch download request: " << error_msg
