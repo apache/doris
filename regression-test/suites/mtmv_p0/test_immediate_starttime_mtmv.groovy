@@ -61,7 +61,7 @@ suite("test_immediate_starttime_mtmv","mtmv") {
     order_qt_immediate "SELECT count(*) from tasks('type'='mv') where MvName='${mvName}'"
 
     sql """drop materialized view if exists ${mvName};"""
-    def currentMs = System.currentTimeMillis() + 10000;
+    currentMs = System.currentTimeMillis() + 10000;
     dateTime = LocalDateTime.ofInstant(Instant.ofEpochMilli(currentMs), ZoneId.systemDefault());
     formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
      startTime= dateTime.format(formatter);
