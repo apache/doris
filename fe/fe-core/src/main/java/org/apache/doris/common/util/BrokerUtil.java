@@ -77,6 +77,7 @@ public class BrokerUtil {
 
     /**
      * Parse file status in path with broker, except directory
+     *
      * @param path
      * @param brokerDesc
      * @param fileStatuses: file path, size, isDir, isSplittable
@@ -85,14 +86,14 @@ public class BrokerUtil {
     public static void parseFile(String path, BrokerDesc brokerDesc, List<TBrokerFileStatus> fileStatuses)
             throws UserException {
         List<RemoteFile> rfiles = new ArrayList<>();
-        try (RemoteFileSystem fileSystem = FileSystemFactory.get(brokerDesc.getStorageProperties())) {
+        try (RemoteFileSystem fileSystem = FileSystemFactory.get(brokerDesc)) {
             Status st = fileSystem.globList(path, rfiles, false);
             if (!st.ok()) {
                 throw new UserException(st.getErrMsg());
             }
         } catch (Exception e) {
             LOG.warn("{} list path exception, path={}", brokerDesc.getName(), path, e);
-            throw new UserException(brokerDesc.getName() +  " list path exception. path="
+            throw new UserException(brokerDesc.getName() + " list path exception. path="
                     + path + ", err: " + e.getMessage());
         }
         for (RemoteFile r : rfiles) {
@@ -109,12 +110,12 @@ public class BrokerUtil {
         try (RemoteFileSystem fileSystem = FileSystemFactory.get(brokerDesc.getStorageProperties())) {
             Status st = fileSystem.deleteDirectory(path);
             if (!st.ok()) {
-                throw new UserException(brokerDesc.getName() +  " delete directory exception. path="
+                throw new UserException(brokerDesc.getName() + " delete directory exception. path="
                         + path + ", err: " + st.getErrMsg());
             }
         } catch (Exception e) {
             LOG.warn("{} delete directory exception, path={}", brokerDesc.getName(), path, e);
-            throw new UserException(brokerDesc.getName() +  " delete directory exception. path="
+            throw new UserException(brokerDesc.getName() + " delete directory exception. path="
                     + path + ", err: " + e.getMessage());
         }
     }
@@ -178,7 +179,7 @@ public class BrokerUtil {
                 continue;
             }
             columns[index] = HiveMetaStoreCache.HIVE_DEFAULT_PARTITION.equals(pair[1])
-                ? FeConstants.null_string : pair[1];
+                    ? FeConstants.null_string : pair[1];
             size++;
             if (size >= columnsFromPath.size()) {
                 break;
@@ -193,6 +194,7 @@ public class BrokerUtil {
 
     /**
      * Read binary data from path with broker
+     *
      * @param path
      * @param brokerDesc
      * @return byte[]
@@ -216,12 +218,12 @@ public class BrokerUtil {
             }
             if (tBrokerListResponse.getOpStatus().getStatusCode() != TBrokerOperationStatusCode.OK) {
                 throw new UserException("Broker list path failed. path=" + path + ", broker=" + address
-                                                + ",msg=" + tBrokerListResponse.getOpStatus().getMessage());
+                        + ",msg=" + tBrokerListResponse.getOpStatus().getMessage());
             }
             List<TBrokerFileStatus> fileStatuses = tBrokerListResponse.getFiles();
             if (fileStatuses.size() != 1) {
                 throw new UserException("Broker files num error. path=" + path + ", broker=" + address
-                                                + ", files num: " + fileStatuses.size());
+                        + ", files num: " + fileStatuses.size());
             }
 
             Preconditions.checkState(!fileStatuses.get(0).isIsDir());
@@ -241,7 +243,7 @@ public class BrokerUtil {
             }
             if (tOpenReaderResponse.getOpStatus().getStatusCode() != TBrokerOperationStatusCode.OK) {
                 throw new UserException("Broker open reader failed. path=" + path + ", broker=" + address
-                                                + ", msg=" + tOpenReaderResponse.getOpStatus().getMessage());
+                        + ", msg=" + tOpenReaderResponse.getOpStatus().getMessage());
             }
             fd = tOpenReaderResponse.getFd();
 
@@ -261,7 +263,7 @@ public class BrokerUtil {
             }
             if (tReadResponse.getOpStatus().getStatusCode() != TBrokerOperationStatusCode.OK) {
                 throw new UserException("Broker read failed. path=" + path + ", broker=" + address
-                                                + ", msg=" + tReadResponse.getOpStatus().getMessage());
+                        + ", msg=" + tReadResponse.getOpStatus().getMessage());
             }
             failed = false;
             return tReadResponse.getData();
@@ -288,7 +290,7 @@ public class BrokerUtil {
                 }
                 if (tOperationStatus.getStatusCode() != TBrokerOperationStatusCode.OK) {
                     LOG.warn("Broker close reader failed. path={}, address={}, error={}", path, address,
-                             tOperationStatus.getMessage());
+                            tOperationStatus.getMessage());
                 } else {
                     failed = false;
                 }
@@ -301,6 +303,7 @@ public class BrokerUtil {
 
     /**
      * Write binary data to destFilePath with broker
+     *
      * @param data
      * @param destFilePath
      * @param brokerDesc
@@ -319,6 +322,7 @@ public class BrokerUtil {
 
     /**
      * Write srcFilePath file to destFilePath with broker
+     *
      * @param srcFilePath
      * @param destFilePath
      * @param brokerDesc
@@ -366,6 +370,7 @@ public class BrokerUtil {
 
     /**
      * Delete path with broker
+     *
      * @param path
      * @param brokerDesc
      * @throws UserException if broker op failed
@@ -386,7 +391,7 @@ public class BrokerUtil {
             }
             if (tOperationStatus.getStatusCode() != TBrokerOperationStatusCode.OK) {
                 throw new UserException("Broker delete path failed. path=" + path + ", broker=" + address
-                                                + ", msg=" + tOperationStatus.getMessage());
+                        + ", msg=" + tOperationStatus.getMessage());
             }
             failed = false;
         } catch (TException e) {
@@ -527,8 +532,8 @@ public class BrokerUtil {
                 }
                 if (tOpenWriterResponse.getOpStatus().getStatusCode() != TBrokerOperationStatusCode.OK) {
                     throw new UserException("Broker open writer failed. destPath=" + brokerFilePath
-                                                    + ", broker=" + address
-                                                    + ", msg=" + tOpenWriterResponse.getOpStatus().getMessage());
+                            + ", broker=" + address
+                            + ", msg=" + tOpenWriterResponse.getOpStatus().getMessage());
                 }
                 failed = false;
                 fd = tOpenWriterResponse.getFd();
@@ -560,7 +565,7 @@ public class BrokerUtil {
                 }
                 if (tOperationStatus.getStatusCode() != TBrokerOperationStatusCode.OK) {
                     throw new UserException("Broker write failed. filePath=" + brokerFilePath + ", broker=" + address
-                                                    + ", msg=" + tOperationStatus.getMessage());
+                            + ", msg=" + tOperationStatus.getMessage());
                 }
                 failed = false;
                 currentOffset += bufferSize;
@@ -592,7 +597,7 @@ public class BrokerUtil {
                     LOG.warn("Broker close reader failed. fd={}, address={}", fd.toString(), address);
                 } else if (tOperationStatus.getStatusCode() != TBrokerOperationStatusCode.OK) {
                     LOG.warn("Broker close writer failed. filePath={}, address={}, error={}", brokerFilePath,
-                             address, tOperationStatus.getMessage());
+                            address, tOperationStatus.getMessage());
                 } else {
                     failed = false;
                 }

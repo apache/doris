@@ -257,7 +257,11 @@ public class Repository implements Writable, GsonPostProcessable {
             return location;
         }
         try {
-            return fileSystem.getStorageProperties().validateAndNormalizeUri(location);
+            if (null == fileSystem.getStorageProperties()) {
+                return location;
+            } else {
+                return fileSystem.getStorageProperties().validateAndNormalizeUri(location);
+            }
         } catch (UserException e) {
             throw new RuntimeException(e);
         }

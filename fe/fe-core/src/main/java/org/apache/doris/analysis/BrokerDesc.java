@@ -30,6 +30,7 @@ import org.apache.doris.thrift.TFileType;
 
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
+import org.apache.commons.collections.MapUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -76,18 +77,23 @@ public class BrokerDesc extends StorageDesc implements Writable {
         if (properties != null) {
             this.properties.putAll(properties);
         }
-        this.storageProperties = StorageProperties.createPrimary(properties);
-        // we should use storage properties?
-        this.properties.putAll(storageProperties.getBackendConfigProperties());
-        this.storageType = StorageBackend.StorageType.convertToStorageType(storageProperties.getStorageName());
-        this.name = name;
-        this.properties = Maps.newHashMap();
-        if (properties != null) {
-            this.properties.putAll(properties);
-        }
         if (isMultiLoadBroker()) {
             this.storageType = StorageBackend.StorageType.LOCAL;
+        } else {
+            this.storageType = StorageBackend.StorageType.BROKER;
         }
+        if (MapUtils.isNotEmpty(properties)) {
+            try {
+                this.storageProperties = StorageProperties.createPrimary(properties);
+                this.properties.putAll(storageProperties.getBackendConfigProperties());
+            } catch (RuntimeException e) {
+                // Currently ignored: these properties might be broker-specific.
+                // Support for broker properties will be added in the future.
+                LOG.warn("Failed to create storage properties for broker: {}, properties: {}", name, properties, e);
+            }
+
+        }
+        this.name = name;
     }
 
     public BrokerDesc(String name, StorageBackend.StorageType storageType, Map<String, String> properties) {
@@ -96,18 +102,20 @@ public class BrokerDesc extends StorageDesc implements Writable {
         if (properties != null) {
             this.properties.putAll(properties);
         }
-        this.storageProperties = StorageProperties.createPrimary(properties);
-        // we should use storage properties?
-        this.properties.putAll(storageProperties.getBackendConfigProperties());
+        if (MapUtils.isNotEmpty(properties)) {
+            this.storageProperties = StorageProperties.createPrimary(properties);
+            // we should use storage properties?
+            this.properties.putAll(storageProperties.getBackendConfigProperties());
+        }
         this.storageType = storageType;
     }
 
 
     public String getFileLocation(String location) throws UserException {
-        return storageProperties.validateAndNormalizeUri(location);
+        return (null != storageProperties) ? storageProperties.validateAndNormalizeUri(location) : location;
     }
 
-    public static BrokerDesc createForStreamLoad() throws UserException {
+    public static BrokerDesc createForStreamLoad() {
         return new BrokerDesc("", StorageType.STREAM, null);
     }
 
@@ -152,8 +160,12 @@ public class BrokerDesc extends StorageDesc implements Writable {
             final String val = Text.readString(in);
             properties.put(key, val);
         }
-        this.storageProperties = StorageProperties.createPrimary(properties);
-        this.storageType = StorageBackend.StorageType.convertToStorageType(storageProperties.getStorageName());
+        if (MapUtils.isNotEmpty(properties)) {
+            this.storageProperties = StorageProperties.createPrimary(properties);
+            this.storageType = StorageBackend.StorageType.convertToStorageType(storageProperties.getStorageName());
+        } else {
+            this.storageType = StorageBackend.StorageType.BROKER;
+        }
     }
 
     public static BrokerDesc read(DataInput in) throws IOException {
