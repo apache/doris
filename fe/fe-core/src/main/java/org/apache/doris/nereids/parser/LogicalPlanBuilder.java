@@ -586,6 +586,7 @@ import org.apache.doris.nereids.trees.plans.commands.CreateProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateResourceCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateSqlBlockRuleCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateStageCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableLikeCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateUserCommand;
@@ -614,6 +615,7 @@ import org.apache.doris.nereids.trees.plans.commands.DropResourceCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropRowPolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropSqlBlockRuleCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropStageCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropStoragePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropTableCommand;
@@ -6567,6 +6569,25 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             throw new AnalysisException(e.getDetailMessage());
         }
         return new DescribeCommand(tableValuedFunctionRef);
+    }
+
+    @Override
+    public LogicalPlan visitCreateStage(DorisParser.CreateStageContext ctx) {
+        String stageName = stripQuotes(ctx.name.getText());
+        Map<String, String> properties = visitPropertyClause(ctx.properties);
+
+        return new CreateStageCommand(
+            ctx.IF() != null,
+                stageName,
+                properties
+        );
+    }
+
+    @Override
+    public LogicalPlan visitDropStage(DorisParser.DropStageContext ctx) {
+        return new DropStageCommand(
+            ctx.IF() != null,
+            stripQuotes(ctx.name.getText()));
     }
 
     @Override
