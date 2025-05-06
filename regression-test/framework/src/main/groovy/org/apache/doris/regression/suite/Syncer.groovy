@@ -981,7 +981,6 @@ class Syncer {
     void createS3RepositoryWithRole(String name, boolean readOnly = false) {
         String roleArn = suite.context.config.awsRoleArn
         String externalId = suite.context.config.awsExternalId
-        String sk = suite.context.config.awsSecretKey
         String endpoint = suite.context.config.awsEndpoint
         String region = suite.context.config.awsRegion
         String bucket = suite.context.config.awsBucket

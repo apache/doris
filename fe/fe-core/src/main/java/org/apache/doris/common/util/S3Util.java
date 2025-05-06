@@ -107,14 +107,14 @@ public class S3Util {
     }
 
     /**
-     * creating different credentials provider when creating s3client
-     * @param endpoint
-     * @param region
-     * @param accessKey
-     * @param secretKey
-     * @param sessionToken
-     * @param roleArn
-     * @param externalId
+     * Using (accessKey, secretKey) or roleArn for creating different credentials provider when creating s3client
+     * @param endpoint AWS endpoint (eg: "https://s3.us-east-1.amazonaws.com")
+     * @param region AWS region identifier (eg: "us-east-1")
+     * @param accessKey AWS access key ID
+     * @param secretKey AWS secret access key, paired with accessKey
+     * @param sessionToken AWS temporary session token for short-term credentials
+     * @param roleArn AWS iam role arn to assume (format: "arn:aws:iam::123456789012:role/role-name")
+     * @param externalId  AWS External ID for cross-account role assumption security
      * @return
      */
     private static AwsCredentialsProvider getAwsCredencialsProvider(URI endpoint, String region, String accessKey,
