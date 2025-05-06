@@ -496,6 +496,8 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
                 table = new HiveTable();
             } else if (type == TableType.JDBC) {
                 table = new JdbcTable();
+            } else if (type == TableType.DORIS) {
+                table = new DorisTable();
             } else {
                 throw new IOException("Unknown table type: " + type.name());
             }

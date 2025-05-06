@@ -101,6 +101,7 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.doris.DorisExternalCatalog;
 import org.apache.doris.datasource.es.EsExternalCatalog;
 import org.apache.doris.datasource.es.EsExternalDatabase;
 import org.apache.doris.datasource.es.EsExternalTable;
@@ -357,7 +358,8 @@ public class GsonUtils134 {
                 .registerSubtype(
                             TrinoConnectorExternalCatalog.class, TrinoConnectorExternalCatalog.class.getSimpleName())
                 .registerSubtype(LakeSoulExternalCatalog.class, LakeSoulExternalCatalog.class.getSimpleName())
-                .registerSubtype(TestExternalCatalog.class, TestExternalCatalog.class.getSimpleName());
+                .registerSubtype(TestExternalCatalog.class, TestExternalCatalog.class.getSimpleName())
+                .registerSubtype(DorisExternalCatalog.class, DorisExternalCatalog.class.getSimpleName());
         if (Config.isNotCloudMode()) {
             dsTypeAdapterFactory
                     .registerSubtype(InternalCatalog.class, InternalCatalog.class.getSimpleName());
