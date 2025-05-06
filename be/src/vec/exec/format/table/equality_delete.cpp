@@ -37,7 +37,7 @@ Status SimpleEqualityDelete::_build_set() {
     }
     auto& column_and_type = _delete_block->get_by_position(0);
     _delete_column_name = column_and_type.name;
-    _delete_column_type = remove_nullable(column_and_type.type)->get_type_as_type_descriptor().type;
+    _delete_column_type = remove_nullable(column_and_type.type)->get_primitive_type();
     _hybrid_set.reset(create_set(_delete_column_type, _delete_block->rows(), false));
     _hybrid_set->insert_fixed_len(column_and_type.column, 0);
     return Status::OK();
@@ -50,9 +50,10 @@ Status SimpleEqualityDelete::filter_data_block(Block* data_block) {
         return Status::InternalError("Can't find the delete column '{}' in data file",
                                      _delete_column_name);
     }
-    if (remove_nullable(column_and_type->type)->get_type_as_type_descriptor().type !=
-        _delete_column_type) {
-        return Status::InternalError("Not support type change in column '{}'", _delete_column_name);
+    if (column_and_type->type->get_primitive_type() != _delete_column_type) {
+        return Status::InternalError(
+                "Not support type change in column '{}', src type: {}, target type: {}",
+                _delete_column_name, column_and_type->type->get_name(), (int)_delete_column_type);
     }
     size_t rows = data_block->rows();
     // _filter: 1 => in _hybrid_set; 0 => not in _hybrid_set
@@ -113,7 +114,10 @@ Status MultiEqualityDelete::filter_data_block(Block* data_block) {
                                          column_name);
         }
         if (!_delete_block->get_by_name(column_name).type->equals(*column_and_type->type)) {
-            return Status::InternalError("Not support type change in column '{}'", column_name);
+            return Status::InternalError(
+                    "Not support type change in column '{}', src type: {}, target type: {}",
+                    column_name, _delete_block->get_by_name(column_name).type->get_name(),
+                    column_and_type->type->get_name());
         }
         _data_column_index[column_index++] = data_block->get_position_by_name(column_name);
     }

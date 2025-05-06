@@ -44,7 +44,9 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_bitmap.h"
 #include "vec/data_types/data_type_decimal.h"
+#include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_hll.h"
+#include "vec/data_types/data_type_nothing.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_time.h"
@@ -117,7 +119,6 @@ using DATETIME = std::string;
 
 struct UTDataTypeDesc {
     DataTypePtr data_type;
-    doris::TypeDescriptor type_desc;
     std::string col_name;
     bool is_const = false;
     bool is_nullable = true; // ATTN: default is true
@@ -134,35 +135,46 @@ void check_vec_table_function(TableFunction* fn, const InputTypeSet& input_types
                               const InputDataSet& output_set, bool test_get_value_func = false);
 
 template <typename ReturnType>
-TypeDescriptor get_return_type_descriptor() {
-    TypeDescriptor fn_ctx_return;
+DataTypePtr get_return_type_descriptor() {
     if constexpr (std::is_same_v<ReturnType, DataTypeUInt8>) {
-        fn_ctx_return.type = doris::PrimitiveType::TYPE_BOOLEAN;
+        return DataTypeFactory::instance().create_data_type(doris::PrimitiveType::TYPE_BOOLEAN,
+                                                            false);
     } else if constexpr (std::is_same_v<ReturnType, DataTypeInt32>) {
-        fn_ctx_return.type = doris::PrimitiveType::TYPE_INT;
+        return DataTypeFactory::instance().create_data_type(doris::PrimitiveType::TYPE_INT, false);
     } else if constexpr (std::is_same_v<ReturnType, DataTypeFloat64> ||
                          std::is_same_v<ReturnType, DataTypeTimeV2>) {
-        fn_ctx_return.type = doris::PrimitiveType::TYPE_DOUBLE;
+        return DataTypeFactory::instance().create_data_type(doris::PrimitiveType::TYPE_DOUBLE,
+                                                            false);
     } else if constexpr (std::is_same_v<ReturnType, DateTime>) {
-        fn_ctx_return.type = doris::PrimitiveType::TYPE_DATETIME;
+        return DataTypeFactory::instance().create_data_type(doris::PrimitiveType::TYPE_DATETIME,
+                                                            false);
     } else if (std::is_same_v<ReturnType, DateV2>) {
-        fn_ctx_return.type = doris::PrimitiveType::TYPE_DATEV2;
+        return DataTypeFactory::instance().create_data_type(doris::PrimitiveType::TYPE_DATEV2,
+                                                            false);
     } else if (std::is_same_v<ReturnType, DateTimeV2>) {
-        fn_ctx_return.type = doris::PrimitiveType::TYPE_DATETIMEV2;
+        return DataTypeFactory::instance().create_data_type(doris::PrimitiveType::TYPE_DATETIMEV2,
+                                                            false);
     } else if (std::is_same_v<ReturnType, DataTypeDecimal<Decimal128V2>>) {
-        fn_ctx_return.type = doris::PrimitiveType::TYPE_DECIMALV2;
+        return DataTypeFactory::instance().create_data_type(
+                doris::PrimitiveType::TYPE_DECIMALV2, false, BeConsts::MAX_DECIMALV2_PRECISION,
+                BeConsts::MAX_DECIMALV2_SCALE);
     } else if (std::is_same_v<ReturnType, DataTypeDecimal<Decimal32>>) {
-        fn_ctx_return.type = doris::PrimitiveType::TYPE_DECIMAL32;
+        return DataTypeFactory::instance().create_data_type(
+                doris::PrimitiveType::TYPE_DECIMAL32, false, BeConsts::MAX_DECIMAL32_PRECISION, 0);
     } else if (std::is_same_v<ReturnType, DataTypeDecimal<Decimal64>>) {
-        fn_ctx_return.type = doris::PrimitiveType::TYPE_DECIMAL64;
+        return DataTypeFactory::instance().create_data_type(
+                doris::PrimitiveType::TYPE_DECIMAL64, false, BeConsts::MAX_DECIMAL64_PRECISION, 0);
     } else if (std::is_same_v<ReturnType, DataTypeDecimal<Decimal128V3>>) {
-        fn_ctx_return.type = doris::PrimitiveType::TYPE_DECIMAL128I;
+        return DataTypeFactory::instance().create_data_type(doris::PrimitiveType::TYPE_DECIMAL128I,
+                                                            false,
+                                                            BeConsts::MAX_DECIMAL128_PRECISION, 0);
     } else if (std::is_same_v<ReturnType, DataTypeDecimal<Decimal256>>) {
-        fn_ctx_return.type = doris::PrimitiveType::TYPE_DECIMAL256;
+        return DataTypeFactory::instance().create_data_type(doris::PrimitiveType::TYPE_DECIMAL256,
+                                                            false,
+                                                            BeConsts::MAX_DECIMAL256_PRECISION, 0);
     } else {
-        fn_ctx_return.type = doris::PrimitiveType::INVALID_TYPE;
+        return std::make_shared<DataTypeNothing>();
     }
-    return fn_ctx_return;
 }
 
 /**
@@ -217,13 +229,13 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
 
     // 1.2 prepare args for function call
     ColumnNumbers arguments;
-    std::vector<doris::TypeDescriptor> arg_types;
+    std::vector<DataTypePtr> arg_types;
     std::vector<std::shared_ptr<ColumnPtrWrapper>> constant_col_ptrs;
     std::vector<std::shared_ptr<ColumnPtrWrapper>> constant_cols;
     for (size_t i = 0; i < descs.size(); ++i) {
         auto& desc = descs[i];
         arguments.push_back(static_cast<unsigned int>(i));
-        arg_types.push_back(desc.type_desc);
+        arg_types.push_back(desc.data_type);
         if (desc.is_const) {
             constant_col_ptrs.push_back(
                     std::make_shared<ColumnPtrWrapper>(block.get_by_position(i).column));
@@ -251,7 +263,7 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
             func_name, block.get_columns_with_type_and_name(), return_type);
     assert(func.get() != nullptr);
 
-    TypeDescriptor fn_ctx_return = get_return_type_descriptor<ResultType>();
+    auto fn_ctx_return = get_return_type_descriptor<ResultType>();
 
     FunctionUtils fn_utils(fn_ctx_return, arg_types, 0);
     auto* fn_ctx = fn_utils.get_fn_ctx();

@@ -48,6 +48,8 @@
 #include "util/string_parser.hpp"
 #include "util/string_util.h"
 #include "vec/columns/column.h"
+#include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_factory.hpp"
 // NOLINTNEXTLINE(unused-includes)
 #include "vec/exprs/vexpr_context.h" // IWYU pragma: keep
 #include "vec/exprs/vliteral.h"
@@ -529,7 +531,9 @@ static Status _create_partition_key(const TExprNode& t_expr, BlockRow* part_key,
     //TODO: use assert_cast before insert_data
     switch (t_expr.node_type) {
     case TExprNodeType::DATE_LITERAL: {
-        if (TypeDescriptor::from_thrift(t_expr.type).is_date_v2_type()) {
+        if (vectorized::DataTypeFactory::instance()
+                    .create_data_type(t_expr.type)
+                    ->get_primitive_type() == TYPE_DATEV2) {
             DateV2Value<DateV2ValueType> dt;
             if (!dt.from_date_str(t_expr.date_literal.value.c_str(),
                                   t_expr.date_literal.value.size())) {
@@ -538,7 +542,9 @@ static Status _create_partition_key(const TExprNode& t_expr, BlockRow* part_key,
                 return Status::InternalError(ss.str());
             }
             column->insert_data(reinterpret_cast<const char*>(&dt), 0);
-        } else if (TypeDescriptor::from_thrift(t_expr.type).is_datetime_v2_type()) {
+        } else if (vectorized::DataTypeFactory::instance()
+                           .create_data_type(t_expr.type)
+                           ->get_primitive_type() == TYPE_DATETIMEV2) {
             DateV2Value<DateTimeV2ValueType> dt;
             const int32_t scale =
                     t_expr.type.types.empty() ? -1 : t_expr.type.types.front().scalar_type.scale;
