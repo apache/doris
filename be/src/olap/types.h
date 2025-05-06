@@ -39,7 +39,6 @@
 #include "common/config.h"
 #include "common/consts.h"
 #include "common/status.h"
-#include "gutil/stringprintf.h"
 #include "gutil/strings/numbers.h"
 #include "olap/decimal12.h"
 #include "olap/olap_common.h"

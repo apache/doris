@@ -5029,15 +5029,21 @@ public class Env {
                 }
 
                 if (table.isManagedTable()) {
+                    // If not checked first, execute db.unregisterTable first,
+                    // and then check the name in setName, it cannot guarantee atomicity
+                    ((OlapTable) table).checkAndSetName(newTableName, true);
+                }
+
+                db.unregisterTable(oldTableName);
+
+                if (table.isManagedTable()) {
                     // olap table should also check if any rollup has same name as "newTableName"
                     ((OlapTable) table).checkAndSetName(newTableName, false);
                 } else {
                     table.setName(newTableName);
                 }
 
-                db.unregisterTable(oldTableName);
                 db.registerTable(table);
-
                 TableInfo tableInfo = TableInfo.createForTableRename(db.getId(), table.getId(), oldTableName,
                         newTableName);
                 editLog.logTableRename(tableInfo);
@@ -5628,6 +5634,7 @@ public class Env {
         tableProperty.buildInMemory()
                 .buildMinLoadReplicaNum()
                 .buildStoragePolicy()
+                .buildStorageMedium()
                 .buildIsBeingSynced()
                 .buildCompactionPolicy()
                 .buildTimeSeriesCompactionGoalSizeMbytes()
