@@ -28,6 +28,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
+import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -55,7 +56,15 @@ public class CreateStorageVaultStmt extends DdlStmt implements NotFallbackInPars
     public CreateStorageVaultStmt(boolean ifNotExists, String vaultName, Map<String, String> properties) {
         this.ifNotExists = ifNotExists;
         this.vaultName = vaultName;
-        this.properties = ImmutableMap.copyOf(properties);
+
+        if (!properties.containsKey(PropertyConverter.USE_PATH_STYLE)) {
+            this.properties = ImmutableMap.<String, String>builder()
+                .putAll(properties)
+                .put(PropertyConverter.USE_PATH_STYLE, "true")
+                .build();
+        } else {
+            this.properties = ImmutableMap.copyOf(properties);
+        }
         this.vaultType = vaultType.UNKNOWN;
     }
 

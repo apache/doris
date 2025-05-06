@@ -147,10 +147,6 @@ public abstract class StorageVault {
                 vault.modifyProperties(stmt.getProperties());
                 break;
             case S3:
-                if (!stmt.getProperties().containsKey(PropertyConverter.USE_PATH_STYLE)) {
-                    stmt.getProperties().put(PropertyConverter.USE_PATH_STYLE, "true");
-                }
-
                 CreateResourceStmt resourceStmt =
                         new CreateResourceStmt(false, ifNotExists, name, stmt.getProperties());
                 resourceStmt.analyzeResourceType();
