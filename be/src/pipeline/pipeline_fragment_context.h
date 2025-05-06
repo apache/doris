@@ -82,8 +82,6 @@ public:
 
     PipelinePtr add_pipeline(PipelinePtr parent = nullptr, int idx = -1);
 
-    RuntimeState* get_runtime_state() { return _runtime_state.get(); }
-
     QueryContext* get_query_ctx() { return _query_ctx.get(); }
     [[nodiscard]] bool is_canceled() const { return _query_ctx->is_cancelled(); }
 

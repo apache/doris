@@ -61,7 +61,7 @@ struct MockExchangeSinkOperatorX : public ExchangeSinkOperatorX {
 
     void _init_sink_buffer() override {
         std::vector<InstanceLoId> ins_ids {fragment_instance_id.lo};
-        _sink_buffer = _create_buffer(ins_ids);
+        _sink_buffer = _create_buffer(_state, ins_ids);
     }
 };
 

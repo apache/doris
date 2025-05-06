@@ -310,6 +310,7 @@ private:
 
     PlanNodeId _node_id;
     std::atomic<int64_t> _rpc_count = 0;
+    // The state may be from PipelineFragmentContext if it is shared among multi instances.
     RuntimeState* _state = nullptr;
     QueryContext* _context = nullptr;
 
