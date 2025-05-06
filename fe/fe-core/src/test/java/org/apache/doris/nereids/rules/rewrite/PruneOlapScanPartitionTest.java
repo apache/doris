@@ -174,6 +174,7 @@ class PruneOlapScanPartitionTest extends TestWithFeService implements MemoPatter
         test("test.single_not_null", "dt in (20211121)", tablet1.getId() + ", " + tablet2.getId(), 1);
         test("test.single_not_null", "dt in (20211121, 20211124)", tablet1.getId() + ", " + tablet2.getId(), 2);
         test("test.single_not_null", "dt in (20211121)", String.valueOf(tablet2.getId()), 0);
+        test("test.single_not_null", "", "", 7);
 
     }
 

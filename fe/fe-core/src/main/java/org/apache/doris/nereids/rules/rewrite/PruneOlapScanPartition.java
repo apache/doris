@@ -99,21 +99,10 @@ public class PruneOlapScanPartition implements RewriteRuleFactory {
                                       LogicalFilter filter,
                                       MatchingContext ctx) {
         List<Long> prunedPartitionsByFilters = prunePartitionByFilters(scan, table, filter, ctx);
-        List<Long> prunedPartitionsByTablets = prunePartitionByTabletIds(scan, table, prunedPartitionsByFilters);
-
-        List<Long> prunedPartitions;
-        if (prunedPartitionsByTablets == null && prunedPartitionsByFilters == null) {
+        List<Long> prunedPartitions = prunePartitionByTabletIds(scan, table, prunedPartitionsByFilters);
+        if (prunedPartitions == null) {
             return null;
-        } else if (prunedPartitionsByTablets == null) {
-            prunedPartitions = prunedPartitionsByFilters;
-        } else if (prunedPartitionsByFilters == null) {
-            prunedPartitions = prunedPartitionsByTablets;
-        } else {
-            // intersect two pruned partitions
-            prunedPartitions = new ArrayList<>(prunedPartitionsByTablets);
-            prunedPartitions.retainAll(prunedPartitionsByFilters);
         }
-
         if (prunedPartitions.isEmpty()) {
             return new LogicalEmptyRelation(
                 ConnectContext.get().getStatementContext().getNextRelationId(),
@@ -178,7 +167,7 @@ public class PruneOlapScanPartition implements RewriteRuleFactory {
 
     private List<Long> prunePartitionByTabletIds(LogicalOlapScan scan, OlapTable table, List<Long> prunedPartitionsByFilters) {
         if (scan.getManuallySpecifiedTabletIds().size() == 0) {
-            return null;
+            return prunedPartitionsByFilters;
         }
 
         Set<Long> selectedPartitions = new LinkedHashSet<>();
