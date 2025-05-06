@@ -29,6 +29,8 @@ import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.ResumeMTMVInfo;
 import org.apache.doris.persist.AlterMTMV;
 
+import java.util.Optional;
+
 /**
  * Contains all operations that affect the mtmv
  */
@@ -63,7 +65,7 @@ public interface MTMVHookService {
      *
      * @param mtmv
      */
-    void deregisterMTMV(MTMV mtmv);
+    void unregisterMTMV(MTMV mtmv);
 
     /**
      * triggered when alter mtmv, only once
@@ -102,9 +104,11 @@ public interface MTMVHookService {
     /**
      * Triggered when baseTable is altered
      *
-     * @param table
+     * @param oldTableInfo info before alter
+     * @param newTableInfo info after alter
+     * @param isReplace
      */
-    void alterTable(Table table, String oldTableName);
+    void alterTable(BaseTableInfo oldTableInfo, Optional<BaseTableInfo> newTableInfo, boolean isReplace);
 
     /**
      * Triggered when pause mtmv

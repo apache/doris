@@ -39,8 +39,15 @@ import org.apache.doris.common.profile.Profile;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlChannel;
+import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.MysqlSerializer;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.exceptions.MustFallbackException;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.planner.OriginalPlanner;
+import org.apache.doris.policy.PolicyTypeEnum;
 import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.service.FrontendOptions;
@@ -51,11 +58,14 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import java_cup.runtime.Symbol;
 import mockit.Expectations;
+import mockit.Mock;
+import mockit.MockUp;
 import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Disabled;
 
 import java.io.IOException;
@@ -879,5 +889,29 @@ public class StmtExecutorTest {
         executor = new StmtExecutor(ctx, "");
         executor.execute();
         Assert.assertEquals(QueryState.MysqlStateType.OK, state.getStateType());
+    }
+
+    @Test
+    public void testMustFallbackException() throws Exception {
+        ConnectContext connectContext = new ConnectContext();
+        connectContext.setSessionVariable(new SessionVariable());
+        new MockUp<ConnectContext>() {
+            @Mock
+            public MysqlCommand getCommand() {
+                return MysqlCommand.COM_STMT_PREPARE;
+            }
+        };
+
+        StatementContext statementContext = new StatementContext(connectContext, new OriginStatement("create", 0));
+        LogicalPlan plan = new CreatePolicyCommand(PolicyTypeEnum.ROW, "test1", false, null, null, null, null, null, null);
+        LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(plan, statementContext);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, logicalPlanAdapter);
+
+        try {
+            stmtExecutor.execute();
+        } catch (MustFallbackException e) {
+            Assertions.fail();
+            throw e;
+        }
     }
 }
