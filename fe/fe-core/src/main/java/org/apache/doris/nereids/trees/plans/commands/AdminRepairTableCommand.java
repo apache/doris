@@ -73,6 +73,9 @@ public class AdminRepairTableCommand extends Command implements ForwardWithSync 
         ctx.getEnv().getTabletChecker().repairTable(this);
     }
 
+    /**
+     * validate
+     */
     public void validate(ConnectContext ctx) throws AnalysisException {
         // check auth
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {

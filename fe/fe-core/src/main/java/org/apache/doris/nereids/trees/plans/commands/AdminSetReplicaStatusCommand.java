@@ -117,7 +117,7 @@ public class AdminSetReplicaStatusCommand extends Command implements ForwardWith
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return visitor.visitSetReplicaStatusCommand(this, context);
+        return visitor.visitAdminSetReplicaStatusCommand(this, context);
     }
 
     @Override

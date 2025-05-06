@@ -6689,6 +6689,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return new AdminCancelRepairTableCommand(tableRefInfo);
     }
 
+    @Override
     public LogicalPlan visitPauseRoutineLoad(DorisParser.PauseRoutineLoadContext ctx) {
         List<String> labelParts = visitMultipartIdentifier(ctx.label);
         String jobName;
