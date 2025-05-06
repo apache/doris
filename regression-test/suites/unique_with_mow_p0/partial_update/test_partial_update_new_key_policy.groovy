@@ -35,7 +35,7 @@ suite("test_partial_update_new_key_policy", "p0") {
     def checkVariable = { expected -> 
         def res = sql_return_maparray """show variables where Variable_name="partial_update_new_key_policy";""";
         logger.info("res: ${res}")
-        assertTrue(res[0].VARIABLE_VALUE.equalsIgnoreCase(expected));
+        assertTrue(res[0].Value.equalsIgnoreCase(expected));
     }
 
     // 1. test insert stmt
