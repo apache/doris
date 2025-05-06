@@ -69,6 +69,8 @@ public class AdminSetReplicaStatusCommandTest {
         runBefore();
         Map<String, String> properties = new HashMap<>();
         properties.put("tablet_id", "1000");
+        properties.put("backend_id", "1000");
+        properties.put("status", "OK");
         AdminSetReplicaStatusCommand command = new AdminSetReplicaStatusCommand(properties);
         Assertions.assertDoesNotThrow(() -> command.validate());
     }
