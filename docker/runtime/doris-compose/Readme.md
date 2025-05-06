@@ -23,10 +23,11 @@ Use doris compose to create doris docker compose clusters.
 
 ## Requirements
 
-##### 1. Make sure you have docker permissions
+### 1. Make sure you have docker permissions
 
  run:
-```
+
+```shell
 docker run hello-world
 ```
 
@@ -34,25 +35,27 @@ if have problem with permission denied, then [add-docker-permission](https://doc
 
 Make sure BuildKit configured in the machine. if not follow [docker-with-BuildKit](https://docs.docker.com/build/buildkit/).
 
-##### 2. The doris image should contains
+### 2. The doris image should contains
 
-```
+```shell
 /opt/apache-doris/{fe, be, cloud}
 ```
 
-if don't create cloud cluster, the image no need to contains the cloud pkg.
+If don't create cloud cluster, the image no need to contains the cloud pkg.
 
+If build doris use `sh build.sh --fe --be --cloud` **without do any change on their origin conf or shells**, then its `output/` satisfy with all above, then run command in doris root directory will generate such a image. If you want to pack a product that is not the `output/` directory, you can modify `Dockerfile` by yourself.
 
-if build doris use `sh build.sh --fe --be --cloud`, then its output satisfy with all above, then run command in doris root directory
- will generate such a image.
-
-```
+```shell
 docker build -f docker/runtime/doris-compose/Dockerfile -t <image> .
 ```
 
-##### 3. Install the dependent python library in 'docker/runtime/doris-compose/requirements.txt'
+The `<image>` is the name you want the docker image to have.
 
-```
+### 3. Install the dependent python library in 'docker/runtime/doris-compose/requirements.txt'
+
+`PyYAML` of certain version not always fit other libraries' requirements. So we suggest to use a individual environment using `venv` or `conda`.
+
+```shell
 python -m pip install --user -r docker/runtime/doris-compose/requirements.txt
 ```
 
@@ -60,24 +63,24 @@ python -m pip install --user -r docker/runtime/doris-compose/requirements.txt
 
 ### Notice
 
-Each cluster will have a directory in '/tmp/doris/{cluster-name}', user can set env LOCAL_DORIS_PATH to change its directory.
+Each cluster will have a directory in '/tmp/doris/{cluster-name}', user can set env `LOCAL_DORIS_PATH` to change its directory.
 
-For example, if user export LOCAL_DORIS_PATH=/mydoris, then the cluster's directory is '/mydoris/{cluster-name}'.
+For example, if user export `LOCAL_DORIS_PATH=/mydoris`, then the cluster's directory is '/mydoris/{cluster-name}'.
 
-And cluster's directory will contains all its containers's logs and data, like fe-1, fe-2, be-1, ..., etc.
+And cluster's directory will contains all its containers's logs and data, like `fe-1`, `fe-2`, `be-1`, ..., etc.
 
-If there are multiple users run doris-compose on the same machine, suggest don't change LOCAL_DORIS_PATH or they should export the same LOCAL_DORIS_PATH.
+If there are multiple users run doris-compose on the same machine, suggest don't change `LOCAL_DORIS_PATH` or they should export the same `LOCAL_DORIS_PATH`.
 
 Because when create a new cluster, doris-compose will search the local doris path, and choose a docker network which is different with this path's clusters.
 
-So if multiple users use different LOCAL_DORIS_PATH, their clusters may have docker network conflict!!!
+So if multiple users use different `LOCAL_DORIS_PATH`, their clusters may have docker network conflict!!!
 
 ### Create a cluster or recreate its containers
 
-```
+```shell
 python docker/runtime/doris-compose/doris-compose.py up  <cluster-name>   <image?> 
     --add-fe-num  <add-fe-num>  --add-be-num <add-be-num>
-    --fe-id <fd-id> --be-id <be-id>
+    [--fe-id <fd-id> --be-id <be-id>]
     ...
     [ --cloud ]
 ```
@@ -86,18 +89,17 @@ if it's a new cluster, must specific the image.
 
 add fe/be nodes with the specific image, or update existing nodes with `--fe-id`, `--be-id`
 
-
 For create a cloud cluster, steps are as below:
 
 1. Write cloud s3 store config file, its default path is '/tmp/doris/cloud.ini'.
-   It's defined in environment variable DORIS_CLOUD_CFG_FILE, user can change this env var to change its path.
+   It's defined in environment variable `DORIS_CLOUD_CFG_FILE`, user can change this env var to change its path.
    A Example file is locate in 'docker/runtime/doris-compose/resource/cloud.ini.example'.
 
-2. Use doris compose up command with option '--cloud' to create a new cloud cluster.
+2. Use doris compose up command with option `--cloud` to create a new cloud cluster.
 
 The simplest way to create a cloud cluster:
 
-```
+```shell
 python docker/runtime/doris-compose/doris-compose.py up  <cluster-name>  <image>  --cloud
 ```
 
@@ -105,7 +107,7 @@ It will create 1 fdb, 1 meta service server, 1 recycler, 3 fe and 3 be.
 
 ### Remove node from the cluster
 
-```
+```shell
 python docker/runtime/doris-compose/doris-compose.py down  <cluster-name> --fe-id <fe-id>  --be-id<be-id> [--clean]  [--drop-force]
 ```
 
@@ -115,18 +117,16 @@ For BE, if specific drop force, it will send dropp sql to FE, otherwise it will 
 
 If specific `--clean`, it will delete its data too.
 
-
 ### Start, stop, restart specific nodes
 
-
-```
+```shell
 python docker/runtime/doris-compose/doris-compose.py start  <cluster-name>  --fe-id  <multiple fe ids>  --be-id <multiple be ids>
 python docker/runtime/doris-compose/doris-compose.py restart  <cluster-name>  --fe-id  <multiple fe ids>  --be-id <multiple be ids>
 ```
 
 ### List doris cluster
 
-```
+```shell
 python docker/runtime/doris-compose/doris-compose.py ls <multiple cluster names>
 ```
 
@@ -134,15 +134,15 @@ if specific cluster names, it will list all the cluster's nodes.
 
 Otherwise it will just list summary of each clusters.
 
-There are more options about doris-compose. Just try 
+There are more options about doris-compose. Just try
 
-```
-python docker/runtime/doris-compose/doris-compose.py  <command> -h 
+```shell
+python docker/runtime/doris-compose/doris-compose.py <command> -h 
 ```
 
 ### Generate regression custom conf file
 
-```
+```shell
 python docker/runtime/doris-compose/doris-compose.py config <cluster-name>  <doris-root-path>  [-q]  [--connect-follow-fe]
 ```
 
@@ -158,13 +158,13 @@ steps:
 
 ## Problem investigation
 
-#### Log
+### Log
 
-Each cluster has logs in /tmp/doris/{cluster-name}/{node-xxx}/log. For each node, doris compose will also print log in /tmp/doris/{cluster-name}/{node-xxx}/log/health.out
+Each cluster has logs in Docker in '/tmp/doris/{cluster-name}/{node-xxx}/log/'. For each node, doris compose will also print log in '/tmp/doris/{cluster-name}/{node-xxx}/log/health.out'
 
-#### Up cluster using non-detach mode
+### Up cluster using non-detach mode
 
-```
+```shell
 python docker/runtime/doris-compose/doris-compose.py up ...   -no-detach
 ```
 
@@ -172,6 +172,6 @@ python docker/runtime/doris-compose/doris-compose.py up ...   -no-detach
 
 Before submitting code, pls format code.
 
-```
+```shell
 bash format-code.sh
 ```

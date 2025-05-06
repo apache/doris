@@ -229,7 +229,13 @@ public class KafkaUtil {
         InternalService.PProxyResult result = null;
         try {
             while (retryTimes < 3) {
-                List<Long> backendIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
+                List<Long> backendIds = new ArrayList<>();
+                for (Long beId : Env.getCurrentSystemInfo().getAllBackendIds(true)) {
+                    Backend backend = Env.getCurrentSystemInfo().getBackend(beId);
+                    if (backend != null && backend.isLoadAvailable() && !backend.isDecommissioned()) {
+                        backendIds.add(beId);
+                    }
+                }
                 if (backendIds.isEmpty()) {
                     MetricRepo.COUNTER_ROUTINE_LOAD_GET_META_FAIL_COUNT.increase(1L);
                     throw new LoadException("Failed to get info. No alive backends");

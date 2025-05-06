@@ -27,6 +27,7 @@
 #include "cloud/schema_cloud_dictionary_cache.h"
 #include "cloud_txn_delete_bitmap_cache.h"
 #include "io/cache/block_file_cache_factory.h"
+#include "olap/compaction.h"
 #include "olap/storage_engine.h"
 #include "olap/storage_policy.h"
 #include "util/threadpool.h"
@@ -164,6 +165,9 @@ private:
     Status _submit_base_compaction_task(const CloudTabletSPtr& tablet);
     Status _submit_cumulative_compaction_task(const CloudTabletSPtr& tablet);
     Status _submit_full_compaction_task(const CloudTabletSPtr& tablet);
+    Status _request_tablet_global_compaction_lock(ReaderType compaction_type,
+                                                  const CloudTabletSPtr& tablet,
+                                                  std::shared_ptr<CloudCompactionMixin> compaction);
     void _lease_compaction_thread_callback();
     void _check_tablet_delete_bitmap_score_callback();
 
@@ -203,6 +207,13 @@ private:
     // tablet_id -> active compaction stop tokens
     std::unordered_map<int64_t, std::shared_ptr<CloudCompactionStopToken>>
             _active_compaction_stop_tokens;
+    // tablet_id -> executing cumu compactions, guarded by `_compaction_mtx`
+    std::unordered_map<int64_t, std::vector<std::shared_ptr<CloudCumulativeCompaction>>>
+            _executing_cumu_compactions;
+    // tablet_id -> executing base compactions, guarded by `_compaction_mtx`
+    std::unordered_map<int64_t, std::shared_ptr<CloudBaseCompaction>> _executing_base_compactions;
+    // tablet_id -> executing full compactions, guarded by `_compaction_mtx`
+    std::unordered_map<int64_t, std::shared_ptr<CloudFullCompaction>> _executing_full_compactions;
 
     using CumuPolices =
             std::unordered_map<std::string_view, std::shared_ptr<CloudCumulativeCompactionPolicy>>;
