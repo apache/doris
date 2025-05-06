@@ -47,7 +47,7 @@ public class CreateStorageVaultStmt extends DdlStmt implements NotFallbackInPars
 
     private final boolean ifNotExists;
     private final String vaultName;
-    private final ImmutableMap<String, String> properties;
+    private ImmutableMap<String, String> properties;
     private boolean setAsDefault;
     private int pathVersion = 0;
     private int numShard = 0;
@@ -56,16 +56,7 @@ public class CreateStorageVaultStmt extends DdlStmt implements NotFallbackInPars
     public CreateStorageVaultStmt(boolean ifNotExists, String vaultName, Map<String, String> properties) {
         this.ifNotExists = ifNotExists;
         this.vaultName = vaultName;
-
-        if ("s3".equalsIgnoreCase(properties.get(StorageVault.PropertyKey.TYPE))
-                && !properties.containsKey(PropertyConverter.USE_PATH_STYLE)) {
-            this.properties = ImmutableMap.<String, String>builder()
-                .putAll(properties)
-                .put(PropertyConverter.USE_PATH_STYLE, "true")
-                .build();
-        } else {
-            this.properties = ImmutableMap.copyOf(properties);
-        }
+        this.properties = ImmutableMap.copyOf(properties);
         this.vaultType = vaultType.UNKNOWN;
     }
 
@@ -155,6 +146,14 @@ public class CreateStorageVaultStmt extends DdlStmt implements NotFallbackInPars
         }
         setAsDefault = Boolean.parseBoolean(properties.getOrDefault(SET_AS_DEFAULT, "false"));
         setStorageVaultType(StorageVault.StorageVaultType.fromString(type));
+
+        if (vaultType == StorageVault.StorageVaultType.S3
+                && !properties.containsKey(PropertyConverter.USE_PATH_STYLE)) {
+            properties = ImmutableMap.<String, String>builder()
+                .putAll(properties)
+                .put(PropertyConverter.USE_PATH_STYLE, "true")
+                .build();
+        }
     }
 
     @Override
