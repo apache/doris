@@ -539,6 +539,10 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
         return name;
     }
 
+    public WorkloadGroupKey getWorkloadGroupKey() {
+        return WorkloadGroupKey.get(this.getComputeGroup(), this.getName());
+    }
+
     public Map<String, String> getProperties() {
         return properties;
     }
