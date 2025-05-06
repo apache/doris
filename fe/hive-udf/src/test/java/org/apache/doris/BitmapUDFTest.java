@@ -23,6 +23,8 @@ import org.apache.doris.udf.BitmapAndUDF;
 import org.apache.doris.udf.BitmapCountUDF;
 import org.apache.doris.udf.BitmapOrUDF;
 import org.apache.doris.udf.BitmapXorUDF;
+import org.apache.doris.udf.BitmapToBase64UDF;
+import org.apache.doris.udf.BitmapFromBase64UDF;
 
 import org.apache.hadoop.hive.ql.udf.generic.GenericUDF;
 import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector;
@@ -110,4 +112,26 @@ public class BitmapUDFTest {
         Object evaluate1 = bitmapCountUDF.evaluate(new GenericUDF.DeferredObject[] { new GenericUDF.DeferredJavaObject(bitmapValue1Bytes) });
         Assert.assertEquals(3L, evaluate1);
     }
+
+
+    @Test
+    public void bitmapToBase64Test() throws Exception {
+        BitmapToBase64UDF bitmapToBase64UDF = new BitmapToBase64UDF();
+        bitmapToBase64UDF.initialize(new ObjectInspector[]{inputOI0});
+        Object evaluate = bitmapToBase64UDF.evaluate(new GenericUDF.DeferredObject[] { new GenericUDF.DeferredJavaObject(bitmapValue0Bytes) });
+        Assert.assertEquals(base64Value0Str , evaluate);
+    }
+
+    @Test
+    public void bitmapFromBase64Test() throws Exception {
+        //base64 convert bitmap
+        BitmapFromBase64UDF bitmapFromBase64UDF = new BitmapFromBase64UDF();
+        bitmapFromBase64UDF.initialize(new ObjectInspector[]{inputStr0});
+        BitmapValue bitmapValue0 = (BitmapValue) bitmapFromBase64UDF.evaluate(new GenericUDF.DeferredObject[] { new GenericUDF.DeferredJavaObject(base64Value0Str)});
+        System.out.println(bitmapValue0.toString());
+
+        Assert.assertEquals(2, bitmapValue0.cardinality());
+        Assert.assertEquals("{1,2}", bitmapValue0.toString());
+    }
+
 }
