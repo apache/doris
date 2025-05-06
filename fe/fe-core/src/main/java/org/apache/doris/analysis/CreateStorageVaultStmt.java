@@ -57,7 +57,8 @@ public class CreateStorageVaultStmt extends DdlStmt implements NotFallbackInPars
         this.ifNotExists = ifNotExists;
         this.vaultName = vaultName;
 
-        if (!properties.containsKey(PropertyConverter.USE_PATH_STYLE)) {
+        if ("s3".equalsIgnoreCase(properties.get(StorageVault.PropertyKey.TYPE))
+                && !properties.containsKey(PropertyConverter.USE_PATH_STYLE)) {
             this.properties = ImmutableMap.<String, String>builder()
                 .putAll(properties)
                 .put(PropertyConverter.USE_PATH_STYLE, "true")
