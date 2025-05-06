@@ -61,11 +61,12 @@ class VFileScanner : public VScanner {
 public:
     static constexpr const char* NAME = "VFileScanner";
 
-    VFileScanner(RuntimeState* state, pipeline::FileScanLocalState* parent, int64_t limit,
-                 std::shared_ptr<vectorized::SplitSourceConnector> split_source,
-                 RuntimeProfile* profile, ShardedKVCache* kv_cache,
-                 std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
-                 const std::unordered_map<std::string, int>* colname_to_slot_id);
+    VFileScanner(
+            RuntimeState* state, pipeline::FileScanLocalState* parent, int64_t limit,
+            std::shared_ptr<vectorized::SplitSourceConnector> split_source, RuntimeProfile* profile,
+            ShardedKVCache* kv_cache,
+            const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
+            const std::unordered_map<std::string, int>* colname_to_slot_id);
 
     Status open(RuntimeState* state) override;
 
@@ -99,7 +100,7 @@ protected:
 
     std::unique_ptr<GenericReader> _cur_reader;
     bool _cur_reader_eof;
-    std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range = nullptr;
+    const std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range = nullptr;
     // File source slot descriptors
     std::vector<SlotDescriptor*> _file_slot_descs;
     // col names from _file_slot_descs

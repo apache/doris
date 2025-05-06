@@ -58,7 +58,7 @@ public:
                        std::unordered_set<std::string>* missing_cols) override;
 
     Status init_reader(
-            std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
+            const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
 
 private:
     Status _set_spi_plugins_dir();

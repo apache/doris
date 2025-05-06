@@ -111,7 +111,7 @@ public:
     Status init_reader(
             const std::vector<std::string>& all_column_names,
             const std::vector<std::string>& missing_column_names,
-            std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
+            const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
             const VExprContextSPtrs& conjuncts, const TupleDescriptor* tuple_descriptor,
             const RowDescriptor* row_descriptor,
             const std::unordered_map<std::string, int>* colname_to_slot_id,
@@ -250,7 +250,12 @@ private:
     int32_t _total_groups; // num of groups(stripes) of a parquet(orc) file
     // table column name to file column name map. For iceberg schema evolution.
     std::unordered_map<std::string, std::string> _table_col_to_file_col;
-    std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range = nullptr;
+    const std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range = nullptr;
+
+    // During initialization, multiple vfile_scanner's _colname_to_value_range will point to the same object,
+    // so the content in the object cannot be modified (there is a multi-threading problem).
+    // _colname_to_value_range_index_read used when _hive_use_column_names = false.
+    std::unordered_map<std::string, ColumnValueRangeType> _colname_to_value_range_index_read;
     std::vector<std::string> _read_columns;
     RowRange _whole_range = RowRange(0, 0);
     const std::vector<int64_t>* _delete_rows = nullptr;
