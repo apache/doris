@@ -150,6 +150,15 @@ std::string OlapTableDescriptor::debug_string() const {
     return out.str();
 }
 
+DictionaryTableDescriptor::DictionaryTableDescriptor(const TTableDescriptor& tdesc)
+        : TableDescriptor(tdesc) {}
+
+std::string DictionaryTableDescriptor::debug_string() const {
+    std::stringstream out;
+    out << "Dictionary(" << TableDescriptor::debug_string() << ")";
+    return out.str();
+}
+
 SchemaTableDescriptor::SchemaTableDescriptor(const TTableDescriptor& tdesc)
         : TableDescriptor(tdesc), _schema_table_type(tdesc.schemaTable.tableType) {}
 SchemaTableDescriptor::~SchemaTableDescriptor() = default;
@@ -590,6 +599,9 @@ Status DescriptorTbl::create(ObjectPool* pool, const TDescriptorTable& thrift_tb
             break;
         case TTableType::TRINO_CONNECTOR_TABLE:
             desc = pool->add(new TrinoConnectorTableDescriptor(tdesc));
+            break;
+        case TTableType::DICTIONARY_TABLE:
+            desc = pool->add(new DictionaryTableDescriptor(tdesc));
             break;
         default:
             DCHECK(false) << "invalid table type: " << tdesc.tableType;
