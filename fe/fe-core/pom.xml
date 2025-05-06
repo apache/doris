@@ -1193,8 +1193,6 @@ under the License.
                 <artifactId>maven-compiler-plugin</artifactId>
                 <configuration>
                     <release>8</release>
-                    <source>9</source>
-                    <target>9</target>
                 </configuration>
                 <executions>
                     <!-- first: compile annotation and annotation processor -->
