@@ -493,6 +493,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ORC_MAX_MERGE_DISTANCE_BYTES = "orc_max_merge_distance_bytes";
 
+    public static final String ORC_TINY_STRIPE_AMPLIFICATION_FACTOR = "orc_tiny_stripe_amplification_factor";
+
     public static final String ENABLE_PARQUET_FILTER_BY_MIN_MAX = "enable_parquet_filter_by_min_max";
 
     public static final String ENABLE_ORC_FILTER_BY_MIN_MAX = "enable_orc_filter_by_min_max";
@@ -1938,6 +1940,19 @@ public class SessionVariable implements Serializable, Writable {
 
 
     @VariableMgr.VarAttr(
+            name = ORC_TINY_STRIPE_AMPLIFICATION_FACTOR,
+            description = {"在使用tiny stripe读取优化的时候，如果orc文件中有非常多的列，某次查询只用到了其中几列，tiny stripe 优化会"
+                    + "带来严重的读放大。当该stripe中所需要的字节数 * 该参数 小于该stripe的大小时，则不会使用该优化。",
+                    "When using the tiny stripe read optimization, if there are many columns in the orc file "
+                            + "and only a few of them are used in a query, the tiny stripe optimization will "
+                            + "cause serious read amplification. When the number of bytes required in the"
+                            + " stripe * the parameter is less than the size of the stripe,"
+                            + " the optimization will not be used."},
+            needForward = true,
+            setter = "setOrcTinyStripeAmplificationFactor")
+    public double orcTinyStripeAmplificationFactor = 2.5;
+
+    @VariableMgr.VarAttr(
             name = ENABLE_PARQUET_FILTER_BY_MIN_MAX,
             description = {"控制 parquet reader 是否启用 min-max 值过滤。默认为 true。",
                     "Controls whether to filter by min-max values in parquet reader. "
@@ -3089,6 +3104,22 @@ public class SessionVariable implements Serializable, Writable {
         this.orcMaxMergeDistanceBytes = val;
     }
 
+    public void setOrcTinyStripeAmplificationFactor(String value) throws Exception {
+        double val = checkFieldDoubleValue(ORC_TINY_STRIPE_AMPLIFICATION_FACTOR, 1.0, value);
+        this.orcTinyStripeAmplificationFactor = val;
+    }
+
+    private double checkFieldDoubleValue(String variableName, double minValue, String value) throws Exception {
+        double val = Double.parseDouble(value);
+        if (val < minValue) {
+            throw new Exception(
+                    variableName + " value should greater than or equal " + String.valueOf(minValue)
+                            + ", you set value is: " + value);
+        }
+        return val;
+    }
+
+
     private long checkFieldLongValue(String variableName, long minValue, String value) throws Exception {
         long val = Long.parseLong(value);
         if (val < minValue) {
@@ -4189,6 +4220,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setOrcTinyStripeThresholdBytes(orcTinyStripeThresholdBytes);
         tResult.setOrcMaxMergeDistanceBytes(orcMaxMergeDistanceBytes);
         tResult.setOrcOnceMaxReadBytes(orcOnceMaxReadBytes);
+        tResult.setOrcTinyStripeAmplificationFactor(orcTinyStripeAmplificationFactor);
         tResult.setIgnoreRuntimeFilterError(ignoreRuntimeFilterError);
         tResult.setEnableFixedLenToUint32V2(enableFixedLenToUint32V2);
         tResult.setProfileLevel(getProfileLevel());
