@@ -17,9 +17,13 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.StructType;
 import org.apache.doris.common.AnalysisException;
 
 import com.google.common.collect.Lists;
@@ -75,7 +79,6 @@ public class IndexDefTest {
         }
     }
 
-
     @Test
     public void testIndexType() {
         // support types
@@ -83,27 +86,28 @@ public class IndexDefTest {
                 PrimitiveType.DATE, PrimitiveType.DATETIME, PrimitiveType.DATEV2, PrimitiveType.DATETIMEV2,
                 PrimitiveType.DECIMALV2, PrimitiveType.DECIMAL32, PrimitiveType.DECIMAL64, PrimitiveType.DECIMAL128, PrimitiveType.DECIMAL256,
                 PrimitiveType.TINYINT, PrimitiveType.SMALLINT, PrimitiveType.INT, PrimitiveType.BIGINT, PrimitiveType.LARGEINT,
-                PrimitiveType.FLOAT, PrimitiveType.DOUBLE,
                 PrimitiveType.VARCHAR, PrimitiveType.CHAR, PrimitiveType.STRING,
                 PrimitiveType.BOOLEAN,
-                PrimitiveType.VARIANT, PrimitiveType.IPV4, PrimitiveType.IPV6,
-                PrimitiveType.ARRAY
+                PrimitiveType.IPV4, PrimitiveType.IPV6
         };
         for (PrimitiveType type : supportedTypes) {
             try {
                 IndexDef def = new IndexDef("idx", false, Lists.newArrayList("col1"), IndexDef.IndexType.INVERTED, null, "");
                 Column col = new Column("col1", type);
                 def.checkColumn(col, KeysType.DUP_KEYS, true, true);
+                // check in array
+                def.checkColumn(new Column("col1", ArrayType.create(ScalarType.createType(type), true)), KeysType.DUP_KEYS, true, true);
             } catch (AnalysisException e) {
                 Assert.fail("Should support type: " + type + ", but got: " + e.getMessage());
             }
         }
         // not support types
         PrimitiveType[] unsupportedTypes = new PrimitiveType[] {
-                PrimitiveType.INVALID_TYPE, PrimitiveType.UNSUPPORTED, PrimitiveType.NULL_TYPE,
-                PrimitiveType.HLL, PrimitiveType.BITMAP, PrimitiveType.QUANTILE_STATE, PrimitiveType.AGG_STATE,
-                PrimitiveType.TIME, PrimitiveType.TIMEV2, PrimitiveType.MAP, PrimitiveType.STRUCT, PrimitiveType.JSONB,
-                PrimitiveType.LAMBDA_FUNCTION, PrimitiveType.BINARY, PrimitiveType.ALL, PrimitiveType.TEMPLATE
+                PrimitiveType.FLOAT, PrimitiveType.DOUBLE,
+                PrimitiveType.INVALID_TYPE, PrimitiveType.NULL_TYPE,
+                PrimitiveType.HLL, PrimitiveType.BITMAP, PrimitiveType.QUANTILE_STATE,
+                PrimitiveType.TIME, PrimitiveType.TIMEV2, PrimitiveType.JSONB,
+                PrimitiveType.LAMBDA_FUNCTION, PrimitiveType.ALL
         };
         for (PrimitiveType type : unsupportedTypes) {
             try {
@@ -114,6 +118,23 @@ public class IndexDefTest {
             } catch (AnalysisException e) {
                 Assert.assertTrue(e.getMessage().contains("is not supported"));
             }
+        }
+        // check in map/struct
+        try {
+            IndexDef def = new IndexDef("idx", false, Lists.newArrayList("col1"), IndexDef.IndexType.INVERTED, null, "");
+            Column col = new Column("col1", new MapType(ScalarType.createType(PrimitiveType.INT), ScalarType.createType(PrimitiveType.STRING)));
+            def.checkColumn(col, KeysType.DUP_KEYS, true, true);
+            Assert.fail("Should not support map type");
+        } catch (AnalysisException e) {
+            Assert.assertTrue(e.getMessage().contains("is not supported"));
+        }
+        try {
+            IndexDef def = new IndexDef("idx", false, Lists.newArrayList("col1"), IndexDef.IndexType.INVERTED, null, "");
+            Column col = new Column("col1", new StructType(ScalarType.createType(PrimitiveType.INT), ScalarType.createType(PrimitiveType.STRING)), true);
+            def.checkColumn(col, KeysType.DUP_KEYS, true, true);
+            Assert.fail("Should not support map type");
+        } catch (AnalysisException e) {
+            Assert.assertTrue(e.getMessage().contains("is not supported"));
         }
     }
 
