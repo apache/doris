@@ -25,7 +25,6 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.analysis.AdjustAggregateNullableForEmptySet;
 import org.apache.doris.nereids.rules.analysis.AvgDistinctToSumDivCount;
 import org.apache.doris.nereids.rules.analysis.CheckAfterRewrite;
-import org.apache.doris.nereids.rules.analysis.EliminateGroupByConstant;
 import org.apache.doris.nereids.rules.analysis.LogicalSubQueryAliasToLogicalProject;
 import org.apache.doris.nereids.rules.analysis.NormalizeAggregate;
 import org.apache.doris.nereids.rules.expression.CheckLegalityAfterRewrite;
@@ -167,7 +166,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         topDown(
                                 new EliminateOrderByConstant(),
                                 new EliminateSortUnderSubqueryOrView(),
-                                new EliminateGroupByConstant(),
                                 // MergeProjects depends on this rule
                                 new LogicalSubQueryAliasToLogicalProject(),
                                 // TODO: we should do expression normalization after plan normalization

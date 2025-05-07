@@ -26,12 +26,12 @@ suite("constant_group_key") {
     //reserve constant key in group by
     explain {
         sql("select 'oneline' from nation group by 'constant1'")
-        contains "group by: 'constant1'"
+        contains "group by: 1"
     }
 
     explain {
         sql("select 'oneline', sum(n_nationkey) from nation group by 'constant1', 'constant2'")
-        contains "group by: 'constant2'"
+        contains "group by: 1"
     }
 
     sql "drop table if exists cgk_tbl"
