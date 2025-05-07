@@ -69,6 +69,7 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
     private ClassLoader classLoader = null;
     private Connection conn = null;
     protected JdbcDataSourceConfig config;
+    protected String sql = null;
     protected PreparedStatement preparedStatement = null;
     protected Statement stmt = null;
     protected ResultSet resultSet = null;
@@ -127,12 +128,13 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
                 abortReadConnection(conn, resultSet);
             }
         } finally {
-            closeResources(resultSet, stmt, conn);
+            closeResources(resultSet, stmt, preparedStatement, conn);
             if (config.getConnectionPoolMinSize() == 0 && hikariDataSource != null) {
                 hikariDataSource.close();
                 JdbcDataSource.getDataSource().getSourcesMap().remove(config.createCacheKey());
                 hikariDataSource = null;
             }
+            LOG.info("Closed JDBC resources for sql: " + sql);
         }
     }
 
@@ -254,9 +256,22 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
         VectorTable batchTable = VectorTable.createReadableTable(params);
         // Can't release or close batchTable, it's released by c++
         try {
+            if (conn != null && preparedStatement != null) {
+                LOG.info("Insert SQL: " + sql + " AutoCommit: " + conn.getAutoCommit());
+            }
             insert(batchTable);
         } catch (SQLException e) {
             throw new JdbcExecutorException("JDBC executor sql has error: ", e);
+        } finally {
+            // Always clear the batch after write
+            if (preparedStatement != null) {
+                try {
+                    preparedStatement.clearBatch();
+                    LOG.info("Cleared batch after write for sql: " + sql);
+                } catch (SQLException e) {
+                    LOG.warn("Failed to clear batch after write: ", e);
+                }
+            }
         }
         return batchTable.getNumRows();
     }
@@ -306,7 +321,7 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
         }
     }
 
-    private void init(JdbcDataSourceConfig config, String sql) throws JdbcExecutorException {
+    private void init(JdbcDataSourceConfig config, String originSql) throws JdbcExecutorException {
         ClassLoader oldClassLoader = Thread.currentThread().getContextClassLoader();
         String hikariDataSourceKey = config.createCacheKey();
         try {
@@ -352,6 +367,7 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
                     System.currentTimeMillis() - start)
                     + " ms");
 
+            this.sql = originSql;
             initializeStatement(conn, config, sql);
 
         } catch (MalformedURLException e) {
@@ -435,7 +451,6 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
             batchSizeNum = config.getBatchSize();
         } else {
             Preconditions.checkArgument(sql != null, "SQL statement cannot be null for WRITE operation.");
-            LOG.info("Insert SQL: " + sql);
             preparedStatement = conn.prepareStatement(sql);
         }
     }
