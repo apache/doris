@@ -62,12 +62,12 @@ public class CsvFileFormatProperties extends FileFormatProperties {
     // User specified csv columns, it will override columns got from file
     private final List<Column> csvSchema = Lists.newArrayList();
 
-    public CsvFileFormatProperties() {
-        super(TFileFormatType.FORMAT_CSV_PLAIN);
+    public CsvFileFormatProperties(String formatName) {
+        super(TFileFormatType.FORMAT_CSV_PLAIN, formatName);
     }
 
-    public CsvFileFormatProperties(String headerType) {
-        super(TFileFormatType.FORMAT_CSV_PLAIN);
+    public CsvFileFormatProperties(String headerType, String formatName) {
+        super(TFileFormatType.FORMAT_CSV_PLAIN, formatName);
         this.headerType = headerType;
     }
 

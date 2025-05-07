@@ -399,6 +399,8 @@ public class DataDescription implements InsertStmt.DataDesc {
                         return "parquet";
                     case FORMAT_JSON:
                         return "json";
+                    case FORMAT_TEXT:
+                        return "hive_text";
                     case FORMAT_WAL:
                         return "wal";
                     case FORMAT_ARROW:
