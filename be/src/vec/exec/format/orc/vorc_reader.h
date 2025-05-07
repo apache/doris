@@ -668,6 +668,12 @@ private:
     int64_t _orc_tiny_stripe_threshold_bytes = 8L * 1024L * 1024L;
     int64_t _orc_once_max_read_bytes = 8L * 1024L * 1024L;
     int64_t _orc_max_merge_distance_bytes = 1L * 1024L * 1024L;
+
+    // When using the tiny stripe read optimization, if there are many columns in the orc file and only a
+    // few of them are used in a query, the tiny stripe optimization will cause serious read amplification.
+    // When the number of bytes required in the stripe * the parameter is less than the size of the stripe,
+    // the optimization will not be used.
+    double _orc_tiny_stripe_amplification_factor = 5;
 };
 
 class StripeStreamInputStream : public orc::InputStream, public ProfileCollector {
