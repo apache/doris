@@ -18,6 +18,7 @@
 package org.apache.doris.resource.workloadgroup;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
@@ -579,7 +580,8 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
                 String val = properties.get(key);
                 if (!StringUtils.isEmpty(val) && Config.isCloudMode()) {
                     try {
-                        String cgName = Env.getCurrentEnv().getComputeGroupMgr().getComputeGroupByName(val).getName();
+                        String cgName = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getClusterNameByClusterId(
+                                val);
                         if (!StringUtils.isEmpty(cgName)) {
                             val = cgName;
                         }
