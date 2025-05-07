@@ -72,8 +72,7 @@ statementBase
     ;
 
 unsupportedStatement
-    : unsupportedUseStatement
-    | unsupportedDmlStatement
+    : unsupportedDmlStatement
     | unsupportedCreateStatement
     | unsupportedDropStatement
     | unsupportedStatsStatement
@@ -901,10 +900,7 @@ supportedUnsetStatement
 supportedUseStatement
      : SWITCH catalog=identifier                                                      #switchCatalog
      | USE (catalog=identifier DOT)? database=identifier                              #useDatabase
-    ;
-
-unsupportedUseStatement
-    : USE ((catalog=identifier DOT)? database=identifier)? ATSIGN cluster=identifier #useCloudCluster
+     | USE ((catalog=identifier DOT)? database=identifier)? ATSIGN cluster=identifier #useCloudCluster
     ;
 
 unsupportedDmlStatement

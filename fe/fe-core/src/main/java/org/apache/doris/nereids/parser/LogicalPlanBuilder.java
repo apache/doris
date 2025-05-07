@@ -855,6 +855,7 @@ import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshDatabaseComm
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshDictionaryCommand;
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.use.SwitchCommand;
+import org.apache.doris.nereids.trees.plans.commands.use.UseCloudClusterCommand;
 import org.apache.doris.nereids.trees.plans.commands.use.UseCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
@@ -6090,6 +6091,32 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
         return ctx.catalog != null ? new UseCommand(ctx.catalog.getText(), ctx.database.getText())
                 : new UseCommand(ctx.database.getText());
+    }
+
+    @Override
+    public LogicalPlan visitUseCloudCluster(DorisParser.UseCloudClusterContext ctx) {
+        if (ctx.cluster == null) {
+            throw new ParseException("cluster name can not be null");
+        }
+
+        if (ctx.catalog != null && ctx.database == null) {
+            throw new ParseException("catalog name exist, database name can not be null");
+        }
+
+        if (ctx.catalog != null) {
+            return new UseCloudClusterCommand(
+                stripQuotes(ctx.cluster.getText()),
+                    stripQuotes(ctx.database.getText()),
+                    stripQuotes(ctx.catalog.getText())
+            );
+        } else if (ctx.database != null) {
+            return new UseCloudClusterCommand(
+                stripQuotes(ctx.cluster.getText()),
+                stripQuotes(ctx.database.getText())
+            );
+        }
+
+        return new UseCloudClusterCommand(stripQuotes(ctx.cluster.getText()));
     }
 
     @Override

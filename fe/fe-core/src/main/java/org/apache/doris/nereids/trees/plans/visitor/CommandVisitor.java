@@ -220,6 +220,7 @@ import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshDatabaseComm
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshDictionaryCommand;
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.use.SwitchCommand;
+import org.apache.doris.nereids.trees.plans.commands.use.UseCloudClusterCommand;
 import org.apache.doris.nereids.trees.plans.commands.use.UseCommand;
 
 /** CommandVisitor. */
@@ -1048,5 +1049,9 @@ public interface CommandVisitor<R, C> {
 
     default R visitCreateResourceCommand(CreateResourceCommand createResourceCommand, C context) {
         return visitCommand(createResourceCommand, context);
+    }
+
+    default R visitUseCloudClusterCommand(UseCloudClusterCommand command, C context) {
+        return visitCommand(command, context);
     }
 }
