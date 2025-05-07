@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.hudi.source;
 
 import org.apache.doris.common.CacheFactory;
+import org.apache.doris.common.CacheLogRemovalListener;
 import org.apache.doris.common.Config;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
 
@@ -46,7 +47,8 @@ public class HudiCachedFsViewProcessor {
                 Config.max_external_table_cache_num,
                 true,
                 null);
-        this.fsViewCache = partitionCacheFactory.buildCache(this::createFsView, null, executor);
+        this.fsViewCache = partitionCacheFactory.buildCache(this::createFsView,
+                new CacheLogRemovalListener<>("HudiCachedFsViewProcessor fsViewCache"), executor);
     }
 
     private HoodieTableFileSystemView createFsView(FsViewKey key) {

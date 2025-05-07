@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.hudi.source;
 
 import org.apache.doris.common.CacheFactory;
+import org.apache.doris.common.CacheLogRemovalListener;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CacheException;
@@ -61,7 +62,8 @@ public class HudiCachedPartitionProcessor extends HudiPartitionProcessor {
                 Config.max_external_table_cache_num,
                 true,
                 null);
-        this.partitionCache = partitionCacheFactory.buildCache(key -> new TablePartitionValues(), null, executor);
+        this.partitionCache = partitionCacheFactory.buildCache(key -> new TablePartitionValues(),
+                new CacheLogRemovalListener<>("HudiCachedPartitionProcessor partitionCache"), executor);
     }
 
     @Override

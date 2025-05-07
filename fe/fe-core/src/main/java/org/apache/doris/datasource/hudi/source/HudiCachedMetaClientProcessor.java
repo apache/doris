@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.hudi.source;
 
 import org.apache.doris.common.CacheFactory;
+import org.apache.doris.common.CacheLogRemovalListener;
 import org.apache.doris.common.Config;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
@@ -49,7 +50,7 @@ public class HudiCachedMetaClientProcessor {
 
         this.hudiTableMetaClientCache = partitionCacheFactory.buildCache(
                 this::createHoodieTableMetaClient,
-                null,
+                new CacheLogRemovalListener<>("HudiCachedMetaClientProcessor hudiTableMetaClientCache"),
                 executor);
     }
 

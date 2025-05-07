@@ -28,6 +28,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CacheFactory;
+import org.apache.doris.common.CacheLogRemovalListener;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
@@ -138,7 +139,8 @@ public class HiveMetaStoreCache {
                 Config.max_hive_partition_table_cache_num,
                 true,
                 null);
-        partitionValuesCache = partitionValuesCacheFactory.buildCache(key -> loadPartitionValues(key), null,
+        partitionValuesCache = partitionValuesCacheFactory.buildCache(key -> loadPartitionValues(key),
+                new CacheLogRemovalListener<>("HiveMetaStoreCache partitionValuesCache"),
                 refreshExecutor);
 
         CacheFactory partitionCacheFactory = new CacheFactory(
@@ -157,8 +159,7 @@ public class HiveMetaStoreCache {
             public Map<PartitionCacheKey, HivePartition> loadAll(Iterable<? extends PartitionCacheKey> keys) {
                 return loadPartitions(keys);
             }
-        }, (key, value, cause) -> LOG.info("partitionCache onRemoval, key: {}, cause: {}",key,cause),
-                refreshExecutor);
+        }, new CacheLogRemovalListener<>("HiveMetaStoreCache partitionCache"), refreshExecutor);
 
         setNewFileCache();
     }
@@ -196,7 +197,9 @@ public class HiveMetaStoreCache {
 
         LoadingCache<FileCacheKey, FileCacheValue> oldFileCache = fileCacheRef.get();
 
-        fileCacheRef.set(fileCacheFactory.buildCache(loader, null, this.refreshExecutor));
+        fileCacheRef.set(
+                fileCacheFactory.buildCache(loader, new CacheLogRemovalListener<>("HiveMetaStoreCache fileCache"),
+                        this.refreshExecutor));
         if (Objects.nonNull(oldFileCache)) {
             oldFileCache.invalidateAll();
         }
