@@ -221,6 +221,7 @@ import org.apache.doris.nereids.trees.plans.commands.load.PauseDataSyncJobComman
 import org.apache.doris.nereids.trees.plans.commands.load.PauseRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.load.ResumeDataSyncJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.load.ResumeRoutineLoadCommand;
+import org.apache.doris.nereids.trees.plans.commands.load.ShowCreateRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.load.StopDataSyncJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.load.StopRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshCatalogCommand;
@@ -1013,6 +1014,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitAdminSetReplicaStatusCommand(AdminSetReplicaStatusCommand adminSetReplicaStatusCommand, C context) {
         return visitCommand(adminSetReplicaStatusCommand, context);
+    }
+
+    default R visitShowCreateRoutineLoadCommand(ShowCreateRoutineLoadCommand showCreateRoutineLoadCommand, C context) {
+        return visitCommand(showCreateRoutineLoadCommand, context);
     }
 
     default R visitPauseRoutineLoadCommand(PauseRoutineLoadCommand routineLoadCommand, C context) {
