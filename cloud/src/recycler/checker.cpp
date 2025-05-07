@@ -1247,7 +1247,7 @@ int InstanceChecker::do_mow_compaction_key_check() {
                         LOG(WARNING) << "failed to parse DeleteBitmapUpdateLockPB";
                         return -1;
                     }
-                    if (lock_info.expiration() > now && lock_info.lock_id() != -1) {
+                    if (lock_info.expiration() > now || lock_info.lock_id() != -1) {
                         reason = "table lock is not expired,lock_id=" +
                                  std::to_string(lock_info.lock_id());
                     }
