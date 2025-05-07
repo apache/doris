@@ -234,6 +234,21 @@ suite("test_create_vault", "nonConcurrent") {
     """
 
     sql """
+        CREATE STORAGE VAULT IF NOT EXISTS ${s3VaultName}
+        PROPERTIES (
+            "type"="S3",
+            "s3.endpoint"="${getS3Endpoint()}",
+            "s3.region" = "${getS3Region()}",
+            "s3.access_key" = "${getS3AK()}",
+            "s3.secret_key" = "${getS3SK()}",
+            "s3.root.path" = "${s3VaultName}",
+            "s3.bucket" = "${getS3BucketName()}",
+            "s3.external_endpoint" = "",
+            "provider" = "${getS3Provider()}"
+        );
+    """
+
+    sql """
         CREATE TABLE ${s3VaultName} (
             C_CUSTKEY     INTEGER NOT NULL,
             C_NAME        INTEGER NOT NULL
