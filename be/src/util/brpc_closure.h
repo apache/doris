@@ -40,7 +40,14 @@ public:
         response_ = std::make_shared<Response>();
     }
 
-    virtual ~DummyBrpcCallback() = default;
+    virtual ~DummyBrpcCallback() {
+        if (cntl_) {
+            cntl_->Reset();
+        }
+        if (response_) {
+            response_.reset();
+        }
+    }
 
     virtual void call() {}
 

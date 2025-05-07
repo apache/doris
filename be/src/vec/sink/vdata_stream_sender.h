@@ -170,7 +170,9 @@ public:
         if (!_send_callback) {
             _send_callback = pipeline::ExchangeSendCallback<PTransmitDataResult>::create_shared();
         } else {
-            _send_callback->cntl_->Reset();
+            if (_send_callback->cntl_) {
+                _send_callback->cntl_->Reset();
+            }
         }
         _send_callback->init(ins, eos);
         return _send_callback;

@@ -178,7 +178,11 @@ public:
         _eos = eos;
     }
 
-    ~ExchangeSendCallback() override = default;
+    ~ExchangeSendCallback() override {
+        _fail_fn = nullptr;
+        _suc_fn = nullptr;
+        _ins = nullptr;
+    }
     ExchangeSendCallback(const ExchangeSendCallback& other) = delete;
     ExchangeSendCallback& operator=(const ExchangeSendCallback& other) = delete;
     void addFailedHandler(const std::function<void(RpcInstance*, const std::string&)>& fail_fn) {
@@ -234,22 +238,22 @@ private:
 // Each exchange sink sends data to all target instances on the receiving side.
 // If the concurrency is 3, a single rpc_channel will be used simultaneously by three exchange sinks.
 
-/*                                                                                                                                                                                                                                                                                                                          
-                          +-----------+          +-----------+        +-----------+      
-                          |dest ins id|          |dest ins id|        |dest ins id|      
-                          |           |          |           |        |           |      
-                          +----+------+          +-----+-----+        +------+----+      
-                               |                       |                     |           
-                               |                       |                     |           
-                      +----------------+      +----------------+     +----------------+  
-                      |                |      |                |     |                |  
- sink buffer -------- |   rpc_channel  |      |  rpc_channel   |     |  rpc_channel   |  
-                      |                |      |                |     |                |  
-                      +-------+--------+      +----------------+     +----------------+  
-                              |                        |                      |          
-                              |------------------------+----------------------+          
-                              |                        |                      |          
-                              |                        |                      |          
+/*
+                          +-----------+          +-----------+        +-----------+
+                          |dest ins id|          |dest ins id|        |dest ins id|
+                          |           |          |           |        |           |
+                          +----+------+          +-----+-----+        +------+----+
+                               |                       |                     |
+                               |                       |                     |
+                      +----------------+      +----------------+     +----------------+
+                      |                |      |                |     |                |
+ sink buffer -------- |   rpc_channel  |      |  rpc_channel   |     |  rpc_channel   |
+                      |                |      |                |     |                |
+                      +-------+--------+      +----------------+     +----------------+
+                              |                        |                      |
+                              |------------------------+----------------------+
+                              |                        |                      |
+                              |                        |                      |
                      +-----------------+       +-------+---------+    +-------+---------+
                      |                 |       |                 |    |                 |
                      |  exchange sink  |       |  exchange sink  |    |  exchange sink  |
