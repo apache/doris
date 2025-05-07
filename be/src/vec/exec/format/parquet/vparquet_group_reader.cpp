@@ -200,37 +200,24 @@ bool RowGroupReader::_can_filter_by_dict(int slot_id,
         return false;
     }
 
-    if (_slot_id_to_filter_conjuncts->find(slot_id) == _slot_id_to_filter_conjuncts->end()) {
-        return false;
-    }
-
     if (!is_dictionary_encoded(column_metadata)) {
         return false;
     }
 
-    std::function<bool(const VExpr* expr)> visit_function_call = [&](const VExpr* expr) {
-        // TODO: The current implementation of dictionary filtering does not take into account
-        //  the implementation of NULL values because the dictionary itself does not contain
-        //  NULL value encoding. As a result, many NULL-related functions or expressions
-        //  cannot work properly, such as is null, is not null, coalesce, etc.
-        //  Here we first disable dictionary filtering when predicate is not slot.
-        //  Implementation of NULL value dictionary filtering will be carried out later.
-        if (expr->node_type() != TExprNodeType::SLOT_REF) {
-            return false;
-        }
-        for (auto& child : expr->children()) {
-            if (!visit_function_call(child.get())) {
-                return false;
-            }
-        }
-        return true;
-    };
-    for (auto& ctx : _slot_id_to_filter_conjuncts->at(slot_id)) {
-        if (!visit_function_call(ctx->root().get())) {
-            return false;
-        }
+    if (_slot_id_to_filter_conjuncts->find(slot_id) == _slot_id_to_filter_conjuncts->end()) {
+        return false;
     }
-    return true;
+
+    // TODO: The current implementation of dictionary filtering does not take into account
+    //  the implementation of NULL values because the dictionary itself does not contain
+    //  NULL value encoding. As a result, many NULL-related functions or expressions
+    //  cannot work properly, such as is null, is not null, coalesce, etc.
+    //  Here we check if the predicate expr is IN or BINARY_PRED.
+    //  Implementation of NULL value dictionary filtering will be carried out later.
+    return std::ranges::all_of(_slot_id_to_filter_conjuncts->at(slot_id), [&](const auto& ctx) {
+        return ctx->root()->node_type() == TExprNodeType::IN_PRED ||
+               ctx->root()->node_type() == TExprNodeType::BINARY_PRED;
+    });
 }
 
 // This function is copied from
