@@ -216,6 +216,18 @@ function stop_doris() {
     fi
 }
 
+function stop_doris_grace() {
+    if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
+    if [[ -f "${DORIS_HOME}"/ms/bin/stop.sh ]]; then bash "${DORIS_HOME}"/ms/bin/stop.sh --grace; fi
+    if [[ -f "${DORIS_HOME}"/recycler/bin/stop.sh ]]; then bash "${DORIS_HOME}"/recycler/bin/stop.sh --grace; fi
+    if "${DORIS_HOME}"/be/bin/stop_be.sh --grace && "${DORIS_HOME}"/fe/bin/stop_fe.sh --grace; then
+        echo "INFO: normally stoped doris"
+    else
+        pgrep -fi doris | xargs kill -9 &>/dev/null
+        echo "WARNING: force stoped doris"
+    fi
+}
+
 function clean_fdb() {
     instance_id="$1"
     if [[ -z "${instance_id:-}" ]]; then return 1; fi
@@ -454,6 +466,16 @@ show_session_variables() {
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
     query_port=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf/fe.conf query_port)
     if mysql -h127.0.0.1 -P"${query_port}" -uroot -e"show session variables;"; then
+        return
+    else
+        return 1
+    fi
+}
+
+create_normal_workload_group() {
+    if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
+    query_port=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf/fe.conf query_port)
+    if mysql -h127.0.0.1 -P"${query_port}" -uroot -e"create workload group normal for cluster_name0 properties('cpu_share'='1024');"; then
         return
     else
         return 1

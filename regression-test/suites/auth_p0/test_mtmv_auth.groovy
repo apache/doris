@@ -63,7 +63,7 @@ suite("test_mtmv_auth","p0,auth") {
 
     sql """grant select_priv on regression_test to ${user}"""
 
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         def mvsRes = sql """select * from mv_infos("database"="${dbName}");"""
         logger.info("mvsRes: " + mvsRes.toString())
         assertFalse(mvsRes.toString().contains("${mvName}"))
@@ -80,7 +80,7 @@ suite("test_mtmv_auth","p0,auth") {
 
     sql """grant select_priv on ${dbName}.${mvName} to ${user}"""
 
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
        def mvsRes = sql """select * from mv_infos("database"="${dbName}");"""
        logger.info("mvsRes: " + mvsRes.toString())
        assertTrue(mvsRes.toString().contains("${mvName}"))

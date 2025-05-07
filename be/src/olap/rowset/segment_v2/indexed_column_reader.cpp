@@ -22,7 +22,6 @@
 #include <algorithm>
 
 #include "common/status.h"
-#include "gutil/strings/substitute.h" // for Substitute
 #include "io/io_common.h"
 #include "olap/key_coder.h"
 #include "olap/olap_common.h"
@@ -55,8 +54,6 @@ static bvar::PerSecond<bvar::Adder<uint64_t>> g_index_reader_seek_per_second(
 static bvar::Adder<uint64_t> g_index_reader_pk_pages("doris_pk", "index_reader_pk_pages");
 static bvar::PerSecond<bvar::Adder<uint64_t>> g_index_reader_pk_bytes_per_second(
         "doris_pk", "index_reader_pk_pages_per_second", &g_index_reader_pk_pages, 60);
-
-using strings::Substitute;
 
 int64_t IndexedColumnReader::get_metadata_size() const {
     return sizeof(IndexedColumnReader) + _meta.ByteSizeLong();

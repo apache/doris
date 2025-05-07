@@ -36,6 +36,7 @@ import org.apache.doris.datasource.property.constants.BosProperties;
 import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.load.loadv2.LoadTask.MergeType;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
@@ -80,8 +81,8 @@ public class CopyStmt extends DdlStmt implements NotFallbackInParser {
     private LabelName label = null;
     private BrokerDesc brokerDesc = null;
     private DataDescription dataDescription = null;
-    private final Map<String, String> brokerProperties = new HashMap<>();
-    private final Map<String, String> properties = new HashMap<>();
+    private Map<String, String> brokerProperties = new HashMap<>();
+    private Map<String, String> properties = new HashMap<>();
 
     @Getter
     private String stage;
@@ -108,6 +109,36 @@ public class CopyStmt extends DdlStmt implements NotFallbackInParser {
         if (optHints != null) {
             this.optHints = optHints.get(SET_VAR_KEY);
         }
+    }
+
+    /**
+     * Use for Nereids Planner.
+     */
+    public CopyStmt(TableName tableName, CopyFromParam copyFromParam,
+                    CopyIntoProperties copyProperties, Map<String, Map<String, String>> optHints, LabelName label,
+                    String stageId, StageType stageType, String stagePrefix, ObjectInfo objectInfo, String userName,
+                    Map<String, String> brokerProperties, Map<String, String> properties,
+                    DataDescription dataDescription, BrokerDesc brokerDesc, OriginStatement originStmt) {
+        this.tableName = tableName;
+        this.copyFromParam = copyFromParam;
+        this.stage = copyFromParam.getStageAndPattern().getStageName();
+        this.copyIntoProperties = copyProperties;
+        if (optHints != null) {
+            this.optHints = optHints.get(SET_VAR_KEY);
+        }
+
+        this.label = label;
+        this.brokerDesc = brokerDesc;
+        this.brokerProperties = brokerProperties;
+        this.properties = properties;
+
+        this.stageId = stageId;
+        this.stageType = stageType;
+        this.stagePrefix = stagePrefix;
+        this.objectInfo = objectInfo;
+        this.userName = userName;
+        this.dataDescription = dataDescription;
+        this.setOrigStmt(originStmt);
     }
 
     @Override

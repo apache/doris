@@ -118,8 +118,8 @@ public:
     Tie(size_t begin, size_t end) : _begin(begin), _end(end) {
         _bits = std::vector<uint8_t>(_end - _begin, 1);
     }
-    uint8_t operator[](int i) const { return _bits[i - _begin]; }
-    uint8_t& operator[](int i) { return _bits[i - _begin]; }
+    uint8_t operator[](size_t i) const { return _bits[i - _begin]; }
+    uint8_t& operator[](size_t i) { return _bits[i - _begin]; }
     Iter iter() { return Iter(*this); }
 
 private:

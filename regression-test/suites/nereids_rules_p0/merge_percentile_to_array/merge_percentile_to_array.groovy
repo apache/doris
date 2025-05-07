@@ -61,4 +61,25 @@ suite("merge_percentile_to_array") {
             percentile(pk, 0.4) as c2 from test_merge_percentile;"""
     order_qt_same_percentile_group_by """select sum(a),percentile(pk, 0.1) as c1 , percentile(pk, 0.1) as c2 ,
             percentile(pk, 0.4) as c2 from test_merge_percentile group by a;"""
+
+    order_qt_grouping """
+    select a,percentile(pk, 0.1),percentile(pk, 0.9) from test_merge_percentile group by grouping sets((a,b),(a),())
+    """
+    sql "set debug_skip_fold_constant=true;"
+    order_qt_skip_fold """
+    select a,b,percentile(pk, 0.1+0.2),percentile(pk, 0.9),percentile(pk, 0.6) from test_merge_percentile group by a,b
+    """
+    order_qt_grouping_skip_fold "SELECT percentile(a, 0.11), percentile(a,0.25) as percentiles FROM test_merge_percentile ts  group by grouping sets((b),(pk),())"
+    order_qt_grouping_expr "SELECT percentile(a, 0.11), percentile(a,0.25+0.1) as percentiles FROM test_merge_percentile ts  group by grouping sets((b),(pk),())"
+    order_qt_grouping_expr_other_agg "SELECT percentile(a, 0.11), percentile(a,0.25+0.1) as percentiles, min(a) FROM test_merge_percentile ts  group by grouping sets((b),(a),())"
+    order_qt_grouping_expr_other_agg_upper_ref """select c1,c3 from (SELECT percentile(a, 0.11) c1, percentile(a,0.25+0.1) as c2, min(a) c3
+    FROM test_merge_percentile ts group by grouping sets((b),(pk),())) t"""
+    order_qt_grouping_expr_other_agg_upper_ref_multi_transform """select percentile(c1,0.5),percentile(c1,0.25), c2 from 
+    (SELECT percentile(a, 0.11) c1, percentile(a,0.25+0.1) as c2, min(a) c3
+    FROM test_merge_percentile ts group by grouping sets((b),(pk),())) t group by c2"""
+    order_qt_grouping_multi_merge """
+    select percentile(c1,0.5), percentile(c1,0.25), percentile(c2,0.1),percentile(c2,0.1+0.6) from 
+    (SELECT percentile(a, 0.11) c1, percentile(a,0.25+0.1) as c2, min(a) c3
+    FROM test_merge_percentile ts group by grouping sets((b),(pk),())) t group by c2
+    """
 }

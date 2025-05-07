@@ -48,15 +48,25 @@ private:
                 "o_orderpriority", "o_clerk",   "o_shippriority", "o_comment"};
         ObjectPool object_pool;
         DescriptorTblBuilder builder(&object_pool);
-        builder.declare_tuple() << std::make_tuple(TYPE_INT, "o_orderkey")
-                                << std::make_tuple(TYPE_INT, "o_custkey")
-                                << std::make_tuple(TYPE_STRING, "o_orderstatus")
-                                << std::make_tuple(TYPE_DOUBLE, "o_totalprice")
-                                << std::make_tuple(TYPE_DATE, "o_orderdate")
-                                << std::make_tuple(TYPE_STRING, "o_orderpriority")
-                                << std::make_tuple(TYPE_STRING, "o_clerk")
-                                << std::make_tuple(TYPE_INT, "o_shippriority")
-                                << std::make_tuple(TYPE_STRING, "o_comment");
+        builder.declare_tuple()
+                << std::make_tuple(DataTypeFactory::instance().create_data_type(TYPE_INT, false),
+                                   "o_orderkey")
+                << std::make_tuple(DataTypeFactory::instance().create_data_type(TYPE_INT, false),
+                                   "o_custkey")
+                << std::make_tuple(DataTypeFactory::instance().create_data_type(TYPE_STRING, false),
+                                   "o_orderstatus")
+                << std::make_tuple(DataTypeFactory::instance().create_data_type(TYPE_DOUBLE, false),
+                                   "o_totalprice")
+                << std::make_tuple(DataTypeFactory::instance().create_data_type(TYPE_DATE, false),
+                                   "o_orderdate")
+                << std::make_tuple(DataTypeFactory::instance().create_data_type(TYPE_STRING, false),
+                                   "o_orderpriority")
+                << std::make_tuple(DataTypeFactory::instance().create_data_type(TYPE_STRING, false),
+                                   "o_clerk")
+                << std::make_tuple(DataTypeFactory::instance().create_data_type(TYPE_INT, false),
+                                   "o_shippriority")
+                << std::make_tuple(DataTypeFactory::instance().create_data_type(TYPE_STRING, false),
+                                   "o_comment");
         DescriptorTbl* desc_tbl = builder.build();
         auto* tuple_desc = const_cast<TupleDescriptor*>(desc_tbl->get_tuple_descriptor(0));
         RowDescriptor row_desc(tuple_desc, false);

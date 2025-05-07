@@ -34,6 +34,7 @@
 #include "common/exception.h"
 #include "common/status.h"
 #include "runtime/define_primitive_type.h"
+#include "runtime/primitive_type.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_string.h"
 #include "vec/common/cow.h"
@@ -83,11 +84,11 @@ public:
 
     /// Name of data type family (example: FixedString, Array).
     virtual const char* get_family_name() const = 0;
+    virtual PrimitiveType get_primitive_type() const = 0;
 
     /// Data type id. It's used for runtime type checks.
     virtual TypeIndex get_type_id() const = 0;
 
-    virtual TypeDescriptor get_type_as_type_descriptor() const = 0;
     virtual doris::FieldType get_storage_field_type() const = 0;
 
     virtual void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const;
@@ -192,12 +193,45 @@ public:
 
     static PGenericType_TypeId get_pdata_type(const IDataType* data_type);
 
-    [[nodiscard]] virtual UInt32 get_precision() const {
-        throw Exception(ErrorCode::INTERNAL_ERROR, "type {} not support get_precision", get_name());
+    [[nodiscard]] virtual UInt32 get_precision() const { return 0; }
+    [[nodiscard]] virtual UInt32 get_scale() const { return 0; }
+    virtual void to_protobuf(PTypeDesc* ptype, PTypeNode* node, PScalarType* scalar_type) const {}
+    void to_protobuf(PTypeDesc* ptype) const {
+        auto node = ptype->add_types();
+        node->set_type(TTypeNodeType::SCALAR);
+        auto scalar_type = node->mutable_scalar_type();
+        scalar_type->set_type(doris::to_thrift(get_primitive_type()));
+        to_protobuf(ptype, node, scalar_type);
     }
-    [[nodiscard]] virtual UInt32 get_scale() const {
-        throw Exception(ErrorCode::INTERNAL_ERROR, "type {} not support get_scale", get_name());
+#ifdef BE_TEST
+    TTypeDesc to_thrift() const {
+        TTypeDesc thrift_type;
+        to_thrift(thrift_type);
+        return thrift_type;
     }
+    void to_thrift(TTypeDesc& thrift_type) const {
+        thrift_type.types.push_back(TTypeNode());
+        TTypeNode& node = thrift_type.types.back();
+        to_thrift(thrift_type, node);
+    }
+    virtual void to_thrift(TTypeDesc& thrift_type, TTypeNode& node) const {
+        if (!is_complex_type(get_primitive_type())) {
+            node.type = TTypeNodeType::SCALAR;
+            node.__set_scalar_type(TScalarType());
+            TScalarType& scalar_type = node.scalar_type;
+            scalar_type.__set_type(doris::to_thrift(get_primitive_type()));
+            if (get_primitive_type() == TYPE_DECIMALV2 || get_primitive_type() == TYPE_DECIMAL32 ||
+                get_primitive_type() == TYPE_DECIMAL64 ||
+                get_primitive_type() == TYPE_DECIMAL128I ||
+                get_primitive_type() == TYPE_DECIMAL256) {
+                scalar_type.__set_precision(get_precision());
+                scalar_type.__set_scale(get_scale());
+            } else if (get_primitive_type() == TYPE_DATETIMEV2) {
+                scalar_type.__set_scale(get_scale());
+            }
+        }
+    }
+#endif
 
 private:
     friend class DataTypeFactory;
@@ -256,6 +290,7 @@ struct WhichDataType {
     bool is_date_time_v2() const { return idx == TypeIndex::DateTimeV2; }
     bool is_date_or_datetime() const { return is_date() || is_date_time(); }
     bool is_date_v2_or_datetime_v2() const { return is_date_v2() || is_date_time_v2(); }
+    bool is_time_v2() const { return idx == TypeIndex::TimeV2; }
 
     bool is_ipv4() const { return idx == TypeIndex::IPv4; }
     bool is_ipv6() const { return idx == TypeIndex::IPv6; }
@@ -266,6 +301,8 @@ struct WhichDataType {
     bool is_string_or_fixed_string() const { return is_string() || is_fixed_string(); }
 
     bool is_json() const { return idx == TypeIndex::JSONB; }
+    bool is_bitmap() const { return idx == TypeIndex::BitMap; }
+    bool is_hll() const { return idx == TypeIndex::HLL; }
 
     bool is_array() const { return idx == TypeIndex::Array; }
     bool is_tuple() const { return idx == TypeIndex::Tuple; }
@@ -280,7 +317,10 @@ struct WhichDataType {
     bool is_aggregate_function() const { return idx == TypeIndex::AggregateFunction; }
     bool is_variant_type() const { return idx == TypeIndex::VARIANT; }
     bool is_simple() const { return is_int() || is_uint() || is_float() || is_string(); }
-    bool is_num_can_compare() const { return is_int_or_uint() || is_float() || is_ip(); }
+    // Compare datev2 and datetimev2 direct use the numric compare.
+    bool is_num_can_compare() const {
+        return is_int_or_uint() || is_float() || is_ip() || is_date_v2_or_datetime_v2();
+    }
 };
 
 /// IDataType helpers (alternative for IDataType virtual methods with single point of truth)

@@ -105,6 +105,12 @@ public class AggStateType extends DataType {
     }
 
     @Override
+    public DataType conversion() {
+        return new AggStateType(functionName, subTypes.stream().map(DataType::conversion).collect(Collectors.toList()),
+                subTypeNullables);
+    }
+
+    @Override
     public boolean acceptsType(DataType other) {
         return other instanceof AggStateType;
     }

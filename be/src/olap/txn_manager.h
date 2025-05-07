@@ -172,7 +172,8 @@ public:
 
     Status publish_txn(TPartitionId partition_id, const TabletSharedPtr& tablet,
                        TTransactionId transaction_id, const Version& version,
-                       TabletPublishStatistics* stats);
+                       TabletPublishStatistics* stats,
+                       std::shared_ptr<TabletTxnInfo>& extend_tablet_txn_info);
 
     // delete the txn from manager if it is not committed(not have a valid rowset)
     Status rollback_txn(TPartitionId partition_id, const Tablet& tablet,
@@ -190,7 +191,8 @@ public:
     // not persist rowset meta because
     Status publish_txn(OlapMeta* meta, TPartitionId partition_id, TTransactionId transaction_id,
                        TTabletId tablet_id, TabletUid tablet_uid, const Version& version,
-                       TabletPublishStatistics* stats);
+                       TabletPublishStatistics* stats,
+                       std::shared_ptr<TabletTxnInfo>& extend_tablet_txn_info);
 
     // only abort not committed txn
     void abort_txn(TPartitionId partition_id, TTransactionId transaction_id, TTabletId tablet_id,
