@@ -6711,6 +6711,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return new AdminCancelRepairTableCommand(tableRefInfo);
     }
 
+    @Override
     public LogicalPlan visitShowCreateRoutineLoad(DorisParser.ShowCreateRoutineLoadContext ctx) {
         boolean isAll = ctx.ALL() != null;
         List<String> labelParts = visitMultipartIdentifier(ctx.label);
