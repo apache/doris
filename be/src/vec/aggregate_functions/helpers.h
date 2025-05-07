@@ -164,7 +164,7 @@ struct creator_with_type_base {
                 return creator_without_type::create<typename Class::template T<Int16>>(
                         argument_types, result_is_nullable, std::forward<TArgs>(args)...);
             case PrimitiveType::TYPE_INT:
-                return creator_without_type::create<typename Class::template T<Int16>>(
+                return creator_without_type::create<typename Class::template T<Int32>>(
                         argument_types, result_is_nullable, std::forward<TArgs>(args)...);
             case PrimitiveType::TYPE_BIGINT:
                 return creator_without_type::create<typename Class::template T<Int64>>(
