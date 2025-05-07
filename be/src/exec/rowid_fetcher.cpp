@@ -513,8 +513,18 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
                             BackendOptions::get_localhost(), print_id(request.query_id()),
                             first_file_id);
                 }
-
                 file_type_counts[first_file_mapping->type] += request_block_desc.row_id_size();
+
+                // prepare block char vector shrink for char type
+                std::vector<size_t> char_type_idx;
+                for (size_t j = 0; j < request_block_desc.column_descs_size(); j++) {
+                    auto column_type = request_block_desc.column_descs(j).type();
+                    std::transform(column_type.begin(), column_type.end(), column_type.begin(),
+                                   [](unsigned char c) { return std::toupper(c); });
+                    if (column_type == "CHAR") {
+                        char_type_idx.push_back(j);
+                    }
+                }
 
                 if (first_file_mapping->type == FileMappingType::INTERNAL) {
                     RETURN_IF_ERROR(read_batch_doris_format_row(
@@ -526,6 +536,9 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
                             request_block_desc, id_file_map, first_file_mapping, tquery_id,
                             result_blocks[i], &external_init_reader_ms, &external_get_block_ms));
                 }
+
+                // after read the block, shrink char type block
+                result_blocks[i].shrink_char_type_column_suffix_zero(char_type_idx);
             }
 
             [[maybe_unused]] size_t compressed_size = 0;
