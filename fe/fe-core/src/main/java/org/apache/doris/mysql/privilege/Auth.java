@@ -64,6 +64,7 @@ import org.apache.doris.mysql.authenticate.ldap.LdapManager;
 import org.apache.doris.mysql.authenticate.ldap.LdapUserInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterUserInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateUserInfo;
+import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshLdapCommand;
 import org.apache.doris.persist.AlterUserOperationLog;
 import org.apache.doris.persist.LdapInfo;
 import org.apache.doris.persist.PrivInfo;
@@ -1032,6 +1033,10 @@ public class Auth implements Writable {
 
     public void refreshLdap(RefreshLdapStmt refreshLdapStmt) {
         ldapManager.refresh(refreshLdapStmt.getIsAll(), refreshLdapStmt.getUser());
+    }
+
+    public void refreshLdap(RefreshLdapCommand command) {
+        ldapManager.refresh(command.getIsAll(), command.getUser());
     }
 
     // create role
