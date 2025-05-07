@@ -713,7 +713,7 @@ struct TimeRound {
                 trivial_part_ts1 = ts1.second();
             }
             if constexpr (Impl::Unit == SECOND) {
-                diff = ts2.second_diff(ts1);
+                diff = ts2.datetime_diff_in_seconds(ts1);
                 trivial_part_ts1 = 0;
                 trivial_part_ts2 = 0;
             }
@@ -752,7 +752,7 @@ struct TimeRound {
                 trivial_part_ts1 = ts1.second();
             }
             if constexpr (Impl::Unit == SECOND) {
-                diff = ts2.second_diff(ts1);
+                diff = ts2.datetime_diff_in_seconds(ts1);
                 trivial_part_ts1 = 0;
                 trivial_part_ts2 = 0;
             }
@@ -793,7 +793,7 @@ struct TimeRound {
                         ts1.to_date_int_val() & MASK_YEAR_MONTH_DAY_HOUR_MINUTE_FOR_DATETIMEV2;
             }
             if constexpr (Impl::Unit == SECOND) {
-                diff = ts2.second_diff(ts1);
+                diff = ts2.datetime_diff_in_seconds(ts1);
                 trivial_part_ts2 = ts2.microsecond();
                 trivial_part_ts1 = ts1.microsecond();
             }

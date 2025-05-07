@@ -98,13 +98,13 @@ public:
         if (timeout_second <= 0) {
             return false;
         }
-        if (now.second_diff(_start_time) > timeout_second) {
+        if (now.datetime_diff_in_seconds(_start_time) > timeout_second) {
             return true;
         }
         return false;
     }
 
-    int64_t query_time(VecDateTimeValue& now) { return now.second_diff(_start_time); }
+    int64_t query_time(VecDateTimeValue& now) { return now.datetime_diff_in_seconds(_start_time); }
 
     void set_thread_token(int concurrency, bool is_serial) {
         _thread_token = _exec_env->scanner_scheduler()->new_limited_scan_pool_token(
