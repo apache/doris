@@ -54,6 +54,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -162,7 +163,7 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
         // split agg child as two part
         // TRUE part 1: need push down itself, if it contains subquery or window expression
         // FALSE part 2: need push down its input slots, if it DOES NOT contain subquery or window expression
-        ImmutableSet.Builder<Expression> needPushDownItSelf = ImmutableSet.builder();
+        ImmutableSet.Builder<Expression> needPushDownSelfExprs = ImmutableSet.builder();
         ImmutableSet.Builder<Expression> needPushDownInputs = ImmutableSet.builder();
         for (AggregateFunction aggFunc : aggFuncs) {
             if (!aggFunc.isDistinct()) {
@@ -173,7 +174,7 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
                         continue;
                     }
                     if (arg.containsType(SubqueryExpr.class, WindowExpression.class)) {
-                        needPushDownItSelf.add(arg);
+                        needPushDownSelfExprs.add(arg);
                     } else {
                         needPushDownInputs.add(arg);
                     }
@@ -186,26 +187,20 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
                         continue;
                     }
 
-                    if (arg instanceof OrderExpression) {
-                        for (Expression child : arg.children()) {
-                            if (child instanceof SlotReference) {
-                                needPushDownItSelf.add(child);
-                            } else {
-                                needPushDownInputs.add(child);
-                            }
-                        }
-                    } else {
-                        if (arg instanceof SlotReference) {
-                            needPushDownItSelf.add(arg);
+                    Collection<? extends Expression> inputSlots
+                            = arg instanceof OrderExpression ? arg.getInputSlots() : ImmutableList.of(arg);
+                    for (Expression input : inputSlots) {
+                        if (input instanceof SlotReference) {
+                            needPushDownInputs.add(input);
                         } else {
-                            needPushDownInputs.add(arg);
+                            needPushDownSelfExprs.add(input);
                         }
                     }
                 }
             }
         }
 
-        Set<Expression> needPushSelf = needPushDownItSelf.build();
+        Set<Expression> needPushSelf = needPushDownSelfExprs.build();
         Set<Slot> needPushInputSlots = ExpressionUtils.getInputSlotSet(needPushDownInputs.build());
 
         Set<Alias> existsAlias =
