@@ -24,7 +24,6 @@ using std::vector;
 #include "gutil/integral_types.h"
 // IWYU pragma: no_include <butil/macros.h>
 #include "gutil/macros.h" // IWYU pragma: keep
-#include "gutil/port.h"
 #include "gutil/stringprintf.h"
 
 // START DOXYGEN NumbersFunctions grouping

@@ -32,7 +32,6 @@ SET(SOURCE_FILES
         stringprintf.cc
         strings/ascii_ctype.cc
         strings/charset.cc
-        strings/memutil.cc
         strings/numbers.cc
         strtoint.cc
         threading/thread_collision_warner.cc

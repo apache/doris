@@ -31,8 +31,6 @@
 
 #include <vector>
 
-#include "gutil/macros.h"
-
 namespace doris {
 
 namespace interval_tree_internal {

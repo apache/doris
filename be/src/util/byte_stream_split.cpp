@@ -23,8 +23,6 @@
 #include <cstring>
 #include <vector>
 
-#include "gutil/port.h"
-
 namespace doris {
 
 inline void do_merge_streams(const uint8_t** src_streams, int width, int64_t nvalues,
