@@ -249,7 +249,8 @@ public class ShowColumnStatsCommand extends ShowCommand {
         }
     }
 
-    private ShowResultSetMetaData getMetaData() {
+    @Override
+    public ShowResultSetMetaData getMetaData() {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
         ImmutableList<String> titles = partitionNames == null ? TABLE_COLUMN_TITLE_NAMES : PARTITION_COLUMN_TITLE_NAMES;
         for (String title : titles) {
