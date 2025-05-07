@@ -20,8 +20,17 @@ package org.apache.doris.qe;
 import org.apache.doris.catalog.InternalSchemaInitializer;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.mysql.MysqlCommand;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.exceptions.MustFallbackException;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.policy.PolicyTypeEnum;
 import org.apache.doris.utframe.TestWithFeService;
 
+import mockit.Mock;
+import mockit.MockUp;
 import org.junit.Assert;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -187,9 +196,11 @@ public class StmtExecutorTest extends TestWithFeService {
             }
         };
 
-        StatementContext statementContext = new StatementContext(connectContext, new OriginStatement("create", 0));
+        OriginStatement originStatement = new OriginStatement("create", 0);
+        StatementContext statementContext = new StatementContext(connectContext, originStatement);
         LogicalPlan plan = new CreatePolicyCommand(PolicyTypeEnum.ROW, "test1", false, null, null, null, null, null, null);
         LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(plan, statementContext);
+        logicalPlanAdapter.setOrigStmt(originStatement);
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, logicalPlanAdapter);
 
         try {
