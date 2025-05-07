@@ -17,11 +17,7 @@
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
-suite("test_mow_compaction_and_rowset_not_exist", "nonConcurrent") {
-    if (!isCloudMode()) {
-        return
-    }
-    def testTable = "test_mow_compaction_and_rowset_not_exist"
+suite("test_mow_compaction_agg_and_remove_pre_delete_bitmap", "nonConcurrent") {
     def backendId_to_backendIP = [:]
     def backendId_to_backendHttpPort = [:]
     def backendId_to_params = [string: [:]]
@@ -67,7 +63,8 @@ suite("test_mow_compaction_and_rowset_not_exist", "nonConcurrent") {
         }
     }
 
-    def triggerCompactionByType = { tablet, compact_type ->
+    def triggerCompaction = { tablet ->
+        def compact_type = "cumulative"
         String tablet_id = tablet.TabletId
         String trigger_backend_id = tablet.BackendId
         def be_host = backendId_to_backendIP[trigger_backend_id]
@@ -82,19 +79,10 @@ suite("test_mow_compaction_and_rowset_not_exist", "nonConcurrent") {
             logger.info("Run compaction: code=" + code_2 + ", out=" + out_2 + ", err=" + err_2)
             assertEquals(code_2, 0)
             return out_2
-        } else if (compact_type == "base") {
-            def (code_2, out_2, err_2) = be_run_base_compaction(be_host, be_http_port, tablet_id)
-            logger.info("Run compaction: code=" + code_2 + ", out=" + out_2 + ", err=" + err_2)
-            assertEquals(code_2, 0)
-            return out_2
         } else {
             assertFalse(True)
         }
     }
-
-    def triggerCompaction = {tablet -> return triggerCompactionByType(tablet, "cumulative")}
-    def triggerBaseCompaction = {tablet -> return triggerCompactionByType(tablet, "base")}
-    def triggerFullCompaction = {tablet -> return triggerCompactionByType(tablet, "full")}
 
     def getTabletStatus = { tablet ->
         String tablet_id = tablet.TabletId
@@ -148,7 +136,6 @@ suite("test_mow_compaction_and_rowset_not_exist", "nonConcurrent") {
         String trigger_backend_id = tablet.BackendId
         def be_host = backendId_to_backendIP[trigger_backend_id]
         def be_http_port = backendId_to_backendHttpPort[trigger_backend_id]
-        boolean running = true
         StringBuilder sb = new StringBuilder();
         sb.append("curl -X GET http://${be_host}:${be_http_port}")
         sb.append("/api/delete_bitmap/count_local?verbose=true&tablet_id=")
@@ -165,35 +152,19 @@ suite("test_mow_compaction_and_rowset_not_exist", "nonConcurrent") {
         return deleteBitmapStatus
     }
 
-    def getMsDeleteBitmapStatus = { tablet ->
-        String tablet_id = tablet.TabletId
-        String trigger_backend_id = tablet.BackendId
-        def be_host = backendId_to_backendIP[trigger_backend_id]
-        def be_http_port = backendId_to_backendHttpPort[trigger_backend_id]
-        boolean running = true
-        StringBuilder sb = new StringBuilder();
-        sb.append("curl -X GET http://${be_host}:${be_http_port}")
-        sb.append("/api/delete_bitmap/count_ms?verbose=true&tablet_id=")
-        sb.append(tablet_id)
-
-        String command = sb.toString()
-        logger.info(command)
-        def process = command.execute()
-        def code = process.waitFor()
-        def out = process.getText()
-        logger.info("Get ms delete bitmap count status:  =" + code + ", out=" + out)
-        assertEquals(code, 0)
-        def deleteBitmapStatus = parseJson(out.trim())
-        return deleteBitmapStatus
-    }
-
     GetDebugPoint().clearDebugPointsForAllBEs()
-    get_be_param("compaction_promotion_version_count")
     get_be_param("tablet_rowset_stale_sweep_time_sec")
-    set_be_param("compaction_promotion_version_count", "5")
-    set_be_param("tablet_rowset_stale_sweep_time_sec", "0")
+    get_be_param("compaction_promotion_version_count")
+    get_be_param("enable_delete_bitmap_merge_on_compaction")
+    get_be_param("enable_agg_and_remove_pre_rowsets_delete_bitmap")
 
     try {
+        set_be_param("tablet_rowset_stale_sweep_time_sec", "0")
+        set_be_param("compaction_promotion_version_count", "5")
+        set_be_param("enable_delete_bitmap_merge_on_compaction", "false") // solution 1
+        set_be_param("enable_agg_and_remove_pre_rowsets_delete_bitmap", "true") // solution 2
+
+        def testTable = "test_mow_compaction"
         sql """ DROP TABLE IF EXISTS ${testTable} """
         sql """
             create table ${testTable} (`k` int NOT NULL, `v` varchar(10) NOT NULL)
@@ -211,7 +182,7 @@ suite("test_mow_compaction_and_rowset_not_exist", "nonConcurrent") {
         assertEquals(1, tablets.size())
         def tablet = tablets[0]
 
-        // write some data
+        // 1. write some data
         sql """ INSERT INTO ${testTable} VALUES (1,'99'); """
         sql """ INSERT INTO ${testTable} VALUES (2,'99'); """
         sql """ INSERT INTO ${testTable} VALUES (3,'99'); """
@@ -220,92 +191,68 @@ suite("test_mow_compaction_and_rowset_not_exist", "nonConcurrent") {
         sql "sync"
         order_qt_sql1 """ select * from ${testTable}; """
 
-        GetDebugPoint().enableDebugPointForAllBEs("CumulativeCompaction.modify_rowsets.delete_expired_stale_rowset")
-        GetDebugPoint().enableDebugPointForAllBEs("Tablet.delete_expired_stale_rowset.start_delete_unused_rowset")
-
-        // trigger compaction to generate base rowset
+        // 2. trigger compaction to generate base rowset
         getTabletStatus(tablet)
         assertTrue(triggerCompaction(tablet).contains("Success"))
         waitForCompaction(tablet)
-        for (int i = 0; i < 10; i++) {
-            def tablet_status = getTabletStatus(tablet)
-            if (tablet_status["stale_rowsets"].size() == 0 && tablet_status["rowsets"].size()) {
-                break
-            }
-            sleep(2000)
-        }
-        def tablet_status = getTabletStatus(tablet)
-        logger.info("tablet_status 0: " + tablet_status)
-        assertEquals(2, tablet_status["rowsets"].size())
+        getTabletStatus(tablet)
         def local_dm = getLocalDeleteBitmapStatus(tablet)
         logger.info("local_dm 0: " + local_dm)
         order_qt_sql2 "select * from ${testTable}"
 
-        // write some data
-        sql """ INSERT INTO ${testTable} VALUES (1, '100'); """
+        // 3. write some data
+        sql """ INSERT INTO ${testTable} VALUES (1, '100'), (2, '97'); """
         sql """ INSERT INTO ${testTable} VALUES (2, '100'); """
         sql """ INSERT INTO ${testTable} VALUES (3, '100'); """
         sql """ INSERT INTO ${testTable} VALUES (4, '100'); """
         sql """ INSERT INTO ${testTable} VALUES (5, '100'); """
         sql """ sync """
         order_qt_sql3 "select * from ${testTable}"
-        tablet_status = getTabletStatus(tablet)
-        logger.info("tablet_status 1: " + tablet_status)
+        getTabletStatus(tablet)
         local_dm = getLocalDeleteBitmapStatus(tablet)
         logger.info("local_dm 1: " + local_dm)
 
-        // block merge delete bitmap
-        GetDebugPoint().enableDebugPointForAllBEs("CumulativeCompaction.modify_rowsets.cloud_update_delete_bitmap_without_lock.block")
-        // trigger compaction
+        // cloud and local
+        GetDebugPoint().enableDebugPointForAllBEs("CumulativeCompaction.modify_rowsets.delete_expired_stale_rowset")
+        // local
+        GetDebugPoint().enableDebugPointForAllBEs("Tablet.delete_expired_stale_rowset.start_delete_unused_rowset")
+
+        // 4. trigger compaction
         GetDebugPoint().enableDebugPointForAllBEs("CloudSizeBasedCumulativeCompactionPolicy::pick_input_rowsets.set_input_rowsets",
                 [tablet_id: "${tablet.TabletId}", start_version: 7, end_version: 11]);
         assertTrue(triggerCompaction(tablet).contains("Success"))
-        for (int i = 0; i < 10; i++) {
-            tablet_status = getTabletStatus(tablet)
-            logger.info("tablet_status 2: " + tablet_status)
+        waitForCompaction(tablet)
+
+        // wait for no stale rowsets
+        for (int i = 0; i < 20; i++) {
+            def tablet_status = getTabletStatus(tablet)
             if (tablet_status["stale_rowsets"].size() == 0 && tablet_status["rowsets"].size() == 3) {
                 break
             }
-            sleep(2000)
+            sleep(1000)
         }
+        logger.info("wait for no stale rowsets")
+        def tablet_status = getTabletStatus(tablet)
+        assertEquals(0, tablet_status["stale_rowsets"].size())
         assertEquals(3, tablet_status["rowsets"].size())
+        // unused rowsets are not deleted (compaction input rowsets reference to them)
         local_dm = getLocalDeleteBitmapStatus(tablet)
         logger.info("local_dm 2: " + local_dm)
-        assertEquals(5, local_dm["delete_bitmap_count"])
-        assertEquals(5, local_dm["cardinality"])
-        order_qt_sql4 "select * from ${testTable}"
+        assertEquals(9, local_dm["cardinality"]) // the last one is agged
 
-        triggerFullCompaction(tablet)
-        for (int i = 0; i < 10; i++) {
-            tablet_status = getTabletStatus(tablet)
-            logger.info("tablet_status 3: " + tablet_status)
-            if (tablet_status["rowsets"].size() == 2) {
-                break
-            }
-            sleep(2000)
-        }
-        sleep(1000)
-        // check rowset is 1
-        getTabletStatus(tablet)
+        // wait for no unused rowsets
+        GetDebugPoint().enableDebugPointForAllBEs("DeleteBitmapAction._handle_show_local_delete_bitmap_count.vacuum_stale_rowsets") // cloud
+        GetDebugPoint().enableDebugPointForAllBEs("DeleteBitmapAction._handle_show_local_delete_bitmap_count.start_delete_unused_rowset") // local
         local_dm = getLocalDeleteBitmapStatus(tablet)
         logger.info("local_dm 3: " + local_dm)
-        def ms_dm = getMsDeleteBitmapStatus(tablet)
-        logger.info("ms_dm 3: " + ms_dm)
-        order_qt_sql5 "select * from ${testTable}"
+        assertEquals(5, local_dm["cardinality"])
 
-        GetDebugPoint().clearDebugPointsForAllBEs()
-        sleep(100)
-        tablet_status = getTabletStatus(tablet)
-        logger.info("tablet_status 4: " + tablet_status)
-        local_dm = getLocalDeleteBitmapStatus(tablet)
-        logger.info("local_dm 4: " + local_dm)
-        ms_dm = getMsDeleteBitmapStatus(tablet)
-        logger.info("ms_dm 4: " + ms_dm)
-        // check ms update_delete_bitmap log contains skip
-        // check recycler checker abnormal_rowsets_num=0
+        order_qt_sql4 "select * from ${testTable}"
     } finally {
-        reset_be_param("compaction_promotion_version_count")
         reset_be_param("tablet_rowset_stale_sweep_time_sec")
+        reset_be_param("compaction_promotion_version_count")
+        reset_be_param("enable_delete_bitmap_merge_on_compaction")
+        reset_be_param("enable_agg_and_remove_pre_rowsets_delete_bitmap")
         GetDebugPoint().clearDebugPointsForAllBEs()
     }
 }

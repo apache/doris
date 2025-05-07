@@ -406,7 +406,7 @@ Status CloudCumulativeCompaction::modify_rowsets() {
     }
     DBUG_EXECUTE_IF("CumulativeCompaction.modify_rowsets.delete_expired_stale_rowset", {
         LOG(INFO) << "delete_expired_stale_rowsets for tablet=" << _tablet->tablet_id();
-        cloud_tablet()->delete_expired_stale_rowsets();
+        _engine.tablet_mgr().vacuum_stale_rowsets(CountDownLatch(1));
     });
     return Status::OK();
 }

@@ -241,14 +241,9 @@ void CloudTabletMgr::vacuum_stale_rowsets(const CountDownLatch& stop_latch) {
     LOG_INFO("begin to vacuum stale rowsets");
     std::vector<std::shared_ptr<CloudTablet>> tablets_to_vacuum;
     tablets_to_vacuum.reserve(_tablet_map->size());
-    std::vector<std::shared_ptr<CloudTablet>> tablets_to_remove_delete_bitmap;
-    tablets_to_remove_delete_bitmap.reserve(_tablet_map->size());
-    _tablet_map->traverse([&tablets_to_vacuum, &tablets_to_remove_delete_bitmap](auto&& t) {
+    _tablet_map->traverse([&tablets_to_vacuum](auto&& t) {
         if (t->has_stale_rowsets()) {
             tablets_to_vacuum.push_back(t);
-        }
-        if (t->need_remove_pre_rowset_delete_bitmap()) {
-            tablets_to_remove_delete_bitmap.push_back(t);
         }
     });
     int num_vacuumed = 0;
@@ -263,18 +258,27 @@ void CloudTabletMgr::vacuum_stale_rowsets(const CountDownLatch& stop_latch) {
             .tag("num_vacuumed", num_vacuumed)
             .tag("num_tablets", tablets_to_vacuum.size());
 
-    LOG_INFO("begin to remove pre rowsets delete bitmap");
-    for (auto& t : tablets_to_remove_delete_bitmap) {
-        t->remove_pre_rowset_delete_bitmap();
-    }
-    LOG_INFO("finish remove pre rowsets delete bitmap")
-            .tag("num_tablets", tablets_to_remove_delete_bitmap.size());
-    if (config::enable_check_agg_and_remove_pre_rowsets_delete_bitmap) {
-        OlapStopWatch watch;
-        _tablet_map->traverse(
-                [](auto&& tablet) { tablet->check_agg_delete_bitmap_for_stale_rowsets(); });
-        LOG(INFO) << "finish check_agg_delete_bitmap_for_stale_rowsets, cost(us)="
-                  << watch.get_elapse_time_us();
+    {
+        LOG_INFO("begin to remove pre rowsets delete bitmap");
+        std::vector<std::shared_ptr<CloudTablet>> tablets_to_remove_delete_bitmap;
+        tablets_to_remove_delete_bitmap.reserve(_tablet_map->size());
+        _tablet_map->traverse([&tablets_to_remove_delete_bitmap](auto&& t) {
+            if (t->need_remove_pre_rowset_delete_bitmap()) {
+                tablets_to_remove_delete_bitmap.push_back(t);
+            }
+        });
+        for (auto& t : tablets_to_remove_delete_bitmap) {
+            t->remove_pre_rowset_delete_bitmap();
+        }
+        LOG_INFO("finish remove pre rowsets delete bitmap")
+                .tag("num_tablets", tablets_to_remove_delete_bitmap.size());
+        if (config::enable_check_agg_and_remove_pre_rowsets_delete_bitmap) {
+            OlapStopWatch watch;
+            _tablet_map->traverse(
+                    [](auto&& tablet) { tablet->check_agg_delete_bitmap_for_stale_rowsets(); });
+            LOG(INFO) << "finish check_agg_delete_bitmap_for_stale_rowsets, cost(us)="
+                      << watch.get_elapse_time_us();
+        }
     }
 }
 

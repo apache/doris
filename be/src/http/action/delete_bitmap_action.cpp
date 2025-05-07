@@ -152,8 +152,15 @@ Status DeleteBitmapAction::_handle_show_local_delete_bitmap_count(HttpRequest* r
     BaseTabletSPtr tablet = nullptr;
     if (config::is_cloud_mode()) {
         tablet = DORIS_TRY(_engine.to_cloud().tablet_mgr().get_tablet(tablet_id));
+        DBUG_EXECUTE_IF(
+                "DeleteBitmapAction._handle_show_local_delete_bitmap_count.vacuum_stale_rowsets",
+                { _engine.to_cloud().tablet_mgr().vacuum_stale_rowsets(CountDownLatch(1)); });
     } else {
         tablet = _engine.to_local().tablet_manager()->get_tablet(tablet_id);
+        DBUG_EXECUTE_IF(
+                "DeleteBitmapAction._handle_show_local_delete_bitmap_count.start_delete_unused_"
+                "rowset",
+                { _engine.to_local().start_delete_unused_rowset(); });
     }
     if (tablet == nullptr) {
         return Status::NotFound("Tablet not found. tablet_id={}", tablet_id);
