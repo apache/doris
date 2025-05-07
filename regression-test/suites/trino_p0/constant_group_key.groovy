@@ -35,7 +35,7 @@ suite("constant_group_key") {
 
     explain {
         sql("select 'oneline', sum(n_nationkey) from nation group by 'constant1', 'constant2'")
-        contains "group by: '1'"
+        contains "group by: 'constant1'"
     }
 
     explain {
