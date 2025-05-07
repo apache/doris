@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_convert_tz") {
+    sql "drop table if exists `cvt_tz`"
     sql """
         CREATE TABLE `cvt_tz` (
             `rowid` int NULL,
