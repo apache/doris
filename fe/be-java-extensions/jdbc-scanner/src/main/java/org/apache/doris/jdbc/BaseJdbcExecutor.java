@@ -36,7 +36,6 @@ import org.apache.thrift.TException;
 import org.apache.thrift.protocol.TBinaryProtocol;
 import org.semver4j.Semver;
 
-import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
@@ -387,11 +386,6 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
     private synchronized void initializeClassLoader(JdbcDataSourceConfig config) {
         try {
             URL[] urls = {new URL(config.getJdbcDriverUrl())};
-            // Check if file exists
-            File driverFile = new File(urls[0].getPath());
-            if (!driverFile.exists()) {
-                throw new RuntimeException("JDBC driver file not found at path: " + config.getJdbcDriverUrl());
-            }
             if (classLoaderMap.containsKey(urls[0]) && classLoaderMap.get(urls[0]) != null) {
                 this.classLoader = classLoaderMap.get(urls[0]);
             } else {
