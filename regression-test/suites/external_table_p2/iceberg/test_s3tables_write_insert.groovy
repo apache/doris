@@ -639,7 +639,7 @@ suite("test_s3tables_write_insert", "p2,external,iceberg,external_remote,externa
 
     // 1. test querying existing tables
     qt_sql01 """select * from my_table order by id;"""
-    qt_sql01 """select * from partition_table order by ts;"""
+    qt_sql01 """select * from partitioned_table order by ts;"""
 
     try {
         for (String format_compression in format_compressions) {

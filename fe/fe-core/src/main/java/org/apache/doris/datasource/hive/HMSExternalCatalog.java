@@ -75,6 +75,13 @@ public class HMSExternalCatalog extends ExternalCatalog {
     public static final String FILE_META_CACHE_TTL_SECOND = "file.meta.cache.ttl-second";
     // broker name for file split and query scan.
     public static final String BIND_BROKER_NAME = "broker.name";
+    // Default is false, if set to true, will get table schema from "remoteTable" instead of from hive metastore.
+    // This is because for some forward compatiblity issue of hive metastore, there maybe
+    // "storage schema reading not support" error being thrown.
+    // set this to true can avoid this error.
+    // But notice that if set to true, the default value of column will be ignored because we cannot get default value
+    // from remoteTable object.
+    public static final String GET_SCHEMA_FROM_TABLE = "get_schema_from_table";
 
     // -1 means file cache no ttl set
     public static final int FILE_META_CACHE_NO_TTL = -1;
@@ -180,6 +187,12 @@ public class HMSExternalCatalog extends ExternalCatalog {
                     String.valueOf(Config.hive_metastore_client_timeout_second));
         }
         HiveMetadataOps hiveOps = ExternalMetadataOperations.newHiveMetadataOps(hiveConf, jdbcClientConfig, this);
+        threadPoolWithPreAuth = ThreadPoolManager.newDaemonFixedThreadPoolWithPreAuth(
+            ICEBERG_CATALOG_EXECUTOR_THREAD_NUM,
+            Integer.MAX_VALUE,
+            String.format("hms_iceberg_catalog_%s_executor_pool", name),
+            true,
+            preExecutionAuthenticator);
         FileSystemProvider fileSystemProvider = new FileSystemProviderImpl(Env.getCurrentEnv().getExtMetaCacheMgr(),
                 this.bindBrokerName(), this.catalogProperty.getHadoopProperties());
         this.fileSystemExecutor = ThreadPoolManager.newDaemonFixedThreadPool(FILE_SYSTEM_EXECUTOR_THREAD_NUM,

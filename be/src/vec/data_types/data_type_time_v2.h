@@ -58,9 +58,7 @@ namespace doris::vectorized {
 class DataTypeDateV2 final : public DataTypeNumberBase<UInt32> {
 public:
     TypeIndex get_type_id() const override { return TypeIndex::DateV2; }
-    TypeDescriptor get_type_as_type_descriptor() const override {
-        return TypeDescriptor(TYPE_DATEV2);
-    }
+    PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_DATEV2; }
 
     doris::FieldType get_storage_field_type() const override {
         return doris::FieldType::OLAP_FIELD_TYPE_DATEV2;
@@ -122,10 +120,9 @@ public:
 
     DataTypeDateTimeV2(const DataTypeDateTimeV2& rhs) : _scale(rhs._scale) {}
     TypeIndex get_type_id() const override { return TypeIndex::DateTimeV2; }
-    TypeDescriptor get_type_as_type_descriptor() const override {
-        auto desc = TypeDescriptor(TYPE_DATETIMEV2);
-        desc.scale = _scale;
-        return desc;
+    PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_DATETIMEV2; }
+    void to_protobuf(PTypeDesc* ptype, PTypeNode* node, PScalarType* scalar_type) const override {
+        scalar_type->set_scale(_scale);
     }
 
     doris::FieldType get_storage_field_type() const override {

@@ -21,8 +21,8 @@
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 #include <gtest/gtest.h>
-#include <stddef.h>
 
+#include <cstddef>
 #include <cstdlib>
 #include <memory>
 #include <string>
@@ -30,11 +30,9 @@
 #include <vector>
 
 #include "agent/be_exec_version_manager.h"
-#include "gtest/gtest_pred_impl.h"
 #include "util/bitmap_value.h"
 #include "vec/columns/column.h"
 #include "vec/common/string_ref.h"
-#include "vec/core/block.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
@@ -42,26 +40,6 @@
 #include "vec/data_types/data_type_quantilestate.h"
 
 namespace doris::vectorized {
-TEST(ColumnComplexTest, BasicTest) {
-    using ColumnSTLString = ColumnComplexType<std::string>;
-    auto column = ColumnSTLString::create();
-    EXPECT_EQ(column->size(), 0);
-    std::string val0 = "";
-    std::string val1 = "str-1";
-
-    column->insert_data(reinterpret_cast<const char*>(&val0), sizeof(val0));
-    column->insert_data(reinterpret_cast<const char*>(&val1), sizeof(val1));
-
-    StringRef ref = column->get_data_at(0);
-    EXPECT_EQ((*reinterpret_cast<const std::string*>(ref.data)), "");
-    ref = column->get_data_at(1);
-    EXPECT_EQ((*reinterpret_cast<const std::string*>(ref.data)), val1);
-}
-
-// Test the compile failed
-TEST(ColumnComplexTest, DataTypeBitmapTest) {
-    std::make_shared<DataTypeBitMap>();
-}
 
 TEST(ColumnComplexTest, GetDataAtTest) {
     auto column_bitmap = ColumnBitmap::create();

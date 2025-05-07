@@ -41,12 +41,12 @@ public:
         vectorized::VExprContextSPtr build_ctx;
         RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(desc->src_expr, build_ctx));
         (*res)->_wrapper = std::make_shared<RuntimeFilterWrapper>(
-                build_ctx->root()->type().type, (*res)->_runtime_filter_type, desc->filter_id,
-                RuntimeFilterWrapper::State::UNINITED);
+                build_ctx->root()->data_type()->get_primitive_type(), (*res)->_runtime_filter_type,
+                desc->filter_id, RuntimeFilterWrapper::State::UNINITED);
         return Status::OK();
     }
 
-    std::string debug_string() const override {
+    std::string debug_string() override {
         return fmt::format(
                 "Merger: ({}, expected_producer_num: {}, received_producer_num: {}, "
                 "received_rf_size_num: {}, received_sum_size: {})",

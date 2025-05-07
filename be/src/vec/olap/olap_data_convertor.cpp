@@ -103,7 +103,7 @@ OlapBlockDataConvertor::OlapColumnDataConvertorBaseUPtr
 OlapBlockDataConvertor::create_agg_state_convertor(const TabletColumn& column) {
     auto data_type = DataTypeFactory::instance().create_data_type(column);
     const auto* agg_state_type = assert_cast<const vectorized::DataTypeAggState*>(data_type.get());
-    auto type = agg_state_type->get_serialized_type()->get_type_as_type_descriptor().type;
+    auto type = agg_state_type->get_serialized_type()->get_primitive_type();
 
     // Terialized type of most functions is string, and some of them are fixed object.
     // Finally, the serialized type of some special functions is bitmap/array/map...

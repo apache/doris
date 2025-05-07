@@ -39,7 +39,6 @@
 #include "vec/common/columns_hashing.h"
 #include "vec/common/hash_table/hash.h"
 #include "vec/common/hash_table/hash_map_context.h"
-#include "vec/common/hash_table/hash_table_allocator.h"
 #include "vec/common/pod_array_fwd.h"
 #include "vec/common/string_ref.h"
 #include "vec/common/uint128.h"

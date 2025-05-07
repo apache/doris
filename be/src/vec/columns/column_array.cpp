@@ -1066,4 +1066,22 @@ ColumnPtr ColumnArray::permute(const Permutation& perm, size_t limit) const {
     return res;
 }
 
+void ColumnArray::erase(size_t start, size_t length) {
+    if (start >= size() || length == 0) {
+        return;
+    }
+    length = std::min(length, size() - start);
+
+    const auto& offsets_data = get_offsets();
+    auto data_start = offsets_data[start - 1];
+    auto data_end = offsets_data[start + length - 1];
+    auto data_length = data_end - data_start;
+    data->erase(data_start, data_length);
+    offsets->erase(start, length);
+
+    for (auto i = start; i < size(); ++i) {
+        get_offsets()[i] -= data_length;
+    }
+}
+
 } // namespace doris::vectorized

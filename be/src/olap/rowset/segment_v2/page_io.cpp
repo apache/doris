@@ -30,7 +30,6 @@
 #include "cloud/config.h"
 #include "common/logging.h"
 #include "cpp/sync_point.h"
-#include "gutil/strings/substitute.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "io/cache/cached_remote_file_reader.h"
@@ -48,8 +47,6 @@
 
 namespace doris {
 namespace segment_v2 {
-
-using strings::Substitute;
 
 Status PageIO::compress_page_body(BlockCompressionCodec* codec, double min_space_saving,
                                   const std::vector<Slice>& body, OwnedSlice* compressed_body) {

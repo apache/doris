@@ -195,20 +195,21 @@ DECLARE_Int64(memtable_limiter_reserved_memory_bytes);
 DECLARE_mString(process_minor_gc_size);
 DECLARE_mString(process_full_gc_size);
 
-// If true, when the process does not exceed the soft mem limit, the query memory will not be limited;
-// when the process memory exceeds the soft mem limit, the query with the largest ratio between the currently
-// used memory and the exec_mem_limit will be canceled.
-// If false, cancel query when the memory used exceeds exec_mem_limit, same as before.
-DECLARE_mBool(enable_query_memory_overcommit);
-
 // gc will release cache, cancel task, and task will wait for gc to release memory,
 // default gc strategy is conservative, if you want to exclude the interference of gc, let it be true
 DECLARE_mBool(disable_memory_gc);
 
+// for the query being canceled,
+// if (current time - cancel start time) < revoke_memory_max_tolerance_ms, the query memory is counted in `freed_memory`,
+// and the query memory is expected to be released soon.
+// if > revoke_memory_max_tolerance_ms, the query memory will not be counted in `freed_memory`,
+// and the query may be blocked during the cancel process. skip this query and continue to cancel other queries.
+DECLARE_mInt64(revoke_memory_max_tolerance_ms);
+
 // if false, turn off all stacktrace
 DECLARE_mBool(enable_stacktrace);
 
-// when alloc memory larger than stacktrace_in_alloc_large_memory_bytes, default 2G,
+// when alloc memory larger than stacktrace_in_alloc_large_memory_bytes, default 2G - 1,
 // if alloc successful, will print a warning with stacktrace, but not prevent memory alloc.
 // if alloc failed using Doris Allocator, will print stacktrace in error log.
 // if is -1, disable print stacktrace when alloc large memory.
@@ -335,6 +336,8 @@ DECLARE_Int32(be_service_threads);
 
 // interval between profile reports; in seconds
 DECLARE_mInt32(pipeline_status_report_interval);
+// Time slice for pipeline task execution (ms)
+DECLARE_mInt32(pipeline_task_exec_time_slice);
 // number of scanner thread pool size for olap table
 // and the min thread num of remote scanner thread pool
 DECLARE_mInt32(doris_scanner_thread_pool_thread_num);
@@ -686,8 +689,7 @@ DECLARE_Bool(ignore_broken_disk);
 // Sleep time in milliseconds between memory maintenance iterations
 DECLARE_mInt32(memory_maintenance_sleep_time_ms);
 
-// After full gc, no longer full gc and minor gc during sleep.
-// After minor gc, no minor gc during sleep, but full gc is possible.
+// Memory gc are expensive, wait a while to avoid too frequent.
 DECLARE_mInt32(memory_gc_sleep_time_ms);
 
 // max write buffer size before flush, default 200MB
@@ -696,6 +698,9 @@ DECLARE_mInt64(write_buffer_size);
 DECLARE_mInt64(write_buffer_size_for_agg);
 // max parallel flush task per memtable writer
 DECLARE_mInt32(memtable_flush_running_count_limit);
+
+// maximum sleep time to wait for memory when writing or flushing memtable.
+DECLARE_mInt32(memtable_wait_for_memory_sleep_time_s);
 
 DECLARE_Int32(load_process_max_memory_limit_percent); // 50%
 
@@ -1135,8 +1140,10 @@ DECLARE_mInt64(cache_lock_held_long_tail_threshold_us);
 DECLARE_mBool(enable_file_cache_keep_base_compaction_output);
 DECLARE_mInt64(file_cache_remove_block_qps_limit);
 DECLARE_mInt64(file_cache_background_gc_interval_ms);
+DECLARE_mBool(enable_reader_dryrun_when_download_file_cache);
 DECLARE_mInt64(file_cache_background_monitor_interval_ms);
 DECLARE_mInt64(file_cache_background_ttl_gc_interval_ms);
+DECLARE_mInt64(file_cache_background_ttl_gc_batch);
 // inverted index searcher cache
 // cache entry stay time after lookup
 DECLARE_mInt32(index_cache_entry_stay_time_after_lookup_s);
@@ -1337,8 +1344,6 @@ DECLARE_mBool(enable_be_proc_monitor);
 DECLARE_mInt32(be_proc_monitor_interval_ms);
 DECLARE_Int32(workload_group_metrics_interval_ms);
 
-DECLARE_mBool(enable_workload_group_memory_gc);
-
 // This config controls whether the s3 file writer would flush cache asynchronously
 DECLARE_Bool(enable_flush_file_cache_async);
 
@@ -1421,6 +1426,7 @@ DECLARE_mInt32(max_s3_client_retry);
 // and the max retry time is max_s3_client_retry
 DECLARE_mInt32(s3_read_base_wait_time_ms);
 DECLARE_mInt32(s3_read_max_wait_time_ms);
+DECLARE_mBool(enable_s3_object_check_after_upload);
 
 // write as inverted index tmp directory
 DECLARE_String(tmp_file_dir);
@@ -1558,6 +1564,8 @@ DECLARE_mInt32(tablet_sched_delay_time_ms);
 DECLARE_mInt32(load_trigger_compaction_version_percent);
 DECLARE_mInt64(base_compaction_interval_seconds_since_last_operation);
 DECLARE_mBool(enable_compaction_pause_on_high_memory);
+
+DECLARE_mBool(enable_calc_delete_bitmap_between_segments_concurrently);
 
 #ifdef BE_TEST
 // test s3

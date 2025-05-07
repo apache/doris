@@ -42,6 +42,9 @@ import org.apache.doris.datasource.FileGroupInfo;
 import org.apache.doris.datasource.FileScanNode;
 import org.apache.doris.datasource.LoadScanProvider;
 import org.apache.doris.load.BrokerFileGroup;
+import org.apache.doris.nereids.load.NereidsFileGroupInfo;
+import org.apache.doris.nereids.load.NereidsLoadPlanInfoCollector;
+import org.apache.doris.nereids.load.NereidsParamCreateContext;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.system.BeSelectionPolicy;
@@ -211,6 +214,47 @@ public class FileLoadScanNode extends FileScanNode {
             this.selectedSplitNum += scanProvider.getInputSplitNum();
             this.totalFileSize += scanProvider.getInputFileSize();
         }
+    }
+
+    public void finalizeForNereids(TUniqueId loadId, List<NereidsFileGroupInfo> fileGroupInfos,
+            List<NereidsParamCreateContext> contexts, NereidsLoadPlanInfoCollector.LoadPlanInfo loadPlanInfo)
+            throws UserException {
+        Preconditions.checkState(contexts.size() == fileGroupInfos.size(),
+                contexts.size() + " vs. " + fileGroupInfos.size());
+        List<Expr> preFilterList = loadPlanInfo.getPreFilterExprList();
+        if (preFilterList != null) {
+            addPreFilterConjuncts(preFilterList);
+        }
+        List<Expr> postFilterList = loadPlanInfo.getPostFilterExprList();
+        if (postFilterList != null) {
+            addConjuncts(postFilterList);
+        }
+        // ATTN: for load scan node, do not use backend policy in ExternalScanNode.
+        // Because backend policy in ExternalScanNode may only contain compute backend.
+        // But for load job, we should select backends from all backends, both compute and mix.
+        BeSelectionPolicy policy = new BeSelectionPolicy.Builder()
+                .needQueryAvailable()
+                .needLoadAvailable()
+                .build();
+        FederationBackendPolicy localBackendPolicy = new FederationBackendPolicy();
+        localBackendPolicy.init(policy);
+        for (int i = 0; i < contexts.size(); ++i) {
+            NereidsParamCreateContext context = contexts.get(i);
+            NereidsFileGroupInfo fileGroupInfo = fileGroupInfos.get(i);
+            context.params = loadPlanInfo.toFileScanRangeParams(loadId, fileGroupInfo);
+            createScanRangeLocations(context, fileGroupInfo, localBackendPolicy);
+            this.selectedSplitNum += fileGroupInfo.getFileStatuses().size();
+            for (TBrokerFileStatus fileStatus : fileGroupInfo.getFileStatuses()) {
+                this.totalFileSize += fileStatus.getSize();
+            }
+        }
+    }
+
+    private void createScanRangeLocations(NereidsParamCreateContext context,
+            NereidsFileGroupInfo fileGroupInfo, FederationBackendPolicy backendPolicy)
+            throws UserException {
+        fileGroupInfo.getFileStatusAndCalcInstance(backendPolicy);
+        fileGroupInfo.createScanRangeLocations(context, backendPolicy, scanRangeLocations);
     }
 
     // TODO: This api is for load job only. Will remove it later.

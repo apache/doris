@@ -29,7 +29,7 @@
 #include "vec/core/field.h"
 
 namespace doris::vectorized {
-TEST(ColumnStructTest, StringTest) {
+TEST(ColumnStructTest2, StringTest) {
     auto str64_column = ColumnString64::create();
     auto i32_column = ColumnInt32::create();
 
