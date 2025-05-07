@@ -63,6 +63,7 @@ import org.apache.doris.nereids.trees.plans.commands.CreateProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateResourceCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateSqlBlockRuleCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateStageCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableLikeCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateUserCommand;
@@ -90,6 +91,7 @@ import org.apache.doris.nereids.trees.plans.commands.DropResourceCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropRowPolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropSqlBlockRuleCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropStageCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropStoragePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropTableCommand;
@@ -216,6 +218,7 @@ import org.apache.doris.nereids.trees.plans.commands.load.PauseDataSyncJobComman
 import org.apache.doris.nereids.trees.plans.commands.load.PauseRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.load.ResumeDataSyncJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.load.ResumeRoutineLoadCommand;
+import org.apache.doris.nereids.trees.plans.commands.load.ShowCreateRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.load.StopDataSyncJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.load.StopRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshCatalogCommand;
@@ -997,6 +1000,10 @@ public interface CommandVisitor<R, C> {
         return visitCommand(alterColumnStatsCommand, context);
     }
 
+    default R visitShowCreateRoutineLoadCommand(ShowCreateRoutineLoadCommand showCreateRoutineLoadCommand, C context) {
+        return visitCommand(showCreateRoutineLoadCommand, context);
+    }
+
     default R visitPauseRoutineLoadCommand(PauseRoutineLoadCommand routineLoadCommand, C context) {
         return visitCommand(routineLoadCommand, context);
     }
@@ -1063,5 +1070,13 @@ public interface CommandVisitor<R, C> {
 
     default R visitCreateResourceCommand(CreateResourceCommand createResourceCommand, C context) {
         return visitCommand(createResourceCommand, context);
+    }
+
+    default R visitCreateStageCommand(CreateStageCommand createStageCommand, C context) {
+        return visitCommand(createStageCommand, context);
+    }
+
+    default R visitDropStageCommand(DropStageCommand dropStageCommand, C context) {
+        return visitCommand(dropStageCommand, context);
     }
 }

@@ -586,6 +586,7 @@ import org.apache.doris.nereids.trees.plans.commands.CreateProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateResourceCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateSqlBlockRuleCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateStageCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableLikeCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateUserCommand;
@@ -614,6 +615,7 @@ import org.apache.doris.nereids.trees.plans.commands.DropResourceCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropRowPolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropSqlBlockRuleCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropStageCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropStoragePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropTableCommand;
@@ -850,6 +852,7 @@ import org.apache.doris.nereids.trees.plans.commands.load.PauseDataSyncJobComman
 import org.apache.doris.nereids.trees.plans.commands.load.PauseRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.load.ResumeDataSyncJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.load.ResumeRoutineLoadCommand;
+import org.apache.doris.nereids.trees.plans.commands.load.ShowCreateRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.load.StopDataSyncJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.load.StopRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.load.SyncJobName;
@@ -6573,6 +6576,25 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
+    public LogicalPlan visitCreateStage(DorisParser.CreateStageContext ctx) {
+        String stageName = stripQuotes(ctx.name.getText());
+        Map<String, String> properties = visitPropertyClause(ctx.properties);
+
+        return new CreateStageCommand(
+            ctx.IF() != null,
+                stageName,
+                properties
+        );
+    }
+
+    @Override
+    public LogicalPlan visitDropStage(DorisParser.DropStageContext ctx) {
+        return new DropStageCommand(
+            ctx.IF() != null,
+            stripQuotes(ctx.name.getText()));
+    }
+
+    @Override
     public LogicalPlan visitAlterUser(DorisParser.AlterUserContext ctx) {
         boolean ifExist = ctx.EXISTS() != null;
         UserDesc userDesc = visitGrantUserIdentify(ctx.grantUserIdentify());
@@ -6666,6 +6688,24 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             index,
             columnName,
             properties);
+    }
+
+    @Override
+    public LogicalPlan visitShowCreateRoutineLoad(DorisParser.ShowCreateRoutineLoadContext ctx) {
+        boolean isAll = ctx.ALL() != null;
+        List<String> labelParts = visitMultipartIdentifier(ctx.label);
+        String jobName;
+        String dbName = null;
+        if (labelParts.size() == 1) {
+            jobName = labelParts.get(0);
+        } else if (labelParts.size() == 2) {
+            dbName = labelParts.get(0);
+            jobName = labelParts.get(1);
+        } else {
+            throw new ParseException("only support [<db>.]<job_name>", ctx.label);
+        }
+        LabelNameInfo labelNameInfo = new LabelNameInfo(dbName, jobName);
+        return new ShowCreateRoutineLoadCommand(labelNameInfo, isAll);
     }
 
     @Override
