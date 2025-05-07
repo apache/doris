@@ -157,7 +157,8 @@ public class HiveMetaStoreCache {
             public Map<PartitionCacheKey, HivePartition> loadAll(Iterable<? extends PartitionCacheKey> keys) {
                 return loadPartitions(keys);
             }
-        }, null, refreshExecutor);
+        }, (key, value, cause) -> LOG.info("partitionCache onRemoval, key: {}, cause: {}",key,cause),
+                refreshExecutor);
 
         setNewFileCache();
     }
