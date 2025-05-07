@@ -134,6 +134,10 @@ public class HiveScanNode extends FileQueryScanNode {
             Collection<PartitionItem> partitionItems;
             // partitions has benn pruned by Nereids, in PruneFileScanPartition,
             // so just use the selected partitions.
+            if (selectedPartitions == null) {
+                throw new AnalysisException("Should use Nereids to prune partitions. "
+                        + "set enable_fallback_to_original_planner=false and try again");
+            }
             this.totalPartitionNum = selectedPartitions.totalPartitionNum;
             partitionItems = selectedPartitions.selectedPartitions.values();
             Preconditions.checkNotNull(partitionItems);
