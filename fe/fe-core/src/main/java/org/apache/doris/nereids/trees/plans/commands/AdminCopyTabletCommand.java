@@ -58,7 +58,7 @@ import java.util.concurrent.TimeUnit;
 /**
  * ADMIN COPY TABLET 10110 PROPERTIES('version' = '1000', backend_id = '10001');
  */
-public class AdminCopyTabletCommand extends Command implements ForwardWithSync {
+public class AdminCopyTabletCommand extends ShowCommand {
 
     public static final String PROP_VERSION = "version";
     public static final String PROP_BACKEND_ID = "backend_id";
@@ -103,16 +103,9 @@ public class AdminCopyTabletCommand extends Command implements ForwardWithSync {
     }
 
     @Override
-    public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
+    public ShowResultSet doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
         validate();
-        ShowResultSet resultSet = handleCopyTablet();
-        if (resultSet != null) {
-            if (executor.isProxy()) {
-                executor.setProxyShowResultSet(resultSet);
-            } else {
-                executor.sendResultSet(resultSet);
-            }
-        }
+        return handleCopyTablet();
     }
 
     /**
