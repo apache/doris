@@ -50,7 +50,7 @@ public:
 class EncodingInfo {
 public:
     // for test
-    static Status get(FieldType field_type, EncodingTypePB, const EncodingInfo** );
+    static Status get(FieldType field_type, EncodingTypePB, const EncodingInfo**);
 
     // Get EncodingInfo for TypeInfo and EncodingTypePB
     static Status get(const TypeInfo* type_info, EncodingTypePB encoding_type,

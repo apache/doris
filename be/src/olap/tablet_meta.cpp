@@ -412,7 +412,7 @@ void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tco
         if (!segment_v2::EncodingTypePB_IsValid(encoding_type_num)) {
             column->set_encoding(segment_v2::DEFAULT_ENCODING);
         } else {
-            auto encoding_type_pb = (segment_v2::EncodingTypePB) encoding_type_num;
+            auto encoding_type_pb = (segment_v2::EncodingTypePB)encoding_type_num;
             if (encoding_type_pb == segment_v2::UNKNOWN_ENCODING) {
                 column->set_encoding(segment_v2::DEFAULT_ENCODING);
             } else {
