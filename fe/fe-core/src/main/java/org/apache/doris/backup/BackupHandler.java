@@ -54,6 +54,9 @@ import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.fs.remote.AzureFileSystem;
 import org.apache.doris.fs.remote.RemoteFileSystem;
 import org.apache.doris.fs.remote.S3FileSystem;
+import org.apache.doris.nereids.trees.plans.commands.BackupCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.TableRefInfo;
 import org.apache.doris.persist.BarrierLog;
 import org.apache.doris.task.DirMoveTask;
 import org.apache.doris.task.DownloadTask;
@@ -318,6 +321,48 @@ public class BackupHandler extends MasterDaemon implements Writable {
         }
     }
 
+    public void process(BackupCommand command) throws DdlException {
+        if (Config.isCloudMode()) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
+                    "BACKUP and RESTORE are not supported by the cloud mode yet");
+        }
+
+        // check if repo exist
+        String repoName = command.getRepoName();
+        Repository repository = null;
+        if (!repoName.equals(Repository.KEEP_ON_LOCAL_REPO_NAME)) {
+            repository = repoMgr.getRepo(repoName);
+            if (repository == null) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
+                        "Repository " + repoName + " does not exist");
+            }
+        }
+
+        // check if db exist
+        String dbName = command.getDbName();
+        Database db = env.getInternalCatalog().getDbOrDdlException(dbName);
+
+        // Try to get sequence lock.
+        // We expect at most one operation on a repo at same time.
+        // But this operation may take a few seconds with lock held.
+        // So we use tryLock() to give up this operation if we can not get lock.
+        tryLock();
+        try {
+            // Check if there is backup or restore job running on this database
+            AbstractJob currentJob = getCurrentJob(db.getId());
+            if (currentJob != null && !currentJob.isDone()) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
+                        "Can only run one backup or restore job of a database at same time "
+                        + ", current running: label = " + currentJob.getLabel() + " jobId = "
+                        + currentJob.getJobId() + ", to run label = " + command.getLabel());
+            }
+
+            backup(repository, db, command);
+        } finally {
+            seqlock.unlock();
+        }
+    }
+
     // the entry method of submitting a backup or restore job
     public void process(AbstractBackupStmt stmt) throws DdlException {
         if (Config.isCloudMode()) {
@@ -375,6 +420,152 @@ public class BackupHandler extends MasterDaemon implements Writable {
             ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "Got interrupted exception when "
                     + "try locking. Try again");
         }
+    }
+
+    private void backup(Repository repository, Database db, BackupCommand command) throws DdlException {
+        if (repository != null && repository.isReadOnly()) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "Repository " + repository.getName()
+                    + " is read only");
+        }
+
+        long commitSeq = 0;
+        Set<String> tableNames = Sets.newHashSet();
+
+        List<TableRefInfo> tableRefInfos = command.getTableRefInfos();
+
+        // Obtain the snapshot commit seq, any creating table binlog will be visible.
+        db.readLock();
+        try {
+            BarrierLog log = new BarrierLog(db.getId(), db.getFullName());
+            commitSeq = env.getEditLog().logBarrier(log);
+
+            // Determine the tables to be backed up
+            if (tableRefInfos.isEmpty()) {
+                tableNames = db.getTableNames();
+            } else if (command.isExclude()) {
+                tableNames = db.getTableNames();
+                for (TableRefInfo tableRefInfo : tableRefInfos) {
+                    if (!tableNames.remove(tableRefInfo.getTableNameInfo().getTbl())) {
+                        LOG.info("exclude table " + tableRefInfo.getTableNameInfo().getTbl()
+                                + " of backup stmt is not exists in db " + db.getFullName());
+                    }
+                }
+            }
+        } finally {
+            db.readUnlock();
+        }
+
+        List<TableRef> tblRefs = Lists.newArrayList();
+        if (!tableRefInfos.isEmpty() && !command.isExclude()) {
+            for (TableRefInfo tableRefInfo : tableRefInfos) {
+                tblRefs.add(tableRefInfo.translateToLegacyTableRef());
+            }
+        } else {
+            for (String tableName : tableNames) {
+                TableRefInfo tableRefInfo = new TableRefInfo(new TableNameInfo(db.getFullName(), tableName),
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null);
+                tblRefs.add(tableRefInfo.translateToLegacyTableRef());
+            }
+        }
+
+        // Check if backup objects are valid
+        // This is just a pre-check to avoid most of invalid backup requests.
+        // Also calculate the signature for incremental backup check.
+        List<TableRef> tblRefsNotSupport = Lists.newArrayList();
+        for (TableRef tableRef : tblRefs) {
+            String tblName = tableRef.getName().getTbl();
+            Table tbl = db.getTableOrDdlException(tblName);
+
+            // filter the table types which are not supported by local backup.
+            if (repository == null && tbl.getType() != TableType.OLAP
+                    && tbl.getType() != TableType.VIEW && tbl.getType() != TableType.MATERIALIZED_VIEW) {
+                tblRefsNotSupport.add(tableRef);
+                continue;
+            }
+
+            if (tbl.getType() == TableType.VIEW || tbl.getType() == TableType.ODBC
+                    || tbl.getType() == TableType.MATERIALIZED_VIEW) {
+                continue;
+            }
+            if (tbl.getType() != TableType.OLAP) {
+                if (Config.ignore_backup_not_support_table_type) {
+                    LOG.warn("Table '{}' is a {} table, can not backup and ignore it."
+                            + "Only OLAP(Doris)/ODBC/VIEW table can be backed up",
+                            tblName, tbl.getType().toString());
+                    tblRefsNotSupport.add(tableRef);
+                    continue;
+                } else {
+                    ErrorReport.reportDdlException(ErrorCode.ERR_NOT_OLAP_TABLE, tblName);
+                }
+            }
+
+            OlapTable olapTbl = (OlapTable) tbl;
+            tbl.readLock();
+            try {
+                if (!Config.ignore_backup_tmp_partitions && olapTbl.existTempPartitions()) {
+                    ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
+                            "Do not support backup table " + olapTbl.getName() + " with temp partitions");
+                }
+
+                PartitionNames partitionNames = tableRef.getPartitionNames();
+                if (partitionNames != null) {
+                    if (!Config.ignore_backup_tmp_partitions && partitionNames.isTemp()) {
+                        ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
+                                "Do not support backup temp partitions in table " + tableRef.getName());
+                    }
+
+                    for (String partName : partitionNames.getPartitionNames()) {
+                        Partition partition = olapTbl.getPartition(partName);
+                        if (partition == null) {
+                            ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
+                                    "Unknown partition " + partName + " in table" + tblName);
+                        }
+                    }
+                }
+            } finally {
+                tbl.readUnlock();
+            }
+        }
+
+        tblRefs.removeAll(tblRefsNotSupport);
+
+        // Check if label already be used
+        long repoId = Repository.KEEP_ON_LOCAL_REPO_ID;
+        if (repository != null) {
+            List<String> existSnapshotNames = Lists.newArrayList();
+            Status st = repository.listSnapshots(existSnapshotNames);
+            if (!st.ok()) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, st.getErrMsg());
+            }
+            if (existSnapshotNames.contains(command.getLabel())) {
+                if (command.getBackupType() == BackupCommand.BackupType.FULL) {
+                    ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "Snapshot with name '"
+                            + command.getLabel() + "' already exist in repository");
+                } else {
+                    ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "Currently does not support "
+                            + "incremental backup");
+                }
+            }
+            repoId = repository.getId();
+        }
+
+        // Create a backup job
+        BackupJob backupJob = new BackupJob(command.getLabel(), db.getId(),
+                ClusterNamespace.getNameFromFullName(db.getFullName()),
+                tblRefs, command.getTimeoutMs(), command.translateToLagecyContent(), env, repoId, commitSeq);
+        // write log
+        env.getEditLog().logBackupJob(backupJob);
+
+        // must put to dbIdToBackupOrRestoreJob after edit log, otherwise the state of job may be changed.
+        addBackupOrRestoreJob(db.getId(), backupJob);
+
+        LOG.info("finished to submit backup job: {}", backupJob);
     }
 
     private void backup(Repository repository, Database db, BackupStmt stmt) throws DdlException {
