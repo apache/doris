@@ -29,6 +29,7 @@
 #include "testutil/mock/mock_slot_ref.h"
 #include "vec/columns/column_const.h"
 #include "vec/core/block.h"
+#include "vec/data_types/data_type_factory.hpp"
 #include "vec/functions/in.h"
 
 namespace doris::pipeline {
@@ -172,6 +173,8 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot1) {
     const int SlotId = 0;
 
     SlotDescriptor slot_desc;
+    slot_desc._type = vectorized::DataTypeFactory::instance().create_data_type(
+            PrimitiveType::TYPE_BIGINT, false);
 
     ColumnValueRange<TYPE_BIGINT> range("mock", false, 0, 0);
     local_state->_slot_id_to_value_range[SlotId] = std::make_pair(&slot_desc, range);
@@ -227,6 +230,8 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot2) {
     const int SlotId = 0;
 
     SlotDescriptor slot_desc;
+    slot_desc._type = vectorized::DataTypeFactory::instance().create_data_type(
+            PrimitiveType::TYPE_BIGINT, false);
 
     ColumnValueRange<TYPE_BIGINT> range("mock", false, 0, 0);
     local_state->_slot_id_to_value_range[SlotId] = std::make_pair(&slot_desc, range);
@@ -305,6 +310,8 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot3) {
     const int SlotId = 0;
 
     SlotDescriptor slot_desc;
+    slot_desc._type = vectorized::DataTypeFactory::instance().create_data_type(
+            PrimitiveType::TYPE_BIGINT, false);
 
     ColumnValueRange<TYPE_BIGINT> range("mock", false, 0, 0);
     local_state->_slot_id_to_value_range[SlotId] = std::make_pair(&slot_desc, range);
@@ -347,6 +354,8 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot4) {
     const int SlotId = 0;
 
     SlotDescriptor slot_desc;
+    slot_desc._type = vectorized::DataTypeFactory::instance().create_data_type(
+            PrimitiveType::TYPE_BIGINT, false);
 
     ColumnValueRange<TYPE_BIGINT> range("mock", false, 0, 0);
     local_state->_slot_id_to_value_range[SlotId] = std::make_pair(&slot_desc, range);
@@ -401,6 +410,8 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot5) {
     const int SlotId = 0;
 
     SlotDescriptor slot_desc;
+    slot_desc._type = vectorized::DataTypeFactory::instance().create_data_type(
+            PrimitiveType::TYPE_BIGINT, false);
 
     ColumnValueRange<TYPE_BIGINT> range("mock", false, 0, 0);
     local_state->_slot_id_to_value_range[SlotId] = std::make_pair(&slot_desc, range);
@@ -455,6 +466,8 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot6) {
     const int SlotId = 0;
 
     SlotDescriptor slot_desc;
+    slot_desc._type = vectorized::DataTypeFactory::instance().create_data_type(
+            PrimitiveType::TYPE_BIGINT, false);
 
     ColumnValueRange<TYPE_BIGINT> range("mock", false, 0, 0);
     local_state->_slot_id_to_value_range[SlotId] = std::make_pair(&slot_desc, range);
@@ -509,6 +522,8 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot7) {
     const int SlotId = 0;
 
     SlotDescriptor slot_desc;
+    slot_desc._type = vectorized::DataTypeFactory::instance().create_data_type(
+            PrimitiveType::TYPE_BIGINT, false);
 
     ColumnValueRange<TYPE_BIGINT> range("mock", false, 0, 0);
     local_state->_slot_id_to_value_range[SlotId] = std::make_pair(&slot_desc, range);
@@ -558,6 +573,8 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot8) {
     const int SlotId = 0;
 
     SlotDescriptor slot_desc;
+    slot_desc._type = vectorized::DataTypeFactory::instance().create_data_type(
+            PrimitiveType::TYPE_BIGINT, false);
 
     ColumnValueRange<TYPE_BIGINT> range("mock", false, 0, 0);
     EXPECT_TRUE(range.add_fixed_value(1));
@@ -611,6 +628,8 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot10) {
     const int SlotId = 0;
 
     SlotDescriptor slot_desc;
+    slot_desc._type = vectorized::DataTypeFactory::instance().create_data_type(
+            PrimitiveType::TYPE_BIGINT, false);
 
     ColumnValueRange<TYPE_BIGINT> range("mock", false, 0, 0);
 
@@ -664,6 +683,8 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot11) {
     const int SlotId = 0;
 
     SlotDescriptor slot_desc;
+    slot_desc._type = vectorized::DataTypeFactory::instance().create_data_type(
+            PrimitiveType::TYPE_BIGINT, false);
 
     ColumnValueRange<TYPE_BIGINT> range("mock", false, 0, 0);
 
@@ -716,6 +737,8 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot12) {
     const int SlotId = 0;
 
     SlotDescriptor slot_desc;
+    slot_desc._type = vectorized::DataTypeFactory::instance().create_data_type(
+            PrimitiveType::TYPE_BIGINT, false);
 
     ColumnValueRange<TYPE_BIGINT> range("mock", false, 0, 0);
     EXPECT_TRUE(range.add_fixed_value(1));
@@ -769,6 +792,8 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot13) {
     const int SlotId = 0;
 
     SlotDescriptor slot_desc;
+    slot_desc._type = vectorized::DataTypeFactory::instance().create_data_type(
+            PrimitiveType::TYPE_BIGINT, false);
 
     ColumnValueRange<TYPE_BIGINT> range("mock", false, 0, 0);
     EXPECT_TRUE(range.add_fixed_value(1));
@@ -822,6 +847,8 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot14) {
     const int SlotId = 0;
 
     SlotDescriptor slot_desc;
+    slot_desc._type = vectorized::DataTypeFactory::instance().create_data_type(
+            PrimitiveType::TYPE_BIGINT, false);
 
     ColumnValueRange<TYPE_BIGINT> range("mock", false, 0, 0);
     EXPECT_TRUE(range.add_fixed_value(1));
@@ -879,6 +906,8 @@ TEST_F(ScanNormalizePredicate, test_is_predicate_acting_on_slot15) {
     const int SlotId = 0;
 
     SlotDescriptor slot_desc;
+    slot_desc._type = vectorized::DataTypeFactory::instance().create_data_type(
+            PrimitiveType::TYPE_BIGINT, false);
 
     ColumnValueRange<TYPE_BIGINT> range("mock", false, 0, 0);
     EXPECT_TRUE(range.add_fixed_value(1));

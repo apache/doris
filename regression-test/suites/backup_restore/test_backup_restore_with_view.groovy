@@ -125,6 +125,8 @@ suite("test_backup_restore_with_view", "backup_restore") {
     restore_result.last()
     logger.info("show restore result: ${restore_result}")
     assertTrue(restore_result.last().State == "FINISHED")
+    def res = sql "SHOW VIEW FROM ${dbName1}.${tableName}"
+    assertTrue(res.size() > 0)
 
     sql "DROP TABLE ${dbName}.${tableName} FORCE"
     sql "DROP VIEW ${dbName}.${viewName}"

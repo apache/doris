@@ -58,6 +58,34 @@ public class S3PropertiesTest {
     }
 
     @Test
+    public void testEndpointPattern() throws UserException {
+        /*
+         * region:
+         * us-east-2
+         * endpoint:
+         * s3.us-east-2.amazonaws.com
+         * s3.dualstack.us-east-2.amazonaws.com
+         * s3-fips.dualstack.us-east-2.amazonaws.com
+         * s3-fips.us-east-2.amazonaws.com
+         * */
+        String endpoint = "s3.us-east-2.amazonaws.com";
+        origProps.put("s3.endpoint", endpoint);
+        origProps.put("s3.access_key", "myS3AccessKey");
+        origProps.put("s3.secret_key", "myS3SecretKey");
+        S3Properties s3Properties = (S3Properties) StorageProperties.createPrimary(origProps);
+        Assertions.assertEquals("us-east-2", s3Properties.getRegion());
+        origProps.put("s3.endpoint", "s3.dualstack.us-east-2.amazonaws.com");
+        s3Properties = (S3Properties) StorageProperties.createPrimary(origProps);
+        Assertions.assertEquals("us-east-2", s3Properties.getRegion());
+        origProps.put("s3.endpoint", "s3-fips.dualstack.us-east-2.amazonaws.com");
+        s3Properties = (S3Properties) StorageProperties.createPrimary(origProps);
+        Assertions.assertEquals("us-east-2", s3Properties.getRegion());
+        origProps.put("s3.endpoint", "s3-fips.us-east-2.amazonaws.com");
+        s3Properties = (S3Properties) StorageProperties.createPrimary(origProps);
+        Assertions.assertEquals("us-east-2", s3Properties.getRegion());
+    }
+
+    @Test
     public void testToNativeS3Configuration() throws UserException {
         origProps.put("s3.endpoint", "https://cos.example.com");
         origProps.put("s3.access_key", "myS3AccessKey");

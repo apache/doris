@@ -217,7 +217,6 @@ Status FSFileCacheStorage::remove(const FileCacheKey& key) {
     std::vector<FileInfo> files;
     bool exists {false};
     RETURN_IF_ERROR(fs->list(dir, true, &files, &exists));
-    DCHECK(exists);
     if (files.empty()) {
         RETURN_IF_ERROR(fs->delete_directory(dir));
     }

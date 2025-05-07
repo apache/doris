@@ -37,7 +37,6 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "gutil/strings/substitute.h"
 #include "olap/olap_define.h"
 #include "olap/options.h"
 #include "olap/snapshot_manager.h"

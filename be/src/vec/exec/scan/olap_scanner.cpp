@@ -199,6 +199,11 @@ Status OlapScanner::init() {
                 LOG(WARNING) << "fail to init reader.res=" << st;
                 return st;
             }
+            if (config::enable_mow_verbose_log && tablet->enable_unique_key_merge_on_write()) {
+                LOG_INFO("finish capture_rs_readers for tablet={}, query_id={}",
+                         tablet->tablet_id(), print_id(_state->query_id()));
+            }
+
             if (!_state->skip_delete_predicate()) {
                 read_source.fill_delete_predicates();
             }
@@ -282,8 +287,11 @@ Status OlapScanner::_init_tablet_reader_params(
     _tablet_reader_params.common_expr_ctxs_push_down = _common_expr_ctxs_push_down;
     _tablet_reader_params.output_columns =
             ((pipeline::OlapScanLocalState*)_local_state)->_maybe_read_column_ids;
-    _tablet_reader_params.target_cast_type_for_variants =
-            ((pipeline::OlapScanLocalState*)_local_state)->_cast_types_for_variants;
+    for (const auto& ele :
+         ((pipeline::OlapScanLocalState*)_local_state)->_cast_types_for_variants) {
+        _tablet_reader_params.target_cast_type_for_variants[ele.first] =
+                ele.second->get_primitive_type();
+    };
     // Condition
     for (auto& filter : filters) {
         _tablet_reader_params.conditions.push_back(filter);
@@ -423,7 +431,7 @@ Status OlapScanner::_init_variant_columns() {
         if (!slot->is_materialized()) {
             continue;
         }
-        if (slot->type().is_variant_type()) {
+        if (slot->type()->get_primitive_type() == PrimitiveType::TYPE_VARIANT) {
             // Such columns are not exist in frontend schema info, so we need to
             // add them into tablet_schema for later column indexing.
             TabletColumn subcol = TabletColumn::create_materialized_variant_column(
@@ -447,7 +455,7 @@ Status OlapScanner::_init_return_columns() {
         // variant column using path to index a column
         int32_t index = 0;
         auto& tablet_schema = _tablet_reader_params.tablet_schema;
-        if (slot->type().is_variant_type()) {
+        if (slot->type()->get_primitive_type() == PrimitiveType::TYPE_VARIANT) {
             index = tablet_schema->field_index(PathInData(
                     tablet_schema->column_by_uid(slot->col_unique_id()).name_lower_case(),
                     slot->column_paths()));

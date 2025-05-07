@@ -540,6 +540,7 @@ suite("test_analyze_mv") {
     assertEquals("4", result_row[0][3])
     assertEquals("4", result_row[0][4])
 
+    sql """drop stats mvTestDup"""
     sql """analyze table mvTestDup with sample rows 4000000"""
     wait_analyze_finish("mvTestDup")
     result_sample = sql """SHOW ANALYZE mvTestDup;"""
@@ -548,7 +549,7 @@ suite("test_analyze_mv") {
     logger.info("Analyze job id is " + jobId)
 
     result_sample = sql """show column stats mvTestDup"""
-    assertEquals(12, result_sample.size())
+    assertEquals(9, result_sample.size())
 
     result_sample = sql """show column stats mvTestDup(key1)"""
     logger.info("result " + result_sample)
@@ -610,60 +611,18 @@ suite("test_analyze_mv") {
 
     result_sample = sql """show column stats mvTestDup(`mva_SUM__CAST(``value1`` AS bigint)`)"""
     logger.info("result " + result_sample)
-    if ("MANUAL" != result_sample[0][11]) {
-        logger.info("Overwrite by auto analyze, analyze it again.")
-        sql """analyze table mvTestDup with sync with sample rows 4000000"""
-        result_sample = sql """show column stats mvTestDup(`mva_SUM__CAST(``value1`` AS bigint)`)"""
-        logger.info("result after reanalyze " + result_sample)
-    }
-    assertEquals(1, result_sample.size())
-    assertEquals("mva_SUM__CAST(`value1` AS bigint)", result_sample[0][0])
-    assertEquals("mv3", result_sample[0][1])
-    assertEquals("4.0", result_sample[0][2])
-    assertEquals("4.0", result_sample[0][3])
-    assertEquals("6", result_sample[0][7])
-    assertEquals("3001", result_sample[0][8])
-    assertEquals("SAMPLE", result_sample[0][9])
-    assertEquals("MANUAL", result_sample[0][11])
+    assertEquals(0, result_sample.size())
 
     result_sample = sql """show column stats mvTestDup(`mva_MAX__``value2```)"""
     logger.info("result " + result_sample)
-    if ("MANUAL" != result_sample[0][11]) {
-        logger.info("Overwrite by auto analyze, analyze it again.")
-        sql """analyze table mvTestDup with sync with sample rows 4000000"""
-        result_sample = sql """show column stats mvTestDup(`mva_MAX__``value2```)"""
-        logger.info("result after reanalyze " + result_sample)
-    }
-    assertEquals(1, result_sample.size())
-    assertEquals("mva_MAX__`value2`", result_sample[0][0])
-    assertEquals("mv3", result_sample[0][1])
-    assertEquals("4.0", result_sample[0][2])
-    assertEquals("4.0", result_sample[0][3])
-    assertEquals("4", result_sample[0][7])
-    assertEquals("4001", result_sample[0][8])
-    assertEquals("SAMPLE", result_sample[0][9])
-    assertEquals("MANUAL", result_sample[0][11])
+    assertEquals(0, result_sample.size())
 
     result_sample = sql """show column stats mvTestDup(`mva_MIN__``value3```)"""
     logger.info("result " + result_sample)
-    if ("MANUAL" != result_sample[0][11]) {
-        logger.info("Overwrite by auto analyze, analyze it again.")
-        sql """analyze table mvTestDup with sync with sample rows 4000000"""
-        result_sample = sql """show column stats mvTestDup(`mva_MIN__``value3```)"""
-        logger.info("result after reanalyze " + result_sample)
-    }
-    assertEquals(1, result_sample.size())
-    assertEquals("mva_MIN__`value3`", result_sample[0][0])
-    assertEquals("mv3", result_sample[0][1])
-    assertEquals("4.0", result_sample[0][2])
-    assertEquals("4.0", result_sample[0][3])
-    assertEquals("5", result_sample[0][7])
-    assertEquals("5001", result_sample[0][8])
-    assertEquals("SAMPLE", result_sample[0][9])
-    assertEquals("MANUAL", result_sample[0][11])
+    assertEquals(0, result_sample.size())
 
     result_sample = sql """show analyze task status ${jobId}"""
-    assertEquals(12, result_sample.size())
+    assertEquals(9, result_sample.size())
     def verifyTaskStatus = { result, colName, indexName ->
         def found = false;
         for (int i = 0; i < result.size(); i++) {
@@ -683,9 +642,6 @@ suite("test_analyze_mv") {
     verifyTaskStatus(result_sample, "mv_key1", "mv3")
     verifyTaskStatus(result_sample, "mv_key2", "mv2")
     verifyTaskStatus(result_sample, "mv_key2", "mv3")
-    verifyTaskStatus(result_sample, "mva_MAX__`value2`", "mv3")
-    verifyTaskStatus(result_sample, "mva_MIN__`value3`", "mv3")
-    verifyTaskStatus(result_sample, "mva_SUM__CAST(`value1` AS bigint)", "mv3")
 
     // * Test row count report and report for nereids
     sql """truncate table mvTestDup"""
@@ -810,4 +766,3 @@ suite("test_analyze_mv") {
 
     sql """drop database if exists test_analyze_mv"""
 }
-

@@ -946,4 +946,129 @@ TEST_F(ColumnArrayTest, IntArrayPermuteTest) {
     }
 }
 
+TEST_F(ColumnArrayTest, ArrayTypeTesterase) {
+    DataTypePtr datetype_32 = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>());
+    DataTypePtr datetype_array = std::make_shared<DataTypeArray>(datetype_32);
+    auto c = datetype_array->create_column();
+    auto column_res = datetype_array->create_column();
+    auto* column_array = assert_cast<ColumnArray*>(c.get());
+    auto& column_offsets = column_array->get_offsets_column();
+    auto& column_data = column_array->get_data();
+
+    std::vector<int32_t> data = {1, 2, 3, 4, 5};
+    std::vector<int32_t> data2 = {11, 22};
+    std::vector<int32_t> data3 = {33, 44, 55};
+    // insert null
+    std::vector<int32_t> data5 = {66};
+
+    std::vector<UInt64> offset = {5, 7, 10, 11, 12};
+    for (auto d : data) {
+        column_data.insert_data(reinterpret_cast<const char*>(&d), sizeof(d));
+    }
+    for (auto d : data2) {
+        column_data.insert_data(reinterpret_cast<const char*>(&d), sizeof(d));
+    }
+    for (auto d : data3) {
+        column_data.insert_data(reinterpret_cast<const char*>(&d), sizeof(d));
+    }
+    column_data.insert_default();
+    for (auto d : data5) {
+        column_data.insert_data(reinterpret_cast<const char*>(&d), sizeof(d));
+    }
+
+    for (auto d : offset) {
+        column_offsets.insert_data(reinterpret_cast<const char*>(&d), sizeof(d));
+    }
+
+    column_res->insert_range_from(*column_array, 0, offset.size());
+    column_array->erase(0, 2);
+    EXPECT_EQ(column_array->size(), 3);
+    // Block tmp;
+    // tmp.insert({std::move(c), datetype_array, "asd"});
+    // std::cout << tmp.dump_data(0, tmp.rows());
+
+    // Block tmp2;
+    // tmp2.insert({std::move(column_res), datetype_array, "asd2"});
+    // std::cout << tmp2.dump_data(0, tmp2.rows());
+    auto* column_result = assert_cast<ColumnArray*>(column_res.get());
+    auto& column_offsets_res = column_result->get_offsets_column();
+    auto& offset_data_res = assert_cast<ColumnUInt64&>(column_offsets_res);
+    auto& offset_data = assert_cast<ColumnUInt64&>(column_offsets);
+    auto& column_data_res = assert_cast<ColumnInt32&>(
+            assert_cast<ColumnNullable&>(column_result->get_data()).get_nested_column());
+    auto& column_data_origin = assert_cast<ColumnInt32&>(
+            assert_cast<ColumnNullable&>(column_data).get_nested_column());
+    for (int i = 0; i < column_array->size(); ++i) {
+        std::cout << datetype_array->to_string(*column_array, i) << std::endl;
+        std::cout << datetype_array->to_string(*column_res, i + 2) << std::endl;
+        EXPECT_EQ(column_data_origin.get_element(i), column_data_res.get_element(i + 7));
+        EXPECT_EQ(offset_data.get_element(i), offset_data_res.get_element(i + 2) - 7);
+    }
+}
+
+TEST_F(ColumnArrayTest, ArrayTypeTest2erase) {
+    DataTypePtr datetype_32 = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>());
+    DataTypePtr datetype_array = std::make_shared<DataTypeArray>(datetype_32);
+    auto c = datetype_array->create_column();
+    auto* column_array = assert_cast<ColumnArray*>(c.get());
+    auto column_res = column_array->clone_empty();
+    auto& column_offsets = column_array->get_offsets_column();
+    auto& column_data = column_array->get_data();
+
+    std::vector<int32_t> data = {1, 2, 3, 4, 5};
+    std::vector<int32_t> data2 = {11, 22};
+    std::vector<int32_t> data3 = {33, 44, 55};
+    // insert null
+    std::vector<int32_t> data5 = {66};
+
+    std::vector<UInt64> offset = {5, 7, 10, 11, 12};
+    for (auto d : data) {
+        column_data.insert_data(reinterpret_cast<const char*>(&d), sizeof(d));
+    }
+    for (auto d : data2) {
+        column_data.insert_data(reinterpret_cast<const char*>(&d), sizeof(d));
+    }
+    for (auto d : data3) {
+        column_data.insert_data(reinterpret_cast<const char*>(&d), sizeof(d));
+    }
+    column_data.insert_default();
+    for (auto d : data5) {
+        column_data.insert_data(reinterpret_cast<const char*>(&d), sizeof(d));
+    }
+
+    for (auto d : offset) {
+        column_offsets.insert_data(reinterpret_cast<const char*>(&d), sizeof(d));
+    }
+
+    column_res->insert_from(*column_array, 0);
+    column_res->insert_from(*column_array, 1);
+    column_res->insert_from(*column_array, 4);
+
+    column_array->erase(2, 2);
+    EXPECT_EQ(column_array->size(), 3);
+    std::cout << "have call erase" << std::endl;
+    // Block tmp;
+    // tmp.insert({std::move(c), datetype_array, "asd"});
+    // std::cout << tmp.dump_data(0, tmp.rows());
+
+    // Block tmp2;
+    // tmp2.insert({std::move(column_res), datetype_array, "asd2"});
+    // std::cout << tmp2.dump_data(0, tmp2.rows());
+
+    auto* column_result = assert_cast<ColumnArray*>(column_res.get());
+    auto& column_offsets_res = column_result->get_offsets_column();
+    auto& offset_data_res = assert_cast<ColumnUInt64&>(column_offsets_res);
+    auto& offset_data = assert_cast<ColumnUInt64&>(column_offsets);
+    auto& column_data_res = assert_cast<ColumnInt32&>(
+            assert_cast<ColumnNullable&>(column_result->get_data()).get_nested_column());
+    auto& column_data_origin = assert_cast<ColumnInt32&>(
+            assert_cast<ColumnNullable&>(column_data).get_nested_column());
+    for (int i = 0; i < column_array->size(); ++i) {
+        std::cout << datetype_array->to_string(*column_array, i) << std::endl;
+        std::cout << datetype_array->to_string(*column_res, i) << std::endl;
+        EXPECT_EQ(column_data_origin.get_element(i), column_data_res.get_element(i));
+        EXPECT_EQ(offset_data.get_element(i), offset_data_res.get_element(i));
+    }
+}
+
 } // namespace doris::vectorized

@@ -18,13 +18,19 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.resource.Tag;
+
+import org.apache.commons.lang3.StringUtils;
 
 /**
  * drop workload group command
@@ -32,13 +38,16 @@ import org.apache.doris.qe.StmtExecutor;
 public class DropWorkloadGroupCommand extends DropCommand {
     private final boolean ifExists;
     private final String workloadGroupName;
+    private String computeGroup;
 
     /**
      * constructor
      */
-    public DropWorkloadGroupCommand(String workloadGroupName, boolean ifExists) {
+    public DropWorkloadGroupCommand(String computeGroupName, String workloadGroupName, boolean ifExists) {
         super(PlanType.DROP_WORKLOAD_GROUP_NAME);
+
         this.workloadGroupName = workloadGroupName;
+        this.computeGroup = computeGroupName;
         this.ifExists = ifExists;
     }
 
@@ -48,7 +57,21 @@ public class DropWorkloadGroupCommand extends DropCommand {
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
-        Env.getCurrentEnv().getWorkloadGroupMgr().dropWorkloadGroup(workloadGroupName, ifExists);
+
+        if (StringUtils.isEmpty(computeGroup)) {
+            computeGroup = Config.isCloudMode() ? Tag.VALUE_DEFAULT_COMPUTE_GROUP_NAME : Tag.DEFAULT_BACKEND_TAG.value;
+        }
+
+        if (Config.isCloudMode()) {
+            String originStr = computeGroup;
+            computeGroup = ((CloudSystemInfoService) Env.getCurrentEnv().getClusterInfo()).getCloudClusterIdByName(
+                    computeGroup);
+            if (StringUtils.isEmpty(computeGroup)) {
+                throw new UserException("Can not find compute group " + originStr + ".");
+            }
+        }
+
+        Env.getCurrentEnv().getWorkloadGroupMgr().dropWorkloadGroup(computeGroup, workloadGroupName, ifExists);
     }
 
     @Override

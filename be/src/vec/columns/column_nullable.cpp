@@ -561,8 +561,8 @@ void ColumnNullable::apply_null_map_impl(const ColumnUInt8& map) {
 
     if (arr1.size() != arr2.size()) {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "Inconsistent sizes of ColumnNullable objects");
-        __builtin_unreachable();
+                               "Inconsistent sizes of ColumnNullable objects. Self: {}. Expect: {}",
+                               arr1.size(), arr2.size());
     }
 
     for (size_t i = 0, size = arr1.size(); i < size; ++i) {

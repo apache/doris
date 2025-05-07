@@ -36,15 +36,10 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/serde/data_type_serde.h"
 
-namespace doris {
-namespace vectorized {
+namespace doris::vectorized {
 class BufferWritable;
 class IColumn;
 class ReadBuffer;
-} // namespace vectorized
-} // namespace doris
-
-namespace doris::vectorized {
 
 class DataTypeString : public IDataType {
 public:
@@ -54,11 +49,13 @@ public:
 
     const char* get_family_name() const override { return "String"; }
 
-    TypeIndex get_type_id() const override { return TypeIndex::String; }
-
-    TypeDescriptor get_type_as_type_descriptor() const override {
-        return TypeDescriptor(TYPE_STRING);
+    DataTypeString(int len = -1, PrimitiveType primitive_type = PrimitiveType::TYPE_STRING)
+            : _len(len), _primitive_type(primitive_type) {
+        DCHECK(is_string_type(primitive_type)) << primitive_type;
     }
+    TypeIndex get_type_id() const override { return TypeIndex::String; }
+    PrimitiveType get_primitive_type() const override { return _primitive_type; }
+
     doris::FieldType get_storage_field_type() const override {
         return doris::FieldType::OLAP_FIELD_TYPE_STRING;
     }
@@ -92,6 +89,25 @@ public:
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
         return std::make_shared<DataTypeStringSerDe>(nesting_level);
     };
+    bool is_char_type() const { return _primitive_type == PrimitiveType::TYPE_CHAR; }
+    int len() const { return _len; }
+    void to_protobuf(PTypeDesc* ptype, PTypeNode* node, PScalarType* scalar_type) const override {
+        if (_primitive_type == TYPE_CHAR || _primitive_type == TYPE_VARCHAR) {
+            scalar_type->set_len(_len);
+        }
+    }
+#ifdef BE_TEST
+    void to_thrift(TTypeDesc& thrift_type, TTypeNode& node) const override {
+        IDataType::to_thrift(thrift_type, node);
+        TScalarType& scalar_type = node.scalar_type;
+        scalar_type.__set_len(_len);
+    }
+#endif
+
+private:
+    // Fixed-length `char` type.
+    const int _len;
+    const PrimitiveType _primitive_type;
 };
 
 } // namespace doris::vectorized

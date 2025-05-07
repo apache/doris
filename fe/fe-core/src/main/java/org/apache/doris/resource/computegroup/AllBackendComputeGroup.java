@@ -22,6 +22,9 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Sets;
+
+import java.util.Set;
 
 public class AllBackendComputeGroup extends ComputeGroup {
 
@@ -53,6 +56,17 @@ public class AllBackendComputeGroup extends ComputeGroup {
     @Override
     public ImmutableList<Backend> getBackendList() {
         return systemInfoService.getAllClusterBackendsNoException().values().asList();
+    }
+
+    @Override
+    public Set<String> getNames() {
+        // in cloud mode, name is cluster id.
+        // in no-cloud mode, name is resource tag's name
+        Set<String> ret = Sets.newHashSet();
+        for (Backend backend : systemInfoService.getAllClusterBackendsNoException().values()) {
+            ret.add(backend.getComputeGroup());
+        }
+        return ret;
     }
 
     @Override

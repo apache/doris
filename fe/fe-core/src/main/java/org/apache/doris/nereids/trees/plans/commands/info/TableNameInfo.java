@@ -196,6 +196,19 @@ public class TableNameInfo implements Writable {
         tbl = fromJson.tbl;
     }
 
+    @Override
+    public String toString() {
+        StringBuilder stringBuilder = new StringBuilder();
+        if (ctl != null && !ctl.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
+            stringBuilder.append(ctl).append(".");
+        }
+        if (db != null) {
+            stringBuilder.append(db).append(".");
+        }
+        stringBuilder.append(tbl);
+        return stringBuilder.toString();
+    }
+
     /**
      * equals
      */

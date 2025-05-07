@@ -51,7 +51,6 @@ class ShardedKVCache;
 class VExpr;
 class VExprContext;
 } // namespace vectorized
-struct TypeDescriptor;
 } // namespace doris
 
 namespace doris::vectorized {
@@ -65,7 +64,7 @@ public:
     FileScanner(RuntimeState* state, pipeline::FileScanLocalState* parent, int64_t limit,
                 std::shared_ptr<vectorized::SplitSourceConnector> split_source,
                 RuntimeProfile* profile, ShardedKVCache* kv_cache,
-                std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
+                const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
                 const std::unordered_map<std::string, int>* colname_to_slot_id);
 
     Status open(RuntimeState* state) override;
@@ -104,7 +103,7 @@ protected:
 
     std::unique_ptr<GenericReader> _cur_reader;
     bool _cur_reader_eof;
-    std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range = nullptr;
+    const std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range = nullptr;
     // File source slot descriptors
     std::vector<SlotDescriptor*> _file_slot_descs;
     // col names from _file_slot_descs
@@ -133,15 +132,15 @@ protected:
     std::unordered_map<std::string, size_t> _src_block_name_to_idx;
 
     // Get from GenericReader, save the existing columns in file to their type.
-    std::unordered_map<std::string, TypeDescriptor> _name_to_col_type;
+    std::unordered_map<std::string, DataTypePtr> _name_to_col_type;
     // Get from GenericReader, save columns that required by scan but not exist in file.
     // These columns will be filled by default value or null.
     std::unordered_set<std::string> _missing_cols;
 
     //  The col names and types of source file, such as parquet, orc files.
     std::vector<std::string> _source_file_col_names;
-    std::vector<TypeDescriptor> _source_file_col_types;
-    std::map<std::string, TypeDescriptor*> _source_file_col_name_types;
+    std::vector<DataTypePtr> _source_file_col_types;
+    std::map<std::string, DataTypePtr> _source_file_col_name_types;
 
     // For load task
     vectorized::VExprContextSPtrs _pre_conjunct_ctxs;

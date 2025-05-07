@@ -60,6 +60,7 @@
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_bitmap.h"
 #include "vec/data_types/data_type_decimal.h"
+#include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_hll.h"
 #include "vec/data_types/data_type_map.h"
 #include "vec/data_types/data_type_nullable.h"
@@ -144,10 +145,9 @@ TEST(BlockSerializeTest, Array) {
     tslot1.__set_colName("k1");
     tslot1.nullIndicatorBit = -1;
     tslot1.nullIndicatorByte = 0;
-    TypeDescriptor type_desc(TYPE_ARRAY);
-    type_desc.children.push_back(TypeDescriptor(TYPE_INT));
-    type_desc.contains_nulls.push_back(true);
-    tslot1.__set_slotType(type_desc.to_thrift());
+    DataTypePtr type_desc = std::make_shared<vectorized::DataTypeArray>(
+            vectorized::DataTypeFactory::instance().create_data_type(TYPE_INT, true));
+    tslot1.__set_slotType(type_desc->to_thrift());
     tslot1.__set_col_unique_id(1);
     SlotDescriptor* slot = new SlotDescriptor(tslot1);
     read_desc.add_slot(slot);
@@ -157,10 +157,9 @@ TEST(BlockSerializeTest, Array) {
     tslot2.__set_colName("k2");
     tslot2.nullIndicatorBit = -1;
     tslot2.nullIndicatorByte = 0;
-    TypeDescriptor type_desc2(TYPE_ARRAY);
-    type_desc2.children.push_back(TypeDescriptor(TYPE_STRING));
-    type_desc2.contains_nulls.push_back(true);
-    tslot2.__set_slotType(type_desc2.to_thrift());
+    DataTypePtr type_desc2 = std::make_shared<vectorized::DataTypeArray>(
+            vectorized::DataTypeFactory::instance().create_data_type(TYPE_STRING, true));
+    tslot2.__set_slotType(type_desc2->to_thrift());
     tslot2.__set_col_unique_id(2);
     SlotDescriptor* slot2 = new SlotDescriptor(tslot2);
     read_desc.add_slot(slot2);
@@ -236,13 +235,14 @@ TEST(BlockSerializeTest, Map) {
     tslot.__set_colName("m");
     tslot.nullIndicatorBit = -1;
     tslot.nullIndicatorByte = 0;
-    TypeDescriptor type_desc(TYPE_MAP);
-    type_desc.children.push_back(TypeDescriptor(TYPE_STRING));
-    type_desc.children.push_back(TypeDescriptor(TYPE_INT));
-    type_desc.contains_nulls.push_back(true);
-    type_desc.contains_nulls.push_back(true);
+    DataTypes sub_types;
+    sub_types.reserve(2);
+    sub_types.push_back(
+            vectorized::DataTypeFactory::instance().create_data_type(TYPE_STRING, true));
+    sub_types.push_back(vectorized::DataTypeFactory::instance().create_data_type(TYPE_INT, true));
+    DataTypePtr type_desc = std::make_shared<vectorized::DataTypeMap>(sub_types[0], sub_types[1]);
     tslot.__set_col_unique_id(1);
-    tslot.__set_slotType(type_desc.to_thrift());
+    tslot.__set_slotType(type_desc->to_thrift());
     SlotDescriptor* slot = new SlotDescriptor(tslot);
     read_desc.add_slot(slot);
 
@@ -322,12 +322,22 @@ TEST(BlockSerializeTest, Struct) {
     tslot.__set_colName("struct");
     tslot.nullIndicatorBit = -1;
     tslot.nullIndicatorByte = 0;
-    TypeDescriptor type_desc(TYPE_STRUCT);
-    type_desc.add_sub_type(TYPE_STRING, "name", true);
-    type_desc.add_sub_type(TYPE_LARGEINT, "age", true);
-    type_desc.add_sub_type(TYPE_BOOLEAN, "is", true);
+    DataTypes sub_types;
+    Strings names;
+    sub_types.reserve(3);
+    names.reserve(3);
+    sub_types.push_back(
+            vectorized::DataTypeFactory::instance().create_data_type(TYPE_STRING, true));
+    names.push_back("name");
+    sub_types.push_back(
+            vectorized::DataTypeFactory::instance().create_data_type(TYPE_LARGEINT, true));
+    names.push_back("age");
+    sub_types.push_back(
+            vectorized::DataTypeFactory::instance().create_data_type(TYPE_BOOLEAN, true));
+    names.push_back("is");
+    DataTypePtr type_desc = std::make_shared<DataTypeStruct>(sub_types, names);
     tslot.__set_col_unique_id(1);
-    tslot.__set_slotType(type_desc.to_thrift());
+    tslot.__set_slotType(type_desc->to_thrift());
     SlotDescriptor* slot = new SlotDescriptor(tslot);
     read_desc.add_slot(slot);
 
@@ -502,13 +512,13 @@ TEST(BlockSerializeTest, JsonbBlock) {
         TSlotDescriptor tslot;
         tslot.__set_colName(std::get<0>(t));
         if (std::get<3>(t) == TYPE_DECIMAL128I) {
-            TypeDescriptor type_desc(std::get<3>(t));
-            type_desc.precision = 27;
-            type_desc.scale = 9;
-            tslot.__set_slotType(type_desc.to_thrift());
+            auto type_desc = vectorized::DataTypeFactory::instance().create_data_type(
+                    std::get<3>(t), false, 27, 9);
+            tslot.__set_slotType(type_desc->to_thrift());
         } else {
-            TypeDescriptor type_desc(std::get<3>(t));
-            tslot.__set_slotType(type_desc.to_thrift());
+            auto type_desc =
+                    vectorized::DataTypeFactory::instance().create_data_type(std::get<3>(t), false);
+            tslot.__set_slotType(type_desc->to_thrift());
         }
         tslot.__set_col_unique_id(std::get<2>(t));
         SlotDescriptor* slot = new SlotDescriptor(tslot);

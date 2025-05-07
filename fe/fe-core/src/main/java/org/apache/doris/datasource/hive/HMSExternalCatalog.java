@@ -17,13 +17,11 @@
 
 package org.apache.doris.datasource.hive;
 
-import org.apache.doris.analysis.TableValuedFunctionRef;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.security.authentication.AuthenticationConfig;
 import org.apache.doris.common.security.authentication.HadoopAuthenticator;
@@ -44,15 +42,10 @@ import org.apache.doris.datasource.property.constants.HMSProperties;
 import org.apache.doris.fs.FileSystemProvider;
 import org.apache.doris.fs.FileSystemProviderImpl;
 import org.apache.doris.fs.remote.dfs.DFSFileSystem;
-import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.trees.expressions.functions.table.PartitionValues;
-import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 import org.apache.doris.transaction.TransactionManagerFactory;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Strings;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import lombok.Getter;
 import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.hadoop.hive.conf.HiveConf;
@@ -63,7 +56,6 @@ import org.apache.logging.log4j.Logger;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.concurrent.ThreadPoolExecutor;
 
 /**
@@ -75,6 +67,13 @@ public class HMSExternalCatalog extends ExternalCatalog {
     public static final String FILE_META_CACHE_TTL_SECOND = "file.meta.cache.ttl-second";
     // broker name for file split and query scan.
     public static final String BIND_BROKER_NAME = "broker.name";
+    // Default is false, if set to true, will get table schema from "remoteTable" instead of from hive metastore.
+    // This is because for some forward compatiblity issue of hive metastore, there maybe
+    // "storage schema reading not support" error being thrown.
+    // set this to true can avoid this error.
+    // But notice that if set to true, the default value of column will be ignored because we cannot get default value
+    // from remoteTable object.
+    public static final String GET_SCHEMA_FROM_TABLE = "get_schema_from_table";
 
     // -1 means file cache no ttl set
     public static final int FILE_META_CACHE_NO_TTL = -1;
@@ -180,6 +179,12 @@ public class HMSExternalCatalog extends ExternalCatalog {
                     String.valueOf(Config.hive_metastore_client_timeout_second));
         }
         HiveMetadataOps hiveOps = ExternalMetadataOperations.newHiveMetadataOps(hiveConf, jdbcClientConfig, this);
+        threadPoolWithPreAuth = ThreadPoolManager.newDaemonFixedThreadPoolWithPreAuth(
+            ICEBERG_CATALOG_EXECUTOR_THREAD_NUM,
+            Integer.MAX_VALUE,
+            String.format("hms_iceberg_catalog_%s_executor_pool", name),
+            true,
+            preExecutionAuthenticator);
         FileSystemProvider fileSystemProvider = new FileSystemProviderImpl(Env.getCurrentEnv().getExtMetaCacheMgr(),
                 this.bindBrokerName(), this.catalogProperty.getHadoopProperties());
         this.fileSystemExecutor = ThreadPoolManager.newDaemonFixedThreadPool(FILE_SYSTEM_EXECUTOR_THREAD_NUM,
@@ -303,36 +308,6 @@ public class HMSExternalCatalog extends ExternalCatalog {
         }
     }
 
-    @Override
-    public Pair<String, String> getSourceTableNameWithMetaTableName(String tableName) {
-        for (MetaTableFunction metaFunction : MetaTableFunction.values()) {
-            if (metaFunction.containsMetaTable(tableName)) {
-                return Pair.of(metaFunction.getSourceTableName(tableName), metaFunction.name().toLowerCase());
-            }
-        }
-        return Pair.of(tableName, "");
-    }
-
-    @Override
-    public Optional<TableValuedFunction> getMetaTableFunction(String dbName, String sourceNameWithMetaName) {
-        for (MetaTableFunction metaFunction : MetaTableFunction.values()) {
-            if (metaFunction.containsMetaTable(sourceNameWithMetaName)) {
-                return Optional.of(metaFunction.createFunction(name, dbName, sourceNameWithMetaName));
-            }
-        }
-        return Optional.empty();
-    }
-
-    @Override
-    public Optional<TableValuedFunctionRef> getMetaTableFunctionRef(String dbName, String sourceNameWithMetaName) {
-        for (MetaTableFunction metaFunction : MetaTableFunction.values()) {
-            if (metaFunction.containsMetaTable(sourceNameWithMetaName)) {
-                return Optional.of(metaFunction.createFunctionRef(name, dbName, sourceNameWithMetaName));
-            }
-        }
-        return Optional.empty();
-    }
-
     public String getHiveMetastoreUris() {
         return catalogProperty.getOrDefault(HMSProperties.HIVE_METASTORE_URIS, "");
     }
@@ -347,59 +322,6 @@ public class HMSExternalCatalog extends ExternalCatalog {
 
     public boolean isEnableHmsEventsIncrementalSync() {
         return enableHmsEventsIncrementalSync;
-    }
-
-    /**
-     * Enum for meta tables in hive catalog.
-     * eg: tbl$partitions
-     */
-    private enum MetaTableFunction {
-        PARTITIONS("partition_values");
-
-        private final String suffix;
-        private final String tvfName;
-
-        MetaTableFunction(String tvfName) {
-            this.suffix = "$" + name().toLowerCase();
-            this.tvfName = tvfName;
-        }
-
-        boolean containsMetaTable(String tableName) {
-            return tableName.endsWith(suffix) && (tableName.length() > suffix.length());
-        }
-
-        String getSourceTableName(String tableName) {
-            return tableName.substring(0, tableName.length() - suffix.length());
-        }
-
-        public TableValuedFunction createFunction(String ctlName, String dbName, String sourceNameWithMetaName) {
-            switch (this) {
-                case PARTITIONS:
-                    List<String> nameParts = Lists.newArrayList(ctlName, dbName,
-                            getSourceTableName(sourceNameWithMetaName));
-                    return PartitionValues.create(nameParts);
-                default:
-                    throw new AnalysisException("Unsupported meta function type: " + this);
-            }
-        }
-
-        public TableValuedFunctionRef createFunctionRef(String ctlName, String dbName, String sourceNameWithMetaName) {
-            switch (this) {
-                case PARTITIONS:
-                    Map<String, String> params = Maps.newHashMap();
-                    params.put("catalog", ctlName);
-                    params.put("database", dbName);
-                    params.put("table", getSourceTableName(sourceNameWithMetaName));
-                    try {
-                        return new TableValuedFunctionRef(tvfName, null, params);
-                    } catch (org.apache.doris.common.AnalysisException e) {
-                        LOG.warn("should not happen. {}.{}.{}", ctlName, dbName, sourceNameWithMetaName);
-                        return null;
-                    }
-                default:
-                    throw new AnalysisException("Unsupported meta function type: " + this);
-            }
-        }
     }
 
     public IcebergMetadataOps getIcebergMetadataOps() {
