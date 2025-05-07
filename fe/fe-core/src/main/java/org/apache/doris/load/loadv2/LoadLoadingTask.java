@@ -173,10 +173,6 @@ public class LoadLoadingTask extends LoadTask {
         int timeoutS = Math.max((int) (leftTimeMs / 1000), 1);
         curCoordinator.setTimeout(timeoutS);
 
-        if (tWorkloadGroups != null) {
-            curCoordinator.setTWorkloadGroups(tWorkloadGroups);
-        }
-
         try {
             QeProcessorImpl.INSTANCE.registerQuery(loadId, new QeProcessorImpl.QueryInfo(curCoordinator));
             actualExecute(curCoordinator, timeoutS);

@@ -291,8 +291,10 @@ public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPost
         }
         if (!Env.getCurrentEnv().getAccessManager().checkWorkloadGroupPriv(context, groupName, PrivPredicate.USAGE)) {
             ErrorReport.reportAnalysisException(
-                    "Access denied; you need (at least one of) the %s privilege(s) to use workload group '%s'.",
-                    ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "USAGE/ADMIN", groupName);
+                    "Access denied; you need (at least one of) the %s privilege(s) to use workload group '%s'. "
+                            + "User: %s",
+                    ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "USAGE/ADMIN", groupName,
+                    context.getCurrentUserIdentity());
         }
         return groupName;
     }
