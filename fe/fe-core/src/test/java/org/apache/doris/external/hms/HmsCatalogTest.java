@@ -110,6 +110,7 @@ public class HmsCatalogTest extends AnalyzeCheckTestBase {
         Deencapsulation.setField(tbl, "dbName", "hms_db");
         Deencapsulation.setField(tbl, "name", "hms_tbl");
         Deencapsulation.setField(tbl, "dlaTable", new HiveDlaTable(tbl));
+        Deencapsulation.setField(tbl, "dlaType", DLAType.HIVE);
         new Expectations(tbl) {
             {
                 tbl.getId();
@@ -160,6 +161,7 @@ public class HmsCatalogTest extends AnalyzeCheckTestBase {
         Deencapsulation.setField(view1, "catalog", hmsCatalog);
         Deencapsulation.setField(view1, "dbName", "hms_db");
         Deencapsulation.setField(view1, "name", "hms_view1");
+        Deencapsulation.setField(view1, "dlaType", DLAType.HIVE);
 
         new Expectations(view1) {
             {
@@ -211,6 +213,8 @@ public class HmsCatalogTest extends AnalyzeCheckTestBase {
         Deencapsulation.setField(view2, "catalog", hmsCatalog);
         Deencapsulation.setField(view2, "dbName", "hms_db");
         Deencapsulation.setField(view2, "name", "hms_view2");
+        Deencapsulation.setField(view2, "dlaType", DLAType.HIVE);
+
         new Expectations(view2) {
             {
 
@@ -262,6 +266,8 @@ public class HmsCatalogTest extends AnalyzeCheckTestBase {
         Deencapsulation.setField(view3, "catalog", hmsCatalog);
         Deencapsulation.setField(view3, "dbName", "hms_db");
         Deencapsulation.setField(view3, "name", "hms_view3");
+        Deencapsulation.setField(view3, "dlaType", DLAType.HIVE);
+
         new Expectations(view3) {
             {
 
@@ -313,6 +319,8 @@ public class HmsCatalogTest extends AnalyzeCheckTestBase {
         Deencapsulation.setField(view4, "catalog", hmsCatalog);
         Deencapsulation.setField(view4, "dbName", "hms_db");
         Deencapsulation.setField(view4, "name", "hms_view4");
+        Deencapsulation.setField(view4, "dlaType", DLAType.HIVE);
+
         new Expectations(view4) {
             {
 

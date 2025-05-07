@@ -359,8 +359,8 @@ public class BindRelation extends OneAnalysisRuleFactory {
 
     private Optional<LogicalPlan> handleMetaTable(TableIf table, UnboundRelation unboundRelation,
             List<String> qualifiedTableName) {
-        Optional<TableValuedFunction> tvf = table.getDatabase().getCatalog().getMetaTableFunction(
-                qualifiedTableName.get(1), qualifiedTableName.get(2));
+        Optional<TableValuedFunction> tvf = table.getSysTableFunction(
+                qualifiedTableName.get(0), qualifiedTableName.get(1), qualifiedTableName.get(2));
         if (tvf.isPresent()) {
             return Optional.of(new LogicalTVFRelation(unboundRelation.getRelationId(), tvf.get()));
         }
