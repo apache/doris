@@ -34,13 +34,13 @@ public class ExpressionBottomUpVisitorRewriter implements ExpressionRewriteRule<
         this.rules = rules;
     }
 
-    public Expression rewrite(Expression expression, ExpressionRewriteContext context) {
-        return rewrite(expression, context, null);
-    }
-
     @Override
     public boolean checkRewriteState() {
         return true;
+    }
+
+    public Expression rewrite(Expression expression, ExpressionRewriteContext context) {
+        return rewrite(expression, context, null);
     }
 
     private Expression rewrite(Expression expression, ExpressionRewriteContext context, Expression parent) {

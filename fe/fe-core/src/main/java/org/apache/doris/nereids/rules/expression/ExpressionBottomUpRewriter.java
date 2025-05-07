@@ -60,7 +60,8 @@ public class ExpressionBottomUpRewriter implements ExpressionRewriteRule<Express
     // entrance
     @Override
     public Expression rewrite(Expression expr, ExpressionRewriteContext ctx) {
-        return rewriteBottomUp(expr, ctx, BATCH_ID.getAndIncrement(), null, rules, listeners, checkRewriteState ? getRewriteStateKey() : null);
+        return rewriteBottomUp(expr, ctx, BATCH_ID.getAndIncrement(),
+                null, rules, listeners, checkRewriteState ? getRewriteStateKey() : null);
     }
 
     private static Expression rewriteBottomUp(
