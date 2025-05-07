@@ -2182,6 +2182,10 @@ TEST(FunctionJsonSearchTest, StartJsonSearchTest) {
               std::string("\\"), STRING("$.a.b")},
              STRING("\"$.a.b.c\"")},
 
+            {{STRING(R"({"a":{"b":{"c":"value"}}})"), STRING("one"), STRING("value"),
+              std::string("\\"), STRING("$.not")},
+             Null()},
+
             // Array test cases with start path
             {{STRING(R"({"arr1": [1, 2, 3], "arr2": [4, 5, 6]})"), STRING("one"), STRING("5"),
               std::string("\\"), STRING("$.arr2")},
@@ -2202,6 +2206,10 @@ TEST(FunctionJsonSearchTest, StartJsonSearchTest) {
             {{STRING(R"([["a", "b"], ["c", "d"]])"), STRING("one"), STRING("d"), std::string("\\"),
               STRING("$[1]")},
              STRING("\"$[1][1]\"")},
+
+            {{STRING(R"([["a", "b"], ["c", "d"]])"), STRING("one"), STRING("d"), std::string("\\"),
+              STRING("$[4]")},
+             Null()},
     };
 
     for (const auto& line : data_set) {

@@ -1724,9 +1724,9 @@ struct JsonSearchUtil {
                                         SimdJSONParser::Element& start_element,
                                         bool* find_start_element, const JsonbPath* start_path) {
         auto cur_path = std::make_unique<JsonbPath>();
-        // cur_path->add_leg_to_leg_vector("$", MEMBER_CODE);
         if (*cur_path == *start_path) {
             start_element = root_element;
+            *find_start_element = true;
             return;
         }
         find_start_root_element(root_element, start_element, find_start_element, start_path,
@@ -1839,6 +1839,7 @@ struct JsonSearchUtil {
                 root_path_str = get_start_string(i);
             }
             JsonbPath root_path;
+            // Warning: seek WON'T check the json_doc whether is valid
             if (!root_path.seek(root_path_str.c_str(), root_path_str.size())) {
                 return Status::InvalidArgument(
                         "the start_path argument {} is not a valid json path", root_path_str);
@@ -1867,6 +1868,10 @@ struct JsonSearchUtil {
                 bool find_start_element = false;
                 find_start_root_element(root_element, start_element, &find_start_element,
                                         start_path);
+                if (!find_start_element) {
+                    null_map->get_data()[i] = 1;
+                    break;
+                }
 
                 auto cur_path = std::make_unique<JsonbPath>();
                 auto find = find_matches(start_element, is_one, state, start_path, &matches);
@@ -2120,9 +2125,6 @@ struct JsonSearchNormal {
     RETURN_IF_ERROR(JsonSearchUtil::parse_column_args(                                       \
             context, block, arguments, 3, &escape_is_const, col_escape, col_escape_string)); \
                                                                                              \
-    if (!escape_is_const) {                                                                  \
-        return Status::RuntimeError("JsonSearch escape_char CANNOT be non-constant column"); \
-    }                                                                                        \
     do {                                                                                     \
         escape_null_check = [col_escape](size_t) { return col_escape->is_null_at(0); };      \
         get_escape_string = [col_escape_string](std::shared_ptr<LikeState>& state) {         \
