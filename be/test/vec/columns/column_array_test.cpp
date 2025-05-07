@@ -735,7 +735,7 @@ TEST_F(ColumnArrayTest, GetNumberOfDimensionsTest) {
                 remove_nullable(array_columns[i]->assume_mutable()).get());
         auto check_type = remove_nullable(array_types[i]);
         auto dimension = 0;
-        while (is_array(check_type)) {
+        while (check_type->get_primitive_type() == TYPE_ARRAY) {
             auto nested_type = reinterpret_cast<const vectorized::DataTypeArray&>(*check_type)
                                        .get_nested_type();
             dimension++;

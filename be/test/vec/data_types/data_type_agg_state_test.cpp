@@ -125,8 +125,9 @@ void insert_data_agg_state(MutableColumns* agg_state_cols, DataTypePtr datatype_
     std::cout << "insert_data_agg_state: " << datatype_agg_state->get_name() << " "
               << column_fixed->get_name() << std::endl;
     if (column_fixed->is_column_string()) {
-        ASSERT_TRUE(is_string(assert_cast<const DataTypeAggState*>(datatype_agg_state.get())
-                                      ->get_serialized_type()));
+        ASSERT_TRUE(is_string_type(assert_cast<const DataTypeAggState*>(datatype_agg_state.get())
+                                           ->get_serialized_type()
+                                           ->get_primitive_type()));
         auto* column = assert_cast<ColumnString*>((*agg_state_cols)[0].get());
         for (size_t i = 0; i != rows_value; ++i) {
             auto val = std::to_string(i);
@@ -139,9 +140,9 @@ void insert_data_agg_state(MutableColumns* agg_state_cols, DataTypePtr datatype_
     } else {
         assert_cast<ColumnFixedLengthObject*>((*agg_state_cols)[0].get())->set_item_size(8);
         column_fixed->resize(rows_value);
-        ASSERT_TRUE(is_fixed_length_object(
-                assert_cast<const DataTypeAggState*>(datatype_agg_state.get())
-                        ->get_serialized_type()));
+        ASSERT_TRUE(assert_cast<const DataTypeAggState*>(datatype_agg_state.get())
+                            ->get_serialized_type()
+                            ->is_fixed_length_object());
         auto& data = assert_cast<ColumnFixedLengthObject*>((*agg_state_cols)[0].get())->get_data();
         for (size_t i = 0; i != rows_value; ++i) {
             data[i] = i;

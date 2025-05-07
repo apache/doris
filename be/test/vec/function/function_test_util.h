@@ -177,6 +177,10 @@ DataTypePtr get_return_type_descriptor() {
     }
 }
 
+struct Consted {
+    TypeIndex tp;
+};
+
 /**
  * Null values are represented by Null()
  * The type of the constant column is represented as follows: Consted {TypeIndex::String}

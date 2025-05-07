@@ -124,7 +124,6 @@ public:
     void meta_info_assert(DataTypePtr& data_type, DataTypeMetaInfo& meta_info) {
         ASSERT_NE(data_type->get_serde(1), nullptr);
         ASSERT_EQ(IDataType::get_pdata_type(data_type.get()), meta_info.pColumnMeta->type());
-        ASSERT_EQ(data_type->get_type_id(), meta_info.type_id);
         ASSERT_TRUE(data_type->equals(*meta_info.type_as_type_descriptor))
                 << data_type->get_name() << " " << meta_info.type_as_type_descriptor->get_name();
         ASSERT_EQ(data_type->get_family_name(), meta_info.family_name);
@@ -137,14 +136,19 @@ public:
         ASSERT_EQ(data_type->have_maximum_size_of_value(), meta_info.have_maximum_size_of_value);
         ASSERT_EQ(data_type->is_value_unambiguously_represented_in_contiguous_memory_region(),
                   meta_info.is_value_unambiguously_represented_in_contiguous_memory_region);
-        if (is_decimal(data_type) || data_type->is_nullable() || is_struct(data_type) ||
-            is_nothing(data_type) || is_number(data_type) || is_columned_as_number(data_type) ||
-            is_ip(data_type)) {
+        if (is_decimal(data_type->get_primitive_type()) || data_type->is_nullable() ||
+            data_type->get_primitive_type() == TYPE_STRUCT ||
+            data_type->get_primitive_type() == INVALID_TYPE ||
+            is_number(data_type->get_primitive_type()) ||
+            is_int_or_bool(data_type->get_primitive_type()) ||
+            is_float_or_double(data_type->get_primitive_type()) ||
+            is_date_type(data_type->get_primitive_type()) ||
+            is_ip(data_type->get_primitive_type())) {
             ASSERT_EQ(data_type->get_size_of_value_in_memory(), meta_info.size_of_value_in_memory);
         } else {
             EXPECT_ANY_THROW(EXPECT_FALSE(data_type->get_size_of_value_in_memory()));
         }
-        if (is_decimal(data_type)) {
+        if (is_decimal(data_type->get_primitive_type())) {
             ASSERT_EQ(data_type->get_precision(), meta_info.precision);
             ASSERT_EQ(data_type->get_scale(), meta_info.scale);
         } else {

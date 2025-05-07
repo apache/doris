@@ -51,15 +51,15 @@ struct FunctionAttr {
     bool enable_decimal256 {false};
 };
 
-#define RETURN_REAL_TYPE_FOR_DATEV2_FUNCTION(TYPE)                                       \
-    bool is_nullable = false;                                                            \
-    bool is_datev2 = false;                                                              \
-    for (auto it : arguments) {                                                          \
-        is_nullable = is_nullable || it.type->is_nullable();                             \
-        is_datev2 = is_datev2 || WhichDataType(remove_nullable(it.type)).is_date_v2() || \
-                    WhichDataType(remove_nullable(it.type)).is_date_time_v2();           \
-    }                                                                                    \
-    return is_nullable || !is_datev2 ? make_nullable(std::make_shared<TYPE>())           \
+#define RETURN_REAL_TYPE_FOR_DATEV2_FUNCTION(TYPE)                               \
+    bool is_nullable = false;                                                    \
+    bool is_datev2 = false;                                                      \
+    for (auto it : arguments) {                                                  \
+        is_nullable = is_nullable || it.type->is_nullable();                     \
+        is_datev2 = is_datev2 || it.type->get_primitive_type() == TYPE_DATEV2 || \
+                    it.type->get_primitive_type() == TYPE_DATETIMEV2;            \
+    }                                                                            \
+    return is_nullable || !is_datev2 ? make_nullable(std::make_shared<TYPE>())   \
                                      : std::make_shared<TYPE>();
 
 #define SET_NULLMAP_IF_FALSE(EXPR) \
@@ -285,7 +285,9 @@ public:
               // For null constant argument, `get_return_type` would return
               // Nullable<DataTypeNothing> when `use_default_implementation_for_nulls` is true.
               (return_type->is_nullable() && func_return_type->is_nullable() &&
-               is_nothing(((DataTypeNullable*)func_return_type.get())->get_nested_type())) ||
+               ((DataTypeNullable*)func_return_type.get())
+                               ->get_nested_type()
+                               ->get_primitive_type() == INVALID_TYPE) ||
               is_date_or_datetime_or_decimal(return_type, func_return_type) ||
               is_array_nested_type_date_or_datetime_or_decimal(return_type, func_return_type))) {
             LOG_WARNING(

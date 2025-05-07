@@ -40,10 +40,6 @@ template <>
 struct TypeName<UInt128> {
     static const char* get() { return "UInt128"; }
 };
-template <>
-struct TypeId<UInt128> {
-    static constexpr const TypeIndex value = TypeIndex::UInt128;
-};
 
 #if defined(__SSE4_2__) || defined(__aarch64__)
 

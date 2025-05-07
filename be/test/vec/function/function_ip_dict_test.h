@@ -63,7 +63,7 @@ public:
         MutableColumnPtr res_column = attribute_type->create_column();
         const auto& attribute = _values_data[attribute_index(attribute_name)];
 
-        if (WhichDataType {key_type}.is_ipv6()) {
+        if (key_type->get_primitive_type() == TYPE_IPV6) {
             const auto* ipv6_column = assert_cast<const ColumnIPv6*>(key_column.get());
 
             std::visit(
@@ -166,7 +166,7 @@ inline DictionaryPtr create_mock_ip_trie_dict_from_column(const std::string& nam
                                                           ColumnsWithTypeAndName attribute_data) {
     auto key_column = key_data.column;
     auto key_type = key_data.type;
-    if (!WhichDataType {key_type}.is_string()) {
+    if (!is_string_type(key_type->get_primitive_type())) {
         throw doris::Exception(
                 ErrorCode::INVALID_ARGUMENT,
                 "IPAddressDictionary only support string in key , input key type is {} ",
