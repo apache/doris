@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.paimon;
 
+import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
@@ -197,8 +198,19 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
     @Override
     public MTMVSnapshotIf getTableSnapshot(MTMVRefreshContext context, Optional<MvccSnapshot> snapshot)
             throws AnalysisException {
+        return getTableSnapshot(snapshot);
+    }
+
+    @Override
+    public MTMVSnapshotIf getTableSnapshot(Optional<MvccSnapshot> snapshot) throws AnalysisException {
         PaimonSnapshotCacheValue paimonSnapshot = getOrFetchSnapshotCacheValue(snapshot);
         return new MTMVSnapshotIdSnapshot(paimonSnapshot.getSnapshot().getSnapshotId());
+    }
+
+    @Override
+    public long getNewestUpdateVersionOrTime() {
+        return getPaimonSnapshotCacheValue().getPartitionInfo().getNameToPartition().values().stream()
+                .mapToLong(Partition::lastFileCreationTime).max().orElse(0);
     }
 
     @Override
@@ -212,7 +224,7 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
     }
 
     @Override
-    public MvccSnapshot loadSnapshot() {
+    public MvccSnapshot loadSnapshot(Optional<TableSnapshot> tableSnapshot) {
         return new PaimonMvccSnapshot(getPaimonSnapshotCacheValue());
     }
 

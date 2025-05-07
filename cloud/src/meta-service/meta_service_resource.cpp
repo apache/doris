@@ -2035,7 +2035,7 @@ void MetaServiceImpl::alter_cluster(google::protobuf::RpcController* controller,
                 });
     } break;
     case AlterClusterRequest::ADD_NODE: {
-        resource_mgr_->check_cluster_params_valid(request->cluster(), &msg, false);
+        resource_mgr_->check_cluster_params_valid(request->cluster(), &msg, false, false);
         if (msg != "") {
             LOG(WARNING) << msg;
             break;
@@ -2059,7 +2059,7 @@ void MetaServiceImpl::alter_cluster(google::protobuf::RpcController* controller,
         msg = resource_mgr_->modify_nodes(instance_id, to_add, to_del);
     } break;
     case AlterClusterRequest::DROP_NODE: {
-        resource_mgr_->check_cluster_params_valid(request->cluster(), &msg, false);
+        resource_mgr_->check_cluster_params_valid(request->cluster(), &msg, false, false);
         if (msg != "") {
             LOG(WARNING) << msg;
             break;
@@ -2082,7 +2082,7 @@ void MetaServiceImpl::alter_cluster(google::protobuf::RpcController* controller,
         msg = resource_mgr_->modify_nodes(instance_id, to_add, to_del);
     } break;
     case AlterClusterRequest::DECOMMISSION_NODE: {
-        resource_mgr_->check_cluster_params_valid(request->cluster(), &msg, false);
+        resource_mgr_->check_cluster_params_valid(request->cluster(), &msg, false, false);
         if (msg != "") {
             LOG(WARNING) << msg;
             break;
@@ -2144,7 +2144,7 @@ void MetaServiceImpl::alter_cluster(google::protobuf::RpcController* controller,
         }
     } break;
     case AlterClusterRequest::NOTIFY_DECOMMISSIONED: {
-        resource_mgr_->check_cluster_params_valid(request->cluster(), &msg, false);
+        resource_mgr_->check_cluster_params_valid(request->cluster(), &msg, false, false);
         if (msg != "") {
             LOG(WARNING) << msg;
             break;

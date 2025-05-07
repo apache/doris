@@ -30,6 +30,8 @@
 #include "common/status.h"
 #include "runtime/types.h"
 #include "util/slice.h"
+#include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_nothing.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
@@ -39,8 +41,7 @@ struct FieldSchema {
     tparquet::SchemaElement parquet_schema;
 
     // Used to identify whether this field is a nested field.
-    TypeDescriptor type;
-    bool is_nullable;
+    DataTypePtr data_type;
 
     // Only valid when this field is a leaf node
     tparquet::Type::type physical_type;
@@ -54,7 +55,7 @@ struct FieldSchema {
     //For UInt8 -> Int16,UInt16 -> Int32,UInt32 -> Int64,UInt64 -> Int128.
     bool is_type_compatibility = false;
 
-    FieldSchema() = default;
+    FieldSchema() : data_type(std::make_shared<DataTypeNothing>()) {}
     ~FieldSchema() = default;
     FieldSchema(const FieldSchema& fieldSchema) = default;
     std::string debug_string() const;
@@ -92,14 +93,14 @@ private:
     Status parse_node_field(const std::vector<tparquet::SchemaElement>& t_schemas, size_t curr_pos,
                             FieldSchema* node_field);
 
-    std::pair<TypeDescriptor, bool> convert_to_doris_type(tparquet::LogicalType logicalType);
-
-    std::pair<TypeDescriptor, bool> convert_to_doris_type(
-            const tparquet::SchemaElement& physical_schema);
+    std::pair<DataTypePtr, bool> convert_to_doris_type(tparquet::LogicalType logicalType,
+                                                       bool nullable);
+    std::pair<DataTypePtr, bool> convert_to_doris_type(
+            const tparquet::SchemaElement& physical_schema, bool nullable);
+    std::pair<DataTypePtr, bool> get_doris_type(const tparquet::SchemaElement& physical_schema,
+                                                bool nullable);
 
 public:
-    std::pair<TypeDescriptor, bool> get_doris_type(const tparquet::SchemaElement& physical_schema);
-
     // org.apache.iceberg.avro.AvroSchemaUtil#sanitize will encode special characters,
     // we have to decode these characters
     void iceberg_sanitize(const std::vector<std::string>& read_columns);

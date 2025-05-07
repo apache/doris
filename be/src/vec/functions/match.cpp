@@ -56,7 +56,7 @@ Status FunctionMatchBase::evaluate_inverted_index(
         // if query value is null, skip evaluate inverted index
         return Status::OK();
     }
-    auto param_type = arguments[0].type->get_type_as_type_descriptor().type;
+    auto param_type = arguments[0].type->get_primitive_type();
     if (!is_string_type(param_type)) {
         return Status::Error<ErrorCode::INVERTED_INDEX_INVALID_PARAMETERS>(
                 "arguments for match must be string");

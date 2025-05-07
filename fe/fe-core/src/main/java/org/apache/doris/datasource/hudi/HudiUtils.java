@@ -26,6 +26,7 @@ import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.datasource.ExternalSchemaCache;
+import org.apache.doris.datasource.ExternalSchemaCache.SchemaCacheKey;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.TablePartitionValues;
 import org.apache.doris.datasource.hive.HMSExternalTable;
@@ -257,10 +258,6 @@ public class HudiUtils {
     public static TablePartitionValues getPartitionValues(Optional<TableSnapshot> tableSnapshot,
             HMSExternalTable hmsTable) {
         TablePartitionValues partitionValues = new TablePartitionValues();
-        if (hmsTable.getPartitionColumns().isEmpty()) {
-            //isn't partition table.
-            return partitionValues;
-        }
 
         HoodieTableMetaClient hudiClient = hmsTable.getHudiClient();
         HudiCachedPartitionProcessor processor = (HudiCachedPartitionProcessor) Env.getCurrentEnv()
@@ -312,10 +309,11 @@ public class HudiUtils {
         return schemaInfo;
     }
 
-    public static HudiSchemaCacheValue getSchemaCacheValue(HMSExternalTable hmsTable) {
-        ExternalSchemaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
-                .getSchemaCache(hmsTable.getCatalog());
-        Optional<SchemaCacheValue> schemaCacheValue = cache.getSchemaValue(hmsTable.getDbName(), hmsTable.getName());
+    public static HudiSchemaCacheValue getSchemaCacheValue(HMSExternalTable hmsTable, String queryInstant) {
+        ExternalSchemaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr().getSchemaCache(hmsTable.getCatalog());
+        SchemaCacheKey key = new HudiSchemaCacheKey(hmsTable.getDbName(), hmsTable.getName(),
+                Long.parseLong(queryInstant));
+        Optional<SchemaCacheValue> schemaCacheValue = cache.getSchemaValue(key);
         return (HudiSchemaCacheValue) schemaCacheValue.get();
     }
 
