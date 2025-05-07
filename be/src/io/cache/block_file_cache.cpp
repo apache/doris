@@ -2079,7 +2079,7 @@ std::string BlockFileCache::clear_file_cache_directly() {
     int64_t ttl_queue_size = _ttl_queue.get_elements_num(cache_lock);
 
     int64_t clear_fd_duration = 0;
-    if (config::clear_fd_after_clear_file_cache) {
+    {
         // clear FDCache to release fd
         SCOPED_RAW_TIMER(&clear_fd_duration);
         for (const auto& [file_key, file_blocks] : _files) {
