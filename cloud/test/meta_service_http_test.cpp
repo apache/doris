@@ -1834,4 +1834,93 @@ TEST(HttpEncodeKeyTest, ProcessHttpSetValue) {
     EXPECT_EQ(updated_rowset_meta.data_disk_size(), 2048);
 }
 
+TEST(MetaServiceHttpTest, CreateInstanceWithIamRoleTest) {
+    HttpContext ctx;
+
+    brpc::Controller cntl;
+    std::string instance_id = "iam_role_test_instance_id";
+
+    {
+        ObjectStoreInfoPB obj;
+        obj.set_endpoint("s3.us-east-1.amazonaws.com");
+        obj.set_region("us-east-1");
+        obj.set_prefix("/test-prefix");
+        obj.set_provider(ObjectStoreInfoPB::S3);
+
+        // create instance without ram user
+        CreateInstanceRequest create_instance_req;
+        create_instance_req.set_instance_id(instance_id);
+        create_instance_req.set_user_id("test_user");
+        create_instance_req.set_name("test_name");
+        create_instance_req.mutable_obj_info()->CopyFrom(obj);
+        CreateInstanceResponse create_instance_res;
+        ctx.meta_service_->create_instance(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &create_instance_req,
+                &create_instance_res, nullptr);
+        LOG(INFO) << create_instance_res.DebugString();
+        ASSERT_EQ(create_instance_res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+    }
+
+    {
+        ObjectStoreInfoPB obj;
+        obj.set_endpoint("s3.us-east-1.amazonaws.com");
+        obj.set_region("us-east-1");
+        obj.set_prefix("/test-prefix");
+        obj.set_provider(ObjectStoreInfoPB::S3);
+
+        // create instance without ram user
+        CreateInstanceRequest create_instance_req;
+        create_instance_req.set_instance_id(instance_id);
+        create_instance_req.set_user_id("test_user");
+        create_instance_req.set_name("test_name");
+        create_instance_req.mutable_obj_info()->CopyFrom(obj);
+        CreateInstanceResponse create_instance_res;
+        ctx.meta_service_->create_instance(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &create_instance_req,
+                &create_instance_res, nullptr);
+        LOG(INFO) << create_instance_res.DebugString();
+        ASSERT_EQ(create_instance_res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+    }
+
+    {
+        ObjectStoreInfoPB obj;
+        obj.set_endpoint("s3.us-east-1.amazonaws.com");
+        obj.set_region("us-east-1");
+        obj.set_bucket("test-bucket");
+        obj.set_prefix("test-prefix");
+        obj.set_provider(ObjectStoreInfoPB::S3);
+        obj.set_role_arn("arn:aws:iam::123456789012:role/test-role");
+        obj.set_external_id("test-external-id");
+        obj.set_cred_provider_type(CredProviderTypePB::INSTANCE_PROFILE);
+
+        CreateInstanceRequest create_instance_req;
+        create_instance_req.set_instance_id(instance_id);
+        create_instance_req.set_user_id("test_user");
+        create_instance_req.set_name("test_name");
+        create_instance_req.mutable_obj_info()->CopyFrom(obj);
+        CreateInstanceResponse create_instance_res;
+        ctx.meta_service_->create_instance(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &create_instance_req,
+                &create_instance_res, nullptr);
+        LOG(INFO) << create_instance_res.DebugString();
+        ASSERT_EQ(create_instance_res.status().code(), MetaServiceCode::OK);
+
+        InstanceInfoPB instance = ctx.get_instance_info(instance_id);
+        LOG(INFO) << instance.DebugString();
+
+        ASSERT_EQ(instance.obj_info().Get(0).endpoint(), "s3.us-east-1.amazonaws.com");
+        ASSERT_EQ(instance.obj_info().Get(0).region(), "us-east-1");
+        ASSERT_EQ(instance.obj_info().Get(0).bucket(), "test-bucket");
+        ASSERT_EQ(instance.obj_info().Get(0).prefix(), "test-prefix");
+        ASSERT_EQ(instance.obj_info().Get(0).provider(), ObjectStoreInfoPB::S3);
+        ASSERT_EQ(instance.obj_info().Get(0).role_arn(),
+                  "arn:aws:iam::123456789012:role/test-role");
+        ASSERT_EQ(instance.obj_info().Get(0).external_id(), "test-external-id");
+        ASSERT_EQ(instance.obj_info().Get(0).cred_provider_type(),
+                  CredProviderTypePB::INSTANCE_PROFILE);
+        ASSERT_EQ(instance.obj_info().Get(0).has_ak(), false);
+        ASSERT_EQ(instance.obj_info().Get(0).has_sk(), false);
+    }
+}
+
 } // namespace doris::cloud

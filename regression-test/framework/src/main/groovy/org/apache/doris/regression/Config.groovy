@@ -150,6 +150,23 @@ class Config {
 
     public String s3Source
 
+    // for aws role arn regression test
+    public String awsRoleArn
+    public String awsExternalId
+    public String awsEndpoint
+    public String awsRegion
+    public String awsBucket
+    public String awsPrefix
+    public String awsAccessKey
+    public String awsSecretKey
+
+    public String regressionAwsRoleArn
+    public String regressionAwsExternalId
+    public String regressionAwsEndpoint
+    public String regressionAwsRegion
+    public String regressionAwsBucket
+    public String regressionAwsPrefix
+
     Config() {}
 
     Config(
@@ -598,6 +615,23 @@ class Config {
         config.dockerEndDeleteFiles = configToBoolean(obj.dockerEndDeleteFiles)
         config.dockerEndNoKill = configToBoolean(obj.dockerEndNoKill)
         config.excludeDockerTest = configToBoolean(obj.excludeDockerTest)
+
+        config.awsRoleArn = configToString(obj.awsRoleArn)
+        config.awsExternalId = configToString(obj.awsExternalId)
+        config.awsPrefix = configToString(obj.awsPrefix)
+        config.awsEndpoint = configToString(obj.awsEndpoint)
+        config.awsRegion = configToString(obj.awsRegion)
+        config.awsBucket = configToString(obj.awsBucket)
+        config.awsAccessKey = configToString(obj.awsAccessKey)
+        config.awsSecretKey = configToString(obj.awsSecretKey)
+        config.awsPrefix = configToString(obj.awsPrefix)
+
+        config.regressionAwsRoleArn = configToString(obj.regressionAwsRoleArn)
+        config.regressionAwsExternalId = configToString(obj.regressionAwsExternalId)
+        config.regressionAwsEndpoint = configToString(obj.regressionAwsEndpoint)
+        config.regressionAwsRegion = configToString(obj.regressionAwsRegion)
+        config.regressionAwsBucket = configToString(obj.regressionAwsBucket)
+        config.regressionAwsPrefix = configToString(obj.regressionAwsPrefix)
 
         def declareFileNames = config.getClass()
                 .getDeclaredFields()

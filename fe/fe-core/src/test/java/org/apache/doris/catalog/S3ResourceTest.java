@@ -273,4 +273,35 @@ public class S3ResourceTest {
             Assert.assertTrue(e.getMessage(), false);
         }
     }
+
+    @Test
+    public void testPingS3WithRoleArn() {
+        try {
+            String endpoint = System.getenv("ENDPOINT");
+            String region = System.getenv("REGION");
+            String provider = System.getenv("PROVIDER");
+
+            String roleArn = System.getenv("ROLE_ARN");
+            String externalId = System.getenv("EXTERNAL_ID");
+            String bucket = System.getenv("BUCKET");
+
+            Assume.assumeTrue("ENDPOINT isNullOrEmpty.", !Strings.isNullOrEmpty(endpoint));
+            Assume.assumeTrue("REGION isNullOrEmpty.", !Strings.isNullOrEmpty(region));
+            Assume.assumeTrue("PROVIDER isNullOrEmpty.", !Strings.isNullOrEmpty(provider));
+            Assume.assumeTrue("ROLE_ARN isNullOrEmpty.", !Strings.isNullOrEmpty(roleArn));
+            Assume.assumeTrue("EXTERNAL_ID isNullOrEmpty.", !Strings.isNullOrEmpty(externalId));
+            Assume.assumeTrue("BUCKET isNullOrEmpty.", !Strings.isNullOrEmpty(bucket));
+
+            Map<String, String> properties = new HashMap<>();
+            properties.put("s3.endpoint", endpoint);
+            properties.put("s3.region", region);
+            properties.put("s3.role_arn", roleArn);
+            properties.put("s3.external_id", externalId);
+            properties.put("provider", provider);
+            S3Resource.pingS3(bucket, "fe_ut_role_prefix", properties);
+        } catch (DdlException e) {
+            LOG.info("testPingS3WithRoleArn exception:", e);
+            Assert.assertTrue(e.getMessage(), false);
+        }
+    }
 }
