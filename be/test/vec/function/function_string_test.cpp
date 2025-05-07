@@ -899,7 +899,7 @@ TEST(function_string_test, function_append_trailing_char_if_absent_test) {
 TEST(function_string_test, function_url_encode_test) {
     std::string func_name = "url_encode";
 
-    InputTypeSet input_types = {TypeIndex::String};
+    BaseInputTypeSet input_types = {TypeIndex::String};
 
     DataSet data_set = {
             {{std::string("编码")}, std::string("%E7%BC%96%E7%A0%81")},
