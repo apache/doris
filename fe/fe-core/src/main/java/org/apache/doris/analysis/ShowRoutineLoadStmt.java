@@ -95,11 +95,17 @@ public class ShowRoutineLoadStmt extends ShowStmt implements NotFallbackInParser
     private String name; // optional
     private boolean includeHistory = false;
     private String pattern; // optional
+    private boolean inAllDatabases = false; //if show all databases routine load job
 
-    public ShowRoutineLoadStmt(LabelName labelName, boolean includeHistory, String pattern) {
+    public ShowRoutineLoadStmt(LabelName labelName, boolean includeHistory, boolean inAllDatabases, String pattern) {
         this.labelName = labelName;
         this.includeHistory = includeHistory;
         this.pattern = pattern;
+        this.inAllDatabases = inAllDatabases;
+    }
+
+    public ShowRoutineLoadStmt(LabelName labelName, boolean includeHistory, String pattern) {
+        this(labelName, includeHistory, false, pattern);
     }
 
     public String getDbFullName() {
@@ -116,6 +122,10 @@ public class ShowRoutineLoadStmt extends ShowStmt implements NotFallbackInParser
 
     public String getPattern() {
         return pattern;
+    }
+
+    public boolean isInAllDatabases() {
+        return inAllDatabases;
     }
 
     @Override
