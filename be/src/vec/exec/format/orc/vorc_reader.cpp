@@ -346,6 +346,8 @@ Status OrcReader::init_reader(
         _orc_tiny_stripe_threshold_bytes = _state->query_options().orc_tiny_stripe_threshold_bytes;
         _orc_once_max_read_bytes = _state->query_options().orc_once_max_read_bytes;
         _orc_max_merge_distance_bytes = _state->query_options().orc_max_merge_distance_bytes;
+        _orc_tiny_stripe_amplification_factor =
+                _state->query_options().orc_tiny_stripe_amplification_factor;
     }
 
     {
@@ -1191,19 +1193,38 @@ Status OrcReader::set_fill_columns(
             tiny_stripe_ranges.emplace_back(strip_start_offset, strip_end_offset);
         }
         if (all_tiny_stripes && number_of_stripes > 0) {
-            std::vector<io::PrefetchRange> prefetch_merge_ranges =
-                    io::PrefetchRange::merge_adjacent_seq_ranges(tiny_stripe_ranges,
-                                                                 _orc_max_merge_distance_bytes,
-                                                                 _orc_once_max_read_bytes);
-            auto range_finder =
-                    std::make_shared<io::LinearProbeRangeFinder>(std::move(prefetch_merge_ranges));
+            //The first stripe in the read file is selected to calculate an approximate
+            // read amplification factor using the tiny stripe optimization.
+            std::vector<bool> selected_columns;
+            _reader->getSelectedColumns(_read_cols, selected_columns);
+            std::unique_ptr<orc::StripeInformation> strip_info = _reader->getStripe(0);
+            size_t need_stream_bytes = 0;
+            for (uint64_t stream_id = 0; stream_id < strip_info->getNumberOfStreams();
+                 stream_id++) {
+                std::unique_ptr<orc::StreamInformation> stream_info =
+                        strip_info->getStreamInformation(stream_id);
+                if (selected_columns[stream_info->getColumnId()]) {
+                    need_stream_bytes += stream_info->getLength();
+                }
+            }
 
-            auto* orc_input_stream_ptr = static_cast<ORCFileInputStream*>(_reader->getStream());
-            orc_input_stream_ptr->set_all_tiny_stripes();
-            auto& orc_file_reader = orc_input_stream_ptr->get_file_reader();
-            auto orc_inner_reader = orc_input_stream_ptr->get_inner_reader();
-            orc_file_reader = std::make_shared<io::RangeCacheFileReader>(_profile, orc_inner_reader,
-                                                                         range_finder);
+            // If the read amplification factor is too large, the optimization is not used.
+            if ((double)(need_stream_bytes + strip_info->getFooterLength()) >=
+                (double)strip_info->getLength() * _orc_tiny_stripe_amplification_factor) {
+                std::vector<io::PrefetchRange> prefetch_merge_ranges =
+                        io::PrefetchRange::merge_adjacent_seq_ranges(tiny_stripe_ranges,
+                                                                     _orc_max_merge_distance_bytes,
+                                                                     _orc_once_max_read_bytes);
+                auto range_finder = std::make_shared<io::LinearProbeRangeFinder>(
+                        std::move(prefetch_merge_ranges));
+
+                auto* orc_input_stream_ptr = static_cast<ORCFileInputStream*>(_reader->getStream());
+                orc_input_stream_ptr->set_all_tiny_stripes();
+                auto& orc_file_reader = orc_input_stream_ptr->get_file_reader();
+                auto orc_inner_reader = orc_input_stream_ptr->get_inner_reader();
+                orc_file_reader = std::make_shared<io::RangeCacheFileReader>(
+                        _profile, orc_inner_reader, range_finder);
+            }
         }
 
         if (!_lazy_read_ctx.can_lazy_read) {

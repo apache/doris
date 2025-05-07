@@ -144,7 +144,7 @@ suite("test_orc_exception_files","external,hive,tvf,external_docker") {
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "orc"); """
-            exception "Orc row reader nextBatch failed. reason = bad StripeFooter from zlib"
+            exception "Failed to parse the stripe footer"
         }
     }
 }
