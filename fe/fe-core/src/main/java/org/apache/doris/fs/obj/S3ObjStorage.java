@@ -20,7 +20,6 @@ package org.apache.doris.fs.obj;
 import org.apache.doris.backup.Status;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.credentials.CloudCredential;
 import org.apache.doris.common.util.S3URI;
 import org.apache.doris.common.util.S3Util;
 import org.apache.doris.datasource.property.PropertyConverter;
@@ -127,13 +126,10 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                 endpointStr = "http://" + endpointStr;
             }
             URI endpoint = URI.create(endpointStr);
-            CloudCredential credential = new CloudCredential();
-            credential.setAccessKey(properties.get(S3Properties.ACCESS_KEY));
-            credential.setSecretKey(properties.get(S3Properties.SECRET_KEY));
-            if (properties.containsKey(S3Properties.SESSION_TOKEN)) {
-                credential.setSessionToken(properties.get(S3Properties.SESSION_TOKEN));
-            }
-            client = S3Util.buildS3Client(endpoint, properties.get(S3Properties.REGION), credential, isUsePathStyle);
+            client = S3Util.buildS3Client(endpoint, properties.get(S3Properties.REGION), isUsePathStyle,
+                    properties.get(S3Properties.ACCESS_KEY), properties.get(S3Properties.SECRET_KEY),
+                    properties.get(S3Properties.SESSION_TOKEN), properties.get(S3Properties.ROLE_ARN),
+                    properties.get(S3Properties.EXTERNAL_ID));
         }
         return client;
     }
