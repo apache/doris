@@ -431,7 +431,7 @@ class PruneOlapScanPartitionTest extends TestWithFeService implements MemoPatter
                       int expectScanPartitionNum) {
         PlanChecker planChecker = PlanChecker.from(connectContext)
                 .analyze("select * from " + table
-                        + (specifiedPartition.isEmpty() ? "" : String.format(" PARTITION ", specifiedPartition))
+                        + (specifiedPartition.isEmpty() ? "" : String.format(" PARTITION %s", specifiedPartition))
                         + (tabletsFilter.isEmpty() ? "" : String.format(" tablet(%s)", tabletsFilter))
                         + (filter.isEmpty() ? "" : " where " + filter)
                 )
