@@ -239,7 +239,7 @@ Status SchemaTablesScanner::_fill_block_impl(vectorized::Block* block) {
         int64_t srcs[table_num];
         for (int i = 0; i < table_num; ++i) {
             const TTableStatus& tbl_status = _table_result.tables[i];
-            if (tbl_status.__isset.avg_row_length) {
+            if (tbl_status.__isset.data_length) {
                 srcs[i] = tbl_status.data_length;
                 datas[i] = srcs + i;
             } else {
