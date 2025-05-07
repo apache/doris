@@ -19,6 +19,7 @@ package org.apache.doris.fs.remote;
 
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.backup.Status;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.security.authentication.AuthenticationConfig;
 import org.apache.doris.common.security.authentication.HadoopAuthenticator;
@@ -102,8 +103,7 @@ public class S3FileSystem extends ObjFileSystem {
     }
 
     // broker file pattern glob is too complex, so we use hadoop directly
-    @Override
-    public Status globList(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
+    private Status globListImplV1(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
         try {
             FileSystem s3AFileSystem = nativeFileSystem(remotePath);
             Path pathPattern = new Path(remotePath);
@@ -118,6 +118,10 @@ public class S3FileSystem extends ObjFileSystem {
                         fileStatus.getBlockSize(), fileStatus.getModificationTime());
                 result.add(remoteFile);
             }
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("remotePath:{}, result:{}", remotePath, result);
+            }
+
         } catch (FileNotFoundException e) {
             LOG.info("file not found: " + e.getMessage());
             return new Status(Status.ErrCode.NOT_FOUND, "file not found: " + e.getMessage());
@@ -137,6 +141,18 @@ public class S3FileSystem extends ObjFileSystem {
             return new Status(Status.ErrCode.COMMON_ERROR, "errors while get file status " + e.getMessage());
         }
         return Status.OK;
+    }
+
+    private Status globListImplV2(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
+        return ((S3ObjStorage) objStorage).globList(remotePath, result, fileNameOnly);
+    }
+
+    @Override
+    public Status globList(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
+        if (Config.enable_deadlock_detection) {
+            return globListImplV1(remotePath, result, fileNameOnly);
+        }
+        return globListImplV2(remotePath, result, fileNameOnly);
     }
 
     @VisibleForTesting
