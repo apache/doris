@@ -1351,7 +1351,7 @@ build_aws_sdk() {
     "${CMAKE_CMD}" -G "${GENERATOR}" -B"${BUILD_DIR}" -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
         -DCMAKE_PREFIX_PATH="${TP_INSTALL_DIR}" -DBUILD_SHARED_LIBS=OFF -DENABLE_TESTING=OFF \
         -DCURL_LIBRARY_RELEASE="${TP_INSTALL_DIR}/lib/libcurl.a" -DZLIB_LIBRARY_RELEASE="${TP_INSTALL_DIR}/lib/libz.a" \
-        -DBUILD_ONLY="core;s3;s3-crt;transfer" \
+        -DBUILD_ONLY="core;s3;s3-crt;transfer;identity-management;sts" \
         -DCMAKE_CXX_FLAGS="-Wno-nonnull -Wno-deprecated-declarations ${warning_dangling_reference}" -DCPP_STANDARD=17
 
     cd "${BUILD_DIR}"
@@ -1374,6 +1374,8 @@ build_aws_sdk() {
     strip_lib libaws-cpp-sdk-transfer.a
     strip_lib libaws-checksums.a
     strip_lib libaws-c-compression.a
+    strip_lib libaws-cpp-sdk-identity-management.a
+    strip_lib libaws-cpp-sdk-sts.a
 }
 
 # lzma
