@@ -75,6 +75,48 @@ public class IndexDefTest {
         }
     }
 
+
+    @Test
+    public void testIndexType() {
+        // support types
+        PrimitiveType[] supportedTypes = new PrimitiveType[] {
+                PrimitiveType.DATE, PrimitiveType.DATETIME, PrimitiveType.DATEV2, PrimitiveType.DATETIMEV2,
+                PrimitiveType.DECIMALV2, PrimitiveType.DECIMAL32, PrimitiveType.DECIMAL64, PrimitiveType.DECIMAL128, PrimitiveType.DECIMAL256,
+                PrimitiveType.TINYINT, PrimitiveType.SMALLINT, PrimitiveType.INT, PrimitiveType.BIGINT, PrimitiveType.LARGEINT,
+                PrimitiveType.FLOAT, PrimitiveType.DOUBLE,
+                PrimitiveType.VARCHAR, PrimitiveType.CHAR, PrimitiveType.STRING,
+                PrimitiveType.BOOLEAN,
+                PrimitiveType.VARIANT, PrimitiveType.IPV4, PrimitiveType.IPV6,
+                PrimitiveType.ARRAY
+        };
+        for (PrimitiveType type : supportedTypes) {
+            try {
+                IndexDef def = new IndexDef("idx", false, Lists.newArrayList("col1"), IndexDef.IndexType.INVERTED, null, "");
+                Column col = new Column("col1", type);
+                def.checkColumn(col, KeysType.DUP_KEYS, true, TInvertedIndexFileStorageFormat.V1);
+            } catch (AnalysisException e) {
+                Assert.fail("Should support type: " + type + ", but got: " + e.getMessage());
+            }
+        }
+        // not support types
+        PrimitiveType[] unsupportedTypes = new PrimitiveType[] {
+                PrimitiveType.INVALID_TYPE, PrimitiveType.UNSUPPORTED, PrimitiveType.NULL_TYPE,
+                PrimitiveType.HLL, PrimitiveType.BITMAP, PrimitiveType.QUANTILE_STATE, PrimitiveType.AGG_STATE,
+                PrimitiveType.TIME, PrimitiveType.TIMEV2, PrimitiveType.MAP, PrimitiveType.STRUCT, PrimitiveType.JSONB,
+                PrimitiveType.LAMBDA_FUNCTION, PrimitiveType.BINARY, PrimitiveType.ALL, PrimitiveType.TEMPLATE
+        };
+        for (PrimitiveType type : unsupportedTypes) {
+            try {
+                IndexDef def = new IndexDef("idx", false, Lists.newArrayList("col1"), IndexDef.IndexType.INVERTED, null, "");
+                Column col = new Column("col1", type);
+                def.checkColumn(col, KeysType.DUP_KEYS, true, TInvertedIndexFileStorageFormat.V1);
+                Assert.fail("Should not support type: " + type);
+            } catch (AnalysisException e) {
+                Assert.assertTrue(e.getMessage().contains("is not supported"));
+            }
+        }
+    }
+
     @Test
     public void toSql() {
         Assert.assertEquals("INDEX `index1` (`col1`) USING INVERTED COMMENT 'balabala'", def.toSql());
