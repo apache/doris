@@ -39,6 +39,9 @@ import org.apache.doris.datasource.hudi.HudiSchemaCacheValue;
 import org.apache.doris.datasource.hudi.HudiUtils;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
+import org.apache.doris.datasource.systable.SupportedSysTables;
+import org.apache.doris.datasource.systable.SysTable;
+import org.apache.doris.fs.FileSystemDirectoryLister;
 import org.apache.doris.mtmv.MTMVBaseTableIf;
 import org.apache.doris.mtmv.MTMVMaxTimestampSnapshot;
 import org.apache.doris.mtmv.MTMVRefreshContext;
@@ -1060,5 +1063,20 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
                 getName(),
                 getRemoteTable().getSd().getLocation(),
                 getCatalog().getConfiguration());
+    }
+
+    @Override
+    public List<SysTable> getSupportedSysTables() {
+        makeSureInitialized();
+        switch (dlaType) {
+            case HIVE:
+                return SupportedSysTables.HIVE_SUPPORTED_SYS_TABLES;
+            case ICEBERG:
+                return SupportedSysTables.ICEBERG_SUPPORTED_SYS_TABLES;
+            case HUDI:
+                return SupportedSysTables.HUDI_SUPPORTED_SYS_TABLES;
+            default:
+                return Lists.newArrayList();
+        }
     }
 }
