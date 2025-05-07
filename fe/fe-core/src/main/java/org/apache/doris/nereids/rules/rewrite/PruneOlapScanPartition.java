@@ -47,7 +47,6 @@ import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
@@ -165,7 +164,9 @@ public class PruneOlapScanPartition implements RewriteRuleFactory {
         return prunedPartitions;
     }
 
-    private List<Long> prunePartitionByTabletIds(LogicalOlapScan scan, OlapTable table, List<Long> prunedPartitionsByFilters) {
+    private List<Long> prunePartitionByTabletIds(LogicalOlapScan scan,
+                                                 OlapTable table,
+                                                 List<Long> prunedPartitionsByFilters) {
         if (scan.getManuallySpecifiedTabletIds().size() == 0) {
             return prunedPartitionsByFilters;
         }
