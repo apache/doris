@@ -31,7 +31,6 @@ SET(SOURCE_FILES
         ref_counted.cc
         stringprintf.cc
         strings/ascii_ctype.cc
-        strings/charset.cc
         strings/numbers.cc
         strtoint.cc
         threading/thread_collision_warner.cc
