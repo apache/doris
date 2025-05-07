@@ -59,6 +59,7 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.commands.AlterCommand;
+import org.apache.doris.nereids.trees.plans.commands.CancelCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
 import org.apache.doris.persist.BatchDropInfo;
 import org.apache.doris.persist.DropInfo;
@@ -1526,6 +1527,10 @@ public class MaterializedViewHandler extends AlterHandler {
                                OlapTable olapTable)
             throws DdlException, AnalysisException, MetaNotFoundException {
         // TODO: convert alterClauses to alterSystemCommands for mv
+    }
+
+    @Override
+    public void cancel(CancelCommand command) throws DdlException {
     }
 
     @Override

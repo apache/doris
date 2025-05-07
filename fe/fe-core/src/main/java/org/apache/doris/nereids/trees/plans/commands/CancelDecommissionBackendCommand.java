@@ -17,38 +17,102 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import lombok.Getter;
 import org.apache.doris.analysis.StmtType;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.system.SystemInfoService;
 
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
+
 import java.util.List;
 import java.util.Objects;
 
+/**
+ * CancelDecommissionBackendCommand
+ */
 public class CancelDecommissionBackendCommand extends CancelCommand {
+    private final List<String> params;
     private final List<SystemInfoService.HostInfo> hostInfos;
     private final List<String> ids;
 
-    public CancelDecommissionBackendCommand(List<SystemInfoService.HostInfo> hostInfos,
-                                            List<String> ids) {
+    public CancelDecommissionBackendCommand(List<String> params) {
         super(PlanType.CANCEL_DECOMMISSION_BACKEND_COMMAND);
-        Objects.requireNonNull(hostInfos, "hostInfos is null!");
-        Objects.requireNonNull(ids, "ids is null!");
-        this.hostInfos = hostInfos;
-        this.ids = ids;
+        Objects.requireNonNull(params, "params is null!");
+        this.params = params;
+        this.hostInfos = Lists.newArrayList();
+        this.ids = Lists.newArrayList();
     }
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        validate();
+        ctx.getEnv().getSystemHandler().cancel(this);
+    }
 
+    /**
+     * validate
+     */
+    public void validate() throws AnalysisException {
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.OPERATOR)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
+                    PrivPredicate.OPERATOR.getPrivs().toString());
+        }
+        for (String param : params) {
+            if (!param.contains(":")) {
+                ids.add(param);
+            } else {
+                SystemInfoService.HostInfo hostInfo = SystemInfoService.getHostAndPort(param);
+                this.hostInfos.add(hostInfo);
+            }
+
+        }
+        Preconditions.checkState(!this.hostInfos.isEmpty() || !this.ids.isEmpty(),
+                "hostInfos or ids can not be empty");
+    }
+
+    public List<SystemInfoService.HostInfo> getHostInfos() {
+        return hostInfos;
+    }
+
+    public List<String> getIds() {
+        return ids;
     }
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitCancelDecommissionCommand(this, context);
+    }
+
+    /**
+     * toSql
+     */
+    public String toSql() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("CANCEL DECOMMISSION BACKEND ");
+        if (!ids.isEmpty()) {
+            for (int i = 0; i < hostInfos.size(); i++) {
+                sb.append("\"").append(hostInfos.get(i)).append("\"");
+                if (i != hostInfos.size() - 1) {
+                    sb.append(", ");
+                }
+            }
+        } else {
+            for (int i = 0; i < params.size(); i++) {
+                sb.append("\"").append(params.get(i)).append("\"");
+                if (i != params.size() - 1) {
+                    sb.append(", ");
+                }
+            }
+        }
+        return sb.toString();
     }
 
     @Override

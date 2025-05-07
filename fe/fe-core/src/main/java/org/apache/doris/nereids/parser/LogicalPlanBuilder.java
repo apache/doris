@@ -905,7 +905,6 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.system.NodeType;
-import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -7187,19 +7186,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         for (TerminalNode terminalNode : ctx.STRING_LITERAL()) {
             parts.add(terminalNode.getText());
         }
-        List<SystemInfoService.HostInfo> hostInfos = new ArrayList<>();
-        List<String> ids = new ArrayList<>();
-
-        for (String part : parts) {
-            if (part.contains(":")) {
-                String host = part.split(":")[0];
-                String port = part.split(":")[1];
-                SystemInfoService.HostInfo hostInfo = new SystemInfoService.HostInfo(host, port);
-                hostInfos.add(hostInfo);
-            } else {
-                ids.add(part);
-            }
-        }
-        return new CancelDecommissionBackendCommand(hostInfos, ids);
+        return new CancelDecommissionBackendCommand(parts);
     }
 }
