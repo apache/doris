@@ -114,9 +114,6 @@ public class PruneOlapScanPartition implements RewriteRuleFactory {
                                                OlapTable table,
                                                LogicalFilter filter,
                                                MatchingContext ctx) {
-        if (filter == null) {
-            return null;
-        }
         Set<String> partitionColumnNameSet = Utils.execWithReturnVal(table::getPartitionColumnNames);
         if (partitionColumnNameSet.isEmpty()) {
             return null;
@@ -158,10 +155,16 @@ public class PruneOlapScanPartition implements RewriteRuleFactory {
                     .filter(manuallySpecifiedPartitions::contains)
                     .collect(Collectors.toMap(Function.identity(), allPartitions::get));
         }
-        List<Long> prunedPartitions = PartitionPruner.prune(
-                partitionSlots, filter.getPredicate(), idToPartitions, ctx.cascadesContext,
-                PartitionTableType.OLAP, sortedPartitionRanges);
-        return prunedPartitions;
+        if (filter != null) {
+            List<Long> prunedPartitions = PartitionPruner.prune(
+                    partitionSlots, filter.getPredicate(), idToPartitions, ctx.cascadesContext,
+                    PartitionTableType.OLAP, sortedPartitionRanges);
+            return prunedPartitions;
+        } else if (!manuallySpecifiedPartitions.isEmpty()) {
+            return Utils.fastToImmutableList(idToPartitions.keySet());
+        } else {
+            return null;
+        }
     }
 
     private List<Long> prunePartitionByTabletIds(LogicalOlapScan scan,

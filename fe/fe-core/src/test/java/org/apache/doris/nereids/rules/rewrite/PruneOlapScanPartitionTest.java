@@ -175,6 +175,8 @@ class PruneOlapScanPartitionTest extends TestWithFeService implements MemoPatter
         test("test.single_not_null", "dt in (20211121, 20211124)", tablet1.getId() + ", " + tablet2.getId(), 2);
         test("test.single_not_null", "dt in (20211121)", String.valueOf(tablet2.getId()), 0);
         test("test.single_not_null", "", "", 7);
+        test("test.single_not_null", "", String.valueOf(tablet1.getId()), "p20211122", 1);
+        test("test.single_not_null", "", String.valueOf(tablet2.getId()), "p20211122", 0);
 
     }
 
@@ -419,8 +421,17 @@ class PruneOlapScanPartitionTest extends TestWithFeService implements MemoPatter
     }
 
     private void test(String table, String filter, String tabletsFilter, int expectScanPartitionNum) {
+        test(table, filter, tabletsFilter, "", expectScanPartitionNum);
+    }
+
+    private void test(String table,
+                      String filter,
+                      String tabletsFilter,
+                      String specifiedPartition,
+                      int expectScanPartitionNum) {
         PlanChecker planChecker = PlanChecker.from(connectContext)
                 .analyze("select * from " + table
+                        + (specifiedPartition.isEmpty() ? "" : String.format(" PARTITION ", specifiedPartition))
                         + (tabletsFilter.isEmpty() ? "" : String.format(" tablet(%s)", tabletsFilter))
                         + (filter.isEmpty() ? "" : " where " + filter)
                 )
