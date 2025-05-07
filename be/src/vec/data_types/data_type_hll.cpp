@@ -40,6 +40,14 @@ char* DataTypeHLL::serialize(const IColumn& column, char* buf, int be_exec_versi
         const auto* hll_column = &column;
         size_t real_need_copy_num = 0;
         buf = serialize_const_flag_and_row_num(&hll_column, buf, &real_need_copy_num);
+        // In the code below, if the real_need_copy_num is 0, an empty vector will be created. A vector with size 0 may return nullptr from data()
+        // https://en.cppreference.com/w/cpp/container/vector/data
+        // `If size() is ​0​, data() may or may not return a null pointer.`
+        // This would trigger a ubsan error: `null pointer passed as argument 2, which is declared to never be null`
+        // Other data types don't have this issue because they use Doris internal pod array that guarantees data won't be nullptr.
+        if (real_need_copy_num == 0) {
+            return buf;
+        }
 
         const auto& data_column = assert_cast<const ColumnHLL&>(*hll_column);
         std::vector<size_t> hll_size_array(real_need_copy_num);
