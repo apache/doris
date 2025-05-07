@@ -35,10 +35,10 @@ public class CacheLogRemovalListener<K, V> implements RemovalListener<K, V> {
     @Override
     public void onRemoval(@Nullable K k, @Nullable V v, @NonNull RemovalCause removalCause) {
         if (RemovalCause.SIZE == removalCause) {
-            LOG.warn("[{}]Key: {} was removed. Cause: {}, Value: {}", moduleName, k, removalCause, v);
+            LOG.warn("[{}]Key: {} was removed. Cause: {}", moduleName, k, removalCause);
         } else {
             if (LOG.isDebugEnabled()) {
-                LOG.debug("[{}]Key: {} was removed. Cause: {}, Value: {}", moduleName, k, removalCause, v);
+                LOG.debug("[{}]Key: {} was removed. Cause: {}", moduleName, k, removalCause);
             }
         }
     }
