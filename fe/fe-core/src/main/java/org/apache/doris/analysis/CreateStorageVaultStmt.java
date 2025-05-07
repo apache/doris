@@ -28,6 +28,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
+import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -46,7 +47,7 @@ public class CreateStorageVaultStmt extends DdlStmt implements NotFallbackInPars
 
     private final boolean ifNotExists;
     private final String vaultName;
-    private final ImmutableMap<String, String> properties;
+    private ImmutableMap<String, String> properties;
     private boolean setAsDefault;
     private int pathVersion = 0;
     private int numShard = 0;
@@ -145,6 +146,14 @@ public class CreateStorageVaultStmt extends DdlStmt implements NotFallbackInPars
         }
         setAsDefault = Boolean.parseBoolean(properties.getOrDefault(SET_AS_DEFAULT, "false"));
         setStorageVaultType(StorageVault.StorageVaultType.fromString(type));
+
+        if (vaultType == StorageVault.StorageVaultType.S3
+                && !properties.containsKey(PropertyConverter.USE_PATH_STYLE)) {
+            properties = ImmutableMap.<String, String>builder()
+                .putAll(properties)
+                .put(PropertyConverter.USE_PATH_STYLE, "true")
+                .build();
+        }
     }
 
     @Override
