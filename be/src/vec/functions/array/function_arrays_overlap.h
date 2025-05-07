@@ -341,7 +341,16 @@ public:
             ret = _execute_internal<ColumnDecimal256>(left_exec_data, right_exec_data,
                                                       dst_null_map_data,
                                                       dst_nested_col->get_data().data());
-        }
+        } else if (left_which_type.is_ipv4()) {
+            ret = _execute_internal<ColumnIPv4>(left_exec_data, right_exec_data,
+                                                  dst_null_map_data,
+                                                  dst_nested_col->get_data().data());
+        } else if(left_which_type.is_ipv6()) {
+            ret = _execute_internal<ColumnIPv6>(left_exec_data, right_exec_data,
+                                                  dst_null_map_data,
+                                                  dst_nested_col->get_data().data());
+        } 
+        
 
         if (ret.ok()) {
             block.replace_by_position(result, ColumnNullable::create(std::move(dst_nested_col),

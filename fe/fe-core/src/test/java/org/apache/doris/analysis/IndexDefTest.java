@@ -93,7 +93,7 @@ public class IndexDefTest {
             try {
                 IndexDef def = new IndexDef("idx", false, Lists.newArrayList("col1"), IndexDef.IndexType.INVERTED, null, "");
                 Column col = new Column("col1", type);
-                def.checkColumn(col, KeysType.DUP_KEYS, true, TInvertedIndexFileStorageFormat.V1);
+                def.checkColumn(col, KeysType.DUP_KEYS, true, true);
             } catch (AnalysisException e) {
                 Assert.fail("Should support type: " + type + ", but got: " + e.getMessage());
             }
@@ -109,7 +109,7 @@ public class IndexDefTest {
             try {
                 IndexDef def = new IndexDef("idx", false, Lists.newArrayList("col1"), IndexDef.IndexType.INVERTED, null, "");
                 Column col = new Column("col1", type);
-                def.checkColumn(col, KeysType.DUP_KEYS, true, TInvertedIndexFileStorageFormat.V1);
+                def.checkColumn(col, KeysType.DUP_KEYS, true, true);
                 Assert.fail("Should not support type: " + type);
             } catch (AnalysisException e) {
                 Assert.assertTrue(e.getMessage().contains("is not supported"));
