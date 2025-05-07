@@ -36,33 +36,39 @@ public class ExpressionBottomUpRewriter implements ExpressionRewriteRule<Express
     private static final AtomicInteger BATCH_ID = new AtomicInteger(0);
     private static final Logger LOG = LogManager.getLogger(ExpressionBottomUpRewriter.class);
 
-    private final int batchId = BATCH_ID.getAndIncrement();
-    public final String name = "expr_rewrite_" + batchId;
-
     private final ExpressionPatternRules rules;
     private final ExpressionPatternTraverseListeners listeners;
+    private final boolean checkRewriteState;
 
-    public ExpressionBottomUpRewriter(ExpressionPatternRules rules, ExpressionPatternTraverseListeners listeners) {
+    public ExpressionBottomUpRewriter(
+            boolean checkRewriteState, ExpressionPatternRules rules, ExpressionPatternTraverseListeners listeners) {
         this.rules = rules;
         this.listeners = listeners;
+        this.checkRewriteState = checkRewriteState;
     }
 
     @Override
     public String getRewriteStateKey() {
-        return name;
+        return toString();
+    }
+
+    @Override
+    public boolean checkRewriteState() {
+        return checkRewriteState;
     }
 
     // entrance
     @Override
     public Expression rewrite(Expression expr, ExpressionRewriteContext ctx) {
-        return rewriteBottomUp(expr, ctx, batchId, null, rules, listeners, name);
+        return rewriteBottomUp(expr, ctx, BATCH_ID.getAndIncrement(), null, rules, listeners, checkRewriteState ? getRewriteStateKey() : null);
     }
 
     private static Expression rewriteBottomUp(
             Expression expression, ExpressionRewriteContext context, int currentBatch, @Nullable Expression parent,
             ExpressionPatternRules rules, ExpressionPatternTraverseListeners listeners, String name) {
 
-        if (!rules.hasCurrentAndChildrenRules(expression) || expression.getMutableState(name).isPresent()) {
+        if (!rules.hasCurrentAndChildrenRules(expression)
+                || (name != null && expression.getMutableState(name).isPresent())) {
             return expression;
         }
 

@@ -34,6 +34,11 @@ public abstract class AbstractExpressionRewriteRule extends DefaultExpressionRew
     }
 
     @Override
+    public boolean checkRewriteState() {
+        return true;
+    }
+
+    @Override
     public Expression rewrite(Expression expr, ExpressionRewriteContext ctx) {
         return expr.accept(this, ctx);
     }

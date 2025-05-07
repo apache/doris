@@ -25,5 +25,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 public interface ExpressionRewriteRule<T> {
     String getRewriteStateKey();
 
+    boolean checkRewriteState();
+
     Expression rewrite(Expression expr, T ctx);
 }

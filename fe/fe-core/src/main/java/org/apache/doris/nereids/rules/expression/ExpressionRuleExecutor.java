@@ -64,14 +64,17 @@ public class ExpressionRuleExecutor {
 
     private Expression applyRule(
             Expression expr, ExpressionRewriteRule<ExpressionRewriteContext> rule, ExpressionRewriteContext ctx) {
-        String rewriteStateKey = rule.getRewriteStateKey();
-        if (!expr.getMutableState(rewriteStateKey).isPresent()) {
-            Expression result = rule.rewrite(expr, ctx);
-            result.setMutableState(rewriteStateKey, true);
-            return result;
+        if (rule.checkRewriteState()) {
+            String rewriteStateKey = rule.getRewriteStateKey();
+            if (!expr.getMutableState(rewriteStateKey).isPresent()) {
+                Expression result = rule.rewrite(expr, ctx);
+                result.setMutableState(rewriteStateKey, true);
+                return result;
+            }
+            return expr;
+        } else {
+            return rule.rewrite(expr, ctx);
         }
-        return expr;
-        // return rule.rewrite(expr, ctx);
     }
 
     /** normalize */

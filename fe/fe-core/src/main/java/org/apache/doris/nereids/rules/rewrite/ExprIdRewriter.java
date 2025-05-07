@@ -54,7 +54,7 @@ public class ExprIdRewriter extends ExpressionRewrite {
     private final JobContext jobContext;
 
     public ExprIdRewriter(ReplaceRule replaceRule, JobContext jobContext) {
-        super(new ExpressionRuleExecutor(ImmutableList.of(bottomUp(replaceRule))));
+        super(new ExpressionRuleExecutor(ImmutableList.of(bottomUp(false, replaceRule))));
         rules = buildRules();
         this.jobContext = jobContext;
     }
@@ -119,14 +119,20 @@ public class ExprIdRewriter extends ExpressionRewrite {
             return ImmutableList.of(
                     matchesType(SlotReference.class).thenApply(ctx -> {
                         Slot slot = ctx.expr;
-                        if (replaceMap.containsKey(slot.getExprId())) {
-                            ExprId newId = replaceMap.get(slot.getExprId());
-                            while (replaceMap.containsKey(newId)) {
-                                newId = replaceMap.get(newId);
-                            }
-                            return slot.withExprId(newId);
+
+                        ExprId newId = replaceMap.get(slot.getExprId());
+                        if (newId == null) {
+                            return slot;
                         }
-                        return slot;
+                        ExprId lastId = newId;
+                        while (true) {
+                            newId = replaceMap.get(lastId);
+                            if (newId == null) {
+                                return slot.withExprId(lastId);
+                            } else {
+                                lastId = newId;
+                            }
+                        }
                     }).toRule(ExpressionRuleType.EXPR_ID_REWRITE_REPLACE)
             );
         }

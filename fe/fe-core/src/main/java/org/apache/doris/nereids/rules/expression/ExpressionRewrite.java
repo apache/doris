@@ -337,6 +337,12 @@ public class ExpressionRewrite implements RewriteRuleFactory {
     /** bottomUp */
     public static ExpressionRewriteRule<ExpressionRewriteContext> bottomUp(
             ExpressionPatternRuleFactory... ruleFactories) {
+        return bottomUp(true, ruleFactories);
+    }
+
+    /** bottomUp */
+    public static ExpressionRewriteRule<ExpressionRewriteContext> bottomUp(
+            boolean checkRewriteState, ExpressionPatternRuleFactory... ruleFactories) {
         ImmutableList.Builder<ExpressionPatternMatchRule> rules = ImmutableList.builder();
         ImmutableList.Builder<ExpressionTraverseListenerMapping> listeners = ImmutableList.builder();
         for (ExpressionPatternRuleFactory ruleFactory : ruleFactories) {
@@ -355,6 +361,7 @@ public class ExpressionRewrite implements RewriteRuleFactory {
         // return new ExpressionBottomUpVisitorRewriter(new ExpressionPatternRules(rules.build()));
 
         return new ExpressionBottomUpRewriter(
+                checkRewriteState,
                 new ExpressionPatternRules(rules.build()),
                 new ExpressionPatternTraverseListeners(listeners.build())
         );

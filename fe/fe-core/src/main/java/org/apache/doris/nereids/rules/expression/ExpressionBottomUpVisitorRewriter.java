@@ -38,6 +38,11 @@ public class ExpressionBottomUpVisitorRewriter implements ExpressionRewriteRule<
         return rewrite(expression, context, null);
     }
 
+    @Override
+    public boolean checkRewriteState() {
+        return true;
+    }
+
     private Expression rewrite(Expression expression, ExpressionRewriteContext context, Expression parent) {
         if (expression.getMutableState(rewriteStateKey).isPresent()) {
             return expression;
