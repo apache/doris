@@ -146,6 +146,32 @@ Status VDataStreamMgr::transmit_block(const PTransmitDataParams* request,
     }
 
     bool eos = request->eos();
+    if (!request->blocks().empty()) {
+        for (int i = 0; i < request->blocks_size(); i++) {
+            std::unique_ptr<PBlock> pblock_ptr = std::make_unique<PBlock>();
+            pblock_ptr->Swap(const_cast<PBlock*>(&request->blocks(i)));
+            auto pass_done = [&]() -> ::google::protobuf::Closure** {
+                // If it is eos, no callback is needed, done can be nullptr
+                if (eos) {
+                    return nullptr;
+                }
+                // If it is the last block, a callback is needed, pass done
+                if (i == request->blocks_size() - 1) {
+                    return done;
+                } else {
+                    // If it is not the last block, the blocks in the request currently belong to the same queue,
+                    // and the callback is handled by the done of the last block
+                    return nullptr;
+                }
+            };
+            RETURN_IF_ERROR(recvr->add_block(
+                    std::move(pblock_ptr), request->sender_id(), request->be_number(),
+                    request->packet_seq() - request->blocks_size() + i, pass_done(),
+                    wait_for_worker, cpu_time_stop_watch.elapsed_time()));
+        }
+    }
+
+    // old logic, for compatibility
     if (request->has_block()) {
         std::unique_ptr<PBlock> pblock_ptr {
                 const_cast<PTransmitDataParams*>(request)->release_block()};

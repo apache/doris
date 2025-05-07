@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource.property.storage;
 
-import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.ConnectorProperty;
 
 import com.google.common.base.Strings;
@@ -26,11 +25,10 @@ import lombok.Setter;
 
 import java.util.Map;
 import java.util.Objects;
-import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
-public class OSSProperties extends AbstractObjectStorageProperties {
+public class OSSProperties extends AbstractS3CompatibleProperties {
 
     @Setter
     @Getter
@@ -50,11 +48,24 @@ public class OSSProperties extends AbstractObjectStorageProperties {
     protected String secretKey = "";
 
     @Getter
+    @Setter
     @ConnectorProperty(names = {"oss.region", "s3.region", "AWS_REGION", "region", "REGION"}, required = false,
             description = "The region of OSS.")
     protected String region;
 
-    private static Pattern ENDPOINT_PATTERN = Pattern.compile("^oss-[a-z0-9-]+\\.aliyuncs\\.com(\\.internal)?$");
+    /**
+     * Pattern to extract the region from an Alibaba Cloud OSS endpoint.
+     * <p>
+     * Supported formats:
+     * - oss-cn-hangzhou.aliyuncs.com              => region = cn-hangzhou
+     * - <a href="https://oss-cn-shanghai.aliyuncs.com">...</a>      => region = cn-shanghai
+     * - oss-cn-beijing-internal.aliyuncs.com      => region = cn-beijing (internal endpoint)
+     * - <a href="http://oss-cn-shenzhen-internal.aliyuncs.com">...</a> => region = cn-shenzhen
+     * <p>
+     * Group(1) captures the region name (e.g., cn-hangzhou).
+     */
+    private static final Pattern ENDPOINT_PATTERN = Pattern
+            .compile("^(?:https?://)?oss-([a-z0-9-]+?)(?:-internal)?\\.aliyuncs\\.com$");
 
     protected OSSProperties(Map<String, String> origProps) {
         super(Type.OSS, origProps);
@@ -67,7 +78,7 @@ public class OSSProperties extends AbstractObjectStorageProperties {
                 .findFirst()
                 .orElse(null);
         if (!Strings.isNullOrEmpty(value)) {
-            return value.contains("aliyuncs.com");
+            return ENDPOINT_PATTERN.matcher(value).matches();
         }
         if (!origProps.containsKey("uri")) {
             return false;
@@ -76,50 +87,8 @@ public class OSSProperties extends AbstractObjectStorageProperties {
     }
 
     @Override
-    protected void initNormalizeAndCheckProps() throws UserException {
-        super.initNormalizeAndCheckProps();
-        initRegionIfNecessary();
-    }
-
-    @Override
     protected Pattern endpointPattern() {
         return ENDPOINT_PATTERN;
-    }
-
-    /**
-     * Initializes the region field based on the endpoint if it's not already set.
-     * <p>
-     * This method attempts to extract the region name from the OSS endpoint string.
-     * It supports both external and internal Alibaba Cloud OSS endpoint formats.
-     * <p>
-     * Examples:
-     * - External endpoint: "oss-cn-hangzhou.aliyuncs.com" → region = "cn-hangzhou"
-     * - Internal endpoint: "oss-cn-shanghai.intranet.aliyuncs.com" → region = "cn-shanghai"
-     */
-    public void initRegionIfNecessary() {
-        // Return the region if it is already set
-        if (!Strings.isNullOrEmpty(this.region)) {
-            return;
-        }
-        // Check for external endpoint and extract region
-        if (endpoint.contains("aliyuncs.com")) {
-            // Regex pattern for external endpoint (e.g., oss-<region>.aliyuncs.com)
-            Pattern ossPattern = Pattern.compile("oss-([a-z0-9-]+)\\.aliyuncs\\.com");
-            Matcher matcher = ossPattern.matcher(endpoint);
-            if (matcher.find()) {
-                this.region = matcher.group(1);
-                return;
-            }
-        }
-        // Check for internal endpoint and extract region
-        if (endpoint.contains("intranet.aliyuncs.com")) {
-            // Regex pattern for internal endpoint (e.g., oss-<region>.intranet.aliyuncs.com)
-            Pattern ossIntranetPattern = Pattern.compile("oss-([a-z0-9-]+)\\.intranet\\.aliyuncs\\.com");
-            Matcher matcher = ossIntranetPattern.matcher(endpoint);
-            if (matcher.find()) {
-                this.region = matcher.group(1);
-            }
-        }
     }
 
 }

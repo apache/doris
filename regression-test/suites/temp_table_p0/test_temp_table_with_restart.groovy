@@ -18,7 +18,7 @@
 import org.apache.doris.regression.suite.ClusterOptions
 
 suite('test_temp_table_with_restart', 'p0,docker') {
-    options = new ClusterOptions()
+    def options = new ClusterOptions()
     options.setFeNum(2)
     options.setBeNum(1)
     options.connectToFollower = true

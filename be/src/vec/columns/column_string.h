@@ -154,6 +154,10 @@ public:
         return StringRef(&chars[offset_at(n)], size_at(n));
     }
 
+    String get_element(size_t n) const { return get_data_at(n).to_string(); }
+
+    void insert_value(const String& value) { insert_data(value.data(), value.size()); }
+
     void insert(const Field& x) override {
         StringRef s;
         if (x.get_type() == Field::Types::JSONB) {
@@ -558,6 +562,8 @@ public:
                           uint8* __restrict filter) const override;
 
     ColumnPtr convert_column_if_overflow() override;
+
+    void erase(size_t start, size_t length) override;
 };
 
 using ColumnString = ColumnStr<UInt32>;

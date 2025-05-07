@@ -170,6 +170,13 @@ enum NodeStatusPB {
     NODE_STATUS_DECOMMISSIONED = 4;
 }
 
+enum CredProviderTypePB {
+    // used for creating different credentials provider when creating s3client
+    DEFAULT = 1;    // DefaultAWSCredentialsProviderChain
+    SIMPLE = 2;     // SimpleAWSCredentialsProvider, corresponding to (ak, sk)
+    INSTANCE_PROFILE = 3;  // InstanceProfileCredentialsProvider
+}
+
 message ObjectStoreInfoPB {
     // presigned url use
     // oss,aws,cos,obs,bos
@@ -198,6 +205,10 @@ message ObjectStoreInfoPB {
     optional EncryptionInfoPB encryption_info = 14;
     optional bool sse_enabled = 15;
     optional bool use_path_style = 16;
+
+    optional CredProviderTypePB cred_provider_type = 17;
+    optional string role_arn = 18;  // aws assumed role's arn 
+    optional string external_id = 19;  // aws assumed role's external_id if configure
 }
 
 // The legacy ObjectStoreInfoPB is stored in InstanceInfoPB

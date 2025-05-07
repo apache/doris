@@ -24,7 +24,6 @@
 
 #include "gutil/strings/numbers.h"
 #include "util/mysql_global.h"
-#include "vec/data_types/data_type_number_base.h"
 #include "vec/io/io_helper.h"
 
 namespace doris::vectorized {

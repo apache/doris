@@ -25,12 +25,23 @@ import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.tablefunction.IcebergTableValuedFunction;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
 
+import com.google.common.base.Joiner;
+import com.google.common.collect.Maps;
+
+import java.util.List;
 import java.util.Map;
 
 /** iceberg_meta */
 public class IcebergMeta extends TableValuedFunction {
     public IcebergMeta(Properties properties) {
         super("iceberg_meta", properties);
+    }
+
+    public static IcebergMeta createSnapshots(List<String> nameParts) {
+        Map<String, String> prop = Maps.newHashMap();
+        prop.put(IcebergTableValuedFunction.TABLE, Joiner.on(".").join(nameParts));
+        prop.put(IcebergTableValuedFunction.QUERY_TYPE, "snapshots");
+        return new IcebergMeta(new Properties(prop));
     }
 
     @Override
