@@ -193,7 +193,7 @@ int Checker::start() {
                 }
             }
 
-            if (config::enable_compaction_key_check) {
+            if (config::enable_mow_compaction_key_check) {
                 if (int ret = checker->do_mow_compaction_key_check(); ret != 0) {
                     success = false;
                 }

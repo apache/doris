@@ -3165,7 +3165,7 @@ void remove_delete_bitmap_lock(MetaServiceProxy* meta_service, int64_t table_id)
 }
 
 TEST(CheckerTest, check_compaction_key) {
-    config::enable_compaction_key_check = true;
+    config::enable_mow_compaction_key_check = true;
     config::compaction_key_check_expiration_diff_seconds = 0;
     config::use_delete_bitmap_lock_version = "v2";
     std::string instance_id = "test_check_compaction_key";
