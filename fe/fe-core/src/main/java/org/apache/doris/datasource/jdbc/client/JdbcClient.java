@@ -33,7 +33,6 @@ import lombok.Getter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.File;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLClassLoader;
@@ -169,11 +168,6 @@ public abstract class JdbcClient {
     private synchronized void initializeClassLoader(JdbcClientConfig config) {
         try {
             URL[] urls = {new URL(JdbcResource.getFullDriverUrl(config.getDriverUrl()))};
-            File driverFile = new File(urls[0].getPath());
-            if (!driverFile.exists()) {
-                throw new RuntimeException("JDBC driver file not found at path: "
-                        + JdbcResource.getFullDriverUrl(config.getDriverUrl()));
-            }
             if (classLoaderMap.containsKey(urls[0]) && classLoaderMap.get(urls[0]) != null) {
                 this.classLoader = classLoaderMap.get(urls[0]);
             } else {
