@@ -461,7 +461,7 @@ public class CreateRoutineLoadInfo {
      */
     public CreateRoutineLoadStmt translateToLegacyStmt(ConnectContext ctx) {
         return new CreateRoutineLoadStmt(labelNameInfo.transferToLabelName(), dbName, name, tableName, null,
-                ctx.getStatementContext().getOriginStatement(), ctx.getUserIdentity(),
+                ctx.getStatementContext().getOriginStatement(), ctx.getCurrentUserIdentity(),
                 jobProperties, typeName, routineLoadDesc,
                 desiredConcurrentNum, maxErrorNum, maxFilterRatio, maxBatchIntervalS, maxBatchRows, maxBatchSizeBytes,
                 execMemLimit, sendBatchParallelism, timezone, format, jsonPaths, jsonRoot, enclose, escape,
