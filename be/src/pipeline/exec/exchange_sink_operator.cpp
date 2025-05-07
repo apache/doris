@@ -106,7 +106,7 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
     _rpc_channels_num = channels.size() - local_size;
 
     if (!_only_local_exchange) {
-        _sink_buffer = p.get_sink_buffer(state->fragment_instance_id().lo);
+        _sink_buffer = p.get_sink_buffer(state, state->fragment_instance_id().lo);
         register_channels(_sink_buffer.get());
         _queue_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
                                                       "ExchangeSinkQueueDependency", true);
@@ -349,7 +349,7 @@ void ExchangeSinkOperatorX::_init_sink_buffer() {
     for (auto fragment_instance_id : _fragment_instance_ids) {
         ins_ids.push_back(fragment_instance_id.lo);
     }
-    _sink_buffer = _create_buffer(ins_ids);
+    _sink_buffer = _create_buffer(_state, ins_ids);
 }
 
 template <typename ChannelPtrType>
@@ -572,11 +572,11 @@ Status ExchangeSinkLocalState::close(RuntimeState* state, Status exec_status) {
 }
 
 std::shared_ptr<ExchangeSinkBuffer> ExchangeSinkOperatorX::_create_buffer(
-        const std::vector<InstanceLoId>& sender_ins_ids) {
+        RuntimeState* state, const std::vector<InstanceLoId>& sender_ins_ids) {
     PUniqueId id;
     id.set_hi(_state->query_id().hi);
     id.set_lo(_state->query_id().lo);
-    auto sink_buffer = std::make_unique<ExchangeSinkBuffer>(id, _dest_node_id, _node_id, state(),
+    auto sink_buffer = std::make_unique<ExchangeSinkBuffer>(id, _dest_node_id, _node_id, state,
                                                             sender_ins_ids);
     for (const auto& _dest : _dests) {
         sink_buffer->construct_request(_dest.fragment_instance_id);
@@ -590,17 +590,17 @@ std::shared_ptr<ExchangeSinkBuffer> ExchangeSinkOperatorX::_create_buffer(
 // (Note: This does not reduce the total number of RPCs.)
 // In a merge sort scenario, there are only n RPCs, so a shared sink buffer is not needed.
 std::shared_ptr<ExchangeSinkBuffer> ExchangeSinkOperatorX::get_sink_buffer(
-        InstanceLoId sender_ins_id) {
+        RuntimeState* state, InstanceLoId sender_ins_id) {
     // When the child is SortSourceOperatorX or LocalExchangeSourceOperatorX,
     // it is an order-by scenario.
     // In this case, there is only one target instance, and no n * n RPC concurrency will occur.
     // Therefore, sharing a sink buffer is not necessary.
     if (_dest_is_merge) {
-        return _create_buffer({sender_ins_id});
+        return _create_buffer(state, {sender_ins_id});
     }
     if (_state->enable_shared_exchange_sink_buffer()) {
         return _sink_buffer;
     }
-    return _create_buffer({sender_ins_id});
+    return _create_buffer(state, {sender_ins_id});
 }
 } // namespace doris::pipeline

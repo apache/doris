@@ -43,9 +43,19 @@ DB_ADMIN_PASSWD=$PASSWD
 
 COMPUTE_GROUP_NAME=${COMPUTE_GROUP_NAME}
 
+ENABLE_WORKLOAD_GROUP=${ENABLE_WORKLOAD_GROUP:-false}
+WORKLOAD_GROUP_PATH="/sys/fs/cgroup/cpu/doris"
+
 log_stderr()
 {
     echo "[`date`] $@" >&2
+}
+
+function add_workloadgroup_config()
+{
+    if [[ "x$ENABLE_WORKLOAD_GROUP" == "xtrue" ]]; then
+          echo "doris_cgroup_cpu_path=$WORKLOAD_GROUP_PATH" >> ${DORIS_HOME}/conf/be.conf
+    fi
 }
 
 update_conf_from_configmap()
@@ -240,12 +250,38 @@ function check_and_register()
     fi
 }
 
+
+function make_dir_for_workloadgroup() {
+    output=$(cat /proc/filesystems | grep cgroup)
+    if [ -z "$output" ]; then
+        log_stderr "[error] The host machine does not have cgroup installed, so the workload group function will be limited."
+        exit 1
+    fi
+
+    mkdir -p /sys/fs/cgroup/cpu/doris
+    chmod 770 /sys/fs/cgroup/cpu/doris
+    chown -R root:root /sys/fs/cgroup/cpu/doris
+
+    if [[ -f "/sys/fs/cgroup/cgroup.controllers" ]]; then
+        log_stderr "[info] The host machine cgroup version: v2."
+        chmod a+w /sys/fs/cgroup/cgroup.procs
+    else
+        log_stderr "[info] The host machine cgroup version: v1."
+    fi
+}
+
 fe_addrs=$1
 if [[ "x$fe_addrs" == "x" ]]; then
     echo "need fe address as paramter!"
     echo "  Example $0 <fe_addr>"
     exit 1
 fi
+
+if [[ "x$ENABLE_WORKLOAD_GROUP" == "xtrue" ]]; then
+      log_stderr '[info] Enable workload group !'
+      make_dir_for_workloadgroup
+fi
+
 
 # pre check for starting
 if cat /proc/cpuinfo | grep -q "avx2" &>/dev/null; then
@@ -255,6 +291,7 @@ else
 fi
 
 update_conf_from_configmap
+add_workloadgroup_config
 # resolve password for root to manage nodes in doris.
 resolve_password_from_secret
 collect_env_info

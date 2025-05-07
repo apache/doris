@@ -109,10 +109,10 @@ std::string FileFactory::_get_fs_name(const io::FileDescription& file_descriptio
     //    hdfs://host:port/path1/path2  --> hdfs://host:port
     //    hdfs://nameservice/path1/path2 --> hdfs://nameservice
     std::string fs_name = file_description.fs_name;
-    string::size_type idx = file_description.path.find("://");
-    if (idx != string::npos) {
-        idx = file_description.path.find("/", idx + 3);
-        if (idx != string::npos) {
+    std::string::size_type idx = file_description.path.find("://");
+    if (idx != std::string::npos) {
+        idx = file_description.path.find('/', idx + 3);
+        if (idx != std::string::npos) {
             fs_name = file_description.path.substr(0, idx);
         }
     }

@@ -61,8 +61,9 @@ Status Crc32HashPartitioner<ChannelIds>::do_partitioning(RuntimeState* state, Bl
 template <typename ChannelIds>
 void Crc32HashPartitioner<ChannelIds>::_do_hash(const ColumnPtr& column,
                                                 uint32_t* __restrict result, int idx) const {
-    column->update_crcs_with_value(result, _partition_expr_ctxs[idx]->root()->type().type,
-                                   cast_set<uint32_t>(column->size()));
+    column->update_crcs_with_value(
+            result, _partition_expr_ctxs[idx]->root()->data_type()->get_primitive_type(),
+            cast_set<uint32_t>(column->size()));
 }
 
 template <typename ChannelIds>

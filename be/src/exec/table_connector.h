@@ -75,8 +75,9 @@ public:
     std::u16string utf8_to_u16string(const char* first, const char* last);
 
     Status convert_column_data(const vectorized::ColumnPtr& column_ptr,
-                               const vectorized::DataTypePtr& type_ptr, const TypeDescriptor& type,
-                               int row, TOdbcTableType::type table_type);
+                               const vectorized::DataTypePtr& type_ptr,
+                               const vectorized::DataTypePtr& type, int row,
+                               TOdbcTableType::type table_type);
 
     // Default max buffer size use in insert to: 50MB, normally a batch is smaller than the size
     static constexpr uint32_t INSERT_BUFFER_SIZE = 1024l * 1024 * 50;

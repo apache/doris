@@ -543,7 +543,8 @@ Status HashJoinBuildSinkOperatorX::prepare(RuntimeState* state) {
                 output_slot_flags.emplace_back(
                         std::find(_hash_output_slot_ids.begin(), _hash_output_slot_ids.end(),
                                   slot_desc->id()) != _hash_output_slot_ids.end());
-                if (output_slot_flags.back() && slot_desc->type().is_variant_type()) {
+                if (output_slot_flags.back() &&
+                    slot_desc->type()->get_primitive_type() == PrimitiveType::TYPE_VARIANT) {
                     _need_finalize_variant_column = true;
                 }
             }

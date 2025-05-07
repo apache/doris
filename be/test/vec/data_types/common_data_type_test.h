@@ -101,7 +101,7 @@ public:
     // we make meta info a default value, so assert should change the struct value to the right value
     struct DataTypeMetaInfo {
         TypeIndex type_id = TypeIndex::Nothing;
-        TypeDescriptor* type_as_type_descriptor = nullptr;
+        DataTypePtr type_as_type_descriptor = nullptr;
         std::string family_name = "";
         bool has_subtypes = false;
         doris::FieldType storage_field_type = doris::FieldType::OLAP_FIELD_TYPE_UNKNOWN;
@@ -125,7 +125,8 @@ public:
         ASSERT_NE(data_type->get_serde(1), nullptr);
         ASSERT_EQ(IDataType::get_pdata_type(data_type.get()), meta_info.pColumnMeta->type());
         ASSERT_EQ(data_type->get_type_id(), meta_info.type_id);
-        ASSERT_EQ(data_type->get_type_as_type_descriptor(), *meta_info.type_as_type_descriptor);
+        ASSERT_TRUE(data_type->equals(*meta_info.type_as_type_descriptor))
+                << data_type->get_name() << " " << meta_info.type_as_type_descriptor->get_name();
         ASSERT_EQ(data_type->get_family_name(), meta_info.family_name);
         ASSERT_EQ(data_type->have_subtypes(), meta_info.has_subtypes);
         ASSERT_EQ(data_type->get_storage_field_type(), meta_info.storage_field_type);
@@ -147,8 +148,8 @@ public:
             ASSERT_EQ(data_type->get_precision(), meta_info.precision);
             ASSERT_EQ(data_type->get_scale(), meta_info.scale);
         } else {
-            EXPECT_ANY_THROW(EXPECT_FALSE(data_type->get_precision()));
-            EXPECT_THROW(EXPECT_FALSE(data_type->get_scale()), doris::Exception);
+            EXPECT_EQ(data_type->get_precision(), 0);
+            EXPECT_EQ(data_type->get_scale(), 0);
         }
         ASSERT_EQ(data_type->is_null_literal(), meta_info.is_null_literal);
         ASSERT_EQ(data_type->is_value_represented_by_number(),

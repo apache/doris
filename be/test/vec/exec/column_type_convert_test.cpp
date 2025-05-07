@@ -45,7 +45,8 @@ public:
 TEST_F(ColumnTypeConverterTest, TestIntegerWideningConversions) {
     // Test TINYINT -> SMALLINT
     {
-        TypeDescriptor src_type(TYPE_TINYINT);
+        auto src_type =
+                vectorized::DataTypeFactory::instance().create_data_type(TYPE_TINYINT, false);
         auto dst_type = std::make_shared<DataTypeInt16>();
 
         auto converter = converter::ColumnTypeConverter::get_converter(src_type, dst_type,
@@ -78,7 +79,8 @@ TEST_F(ColumnTypeConverterTest, TestIntegerWideningConversions) {
 
     // Test SMALLINT -> INT
     {
-        TypeDescriptor src_type(TYPE_SMALLINT);
+        auto src_type =
+                vectorized::DataTypeFactory::instance().create_data_type(TYPE_SMALLINT, false);
         auto dst_type = std::make_shared<DataTypeInt32>();
 
         auto converter = converter::ColumnTypeConverter::get_converter(src_type, dst_type,
@@ -114,7 +116,7 @@ TEST_F(ColumnTypeConverterTest, TestIntegerWideningConversions) {
 TEST_F(ColumnTypeConverterTest, TestIntegerNarrowingConversions) {
     // Test INT -> SMALLINT with values in range
     {
-        TypeDescriptor src_type(TYPE_INT);
+        auto src_type = vectorized::DataTypeFactory::instance().create_data_type(TYPE_INT, false);
         auto dst_type = std::make_shared<DataTypeInt16>();
 
         auto converter = converter::ColumnTypeConverter::get_converter(src_type, dst_type,
@@ -145,7 +147,7 @@ TEST_F(ColumnTypeConverterTest, TestIntegerNarrowingConversions) {
 
     // Test INT -> SMALLINT with out of range values
     {
-        TypeDescriptor src_type(TYPE_INT);
+        auto src_type = vectorized::DataTypeFactory::instance().create_data_type(TYPE_INT, false);
         auto dst_type = std::make_shared<DataTypeInt16>();
         auto nullable_dst_type = std::make_shared<DataTypeNullable>(dst_type);
 
@@ -171,7 +173,7 @@ TEST_F(ColumnTypeConverterTest, TestIntegerNarrowingConversions) {
 TEST_F(ColumnTypeConverterTest, TestFloatingPointConversions) {
     // TEST INT ->  FLOAT
     {
-        TypeDescriptor src_type(TYPE_INT);
+        auto src_type = vectorized::DataTypeFactory::instance().create_data_type(TYPE_INT, false);
         auto dst_type = std::make_shared<DataTypeFloat32>();
         auto nullable_dst_type = std::make_shared<DataTypeNullable>(dst_type);
         auto converter = converter::ColumnTypeConverter::get_converter(src_type, dst_type,
@@ -208,7 +210,8 @@ TEST_F(ColumnTypeConverterTest, TestFloatingPointConversions) {
     }
     // TEST STRING -> FLOAT
     {
-        TypeDescriptor src_type(TYPE_STRING);
+        auto src_type =
+                vectorized::DataTypeFactory::instance().create_data_type(TYPE_STRING, false);
         auto dst_type = std::make_shared<DataTypeFloat32>();
         auto nullable_dst_type = std::make_shared<DataTypeNullable>(dst_type);
 
@@ -270,7 +273,7 @@ TEST_F(ColumnTypeConverterTest, TestFloatingPointConversions) {
 
     // Test FLOAT -> DOUBLE (widening)
     {
-        TypeDescriptor src_type(TYPE_FLOAT);
+        auto src_type = vectorized::DataTypeFactory::instance().create_data_type(TYPE_FLOAT, false);
         auto dst_type = std::make_shared<DataTypeFloat64>();
 
         auto converter = converter::ColumnTypeConverter::get_converter(src_type, dst_type,
@@ -308,9 +311,8 @@ TEST_F(ColumnTypeConverterTest, TestFloatingPointConversions) {
 TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
     // Test DECIMAL32 -> DECIMAL64 (widening)
     {
-        TypeDescriptor src_type(TYPE_DECIMAL32);
-        src_type.precision = 9;
-        src_type.scale = 2;
+        auto src_type = vectorized::DataTypeFactory::instance().create_data_type(TYPE_DECIMAL32,
+                                                                                 false, 9, 2);
 
         auto dst_type = std::make_shared<DataTypeDecimal<Decimal64>>(18, 2);
 
@@ -339,9 +341,8 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
 
     // Test DECIMAL32 -> DECIMAL128 (from small decimal to large decimal)
     {
-        TypeDescriptor src_type(TYPE_DECIMAL32);
-        src_type.precision = 9;
-        src_type.scale = 2;
+        auto src_type = vectorized::DataTypeFactory::instance().create_data_type(TYPE_DECIMAL32,
+                                                                                 false, 9, 2);
 
         auto dst_type = std::make_shared<DataTypeDecimal<Decimal128V3>>(38, 10);
 
@@ -371,9 +372,8 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
 
     // Test DECIMAL64 -> DECIMAL256 (from medium decimal to large decimal)
     {
-        TypeDescriptor src_type(TYPE_DECIMAL64);
-        src_type.precision = 18;
-        src_type.scale = 4;
+        auto src_type = vectorized::DataTypeFactory::instance().create_data_type(TYPE_DECIMAL64,
+                                                                                 false, 18, 4);
 
         auto dst_type = std::make_shared<DataTypeDecimal<Decimal256>>(76, 35);
 
@@ -407,9 +407,8 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
 
     // Test DECIMAL -> INT (with potential precision loss)
     {
-        TypeDescriptor src_type(TYPE_DECIMAL32);
-        src_type.precision = 9;
-        src_type.scale = 2;
+        auto src_type = vectorized::DataTypeFactory::instance().create_data_type(TYPE_DECIMAL32,
+                                                                                 false, 9, 2);
 
         auto dst_type = std::make_shared<DataTypeInt8>();
         auto nullable_dst_type = std::make_shared<DataTypeNullable>(dst_type);
@@ -447,9 +446,8 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
 
     // Test DECIMAL -> INT (with potential precision loss)
     {
-        TypeDescriptor src_type(TYPE_DECIMAL128I);
-        src_type.precision = 36;
-        src_type.scale = 4;
+        auto src_type = vectorized::DataTypeFactory::instance().create_data_type(TYPE_DECIMAL128I,
+                                                                                 false, 36, 4);
 
         auto dst_type = std::make_shared<DataTypeInt8>();
         auto nullable_dst_type = std::make_shared<DataTypeNullable>(dst_type);
@@ -487,9 +485,8 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
 
     // Test DECIMAL -> INT (with potential precision loss)
     {
-        TypeDescriptor src_type(TYPE_DECIMAL256);
-        src_type.precision = 70;
-        src_type.scale = 4;
+        auto src_type = vectorized::DataTypeFactory::instance().create_data_type(TYPE_DECIMAL256,
+                                                                                 false, 70, 4);
 
         auto dst_type = std::make_shared<DataTypeInt16>();
         auto nullable_dst_type = std::make_shared<DataTypeNullable>(dst_type);
@@ -533,7 +530,7 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
 
     // TEST INT -> DECIMAL
     {
-        TypeDescriptor src_type(TYPE_INT);
+        auto src_type = vectorized::DataTypeFactory::instance().create_data_type(TYPE_INT, false);
         auto dst_type = std::make_shared<DataTypeDecimal<Decimal64>>(10, 2);
 
         auto converter = converter::ColumnTypeConverter::get_converter(src_type, dst_type,
@@ -563,7 +560,7 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
 
     // TEST INT -> DECIMAL
     {
-        TypeDescriptor src_type(TYPE_INT);
+        auto src_type = vectorized::DataTypeFactory::instance().create_data_type(TYPE_INT, false);
         auto dst_type = std::make_shared<DataTypeDecimal<Decimal128V3>>(18, 5);
 
         auto converter = converter::ColumnTypeConverter::get_converter(src_type, dst_type,
@@ -592,7 +589,8 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
     }
 
     {
-        TypeDescriptor src_type(TYPE_TINYINT);
+        auto src_type =
+                vectorized::DataTypeFactory::instance().create_data_type(TYPE_TINYINT, false);
         auto dst_type = std::make_shared<DataTypeDecimal<Decimal256>>(38, 10);
 
         auto converter = converter::ColumnTypeConverter::get_converter(src_type, dst_type,
@@ -621,7 +619,8 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
     }
 
     {
-        TypeDescriptor src_type(TYPE_TINYINT);
+        auto src_type =
+                vectorized::DataTypeFactory::instance().create_data_type(TYPE_TINYINT, false);
         auto dst_type = std::make_shared<DataTypeDecimal<Decimal256>>(12, 10);
         auto nullable_dst_type = std::make_shared<DataTypeNullable>(dst_type);
 
@@ -657,9 +656,8 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
 
     // TEST DECIMAL64 -> DECIMAL32 (narrowing) (1)
     {
-        TypeDescriptor src_type(TYPE_DECIMAL64);
-        src_type.precision = 18;
-        src_type.scale = 4;
+        auto src_type = vectorized::DataTypeFactory::instance().create_data_type(TYPE_DECIMAL64,
+                                                                                 false, 18, 4);
 
         auto dst_type = std::make_shared<DataTypeDecimal<Decimal32>>(9, 4);
         auto nullable_dst_type = std::make_shared<DataTypeNullable>(dst_type);
@@ -693,10 +691,8 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
 
     // TEST DECIMAL64 -> DECIMAL32 (narrowing) (2)
     {
-        TypeDescriptor src_type(TYPE_DECIMAL64);
-        src_type.precision = 18;
-        src_type.scale = 4;
-
+        auto src_type = vectorized::DataTypeFactory::instance().create_data_type(TYPE_DECIMAL64,
+                                                                                 false, 18, 4);
         auto dst_type = std::make_shared<DataTypeDecimal<Decimal32>>(9, 4);
         auto nullable_dst_type = std::make_shared<DataTypeNullable>(dst_type);
 
@@ -738,7 +734,7 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
 
     // TEST FLOAT -> DECIMAL
     {
-        TypeDescriptor src_type(TYPE_FLOAT);
+        auto src_type = vectorized::DataTypeFactory::instance().create_data_type(TYPE_FLOAT, false);
         auto dst_type = std::make_shared<DataTypeDecimal<Decimal64>>(10, 2);
         auto nullable_dst_type = std::make_shared<DataTypeNullable>(dst_type);
 
@@ -786,7 +782,8 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
 
     // TEST STRING -> DECIMAL
     {
-        TypeDescriptor src_type(TYPE_STRING);
+        auto src_type =
+                vectorized::DataTypeFactory::instance().create_data_type(TYPE_STRING, false);
         auto dst_type = std::make_shared<DataTypeDecimal<Decimal64>>(10, 2);
         auto nullable_dst_type = std::make_shared<DataTypeNullable>(dst_type);
 
@@ -838,7 +835,7 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
 TEST_F(ColumnTypeConverterTest, TestStringConversions) {
     // Test numeric to string conversions
     { // INT -> STRING
-        TypeDescriptor src_type(TYPE_INT);
+        auto src_type = vectorized::DataTypeFactory::instance().create_data_type(TYPE_INT, false);
         auto dst_type = std::make_shared<DataTypeString>();
 
         auto converter = converter::ColumnTypeConverter::get_converter(src_type, dst_type,
@@ -869,7 +866,8 @@ TEST_F(ColumnTypeConverterTest, TestStringConversions) {
 
     // DOUBLE -> STRING
     {
-        TypeDescriptor src_type(TYPE_DOUBLE);
+        auto src_type =
+                vectorized::DataTypeFactory::instance().create_data_type(TYPE_DOUBLE, false);
         auto dst_type = std::make_shared<DataTypeString>();
 
         auto converter = converter::ColumnTypeConverter::get_converter(src_type, dst_type,
@@ -901,7 +899,8 @@ TEST_F(ColumnTypeConverterTest, TestStringConversions) {
 
     // Test string to numeric conversions with invalid input
     {
-        TypeDescriptor src_type(TYPE_STRING);
+        auto src_type =
+                vectorized::DataTypeFactory::instance().create_data_type(TYPE_STRING, false);
         auto dst_type = std::make_shared<DataTypeInt32>();
         auto nullable_dst_type = std::make_shared<DataTypeNullable>(dst_type);
 
@@ -933,9 +932,8 @@ TEST_F(ColumnTypeConverterTest, TestStringConversions) {
     }
     // TEST DECIMAL -> STRING
     {
-        TypeDescriptor src_type(TYPE_DECIMAL32);
-        src_type.precision = 9;
-        src_type.scale = 2;
+        auto src_type = vectorized::DataTypeFactory::instance().create_data_type(TYPE_DECIMAL32,
+                                                                                 false, 9, 2);
 
         auto dst_type = std::make_shared<DataTypeString>();
 
@@ -968,7 +966,8 @@ TEST_F(ColumnTypeConverterTest, TestStringConversions) {
 
     // TEST DATE/TIMESTAMP -> STRING
     {
-        TypeDescriptor src_type(TYPE_DATEV2);
+        auto src_type =
+                vectorized::DataTypeFactory::instance().create_data_type(TYPE_DATEV2, false);
         auto dst_type = std::make_shared<DataTypeString>();
 
         auto converter = converter::ColumnTypeConverter::get_converter(src_type, dst_type,
@@ -1007,7 +1006,8 @@ TEST_F(ColumnTypeConverterTest, TestStringConversions) {
 
     // TEST BOOLEAN -> STRING
     {
-        TypeDescriptor src_type(TYPE_BOOLEAN);
+        auto src_type =
+                vectorized::DataTypeFactory::instance().create_data_type(TYPE_BOOLEAN, false);
         auto dst_type = std::make_shared<DataTypeString>();
 
         auto converter = converter::ColumnTypeConverter::get_converter(src_type, dst_type,
@@ -1040,7 +1040,8 @@ TEST_F(ColumnTypeConverterTest, TestStringConversions) {
 
     // TEST STRING -> BOOLEAN (for ORC file format, Apache Hive behavior)
     {
-        TypeDescriptor src_type(TYPE_STRING);
+        auto src_type =
+                vectorized::DataTypeFactory::instance().create_data_type(TYPE_STRING, false);
         auto dst_type = std::make_shared<DataTypeUInt8>(); // BOOLEAN represented as UInt8
         auto nullable_dst_type = std::make_shared<DataTypeNullable>(dst_type);
 
@@ -1090,7 +1091,8 @@ TEST_F(ColumnTypeConverterTest, TestStringConversions) {
 TEST_F(ColumnTypeConverterTest, TestStringToIntegerTypes) {
     // 1. Test STRING -> TINYINT
     {
-        TypeDescriptor src_type(TYPE_STRING);
+        auto src_type =
+                vectorized::DataTypeFactory::instance().create_data_type(TYPE_STRING, false);
         auto dst_type = std::make_shared<DataTypeInt8>(); // TINYINT represented as Int8
         auto nullable_dst_type = std::make_shared<DataTypeNullable>(dst_type);
 
@@ -1138,7 +1140,8 @@ TEST_F(ColumnTypeConverterTest, TestStringToIntegerTypes) {
 
     // 2. Test STRING -> SMALLINT
     {
-        TypeDescriptor src_type(TYPE_STRING);
+        auto src_type =
+                vectorized::DataTypeFactory::instance().create_data_type(TYPE_STRING, false);
         auto dst_type = std::make_shared<DataTypeInt16>(); // SMALLINT represented as Int16
         auto nullable_dst_type = std::make_shared<DataTypeNullable>(dst_type);
 
@@ -1184,7 +1187,8 @@ TEST_F(ColumnTypeConverterTest, TestStringToIntegerTypes) {
 
     // 3. Test STRING -> INT
     {
-        TypeDescriptor src_type(TYPE_STRING);
+        auto src_type =
+                vectorized::DataTypeFactory::instance().create_data_type(TYPE_STRING, false);
         auto dst_type = std::make_shared<DataTypeInt32>(); // INT represented as Int32
         auto nullable_dst_type = std::make_shared<DataTypeNullable>(dst_type);
 
@@ -1229,7 +1233,8 @@ TEST_F(ColumnTypeConverterTest, TestStringToIntegerTypes) {
 
     // 4. Test STRING -> BIGINT
     {
-        TypeDescriptor src_type(TYPE_STRING);
+        auto src_type =
+                vectorized::DataTypeFactory::instance().create_data_type(TYPE_STRING, false);
         auto dst_type = std::make_shared<DataTypeInt64>(); // BIGINT represented as Int64
         auto nullable_dst_type = std::make_shared<DataTypeNullable>(dst_type);
 
@@ -1273,7 +1278,8 @@ TEST_F(ColumnTypeConverterTest, TestStringToIntegerTypes) {
 
     // 5. Test STRING -> LARGEINT
     {
-        TypeDescriptor src_type(TYPE_STRING);
+        auto src_type =
+                vectorized::DataTypeFactory::instance().create_data_type(TYPE_STRING, false);
         auto dst_type = std::make_shared<DataTypeInt128>(); // LARGEINT represented as Int128
         auto nullable_dst_type = std::make_shared<DataTypeNullable>(dst_type);
 
@@ -1421,18 +1427,15 @@ TEST_F(ColumnTypeConverterTest, TestUnsupportedConversions) {
         };
 
         for (const auto& [src_type_enum, dst_type_enum] : unsupported_conversions) {
-            TypeDescriptor src_type(src_type_enum);
-            for (auto len : {-1, 1, 2}) {
-                TypeDescriptor dst_type(dst_type_enum);
-                dst_type.len = len;
-                auto converter = converter::ColumnTypeConverter::get_converter(
-                        src_type, DataTypeFactory::instance().create_data_type(dst_type, false),
-                        converter::COMMON);
+            auto src_type =
+                    vectorized::DataTypeFactory::instance().create_data_type(src_type_enum, false);
+            auto dst_type = DataTypeFactory::instance().create_data_type(dst_type_enum, false);
+            auto converter = converter::ColumnTypeConverter::get_converter(src_type, dst_type,
+                                                                           converter::COMMON);
 
-                ASSERT_FALSE(converter->support())
-                        << "Conversion from " << src_type.debug_string() << " to "
-                        << dst_type.debug_string() << " should not be supported";
-            }
+            ASSERT_FALSE(converter->support())
+                    << "Conversion from " << src_type->get_name() << " to " << dst_type->get_name()
+                    << " should not be supported";
         }
     }
     //to decimal
@@ -1444,21 +1447,20 @@ TEST_F(ColumnTypeConverterTest, TestUnsupportedConversions) {
         };
 
         for (const auto& [src_type_enum, dst_type_enum] : unsupported_conversions) {
-            TypeDescriptor src_type(src_type_enum);
+            auto src_type =
+                    vectorized::DataTypeFactory::instance().create_data_type(src_type_enum, false);
 
             for (int precision = min_decimal_precision();
                  precision <= BeConsts::MAX_DECIMAL256_PRECISION; precision++) {
                 for (int scale = 0; scale <= precision; scale++) {
-                    TypeDescriptor dst_type(dst_type_enum);
-                    dst_type.precision = precision;
-                    dst_type.scale = scale;
+                    auto dst_type = DataTypeFactory::instance().create_data_type(
+                            dst_type_enum, false, precision, scale);
                     auto converter = converter::ColumnTypeConverter::get_converter(
-                            src_type, DataTypeFactory::instance().create_data_type(dst_type, false),
-                            converter::COMMON);
+                            src_type, dst_type, converter::COMMON);
 
                     ASSERT_FALSE(converter->support())
-                            << "Conversion from " << src_type.debug_string() << " to "
-                            << dst_type.debug_string() << " should not be supported";
+                            << "Conversion from " << src_type->get_name() << " to "
+                            << dst_type->get_name() << " should not be supported";
                 }
             }
         }
@@ -1473,25 +1475,23 @@ TEST_F(ColumnTypeConverterTest, TestUnsupportedConversions) {
         };
 
         for (const auto& [src_type_enum, dst_type_enum] : unsupported_conversions) {
-            TypeDescriptor src_type(src_type_enum);
-
             for (int precision = min_decimal_precision();
                  precision <= BeConsts::MAX_DECIMAL256_PRECISION; precision++) {
                 for (int scale = 0; scale <= precision; scale++) {
-                    src_type.precision = precision;
-                    src_type.scale = scale;
+                    auto src_type = vectorized::DataTypeFactory::instance().create_data_type(
+                            src_type_enum, false, precision, scale);
                     auto decimal_date_type =
-                            DataTypeFactory::instance().create_data_type(src_type, false);
+                            vectorized::DataTypeFactory::instance().create_data_type(
+                                    src_type_enum, false, precision, scale);
 
-                    TypeDescriptor dst_type(dst_type_enum);
+                    auto dst_type =
+                            DataTypeFactory::instance().create_data_type(dst_type_enum, false);
                     auto converter = converter::ColumnTypeConverter::get_converter(
-                            decimal_date_type->get_type_as_type_descriptor(),
-                            DataTypeFactory::instance().create_data_type(dst_type, false),
-                            converter::COMMON);
+                            decimal_date_type, dst_type, converter::COMMON);
 
                     ASSERT_FALSE(converter->support())
-                            << "Conversion from " << src_type.debug_string() << " to "
-                            << dst_type.debug_string() << " should not be supported";
+                            << "Conversion from " << src_type->get_name() << " to "
+                            << dst_type->get_name() << " should not be supported";
                 }
             }
         }
@@ -1501,7 +1501,7 @@ TEST_F(ColumnTypeConverterTest, TestUnsupportedConversions) {
 TEST_F(ColumnTypeConverterTest, TestEmptyColumnConversions) {
     // Test empty column
     {
-        TypeDescriptor src_type(TYPE_INT);
+        auto src_type = vectorized::DataTypeFactory::instance().create_data_type(TYPE_INT, false);
         auto dst_type = std::make_shared<DataTypeFloat32>();
 
         auto converter = converter::ColumnTypeConverter::get_converter(src_type, dst_type,

@@ -17,6 +17,8 @@
 
 package org.apache.doris.common.io;
 
+import org.apache.doris.common.Config;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -26,11 +28,11 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.CharBuffer;
 import java.nio.charset.CharacterCodingException;
-import java.nio.charset.Charset;
 import java.nio.charset.CharsetDecoder;
 import java.nio.charset.CharsetEncoder;
 import java.nio.charset.CodingErrorAction;
 import java.nio.charset.MalformedInputException;
+import java.nio.charset.StandardCharsets;
 import java.text.CharacterIterator;
 import java.text.StringCharacterIterator;
 
@@ -48,17 +50,17 @@ import java.text.StringCharacterIterator;
 public class Text implements Writable {
     private static final Logger LOG = LoggerFactory.getLogger(Text.class);
 
-    private static ThreadLocal<CharsetEncoder> ENCODER_FACTORY = new ThreadLocal<CharsetEncoder>() {
+    private static final ThreadLocal<CharsetEncoder> ENCODER_FACTORY = new ThreadLocal<CharsetEncoder>() {
         protected CharsetEncoder initialValue() {
-            return Charset.forName("UTF-8").newEncoder()
+            return StandardCharsets.UTF_8.newEncoder()
                     .onMalformedInput(CodingErrorAction.REPORT)
                     .onUnmappableCharacter(CodingErrorAction.REPORT);
         }
     };
 
-    private static ThreadLocal<CharsetDecoder> DECODER_FACTORY = new ThreadLocal<CharsetDecoder>() {
+    private static final ThreadLocal<CharsetDecoder> DECODER_FACTORY = new ThreadLocal<CharsetDecoder>() {
         protected CharsetDecoder initialValue() {
-            return Charset.forName("UTF-8").newDecoder()
+            return StandardCharsets.UTF_8.newDecoder()
                     .onMalformedInput(CodingErrorAction.REPORT)
                     .onUnmappableCharacter(CodingErrorAction.REPORT);
         }
@@ -84,7 +86,6 @@ public class Text implements Writable {
     public Text(byte[] utf8) {
         set(utf8);
     }
-
 
     // Returns the raw bytes; however, only data up to getLength() is valid.
     public byte[] getBytes() {
@@ -205,12 +206,9 @@ public class Text implements Writable {
     /**
      * Set the Text to range of bytes
      *
-     * @param utf8
-     *            the data to copy from
-     * @param start
-     *            the first position of the new string
-     * @param len
-     *            the number of bytes of the new string
+     * @param utf8 the data to copy from
+     * @param start the first position of the new string
+     * @param len the number of bytes of the new string
      */
     public void set(byte[] utf8, int start, int len) {
         setCapacity(len, false);
@@ -221,12 +219,9 @@ public class Text implements Writable {
     /**
      * Append a range of bytes to the end of the given text
      *
-     * @param utf8
-     *            the data to copy from
-     * @param start
-     *            the first position to append from utf8
-     * @param len
-     *            the number of bytes to append
+     * @param utf8 the data to copy from
+     * @param start the first position to append from utf8
+     * @param len the number of bytes to append
      */
     public void append(byte[] utf8, int start, int len) {
         setCapacity(length + len, true);
@@ -238,12 +233,9 @@ public class Text implements Writable {
      * Append a range of bytes to the end of the given text, and adjust
      * underlying buffer to reduce mem copy times
      *
-     * @param utf8
-     *            the data to copy from
-     * @param start
-     *            the first position to append from utf8
-     * @param len
-     *            the number of bytes to append
+     * @param utf8 the data to copy from
+     * @param start the first position to append from utf8
+     * @param len the number of bytes to append
      */
     public void appendAdjust(byte[] utf8, int start, int len) {
         int newLen = length + len;
@@ -413,8 +405,44 @@ public class Text implements Writable {
         int length = in.readInt();
         byte[] bytes = new byte[length];
         in.readFully(bytes, 0, length);
-        String res = decode(bytes);
-        return res;
+        if (Config.metadata_text_read_max_batch_bytes == -1) {
+            return decode(bytes);
+        } else {
+            // if the Config.metadata_image_module_load_batch_size != -1 will read bytes array and
+            // deserialize utf8 encode string in batch
+            int batchSize = Math.max(Config.metadata_text_read_max_batch_bytes, 16 * 1024 * 1024);
+            int offset = 0;
+            StringBuilder sb = new StringBuilder();
+            while (offset < length) {
+                int chunkSize = Math.min(batchSize, length - offset);
+                // the last chunkSize should not adjust the safe cut position
+                if (offset + chunkSize < length) {
+                    // find the safe cut position in utf8 encoded bytes
+                    chunkSize = findSafeCutPosition(bytes, offset, chunkSize);
+                }
+                sb.append(decode(bytes, offset, chunkSize));
+                offset += chunkSize;
+            }
+            return sb.toString();
+        }
+    }
+
+    private static int findSafeCutPosition(byte[] bytes, int start, int length) {
+        int end = start + length;
+        // Traverse backwards to find the last complete UTF-8 character
+        while (end > start) {
+            byte b = bytes[end - 1];
+            // Check if the byte is a continuation byte (10xxxxxx)
+            if ((b & 0xC0) == 0x80) {
+                // If it is a continuation byte, move to the previous byte
+                end--;
+            } else {
+                // If it is not a continuation byte, it is the start of a character
+                break;
+            }
+        }
+        // The safe length is the difference between the end - 1 position and the start position
+        return end - 1 - start;
     }
 
     /**
@@ -439,10 +467,8 @@ public class Text implements Writable {
     /**
      * Check if a byte array contains valid utf-8
      *
-     * @param utf8
-     *            byte array
-     * @throws MalformedInputException
-     *             if the byte array contains invalid utf-8
+     * @param utf8 byte array
+     * @throws MalformedInputException if the byte array contains invalid utf-8
      */
     public static void validateUTF8(byte[] utf8) throws MalformedInputException {
         validateUTF8(utf8, 0, utf8.length);
@@ -451,14 +477,10 @@ public class Text implements Writable {
     /**
      * Check to see if a byte array is valid utf-8
      *
-     * @param utf8
-     *            the array of bytes
-     * @param start
-     *            the offset of the first byte in the array
-     * @param len
-     *            the length of the byte sequence
-     * @throws MalformedInputException
-     *             if the byte array contains invalid bytes
+     * @param utf8 the array of bytes
+     * @param start the offset of the first byte in the array
+     * @param len the length of the byte sequence
+     * @throws MalformedInputException if the byte array contains invalid bytes
      */
     public static void validateUTF8(byte[] utf8, int start, int len)
             throws MalformedInputException {
@@ -540,7 +562,7 @@ public class Text implements Writable {
      * values 4 and 5 are presented in this table, even though valid UTF-8
      * cannot include the five and six byte sequences.
      */
-    static final int[] bytesFromUTF8 = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    static final int[] bytesFromUTF8 = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -559,7 +581,7 @@ public class Text implements Writable {
             -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 1, 1, 1, 1, 1,
             1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
             1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 3,
-            3, 3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5 };
+            3, 3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5};
 
     /**
      * Returns the next code point at the current position in the buffer. The
@@ -606,15 +628,14 @@ public class Text implements Writable {
         return ch;
     }
 
-    static final int[] offsetsFromUTF8 = { 0x00000000, 0x00003080, 0x000E2080,
-            0x03C82080, 0xFA082080, 0x82082080 };
+    static final int[] offsetsFromUTF8 = {0x00000000, 0x00003080, 0x000E2080,
+            0x03C82080, 0xFA082080, 0x82082080};
 
     /**
      * For the given string, returns the number of UTF-8 bytes required to
      * encode the string.
      *
-     * @param string
-     *            text to encode
+     * @param string text to encode
      * @return number of UTF-8 bytes required to encode
      */
     public static int utf8Length(String string) {

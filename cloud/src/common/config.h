@@ -54,9 +54,16 @@ CONF_Int32(log_verbose_level, "5");
 // Only works when starting Cloud with --console.
 CONF_Bool(enable_file_logger, "true");
 
-// Custom conf path is default the same as conf path, and configs will be append to it.
-// Otherwise, will a new custom conf file will be created.
-CONF_String(custom_conf_path, "./conf/doris_cloud.conf");
+// Custom conf path is default empty.
+// All mutable configs' modification needed to be persisted will be appended to conf path
+// specified when started.
+//
+// If it is set to equivalent value of conf path specified when started,
+// mutable configs' modification behavior will be the same as the description above.
+//
+// Otherwise, a new custom conf file will be created when mutable configs are modified
+// and persisted, with all modification written to it.
+CONF_String(custom_conf_path, "");
 
 // recycler config
 CONF_mInt64(recycle_interval_seconds, "3600");
@@ -253,6 +260,8 @@ CONF_Int32(txn_lazy_commit_num_threads, "8");
 CONF_Int32(txn_lazy_max_rowsets_per_batch, "1000");
 // max TabletIndexPB num for batch get
 CONF_Int32(max_tablet_index_num_per_batch, "1000");
+
+CONF_Bool(enable_cloud_txn_lazy_commit_fuzzy_test, "false");
 
 // Max aborted txn num for the same label name
 CONF_mInt64(max_num_aborted_txn, "100");

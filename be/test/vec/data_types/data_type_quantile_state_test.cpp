@@ -63,12 +63,13 @@ public:
 };
 
 TEST_P(DataTypeQuantileStateTest, MetaInfoTest) {
-    TypeDescriptor quantile_state_type_descriptor = {PrimitiveType::TYPE_QUANTILE_STATE};
+    auto quantile_state_type_descriptor =
+            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_QUANTILE_STATE, false);
     auto col_meta = std::make_shared<PColumnMeta>();
     col_meta->set_type(PGenericType_TypeId_QUANTILE_STATE);
     CommonDataTypeTest::DataTypeMetaInfo quantile_state_meta_info_to_assert = {
             .type_id = TypeIndex::QuantileState,
-            .type_as_type_descriptor = &quantile_state_type_descriptor,
+            .type_as_type_descriptor = quantile_state_type_descriptor,
             .family_name = "QuantileState",
             .has_subtypes = false,
             .storage_field_type = doris::FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE,

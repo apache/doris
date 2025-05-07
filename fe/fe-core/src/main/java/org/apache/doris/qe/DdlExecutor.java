@@ -454,7 +454,7 @@ public class DdlExecutor {
         }
     }
 
-    private static void executeCopyStmt(Env env, CopyStmt copyStmt) throws Exception {
+    public static void executeCopyStmt(Env env, CopyStmt copyStmt) throws Exception {
         CopyJob job = (CopyJob) (((CloudLoadManager) env.getLoadManager()).createLoadJobFromStmt(copyStmt));
         if (!copyStmt.isAsync()) {
             // wait for execute finished
@@ -475,7 +475,7 @@ public class DdlExecutor {
                 entry.add(loadingStatus.getTrackingUrl());
                 result.add(entry);
                 queryState.setResultSet(new ShowResultSet(copyStmt.getMetaData(), result));
-                copyStmt.getAnalyzer().getContext().setState(queryState);
+                ConnectContext.get().setState(queryState);
                 return;
             } else if (job.getState() == JobState.FINISHED) {
                 EtlStatus loadingStatus = job.getLoadingStatus();
@@ -493,7 +493,7 @@ public class DdlExecutor {
                 entry.add(loadingStatus.getTrackingUrl());
                 result.add(entry);
                 queryState.setResultSet(new ShowResultSet(copyStmt.getMetaData(), result));
-                copyStmt.getAnalyzer().getContext().setState(queryState);
+                ConnectContext.get().setState(queryState);
                 return;
             }
         }
@@ -510,7 +510,7 @@ public class DdlExecutor {
         entry.add("");
         result.add(entry);
         queryState.setResultSet(new ShowResultSet(copyStmt.getMetaData(), result));
-        copyStmt.getAnalyzer().getContext().setState(queryState);
+        ConnectContext.get().setState(queryState);
     }
 
     private static void waitJobCompleted(CopyJob job) throws InterruptedException {

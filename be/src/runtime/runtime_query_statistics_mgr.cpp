@@ -521,4 +521,12 @@ void RuntimeQueryStatisticsMgr::get_active_be_tasks_block(vectorized::Block* blo
     }
 }
 
+void RuntimeQueryStatisticsMgr::get_tasks_resource_context(
+        std::vector<std::shared_ptr<ResourceContext>>& resource_ctxs) {
+    std::shared_lock<std::shared_mutex> read_lock(_resource_contexts_map_lock);
+    for (auto& iter : _resource_contexts_map) {
+        resource_ctxs.push_back(iter.second);
+    }
+}
+
 } // namespace doris

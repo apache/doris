@@ -32,16 +32,8 @@ SET(SOURCE_FILES
         stringprintf.cc
         strings/ascii_ctype.cc
         strings/charset.cc
-        strings/escaping.cc
-        strings/join.cc
         strings/memutil.cc
         strings/numbers.cc
-        strings/split.cc
-        strings/strip.cc
-        strings/strcat.cc
-        strings/stringpiece.cc
-        strings/substitute.cc
-        strings/util.cc
         strtoint.cc
         threading/thread_collision_warner.cc
         utf/rune.c)

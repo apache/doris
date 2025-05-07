@@ -34,6 +34,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class MetaCacheTest {
 
@@ -215,5 +216,161 @@ public class MetaCacheTest {
         Assert.assertEquals("metalocal1", metaObj.get());
         latch.await();
 
+    }
+
+    @Test
+    public void testGetMetaObjCacheLoading() throws InterruptedException {
+        // Create a CountDownLatch to track cache loading invocations
+        CountDownLatch loadLatch = new CountDownLatch(2);
+
+        // Create a custom cache loader that counts invocations
+        CacheLoader<String, Optional<String>> metaObjCacheLoader = key -> {
+            loadLatch.countDown();
+            return Optional.of("loaded_" + key);
+        };
+
+        // Create a new MetaCache instance with our custom loader
+        MetaCache<String> testCache = new MetaCache<>(
+                "testCache",
+                Executors.newCachedThreadPool(),
+                OptionalLong.of(1),
+                OptionalLong.of(1),
+                100,
+                key -> Lists.newArrayList(),
+                metaObjCacheLoader,
+                (key, value, cause) -> {
+                }
+        );
+
+        // Case 1: Test when key does not exist in cache (val == null)
+        Optional<String> result1 = testCache.getMetaObj("non_existent_key", 1L);
+        Assert.assertTrue(result1.isPresent());
+        Assert.assertEquals("loaded_non_existent_key", result1.get());
+
+        // Case 2: Test when key exists but value is empty Optional
+        // First, manually put an empty Optional into cache
+        testCache.getMetaObjCache().put("empty_key", Optional.empty());
+        Optional<String> result2 = testCache.getMetaObj("empty_key", 2L);
+        Assert.assertTrue(result2.isPresent());
+        Assert.assertEquals("loaded_empty_key", result2.get());
+
+        // Verify that cache loader was invoked exactly twice
+        Assert.assertTrue(loadLatch.await(1, TimeUnit.SECONDS));
+    }
+
+    @Test
+    public void testGetMetaObjConcurrent() throws InterruptedException {
+        // Create a CountDownLatch to track cache loading invocations
+        CountDownLatch loadLatch = new CountDownLatch(1);
+        AtomicInteger loadCount = new AtomicInteger(0);
+
+        // Create a custom cache loader that counts invocations and simulates slow loading
+        CacheLoader<String, Optional<String>> metaObjCacheLoader = key -> {
+            loadCount.incrementAndGet();
+            Thread.sleep(100); // Simulate slow loading
+            loadLatch.countDown();
+            return Optional.of("loaded_" + key);
+        };
+
+        // Create a new MetaCache instance with our custom loader
+        MetaCache<String> testCache = new MetaCache<>(
+                "testCache",
+                Executors.newCachedThreadPool(),
+                OptionalLong.of(1),
+                OptionalLong.of(1),
+                100,
+                key -> Lists.newArrayList(),
+                metaObjCacheLoader,
+                (key, value, cause) -> {
+                }
+        );
+
+        // Test concurrent access to non-existent key
+        ExecutorService executor = Executors.newFixedThreadPool(10);
+        final CountDownLatch startLatch = new CountDownLatch(1);
+        final CountDownLatch finishLatch = new CountDownLatch(10);
+
+        for (int i = 0; i < 10; i++) {
+            executor.submit(() -> {
+                try {
+                    startLatch.await();
+                    Optional<String> result = testCache.getMetaObj("concurrent_key", 1L);
+                    Assert.assertTrue(result.isPresent());
+                    Assert.assertEquals("loaded_concurrent_key", result.get());
+                } catch (Exception e) {
+                    Assert.fail("Exception occurred: " + e.getMessage());
+                } finally {
+                    finishLatch.countDown();
+                }
+            });
+        }
+
+        // Start all threads
+        startLatch.countDown();
+        // Wait for all threads to complete
+        finishLatch.await(5, TimeUnit.SECONDS);
+        // Wait for cache loading to complete
+        loadLatch.await(5, TimeUnit.SECONDS);
+
+        // Verify that cache loader was invoked exactly once
+        Assert.assertEquals(1, loadCount.get());
+
+        // Test concurrent access to existing but empty key
+        loadCount.set(0);
+        CountDownLatch loadLatch2 = new CountDownLatch(1);
+        CacheLoader<String, Optional<String>> metaObjCacheLoader2 = key -> {
+            loadCount.incrementAndGet();
+            Thread.sleep(100); // Simulate slow loading
+            loadLatch2.countDown();
+            return Optional.of("loaded_" + key);
+        };
+
+        // Create another MetaCache instance
+        MetaCache<String> testCache2 = new MetaCache<>(
+                "testCache2",
+                Executors.newCachedThreadPool(),
+                OptionalLong.of(1),
+                OptionalLong.of(1),
+                100,
+                key -> Lists.newArrayList(),
+                metaObjCacheLoader2,
+                (key, value, cause) -> {
+                }
+        );
+
+        // Manually put an empty Optional into cache
+        testCache2.getMetaObjCache().put("empty_concurrent_key", Optional.empty());
+
+        // Reset latches for second test
+        final CountDownLatch startLatch2 = new CountDownLatch(1);
+        final CountDownLatch finishLatch2 = new CountDownLatch(10);
+
+        for (int i = 0; i < 10; i++) {
+            executor.submit(() -> {
+                try {
+                    startLatch2.await();
+                    Optional<String> result = testCache2.getMetaObj("empty_concurrent_key", 2L);
+                    Assert.assertTrue(result.isPresent());
+                    Assert.assertEquals("loaded_empty_concurrent_key", result.get());
+                } catch (Exception e) {
+                    Assert.fail("Exception occurred: " + e.getMessage());
+                } finally {
+                    finishLatch2.countDown();
+                }
+            });
+        }
+
+        // Start all threads
+        startLatch2.countDown();
+        // Wait for all threads to complete
+        finishLatch2.await(5, TimeUnit.SECONDS);
+        // Wait for cache loading to complete
+        loadLatch2.await(5, TimeUnit.SECONDS);
+
+        // Verify that cache loader was invoked exactly once
+        Assert.assertEquals(1, loadCount.get());
+
+        executor.shutdown();
+        executor.awaitTermination(1, TimeUnit.SECONDS);
     }
 }

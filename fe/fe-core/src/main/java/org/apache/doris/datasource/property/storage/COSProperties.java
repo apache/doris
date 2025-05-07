@@ -25,11 +25,10 @@ import lombok.Setter;
 
 import java.util.Map;
 import java.util.Objects;
-import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
-public class COSProperties extends AbstractObjectStorageProperties {
+public class COSProperties extends AbstractS3CompatibleProperties {
 
     @Setter
     @Getter
@@ -39,6 +38,7 @@ public class COSProperties extends AbstractObjectStorageProperties {
     protected String endpoint = "";
 
     @Getter
+    @Setter
     @ConnectorProperty(names = {"cos.region", "s3.region", "AWS_REGION", "region", "REGION"},
             required = false,
             description = "The region of COS.")
@@ -54,8 +54,15 @@ public class COSProperties extends AbstractObjectStorageProperties {
             description = "The secret key of COS.")
     protected String secretKey = "";
 
-    private static final Pattern COS_ENDPOINT_PATTERN = Pattern
-            .compile("^cos\\.[a-z0-9-]+\\.myqcloud\\.com(\\.internal)?$");
+    /**
+     * Pattern to extract the region from a Tencent Cloud COS endpoint.
+     * <p>
+     * Supported formats:
+     * - cos.ap-guangzhou.myqcloud.com               => region = ap-guangzhou* <p>
+     * Group(1) captures the region name.
+     */
+    private static final Pattern ENDPOINT_PATTERN =
+            Pattern.compile("^(?:https?://)?cos\\.([a-z0-9-]+)\\.myqcloud\\.com$");
 
     protected COSProperties(Map<String, String> origProps) {
         super(Type.COS, origProps);
@@ -68,7 +75,7 @@ public class COSProperties extends AbstractObjectStorageProperties {
                 .findFirst()
                 .orElse(null);
         if (!Strings.isNullOrEmpty(value)) {
-            return value.contains("myqcloud.com");
+            return ENDPOINT_PATTERN.matcher(value).matches();
         }
         if (!origProps.containsKey("uri")) {
             return false;
@@ -78,27 +85,7 @@ public class COSProperties extends AbstractObjectStorageProperties {
 
     @Override
     protected Pattern endpointPattern() {
-        return COS_ENDPOINT_PATTERN;
-    }
-
-    /**
-     * Initializes the cosRegion field based on the COS endpoint if it's not already set.
-     * <p>
-     * This method extracts the region from Tencent Cloud COS endpoints.
-     * It supports typical COS endpoint formats like:
-     * <p>
-     * Example:
-     * - "cos.ap-guangzhou.myqcloud.com" → cosRegion = "ap-guangzhou"
-     */
-    @Override
-    protected void initRegionIfNecessary() {
-        if (Strings.isNullOrEmpty(this.region)) {
-            Pattern cosPattern = Pattern.compile("cos\\.([a-z0-9-]+)\\.myqcloud\\.com");
-            Matcher matcher = cosPattern.matcher(endpoint);
-            if (matcher.find()) {
-                this.region = matcher.group(1);
-            }
-        }
+        return ENDPOINT_PATTERN;
     }
 
 }

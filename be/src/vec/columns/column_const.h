@@ -276,6 +276,14 @@ public:
     }
 
     void finalize() override { data->finalize(); }
+
+    void erase(size_t start, size_t length) override {
+        if (start >= s || length == 0) {
+            return;
+        }
+        length = std::min(length, s - start);
+        s = s - length;
+    }
 };
 } // namespace doris::vectorized
 #include "common/compile_check_end.h"

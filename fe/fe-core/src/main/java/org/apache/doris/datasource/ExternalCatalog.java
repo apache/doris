@@ -125,6 +125,8 @@ public abstract class ExternalCatalog
             CREATE_TIME,
             USE_META_CACHE);
 
+    protected static final int ICEBERG_CATALOG_EXECUTOR_THREAD_NUM = Runtime.getRuntime().availableProcessors();
+
     // Unique id of this catalog, will be assigned after catalog is loaded.
     @SerializedName(value = "id")
     protected long id;

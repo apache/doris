@@ -23,12 +23,14 @@ import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.systable.SysTable;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -123,13 +125,18 @@ public class RelationUtil {
             throw new AnalysisException(java.lang.String.format("Catalog %s does not exist.", catalogName));
         }
         try {
-            DatabaseIf<TableIf> db = catalog.getDb(dbName).orElseThrow(() -> new AnalysisException(
+            DatabaseIf<TableIf> db = catalog.getDbOrException(dbName, s -> new AnalysisException(
                     "Database [" + dbName + "] does not exist."));
-            Pair<String, String> sourceTblNameWithMetaTblName = catalog.getSourceTableNameWithMetaTableName(tableName);
-            String sourceTableName = sourceTblNameWithMetaTblName.first;
-            TableIf table = db.getTable(sourceTableName).orElseThrow(() -> new AnalysisException(
-                    "Table [" + sourceTableName + "] does not exist in database [" + dbName + "]."));
-            return Pair.of(db, table);
+            Pair<String, String> tableNameWithSysTableName
+                    = SysTable.getTableNameWithSysTableName(tableName);
+            TableIf tbl = db.getTableOrException(tableNameWithSysTableName.first,
+                    s -> new AnalysisException(
+                            "Table [" + tableName + "] does not exist in database [" + dbName + "]."));
+            Optional<TableValuedFunction> sysTable = tbl.getSysTableFunction(catalogName, dbName, tableName);
+            if (!Strings.isNullOrEmpty(tableNameWithSysTableName.second) && !sysTable.isPresent()) {
+                throw new AnalysisException("Unknown sys table '" + tableName + "'");
+            }
+            return Pair.of(db, tbl);
         } catch (Throwable e) {
             throw new AnalysisException(e.getMessage(), e.getCause());
         }
@@ -205,3 +212,4 @@ public class RelationUtil {
         return columns;
     }
 }
+

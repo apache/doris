@@ -19,7 +19,6 @@
 
 #include <fmt/format.h>
 
-#include "gutil/strings/strip.h"
 #include "olap/olap_common.h"
 
 namespace doris::segment_v2 {

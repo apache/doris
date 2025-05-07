@@ -229,12 +229,6 @@ Copyright 2011 Google Inc.
 
 --------------------------------------------------------------------------------
 
-be/src/gutil/stl_util.h : Apache 2.0 License
-
-Copyright 2007 Google Inc.
-
---------------------------------------------------------------------------------
-
 be/src/gutil/utf/*: licensed under the following terms:
 
   UTF-8 Library
