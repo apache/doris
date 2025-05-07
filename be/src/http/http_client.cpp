@@ -17,6 +17,7 @@
 
 #include "http/http_client.h"
 
+#include <absl/strings/str_split.h>
 #include <glog/logging.h>
 #include <unistd.h>
 
@@ -111,8 +112,7 @@ private:
         bool has_file_name = false;
         bool has_file_size = false;
         std::string_view header = buf.substr(0, pos);
-        std::vector<std::string> headers =
-                strings::Split(header, "\r\n", strings::SkipWhitespace());
+        std::vector<std::string> headers = absl::StrSplit(header, "\r\n", absl::SkipWhitespace());
         for (auto& s : headers) {
             size_t header_pos = s.find(':');
             if (header_pos == std::string::npos) {

@@ -42,7 +42,6 @@ suite('test_clean_stale_rs_index_file_cache', 'docker') {
 
 
     def table = "test_clean_stale_rs_index_file_cache"
-    sql """ drop table if exists $table; """
 
     docker(options) {
         def ms = cluster.getAllMetaservices().get(0)

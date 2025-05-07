@@ -38,6 +38,7 @@
 #include "util/stack_util.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 constexpr size_t SYNC_PROC_RESERVED_INTERVAL_BYTES = (1ULL << 20); // 1M
 static std::string MEMORY_ORPHAN_CHECK_MSG =
@@ -88,9 +89,17 @@ public:
 
     void shrink_reserved();
 
-    std::shared_ptr<MemTrackerLimiter> limiter_mem_tracker() {
+    MemTrackerLimiter* limiter_mem_tracker() {
         CHECK(init());
         return _limiter_tracker;
+    }
+
+    // Prefer use `limiter_mem_tracker`, which is faster than `limiter_mem_tracker_sptr`.
+    // when multiple threads hold the same `std::shared_ptr` at the same time,
+    // modifying the `std::shared_ptr` reference count will be expensive when there is high concurrency.
+    std::shared_ptr<MemTrackerLimiter> limiter_mem_tracker_sptr() {
+        CHECK(init());
+        return _limiter_tracker_sptr;
     }
 
     void enable_wait_gc() { _wait_gc = true; }
@@ -105,7 +114,7 @@ public:
         return fmt::format(
                 "ThreadMemTrackerMgr debug, _untracked_mem:{}, "
                 "_limiter_tracker:<{}>, _consumer_tracker_stack:<{}>",
-                std::to_string(_untracked_mem), limiter_mem_tracker()->make_profile_str(),
+                std::to_string(_untracked_mem), _limiter_tracker->make_profile_str(),
                 fmt::to_string(consumer_tracker_buf));
     }
 
@@ -148,7 +157,8 @@ private:
     // A thread of query/load will only wait once during execution.
     bool _wait_gc = false;
 
-    std::shared_ptr<MemTrackerLimiter> _limiter_tracker {nullptr};
+    std::shared_ptr<MemTrackerLimiter> _limiter_tracker_sptr {nullptr};
+    MemTrackerLimiter* _limiter_tracker {nullptr};
     std::vector<MemTracker*> _consumer_tracker_stack;
     std::weak_ptr<WorkloadGroup> _wg_wptr;
 
@@ -163,7 +173,8 @@ inline bool ThreadMemTrackerMgr::init() {
         return true;
     }
     if (ExecEnv::GetInstance()->orphan_mem_tracker() != nullptr) {
-        _limiter_tracker = ExecEnv::GetInstance()->orphan_mem_tracker();
+        _limiter_tracker_sptr = ExecEnv::GetInstance()->orphan_mem_tracker();
+        _limiter_tracker = _limiter_tracker_sptr.get();
         _wait_gc = true;
         _init = true;
         return true;
@@ -352,4 +363,5 @@ inline void ThreadMemTrackerMgr::shrink_reserved() {
     }
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

@@ -25,11 +25,10 @@ import lombok.Setter;
 
 import java.util.Map;
 import java.util.Objects;
-import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
-public class OBSProperties extends AbstractObjectStorageProperties {
+public class OBSProperties extends AbstractS3CompatibleProperties {
 
     @Setter
     @Getter
@@ -49,12 +48,24 @@ public class OBSProperties extends AbstractObjectStorageProperties {
     protected String secretKey = "";
 
     @Getter
+    @Setter
     @ConnectorProperty(names = {"obs.region", "s3.region", "AWS_REGION", "region", "REGION"}, required = false,
             description = "The region of OBS.")
     protected String region;
 
-    private static Pattern ENDPOINT_PATTERN = Pattern
-            .compile("^obs\\.[a-z0-9-]+\\.myhuaweicloud\\.com(\\.internal)?$");
+    /**
+     * Pattern to extract the region from a Huawei Cloud OBS endpoint.
+     * <p>
+     * Supported formats:
+     * - obs-cn-hangzhou.myhuaweicloud.com          => region = cn-hangzhou
+     * - https://obs-cn-shanghai.myhuaweicloud.com  => region = cn-shanghai
+     * <p>
+     * Group(1) captures the region name (e.g., cn-hangzhou).
+     * FYI: https://console-intl.huaweicloud.com/apiexplorer/#/endpoint/OBS
+     */
+    private static final Pattern ENDPOINT_PATTERN = Pattern
+            .compile("^(?:https?://)?obs\\.([a-z0-9-]+)\\.myhuaweicloud\\.com$");
+
 
     public OBSProperties(Map<String, String> origProps) {
         super(Type.OBS, origProps);
@@ -62,14 +73,14 @@ public class OBSProperties extends AbstractObjectStorageProperties {
     }
 
     protected static boolean guessIsMe(Map<String, String> origProps) {
-        String value = Stream.of("obs.endpoint", "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT", "uri")
+        String value = Stream.of("obs.endpoint", "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT")
                 .map(origProps::get)
                 .filter(Objects::nonNull)
                 .findFirst()
                 .orElse(null);
 
         if (!Strings.isNullOrEmpty(value)) {
-            return value.contains("myhuaweicloud.com");
+            return ENDPOINT_PATTERN.matcher(value).matches();
         }
         if (!origProps.containsKey("uri")) {
             return false;
@@ -81,26 +92,6 @@ public class OBSProperties extends AbstractObjectStorageProperties {
     @Override
     protected Pattern endpointPattern() {
         return ENDPOINT_PATTERN;
-    }
-
-    /**
-     * Initializes the region field based on the OBS endpoint if it's not already set.
-     * <p>
-     * This method extracts the region from Huawei Cloud OBS endpoints.
-     * It supports typical OBS endpoint formats like:
-     * <p>
-     * Example:
-     * - "obs.cn-north-4.myhuaweicloud.com" → region = "cn-north-4"
-     */
-    @Override
-    protected void initRegionIfNecessary() {
-        if (Strings.isNullOrEmpty(this.region)) {
-            Pattern obsPattern = Pattern.compile("obs\\.([a-z0-9-]+)\\.myhuaweicloud\\.com");
-            Matcher matcher = obsPattern.matcher(endpoint);
-            if (matcher.find()) {
-                this.region = matcher.group(1);
-            }
-        }
     }
 
 }

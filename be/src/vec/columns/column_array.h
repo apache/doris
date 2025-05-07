@@ -223,6 +223,8 @@ public:
                        ->get_number_of_dimensions(); /// Every modern C++ compiler optimizes tail recursion.
     }
 
+    void erase(size_t start, size_t length) override;
+
 private:
     // [2,1,5,9,1]\n[1,2,4] --> data column [2,1,5,9,1,1,2,4], offset[-1] = 0, offset[0] = 5, offset[1] = 8
     // [[2,1,5],[9,1]]\n[[1,2]] --> data column [3 column array], offset[-1] = 0, offset[0] = 2, offset[1] = 3

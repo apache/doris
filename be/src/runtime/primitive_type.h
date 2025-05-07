@@ -95,6 +95,14 @@ constexpr bool is_string_type(PrimitiveType type) {
     return type == TYPE_CHAR || type == TYPE_VARCHAR || type == TYPE_STRING;
 }
 
+constexpr bool is_var_len_object(PrimitiveType type) {
+    return type == TYPE_HLL || type == TYPE_OBJECT || type == TYPE_QUANTILE_STATE;
+}
+
+constexpr bool is_complex_type(PrimitiveType type) {
+    return type == TYPE_STRUCT || type == TYPE_ARRAY || type == TYPE_MAP;
+}
+
 constexpr bool is_variant_string_type(PrimitiveType type) {
     return type == TYPE_VARCHAR || type == TYPE_STRING;
 }

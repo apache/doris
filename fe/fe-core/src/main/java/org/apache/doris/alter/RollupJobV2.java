@@ -188,6 +188,22 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         this.storageFormat = storageFormat;
     }
 
+    public long getRollupIndexId() {
+        return rollupIndexId;
+    }
+
+    public String getRollupIndexName() {
+        return rollupIndexName;
+    }
+
+    public long getBaseIndexId() {
+        return baseIndexId;
+    }
+
+    public String getBaseIndexName() {
+        return baseIndexName;
+    }
+
     protected void initAnalyzer() throws AnalysisException {
         ConnectContext connectContext = new ConnectContext();
         Database db;

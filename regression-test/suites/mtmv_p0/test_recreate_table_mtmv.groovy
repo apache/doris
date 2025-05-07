@@ -81,6 +81,9 @@ suite("test_recreate_table_mtmv","mtmv") {
         """
     waitingMTMVTaskFinishedByMvName(mvName1);
     order_qt_mv1_recreate "SELECT * FROM ${mvName1}"
+     sql """
+            REFRESH MATERIALIZED VIEW ${mvName2} auto
+        """
     waitingMTMVTaskFinishedByMvName(mvName2);
     order_qt_mv2_recreate "SELECT * FROM ${mvName2}"
 

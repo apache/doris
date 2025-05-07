@@ -23,8 +23,8 @@ namespace doris {
 class MockWorkloadGroupMgr : public WorkloadGroupMgr {
 public:
     MockWorkloadGroupMgr() : WorkloadGroupMgr() {}
-    void add_paused_query(const std::shared_ptr<QueryContext>& query_ctx, int64_t reserve_size,
-                          const Status& status) override {
+    void add_paused_query(const std::shared_ptr<ResourceContext>& resource_ctx,
+                          int64_t reserve_size, const Status& status) override {
         _paused = true;
     }
 

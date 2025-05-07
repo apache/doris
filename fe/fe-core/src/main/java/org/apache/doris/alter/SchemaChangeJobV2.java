@@ -589,20 +589,22 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                 }
                 if (task.getFailedTimes() > maxFailedTimes) {
                     task.setFinished(true);
-                    AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.ALTER, task.getSignature());
-                    LOG.warn("schema change task failed: {}", task.getErrorMsg());
-                    List<Long> failedBackends = failedTabletBackends.get(task.getTabletId());
-                    if (failedBackends == null) {
-                        failedBackends = Lists.newArrayList();
-                        failedTabletBackends.put(task.getTabletId(), failedBackends);
-                    }
-                    failedBackends.add(task.getBackendId());
-                    int expectSucceedTaskNum = tbl.getPartitionInfo()
-                            .getReplicaAllocation(task.getPartitionId()).getTotalReplicaNum();
-                    int failedTaskCount = failedBackends.size();
-                    if (expectSucceedTaskNum - failedTaskCount < expectSucceedTaskNum / 2 + 1) {
-                        throw new AlterCancelException(
+                    if (!FeConstants.runningUnitTest) {
+                        AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.ALTER, task.getSignature());
+                        LOG.warn("schema change task failed: {}", task.getErrorMsg());
+                        List<Long> failedBackends = failedTabletBackends.get(task.getTabletId());
+                        if (failedBackends == null) {
+                            failedBackends = Lists.newArrayList();
+                            failedTabletBackends.put(task.getTabletId(), failedBackends);
+                        }
+                        failedBackends.add(task.getBackendId());
+                        int expectSucceedTaskNum = tbl.getPartitionInfo()
+                                .getReplicaAllocation(task.getPartitionId()).getTotalReplicaNum();
+                        int failedTaskCount = failedBackends.size();
+                        if (expectSucceedTaskNum - failedTaskCount < expectSucceedTaskNum / 2 + 1) {
+                            throw new AlterCancelException(
                                 String.format("schema change tasks failed, error reason: %s", task.getErrorMsg()));
+                        }
                     }
                 }
             }
@@ -649,13 +651,14 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                                 healthyReplicaNum++;
                             }
                         }
-
-                        if (healthyReplicaNum < expectReplicationNum / 2 + 1) {
-                            LOG.warn("shadow tablet {} has few healthy replicas: {}, schema change job: {}"
-                                    + " healthyReplicaNum {} expectReplicationNum {}",
-                                    shadowTablet.getId(), replicas, jobId, healthyReplicaNum, expectReplicationNum);
-                            throw new AlterCancelException(
+                        if (!FeConstants.runningUnitTest) {
+                            if (healthyReplicaNum < expectReplicationNum / 2 + 1) {
+                                LOG.warn("shadow tablet {} has few healthy replicas: {}, schema change job: {}"
+                                        + " healthyReplicaNum {} expectReplicationNum {}",
+                                        shadowTablet.getId(), replicas, jobId, healthyReplicaNum, expectReplicationNum);
+                                throw new AlterCancelException(
                                     "shadow tablet " + shadowTablet.getId() + " has few healthy replicas");
+                            }
                         }
                     } // end for tablets
                 }

@@ -197,8 +197,7 @@ public:
         auto nested_param_type =
                 check_and_get_data_type<DataTypeArray>(remove_nullable(arguments[0].type).get())
                         ->get_nested_type()
-                        ->get_type_as_type_descriptor()
-                        .type;
+                        ->get_primitive_type();
         // The current implementation for the inverted index of arrays cannot handle cases where the array contains null values,
         // meaning an item in the array is null.
         if (param_value.is_null()) {

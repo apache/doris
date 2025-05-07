@@ -180,6 +180,31 @@ MetaServiceCode remove_delete_bitmap_lock(MetaServiceProxy* meta_service, int64_
     return res.status().code();
 }
 
+MetaServiceCode update_delete_bitmap(MetaServiceProxy* meta_service, int64_t table_id,
+                                     int64_t partition_id, int64_t tablet_id, int64_t lock_id,
+                                     int64_t initor,
+                                     std::string cloud_unique_id = "test_cloud_unique_id") {
+    brpc::Controller cntl;
+    UpdateDeleteBitmapRequest update_delete_bitmap_req;
+    UpdateDeleteBitmapResponse update_delete_bitmap_res;
+    update_delete_bitmap_req.set_cloud_unique_id(cloud_unique_id);
+    update_delete_bitmap_req.set_table_id(table_id);
+    update_delete_bitmap_req.set_partition_id(partition_id);
+    update_delete_bitmap_req.set_lock_id(lock_id);
+    update_delete_bitmap_req.set_initiator(initor);
+    update_delete_bitmap_req.set_tablet_id(tablet_id);
+    for (int i = 0; i < 3; i++) {
+        update_delete_bitmap_req.add_rowset_ids("0200000003ea308a3647dbea83220ed4b8897f2288244a91");
+        update_delete_bitmap_req.add_segment_ids(0);
+        update_delete_bitmap_req.add_versions(i);
+        update_delete_bitmap_req.add_segment_delete_bitmaps("1");
+    }
+    meta_service->update_delete_bitmap(reinterpret_cast<google::protobuf::RpcController*>(&cntl),
+                                       &update_delete_bitmap_req, &update_delete_bitmap_res,
+                                       nullptr);
+    return update_delete_bitmap_res.status().code();
+}
+
 void remove_delete_bitmap_lock(MetaServiceProxy* meta_service, int64_t table_id) {
     std::string lock_key = meta_delete_bitmap_update_lock_key({instance_id, table_id, -1});
     std::unique_ptr<Transaction> txn;
@@ -1254,6 +1279,31 @@ TEST(MetaServiceJobTest, DeleteBitmapUpdateLockCompatibilityTest) {
                                         &req, &res, nullptr);
     };
 
+    auto test_abort_compaction_job = [&](int64_t table_id, int64_t index_id, int64_t partition_id,
+                                         int64_t tablet_id, int64_t initiator = 12345,
+                                         std::string job_id = "job_id123") {
+        FinishTabletJobRequest req;
+        FinishTabletJobResponse res;
+
+        auto compaction = req.mutable_job()->add_compaction();
+        compaction->set_id(job_id);
+        compaction->set_initiator("ip:port");
+        compaction->set_delete_bitmap_lock_initiator(initiator);
+        req.mutable_job()->mutable_idx()->set_tablet_id(tablet_id);
+        req.set_action(FinishTabletJobRequest::ABORT);
+        meta_service->finish_tablet_job(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                        &req, &res, nullptr);
+
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        auto job_key = job_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
+        std::string job_val;
+        ASSERT_EQ(txn->get(job_key, &job_val), TxnErrorCode::TXN_OK);
+        TabletJobInfoPB job_pb;
+        ASSERT_TRUE(job_pb.ParseFromString(job_val));
+        ASSERT_TRUE(job_pb.compaction().empty());
+    };
+
     auto clear_rowsets = [&](int64_t tablet_id) {
         std::unique_ptr<Transaction> txn;
         ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
@@ -1266,7 +1316,6 @@ TEST(MetaServiceJobTest, DeleteBitmapUpdateLockCompatibilityTest) {
     config::use_delete_bitmap_lock_random_version = false;
     int64_t table_id = 111;
     remove_delete_bitmap_lock(meta_service.get(), table_id);
-    clear_rowsets(table_id);
 
     // case 1: lock key does not exist, get and remove load lock in new way, success
     config::use_delete_bitmap_lock_version = "v2";
@@ -1287,16 +1336,22 @@ TEST(MetaServiceJobTest, DeleteBitmapUpdateLockCompatibilityTest) {
     test_start_compaction_job(table_id, 2, 3, 5, TabletCompactionJobPB::BASE);
     res_code = get_delete_bitmap_lock(meta_service.get(), table_id, -1, 12345);
     ASSERT_EQ(res_code, MetaServiceCode::OK);
+    res_code = update_delete_bitmap(meta_service.get(), table_id, 3, 5, -1, 12345);
+    ASSERT_EQ(res_code, MetaServiceCode::OK);
     test_commit_compaction_job(table_id, 2, 3, 5, TabletCompactionJobPB::BASE);
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    clear_rowsets(5);
 
     // case 4: lock key does not exist, get and remove compaction lock in old way, success
     config::use_delete_bitmap_lock_version = "v1";
     test_start_compaction_job(table_id, 2, 3, 5, TabletCompactionJobPB::BASE);
     res_code = get_delete_bitmap_lock(meta_service.get(), table_id, -1, 12345);
     ASSERT_EQ(res_code, MetaServiceCode::OK);
+    res_code = update_delete_bitmap(meta_service.get(), table_id, 3, 5, -1, 12345);
+    ASSERT_EQ(res_code, MetaServiceCode::OK);
     test_commit_compaction_job(table_id, 2, 3, 5, TabletCompactionJobPB::BASE);
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    clear_rowsets(5);
 
     // case 5:
     // 5.1 lock key does not exist
@@ -1342,11 +1397,13 @@ TEST(MetaServiceJobTest, DeleteBitmapUpdateLockCompatibilityTest) {
     // 7.3 load get lock in new way
     res_code = get_delete_bitmap_lock(meta_service.get(), table_id, 123, -1);
     ASSERT_EQ(res_code, MetaServiceCode::LOCK_CONFLICT);
-    // 7.4 compaction remove lock in old way, failed
+    // 7.4 compaction update delete bitmap in old way failed, abort compaction job
     config::use_delete_bitmap_lock_version = "v1";
     test_start_compaction_job(table_id, 2, 3, 5, TabletCompactionJobPB::BASE);
-    test_commit_compaction_job(table_id, 2, 3, 5, TabletCompactionJobPB::BASE, 777);
-    ASSERT_EQ(res.status().code(), MetaServiceCode::LOCK_EXPIRED);
+    res_code = update_delete_bitmap(meta_service.get(), table_id, 3, 5, -1, 777);
+    ASSERT_EQ(res_code, MetaServiceCode::LOCK_EXPIRED);
+    test_abort_compaction_job(table_id, 2, 3, 5, 777);
+    clear_rowsets(5);
 
     // case 8:
     // 8.1 lock key does not exist
@@ -1359,11 +1416,13 @@ TEST(MetaServiceJobTest, DeleteBitmapUpdateLockCompatibilityTest) {
     // 8.3 load get lock in old way
     res_code = get_delete_bitmap_lock(meta_service.get(), table_id, 124, -1);
     ASSERT_EQ(res_code, MetaServiceCode::LOCK_CONFLICT);
-    // 8.4 compaction remove lock in new way, failed
+    // 8.4 compaction update delete bitmap in new way failed, abort compaction job
     config::use_delete_bitmap_lock_version = "v2";
     test_start_compaction_job(table_id, 2, 3, 5, TabletCompactionJobPB::BASE);
-    test_commit_compaction_job(table_id, 2, 3, 5, TabletCompactionJobPB::BASE, 888);
-    ASSERT_EQ(res.status().code(), MetaServiceCode::LOCK_EXPIRED);
+    res_code = update_delete_bitmap(meta_service.get(), table_id, 3, 5, -1, 888);
+    ASSERT_EQ(res_code, MetaServiceCode::LOCK_EXPIRED);
+    test_abort_compaction_job(table_id, 2, 3, 5, 888);
+    clear_rowsets(5);
 
     // case 9:
     // 9.1 lock key does not exist
@@ -1378,8 +1437,11 @@ TEST(MetaServiceJobTest, DeleteBitmapUpdateLockCompatibilityTest) {
     res_code = get_delete_bitmap_lock(meta_service.get(), table_id, -1, 902);
     ASSERT_EQ(res_code, MetaServiceCode::OK);
     test_start_compaction_job(table_id, 2, 3, 5, TabletCompactionJobPB::BASE);
+    res_code = update_delete_bitmap(meta_service.get(), table_id, 3, 5, -1, 902);
+    ASSERT_EQ(res_code, MetaServiceCode::OK);
     test_commit_compaction_job(table_id, 2, 3, 5, TabletCompactionJobPB::BASE, 902);
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    clear_rowsets(5);
     // 9.4 load get and remove lock in old way
     config::use_delete_bitmap_lock_version = "v1";
     res_code = get_delete_bitmap_lock(meta_service.get(), table_id, 199, -1);
@@ -1390,10 +1452,12 @@ TEST(MetaServiceJobTest, DeleteBitmapUpdateLockCompatibilityTest) {
     config::use_delete_bitmap_lock_version = "v2";
     res_code = get_delete_bitmap_lock(meta_service.get(), table_id, -1, 903);
     ASSERT_EQ(res_code, MetaServiceCode::OK);
-    // 9.6 compaction1 remove lock in new way, failed
+    // 9.6 compaction1 update delete bitmap in new way failed, abort job
     test_start_compaction_job(table_id, 2, 3, 5, TabletCompactionJobPB::BASE);
-    test_commit_compaction_job(table_id, 2, 3, 5, TabletCompactionJobPB::BASE, 901);
-    ASSERT_EQ(res.status().code(), MetaServiceCode::LOCK_EXPIRED);
+    res_code = update_delete_bitmap(meta_service.get(), table_id, 3, 5, -1, 901);
+    ASSERT_EQ(res_code, MetaServiceCode::LOCK_EXPIRED);
+    test_abort_compaction_job(table_id, 2, 3, 5, 901);
+    clear_rowsets(5);
 
     // case 10:
     // 10.1 lock key does not exist
@@ -1408,8 +1472,11 @@ TEST(MetaServiceJobTest, DeleteBitmapUpdateLockCompatibilityTest) {
     res_code = get_delete_bitmap_lock(meta_service.get(), table_id, -1, 1002);
     ASSERT_EQ(res_code, MetaServiceCode::OK);
     test_start_compaction_job(table_id, 2, 3, 5, TabletCompactionJobPB::BASE);
+    res_code = update_delete_bitmap(meta_service.get(), table_id, 3, 5, -1, 1002);
+    ASSERT_EQ(res_code, MetaServiceCode::OK);
     test_commit_compaction_job(table_id, 2, 3, 5, TabletCompactionJobPB::BASE, 1002);
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    clear_rowsets(5);
     // 10.4 load get and remove lock in old way
     config::use_delete_bitmap_lock_version = "v1";
     res_code = get_delete_bitmap_lock(meta_service.get(), table_id, 1910, -1);
@@ -1420,11 +1487,14 @@ TEST(MetaServiceJobTest, DeleteBitmapUpdateLockCompatibilityTest) {
     config::use_delete_bitmap_lock_version = "v1";
     res_code = get_delete_bitmap_lock(meta_service.get(), table_id, -1, 1003);
     ASSERT_EQ(res_code, MetaServiceCode::OK);
-    // 10.6 compaction1 remove lock in new way, failed
+    // 10.6 compaction1 update delete bitmap in new way success, commit job failed
     config::use_delete_bitmap_lock_version = "v2";
     test_start_compaction_job(table_id, 2, 3, 5, TabletCompactionJobPB::BASE);
+    res_code = update_delete_bitmap(meta_service.get(), table_id, 3, 5, -1, 1001);
+    ASSERT_EQ(res_code, MetaServiceCode::OK);
     test_commit_compaction_job(table_id, 2, 3, 5, TabletCompactionJobPB::BASE, 1001);
     ASSERT_EQ(res.status().code(), MetaServiceCode::LOCK_EXPIRED);
+    clear_rowsets(5);
 
     // case 11:
     // 11.1 lock key does not exist
@@ -1439,8 +1509,11 @@ TEST(MetaServiceJobTest, DeleteBitmapUpdateLockCompatibilityTest) {
     res_code = get_delete_bitmap_lock(meta_service.get(), table_id, -1, 1102);
     ASSERT_EQ(res_code, MetaServiceCode::OK);
     test_start_compaction_job(table_id, 2, 3, 5, TabletCompactionJobPB::BASE);
+    res_code = update_delete_bitmap(meta_service.get(), table_id, 3, 5, -1, 1102);
+    ASSERT_EQ(res_code, MetaServiceCode::OK);
     test_commit_compaction_job(table_id, 2, 3, 5, TabletCompactionJobPB::BASE, 1102);
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    clear_rowsets(5);
     // 11.4 sc get and remove lock in old way
     res_code = get_delete_bitmap_lock(meta_service.get(), table_id, -2, -1);
     ASSERT_EQ(res_code, MetaServiceCode::OK);
@@ -1450,11 +1523,13 @@ TEST(MetaServiceJobTest, DeleteBitmapUpdateLockCompatibilityTest) {
     config::use_delete_bitmap_lock_version = "v2";
     res_code = get_delete_bitmap_lock(meta_service.get(), table_id, -1, 1103);
     ASSERT_EQ(res_code, MetaServiceCode::OK);
-    // 11.6 compaction1 remove lock in new way, failed
+    // 11.6 compaction1 update delete bitmap in new way failed, abort job
     config::use_delete_bitmap_lock_version = "v2";
     test_start_compaction_job(table_id, 2, 3, 5, TabletCompactionJobPB::BASE);
-    test_commit_compaction_job(table_id, 2, 3, 5, TabletCompactionJobPB::BASE, 1101);
-    ASSERT_EQ(res.status().code(), MetaServiceCode::LOCK_EXPIRED);
+    res_code = update_delete_bitmap(meta_service.get(), table_id, 3, 5, -1, 1101);
+    ASSERT_EQ(res_code, MetaServiceCode::LOCK_EXPIRED);
+    test_abort_compaction_job(table_id, 2, 3, 5, 1101);
+    clear_rowsets(5);
 
     // case 12:
     // 12.1 lock key does not exist
@@ -1469,8 +1544,11 @@ TEST(MetaServiceJobTest, DeleteBitmapUpdateLockCompatibilityTest) {
     res_code = get_delete_bitmap_lock(meta_service.get(), table_id, -1, 1202);
     ASSERT_EQ(res_code, MetaServiceCode::OK);
     test_start_compaction_job(table_id, 2, 3, 5, TabletCompactionJobPB::BASE);
+    res_code = update_delete_bitmap(meta_service.get(), table_id, 3, 5, -1, 1202);
+    ASSERT_EQ(res_code, MetaServiceCode::OK);
     test_commit_compaction_job(table_id, 2, 3, 5, TabletCompactionJobPB::BASE, 1202);
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    clear_rowsets(5);
     // 12.4 sc get and remove lock in old way
     config::use_delete_bitmap_lock_version = "v1";
     res_code = get_delete_bitmap_lock(meta_service.get(), table_id, -2, -1);
@@ -1481,11 +1559,14 @@ TEST(MetaServiceJobTest, DeleteBitmapUpdateLockCompatibilityTest) {
     config::use_delete_bitmap_lock_version = "v1";
     res_code = get_delete_bitmap_lock(meta_service.get(), table_id, -1, 1203);
     ASSERT_EQ(res_code, MetaServiceCode::OK);
-    // 12.6 compaction1 remove lock in new way, failed
+    // 12.6 compaction1 update delete bitmap in new way success, commit job failed
     config::use_delete_bitmap_lock_version = "v2";
     test_start_compaction_job(table_id, 2, 3, 5, TabletCompactionJobPB::BASE);
+    res_code = update_delete_bitmap(meta_service.get(), table_id, 3, 5, -1, 1201);
+    ASSERT_EQ(res_code, MetaServiceCode::OK);
     test_commit_compaction_job(table_id, 2, 3, 5, TabletCompactionJobPB::BASE, 1201);
     ASSERT_EQ(res.status().code(), MetaServiceCode::LOCK_EXPIRED);
+    clear_rowsets(5);
 
     // case 13:
     // 13.1 lock key does not exist
@@ -1500,8 +1581,11 @@ TEST(MetaServiceJobTest, DeleteBitmapUpdateLockCompatibilityTest) {
     res_code = get_delete_bitmap_lock(meta_service.get(), table_id, -1, 1302);
     ASSERT_EQ(res_code, MetaServiceCode::OK);
     test_start_compaction_job(table_id, 2, 3, 5, TabletCompactionJobPB::BASE);
+    res_code = update_delete_bitmap(meta_service.get(), table_id, 3, 5, -1, 1302);
+    ASSERT_EQ(res_code, MetaServiceCode::OK);
     test_commit_compaction_job(table_id, 2, 3, 5, TabletCompactionJobPB::BASE, 1302);
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    clear_rowsets(5);
     // 13.4 load get and remove lock in old way
     config::use_delete_bitmap_lock_version = "v1";
     res_code = get_delete_bitmap_lock(meta_service.get(), table_id, 1390, -1);
@@ -1512,11 +1596,13 @@ TEST(MetaServiceJobTest, DeleteBitmapUpdateLockCompatibilityTest) {
     config::use_delete_bitmap_lock_version = "v2";
     res_code = get_delete_bitmap_lock(meta_service.get(), table_id, -1, 1303);
     ASSERT_EQ(res_code, MetaServiceCode::OK);
-    // 13.6 compaction1 remove lock in new way, failed
+    // 13.6 compaction1 update delete bitmap in new way failed, abort job
     config::use_delete_bitmap_lock_version = "v2";
     test_start_compaction_job(table_id, 2, 3, 5, TabletCompactionJobPB::BASE);
-    test_commit_compaction_job(table_id, 2, 3, 5, TabletCompactionJobPB::BASE, 1301);
-    ASSERT_EQ(res.status().code(), MetaServiceCode::LOCK_EXPIRED);
+    res_code = update_delete_bitmap(meta_service.get(), table_id, 3, 5, -1, 1301);
+    ASSERT_EQ(res_code, MetaServiceCode::LOCK_EXPIRED);
+    test_abort_compaction_job(table_id, 2, 3, 5, 1301);
+    clear_rowsets(5);
 
     // case 14:
     // 14.1 lock key does not exist
@@ -1531,8 +1617,11 @@ TEST(MetaServiceJobTest, DeleteBitmapUpdateLockCompatibilityTest) {
     res_code = get_delete_bitmap_lock(meta_service.get(), table_id, -1, 1402);
     ASSERT_EQ(res_code, MetaServiceCode::OK);
     test_start_compaction_job(table_id, 2, 3, 5, TabletCompactionJobPB::BASE);
+    res_code = update_delete_bitmap(meta_service.get(), table_id, 3, 5, -1, 1402);
+    ASSERT_EQ(res_code, MetaServiceCode::OK);
     test_commit_compaction_job(table_id, 2, 3, 5, TabletCompactionJobPB::BASE, 1402);
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    clear_rowsets(5);
     // 14.4 load get and remove lock in old way
     config::use_delete_bitmap_lock_version = "v1";
     res_code = get_delete_bitmap_lock(meta_service.get(), table_id, 1490, -1);
@@ -1543,11 +1632,13 @@ TEST(MetaServiceJobTest, DeleteBitmapUpdateLockCompatibilityTest) {
     config::use_delete_bitmap_lock_version = "v1";
     res_code = get_delete_bitmap_lock(meta_service.get(), table_id, -1, 1403);
     ASSERT_EQ(res_code, MetaServiceCode::OK);
-    // 14.6 compaction1 remove lock in old way, failed
+    // 14.6 compaction1 update delete bitmap in old way failed, abort job
     config::use_delete_bitmap_lock_version = "v1";
     test_start_compaction_job(table_id, 2, 3, 5, TabletCompactionJobPB::BASE);
-    test_commit_compaction_job(table_id, 2, 3, 5, TabletCompactionJobPB::BASE, 1401);
-    ASSERT_EQ(res.status().code(), MetaServiceCode::LOCK_EXPIRED);
+    res_code = update_delete_bitmap(meta_service.get(), table_id, 3, 5, -1, 1401);
+    ASSERT_EQ(res_code, MetaServiceCode::LOCK_EXPIRED);
+    test_abort_compaction_job(table_id, 2, 3, 5, 1401);
+    clear_rowsets(5);
 
     // case 15:
     // 15.1 lock key does not exist
@@ -1562,8 +1653,11 @@ TEST(MetaServiceJobTest, DeleteBitmapUpdateLockCompatibilityTest) {
     res_code = get_delete_bitmap_lock(meta_service.get(), table_id, -1, 1502);
     ASSERT_EQ(res_code, MetaServiceCode::OK);
     test_start_compaction_job(table_id, 2, 3, 5, TabletCompactionJobPB::BASE);
+    res_code = update_delete_bitmap(meta_service.get(), table_id, 3, 5, -1, 1502);
+    ASSERT_EQ(res_code, MetaServiceCode::OK);
     test_commit_compaction_job(table_id, 2, 3, 5, TabletCompactionJobPB::BASE, 1502);
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    clear_rowsets(5);
     // 15.4 sc get and remove lock in old way
     config::use_delete_bitmap_lock_version = "v1";
     res_code = get_delete_bitmap_lock(meta_service.get(), table_id, -2, -1);
@@ -1574,11 +1668,13 @@ TEST(MetaServiceJobTest, DeleteBitmapUpdateLockCompatibilityTest) {
     config::use_delete_bitmap_lock_version = "v2";
     res_code = get_delete_bitmap_lock(meta_service.get(), table_id, -1, 1503);
     ASSERT_EQ(res_code, MetaServiceCode::OK);
-    // 15.6 compaction1 remove lock in old way, failed
+    // 15.6 compaction1 update delete bitmap in old way failed, abort job
     config::use_delete_bitmap_lock_version = "v1";
     test_start_compaction_job(table_id, 2, 3, 5, TabletCompactionJobPB::BASE);
-    test_commit_compaction_job(table_id, 2, 3, 5, TabletCompactionJobPB::BASE, 1501);
-    ASSERT_EQ(res.status().code(), MetaServiceCode::LOCK_EXPIRED);
+    res_code = update_delete_bitmap(meta_service.get(), table_id, 3, 5, -1, 1501);
+    ASSERT_EQ(res_code, MetaServiceCode::LOCK_EXPIRED);
+    test_abort_compaction_job(table_id, 2, 3, 5, 1501);
+    clear_rowsets(5);
 
     // case 16:
     // 16.1 lock key does not exist
@@ -1593,8 +1689,11 @@ TEST(MetaServiceJobTest, DeleteBitmapUpdateLockCompatibilityTest) {
     res_code = get_delete_bitmap_lock(meta_service.get(), table_id, -1, 1602);
     ASSERT_EQ(res_code, MetaServiceCode::OK);
     test_start_compaction_job(table_id, 2, 3, 5, TabletCompactionJobPB::BASE);
+    res_code = update_delete_bitmap(meta_service.get(), table_id, 3, 5, -1, 1602);
+    ASSERT_EQ(res_code, MetaServiceCode::OK);
     test_commit_compaction_job(table_id, 2, 3, 5, TabletCompactionJobPB::BASE, 1602);
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    clear_rowsets(5);
     // 16.4 sc get and remove lock in old way
     config::use_delete_bitmap_lock_version = "v1";
     res_code = get_delete_bitmap_lock(meta_service.get(), table_id, -2, -1);
@@ -1605,11 +1704,13 @@ TEST(MetaServiceJobTest, DeleteBitmapUpdateLockCompatibilityTest) {
     config::use_delete_bitmap_lock_version = "v1";
     res_code = get_delete_bitmap_lock(meta_service.get(), table_id, -1, 1603);
     ASSERT_EQ(res_code, MetaServiceCode::OK);
-    // 16.6 compaction1 remove lock in old way, failed
+    // 16.6 compaction1 update delete bitmap in old way failed, abort job
     config::use_delete_bitmap_lock_version = "v1";
     test_start_compaction_job(table_id, 2, 3, 5, TabletCompactionJobPB::BASE);
-    test_commit_compaction_job(table_id, 2, 3, 5, TabletCompactionJobPB::BASE, 1601);
-    ASSERT_EQ(res.status().code(), MetaServiceCode::LOCK_EXPIRED);
+    res_code = update_delete_bitmap(meta_service.get(), table_id, 3, 5, -1, 1601);
+    ASSERT_EQ(res_code, MetaServiceCode::LOCK_EXPIRED);
+    test_abort_compaction_job(table_id, 2, 3, 5, 1601);
+    clear_rowsets(5);
 
     // case 17:
     // 17.1 lock key does not exist
@@ -1629,11 +1730,13 @@ TEST(MetaServiceJobTest, DeleteBitmapUpdateLockCompatibilityTest) {
     config::use_delete_bitmap_lock_version = "v2";
     res_code = get_delete_bitmap_lock(meta_service.get(), table_id, -1, 1702);
     ASSERT_EQ(res_code, MetaServiceCode::OK);
-    // 17.5 compaction1 remove lock in new way, failed
+    // 17.5 compaction1 update delete bitmap in new way failed, abort job
     config::use_delete_bitmap_lock_version = "v2";
     test_start_compaction_job(table_id, 2, 3, 5, TabletCompactionJobPB::BASE);
-    test_commit_compaction_job(table_id, 2, 3, 5, TabletCompactionJobPB::BASE, 1701);
-    ASSERT_EQ(res.status().code(), MetaServiceCode::LOCK_EXPIRED);
+    res_code = update_delete_bitmap(meta_service.get(), table_id, 3, 5, -1, 1701);
+    ASSERT_EQ(res_code, MetaServiceCode::LOCK_EXPIRED);
+    test_abort_compaction_job(table_id, 2, 3, 5, 1701);
+    clear_rowsets(5);
 
     // case 18:
     // 18.1 lock key does not exist
@@ -1653,11 +1756,13 @@ TEST(MetaServiceJobTest, DeleteBitmapUpdateLockCompatibilityTest) {
     config::use_delete_bitmap_lock_version = "v1";
     res_code = get_delete_bitmap_lock(meta_service.get(), table_id, -1, 1802);
     ASSERT_EQ(res_code, MetaServiceCode::OK);
-    // 18.5 compaction1 remove lock in new way, failed
+    // 18.5 compaction1 update delete bitmap in new way failed, abort job
     config::use_delete_bitmap_lock_version = "v2";
     test_start_compaction_job(table_id, 2, 3, 5, TabletCompactionJobPB::BASE);
-    test_commit_compaction_job(table_id, 2, 3, 5, TabletCompactionJobPB::BASE, 1801);
-    ASSERT_EQ(res.status().code(), MetaServiceCode::LOCK_EXPIRED);
+    res_code = update_delete_bitmap(meta_service.get(), table_id, 3, 5, -1, 1801);
+    ASSERT_EQ(res_code, MetaServiceCode::LOCK_EXPIRED);
+    test_abort_compaction_job(table_id, 2, 3, 5, 1801);
+    clear_rowsets(5);
 
     // case 19:
     // 19.1 lock key does not exist
@@ -1677,11 +1782,13 @@ TEST(MetaServiceJobTest, DeleteBitmapUpdateLockCompatibilityTest) {
     config::use_delete_bitmap_lock_version = "v2";
     res_code = get_delete_bitmap_lock(meta_service.get(), table_id, -1, 1902);
     ASSERT_EQ(res_code, MetaServiceCode::OK);
-    // 19.5 compaction1 remove lock in new way, failed
+    // 19.5 compaction1 update delete bitmap in new way failed, abort job
     config::use_delete_bitmap_lock_version = "v2";
     test_start_compaction_job(table_id, 2, 3, 5, TabletCompactionJobPB::BASE);
-    test_commit_compaction_job(table_id, 2, 3, 5, TabletCompactionJobPB::BASE, 1901);
-    ASSERT_EQ(res.status().code(), MetaServiceCode::LOCK_EXPIRED);
+    res_code = update_delete_bitmap(meta_service.get(), table_id, 3, 5, -1, 1901);
+    ASSERT_EQ(res_code, MetaServiceCode::LOCK_EXPIRED);
+    test_abort_compaction_job(table_id, 2, 3, 5, 1901);
+    clear_rowsets(5);
 
     // case 20:
     // 20.1 lock key does not exist
@@ -1701,11 +1808,13 @@ TEST(MetaServiceJobTest, DeleteBitmapUpdateLockCompatibilityTest) {
     config::use_delete_bitmap_lock_version = "v1";
     res_code = get_delete_bitmap_lock(meta_service.get(), table_id, -1, 2002);
     ASSERT_EQ(res_code, MetaServiceCode::OK);
-    // 20.5 compaction1 remove lock in new way, failed
+    // 20.5 compaction1 update delete bitmap in new way failed, abort job
     config::use_delete_bitmap_lock_version = "v2";
     test_start_compaction_job(table_id, 2, 3, 5, TabletCompactionJobPB::BASE);
-    test_commit_compaction_job(table_id, 2, 3, 5, TabletCompactionJobPB::BASE, 2001);
-    ASSERT_EQ(res.status().code(), MetaServiceCode::LOCK_EXPIRED);
+    res_code = update_delete_bitmap(meta_service.get(), table_id, 3, 5, -1, 2001);
+    ASSERT_EQ(res_code, MetaServiceCode::LOCK_EXPIRED);
+    test_abort_compaction_job(table_id, 2, 3, 5, 2001);
+    clear_rowsets(5);
 
     // case 21:
     // 21.1 lock key does not exist
@@ -1725,11 +1834,13 @@ TEST(MetaServiceJobTest, DeleteBitmapUpdateLockCompatibilityTest) {
     config::use_delete_bitmap_lock_version = "v2";
     res_code = get_delete_bitmap_lock(meta_service.get(), table_id, -1, 2102);
     ASSERT_EQ(res_code, MetaServiceCode::OK);
-    // 21.5 compaction1 remove lock in old way, failed
+    // 21.5 compaction1 update delete bitmap in old way failed, abort job
     config::use_delete_bitmap_lock_version = "v1";
     test_start_compaction_job(table_id, 2, 3, 5, TabletCompactionJobPB::BASE);
-    test_commit_compaction_job(table_id, 2, 3, 5, TabletCompactionJobPB::BASE, 2101);
-    ASSERT_EQ(res.status().code(), MetaServiceCode::LOCK_EXPIRED);
+    res_code = update_delete_bitmap(meta_service.get(), table_id, 3, 5, -1, 2101);
+    ASSERT_EQ(res_code, MetaServiceCode::LOCK_EXPIRED);
+    test_abort_compaction_job(table_id, 2, 3, 5, 2101);
+    clear_rowsets(5);
 
     // case 22:
     // 22.1 lock key does not exist
@@ -1749,11 +1860,13 @@ TEST(MetaServiceJobTest, DeleteBitmapUpdateLockCompatibilityTest) {
     config::use_delete_bitmap_lock_version = "v1";
     res_code = get_delete_bitmap_lock(meta_service.get(), table_id, -1, 2202);
     ASSERT_EQ(res_code, MetaServiceCode::OK);
-    // 22.5 compaction1 remove lock in old way, failed
+    // 22.5 compaction1 update delete bitmap in old way failed, abort job
     config::use_delete_bitmap_lock_version = "v1";
     test_start_compaction_job(table_id, 2, 3, 5, TabletCompactionJobPB::BASE);
-    test_commit_compaction_job(table_id, 2, 3, 5, TabletCompactionJobPB::BASE, 2201);
-    ASSERT_EQ(res.status().code(), MetaServiceCode::LOCK_EXPIRED);
+    res_code = update_delete_bitmap(meta_service.get(), table_id, 3, 5, -1, 2201);
+    ASSERT_EQ(res_code, MetaServiceCode::LOCK_EXPIRED);
+    test_abort_compaction_job(table_id, 2, 3, 5, 2201);
+    clear_rowsets(5);
 
     // case 23:
     // 23.1 lock key does not exist
@@ -1773,11 +1886,13 @@ TEST(MetaServiceJobTest, DeleteBitmapUpdateLockCompatibilityTest) {
     config::use_delete_bitmap_lock_version = "v2";
     res_code = get_delete_bitmap_lock(meta_service.get(), table_id, -1, 2302);
     ASSERT_EQ(res_code, MetaServiceCode::OK);
-    // 23.5 compaction1 remove lock in old way, failed
+    // 23.5 compaction1 update delete bitmap in old way failed, abort job
     config::use_delete_bitmap_lock_version = "v1";
     test_start_compaction_job(table_id, 2, 3, 5, TabletCompactionJobPB::BASE);
-    test_commit_compaction_job(table_id, 2, 3, 5, TabletCompactionJobPB::BASE, 2301);
-    ASSERT_EQ(res.status().code(), MetaServiceCode::LOCK_EXPIRED);
+    res_code = update_delete_bitmap(meta_service.get(), table_id, 3, 5, -1, 2301);
+    ASSERT_EQ(res_code, MetaServiceCode::LOCK_EXPIRED);
+    test_abort_compaction_job(table_id, 2, 3, 5, 2301);
+    clear_rowsets(5);
 
     // case 24:
     // 24.1 lock key does not exist
@@ -1797,11 +1912,13 @@ TEST(MetaServiceJobTest, DeleteBitmapUpdateLockCompatibilityTest) {
     config::use_delete_bitmap_lock_version = "v1";
     res_code = get_delete_bitmap_lock(meta_service.get(), table_id, -1, 2402);
     ASSERT_EQ(res_code, MetaServiceCode::OK);
-    // 24.5 compaction1 remove lock in old way, failed
+    // 24.5 compaction1 update delete bitmap in old way failed, abort job
     config::use_delete_bitmap_lock_version = "v1";
     test_start_compaction_job(table_id, 2, 3, 5, TabletCompactionJobPB::BASE);
-    test_commit_compaction_job(table_id, 2, 3, 5, TabletCompactionJobPB::BASE, 2401);
-    ASSERT_EQ(res.status().code(), MetaServiceCode::LOCK_EXPIRED);
+    res_code = update_delete_bitmap(meta_service.get(), table_id, 3, 5, -1, 2401);
+    ASSERT_EQ(res_code, MetaServiceCode::LOCK_EXPIRED);
+    test_abort_compaction_job(table_id, 2, 3, 5, 2401);
+    clear_rowsets(5);
 
     // fuzzy case 1:
     // 1.1 lock key does not exist
@@ -1833,6 +1950,7 @@ TEST(MetaServiceJobTest, DeleteBitmapUpdateLockCompatibilityTest) {
         ASSERT_EQ(res_code, MetaServiceCode::OK);
         // 3 sc、load、compaction get and remove lock in new or old way
         bool load_or_sc_succeed = false;
+        bool compaction_succeed = false;
         std::srand(std::time(0));
         for (int i = 0; i < 10; i++) {
             int num = std::rand() % 3;
@@ -1848,7 +1966,8 @@ TEST(MetaServiceJobTest, DeleteBitmapUpdateLockCompatibilityTest) {
                         load_or_sc_succeed = true;
                     }
                 }
-                LOG(INFO) << "i=" << i << ",load_or_sc_succeed=" << load_or_sc_succeed;
+                LOG(INFO) << "i=" << i << ",load_or_sc_succeed=" << load_or_sc_succeed
+                          << ",compaction_succeed=" << compaction_succeed;
                 break;
             }
             case 1: {
@@ -1859,16 +1978,27 @@ TEST(MetaServiceJobTest, DeleteBitmapUpdateLockCompatibilityTest) {
                         load_or_sc_succeed = true;
                     }
                 }
-                LOG(INFO) << "i=" << i << ",load_or_sc_succeed=" << load_or_sc_succeed;
+                LOG(INFO) << "i=" << i << ",load_or_sc_succeed=" << load_or_sc_succeed
+                          << ",compaction_succeed=" << compaction_succeed;
                 break;
             }
             case 2: {
                 res_code = get_delete_bitmap_lock(meta_service.get(), table_id, -1, 6600 + i);
                 if (res_code == MetaServiceCode::OK) {
                     test_start_compaction_job(table_id, 2, 3, 5, TabletCompactionJobPB::BASE);
-                    test_commit_compaction_job(table_id, 2, 3, 5, TabletCompactionJobPB::BASE,
-                                               6600 + i);
+                    res_code =
+                            update_delete_bitmap(meta_service.get(), table_id, 3, 5, -1, 6600 + i);
+                    if (res.status().code() == MetaServiceCode::OK) {
+                        test_commit_compaction_job(table_id, 2, 3, 5, TabletCompactionJobPB::BASE,
+                                                   6600 + i);
+                        if (res.status().code() == MetaServiceCode::OK) {
+                            compaction_succeed = true;
+                        }
+                    }
+                    clear_rowsets(5);
                 }
+                LOG(INFO) << "i=" << i << ",load_or_sc_succeed=" << load_or_sc_succeed
+                          << ",compaction_succeed=" << compaction_succeed;
                 break;
             }
             }
@@ -1883,9 +2013,8 @@ TEST(MetaServiceJobTest, DeleteBitmapUpdateLockCompatibilityTest) {
         test_commit_compaction_job(table_id, 2, 3, 5, TabletCompactionJobPB::BASE, 2501);
         if (load_or_sc_succeed) {
             ASSERT_EQ(res.status().code(), MetaServiceCode::LOCK_EXPIRED);
-        } else {
-            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
         }
+        clear_rowsets(5);
     }
 }
 

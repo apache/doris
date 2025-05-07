@@ -63,12 +63,13 @@ public:
 };
 
 TEST_P(DataTypeBitMapTest, MetaInfoTest) {
-    TypeDescriptor bitmap_type_descriptor = {PrimitiveType::TYPE_OBJECT};
+    auto bitmap_type_descriptor =
+            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_OBJECT, false);
     auto col_meta = std::make_shared<PColumnMeta>();
     col_meta->set_type(PGenericType_TypeId_BITMAP);
     CommonDataTypeTest::DataTypeMetaInfo bitmap_meta_info_to_assert = {
             .type_id = TypeIndex::BitMap,
-            .type_as_type_descriptor = &bitmap_type_descriptor,
+            .type_as_type_descriptor = bitmap_type_descriptor,
             .family_name = "BitMap",
             .has_subtypes = false,
             .storage_field_type = doris::FieldType::OLAP_FIELD_TYPE_OBJECT,

@@ -803,7 +803,8 @@ public class HiveMetaStoreClientHelper {
         return output.toString();
     }
 
-    public static InternalSchema getHudiTableSchema(HMSExternalTable table, boolean[] enableSchemaEvolution) {
+    public static InternalSchema getHudiTableSchema(HMSExternalTable table, boolean[] enableSchemaEvolution,
+            String timestamp) {
         HoodieTableMetaClient metaClient = table.getHudiClient();
         TableSchemaResolver schemaUtil = new TableSchemaResolver(metaClient);
 
@@ -815,7 +816,7 @@ public class HiveMetaStoreClientHelper {
         // So, we should reload timeline so that we can read the latest commit files.
         metaClient.reloadActiveTimeline();
 
-        Option<InternalSchema> internalSchemaOption = schemaUtil.getTableInternalSchemaFromCommitMetadata();
+        Option<InternalSchema> internalSchemaOption = schemaUtil.getTableInternalSchemaFromCommitMetadata(timestamp);
 
         if (internalSchemaOption.isPresent()) {
             enableSchemaEvolution[0] = true;

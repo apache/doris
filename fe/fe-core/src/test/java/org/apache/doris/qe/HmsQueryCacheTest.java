@@ -31,11 +31,14 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.CatalogMgr;
+import org.apache.doris.datasource.ExternalSchemaCache;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
+import org.apache.doris.datasource.hive.HiveDlaTable;
 import org.apache.doris.datasource.hive.source.HiveScanNode;
+import org.apache.doris.datasource.systable.SupportedSysTables;
 import org.apache.doris.nereids.datasets.tpch.AnalyzeCheckTestBase;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanNodeId;
@@ -123,6 +126,8 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
         Deencapsulation.setField(tbl, "catalog", hmsCatalog);
         Deencapsulation.setField(tbl, "dbName", "hms_db");
         Deencapsulation.setField(tbl, "name", "hms_tbl");
+        Deencapsulation.setField(tbl, "dlaTable", new HiveDlaTable(tbl));
+        Deencapsulation.setField(tbl, "dlaType", DLAType.HIVE);
         new Expectations(tbl) {
             {
                 tbl.getId();
@@ -158,7 +163,7 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
                 result = DLAType.HIVE;
 
                 // mock initSchemaAndUpdateTime and do nothing
-                tbl.initSchemaAndUpdateTime();
+                tbl.initSchemaAndUpdateTime(new ExternalSchemaCache.SchemaCacheKey("hms_db", "hms_tbl"));
                 minTimes = 0;
 
                 tbl.getDatabase();
@@ -173,6 +178,8 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
         Deencapsulation.setField(tbl2, "catalog", hmsCatalog);
         Deencapsulation.setField(tbl2, "dbName", "hms_db");
         Deencapsulation.setField(tbl2, "name", "hms_tbl2");
+        Deencapsulation.setField(tbl2, "dlaTable", new HiveDlaTable(tbl2));
+        Deencapsulation.setField(tbl, "dlaType", DLAType.HIVE);
         new Expectations(tbl2) {
             {
                 tbl2.getId();
@@ -208,12 +215,16 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
                 result = DLAType.HIVE;
 
                 // mock initSchemaAndUpdateTime and do nothing
-                tbl2.initSchemaAndUpdateTime();
+                tbl2.initSchemaAndUpdateTime(new ExternalSchemaCache.SchemaCacheKey("hms_db", "hms_tbl2"));
                 minTimes = 0;
 
                 tbl2.getDatabase();
                 minTimes = 0;
                 result = db;
+
+                tbl2.getSupportedSysTables();
+                minTimes = 0;
+                result = SupportedSysTables.HIVE_SUPPORTED_SYS_TABLES;
             }
         };
 
@@ -268,6 +279,10 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
                 view1.getDatabase();
                 minTimes = 0;
                 result = db;
+
+                view1.getSupportedSysTables();
+                minTimes = 0;
+                result = SupportedSysTables.HIVE_SUPPORTED_SYS_TABLES;
             }
         };
 
@@ -321,6 +336,10 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
                 view2.getDatabase();
                 minTimes = 0;
                 result = db;
+
+                view2.getSupportedSysTables();
+                minTimes = 0;
+                result = SupportedSysTables.HIVE_SUPPORTED_SYS_TABLES;
             }
         };
 
@@ -386,7 +405,7 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
         List<ScanNode> scanNodes = Arrays.asList(hiveScanNode4);
 
         // invoke initSchemaAndUpdateTime first and init schemaUpdateTime
-        tbl2.initSchemaAndUpdateTime();
+        tbl2.initSchemaAndUpdateTime(new ExternalSchemaCache.SchemaCacheKey(tbl2.getDbName(), tbl2.getName()));
 
         CacheAnalyzer ca = new CacheAnalyzer(connectContext, parseStmt, scanNodes);
         ca.checkCacheMode(System.currentTimeMillis() + Config.cache_last_version_interval_second * 1000L * 2);
@@ -434,7 +453,7 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
         List<ScanNode> scanNodes = Arrays.asList(hiveScanNode4);
 
         // invoke initSchemaAndUpdateTime first and init schemaUpdateTime
-        tbl2.initSchemaAndUpdateTime();
+        tbl2.initSchemaAndUpdateTime(new ExternalSchemaCache.SchemaCacheKey(tbl2.getDbName(), tbl2.getName()));
 
         CacheAnalyzer ca = new CacheAnalyzer(connectContext, parseStmt, scanNodes);
         ca.checkCacheModeForNereids(System.currentTimeMillis() + Config.cache_last_version_interval_second * 1000L * 2);

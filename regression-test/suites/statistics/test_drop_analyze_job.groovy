@@ -41,7 +41,7 @@ suite("test_drop_analyze_job") {
     assertEquals(1, result.size())
 	
 	result = sql """show analyze drop_analyze_job_test"""
-	jobId0 = result[0][0]
+	def jobId0 = result[0][0]
 	
 	sql """drop analyze job ${jobId0}"""
 	

@@ -51,6 +51,9 @@ public:
         _agg_function->set_version(be_exec_version);
         _agg_serialized_type = _agg_function->get_serialized_type();
     }
+    DataTypeAggState() {
+        // Nothing to do. For this constructor, we only need it to represent a basic primitive type.
+    }
 
     const char* get_family_name() const override { return "AggState"; }
 
@@ -64,8 +67,7 @@ public:
     std::string get_function_name() const { return _function_name; }
 
     TypeIndex get_type_id() const override { return TypeIndex::AggState; }
-
-    TypeDescriptor get_type_as_type_descriptor() const override { return {TYPE_AGG_STATE}; }
+    PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_AGG_STATE; }
 
     doris::FieldType get_storage_field_type() const override {
         return doris::FieldType::OLAP_FIELD_TYPE_AGG_STATE;

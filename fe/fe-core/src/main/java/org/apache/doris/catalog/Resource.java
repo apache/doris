@@ -26,10 +26,12 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateResourceInfo;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
@@ -128,6 +130,14 @@ public abstract class Resource implements Writable, GsonPostProcessable {
         resource.id = Env.getCurrentEnv().getNextId();
         resource.version = 0;
         resource.setProperties(stmt.getProperties());
+        return resource;
+    }
+
+    public static Resource fromInfo(CreateResourceInfo info) throws DdlException {
+        Resource resource = getResourceInstance(info.getResourceType(), info.getResourceName());
+        resource.id = Env.getCurrentEnv().getNextId();
+        resource.version = 0;
+        resource.setProperties(info.getProperties());
         return resource;
     }
 
@@ -233,7 +243,7 @@ public abstract class Resource implements Writable, GsonPostProcessable {
     /**
      * Set and check the properties in child resources
      */
-    protected abstract void setProperties(Map<String, String> properties) throws DdlException;
+    protected abstract void setProperties(ImmutableMap<String, String> properties) throws DdlException;
 
     public abstract Map<String, String> getCopiedProperties();
 

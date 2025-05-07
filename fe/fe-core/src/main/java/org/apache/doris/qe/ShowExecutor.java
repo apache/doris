@@ -595,7 +595,7 @@ public class ShowExecutor {
     private void handleShowEngines() {
         ShowEnginesStmt showStmt = (ShowEnginesStmt) stmt;
         List<List<String>> rowSet = Lists.newArrayList();
-        rowSet.add(Lists.newArrayList("Olap engine", "YES", "Default storage engine of palo", "NO", "NO", "NO"));
+        rowSet.add(Lists.newArrayList("Olap engine", "YES", "Default storage engine of Doris", "NO", "NO", "NO"));
         rowSet.add(Lists.newArrayList("MySQL", "YES", "MySQL server which data is in it", "NO", "NO", "NO"));
         rowSet.add(Lists.newArrayList("ELASTICSEARCH", "YES", "ELASTICSEARCH cluster which data is in it",
                 "NO", "NO", "NO"));
@@ -2322,8 +2322,13 @@ public class ShowExecutor {
         resultSet = new ShowResultSet(showExportStmt.getMetaData(), infos);
     }
 
-    private void handleShowBackends() {
+    private void handleShowBackends() throws AnalysisException {
         final ShowBackendsStmt showStmt = (ShowBackendsStmt) stmt;
+        try {
+            showStmt.analyze(null);
+        } catch (Exception e) {
+            throw (AnalysisException) e;
+        }
         List<List<String>> backendInfos = BackendsProcDir.getBackendInfos();
 
         backendInfos.sort(new Comparator<List<String>>() {
@@ -2336,8 +2341,13 @@ public class ShowExecutor {
         resultSet = new ShowResultSet(showStmt.getMetaData(), backendInfos);
     }
 
-    private void handleShowFrontends() {
+    private void handleShowFrontends() throws AnalysisException {
         final ShowFrontendsStmt showStmt = (ShowFrontendsStmt) stmt;
+        try {
+            showStmt.analyze(null);
+        } catch (Exception e) {
+            throw (AnalysisException) e;
+        }
 
         List<List<String>> infos = Lists.newArrayList();
         FrontendsProcNode.getFrontendsInfo(Env.getCurrentEnv(), showStmt.getDetailType(), infos);

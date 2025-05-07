@@ -58,7 +58,7 @@ public class ShowStorageEnginesCommand extends ShowCommand {
 
     private ShowResultSet handleShowEngines(ConnectContext ctx, StmtExecutor executor) throws Exception {
         List<List<String>> rowSet = Lists.newArrayList();
-        rowSet.add(Lists.newArrayList("Olap engine", "YES", "Default storage engine of palo", "NO", "NO", "NO"));
+        rowSet.add(Lists.newArrayList("Olap engine", "YES", "Default storage engine of Doris", "NO", "NO", "NO"));
         rowSet.add(Lists.newArrayList("MySQL", "YES", "MySQL server which data is in it", "NO", "NO", "NO"));
         rowSet.add(Lists.newArrayList("ELASTICSEARCH", "YES", "ELASTICSEARCH cluster which data is in it",
                 "NO", "NO", "NO"));

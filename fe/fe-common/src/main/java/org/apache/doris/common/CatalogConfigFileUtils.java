@@ -24,22 +24,24 @@ import org.apache.hadoop.hive.conf.HiveConf;
 
 import java.io.File;
 import java.util.function.BiConsumer;
+import java.util.function.Supplier;
 
 public class CatalogConfigFileUtils {
 
     /**
-     * Loads configuration files from the specified directory into a Hadoop Configuration or HiveConf object.
+     * Generic method to load configuration files (e.g., Hadoop or Hive) from a directory.
      *
-     * @param resourcesPath The comma-separated list of configuration resource files to load.
-     *                      This must not be null or empty.
-     * @param configDir The base directory where the configuration files are located.
-     * @param addResourceMethod A method reference to add the resource to the configuration.
-     * @param <T> The type of configuration object (either Hadoop Configuration or HiveConf).
-     * @return The populated configuration object.
-     * @throws IllegalArgumentException If the provided resourcesPath is blank, or if any of the specified
-     *                                  configuration files do not exist or are not regular files.
+     * @param resourcesPath     Comma-separated list of resource file names to be loaded.
+     * @param configDir         Directory prefix where the configuration files reside.
+     * @param configSupplier    Supplier that creates a new configuration object
+     *                          (e.g., new Configuration or new HiveConf).
+     * @param addResourceMethod Method to add a resource file to the configuration object.
+     * @param <T>               Type of the configuration (e.g., Configuration or HiveConf).
+     * @return A configuration object loaded with the given resource files.
+     * @throws IllegalArgumentException if the resourcesPath is empty or if any file does not exist.
      */
     private static <T> T loadConfigFromDir(String resourcesPath, String configDir,
+                                           Supplier<T> configSupplier,
                                            BiConsumer<T, Path> addResourceMethod) {
         // Check if the provided resourcesPath is blank and throw an exception if so.
         if (StringUtils.isBlank(resourcesPath)) {
@@ -47,7 +49,7 @@ public class CatalogConfigFileUtils {
         }
 
         // Create a new configuration object.
-        T conf = (T) (configDir.equals(Config.hadoop_config_dir) ? new Configuration(false) : new HiveConf());
+        T conf = configSupplier.get();
 
         // Iterate over the comma-separated list of resource files.
         for (String resource : resourcesPath.split(",")) {
@@ -68,24 +70,34 @@ public class CatalogConfigFileUtils {
     }
 
     /**
-     * Loads the Hadoop configuration files from the specified directory.
-     * @param resourcesPath The comma-separated list of Hadoop configuration resource files to load.
-     * @return The Hadoop `Configuration` object with the loaded configuration files.
-     * @throws IllegalArgumentException If the provided `resourcesPath` is blank, or if any of the specified
-     *                                  configuration files do not exist or are not regular files.
+     * Loads a Hadoop Configuration object from a list of files under the specified config directory.
+     *
+     * @param resourcesPath Comma-separated list of file names to be loaded.
+     * @return A Hadoop Configuration object.
+     * @throws IllegalArgumentException if the input is invalid or files are missing.
      */
     public static Configuration loadConfigurationFromHadoopConfDir(String resourcesPath) {
-        return loadConfigFromDir(resourcesPath, Config.hadoop_config_dir, Configuration::addResource);
+        return loadConfigFromDir(
+                resourcesPath,
+                Config.hadoop_config_dir,
+                Configuration::new,
+                Configuration::addResource
+        );
     }
 
     /**
-     * Loads the Hive configuration files from the specified directory.
-     * @param resourcesPath The comma-separated list of Hive configuration resource files to load.
-     * @return The HiveConf object with the loaded configuration files.
-     * @throws IllegalArgumentException If the provided `resourcesPath` is blank, or if any of the specified
-     *                                  configuration files do not exist or are not regular files.
+     * Loads a HiveConf object from a list of files under the specified config directory.
+     *
+     * @param resourcesPath Comma-separated list of file names to be loaded.
+     * @return A HiveConf object.
+     * @throws IllegalArgumentException if the input is invalid or files are missing.
      */
     public static HiveConf loadHiveConfFromHiveConfDir(String resourcesPath) {
-        return loadConfigFromDir(resourcesPath, Config.hadoop_config_dir, HiveConf::addResource);
+        return loadConfigFromDir(
+                resourcesPath,
+                Config.hadoop_config_dir,
+                HiveConf::new,
+                HiveConf::addResource
+        );
     }
 }

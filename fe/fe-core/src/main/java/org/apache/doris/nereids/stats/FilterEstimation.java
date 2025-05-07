@@ -119,7 +119,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         Preconditions.checkArgument(children.size() > 1, "and expression abnormal: " + and);
         for (Expression child : children) {
             outputStats = child.accept(this, new EstimationContext(inputStats));
-            outputStats.normalizeColumnStatistics(inputStats.getRowCount(), true);
+            outputStats.normalizeColumnStatistics(inputStats.getRowCount(), false);
             inputStats = outputStats;
         }
         return outputStats;

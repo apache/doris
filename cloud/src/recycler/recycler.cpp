@@ -174,12 +174,14 @@ static inline void check_recycle_task(const std::string& instance_id, const std:
 Recycler::Recycler(std::shared_ptr<TxnKv> txn_kv) : txn_kv_(std::move(txn_kv)) {
     ip_port_ = std::string(butil::my_ip_cstr()) + ":" + std::to_string(config::brpc_listen_port);
 
-    auto s3_producer_pool = std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
+    auto s3_producer_pool = std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism,
+                                                               "s3_producer_pool");
     s3_producer_pool->start();
-    auto recycle_tablet_pool = std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
+    auto recycle_tablet_pool = std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism,
+                                                                  "recycle_tablet_pool");
     recycle_tablet_pool->start();
-    auto group_recycle_function_pool =
-            std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
+    auto group_recycle_function_pool = std::make_shared<SimpleThreadPool>(
+            config::recycle_pool_parallelism, "group_recycle_function_pool");
     group_recycle_function_pool->start();
     _thread_pool_group =
             RecyclerThreadPoolGroup(std::move(s3_producer_pool), std::move(recycle_tablet_pool),
@@ -1927,8 +1929,8 @@ int InstanceRecycler::recycle_rowsets() {
     // Store keys of rowset recycled by background workers
     std::mutex async_recycled_rowset_keys_mutex;
     std::vector<std::string> async_recycled_rowset_keys;
-    auto worker_pool =
-            std::make_unique<SimpleThreadPool>(config::instance_recycler_worker_pool_size);
+    auto worker_pool = std::make_unique<SimpleThreadPool>(
+            config::instance_recycler_worker_pool_size, "recycle_rowsets");
     worker_pool->start();
     auto delete_rowset_data_by_prefix = [&](std::string key, const std::string& resource_id,
                                             int64_t tablet_id, const std::string& rowset_id) {
@@ -2500,6 +2502,7 @@ int InstanceRecycler::recycle_expired_txn_label() {
     int64_t num_scanned = 0;
     int64_t num_expired = 0;
     int64_t num_recycled = 0;
+    int ret = 0;
 
     RecycleTxnKeyInfo recycle_txn_key_info0 {instance_id_, 0, 0};
     RecycleTxnKeyInfo recycle_txn_key_info1 {instance_id_, INT64_MAX, INT64_MAX};
@@ -2507,6 +2510,7 @@ int InstanceRecycler::recycle_expired_txn_label() {
     std::string end_recycle_txn_key;
     recycle_txn_key(recycle_txn_key_info0, &begin_recycle_txn_key);
     recycle_txn_key(recycle_txn_key_info1, &end_recycle_txn_key);
+    std::vector<std::string> recycle_txn_info_keys;
 
     LOG_INFO("begin to recycle expired txn").tag("instance_id", instance_id_);
 
@@ -2534,12 +2538,15 @@ int InstanceRecycler::recycle_expired_txn_label() {
         return final_expiration;
     };
 
+    SyncExecutor<int> concurrent_delete_executor(
+            _thread_pool_group.s3_producer_pool,
+            fmt::format("recycle expired txn label, instance id {}", instance_id_),
+            [](const int& ret) { return ret != 0; });
+
     int64_t current_time_ms =
             duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
 
-    auto handle_recycle_txn_kv = [&num_scanned, &num_expired, &num_recycled, &current_time_ms,
-                                  &calc_expiration,
-                                  this](std::string_view k, std::string_view v) -> int {
+    auto handle_recycle_txn_kv = [&](std::string_view k, std::string_view v) -> int {
         ++num_scanned;
         RecycleTxnPB recycle_txn_pb;
         if (!recycle_txn_pb.ParseFromArray(v.data(), v.size())) {
@@ -2551,10 +2558,12 @@ int InstanceRecycler::recycle_expired_txn_label() {
             (calc_expiration(recycle_txn_pb) <= current_time_ms)) {
             VLOG_DEBUG << "found recycle txn, key=" << hex(k);
             num_expired++;
-        } else {
-            return 0;
+            recycle_txn_info_keys.emplace_back(k);
         }
+        return 0;
+    };
 
+    auto delete_recycle_txn_kv = [&](const std::string& k) -> int {
         std::string_view k1 = k;
         //RecycleTxnKeyInfo 0:instance_id  1:db_id  2:txn_id
         k1.remove_prefix(1); // Remove key space
@@ -2638,8 +2647,41 @@ int InstanceRecycler::recycle_expired_txn_label() {
         return 0;
     };
 
+    auto loop_done = [&]() -> int {
+        for (const auto& k : recycle_txn_info_keys) {
+            concurrent_delete_executor.add([&]() {
+                if (delete_recycle_txn_kv(k) != 0) {
+                    LOG_WARNING("failed to delete recycle txn kv")
+                            .tag("instance id", instance_id_)
+                            .tag("key", hex(k));
+                    return -1;
+                }
+                return 0;
+            });
+        }
+        bool finished = true;
+        std::vector<int> rets = concurrent_delete_executor.when_all(&finished);
+        for (int r : rets) {
+            if (r != 0) {
+                ret = -1;
+            }
+        }
+
+        ret = finished ? ret : -1;
+
+        if (ret != 0) {
+            LOG_WARNING("recycle txn kv ret!=0")
+                    .tag("finished", finished)
+                    .tag("ret", ret)
+                    .tag("instance_id", instance_id_);
+            return ret;
+        }
+        recycle_txn_info_keys.clear();
+        return ret;
+    };
+
     return scan_and_recycle(begin_recycle_txn_key, end_recycle_txn_key,
-                            std::move(handle_recycle_txn_kv));
+                            std::move(handle_recycle_txn_kv), std::move(loop_done));
 }
 
 struct CopyJobIdTuple {

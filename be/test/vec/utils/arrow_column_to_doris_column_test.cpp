@@ -56,6 +56,7 @@
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
+#include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/runtime/vdatetime_value.h"
@@ -683,10 +684,9 @@ template <typename ArrowType, bool is_nullable>
 void test_array(const std::vector<std::string>& test_cases, size_t num_elements,
                 std::vector<ColumnArray::Offset64>& vec_offsets, std::vector<bool>& null_map,
                 std::shared_ptr<arrow::DataType> value_type) {
-    TypeDescriptor type(TYPE_ARRAY);
-    type.children.push_back(TYPE_VARCHAR);
-    type.contains_nulls.push_back(true);
-    DataTypePtr data_type = DataTypeFactory::instance().create_data_type(type, true);
+    auto type = make_nullable(std::make_shared<DataTypeArray>(
+            DataTypeFactory::instance().create_data_type(TYPE_VARCHAR, true)));
+    DataTypePtr data_type = type;
     for (auto& value : test_cases) {
         MutableColumnPtr data_column = data_type->create_column();
         ColumnWithTypeAndName column(std::move(data_column), data_type, "test_array_column");

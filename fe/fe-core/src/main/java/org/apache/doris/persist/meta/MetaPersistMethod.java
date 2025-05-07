@@ -260,6 +260,12 @@ public class MetaPersistMethod {
                 metaPersistMethod.writeMethod = Env.class.getDeclaredMethod("savePlsqlProcedure",
                         CountingDataOutputStream.class, long.class);
                 break;
+            case "dictionaryManager":
+                metaPersistMethod.readMethod = Env.class.getDeclaredMethod("loadDictionaryManager",
+                        DataInputStream.class, long.class);
+                metaPersistMethod.writeMethod = Env.class.getDeclaredMethod("saveDictionaryManager",
+                        CountingDataOutputStream.class, long.class);
+                break;
             default:
                 break;
         }

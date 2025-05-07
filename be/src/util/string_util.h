@@ -127,7 +127,7 @@ public:
 };
 
 size_t hash_of_path(const std::string& identifier, const std::string& path);
-
+Result<int> safe_stoi(const std::string& input, const std::string& name);
 using StringCaseSet = std::set<std::string, StringCaseLess>;
 using StringCaseUnorderedSet = std::unordered_set<std::string, StringCaseHasher, StringCaseEqual>;
 template <class T>

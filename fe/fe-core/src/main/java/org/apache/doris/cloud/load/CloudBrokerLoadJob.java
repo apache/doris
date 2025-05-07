@@ -130,9 +130,15 @@ public class CloudBrokerLoadJob extends BrokerLoadJob {
         if (ConnectContext.get() == null) {
             ConnectContext connectContext = new ConnectContext();
             connectContext.setCloudCluster(clusterName);
+            if (connectContext.getEnv() == null) {
+                connectContext.setEnv(Env.getCurrentEnv());
+            }
             return new AutoCloseConnectContext(connectContext);
         } else {
             ConnectContext.get().setCloudCluster(clusterName);
+            if (ConnectContext.get().getEnv() == null) {
+                ConnectContext.get().setEnv(Env.getCurrentEnv());
+            }
             return null;
         }
     }

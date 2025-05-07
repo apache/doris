@@ -25,6 +25,8 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRule;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
+import org.apache.doris.nereids.rules.expression.rules.SimplifyConditionalFunction;
+import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
@@ -122,6 +124,15 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         assertRewriteAfterTypeCoercion("case when null = 2 then 1 else 4 end", "4");
         assertRewriteAfterTypeCoercion("case when null = 2 then 1 end", "null");
         assertRewriteAfterTypeCoercion("case when TA = TB then 1 when TC is null then 2 end", "CASE WHEN (TA = TB) THEN 1 WHEN TC IS NULL THEN 2 END");
+
+        // make sure the case when return datetime(6)
+        Expression analyzedCaseWhen = ExpressionAnalyzer.analyzeFunction(null, null, PARSER.parseExpression(
+                "case when true then cast('2025-04-17' as datetime(0)) else cast('2025-04-18 01:02:03.123456' as datetime(6)) end"));
+        Assertions.assertEquals(DateTimeV2Type.of(6), analyzedCaseWhen.getDataType());
+        Assertions.assertEquals(DateTimeV2Type.of(6), ((CaseWhen) analyzedCaseWhen).getWhenClauses().get(0).getResult().getDataType());
+        Assertions.assertEquals(DateTimeV2Type.of(6), ((CaseWhen) analyzedCaseWhen).getDefaultValue().get().getDataType());
+        Expression foldCaseWhen = executor.rewrite(analyzedCaseWhen, context);
+        Assertions.assertEquals(new DateTimeV2Literal(DateTimeV2Type.of(6), "2025-04-17"), foldCaseWhen);
     }
 
     @Test
@@ -1175,7 +1186,8 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         executor = new ExpressionRuleExecutor(ImmutableList.of(
                 ExpressionAnalyzer.FUNCTION_ANALYZER_RULE,
                 bottomUp(
-                        FoldConstantRule.INSTANCE
+                        FoldConstantRule.INSTANCE,
+                        SimplifyConditionalFunction.INSTANCE
                 )
         ));
 
@@ -1183,6 +1195,12 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         assertRewriteExpression("nvl(NULL, NULL)", "NULL");
         assertRewriteAfterTypeCoercion("nvl(IA, NULL)", "ifnull(IA, NULL)");
         assertRewriteAfterTypeCoercion("nvl(IA, 1)", "ifnull(IA, 1)");
+
+        Expression foldNvl = executor.rewrite(
+                PARSER.parseExpression("nvl(cast('2025-04-17' as datetime(0)), cast('2025-04-18 01:02:03.123456' as datetime(6)))"),
+                context
+        );
+        Assertions.assertEquals(new DateTimeV2Literal(DateTimeV2Type.of(6), "2025-04-17"), foldNvl);
     }
 
     private void assertRewriteExpression(String actualExpression, String expectedExpression) {

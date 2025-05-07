@@ -58,6 +58,7 @@ public class CreateEncryptKeyTest {
     @Test
     public void test() throws Exception {
         ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+        Env.getCurrentEnv().getWorkloadGroupMgr().tryCreateNormalWorkloadGroup();
 
         // create database db1
         String createDbStmtStr = "create database db1;";

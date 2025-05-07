@@ -29,12 +29,14 @@ public class OBSPropertyTest {
     private Map<String, String> origProps = new HashMap<>();
 
     @Test
-    public void testBasicCreateTest() {
+    public void testBasicCreateTest() throws UserException {
         //Map<String, String> origProps = new HashMap<>();
         origProps.put("obs.endpoint", "https://obs.example.com");
         origProps.put("obs.access_key", "myOBSAccessKey");
         origProps.put("obs.secret_key", "myOBSSecretKey");
         origProps.put(StorageProperties.FS_OBS_SUPPORT, "true");
+        Assertions.assertThrows(IllegalArgumentException.class, () -> StorageProperties.createAll(origProps), "Invalid endpoint format: https://obs.example.com");
+
         // Test creation without additional properties
         origProps = new HashMap<>();
         origProps.put("obs.endpoint", "https://obs.example.com");
