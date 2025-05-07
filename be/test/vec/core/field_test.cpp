@@ -23,6 +23,7 @@
 #include <string>
 
 #include "gtest/gtest_pred_impl.h" // IWYU pragma: keep
+#include "runtime/define_primitive_type.h"
 #include "vec/columns/column_string.h"
 #include "vec/common/string_buffer.hpp"
 #include "vec/common/string_ref.h"
@@ -97,7 +98,7 @@ TEST(VFieldTest, jsonb_field_unique_ptr) {
 
     // Test JsonbField with Field
     Field field_jf = jf1;
-    ASSERT_EQ(field_jf.get_type(), Field::Types::JSONB);
+    ASSERT_EQ(field_jf.get_type(), TYPE_JSONB);
     ASSERT_NE(field_jf.get<JsonbField>().get_value(), nullptr);
     ASSERT_EQ(field_jf.get<JsonbField>().get_size(), test_size);
     ASSERT_EQ(std::string(field_jf.get<JsonbField>().get_value(),
@@ -169,7 +170,7 @@ TEST(VFieldTest, jsonb_field_io) {
             read_json_binary(jsonb_from_field, read_field_buf);
             Field f2 = jsonb_from_field;
 
-            ASSERT_EQ(f2.get_type(), Field::Types::JSONB);
+            ASSERT_EQ(f2.get_type(), TYPE_JSONB);
             ASSERT_NE(f2.get<JsonbField>().get_value(), nullptr);
             ASSERT_EQ(
                     std::string(f2.get<JsonbField>().get_value(), f2.get<JsonbField>().get_size()),

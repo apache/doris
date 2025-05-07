@@ -166,21 +166,21 @@ public:
     ~JsonbField() = default; // unique_ptr will handle cleanup automatically
 
     JsonbField(const char* ptr, size_t len) : size(len) {
+        data = std::make_unique<char[]>(size);
+        if (!data) {
+            throw Exception(Status::FatalError("new data buffer failed, size: {}", size));
+        }
         if (size > 0) {
-            data = std::make_unique<char[]>(size);
-            if (!data) {
-                throw Exception(Status::FatalError("new data buffer failed, size: {}", size));
-            }
             memcpy(data.get(), ptr, size);
         }
     }
 
     JsonbField(const JsonbField& x) : size(x.size) {
+        data = std::make_unique<char[]>(size);
+        if (!data) {
+            throw Exception(Status::FatalError("new data buffer failed, size: {}", size));
+        }
         if (size > 0) {
-            data = std::make_unique<char[]>(size);
-            if (!data) {
-                throw Exception(Status::FatalError("new data buffer failed, size: {}", size));
-            }
             memcpy(data.get(), x.data.get(), size);
         }
     }
@@ -190,14 +190,12 @@ public:
     // dispatch for all type of storage. so need this. but not really used now.
     JsonbField& operator=(const JsonbField& x) {
         if (this != &x) {
+            data = std::make_unique<char[]>(x.size);
+            if (!data) {
+                throw Exception(Status::FatalError("new data buffer failed, size: {}", x.size));
+            }
             if (x.size > 0) {
-                data = std::make_unique<char[]>(x.size);
-                if (!data) {
-                    throw Exception(Status::FatalError("new data buffer failed, size: {}", x.size));
-                }
                 memcpy(data.get(), x.data.get(), x.size);
-            } else {
-                data.reset();
             }
             size = x.size;
         }
