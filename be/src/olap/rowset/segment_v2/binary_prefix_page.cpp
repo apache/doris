@@ -25,15 +25,12 @@
 
 #include "common/status.h"
 #include "gutil/port.h"
-#include "gutil/strings/substitute.h"
 #include "util/coding.h"
 #include "util/faststring.h"
 #include "util/slice.h"
 
 namespace doris {
 namespace segment_v2 {
-
-using strings::Substitute;
 
 Status BinaryPrefixPageBuilder::add(const uint8_t* vals, size_t* add_count) {
     DCHECK(!_finished);

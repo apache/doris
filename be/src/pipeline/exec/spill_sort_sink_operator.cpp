@@ -213,7 +213,10 @@ Status SpillSortSinkLocalState::revoke_memory(RuntimeState* state,
             }
 
             _spilling_stream.reset();
-            state->get_query_ctx()->decrease_revoking_tasks_count();
+            state->get_query_ctx()
+                    ->resource_ctx()
+                    ->task_controller()
+                    ->decrease_revoking_tasks_count();
             if (_eos) {
                 _dependency->set_ready_to_read();
             }
@@ -265,7 +268,7 @@ Status SpillSortSinkLocalState::revoke_memory(RuntimeState* state,
     });
 
     RETURN_IF_ERROR(status);
-    state->get_query_ctx()->increase_revoking_tasks_count();
+    state->get_query_ctx()->resource_ctx()->task_controller()->increase_revoking_tasks_count();
 
     _spill_dependency->block();
     return ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool()->submit(

@@ -754,6 +754,14 @@ void DataDir::_perform_rowset_gc(const std::string& tablet_schema_hash_path) {
             [&rowsets_in_version_map](auto& rs) { rowsets_in_version_map.insert(rs->rowset_id()); },
             true);
 
+    DBUG_EXECUTE_IF("DataDir::_perform_rowset_gc.simulation.slow", {
+        auto target_tablet_id = dp->param<int64_t>("tablet_id", -1);
+        if (target_tablet_id == tablet_id) {
+            LOG(INFO) << "debug point wait tablet to remove rsmgr tabletId=" << tablet_id;
+            DBUG_BLOCK;
+        }
+    });
+
     auto reclaim_rowset_file = [](const std::string& path) {
         auto st = io::global_local_filesystem()->delete_file(path);
         if (!st.ok()) [[unlikely]] {

@@ -27,7 +27,6 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.security.authentication.PreExecutionAuthenticator;
 import org.apache.doris.common.util.LocationPath;
-import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.TableFormatType;
@@ -49,6 +48,7 @@ import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPushAggOp;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import org.apache.commons.lang3.exception.ExceptionUtils;
@@ -66,13 +66,11 @@ import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.io.CloseableIterator;
 import org.apache.iceberg.types.Conversions;
-import org.apache.iceberg.util.SnapshotUtil;
 import org.apache.iceberg.util.TableScanUtil;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
-import java.time.DateTimeException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -104,6 +102,12 @@ public class IcebergScanNode extends FileQueryScanNode {
     private int formatVersion;
     private PreExecutionAuthenticator preExecutionAuthenticator;
     private TableScan icebergTableScan;
+
+    // for test
+    @VisibleForTesting
+    public IcebergScanNode(PlanNodeId id, TupleDescriptor desc, SessionVariable sv) {
+        super(id, desc, "ICEBERG_SCAN_NODE", StatisticalType.ICEBERG_SCAN_NODE, false, sv);
+    }
 
     /**
      * External file scan node for Query iceberg table
@@ -252,7 +256,8 @@ public class IcebergScanNode extends FileQueryScanNode {
         });
     }
 
-    private TableScan createTableScan() {
+    @VisibleForTesting
+    public TableScan createTableScan() {
         if (icebergTableScan != null) {
             return icebergTableScan;
         }
@@ -371,7 +376,8 @@ public class IcebergScanNode extends FileQueryScanNode {
                                 createTableScan().filter()).iterator()) {
                     int cnt = 0;
                     while (matchingManifest.hasNext()) {
-                        cnt += matchingManifest.next().addedFilesCount();
+                        ManifestFile next = matchingManifest.next();
+                        cnt += next.addedFilesCount() + next.existingFilesCount();
                         if (cnt >= sessionVariable.getNumFilesInBatchMode()) {
                             return true;
                         }
@@ -392,16 +398,7 @@ public class IcebergScanNode extends FileQueryScanNode {
     public Long getSpecifiedSnapshot() {
         TableSnapshot tableSnapshot = getQueryTableSnapshot();
         if (tableSnapshot != null) {
-            TableSnapshot.VersionType type = tableSnapshot.getType();
-            if (type == TableSnapshot.VersionType.VERSION) {
-                return tableSnapshot.getVersion();
-            } else {
-                long timestamp = TimeUtils.timeStringToLong(tableSnapshot.getTime(), TimeUtils.getTimeZone());
-                if (timestamp < 0) {
-                    throw new DateTimeException("can't parse time: " + tableSnapshot.getTime());
-                }
-                return SnapshotUtil.snapshotIdAsOfTime(icebergTable, timestamp);
-            }
+            return IcebergUtils.getQuerySpecSnapshot(icebergTable, tableSnapshot);
         }
         return null;
     }
@@ -482,7 +479,8 @@ public class IcebergScanNode extends FileQueryScanNode {
         return !col.isAllowNull();
     }
 
-    private long getCountFromSnapshot() {
+    @VisibleForTesting
+    public long getCountFromSnapshot() {
         Long specifiedSnapshot = getSpecifiedSnapshot();
 
         Snapshot snapshot = specifiedSnapshot == null

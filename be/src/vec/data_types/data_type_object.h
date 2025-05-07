@@ -57,9 +57,7 @@ public:
     DataTypeObject(const String& schema_format_ = "json", bool is_nullable_ = true);
     const char* get_family_name() const override { return "Variant"; }
     TypeIndex get_type_id() const override { return TypeIndex::VARIANT; }
-    TypeDescriptor get_type_as_type_descriptor() const override {
-        return TypeDescriptor(TYPE_VARIANT);
-    }
+    PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_VARIANT; }
 
     doris::FieldType get_storage_field_type() const override {
         return doris::FieldType::OLAP_FIELD_TYPE_VARIANT;
@@ -92,5 +90,8 @@ public:
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
         return std::make_shared<DataTypeObjectSerDe>(nesting_level);
     };
+    void to_protobuf(PTypeDesc* ptype, PTypeNode* node, PScalarType* scalar_type) const override {
+        node->set_type(TTypeNodeType::VARIANT);
+    }
 };
 } // namespace doris::vectorized

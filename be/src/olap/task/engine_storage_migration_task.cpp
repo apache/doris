@@ -32,7 +32,6 @@
 
 #include "common/config.h"
 #include "common/logging.h"
-#include "gutil/strings/numbers.h"
 #include "io/fs/local_file_system.h"
 #include "olap/data_dir.h"
 #include "olap/olap_common.h"

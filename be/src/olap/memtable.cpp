@@ -42,6 +42,7 @@
 #include "vec/columns/column.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 bvar::Adder<int64_t> g_memtable_cnt("memtable_cnt");
 
@@ -101,7 +102,7 @@ void MemTable::_init_columns_offset_by_slot_descs(const std::vector<SlotDescript
 }
 
 void MemTable::_init_agg_functions(const vectorized::Block* block) {
-    for (uint32_t cid = _tablet_schema->num_key_columns(); cid < _num_columns; ++cid) {
+    for (auto cid = _tablet_schema->num_key_columns(); cid < _num_columns; ++cid) {
         vectorized::AggregateFunctionPtr function;
         if (_keys_type == KeysType::UNIQUE_KEYS && _enable_unique_key_mow) {
             // In such table, non-key column's aggregation type is NONE, so we need to construct
@@ -129,7 +130,7 @@ void MemTable::_init_agg_functions(const vectorized::Block* block) {
         _agg_functions[cid] = function;
     }
 
-    for (uint32_t cid = _tablet_schema->num_key_columns(); cid < _num_columns; ++cid) {
+    for (auto cid = _tablet_schema->num_key_columns(); cid < _num_columns; ++cid) {
         _offsets_of_aggregate_states[cid] = _total_size_of_aggregate_states;
         _total_size_of_aggregate_states += _agg_functions[cid]->size_of_data();
 
@@ -208,7 +209,7 @@ Status MemTable::insert(const vectorized::Block* input_block,
             if (_partial_update_mode == UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS) {
                 // for unique key fixed partial update, sequence column index in block
                 // may be different with the index in `_tablet_schema`
-                for (size_t i = 0; i < clone_block.columns(); i++) {
+                for (int32_t i = 0; i < clone_block.columns(); i++) {
                     if (clone_block.get_by_position(i).name == SEQUENCE_COL) {
                         _seq_col_idx_in_block = i;
                         break;
@@ -266,7 +267,7 @@ void MemTable::_aggregate_two_row_in_block(vectorized::MutableBlock& mutable_blo
     // dst is non-sequence row, or dst sequence is smaller
     if constexpr (!has_skip_bitmap_col) {
         DCHECK(_skip_bitmap_col_idx == -1);
-        for (uint32_t cid = _tablet_schema->num_key_columns(); cid < _num_columns; ++cid) {
+        for (size_t cid = _tablet_schema->num_key_columns(); cid < _num_columns; ++cid) {
             auto* col_ptr = mutable_block.mutable_columns()[cid].get();
             _agg_functions[cid]->add(dst_row->agg_places(cid),
                                      const_cast<const doris::vectorized::IColumn**>(&col_ptr),
@@ -279,7 +280,7 @@ void MemTable::_aggregate_two_row_in_block(vectorized::MutableBlock& mutable_blo
                 assert_cast<vectorized::ColumnBitmap*, TypeCheckOnRelease::DISABLE>(
                         mutable_block.mutable_columns()[_skip_bitmap_col_idx].get())
                         ->get_data()[src_row->_row_pos];
-        for (uint32_t cid = _tablet_schema->num_key_columns(); cid < _num_columns; ++cid) {
+        for (size_t cid = _tablet_schema->num_key_columns(); cid < _num_columns; ++cid) {
             const auto& col = _tablet_schema->column(cid);
             if (cid != _skip_bitmap_col_idx && skip_bitmap.contains(col.unique_id())) {
                 continue;
@@ -407,11 +408,11 @@ void MemTable::_sort_one_column(DorisVector<RowInBlock*>& row_in_blocks, Tie& ti
                                 std::function<int(const RowInBlock*, const RowInBlock*)> cmp) {
     auto iter = tie.iter();
     while (iter.next()) {
-        pdqsort(std::next(row_in_blocks.begin(), iter.left()),
-                std::next(row_in_blocks.begin(), iter.right()),
+        pdqsort(std::next(row_in_blocks.begin(), static_cast<int>(iter.left())),
+                std::next(row_in_blocks.begin(), static_cast<int>(iter.right())),
                 [&cmp](auto lhs, auto rhs) -> bool { return cmp(lhs, rhs) < 0; });
         tie[iter.left()] = 0;
-        for (int i = iter.left() + 1; i < iter.right(); i++) {
+        for (auto i = iter.left() + 1; i < iter.right(); i++) {
             tie[i] = (cmp(row_in_blocks[i - 1], row_in_blocks[i]) == 0);
         }
     }
@@ -623,17 +624,10 @@ bool MemTable::need_agg() const {
 }
 
 size_t MemTable::get_flush_reserve_memory_size() const {
-    size_t reserve_size = 0;
-    if (_keys_type == KeysType::DUP_KEYS) {
-        if (_tablet_schema->num_key_columns() == 0) {
-            // no need to reserve
-        } else {
-            reserve_size = static_cast<size_t>(_input_mutable_block.allocated_bytes() * 1.2);
-        }
-    } else {
-        reserve_size = static_cast<size_t>(_input_mutable_block.allocated_bytes() * 1.2);
+    if (_keys_type == KeysType::DUP_KEYS && _tablet_schema->num_key_columns() == 0) {
+        return 0; // no need to reserve
     }
-    return reserve_size;
+    return static_cast<size_t>(static_cast<double>(_input_mutable_block.allocated_bytes()) * 1.2);
 }
 
 Status MemTable::_to_block(std::unique_ptr<vectorized::Block>* res) {
@@ -666,4 +660,5 @@ Status MemTable::to_block(std::unique_ptr<vectorized::Block>* res) {
     return Status::OK();
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

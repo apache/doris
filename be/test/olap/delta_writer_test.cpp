@@ -558,8 +558,7 @@ TEST_F(TestDeltaWriter, vec_write) {
     vectorized::Block block;
     for (const auto& slot_desc : tuple_desc->slots()) {
         block.insert(vectorized::ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(),
-                                                       slot_desc->get_data_type_ptr(),
-                                                       slot_desc->col_name()));
+                                                       slot_desc->type(), slot_desc->col_name()));
     }
 
     auto columns = block.mutate_columns();
@@ -669,9 +668,10 @@ TEST_F(TestDeltaWriter, vec_write) {
         std::cout << "start to publish txn" << std::endl;
         RowsetSharedPtr rowset = tablet_rs.second;
         TabletPublishStatistics stats;
-        res = engine_ref->txn_manager()->publish_txn(meta, write_req.partition_id, write_req.txn_id,
-                                                     write_req.tablet_id,
-                                                     tablet_rs.first.tablet_uid, version, &stats);
+        std::shared_ptr<TabletTxnInfo> extend_tablet_txn_info_lifetime = nullptr;
+        res = engine_ref->txn_manager()->publish_txn(
+                meta, write_req.partition_id, write_req.txn_id, write_req.tablet_id,
+                tablet_rs.first.tablet_uid, version, &stats, extend_tablet_txn_info_lifetime);
         ASSERT_TRUE(res.ok());
         std::cout << "start to add inc rowset:" << rowset->rowset_id()
                   << ", num rows:" << rowset->num_rows() << ", version:" << rowset->version().first
@@ -721,8 +721,7 @@ TEST_F(TestDeltaWriter, vec_sequence_col) {
     vectorized::Block block;
     for (const auto& slot_desc : tuple_desc->slots()) {
         block.insert(vectorized::ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(),
-                                                       slot_desc->get_data_type_ptr(),
-                                                       slot_desc->col_name()));
+                                                       slot_desc->type(), slot_desc->col_name()));
     }
 
     generate_data(&block, 123, 456, 100);
@@ -763,9 +762,11 @@ TEST_F(TestDeltaWriter, vec_sequence_col) {
     std::cout << "start to publish txn" << std::endl;
     RowsetSharedPtr rowset = tablet_related_rs.begin()->second;
     TabletPublishStatistics pstats;
-    res = engine_ref->txn_manager()->publish_txn(
-            meta, write_req.partition_id, write_req.txn_id, write_req.tablet_id,
-            tablet_related_rs.begin()->first.tablet_uid, version, &pstats);
+    std::shared_ptr<TabletTxnInfo> extend_tablet_txn_info_lifetime = nullptr;
+    res = engine_ref->txn_manager()->publish_txn(meta, write_req.partition_id, write_req.txn_id,
+                                                 write_req.tablet_id,
+                                                 tablet_related_rs.begin()->first.tablet_uid,
+                                                 version, &pstats, extend_tablet_txn_info_lifetime);
     ASSERT_TRUE(res.ok());
     std::cout << "start to add inc rowset:" << rowset->rowset_id()
               << ", num rows:" << rowset->num_rows() << ", version:" << rowset->version().first
@@ -843,7 +844,7 @@ TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
         vectorized::Block block;
         for (const auto& slot_desc : tuple_desc->slots()) {
             block.insert(vectorized::ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(),
-                                                           slot_desc->get_data_type_ptr(),
+                                                           slot_desc->type(),
                                                            slot_desc->col_name()));
         }
 
@@ -873,7 +874,7 @@ TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
         vectorized::Block block;
         for (const auto& slot_desc : tuple_desc->slots()) {
             block.insert(vectorized::ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(),
-                                                           slot_desc->get_data_type_ptr(),
+                                                           slot_desc->type(),
                                                            slot_desc->col_name()));
         }
 
@@ -911,9 +912,11 @@ TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
         std::cout << "start to publish txn" << std::endl;
         rowset1 = tablet_related_rs.begin()->second;
         TabletPublishStatistics pstats;
+        std::shared_ptr<TabletTxnInfo> extend_tablet_txn_info_lifetime = nullptr;
         res = engine_ref->txn_manager()->publish_txn(
                 meta, write_req.partition_id, write_req.txn_id, write_req.tablet_id,
-                tablet_related_rs.begin()->first.tablet_uid, version, &pstats);
+                tablet_related_rs.begin()->first.tablet_uid, version, &pstats,
+                extend_tablet_txn_info_lifetime);
         ASSERT_TRUE(res.ok());
         std::cout << "start to add inc rowset:" << rowset1->rowset_id()
                   << ", num rows:" << rowset1->num_rows()
@@ -964,9 +967,11 @@ TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
         ASSERT_TRUE(delete_bitmap->contains({rowset2->rowset_id(), 0, 0}, 1));
 
         TabletPublishStatistics pstats;
+        std::shared_ptr<TabletTxnInfo> extend_tablet_txn_info_lifetime = nullptr;
         res = engine_ref->txn_manager()->publish_txn(
                 meta, write_req.partition_id, write_req.txn_id, write_req.tablet_id,
-                tablet_related_rs.begin()->first.tablet_uid, version, &pstats);
+                tablet_related_rs.begin()->first.tablet_uid, version, &pstats,
+                extend_tablet_txn_info_lifetime);
         ASSERT_TRUE(res.ok());
         std::cout << "start to add inc rowset:" << rowset2->rowset_id()
                   << ", num rows:" << rowset2->num_rows()

@@ -35,6 +35,7 @@
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_decimal.h"
+#include "vec/data_types/data_type_jsonb.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 
@@ -152,6 +153,34 @@ TEST_P(AggMinMaxTest, min_max_string_test) {
     ColumnString ans;
     agg_function->insert_result_into(place, ans);
     EXPECT_EQ(min_max_type == "min" ? StringRef("") : StringRef("zzz"), ans.get_data_at(0));
+    agg_function->destroy(place);
+}
+
+TEST_P(AggMinMaxTest, any_json_test) {
+    // Prepare test data with JSON
+    auto column_vector_json = ColumnString::create();
+    std::string json_data = "{}";
+    column_vector_json->insert_data(json_data.c_str(), json_data.length());
+
+    // Set up the any function with JSONB type
+    AggregateFunctionSimpleFactory factory;
+    register_aggregate_function_minmax(factory);
+    DataTypes data_types = {std::make_shared<DataTypeJsonb>()};
+    auto agg_function = factory.get("any", data_types, false, -1);
+
+    // Create and initialize place for aggregation
+    std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
+    AggregateDataPtr place = memory.get();
+    agg_function->create(place);
+
+    // Do aggregation
+    const IColumn* column[1] = {column_vector_json.get()};
+    agg_function->add(place, column, 0, nullptr);
+
+    // Verify result
+    ColumnString ans;
+    agg_function->insert_result_into(place, ans);
+    EXPECT_EQ(StringRef(json_data), ans.get_data_at(0));
     agg_function->destroy(place);
 }
 

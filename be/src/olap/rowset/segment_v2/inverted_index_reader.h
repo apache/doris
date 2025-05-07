@@ -202,7 +202,7 @@ public:
 
     [[nodiscard]] uint64_t get_index_id() const { return _index_meta.index_id(); }
 
-    [[nodiscard]] const std::map<string, string>& get_index_properties() const {
+    [[nodiscard]] const std::map<std::string, std::string>& get_index_properties() const {
         return _index_meta.properties();
     }
 
@@ -468,7 +468,7 @@ public:
     }
 
     [[nodiscard]] InvertedIndexReaderType get_inverted_index_reader_type() const;
-    [[nodiscard]] const std::map<string, string>& get_index_properties() const;
+    [[nodiscard]] const std::map<std::string, std::string>& get_index_properties() const;
     [[nodiscard]] bool has_null() { return _reader->has_null(); };
 
     const InvertedIndexReaderPtr& reader() { return _reader; }

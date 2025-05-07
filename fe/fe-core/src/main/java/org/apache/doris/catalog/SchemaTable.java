@@ -494,7 +494,7 @@ public class SchemaTable extends Table {
                             .column("MIN_REMOTE_SCAN_THREAD_NUM", ScalarType.createType(PrimitiveType.BIGINT))
                             .column("MEMORY_LOW_WATERMARK", ScalarType.createVarchar(256))
                             .column("MEMORY_HIGH_WATERMARK", ScalarType.createVarchar(256))
-                            .column("TAG", ScalarType.createVarchar(256))
+                            .column("COMPUTE_GROUP", ScalarType.createVarchar(256))
                             .column("READ_BYTES_PER_SECOND", ScalarType.createType(PrimitiveType.BIGINT))
                             .column("REMOTE_READ_BYTES_PER_SECOND", ScalarType.createType(PrimitiveType.BIGINT))
                             .build()))

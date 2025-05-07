@@ -116,6 +116,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
 import org.apache.doris.clone.DynamicPartitionScheduler;
 import org.apache.doris.cloud.catalog.CloudEnv;
+import org.apache.doris.cloud.transaction.CloudGlobalTransactionMgr;
 import org.apache.doris.cluster.Cluster;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
@@ -568,8 +569,9 @@ public class InternalCatalog implements CatalogIf<Database> {
             idToDb.remove(db.getId());
             fullNameToDb.remove(db.getFullName());
             DropDbInfo info = new DropDbInfo(dbName, force, recycleTime);
-            Env.getCurrentEnv().getEditLog().logDropDb(info);
             Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentEnv().getCurrentCatalog().getId(), db.getId());
+            Env.getCurrentEnv().getDictionaryManager().dropDbDictionaries(dbName);
+            Env.getCurrentEnv().getEditLog().logDropDb(info);
         } finally {
             unlock();
         }
@@ -1025,11 +1027,13 @@ public class InternalCatalog implements CatalogIf<Database> {
             table.writeUnlock();
         }
 
-        Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentEnv().getCurrentCatalog().getId(),
-                db.getId(), table.getId());
         DropInfo info = new DropInfo(db.getId(), table.getId(), tableName, isView, forceDrop, recycleTime);
-        Env.getCurrentEnv().getEditLog().logDropTable(info);
         Env.getCurrentEnv().getMtmvService().dropTable(table);
+        Env.getCurrentEnv().getEditLog().logDropTable(info);
+        if (Config.isCloudMode()) {
+            ((CloudGlobalTransactionMgr) Env.getCurrentGlobalTransactionMgr())
+                    .clearTableLastTxnId(db.getId(), table.getId());
+        }
     }
 
     private static String genDropHint(String dbName, TableIf table) {
@@ -1049,11 +1053,10 @@ public class InternalCatalog implements CatalogIf<Database> {
         if (table.getType() == TableType.ELASTICSEARCH) {
             esRepository.deRegisterTable(table.getId());
         }
-        if (table.getType() == TableType.MATERIALIZED_VIEW) {
-            Env.getCurrentEnv().getMtmvService().deregisterMTMV((MTMV) table);
-        }
 
         Env.getCurrentEnv().getAnalysisManager().removeTableStats(table.getId());
+        Env.getCurrentEnv().getDictionaryManager().dropTableDictionaries(db.getName(), table.getName());
+        Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentInternalCatalog().getId(), db.getId(), table.getId());
         db.unregisterTable(table.getName());
         StopWatch watch = StopWatch.createStarted();
         Env.getCurrentRecycleBin().recycleTable(db.getId(), table, isReplay, isForceDrop, recycleTime);
@@ -1070,7 +1073,6 @@ public class InternalCatalog implements CatalogIf<Database> {
         table.writeLock();
         try {
             unprotectDropTable(db, table, isForceDrop, isReplay, recycleTime);
-            Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentInternalCatalog().getId(), db.getId(), tableId);
         } finally {
             table.writeUnlock();
             db.writeUnlock();

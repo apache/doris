@@ -24,6 +24,7 @@
 #include "util/runtime_profile.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 static constexpr int32_t CACHE_MIN_PRUNE_SIZE = 67108864; // 64M
 static constexpr int32_t CACHE_MIN_PRUNE_NUMBER = 1024;
@@ -188,4 +189,5 @@ protected:
     bool _enable_prune = true;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris

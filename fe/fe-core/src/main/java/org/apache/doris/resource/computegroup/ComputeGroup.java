@@ -20,6 +20,7 @@ package org.apache.doris.resource.computegroup;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 
+import com.google.common.collect.Sets;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -89,6 +90,11 @@ public class ComputeGroup {
     public boolean equals(Object obj) {
         // NOTE: currently equals is used to compare INVALID_COMPUTE_GROUP, just using ```==``` is enough.
         return (this == obj);
+    }
+
+    // todo(wb) remove getNames, and get workload group from ComputeGroup
+    public Set<String> getNames() {
+        return Sets.newHashSet(name);
     }
 
     private void checkInvalidComputeGroup() {
