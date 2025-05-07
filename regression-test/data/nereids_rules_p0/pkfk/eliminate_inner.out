@@ -127,7 +127,7 @@ pk with filter that same as fk
 
 -- !shape --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((pkt.pk = fkt_not_null.fk)) otherCondition=()
+--NestedLoopJoin[INNER_JOIN]
 ----filter((pkt.pk = 1))
 ------PhysicalOlapScan[pkt]
 ----filter((fkt_not_null.fk = 1))
@@ -141,7 +141,7 @@ pk with filter that included same as fk
 
 -- !shape --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((pkt.pk = fkt_not_null.fk)) otherCondition=()
+--NestedLoopJoin[INNER_JOIN]
 ----filter((pkt.pk = 1))
 ------PhysicalOlapScan[pkt]
 ----filter((cast(f as DOUBLE) = 1.0) and (fkt_not_null.fk = 1))
@@ -154,7 +154,7 @@ pk with filter that not same as fk
 
 -- !shape --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((pkt.pk = fkt_not_null.fk)) otherCondition=()
+--NestedLoopJoin[INNER_JOIN]
 ----filter((cast(p as DOUBLE) = 1.0) and (pkt.pk = 1))
 ------PhysicalOlapScan[pkt]
 ----filter((cast(f as DOUBLE) = 1.0) and (fkt_not_null.fk = 1))
@@ -283,7 +283,7 @@ pk with filter that same as fk
 
 -- !shape --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((pkt.pk = fkt.fk)) otherCondition=()
+--NestedLoopJoin[INNER_JOIN]
 ----filter((pkt.pk = 1))
 ------PhysicalOlapScan[pkt]
 ----filter((fkt.fk = 1))
@@ -297,7 +297,7 @@ pk with filter that included same as fk
 
 -- !shape --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((pkt.pk = fkt.fk)) otherCondition=()
+--NestedLoopJoin[INNER_JOIN]
 ----filter((pkt.pk = 1))
 ------PhysicalOlapScan[pkt]
 ----filter((cast(f as DOUBLE) = 1.0) and (fkt.fk = 1))
@@ -310,7 +310,7 @@ pk with filter that not same as fk
 
 -- !shape --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((pkt.pk = fkt.fk)) otherCondition=()
+--NestedLoopJoin[INNER_JOIN]
 ----filter((cast(p as DOUBLE) = 1.0) and (pkt.pk = 1))
 ------PhysicalOlapScan[pkt]
 ----filter((cast(f as DOUBLE) = 1.0) and (fkt.fk = 1))
@@ -337,7 +337,7 @@ multi_table_join_with_pk_fk_predicate
 
 -- !shape --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((fkt_not_null.fk = fkt_not_null2.fk)) otherCondition=()
+--NestedLoopJoin[INNER_JOIN]
 ----filter((fkt_not_null.fk = 1))
 ------PhysicalOlapScan[fkt_not_null]
 ----filter((fkt_not_null2.fk = 1))

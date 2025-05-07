@@ -44,6 +44,11 @@ public class MergedComputeGroup extends ComputeGroup {
     }
 
     @Override
+    public Set<String> getNames() {
+        return computeGroupSet;
+    }
+
+    @Override
     public String getId() {
         throw new RuntimeException("MergedComputeGroup not implements getId.");
     }
@@ -51,11 +56,6 @@ public class MergedComputeGroup extends ComputeGroup {
     @Override
     public String getName() {
         throw new RuntimeException("MergedComputeGroup not implements getName.");
-    }
-
-    // current main for UT
-    public Set<String> getComputeGroupNameSet() {
-        return computeGroupSet;
     }
 
     @Override

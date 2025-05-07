@@ -494,4 +494,59 @@ TEST_F(ColumnVectorTest, clone_resized) {
 TEST_F(ColumnVectorTest, sort_column) {
     _column_vector_common_test(assert_sort_column_callback);
 }
+
+TEST_F(ColumnVectorTest, ScalaTypeUInt8Testerase) {
+    auto column = ColumnUInt8::create();
+    std::vector<Int8> data = {1, 2, 3, 4, 5};
+    for (auto d : data) {
+        column->insert_data(reinterpret_cast<const char*>(&d), sizeof(d));
+    }
+    column->erase(0, 2);
+    EXPECT_EQ(column->size(), 3);
+    for (int i = 0; i < column->size(); ++i) {
+        EXPECT_EQ(column->get_int(i), data[i + 2]);
+    }
+}
+
+TEST_F(ColumnVectorTest, ScalaTypeUInt8Test2erase) {
+    auto column = ColumnUInt8::create();
+    std::vector<Int8> data = {1, 2, 3, 4, 5};
+    for (auto d : data) {
+        column->insert_data(reinterpret_cast<const char*>(&d), sizeof(d));
+    }
+    column->erase(2, 2);
+    EXPECT_EQ(column->size(), 3);
+    std::vector<Int8> data2 = {1, 2, 5};
+    for (int i = 0; i < column->size(); ++i) {
+        EXPECT_EQ(column->get_int(i), data2[i]);
+    }
+}
+
+TEST_F(ColumnVectorTest, ScalaTypeInt32Testerase) {
+    auto column = ColumnInt32::create();
+    std::vector<int32_t> data = {1, 2, 3, 4, 5};
+    for (auto d : data) {
+        column->insert_data(reinterpret_cast<const char*>(&d), sizeof(d));
+    }
+    column->erase(0, 2);
+    EXPECT_EQ(column->size(), 3);
+    for (int i = 0; i < column->size(); ++i) {
+        EXPECT_EQ(column->get_int(i), data[i + 2]);
+    }
+}
+
+TEST_F(ColumnVectorTest, ScalaTypeInt32Test2erase) {
+    auto column = ColumnInt32::create();
+    std::vector<int32_t> data = {1, 2, 3, 4, 5};
+    for (auto d : data) {
+        column->insert_data(reinterpret_cast<const char*>(&d), sizeof(d));
+    }
+    column->erase(2, 2);
+    EXPECT_EQ(column->size(), 3);
+    std::vector<int32_t> data2 = {1, 2, 5};
+    for (int i = 0; i < column->size(); ++i) {
+        EXPECT_EQ(column->get_int(i), data2[i]);
+    }
+}
+
 } // namespace doris::vectorized

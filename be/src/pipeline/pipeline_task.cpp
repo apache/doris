@@ -485,7 +485,11 @@ Status PipelineTask::execute(bool* done) {
             const auto reserve_size = _root->get_reserve_mem_size(_state);
             _root->reset_reserve_mem_size(_state);
 
-            if (workload_group && _state->get_query_ctx()->enable_reserve_memory() &&
+            if (workload_group &&
+                _state->get_query_ctx()
+                        ->resource_ctx()
+                        ->task_controller()
+                        ->is_enable_reserve_memory() &&
                 reserve_size > 0) {
                 if (!_try_to_reserve_memory(reserve_size, _root)) {
                     continue;
@@ -502,8 +506,11 @@ Status PipelineTask::execute(bool* done) {
             Status status = Status::OK();
             DEFER_RELEASE_RESERVED();
             COUNTER_UPDATE(_memory_reserve_times, 1);
-            if (_state->get_query_ctx()->enable_reserve_memory() && workload_group &&
-                !(_wake_up_early || _dry_run)) {
+            if (_state->get_query_ctx()
+                        ->resource_ctx()
+                        ->task_controller()
+                        ->is_enable_reserve_memory() &&
+                workload_group && !(_wake_up_early || _dry_run)) {
                 const auto sink_reserve_size = _sink->get_reserve_mem_size(_state, _eos);
                 if (sink_reserve_size > 0 &&
                     !_try_to_reserve_memory(sink_reserve_size, _sink.get())) {
@@ -601,7 +608,7 @@ bool PipelineTask::_try_to_reserve_memory(const size_t reserve_size, OperatorBas
                     print_id(_query_id), _sink->get_name(), _sink->node_id(), _state->task_id(),
                     PrettyPrinter::print_bytes(sink_revocable_mem_size));
             ExecEnv::GetInstance()->workload_group_mgr()->add_paused_query(
-                    _state->get_query_ctx()->shared_from_this(), reserve_size, st);
+                    _state->get_query_ctx()->resource_ctx()->shared_from_this(), reserve_size, st);
             _spilling = true;
             return false;
         } else {

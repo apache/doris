@@ -507,8 +507,8 @@ public:
         bool need_filter = false;
         std::visit(
                 [&](auto&& range) {
-                    std::vector<ScanPredicate> filters =
-                            _value_range_to_predicate(range, col_schema->type.type);
+                    std::vector<ScanPredicate> filters = _value_range_to_predicate(
+                            range, col_schema->data_type->get_primitive_type());
                     // Currently, ScanPredicate doesn't include "is null" && "x = null", filters will be empty when contains these exprs.
                     // So we can handle is_all_null safely.
                     if (!filters.empty()) {

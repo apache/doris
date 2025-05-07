@@ -18,6 +18,7 @@
 #include "runtime/small_file_mgr.h"
 
 // IWYU pragma: no_include <bthread/errno.h>
+#include <absl/strings/str_split.h>
 #include <errno.h> // IWYU pragma: keep
 #include <gen_cpp/HeartbeatService_types.h>
 #include <gen_cpp/Types_types.h>
@@ -32,7 +33,6 @@
 #include <vector>
 
 #include "common/status.h"
-#include "gutil/strings/split.h"
 #include "http/http_client.h"
 #include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
@@ -84,7 +84,7 @@ Status SmallFileMgr::_load_local_files() {
 Status SmallFileMgr::_load_single_file(const std::string& path, const std::string& file_name) {
     // file name format should be like:
     // file_id.md5
-    std::vector<std::string> parts = strings::Split(file_name, ".");
+    std::vector<std::string> parts = absl::StrSplit(file_name, ".");
     if (parts.size() != 2) {
         return Status::InternalError("Not a valid file name: {}", file_name);
     }

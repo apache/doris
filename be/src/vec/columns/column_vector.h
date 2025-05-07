@@ -407,6 +407,16 @@ public:
                           int direction, std::vector<uint8>& cmp_res,
                           uint8* __restrict filter) const override;
 
+    void erase(size_t start, size_t length) override {
+        if (start >= data.size() || length == 0) {
+            return;
+        }
+        length = std::min(length, data.size() - start);
+        size_t elements_to_move = data.size() - start - length;
+        memmove(data.data() + start, data.data() + start + length, elements_to_move * sizeof(T));
+        data.resize(data.size() - length);
+    }
+
 protected:
     Container data;
 };

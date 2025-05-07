@@ -29,6 +29,7 @@ import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 import mockit.Expectations;
 import mockit.Injectable;
@@ -42,7 +43,6 @@ import java.io.DataOutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.HashMap;
 import java.util.Map;
 
 public class OdbcCatalogResourceTest {
@@ -125,11 +125,13 @@ public class OdbcCatalogResourceTest {
         OdbcCatalogResource odbcCatalogResource1 = new OdbcCatalogResource("odbc1");
         odbcCatalogResource1.write(dos);
 
-        Map<String, String> configs = new HashMap<>();
-        configs.put("host", "host");
-        configs.put("port", "port");
-        configs.put("user", "user");
-        configs.put("password", "password");
+        ImmutableMap<String, String> configs = ImmutableMap.of(
+                "host", "host",
+                "port", "port",
+                "user", "user",
+                "password", "password"
+        );
+
         OdbcCatalogResource odbcCatalogResource2 = new OdbcCatalogResource("odbc2");
         odbcCatalogResource2.setProperties(configs);
         odbcCatalogResource2.write(dos);

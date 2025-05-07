@@ -273,10 +273,10 @@ TabletColumn TabletReader::materialize_column(const TabletColumn& orig) {
     }
     TabletColumn column_with_cast_type = orig;
     auto cast_type = _reader_context.target_cast_type_for_variants.at(orig.name());
-    FieldType filed_type = TabletColumn::get_field_type_by_type(cast_type.type);
+    FieldType filed_type = TabletColumn::get_field_type_by_type(cast_type);
     if (filed_type == FieldType::OLAP_FIELD_TYPE_UNKNOWN) {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Invalid type for variant column: {}",
-                               cast_type.type);
+                               cast_type);
     }
     column_with_cast_type.set_type(filed_type);
     return column_with_cast_type;

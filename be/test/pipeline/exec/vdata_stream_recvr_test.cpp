@@ -28,6 +28,7 @@
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_runtime_state.h"
 #include "vec/data_types/data_type_number.h"
+#include "vec/runtime/vdata_stream_mgr.h"
 
 namespace doris::pipeline {
 using namespace vectorized;
@@ -37,6 +38,14 @@ struct MockVDataStreamRecvr : public VDataStreamRecvr {
                          RuntimeProfile* profile, int num_senders, bool is_merging)
             : VDataStreamRecvr(nullptr, counter, state, TUniqueId(), 0, num_senders, is_merging,
                                profile, 1) {};
+
+    bool exceeds_limit(size_t block_byte_size) override {
+        if (always_exceeds_limit) {
+            return true;
+        }
+        return VDataStreamRecvr::exceeds_limit(block_byte_size);
+    }
+    bool always_exceeds_limit = false;
 };
 
 class DataStreamRecvrTest : public testing::Test {
@@ -50,12 +59,12 @@ public:
                 std::make_unique<RuntimeProfile::HighWaterMarkCounter>(TUnit::UNIT, 0, "test");
         _mock_state = std::make_unique<MockRuntimeState>();
         _mock_profile = std::make_unique<RuntimeProfile>("test");
-        recvr = std::make_unique<MockVDataStreamRecvr>(_mock_state.get(), _mock_counter.get(),
+        recvr = std::make_shared<MockVDataStreamRecvr>(_mock_state.get(), _mock_counter.get(),
                                                        _mock_profile.get(), num_senders,
                                                        is_merging);
     }
 
-    std::unique_ptr<MockVDataStreamRecvr> recvr;
+    std::shared_ptr<MockVDataStreamRecvr> recvr;
 
     std::unique_ptr<RuntimeProfile::HighWaterMarkCounter> _mock_counter;
 
@@ -564,6 +573,49 @@ TEST_F(DataStreamRecvrTest, TestRemoteLocalMultiSender) {
     input3.join();
     output.join();
 }
+
+struct MockVDataStreamMgr : public VDataStreamMgr {
+    ~MockVDataStreamMgr() override = default;
+    Status find_recvr(const TUniqueId& fragment_instance_id, PlanNodeId node_id,
+                      std::shared_ptr<VDataStreamRecvr>* res, bool acquire_lock = true) override {
+        *res = recvr;
+        return Status::OK();
+    }
+
+    std::shared_ptr<VDataStreamRecvr> recvr;
+};
+
+TEST_F(DataStreamRecvrTest, transmit_block) {
+    create_recvr(1, true);
+    recvr->always_exceeds_limit = true;
+
+    MockVDataStreamMgr mgr;
+    mgr.recvr = recvr;
+
+    MockClosure closure;
+    closure._cb = [&]() { std::cout << "cb" << std::endl; };
+    google::protobuf::Closure* done = &closure;
+
+    PTransmitDataParams request;
+    {
+        auto* pblock = request.add_blocks();
+        auto block = ColumnHelper::create_block<DataTypeInt32>({1, 2, 3, 4, 5});
+        to_pblock(block, pblock);
+    }
+
+    {
+        auto* pblock = request.add_blocks();
+        auto block = ColumnHelper::create_block<DataTypeInt32>({1, 2, 3, 4, 5});
+        to_pblock(block, pblock);
+    }
+
+    {
+        auto st = mgr.transmit_block(&request, &done, 1000);
+        EXPECT_TRUE(st) << st.msg();
+    }
+    recvr->close();
+}
+
 // ./run-be-ut.sh --run --filter=DataStreamRecvrTest.*
 
 } // namespace doris::pipeline
