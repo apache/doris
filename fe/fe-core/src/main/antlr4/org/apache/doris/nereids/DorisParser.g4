@@ -230,6 +230,7 @@ supportedCreateStatement
 		LEFT_PAREN dictionaryColumnDefs RIGHT_PAREN
         LAYOUT LEFT_PAREN layoutType=identifier RIGHT_PAREN
         properties=propertyClause?         # createDictionary
+    | CREATE STAGE (IF NOT EXISTS)? name=identifier properties=propertyClause?      #createStage
     ;
 
 dictionaryColumnDefs:
@@ -295,6 +296,7 @@ supportedDropStatement
         ON tableName=multipartIdentifier
         (FOR (userIdentify | ROLE roleName=identifier))?                        #dropRowPolicy
     | DROP DICTIONARY (IF EXISTS)? name=multipartIdentifier                     #dropDictionary
+    | DROP STAGE (IF EXISTS)? name=identifier                                   #dropStage
     ;
 
 supportedShowStatement
@@ -384,6 +386,7 @@ supportedShowStatement
 supportedLoadStatement
     : SYNC                                                                          #sync
     | createRoutineLoad                                                             #createRoutineLoadAlias
+    | SHOW ALL? CREATE ROUTINE LOAD FOR label=multipartIdentifier                   #showCreateRoutineLoad
     | PAUSE ROUTINE LOAD FOR label=multipartIdentifier                              #pauseRoutineLoad
     | PAUSE ALL ROUTINE LOAD                                                        #pauseAllRoutineLoad
     | RESUME ROUTINE LOAD FOR label=multipartIdentifier                             #resumeRoutineLoad
@@ -485,7 +488,6 @@ unsupportedLoadStatement
         (commentSpec)?                                                              #mysqlLoad
     | SHOW ALL? ROUTINE LOAD ((FOR label=multipartIdentifier) | wildWhere?)         #showRoutineLoad
     | SHOW ROUTINE LOAD TASK ((FROM | IN) database=identifier)? wildWhere?          #showRoutineLoadTask
-    | SHOW ALL? CREATE ROUTINE LOAD FOR label=multipartIdentifier                   #showCreateRoutineLoad
     | SHOW CREATE LOAD FOR label=multipartIdentifier                                #showCreateLoad
     ;
 
@@ -747,7 +749,6 @@ fromRollup
 
 unsupportedDropStatement
     : DROP VIEW (IF EXISTS)? name=multipartIdentifier                           #dropView
-    | DROP STAGE (IF EXISTS)? name=identifier                                   #dropStage
     ;
 
 supportedStatsStatement
@@ -806,7 +807,6 @@ unsupportedCreateStatement
         (CONDITIONS LEFT_PAREN workloadPolicyConditions RIGHT_PAREN)?
         (ACTIONS LEFT_PAREN workloadPolicyActions RIGHT_PAREN)?
         properties=propertyClause?                                              #createWorkloadPolicy
-    | CREATE STAGE (IF NOT EXISTS)? name=identifier properties=propertyClause?  #createStage
     ;
 
 workloadPolicyActions
