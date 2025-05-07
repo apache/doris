@@ -378,7 +378,9 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         // set TFileScanRangeParams
         TFileScanRangeParams fileScanRangeParams = new TFileScanRangeParams();
         fileScanRangeParams.setFormatType(fileFormatProperties.getFileFormatType());
-        fileScanRangeParams.setProperties(locationProperties);
+        Map<String, String> beProperties = new HashMap<>();
+        beProperties.putAll(backendConnectProperties);
+        fileScanRangeParams.setProperties(beProperties);
         fileScanRangeParams.setFileAttributes(getFileAttributes());
         ConnectContext ctx = ConnectContext.get();
         fileScanRangeParams.setLoadId(ctx.queryId());

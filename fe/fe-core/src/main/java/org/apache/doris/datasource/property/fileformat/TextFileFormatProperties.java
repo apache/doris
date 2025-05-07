@@ -50,7 +50,7 @@ public class TextFileFormatProperties extends FileFormatProperties {
     private int skipLines;
 
     public TextFileFormatProperties() {
-        super(TFileFormatType.FORMAT_TEXT);
+        super(TFileFormatType.FORMAT_TEXT, FileFormatProperties.FORMAT_HIVE_TEXT);
     }
 
     @Override

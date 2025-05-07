@@ -848,6 +848,8 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
         io::IOContext io_ctx;
         io::FileCacheStatistics file_cache_statis;
         io_ctx.file_cache_stats = &file_cache_statis;
+        // file_slots is no use, but the lifetime should be longer than reader
+        std::vector<SlotDescriptor*> file_slots;
         switch (params.format_type) {
         case TFileFormatType::FORMAT_CSV_PLAIN:
         case TFileFormatType::FORMAT_CSV_GZ:
@@ -857,15 +859,11 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
         case TFileFormatType::FORMAT_CSV_SNAPPYBLOCK:
         case TFileFormatType::FORMAT_CSV_LZOP:
         case TFileFormatType::FORMAT_CSV_DEFLATE: {
-            // file_slots is no use
-            std::vector<SlotDescriptor*> file_slots;
             reader = vectorized::CsvReader::create_unique(nullptr, profile.get(), nullptr, params,
                                                           range, file_slots, &io_ctx);
             break;
         }
         case TFileFormatType::FORMAT_TEXT: {
-            // file_slots is no use
-            std::vector<SlotDescriptor*> file_slots;
             reader = vectorized::TextReader::create_unique(nullptr, profile.get(), nullptr, params,
                                                            range, file_slots, &io_ctx);
             break;
@@ -879,14 +877,11 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
             break;
         }
         case TFileFormatType::FORMAT_JSON: {
-            std::vector<SlotDescriptor*> file_slots;
             reader = vectorized::NewJsonReader::create_unique(profile.get(), params, range,
                                                               file_slots, &io_ctx);
             break;
         }
         case TFileFormatType::FORMAT_AVRO: {
-            // file_slots is no use
-            std::vector<SlotDescriptor*> file_slots;
             reader = vectorized::AvroJNIReader::create_unique(profile.get(), params, range,
                                                               file_slots);
             st = ((vectorized::AvroJNIReader*)(reader.get()))->init_fetch_table_schema_reader();

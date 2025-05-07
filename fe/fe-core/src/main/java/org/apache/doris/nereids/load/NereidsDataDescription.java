@@ -399,6 +399,9 @@ public class NereidsDataDescription {
                         return "parquet";
                     case FORMAT_JSON:
                         return "json";
+                        break;
+                    case FORMAT_TEXT:
+                        return "hive_text";
                     case FORMAT_WAL:
                         return "wal";
                     case FORMAT_ARROW:

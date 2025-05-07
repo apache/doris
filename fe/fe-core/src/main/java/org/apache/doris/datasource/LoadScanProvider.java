@@ -94,12 +94,7 @@ public class LoadScanProvider {
         if (fileGroupInfo.getSequenceMapCol() != null) {
             params.setSequenceMapCol(fileGroupInfo.getSequenceMapCol());
         }
-        if (fileGroupInfo.getFileGroup().getFileFormat() != null
-                && fileGroupInfo.getFileGroup().getFileFormat().equals("hive_text")) {
-            // TODO: set correct format type for load job
-            params.setFormatType(TFileFormatType.FORMAT_TEXT);
-        }
-        params.setProperties(fileGroupInfo.getBrokerDesc().getBackendConfigProperties());
+        params.setProperties(fileGroupInfo.getBrokerDesc().getProperties());
         if (fileGroupInfo.getBrokerDesc().getFileType() == TFileType.FILE_HDFS) {
             THdfsParams tHdfsParams = HdfsResource.generateHdfsParam(fileGroupInfo.getBrokerDesc()
                     .getBackendConfigProperties());
