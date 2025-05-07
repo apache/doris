@@ -256,46 +256,49 @@ suite("check_before_quit", "nonConcurrent,p0") {
             def tbl = allTables[j][0]
             def createTableSql = ""
             try {
-                createTableSql = sql "show create table ${db}.${tbl}"
-                if (createTableSql[0][1].contains("CREATE TABLE")) {
-                    try {
-                        sql " ALTER TABLE ${db}.${tbl} SET (\"light_schema_change\" = \"true\") "
-                    } catch (Exception alterEx) {
-                        logger.warn("Failed to alter table ${db}.${tbl} to set light_schema_change: ${alterEx.getMessage()}")
-                        failureList << [
-                            operation: "ALTER TABLE",
-                            target: "${tbl}", 
-                            error: alterEx.getMessage()
-                        ]
-                    }
-                }
-                createTableSql = sql "show create table ${db}.${tbl}"
-            } catch (Exception e) {
-                if (e.getMessage().contains("not support async materialized view")) {
-                    try {
-                        createTableSql = sql "show create materialized view ${db}.${tbl}"
-                    } catch (Exception e2) {
-                        if (e2.getMessage().contains("table not found")) {
-                            continue
-                        } else {
-                            logger.info(e2.getMessage())
+                // cloud mode not allowed to set light_schema_change = true
+                if (!isCloudMode()) {
+                    createTableSql = sql "show create table ${db}.${tbl}"
+                    if (createTableSql[0][1].contains("CREATE TABLE")) {
+                        try {
+                            sql " ALTER TABLE ${db}.${tbl} SET (\"light_schema_change\" = \"true\") "
+                        } catch (Exception alterEx) {
+                            logger.warn("Failed to alter table ${db}.${tbl} to set light_schema_change: ${alterEx.getMessage()}")
                             failureList << [
-                                operation: "SHOW CREATE MATERIALIZED VIEW", 
-                                target: "${db}.${tbl}", 
-                                error: e2.getMessage()
+                                operation: "ALTER TABLE",
+                                target: "${tbl}", 
+                                error: alterEx.getMessage()
                             ]
-                            continue
                         }
                     }
-                    logger.info("create materialized view sql: ${createTableSql}")
-                } else {
-                    logger.warn("Failed to show create table ${db}.${tbl}: ${e.getMessage()}")
-                    failureList << [
-                        operation: "SHOW CREATE TABLE",
-                        target: "${db}.${tbl}", 
-                        error: e.getMessage()
-                    ]
-                    continue
+                    createTableSql = sql "show create table ${db}.${tbl}"
+                } catch (Exception e) {
+                    if (e.getMessage().contains("not support async materialized view")) {
+                        try {
+                            createTableSql = sql "show create materialized view ${db}.${tbl}"
+                        } catch (Exception e2) {
+                            if (e2.getMessage().contains("table not found")) {
+                                continue
+                            } else {
+                                logger.info(e2.getMessage())
+                                failureList << [
+                                    operation: "SHOW CREATE MATERIALIZED VIEW", 
+                                    target: "${db}.${tbl}", 
+                                    error: e2.getMessage()
+                                ]
+                                continue
+                            }
+                        }
+                        logger.info("create materialized view sql: ${createTableSql}")
+                    } else {
+                        logger.warn("Failed to show create table ${db}.${tbl}: ${e.getMessage()}")
+                        failureList << [
+                            operation: "SHOW CREATE TABLE",
+                            target: "${db}.${tbl}", 
+                            error: e.getMessage()
+                        ]
+                        continue
+                    }
                 }
             }
 
