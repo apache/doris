@@ -192,7 +192,11 @@ public class PaimonScanNode extends FileQueryScanNode {
         if (optDeletionFile.isPresent()) {
             DeletionFile deletionFile = optDeletionFile.get();
             TPaimonDeletionFileDesc tDeletionFile = new TPaimonDeletionFileDesc();
-            tDeletionFile.setPath(deletionFile.path());
+            // convert the deletion file uri to make sure FileReader can read it in be
+            LocationPath locationPath = new LocationPath(deletionFile.path(),
+                    source.getCatalog().getProperties());
+            String path = locationPath.toStorageLocation().toString();
+            tDeletionFile.setPath(path);
             tDeletionFile.setOffset(deletionFile.offset());
             tDeletionFile.setLength(deletionFile.length());
             fileDesc.setDeletionFile(tDeletionFile);
@@ -208,7 +212,12 @@ public class PaimonScanNode extends FileQueryScanNode {
                 .valueOf(sessionVariable.getIgnoreSplitType());
         List<Split> splits = new ArrayList<>();
         int[] projected = desc.getSlots().stream().mapToInt(
-                slot -> (source.getPaimonTable().rowType().getFieldNames().indexOf(slot.getColumn().getName())))
+                slot -> source.getPaimonTable().rowType()
+                        .getFieldNames()
+                        .stream()
+                        .map(String::toLowerCase)
+                        .collect(Collectors.toList())
+                        .indexOf(slot.getColumn().getName()))
                 .toArray();
         ReadBuilder readBuilder = source.getPaimonTable().newReadBuilder();
         List<org.apache.paimon.table.source.Split> paimonSplits = readBuilder.withFilter(predicates)

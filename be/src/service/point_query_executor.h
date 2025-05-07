@@ -236,9 +236,9 @@ private:
         std::string key = encode_key(cache_id);
         auto* value = new CacheValue;
         value->item = item;
-        LOG(INFO) << "Add item mem size " << item->mem_size()
-                  << ", cache_capacity: " << get_total_capacity()
-                  << ", cache_usage: " << get_usage() << ", mem_consum: " << mem_consumption();
+        VLOG_DEBUG << "Add item mem size " << item->mem_size()
+                   << ", cache_capacity: " << get_total_capacity()
+                   << ", cache_usage: " << get_usage() << ", mem_consum: " << mem_consumption();
         auto* lru_handle =
                 insert(key, value, item->mem_size(), item->mem_size(), CachePriority::NORMAL);
         release(lru_handle);

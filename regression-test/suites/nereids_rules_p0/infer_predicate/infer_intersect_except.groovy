@@ -22,6 +22,7 @@ suite("infer_intersect_except") {
     sql 'set runtime_filter_mode=off'
     sql 'set enable_fold_constant_by_be=true'
     sql 'set debug_skip_fold_constant=false'
+    sql "set disable_nereids_rules='REORDER_INTERSECT'"
 
 
 

@@ -674,7 +674,7 @@ public final class RuntimeFilter {
      * Assigns this runtime filter to the corresponding plan nodes.
      */
     public void assignToPlanNodes() {
-        Preconditions.checkState(hasTargets());
+        Preconditions.checkState(hasTargets(), this.toString() + " has no target");
         builderNode.addRuntimeFilter(this);
         builderNode.fragment.setBuilderRuntimeFilterIds(getFilterId());
         for (RuntimeFilterTarget target : targets) {

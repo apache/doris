@@ -17,6 +17,7 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.plugin.AuditEvent;
 import org.apache.doris.plugin.AuditPlugin;
 import org.apache.doris.plugin.Plugin;
@@ -44,7 +45,7 @@ public class AuditEventProcessor {
     private List<Plugin> auditPlugins;
     private long lastUpdateTime = 0;
 
-    private BlockingQueue<AuditEvent> eventQueue = Queues.newLinkedBlockingDeque(10000);
+    private BlockingQueue<AuditEvent> eventQueue = Queues.newLinkedBlockingDeque();
     private Thread workerThread;
 
     private volatile boolean isStopped = false;
@@ -71,18 +72,19 @@ public class AuditEventProcessor {
     }
 
     public boolean handleAuditEvent(AuditEvent auditEvent) {
-        return handleAuditEvent(auditEvent, false);
-    }
-
-    public boolean handleAuditEvent(AuditEvent auditEvent, boolean ignoreQueueFullLog) {
         boolean isAddSucc = true;
         try {
-            eventQueue.add(auditEvent);
+            if (eventQueue.size() >= Config.audit_event_log_queue_size) {
+                isAddSucc = false;
+                LOG.warn("the audit event queue is full with size {}, discard the audit event: {}",
+                        eventQueue.size(), auditEvent.queryId);
+            } else {
+                eventQueue.add(auditEvent);
+            }
         } catch (Exception e) {
             isAddSucc = false;
-            if (!ignoreQueueFullLog) {
-                LOG.warn("encounter exception when handle audit event {}, ignore", auditEvent.type, e);
-            }
+            LOG.warn("encounter exception when handle audit event {}, discard the event",
+                    auditEvent.queryId, e);
         }
         return isAddSucc;
     }
@@ -108,9 +110,7 @@ public class AuditEventProcessor {
                         continue;
                     }
                 } catch (InterruptedException e) {
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("encounter exception when getting audit event from queue, ignore", e);
-                    }
+                    LOG.warn("encounter exception when getting audit event from queue, ignore", e);
                     continue;
                 }
 
@@ -121,9 +121,7 @@ public class AuditEventProcessor {
                         }
                     }
                 } catch (Exception e) {
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("encounter exception when processing audit event.", e);
-                    }
+                    LOG.warn("encounter exception when processing audit events. ignore", e);
                 }
             }
         }

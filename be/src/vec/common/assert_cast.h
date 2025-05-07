@@ -23,6 +23,7 @@
 #include <type_traits>
 #include <typeinfo>
 
+#include "common/compiler_util.h"
 #include "common/logging.h"
 #include "vec/common/demangle.h"
 

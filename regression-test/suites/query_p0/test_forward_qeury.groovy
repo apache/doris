@@ -19,7 +19,7 @@
 import org.apache.doris.regression.suite.ClusterOptions
 import org.apache.doris.regression.util.NodeType
 
-suite("test_forward_query") {
+suite("test_forward_query", 'docker') {
     def options = new ClusterOptions()
     options.enableDebugPoints()
     options.setFeNum(2)

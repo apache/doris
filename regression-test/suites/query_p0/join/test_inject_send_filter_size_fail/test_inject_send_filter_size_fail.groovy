@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_inject_send_filter_size_fail") {
+suite("test_inject_send_filter_size_fail", "nonConcurrent") {
     sql "set parallel_pipeline_task_num=3"
     sql "set enable_runtime_filter_prune=false"
     sql "set enable_sync_runtime_filter_size=true"

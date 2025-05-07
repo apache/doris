@@ -65,6 +65,7 @@
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
+#include "vec/data_types/serde/data_type_jsonb_serde.h"
 #include "vec/functions/function.h"
 #include "vec/functions/function_string.h"
 #include "vec/functions/function_totype.h"
@@ -608,6 +609,18 @@ struct JsonParser<'5'> {
     }
 };
 
+template <>
+struct JsonParser<'7'> {
+    // json string
+    static void update_value(StringParser::ParseResult& result, rapidjson::Value& value,
+                             StringRef data, rapidjson::Document::AllocatorType& allocator) {
+        rapidjson::Document document;
+        JsonbValue* json_val = JsonbDocument::createValue(data.data, data.size);
+        doris::vectorized::convert_jsonb_to_rapidjson(*json_val, document, allocator);
+        value.CopyFrom(document, allocator);
+    }
+};
+
 template <int flag, typename Impl>
 struct ExecuteReducer {
     template <typename... TArgs>
@@ -629,7 +642,7 @@ struct FunctionJsonArrayImpl {
                               rapidjson::Document::AllocatorType& allocator,
                               const std::vector<const ColumnUInt8*>& nullmaps) {
         for (int i = 0; i < data_columns.size() - 1; i++) {
-            constexpr_int_match<'0', '6', Reducer>::run(type_flags[i], objects, allocator,
+            constexpr_int_match<'0', '7', Reducer>::run(type_flags[i], objects, allocator,
                                                         data_columns[i], nullmaps[i]);
         }
     }
@@ -669,7 +682,7 @@ struct FunctionJsonObjectImpl {
         }
 
         for (int i = 0; i + 1 < data_columns.size() - 1; i += 2) {
-            constexpr_int_match<'0', '6', Reducer>::run(type_flags[i + 1], objects, allocator,
+            constexpr_int_match<'0', '7', Reducer>::run(type_flags[i + 1], objects, allocator,
                                                         data_columns[i], data_columns[i + 1],
                                                         nullmaps[i + 1]);
         }
@@ -1432,7 +1445,7 @@ public:
                               const std::vector<const ColumnUInt8*>& nullmaps,
                               std::vector<bool>& column_is_consts) {
         for (auto col = 1; col + 1 < data_columns.size() - 1; col += 2) {
-            constexpr_int_match<'0', '6', Reducer>::run(
+            constexpr_int_match<'0', '7', Reducer>::run(
                     type_flags[col + 1], objects, json_paths[col / 2], data_columns[col + 1],
                     nullmaps[col + 1], column_is_consts[col + 1]);
         }

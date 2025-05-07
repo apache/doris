@@ -76,5 +76,8 @@ private:
     Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,
                                   int row_idx, bool col_const, const FormatOptions& options) const;
 };
+
+void convert_jsonb_to_rapidjson(const JsonbValue& val, rapidjson::Value& target,
+                                rapidjson::Document::AllocatorType& allocator);
 } // namespace vectorized
 } // namespace doris

@@ -50,9 +50,10 @@ AggregateFunctionPtr create_aggregate_function_percentile_approx(
 
 void register_aggregate_function_percentile(AggregateFunctionSimpleFactory& factory) {
     factory.register_function_both("percentile",
-                                   creator_without_type::creator<AggregateFunctionPercentile>);
-    factory.register_function_both("percentile_array",
-                                   creator_without_type::creator<AggregateFunctionPercentileArray>);
+                                   creator_with_numeric_type::creator<AggregateFunctionPercentile>);
+    factory.register_function_both(
+            "percentile_array",
+            creator_with_numeric_type::creator<AggregateFunctionPercentileArray>);
 }
 
 void register_aggregate_function_percentile_approx(AggregateFunctionSimpleFactory& factory) {

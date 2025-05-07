@@ -47,4 +47,12 @@ suite("test_struct_functions") {
     qt_select_struct_element_2 "SELECT struct_element(k3,'f1'),struct_element(k3,'f2'),struct_element(k3,'f3') FROM ${tableName} ORDER BY k1"
     qt_select_struct_element_3 "SELECT struct_element(k4,1),struct_element(k4,2),struct_element(k4,3),struct_element(k4,4) FROM ${tableName} ORDER BY k1"
     qt_select_struct_element_4 "SELECT struct_element(k5,1),struct_element(k5,2),struct_element(k5,3) FROM ${tableName} ORDER BY k1"
+
+    //The precision of the decimal type in the test select is inconsistent with the precision of the function named_struct containing the decimal type.
+    sql """ drop table if exists t01 --force """;
+    sql """ create table if not exists t01 (a decimal(6,3), d struct<col:bigint, col1:decimal(7,2)>) properties ("replication_num"="1");"""
+    sql """ insert into t01 values (123.321, named_struct('col', 1, 'col1', 345.24));"""
+    qt_sql_before """ select named_struct("col_11", a, "col_12", d) from t01; """
+    sql """ insert into t01 values (123.331, named_struct('col', 1, 'col1', 12345.24));"""
+    qt_sql_after """ select named_struct("col_11", a, "col_12", d) from t01 order by a; """
 }

@@ -56,11 +56,13 @@ services:
 
   hive-server:
     image: doristhirdpartydocker/hive:3.1.2-postgresql-metastore
+    restart: always
     env_file:
       - ./hadoop-hive-3x.env
     environment:
       HIVE_CORE_CONF_javax_jdo_option_ConnectionURL: "jdbc:postgresql://${IP_HOST}:${PG_PORT}/metastore"
       SERVICE_PRECONDITION: "${IP_HOST}:${HMS_PORT}"
+      JVM_OPTS: -Xmx2g
     container_name: ${CONTAINER_UID}hive3-server
     expose:
       - "${HS_PORT}"

@@ -214,6 +214,7 @@ import com.google.common.collect.Sets;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.ProtocolStringList;
 import lombok.Setter;
+import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -890,16 +891,25 @@ public class StmtExecutor {
         try {
             // parsedStmt maybe null here, we parse it. Or the predicate will not work.
             parseByLegacy();
+            // set isQuery here because when fallback from Nereids, parsedStmt is null, so the above set will be skipped
+            if (parsedStmt instanceof QueryStmt) {
+                context.getState().setIsQuery(true);
+            }
             if (context.isTxnModel() && !(parsedStmt instanceof InsertStmt)
                     && !(parsedStmt instanceof TransactionStmt)) {
                 throw new TException("This is in a transaction, only insert, commit, rollback is acceptable.");
             }
+            SessionVariable sessionVariable = context.getSessionVariable();
+            if (!(parsedStmt instanceof SetStmt) && !(parsedStmt instanceof UnsetVariableStmt)) {
+                sessionVariable.disableNereidsPlannerOnce();
+            }
+
             // support select hint e.g. select /*+ SET_VAR(query_timeout=1) */ sleep(3);
             analyzeVariablesInStmt();
 
             if (!context.isTxnModel()) {
                 // analyze this query
-                analyze(context.getSessionVariable().toThrift());
+                analyze(sessionVariable.toThrift());
 
                 if (isForwardToMaster()) {
                     // before forward to master, we also need to set profileType in this node
@@ -3173,6 +3183,9 @@ public class StmtExecutor {
         UUID uuid = UUID.randomUUID();
         TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
         context.setQueryId(queryId);
+        if (originStmt.originStmt != null) {
+            context.setSqlHash(DigestUtils.md5Hex(originStmt.originStmt));
+        }
         try {
             List<ResultRow> resultRows = new ArrayList<>();
             try {
