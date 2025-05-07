@@ -240,6 +240,8 @@ Status parse_conf_cache_paths(const std::string& config_path, std::vector<CacheP
                 total_size = value.GetInt64();
             } else {
                 total_size = 0;
+                LOG(WARNING) << "[FileCache] the value of " << CACHE_TOTAL_SIZE.c_str()
+                             << " is not int64: " << value.GetString() << " , use 0 as default";
             }
         }
         if (config::enable_file_cache_query_limit) {
@@ -249,6 +251,8 @@ Status parse_conf_cache_paths(const std::string& config_path, std::vector<CacheP
                     query_limit_bytes = value.GetInt64();
                 } else {
                     query_limit_bytes = 0;
+                    LOG(WARNING) << "[FileCache] the value of " << CACHE_QUERY_LIMIT_SIZE.c_str()
+                                 << " is not int64: " << value.GetString() << " , use 0 as default";
                 }
             }
         }
