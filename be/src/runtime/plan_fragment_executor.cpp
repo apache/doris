@@ -419,7 +419,7 @@ bool PlanFragmentExecutor::is_timeout(const VecDateTimeValue& now) const {
     if (_timeout_second <= 0) {
         return false;
     }
-    if (now.second_diff(_start_time) > _timeout_second) {
+    if (now.datetime_diff_in_seconds(_start_time) > _timeout_second) {
         return true;
     }
     return false;

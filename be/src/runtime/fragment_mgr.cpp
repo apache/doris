@@ -1535,7 +1535,7 @@ void FragmentMgr::debug(std::stringstream& ss) {
                     -> Status {
                 for (auto& it : map) {
                     ss << it.first << "\t" << it.second->start_time().debug_string() << "\t"
-                       << now.second_diff(it.second->start_time()) << "\n";
+                       << now.datetime_diff_in_seconds(it.second->start_time()) << "\n";
                 }
                 return Status::OK();
             });
