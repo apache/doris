@@ -84,12 +84,34 @@ TEST(function_string_test, function_string_strright_test) {
     std::string func_name = "strright";
     InputTypeSet input_types = {TypeIndex::String, TypeIndex::Int32};
 
-    DataSet data_set = {{{std::string("asd"), 1}, std::string("d")},
-                        {{std::string("hello word"), -2}, std::string("ello word")},
-                        {{std::string("hello word"), 20}, std::string("hello word")},
-                        {{std::string("HELLO,!^%"), 2}, std::string("^%")},
-                        {{std::string(""), 3}, std::string("")},
-                        {{Null(), 3}, Null()}};
+    DataSet data_set = {
+            {{std::string("asd"), 1}, std::string("d")},
+            {{std::string("hello word"), -2}, std::string("ello word")},
+            {{std::string("hello word"), 20}, std::string("hello word")},
+            {{std::string("HELLO,!^%"), 2}, std::string("^%")},
+            {{std::string(""), 3}, std::string("")},
+            {{Null(), 3}, Null()},
+            {{std::string("12345"), 10}, std::string("12345")},
+            {{std::string("12345"), -10}, std::string("")},
+            {{std::string(""), Null()}, Null()},
+            {{Null(), -100}, Null()},
+            {{std::string("12345"), 12345}, std::string("12345")},
+            {{std::string(""), 1}, std::string()},
+            {{std::string("a b c d _ %"), -3}, std::string("b c d _ %")},
+            {{std::string(""), Null()}, Null()},
+            {{std::string("hah hah"), -1}, std::string("hah hah")},
+            {{std::string("🤣"), -1}, std::string("🤣")},
+            {{std::string("🤣😃😄"), -2}, std::string("😃😄")},
+            {{std::string("🐼abc🐼"), 100}, std::string("🐼abc🐼")},
+            {{std::string("你好世界"), 5}, std::string("你好世界")},
+            {{std::string("12345"), 6}, std::string("12345")},
+            {{std::string("12345"), 12345}, std::string("12345")},
+            {{std::string("-12345"), -1}, std::string("-12345")},
+            {{std::string("-12345"), -12345}, std::string()},
+            {{Null(), -12345}, Null()},
+            {{std::string("😡"), Null()}, Null()},
+            {{std::string("🤣"), 0}, std::string()},
+    };
 
     static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
 }
@@ -248,7 +270,34 @@ TEST(function_string_test, function_append_trailing_char_if_absent_test) {
     DataSet data_set = {{{std::string("ASD"), std::string("D")}, std::string("ASD")},
                         {{std::string("AS"), std::string("D")}, std::string("ASD")},
                         {{std::string(""), std::string("")}, Null()},
-                        {{std::string(""), std::string("A")}, std::string("A")}};
+                        {{std::string(""), std::string("A")}, std::string("A")},
+                        {{std::string("AC"), std::string("BACBAC")}, Null()},
+                        {{Null(), Null()}, Null()},
+                        {{std::string("ABC"), Null()}, Null()},
+                        {{Null(), std::string("ABC")}, Null()},
+                        {{std::string(""), Null()}, Null()},
+                        {{std::string("中文"), std::string("文")}, std::string("中文")},
+                        {{std::string("中"), std::string("文")}, std::string("中文")},
+                        {{std::string(""), std::string("文")}, std::string("文")},
+                        {{Null(), std::string("")}, Null()}};
+    static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
+}
+
+TEST(function_string_test, function_url_encode_test) {
+    std::string func_name = "url_encode";
+
+    InputTypeSet input_types = {TypeIndex::String};
+
+    DataSet data_set = {
+            {{std::string("编码")}, std::string("%E7%BC%96%E7%A0%81")},
+            {{std::string("http://www.baidu.com/?a=中文日文韩文俄文希伯来文Emoji")},
+             std::string(
+                     "http%3A%2F%2Fwww.baidu.com%2F%3Fa%3D%E4%B8%AD%E6%96%87%E6%97%A5%E6%96%87%E9%"
+                     "9F%A9%E6%96%87%E4%BF%84%E6%96%87%E5%B8%8C%E4%BC%AF%E6%9D%A5%E6%96%87Emoji")},
+            {{std::string("http://www.baidu.com?a=http%3A%2F%2Fexample.com%2F😊")},
+             std::string("http%3A%2F%2Fwww.baidu.com%3Fa%3Dhttp%253A%252F%252Fexample.com%252F%F0%"
+                         "9F%98%8A")},
+    };
 
     static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
 }
