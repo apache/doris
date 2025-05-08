@@ -251,11 +251,14 @@ public:
 
     void release_unused() { MemoryAllocator::release_unused(); }
 
+    bool sys_memory_exceed(size_t size, std::string* err_msg) const;
+
+    bool memory_tracker_exceed(size_t size, std::string* err_msg) const;
+
 protected:
     static constexpr size_t get_stack_threshold() { return 0; }
 
-    bool sys_memory_exceed(size_t size, std::string* err_msg) const;
-    bool memory_tracker_exceed(size_t size, std::string* err_msg) const;
+    static constexpr bool clear_memory = clear_memory_;
 
 private:
     void sys_memory_check(size_t size) const;
@@ -278,8 +281,6 @@ private:
     void throw_bad_alloc(const std::string& err) const;
     void add_address_sanitizers(void* buf, size_t size) const;
     void remove_address_sanitizers(void* buf, size_t size) const;
-
-    static constexpr bool clear_memory = clear_memory_;
 
     // Freshly mmapped pages are copy-on-write references to a global zero page.
     // On the first write, a page fault occurs, and an actual writable page is
@@ -335,6 +336,14 @@ public:
         void* new_buf = Base::alloc(new_size, Alignment);
         memcpy(new_buf, buf, old_size);
         return new_buf;
+    }
+
+    bool sys_memory_exceed(size_t size, std::string* err_msg) const {
+        return Base::sys_memory_exceed(size, err_msg);
+    }
+
+    bool memory_tracker_exceed(size_t size, std::string* err_msg) const {
+        return Base::memory_tracker_exceed(size, err_msg);
     }
 
 protected:

@@ -48,6 +48,11 @@ std::mutex RecordSizeMemoryAllocator::_mutex;
 template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator>
 bool Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::sys_memory_exceed(
         size_t size, std::string* err_msg) const {
+#ifdef BE_TEST
+    if (!doris::pthread_context_ptr_init) {
+        return false;
+    }
+#endif
     auto* thread_mem_ctx = doris::thread_context()->thread_mem_tracker_mgr.get();
     if (thread_mem_ctx->skip_memory_check != 0) {
         return false;
@@ -82,6 +87,11 @@ bool Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::sys_mem
 template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator>
 void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::alloc_fault_probability()
         const {
+#ifdef BE_TEST
+    if (!doris::pthread_context_ptr_init) {
+        return;
+    }
+#endif
     auto* thread_mem_ctx = doris::thread_context()->thread_mem_tracker_mgr.get();
     if (thread_mem_ctx->skip_memory_check != 0) {
         return;
@@ -182,6 +192,11 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::sys_mem
 template <bool clear_memory_, bool mmap_populate, bool use_mmap, typename MemoryAllocator>
 bool Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::memory_tracker_exceed(
         size_t size, std::string* err_msg) const {
+#ifdef BE_TEST
+    if (!doris::pthread_context_ptr_init) {
+        return false;
+    }
+#endif
     auto* thread_mem_ctx = doris::thread_context()->thread_mem_tracker_mgr.get();
     if (thread_mem_ctx->skip_memory_check != 0) {
         return false;
@@ -434,6 +449,15 @@ template class Allocator<false, true, true, DefaultMemoryAllocator>;
 template class Allocator<false, true, false, DefaultMemoryAllocator>;
 template class Allocator<false, false, true, DefaultMemoryAllocator>;
 template class Allocator<false, false, false, DefaultMemoryAllocator>;
+
+template class Allocator<true, true, true, NoTrackingDefaultMemoryAllocator>;
+template class Allocator<true, true, false, NoTrackingDefaultMemoryAllocator>;
+template class Allocator<true, false, true, NoTrackingDefaultMemoryAllocator>;
+template class Allocator<true, false, false, NoTrackingDefaultMemoryAllocator>;
+template class Allocator<false, true, true, NoTrackingDefaultMemoryAllocator>;
+template class Allocator<false, true, false, NoTrackingDefaultMemoryAllocator>;
+template class Allocator<false, false, true, NoTrackingDefaultMemoryAllocator>;
+template class Allocator<false, false, false, NoTrackingDefaultMemoryAllocator>;
 
 /** It would be better to put these Memory Allocators where they are used, such as in the orc memory pool and arrow memory pool.
   * But currently allocators use templates in .cpp instead of all in .h, so they can only be placed here.
