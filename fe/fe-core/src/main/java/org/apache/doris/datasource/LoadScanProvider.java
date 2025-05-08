@@ -31,7 +31,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.FileFormatConstants;
-import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.Load;
 import org.apache.doris.load.loadv2.LoadTask;
@@ -42,7 +42,6 @@ import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TFileScanSlotInfo;
-import org.apache.doris.thrift.TFileTextScanRangeParams;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.THdfsParams;
 import org.apache.doris.thrift.TScanRangeLocations;
@@ -87,16 +86,16 @@ public class LoadScanProvider {
         ctx.destTupleDescriptor = destTupleDesc;
         ctx.fileGroup = fileGroupInfo.getFileGroup();
         ctx.timezone = analyzer.getTimezone();
+        FileFormatProperties fileFormatProperties = fileGroupInfo.getFileGroup().getFileFormatProperties();
 
         TFileScanRangeParams params = new TFileScanRangeParams();
-        params.setFormatType(formatType(fileGroupInfo.getFileGroup().getFileFormat()));
-        params.setCompressType(fileGroupInfo.getFileGroup().getCompressType());
+        params.setFormatType(fileFormatProperties.getFileFormatType());
+        params.setCompressType(fileFormatProperties.getCompressionType());
         params.setStrictMode(fileGroupInfo.isStrictMode());
         if (fileGroupInfo.getSequenceMapCol() != null) {
             params.setSequenceMapCol(fileGroupInfo.getSequenceMapCol());
         }
-        if (fileGroupInfo.getFileGroup().getFileFormat() != null
-                && fileGroupInfo.getFileGroup().getFileFormat().equals("hive_text")) {
+        if (fileFormatProperties.getFormatName().equals("hive_text")) {
             params.setTextSerdeType(TTextSerdeType.HIVE_TEXT_SERDE);
         }
         params.setProperties(fileGroupInfo.getBrokerDesc().getProperties());
@@ -104,8 +103,7 @@ public class LoadScanProvider {
             THdfsParams tHdfsParams = HdfsResource.generateHdfsParam(fileGroupInfo.getBrokerDesc().getProperties());
             params.setHdfsParams(tHdfsParams);
         }
-        TFileAttributes fileAttributes = new TFileAttributes();
-        setFileAttributes(ctx.fileGroup, fileAttributes);
+        TFileAttributes fileAttributes = setFileAttributes(ctx.fileGroup);
         params.setFileAttributes(fileAttributes);
         params.setFileType(fileGroupInfo.getFileType());
         ctx.params = params;
@@ -114,24 +112,11 @@ public class LoadScanProvider {
         return ctx;
     }
 
-    public void setFileAttributes(BrokerFileGroup fileGroup, TFileAttributes fileAttributes) {
-        TFileTextScanRangeParams textParams = new TFileTextScanRangeParams();
-        textParams.setColumnSeparator(fileGroup.getColumnSeparator());
-        textParams.setLineDelimiter(fileGroup.getLineDelimiter());
-        textParams.setEnclose(fileGroup.getEnclose());
-        textParams.setEscape(fileGroup.getEscape());
-        fileAttributes.setTextParams(textParams);
-        fileAttributes.setStripOuterArray(fileGroup.isStripOuterArray());
-        fileAttributes.setJsonpaths(fileGroup.getJsonPaths());
-        fileAttributes.setJsonRoot(fileGroup.getJsonRoot());
-        fileAttributes.setNumAsString(fileGroup.isNumAsString());
-        fileAttributes.setFuzzyParse(fileGroup.isFuzzyParse());
-        fileAttributes.setReadJsonByLine(fileGroup.isReadJsonByLine());
-        fileAttributes.setReadByColumnDef(true);
-        fileAttributes.setHeaderType(getHeaderType(fileGroup.getFileFormat()));
-        fileAttributes.setTrimDoubleQuotes(fileGroup.getTrimDoubleQuotes());
-        fileAttributes.setSkipLines(fileGroup.getSkipLines());
-        fileAttributes.setIgnoreCsvRedundantCol(fileGroup.getIgnoreCsvRedundantCol());
+    public TFileAttributes setFileAttributes(BrokerFileGroup fileGroup) {
+        TFileAttributes tFileAttributes = fileGroup.getFileFormatProperties().toTFileAttributes();
+        tFileAttributes.setReadByColumnDef(true);
+        tFileAttributes.setIgnoreCsvRedundantCol(fileGroup.getIgnoreCsvRedundantCol());
+        return tFileAttributes;
     }
 
     private String getHeaderType(String formatType) {
@@ -223,7 +208,7 @@ public class LoadScanProvider {
         List<Integer> srcSlotIds = Lists.newArrayList();
         Load.initColumns(fileGroupInfo.getTargetTable(), columnDescs, context.fileGroup.getColumnToHadoopFunction(),
                 context.exprMap, analyzer, context.srcTupleDescriptor, context.srcSlotDescByName, srcSlotIds,
-                formatType(context.fileGroup.getFileFormat()), fileGroupInfo.getHiddenColumns(),
+                context.fileGroup.getFileFormatProperties().getFileFormatType(), fileGroupInfo.getHiddenColumns(),
                 fileGroupInfo.getUniqueKeyUpdateMode());
 
         int columnCountFromPath = 0;
@@ -252,18 +237,6 @@ public class LoadScanProvider {
         }
         return columnDescs.descs.size() == 1 && columnDescs.descs.get(0).getColumnName()
                 .equalsIgnoreCase(Column.DELETE_SIGN);
-    }
-
-    private TFileFormatType formatType(String fileFormat) throws UserException {
-        if (fileFormat == null) {
-            // get file format by the file path
-            return TFileFormatType.FORMAT_CSV_PLAIN;
-        }
-        TFileFormatType formatType = Util.getFileFormatTypeFromName(fileFormat);
-        if (formatType == TFileFormatType.FORMAT_UNKNOWN) {
-            throw new UserException("Not supported file format: " + fileFormat);
-        }
-        return formatType;
     }
 
     public TableIf getTargetTable() {

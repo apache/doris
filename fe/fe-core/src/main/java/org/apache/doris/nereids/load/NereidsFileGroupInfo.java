@@ -236,8 +236,10 @@ public class NereidsFileGroupInfo {
         // If any of the file is unsplittable, all files will be treated as unsplittable.
         boolean isSplittable = true;
         for (TBrokerFileStatus fileStatus : fileStatuses) {
-            TFileFormatType formatType = formatType(context.fileGroup.getFileFormat(), fileStatus.path);
-            TFileCompressType compressType = Util.getOrInferCompressType(context.fileGroup.getCompressType(),
+            TFileFormatType formatType = formatType(context.fileGroup.getFileFormatProperties().getFormatName(),
+                    fileStatus.path);
+            TFileCompressType compressType = Util.getOrInferCompressType(
+                    context.fileGroup.getFileFormatProperties().getCompressionType(),
                     fileStatus.path);
             // Now only support split plain text
             if (compressType == TFileCompressType.PLAIN
@@ -270,9 +272,11 @@ public class NereidsFileGroupInfo {
             TScanRangeLocations locations = newLocations(context.params, brokerDesc, backendPolicy);
             for (int i : group) {
                 TBrokerFileStatus fileStatus = fileStatuses.get(i);
-                TFileFormatType formatType = formatType(context.fileGroup.getFileFormat(), fileStatus.path);
+                TFileFormatType formatType = formatType(context.fileGroup.getFileFormatProperties().getFormatName(),
+                        fileStatus.path);
                 context.params.setFormatType(formatType);
-                TFileCompressType compressType = Util.getOrInferCompressType(context.fileGroup.getCompressType(),
+                TFileCompressType compressType = Util.getOrInferCompressType(
+                        context.fileGroup.getFileFormatProperties().getCompressionType(),
                         fileStatus.path);
                 context.params.setCompressType(compressType);
                 List<String> columnsFromPath = BrokerUtil.parseColumnsFromPath(fileStatus.path,
@@ -318,9 +322,11 @@ public class NereidsFileGroupInfo {
             long leftBytes = fileStatus.size - curFileOffset;
             long tmpBytes = curInstanceBytes + leftBytes;
             // header_type
-            TFileFormatType formatType = formatType(context.fileGroup.getFileFormat(), fileStatus.path);
+            TFileFormatType formatType = formatType(context.fileGroup.getFileFormatProperties().getFormatName(),
+                    fileStatus.path);
             context.params.setFormatType(formatType);
-            TFileCompressType compressType = Util.getOrInferCompressType(context.fileGroup.getCompressType(),
+            TFileCompressType compressType = Util.getOrInferCompressType(
+                    context.fileGroup.getFileFormatProperties().getCompressionType(),
                     fileStatus.path);
             context.params.setCompressType(compressType);
             List<String> columnsFromPath = BrokerUtil.parseColumnsFromPath(fileStatus.path,

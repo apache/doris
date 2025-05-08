@@ -31,6 +31,8 @@ import org.apache.doris.common.LoadException;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.ByteBufferNetworkInputStream;
+import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
+import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.load.LoadJobRowResult;
 import org.apache.doris.load.StreamLoadHandler;
 import org.apache.doris.mysql.MysqlSerializer;
@@ -347,6 +349,7 @@ public class MysqlLoadManager {
         httpPut.addHeader("token", token);
 
         Map<String, String> props = desc.getProperties();
+        FileFormatProperties fileFormatProperties = desc.getFileFormatProperties();
         if (props != null) {
             // max_filter_ratio
             if (props.containsKey(LoadStmt.KEY_IN_PARAM_MAX_FILTER_RATIO)) {
@@ -378,38 +381,20 @@ public class MysqlLoadManager {
                 httpPut.addHeader(LoadStmt.TIMEZONE, timezone);
             }
 
-            // trim quotes
-            if (props.containsKey(LoadStmt.KEY_TRIM_DOUBLE_QUOTES)) {
-                String trimQuotes = props.get(LoadStmt.KEY_TRIM_DOUBLE_QUOTES);
-                httpPut.addHeader(LoadStmt.KEY_TRIM_DOUBLE_QUOTES, trimQuotes);
-            }
-
-            // enclose
-            if (props.containsKey(LoadStmt.KEY_ENCLOSE)) {
-                String enclose = props.get(LoadStmt.KEY_ENCLOSE);
-                httpPut.addHeader(LoadStmt.KEY_ENCLOSE, enclose);
-            }
-
-            //escape
-            if (props.containsKey(LoadStmt.KEY_ESCAPE)) {
-                String escape = props.get(LoadStmt.KEY_ESCAPE);
-                httpPut.addHeader(LoadStmt.KEY_ESCAPE, escape);
+            if (fileFormatProperties instanceof CsvFileFormatProperties) {
+                CsvFileFormatProperties csvFileFormatProperties = (CsvFileFormatProperties) fileFormatProperties;
+                httpPut.addHeader(LoadStmt.KEY_TRIM_DOUBLE_QUOTES,
+                        String.valueOf(csvFileFormatProperties.isTrimDoubleQuotes()));
+                httpPut.addHeader(LoadStmt.KEY_ENCLOSE, String.valueOf(csvFileFormatProperties.getEnclose()));
+                httpPut.addHeader(LoadStmt.KEY_ESCAPE, String.valueOf(csvFileFormatProperties.getEscape()));
             }
         }
 
-        // skip_lines
-        if (desc.getSkipLines() != 0) {
-            httpPut.addHeader(LoadStmt.KEY_SKIP_LINES, Integer.toString(desc.getSkipLines()));
-        }
-
-        // column_separator
-        if (desc.getColumnSeparator() != null) {
-            httpPut.addHeader(LoadStmt.KEY_IN_PARAM_COLUMN_SEPARATOR, desc.getColumnSeparator());
-        }
-
-        // line_delimiter
-        if (desc.getLineDelimiter() != null) {
-            httpPut.addHeader(LoadStmt.KEY_IN_PARAM_LINE_DELIMITER, desc.getLineDelimiter());
+        if (fileFormatProperties instanceof CsvFileFormatProperties) {
+            CsvFileFormatProperties csvFileFormatProperties = (CsvFileFormatProperties) fileFormatProperties;
+            httpPut.addHeader(LoadStmt.KEY_SKIP_LINES, Integer.toString(csvFileFormatProperties.getSkipLines()));
+            httpPut.addHeader(LoadStmt.KEY_IN_PARAM_COLUMN_SEPARATOR, csvFileFormatProperties.getColumnSeparator());
+            httpPut.addHeader(LoadStmt.KEY_IN_PARAM_LINE_DELIMITER, csvFileFormatProperties.getLineDelimiter());
         }
 
         // columns

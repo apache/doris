@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.load;
 
 import org.apache.doris.analysis.ColumnDef;
-import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.TableName;
@@ -34,9 +33,11 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.FileFormatConstants;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
+import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
+import org.apache.doris.datasource.property.fileformat.JsonFileFormatProperties;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.expressions.BinaryOperator;
@@ -47,7 +48,6 @@ import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TUniqueKeyUpdateMode;
@@ -57,7 +57,6 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
-import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -108,9 +107,6 @@ public class NereidsDataDescription {
     private String dbName;
     private final PartitionNames partitionNames;
     private final List<String> filePaths;
-    private final Separator columnSeparator;
-    private String fileFormat;
-    private TFileCompressType compressType = TFileCompressType.UNKNOWN;
     private boolean clientLocal = false;
     private final boolean isNegative;
     // column names in the path
@@ -126,18 +122,8 @@ public class NereidsDataDescription {
     private List<String> fileFieldNames;
     // Used for mini load
     private TNetworkAddress beAddr;
-    private Separator lineDelimiter;
     private String columnDef;
     private long backendId;
-    private boolean stripOuterArray = false;
-    private String jsonPaths = "";
-    private String jsonRoot = "";
-    private boolean fuzzyParse = false;
-    // the default must be true.
-    // So that for broker load, this is always true,
-    // and for stream load, it will set on demand.
-    private boolean readJsonByLine = true;
-    private boolean numAsString = false;
 
     private String sequenceCol;
 
@@ -157,19 +143,15 @@ public class NereidsDataDescription {
     private final LoadTask.MergeType mergeType;
     private final Expression deleteCondition;
     private final Map<String, String> properties;
-    private boolean trimDoubleQuotes = false;
     private boolean isMysqlLoad = false;
-    private int skipLines = 0;
     // use for copy into
     private boolean ignoreCsvRedundantCol = false;
 
     private boolean isAnalyzed = false;
 
-    private byte enclose = 0;
-
-    private byte escape = 0;
-
     private TUniqueKeyUpdateMode uniquekeyUpdateMode = TUniqueKeyUpdateMode.UPSERT;
+    private FileFormatProperties fileFormatProperties;
+    private Map<String, String> analysisMap = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
 
     public NereidsDataDescription(String tableName,
             PartitionNames partitionNames,
@@ -227,10 +209,6 @@ public class NereidsDataDescription {
         this.partitionNames = partitionNames;
         this.filePaths = filePaths;
         this.fileFieldNames = columns;
-        this.columnSeparator = columnSeparator;
-        this.lineDelimiter = lineDelimiter;
-        this.fileFormat = fileFormat;
-        this.compressType = Util.getFileCompressType(compressType);
         this.columnsFromPath = columnsFromPath;
         this.isNegative = isNegative;
         this.columnMappingList = columnMappingList;
@@ -241,6 +219,11 @@ public class NereidsDataDescription {
         this.deleteCondition = deleteCondition;
         this.sequenceCol = sequenceColName;
         this.properties = properties;
+        this.analysisMap.putAll(properties);
+        this.analysisMap.put(FileFormatProperties.PROP_FORMAT, fileFormat);
+        this.analysisMap.put(FileFormatProperties.PROP_COMPRESS_TYPE, compressType);
+        this.analysisMap.put(CsvFileFormatProperties.PROP_COLUMN_SEPARATOR, columnSeparator.getOriSeparator());
+        this.analysisMap.put(CsvFileFormatProperties.PROP_LINE_DELIMITER, lineDelimiter.getOriSeparator());
         columnsNameToLowerCase(fileFieldNames);
         columnsNameToLowerCase(columnsFromPath);
     }
@@ -261,8 +244,6 @@ public class NereidsDataDescription {
         this.partitionNames = partitionNames;
         this.filePaths = null;
         this.fileFieldNames = null;
-        this.columnSeparator = null;
-        this.fileFormat = null;
         this.columnsFromPath = null;
         this.isNegative = isNegative;
         this.columnMappingList = columnMappingList;
@@ -272,6 +253,7 @@ public class NereidsDataDescription {
         this.mergeType = mergeType;
         this.deleteCondition = deleteCondition;
         this.properties = properties;
+        this.analysisMap.putAll(properties);
     }
 
     /**
@@ -293,10 +275,6 @@ public class NereidsDataDescription {
         this.filePaths = Lists.newArrayList(file);
         this.clientLocal = clientLocal;
         this.fileFieldNames = columns;
-        this.columnSeparator = columnSeparator;
-        this.lineDelimiter = lineDelimiter;
-        this.skipLines = skipLines;
-        this.fileFormat = null;
         this.columnsFromPath = null;
         this.isNegative = false;
         this.columnMappingList = columnMappingList;
@@ -306,6 +284,10 @@ public class NereidsDataDescription {
         this.mergeType = null;
         this.deleteCondition = null;
         this.properties = properties;
+        this.analysisMap.putAll(properties);
+        this.analysisMap.put(CsvFileFormatProperties.PROP_COLUMN_SEPARATOR, columnSeparator.getOriSeparator());
+        this.analysisMap.put(CsvFileFormatProperties.PROP_LINE_DELIMITER, lineDelimiter.getOriSeparator());
+        this.analysisMap.put(CsvFileFormatProperties.PROP_SKIP_LINES, String.valueOf(skipLines));
         this.isMysqlLoad = true;
         columnsNameToLowerCase(fileFieldNames);
     }
@@ -325,11 +307,6 @@ public class NereidsDataDescription {
         }
 
         this.fileFieldNames = taskInfo.getColumnExprDescs().getFileColNames();
-        this.columnSeparator = taskInfo.getColumnSeparator();
-        this.lineDelimiter = taskInfo.getLineDelimiter();
-        this.enclose = taskInfo.getEnclose();
-        this.escape = taskInfo.getEscape();
-        getFileFormatAndCompressType(taskInfo);
         this.columnsFromPath = null;
         this.isNegative = taskInfo.getNegative();
         this.columnMappingList = taskInfo.getColumnExprDescs().getColumnMappingList();
@@ -339,55 +316,62 @@ public class NereidsDataDescription {
         this.mergeType = taskInfo.getMergeType();
         this.deleteCondition = taskInfo.getDeleteCondition();
         this.sequenceCol = taskInfo.getSequenceCol();
-        this.stripOuterArray = taskInfo.isStripOuterArray();
-        this.jsonPaths = taskInfo.getJsonPaths();
-        this.jsonRoot = taskInfo.getJsonRoot();
-        this.fuzzyParse = taskInfo.isFuzzyParse();
-        this.readJsonByLine = taskInfo.isReadJsonByLine();
-        this.numAsString = taskInfo.isNumAsString();
+
         this.properties = Maps.newHashMap();
-        this.trimDoubleQuotes = taskInfo.getTrimDoubleQuotes();
-        this.skipLines = taskInfo.getSkipLines();
+        this.analysisMap.putAll(properties);
+        this.analysisMap.put(FileFormatProperties.PROP_FORMAT, getFileFormat(taskInfo));
+        this.analysisMap.put(FileFormatProperties.PROP_COMPRESS_TYPE, taskInfo.getCompressType().toString());
+        this.analysisMap.put(CsvFileFormatProperties.PROP_COLUMN_SEPARATOR,
+                taskInfo.getColumnSeparator().getOriSeparator());
+        this.analysisMap.put(CsvFileFormatProperties.PROP_LINE_DELIMITER,
+                taskInfo.getLineDelimiter().getOriSeparator());
+        this.analysisMap.put(CsvFileFormatProperties.PROP_ENCLOSE, String.valueOf(taskInfo.getEnclose()));
+        this.analysisMap.put(CsvFileFormatProperties.PROP_ESCAPE, String.valueOf(taskInfo.getEscape()));
+        this.analysisMap.put(CsvFileFormatProperties.PROP_TRIM_DOUBLE_QUOTES,
+                String.valueOf(taskInfo.getTrimDoubleQuotes()));
+        this.analysisMap.put(CsvFileFormatProperties.PROP_SKIP_LINES,
+                String.valueOf(taskInfo.getSkipLines()));
+
+        this.analysisMap.put(JsonFileFormatProperties.PROP_STRIP_OUTER_ARRAY,
+                String.valueOf(taskInfo.isStripOuterArray()));
+        this.analysisMap.put(JsonFileFormatProperties.PROP_JSON_PATHS, taskInfo.getJsonPaths());
+        this.analysisMap.put(JsonFileFormatProperties.PROP_JSON_ROOT, taskInfo.getJsonRoot());
+        this.analysisMap.put(JsonFileFormatProperties.PROP_FUZZY_PARSE, String.valueOf(taskInfo.isFuzzyParse()));
+        this.analysisMap.put(JsonFileFormatProperties.PROP_READ_JSON_BY_LINE,
+                String.valueOf(taskInfo.isReadJsonByLine()));
+        this.analysisMap.put(JsonFileFormatProperties.PROP_NUM_AS_STRING, String.valueOf(taskInfo.isNumAsString()));
         this.uniquekeyUpdateMode = taskInfo.getUniqueKeyUpdateMode();
         columnsNameToLowerCase(fileFieldNames);
     }
 
-    private void getFileFormatAndCompressType(NereidsLoadTaskInfo taskInfo) {
+    private String getFileFormat(NereidsLoadTaskInfo taskInfo) {
         // get file format
         if (!Strings.isNullOrEmpty(taskInfo.getHeaderType())) {
             // for "csv_with_name" and "csv_with_name_and_type"
-            this.fileFormat = taskInfo.getHeaderType();
+            return taskInfo.getHeaderType();
         } else {
             TFileFormatType type = taskInfo.getFormatType();
             if (Util.isCsvFormat(type)) {
                 // ignore the "compress type" in format, such as FORMAT_CSV_GZ
                 // the compress type is saved in "compressType"
-                this.fileFormat = "csv";
+                return "csv";
             } else {
                 switch (type) {
                     case FORMAT_ORC:
-                        this.fileFormat = "orc";
-                        break;
+                        return "orc";
                     case FORMAT_PARQUET:
-                        this.fileFormat = "parquet";
-                        break;
+                        return "parquet";
                     case FORMAT_JSON:
-                        this.fileFormat = "json";
-                        break;
+                        return "json";
                     case FORMAT_WAL:
-                        this.fileFormat = "wal";
-                        break;
+                        return "wal";
                     case FORMAT_ARROW:
-                        this.fileFormat = "arrow";
-                        break;
+                        return "arrow";
                     default:
-                        this.fileFormat = "unknown";
-                        break;
+                        return "unknown";
                 }
             }
         }
-        // get compress type
-        this.compressType = taskInfo.getCompressType();
     }
 
     /**
@@ -615,31 +599,8 @@ public class NereidsDataDescription {
         return columnMappingList;
     }
 
-    public String getFileFormat() {
-        return fileFormat;
-    }
-
-    public void setCompressType(TFileCompressType compressType) {
-        this.compressType = compressType;
-    }
-
-    public TFileCompressType getCompressType() {
-        return compressType;
-    }
-
     public List<String> getColumnsFromPath() {
         return columnsFromPath;
-    }
-
-    public String getColumnSeparator() {
-        if (columnSeparator == null) {
-            return null;
-        }
-        return columnSeparator.getSeparator();
-    }
-
-    public Separator getColumnSeparatorObj() {
-        return columnSeparator;
     }
 
     public boolean isNegative() {
@@ -652,25 +613,6 @@ public class NereidsDataDescription {
 
     public void setBeAddr(TNetworkAddress addr) {
         beAddr = addr;
-    }
-
-    public String getLineDelimiter() {
-        if (lineDelimiter == null) {
-            return null;
-        }
-        return lineDelimiter.getSeparator();
-    }
-
-    public Separator getLineDelimiterObj() {
-        return lineDelimiter;
-    }
-
-    public byte getEnclose() {
-        return enclose;
-    }
-
-    public byte getEscape() {
-        return escape;
     }
 
     public String getSequenceCol() {
@@ -697,48 +639,12 @@ public class NereidsDataDescription {
         return backendId;
     }
 
+    public FileFormatProperties getFileFormatProperties() {
+        return fileFormatProperties;
+    }
+
     public void setBackendId(long backendId) {
         this.backendId = backendId;
-    }
-
-    public boolean isStripOuterArray() {
-        return stripOuterArray;
-    }
-
-    public void setStripOuterArray(boolean stripOuterArray) {
-        this.stripOuterArray = stripOuterArray;
-    }
-
-    public boolean isFuzzyParse() {
-        return fuzzyParse;
-    }
-
-    public void setFuzzyParse(boolean fuzzyParse) {
-        this.fuzzyParse = fuzzyParse;
-    }
-
-    public boolean isNumAsString() {
-        return numAsString;
-    }
-
-    public void setNumAsString(boolean numAsString) {
-        this.numAsString = numAsString;
-    }
-
-    public String getJsonPaths() {
-        return jsonPaths;
-    }
-
-    public void setJsonPaths(String jsonPaths) {
-        this.jsonPaths = jsonPaths;
-    }
-
-    public String getJsonRoot() {
-        return jsonRoot;
-    }
-
-    public void setJsonRoot(String jsonRoot) {
-        this.jsonRoot = jsonRoot;
     }
 
     public Map<String, Pair<String, List<String>>> getColumnToHadoopFunction() {
@@ -769,20 +675,8 @@ public class NereidsDataDescription {
         return !Strings.isNullOrEmpty(srcTableName);
     }
 
-    public boolean isReadJsonByLine() {
-        return readJsonByLine;
-    }
-
-    public boolean getTrimDoubleQuotes() {
-        return trimDoubleQuotes;
-    }
-
     public Map<String, String> getProperties() {
         return properties;
-    }
-
-    public int getSkipLines() {
-        return skipLines;
     }
 
     public boolean getIgnoreCsvRedundantCol() {
@@ -974,60 +868,6 @@ public class NereidsDataDescription {
         }
     }
 
-    private void analyzeProperties() throws AnalysisException {
-        Map<String, String> analysisMap = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
-        analysisMap.putAll(properties);
-
-        // If lineDelimiter had assigned, do not get it from properties again.
-        if (lineDelimiter == null && analysisMap.containsKey(LoadStmt.KEY_IN_PARAM_LINE_DELIMITER)) {
-            lineDelimiter = new Separator(analysisMap.get(LoadStmt.KEY_IN_PARAM_LINE_DELIMITER));
-            lineDelimiter.analyze();
-        }
-
-        if (analysisMap.containsKey(LoadStmt.KEY_IN_PARAM_FUZZY_PARSE)) {
-            fuzzyParse = Boolean.parseBoolean(analysisMap.get(LoadStmt.KEY_IN_PARAM_FUZZY_PARSE));
-        }
-
-        if (analysisMap.containsKey(LoadStmt.KEY_IN_PARAM_STRIP_OUTER_ARRAY)) {
-            stripOuterArray = Boolean.parseBoolean(analysisMap.get(LoadStmt.KEY_IN_PARAM_STRIP_OUTER_ARRAY));
-        }
-
-        if (analysisMap.containsKey(LoadStmt.KEY_IN_PARAM_JSONPATHS)) {
-            jsonPaths = analysisMap.get(LoadStmt.KEY_IN_PARAM_JSONPATHS);
-        }
-
-        if (analysisMap.containsKey(LoadStmt.KEY_IN_PARAM_JSONROOT)) {
-            jsonRoot = analysisMap.get(LoadStmt.KEY_IN_PARAM_JSONROOT);
-        }
-
-        if (analysisMap.containsKey(LoadStmt.KEY_IN_PARAM_NUM_AS_STRING)) {
-            numAsString = Boolean.parseBoolean(analysisMap.get(LoadStmt.KEY_IN_PARAM_NUM_AS_STRING));
-        }
-
-        if (analysisMap.containsKey(LoadStmt.KEY_TRIM_DOUBLE_QUOTES)) {
-            trimDoubleQuotes = Boolean.parseBoolean(analysisMap.get(LoadStmt.KEY_TRIM_DOUBLE_QUOTES));
-        }
-        if (analysisMap.containsKey(LoadStmt.KEY_SKIP_LINES)) {
-            skipLines = Integer.parseInt(analysisMap.get(LoadStmt.KEY_SKIP_LINES));
-        }
-        if (analysisMap.containsKey(LoadStmt.KEY_ENCLOSE)) {
-            String encloseProp = analysisMap.get(LoadStmt.KEY_ENCLOSE);
-            if (encloseProp.length() == 1) {
-                enclose = encloseProp.getBytes(StandardCharsets.UTF_8)[0];
-            } else {
-                throw new AnalysisException("enclose must be single-char");
-            }
-        }
-        if (analysisMap.containsKey(LoadStmt.KEY_ESCAPE)) {
-            String escapeProp = analysisMap.get(LoadStmt.KEY_ESCAPE);
-            if (escapeProp.length() == 1) {
-                escape = escapeProp.getBytes(StandardCharsets.UTF_8)[0];
-            } else {
-                throw new AnalysisException("escape must be single-char");
-            }
-        }
-    }
-
     private void checkLoadPriv(String fullDbName) throws AnalysisException {
         if (Strings.isNullOrEmpty(tableName)) {
             throw new AnalysisException("No table name in load statement.");
@@ -1056,7 +896,7 @@ public class NereidsDataDescription {
 
     // Change all the columns name to lower case, because Doris column is case-insensitive.
     private void columnsNameToLowerCase(List<String> columns) {
-        if (columns == null || columns.isEmpty() || "json".equals(this.fileFormat)) {
+        if (columns == null || columns.isEmpty() || "json".equals(analysisMap.get(FileFormatProperties.PROP_FORMAT))) {
             return;
         }
         for (int i = 0; i < columns.size(); i++) {
@@ -1113,15 +953,16 @@ public class NereidsDataDescription {
     public void analyzeWithoutCheckPriv(String fullDbName) throws AnalysisException {
         analyzeFilePaths();
 
-        analyzeLoadAttributes();
+        if (partitionNames != null) {
+            partitionNames.analyze(null);
+        }
 
         analyzeColumns();
         analyzeMultiLoadColumns();
         analyzeSequenceCol(fullDbName);
 
-        if (properties != null) {
-            analyzeProperties();
-        }
+        fileFormatProperties = FileFormatProperties.createFileFormatProperties(analysisMap);
+        fileFormatProperties.analyzeFileFormatProperties(analysisMap, false);
     }
 
     private void analyzeFilePaths() throws AnalysisException {
@@ -1130,36 +971,6 @@ public class NereidsDataDescription {
                 throw new AnalysisException("No file path in load statement.");
             }
             filePaths.replaceAll(String::trim);
-        }
-    }
-
-    private void analyzeLoadAttributes() throws AnalysisException {
-        if (columnSeparator != null) {
-            columnSeparator.analyze();
-        }
-
-        if (lineDelimiter != null) {
-            lineDelimiter.analyze();
-        }
-
-        if (partitionNames != null) {
-            partitionNames.analyze(null);
-        }
-
-        // file format
-        // note(tsy): for historical reason, file format here must be string type rather than TFileFormatType
-        if (fileFormat != null) {
-            if (!fileFormat.equalsIgnoreCase(FileFormatConstants.FORMAT_PARQUET)
-                    && !fileFormat.equalsIgnoreCase(FileFormatConstants.FORMAT_CSV)
-                    && !fileFormat.equalsIgnoreCase(FileFormatConstants.FORMAT_CSV_WITH_NAMES)
-                    && !fileFormat.equalsIgnoreCase(FileFormatConstants.FORMAT_CSV_WITH_NAMES_AND_TYPES)
-                    && !fileFormat.equalsIgnoreCase(FileFormatConstants.FORMAT_ORC)
-                    && !fileFormat.equalsIgnoreCase(FileFormatConstants.FORMAT_JSON)
-                    && !fileFormat.equalsIgnoreCase(FileFormatConstants.FORMAT_WAL)
-                    && !fileFormat.equalsIgnoreCase(FileFormatConstants.FORMAT_ARROW)
-                    && !fileFormat.equalsIgnoreCase(FileFormatConstants.FORMAT_HIVE_TEXT)) {
-                throw new AnalysisException("File Format Type " + fileFormat + " is invalid.");
-            }
         }
     }
 
@@ -1188,14 +999,14 @@ public class NereidsDataDescription {
             sb.append(" ");
             sb.append(partitionNames.toSql());
         }
-        if (columnSeparator != null) {
-            sb.append(" COLUMNS TERMINATED BY ").append(columnSeparator.toSql());
+        if (analysisMap.get(CsvFileFormatProperties.PROP_COLUMN_SEPARATOR) != null) {
+            sb.append(" COLUMNS TERMINATED BY ").append(analysisMap.get(CsvFileFormatProperties.PROP_COLUMN_SEPARATOR));
         }
-        if (lineDelimiter != null && isMysqlLoad) {
-            sb.append(" LINES TERMINATED BY ").append(lineDelimiter.toSql());
+        if (analysisMap.get(CsvFileFormatProperties.PROP_LINE_DELIMITER) != null && isMysqlLoad) {
+            sb.append(" LINES TERMINATED BY ").append(analysisMap.get(CsvFileFormatProperties.PROP_LINE_DELIMITER));
         }
-        if (fileFormat != null && !fileFormat.isEmpty()) {
-            sb.append(" FORMAT AS '" + fileFormat + "'");
+        if (!Strings.isNullOrEmpty(analysisMap.get(FileFormatProperties.PROP_FORMAT))) {
+            sb.append(" FORMAT AS '" + analysisMap.get(FileFormatProperties.PROP_FORMAT) + "'");
         }
         if (fileFieldNames != null && !fileFieldNames.isEmpty()) {
             sb.append(" (");

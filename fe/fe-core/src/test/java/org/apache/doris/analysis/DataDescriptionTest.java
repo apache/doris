@@ -25,6 +25,8 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
+import org.apache.doris.datasource.property.fileformat.JsonFileFormatProperties;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.MockedAuth;
@@ -116,21 +118,23 @@ public class DataDescriptionTest {
         desc = new DataDescription("testTable", null, Lists.newArrayList("abc.txt"),
                                                   Lists.newArrayList("col1", "col2"), null, null, true, null);
         desc.analyze("testDb");
+        CsvFileFormatProperties csvFileFormatProperties = (CsvFileFormatProperties) desc.getFileFormatProperties();
         Assert.assertEquals("APPEND DATA INFILE ('abc.txt') NEGATIVE INTO TABLE testTable (col1, col2)", desc.toString());
         Assert.assertEquals("testTable", desc.getTableName());
         Assert.assertEquals("[col1, col2]", desc.getFileFieldNames().toString());
         Assert.assertEquals("[abc.txt]", desc.getFilePaths().toString());
         Assert.assertTrue(desc.isNegative());
-        Assert.assertNull(desc.getColumnSeparator());
+        Assert.assertNull(csvFileFormatProperties.getColumnSeparator());
         Expr whereExpr = new BinaryPredicate(BinaryPredicate.Operator.EQ, new IntLiteral(1),  new IntLiteral(1));
 
         desc = new DataDescription("testTable", null, Lists.newArrayList("abc.txt"),
                 Lists.newArrayList("col1", "col2"), new Separator(","), "csv", null, false, null, null, whereExpr, LoadTask.MergeType.MERGE, whereExpr, null, null);
         desc.analyze("testDb");
+        csvFileFormatProperties = (CsvFileFormatProperties) desc.getFileFormatProperties();
         Assert.assertEquals("MERGE DATA INFILE ('abc.txt') INTO TABLE testTable COLUMNS TERMINATED BY ',' FORMAT AS 'csv' (col1, col2) WHERE (1 = 1) DELETE ON (1 = 1)", desc.toString());
         Assert.assertEquals("(1 = 1)", desc.getWhereExpr().toSql());
         Assert.assertEquals("(1 = 1)", desc.getDeleteCondition().toSql());
-        Assert.assertEquals(",", desc.getColumnSeparator());
+        Assert.assertEquals(",", csvFileFormatProperties.getColumnSeparator());
 
         desc = new DataDescription("testTable", null, Lists.newArrayList("abc.txt", "bcd.txt"),
                                                   Lists.newArrayList("col1", "col2"), new Separator("\t"),
@@ -226,12 +230,13 @@ public class DataDescriptionTest {
                 null, null, LoadTask.MergeType.APPEND, null, null, properties);
 
         desc.analyze("testDb");
-        Assert.assertEquals("abc", desc.getLineDelimiter());
-        Assert.assertTrue(desc.isFuzzyParse());
-        Assert.assertTrue(desc.isStripOuterArray());
-        Assert.assertEquals("[\"$.h1.h2.k1\",\"$.h1.h2.v1\",\"$.h1.h2.v2\"]", desc.getJsonPaths());
-        Assert.assertEquals("$.RECORDS", desc.getJsonRoot());
-        Assert.assertTrue(desc.isNumAsString());
+        JsonFileFormatProperties jsonFileFormatProperties = (JsonFileFormatProperties) desc.getFileFormatProperties();
+        Assert.assertEquals("abc", jsonFileFormatProperties.getLineDelimiter());
+        Assert.assertTrue(jsonFileFormatProperties.isFuzzyParse());
+        Assert.assertTrue(jsonFileFormatProperties.isStripOuterArray());
+        Assert.assertEquals("[\"$.h1.h2.k1\",\"$.h1.h2.v1\",\"$.h1.h2.v2\"]", jsonFileFormatProperties.getJsonPaths());
+        Assert.assertEquals("$.RECORDS", jsonFileFormatProperties.getJsonRoot());
+        Assert.assertTrue(jsonFileFormatProperties.isNumAsString());
     }
 
     @Test(expected = AnalysisException.class)
@@ -401,8 +406,9 @@ public class DataDescriptionTest {
         Assert.assertEquals("p1", desc.getPartitionNames().getPartitionNames().get(0));
         Assert.assertEquals("p2", desc.getPartitionNames().getPartitionNames().get(1));
 
-        Assert.assertEquals("040506", desc.getLineDelimiter());
-        Assert.assertEquals("010203", desc.getColumnSeparator());
+        CsvFileFormatProperties csvFileFormatProperties = (CsvFileFormatProperties) desc.getFileFormatProperties();
+        Assert.assertEquals("040506", csvFileFormatProperties.getLineDelimiter());
+        Assert.assertEquals("010203", csvFileFormatProperties.getColumnSeparator());
         String sql = "DATA LOCAL INFILE 'abc.txt' "
                 + "INTO TABLE testDb1.testTable "
                 + "PARTITIONS (p1, p2) "
