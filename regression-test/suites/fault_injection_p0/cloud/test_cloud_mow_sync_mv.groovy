@@ -49,7 +49,7 @@ suite("test_cloud_mow_sync_mv", "nonConcurrent") {
         `l_comment` VARCHAR(44) NULL
         ) ENGINE=OLAP
         unique KEY(l_orderkey, l_linenumber, l_partkey, l_suppkey, l_shipdate )
-        DISTRIBUTED BY HASH(`l_orderkey`) BUCKETS 4
+        DISTRIBUTED BY HASH(`l_orderkey`) BUCKETS 1
         PROPERTIES (
         "enable_unique_key_merge_on_write" = "true",
         "disable_auto_compaction" = "true");
@@ -87,13 +87,23 @@ suite("test_cloud_mow_sync_mv", "nonConcurrent") {
         order_qt_query1_before "${query1}"
 
         GetDebugPoint().enableDebugPointForAllBEs("CloudSchemaChangeJob::_convert_historical_rowsets.fail.before.commit_job")
+        Thread.sleep(1000)
 
-        try {
-            create_sync_mv(db, table1, "mv1", mv1)
-        } catch (Exception e) {
-            logger.info(e.getMessage())
-            assert e.getMessage().contains("[DELETE_BITMAP_LOCK_ERROR]injected retryable error")
+        def t1 = Thread.start {
+            Thread.sleep(5000)
+            GetDebugPoint().disableDebugPointForAllBEs("CloudSchemaChangeJob::_convert_historical_rowsets.fail.before.commit_job")
         }
+        
+        create_sync_mv(db, table1, "mv1", mv1)
+        t1.join()
+
+        explain {
+            sql("""${query1}""")
+            check {result ->
+                result.contains("(mv1)") && result.contains("__DORIS_DELETE_SIGN__")
+            }
+        }
+        order_qt_query1_after "${query1}"
 
     } catch(Exception e) {
         logger.info(e.getMessage())
