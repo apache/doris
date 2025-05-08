@@ -206,7 +206,7 @@ function check_doris_ready() {
 
 function stop_doris() {
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
-    if "${DORIS_HOME}"/be/bin/stop_be.sh && "${DORIS_HOME}"/fe/bin/stop_fe.sh; then
+    if "${DORIS_HOME}"/fe/bin/stop_fe.sh && "${DORIS_HOME}"/be/bin/stop_be.sh; then
         echo "INFO: normally stoped doris"
     else
         pgrep -fi doris | xargs kill -9 &>/dev/null
@@ -218,7 +218,7 @@ function stop_doris() {
 
 function stop_doris_grace() {
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
-    if "${DORIS_HOME}"/be/bin/stop_be.sh --grace && "${DORIS_HOME}"/fe/bin/stop_fe.sh --grace; then
+    if "${DORIS_HOME}"/fe/bin/stop_fe.sh --grace && "${DORIS_HOME}"/be/bin/stop_be.sh --grace; then
         echo "INFO: normally stoped doris"
     else
         pgrep -fi doris | xargs kill -9 &>/dev/null
