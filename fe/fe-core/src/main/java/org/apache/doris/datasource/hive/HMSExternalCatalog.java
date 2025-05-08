@@ -65,20 +65,21 @@ public class HMSExternalCatalog extends ExternalCatalog {
     private static final Logger LOG = LogManager.getLogger(HMSExternalCatalog.class);
 
     public static final String FILE_META_CACHE_TTL_SECOND = "file.meta.cache.ttl-second";
+    public static final String PARTITION_CACHE_TTL_SECOND = "partition.cache.ttl-second";
     // broker name for file split and query scan.
     public static final String BIND_BROKER_NAME = "broker.name";
     // Default is false, if set to true, will get table schema from "remoteTable" instead of from hive metastore.
-    // This is because for some forward compatiblity issue of hive metastore, there maybe
+    // This is because for some forward compatibility issue of hive metastore, there maybe
     // "storage schema reading not support" error being thrown.
     // set this to true can avoid this error.
     // But notice that if set to true, the default value of column will be ignored because we cannot get default value
     // from remoteTable object.
     public static final String GET_SCHEMA_FROM_TABLE = "get_schema_from_table";
 
-    // -1 means file cache no ttl set
-    public static final int FILE_META_CACHE_NO_TTL = -1;
-    // 0 means file cache is disabled; >0 means file cache with ttl;
-    public static final int FILE_META_CACHE_TTL_DISABLE_CACHE = 0;
+    // -1 means cache with no ttl
+    public static final int CACHE_NO_TTL = -1;
+    // 0 means cache is disabled; >0 means cache with ttl;
+    public static final int CACHE_TTL_DISABLE_CACHE = 0;
 
     private static final int FILE_SYSTEM_EXECUTOR_THREAD_NUM = 16;
     private ThreadPoolExecutor fileSystemExecutor;
@@ -111,11 +112,20 @@ public class HMSExternalCatalog extends ExternalCatalog {
         super.checkProperties();
         // check file.meta.cache.ttl-second parameter
         String fileMetaCacheTtlSecond = catalogProperty.getOrDefault(FILE_META_CACHE_TTL_SECOND, null);
-        if (Objects.nonNull(fileMetaCacheTtlSecond) && NumberUtils.toInt(fileMetaCacheTtlSecond, FILE_META_CACHE_NO_TTL)
-                < FILE_META_CACHE_TTL_DISABLE_CACHE) {
+        if (Objects.nonNull(fileMetaCacheTtlSecond) && NumberUtils.toInt(fileMetaCacheTtlSecond, CACHE_NO_TTL)
+                < CACHE_TTL_DISABLE_CACHE) {
             throw new DdlException(
                     "The parameter " + FILE_META_CACHE_TTL_SECOND + " is wrong, value is " + fileMetaCacheTtlSecond);
         }
+
+        // check partition.cache.ttl-second parameter
+        String partitionCacheTtlSecond = catalogProperty.getOrDefault(PARTITION_CACHE_TTL_SECOND, null);
+        if (Objects.nonNull(partitionCacheTtlSecond) && NumberUtils.toInt(partitionCacheTtlSecond, CACHE_NO_TTL)
+                < CACHE_TTL_DISABLE_CACHE) {
+            throw new DdlException(
+                    "The parameter " + FILE_META_CACHE_TTL_SECOND + " is wrong, value is " + partitionCacheTtlSecond);
+        }
+
         // check the dfs.ha properties
         // 'dfs.nameservices'='your-nameservice',
         // 'dfs.ha.namenodes.your-nameservice'='nn1,nn2',
@@ -280,8 +290,9 @@ public class HMSExternalCatalog extends ExternalCatalog {
     public void notifyPropertiesUpdated(Map<String, String> updatedProps) {
         super.notifyPropertiesUpdated(updatedProps);
         String fileMetaCacheTtl = updatedProps.getOrDefault(FILE_META_CACHE_TTL_SECOND, null);
-        if (Objects.nonNull(fileMetaCacheTtl)) {
-            Env.getCurrentEnv().getExtMetaCacheMgr().getMetaStoreCache(this).setNewFileCache();
+        String partitionCacheTtl = updatedProps.getOrDefault(PARTITION_CACHE_TTL_SECOND, null);
+        if (Objects.nonNull(fileMetaCacheTtl) || Objects.nonNull(partitionCacheTtl)) {
+            Env.getCurrentEnv().getExtMetaCacheMgr().getMetaStoreCache(this).init();
         }
     }
 
