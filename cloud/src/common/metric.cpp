@@ -259,6 +259,7 @@ int FdbMetricExporter::start() {
                                    [this]() { return !running_.load(std::memory_order_acquire); });
         }
     });
+    pthread_setname_np(thread_->native_handle(), "fdb_metrics_exporter");
     return 0;
 }
 

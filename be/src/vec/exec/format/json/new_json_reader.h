@@ -56,7 +56,6 @@ namespace io {
 class FileSystem;
 struct IOContext;
 } // namespace io
-struct TypeDescriptor;
 
 namespace vectorized {
 
@@ -82,10 +81,10 @@ public:
                                col_default_value_ctx,
                        bool is_load);
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
-    Status get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
+    Status get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
                        std::unordered_set<std::string>* missing_cols) override;
     Status get_parsed_schema(std::vector<std::string>* col_names,
-                             std::vector<TypeDescriptor>* col_types) override;
+                             std::vector<DataTypePtr>* col_types) override;
 
 protected:
     void _collect_profile_before_close() override;
@@ -121,7 +120,7 @@ private:
                              const std::vector<SlotDescriptor*>& slot_descs, bool* valid);
 
     Status _write_data_to_column(rapidjson::Value::ConstValueIterator value,
-                                 const TypeDescriptor& type_desc, vectorized::IColumn* column_ptr,
+                                 const DataTypePtr& type_desc, vectorized::IColumn* column_ptr,
                                  const std::string& column_name, DataTypeSerDeSPtr serde,
                                  bool* valid);
 
@@ -175,7 +174,7 @@ private:
                                       const std::vector<SlotDescriptor*>& slot_descs, bool* valid);
 
     Status _simdjson_write_data_to_column(simdjson::ondemand::value& value,
-                                          const TypeDescriptor& type_desc,
+                                          const DataTypePtr& type_desc,
                                           vectorized::IColumn* column_ptr,
                                           const std::string& column_name, DataTypeSerDeSPtr serde,
                                           bool* valid);

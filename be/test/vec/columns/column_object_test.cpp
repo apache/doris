@@ -280,8 +280,8 @@ TEST_F(ColumnObjectTest, test_insert_indices_from) {
         dst_column->get(0, result1);
         dst_column->get(1, result2);
 
-        EXPECT_TRUE(result1.get_type() == Field::Types::VariantMap);
-        EXPECT_TRUE(result2.get_type() == Field::Types::VariantMap);
+        EXPECT_TRUE(result1.get_type() == PrimitiveType::TYPE_VARIANT);
+        EXPECT_TRUE(result2.get_type() == PrimitiveType::TYPE_VARIANT);
 
         const auto& result1_map = result1.get<const VariantMap&>();
         const auto& result2_map = result2.get<const VariantMap&>();

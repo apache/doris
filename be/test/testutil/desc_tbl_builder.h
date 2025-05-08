@@ -58,31 +58,31 @@ private:
 
     std::vector<TupleDescBuilder*> _tuples_descs;
 
-    TTupleDescriptor build_tuple(const std::vector<TypeDescriptor>& slot_types,
+    TTupleDescriptor build_tuple(const std::vector<vectorized::DataTypePtr>& slot_types,
                                  const std::vector<std::string>& slot_names,
                                  TDescriptorTable* thrift_desc_tbl, int* tuple_id, int* slot_id);
 };
 
 class TupleDescBuilder {
 public:
-    using SlotType = std::tuple<TypeDescriptor, std::string>;
+    using SlotType = std::tuple<vectorized::DataTypePtr, std::string>;
     TupleDescBuilder& operator<<(const SlotType& slot) {
         _slot_types.push_back(std::get<0>(slot));
         _slot_names.push_back(std::get<1>(slot));
         return *this;
     }
 
-    TupleDescBuilder& operator<<(const TypeDescriptor& slot_type) {
+    TupleDescBuilder& operator<<(const vectorized::DataTypePtr& slot_type) {
         _slot_types.push_back(slot_type);
         _slot_names.emplace_back("");
         return *this;
     }
 
-    std::vector<TypeDescriptor> slot_types() const { return _slot_types; }
+    std::vector<vectorized::DataTypePtr> slot_types() const { return _slot_types; }
     std::vector<std::string> slot_names() const { return _slot_names; }
 
 private:
-    std::vector<TypeDescriptor> _slot_types;
+    std::vector<vectorized::DataTypePtr> _slot_types;
     std::vector<std::string> _slot_names;
 };
 

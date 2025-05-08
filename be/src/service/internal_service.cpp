@@ -40,6 +40,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <sys/stat.h>
+#include <vec/data_types/data_type.h>
 #include <vec/exec/vjdbc_connector.h>
 #include <vec/sink/varrow_flight_result_writer.h>
 
@@ -116,6 +117,7 @@
 #include "vec/exec/format/json/new_json_reader.h"
 #include "vec/exec/format/orc/vorc_reader.h"
 #include "vec/exec/format/parquet/vparquet_reader.h"
+#include "vec/functions/dictionary_factory.h"
 #include "vec/jsonb/serialize.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 #include "vec/sink/vmysql_result_writer.h"
@@ -678,11 +680,11 @@ void PInternalService::fetch_data(google::protobuf::RpcController* controller,
     // fetch_data is a light operation which will put a request rather than wait inplace when there's no data ready.
     // when there's data ready, use brpc to send. there's queue in brpc service. won't take it too long.
     auto ctx = vectorized::GetResultBatchCtx::create_shared(result, done);
-    TUniqueId tid = UniqueId(request->finst_id()).to_thrift();
+    TUniqueId unique_id = UniqueId(request->finst_id()).to_thrift(); // query_id or instance_id
     std::shared_ptr<vectorized::MySQLResultBlockBuffer> buffer;
-    Status st = ExecEnv::GetInstance()->result_mgr()->find_buffer(tid, buffer);
+    Status st = ExecEnv::GetInstance()->result_mgr()->find_buffer(unique_id, buffer);
     if (!st.ok()) {
-        LOG(WARNING) << "Result buffer not found! Query ID: " << print_id(tid);
+        LOG(WARNING) << "Result buffer not found! finst ID: " << print_id(unique_id);
         return;
     }
     if (st = buffer->get_batch(ctx); !st.ok()) {
@@ -697,11 +699,11 @@ void PInternalService::fetch_arrow_data(google::protobuf::RpcController* control
     bool ret = _arrow_flight_work_pool.try_offer([request, result, done]() {
         brpc::ClosureGuard closure_guard(done);
         auto ctx = vectorized::GetArrowResultBatchCtx::create_shared(result);
-        TUniqueId tid = UniqueId(request->finst_id()).to_thrift();
+        TUniqueId unique_id = UniqueId(request->finst_id()).to_thrift(); // query_id or instance_id
         std::shared_ptr<vectorized::ArrowFlightResultBlockBuffer> arrow_buffer;
-        auto st = ExecEnv::GetInstance()->result_mgr()->find_buffer(tid, arrow_buffer);
+        auto st = ExecEnv::GetInstance()->result_mgr()->find_buffer(unique_id, arrow_buffer);
         if (!st.ok()) {
-            LOG(WARNING) << "Result buffer not found! Query ID: " << print_id(tid);
+            LOG(WARNING) << "Result buffer not found! Query ID: " << print_id(unique_id);
             return;
         }
         if (st = arrow_buffer->get_batch(ctx); !st.ok()) {
@@ -892,7 +894,7 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
             return;
         }
         std::vector<std::string> col_names;
-        std::vector<TypeDescriptor> col_types;
+        std::vector<vectorized::DataTypePtr> col_types;
         st = reader->get_parsed_schema(&col_names, &col_types);
         if (!st.ok()) {
             LOG(WARNING) << "fetch table schema failed, errmsg=" << st;
@@ -905,7 +907,7 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
         }
         for (size_t idx = 0; idx < col_types.size(); ++idx) {
             PTypeDesc* type_desc = result->add_column_types();
-            col_types[idx].to_protobuf(type_desc);
+            col_types[idx]->to_protobuf(type_desc);
         }
         st.to_protobuf(result->mutable_status());
     });
@@ -2232,6 +2234,35 @@ void PInternalService::get_be_resource(google::protobuf::RpcController* controll
     if (!ret) {
         offer_failed(response, done, _heavy_work_pool);
     }
+}
+
+void PInternalService::delete_dictionary(google::protobuf::RpcController* controller,
+                                         const PDeleteDictionaryRequest* request,
+                                         PDeleteDictionaryResponse* response,
+                                         google::protobuf::Closure* done) {
+    brpc::ClosureGuard closure_guard(done);
+    Status st = ExecEnv::GetInstance()->dict_factory()->delete_dict(request->dictionary_id());
+    st.to_protobuf(response->mutable_status());
+}
+
+void PInternalService::commit_refresh_dictionary(google::protobuf::RpcController* controller,
+                                                 const PCommitRefreshDictionaryRequest* request,
+                                                 PCommitRefreshDictionaryResponse* response,
+                                                 google::protobuf::Closure* done) {
+    brpc::ClosureGuard closure_guard(done);
+    Status st = ExecEnv::GetInstance()->dict_factory()->commit_refresh_dict(
+            request->dictionary_id(), request->version_id());
+    st.to_protobuf(response->mutable_status());
+}
+
+void PInternalService::abort_refresh_dictionary(google::protobuf::RpcController* controller,
+                                                const PAbortRefreshDictionaryRequest* request,
+                                                PAbortRefreshDictionaryResponse* response,
+                                                google::protobuf::Closure* done) {
+    brpc::ClosureGuard closure_guard(done);
+    Status st = ExecEnv::GetInstance()->dict_factory()->abort_refresh_dict(request->dictionary_id(),
+                                                                           request->version_id());
+    st.to_protobuf(response->mutable_status());
 }
 
 } // namespace doris

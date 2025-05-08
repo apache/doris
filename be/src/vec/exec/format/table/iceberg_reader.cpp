@@ -145,7 +145,7 @@ Status IcebergTableReader::_equality_delete_base(
         const std::vector<TIcebergDeleteFileDesc>& delete_files) {
     bool init_schema = false;
     std::vector<std::string> equality_delete_col_names;
-    std::vector<TypeDescriptor> equality_delete_col_types;
+    std::vector<DataTypePtr> equality_delete_col_types;
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
             partition_columns;
     std::unordered_map<std::string, VExprContextSPtr> missing_columns;
@@ -200,8 +200,7 @@ Status IcebergTableReader::_equality_delete_base(
         if (std::find(_all_required_col_names.begin(), _all_required_col_names.end(), delete_col) ==
             _all_required_col_names.end()) {
             _expand_col_names.emplace_back(delete_col);
-            DataTypePtr data_type = DataTypeFactory::instance().create_data_type(
-                    equality_delete_col_types[i], true);
+            DataTypePtr data_type = make_nullable(equality_delete_col_types[i]);
             MutableColumnPtr data_column = data_type->create_column();
             _expand_columns.emplace_back(std::move(data_column), data_type, delete_col);
         }
@@ -215,10 +214,9 @@ Status IcebergTableReader::_equality_delete_base(
 
 void IcebergTableReader::_generate_equality_delete_block(
         Block* block, const std::vector<std::string>& equality_delete_col_names,
-        const std::vector<TypeDescriptor>& equality_delete_col_types) {
+        const std::vector<DataTypePtr>& equality_delete_col_types) {
     for (int i = 0; i < equality_delete_col_names.size(); ++i) {
-        DataTypePtr data_type =
-                DataTypeFactory::instance().create_data_type(equality_delete_col_types[i], true);
+        DataTypePtr data_type = make_nullable(equality_delete_col_types[i]);
         MutableColumnPtr data_column = data_type->create_column();
         block->insert(ColumnWithTypeAndName(std::move(data_column), data_type,
                                             equality_delete_col_names[i]));

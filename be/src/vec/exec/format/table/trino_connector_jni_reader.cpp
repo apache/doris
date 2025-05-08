@@ -46,7 +46,7 @@ TrinoConnectorJniReader::TrinoConnectorJniReader(
     for (const auto& desc : _file_slot_descs) {
         std::string field = desc->col_name();
         column_names.emplace_back(field);
-        column_types.emplace_back(JniConnector::get_jni_type(desc->type()));
+        column_types.emplace_back(JniConnector::get_jni_type_with_different_string(desc->type()));
     }
     std::map<String, String> params = {
             {"catalog_name", range.table_format_params.trino_connector_params.catalog_name},
@@ -88,7 +88,7 @@ Status TrinoConnectorJniReader::get_next_block(Block* block, size_t* read_rows, 
 }
 
 Status TrinoConnectorJniReader::get_columns(
-        std::unordered_map<std::string, TypeDescriptor>* name_to_type,
+        std::unordered_map<std::string, DataTypePtr>* name_to_type,
         std::unordered_set<std::string>* missing_cols) {
     for (const auto& desc : _file_slot_descs) {
         name_to_type->emplace(desc->col_name(), desc->type());

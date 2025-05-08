@@ -25,7 +25,7 @@ import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
-import org.apache.doris.planner.StreamLoadPlanner;
+import org.apache.doris.nereids.load.NereidsStreamLoadPlanner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TKafkaLoadInfo;
@@ -39,6 +39,7 @@ import org.apache.doris.thrift.TUniqueId;
 import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
 import com.google.gson.Gson;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -137,39 +138,39 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
         TUniqueId loadId = new TUniqueId(id.getMostSignificantBits(), id.getLeastSignificantBits());
         // plan for each task, in case table has change(rollup or schema change)
         Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(routineLoadJob.getDbId());
-        StreamLoadPlanner planner = new StreamLoadPlanner(db,
+        NereidsStreamLoadPlanner planner = new NereidsStreamLoadPlanner(db,
                 (OlapTable) db.getTableOrMetaException(routineLoadJob.getTableId(),
-                Table.TableType.OLAP), routineLoadJob);
+                Table.TableType.OLAP), routineLoadJob.toNereidsRoutineLoadTaskInfo());
         TPipelineFragmentParams tExecPlanFragmentParams = routineLoadJob.plan(planner, loadId, txnId);
         TPlanFragment tPlanFragment = tExecPlanFragmentParams.getFragment();
         tPlanFragment.getOutputSink().getOlapTableSink().setTxnId(txnId);
 
         if (Config.enable_workload_group) {
             try {
-                long wgId = routineLoadJob.getWorkloadId();
                 List<TPipelineWorkloadGroup> tWgList = new ArrayList<>();
-                if (wgId > 0) {
-                    tWgList = Env.getCurrentEnv().getWorkloadGroupMgr()
-                            .getTWorkloadGroupById(wgId);
+
+                ConnectContext tmpContext = new ConnectContext();
+                if (Config.isCloudMode()) {
+                    String clusterName = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                            .getClusterNameByClusterId(routineLoadJob.getCloudClusterId());
+                    if (Strings.isNullOrEmpty(clusterName)) {
+                        LOG.warn("cluster name is empty, cluster id is {}, job id is {}",
+                                routineLoadJob.getCloudClusterId(), routineLoadJob.getTxnId());
+                        throw new UserException(String.format("cluster name is empty, cluster id is %s",
+                                routineLoadJob.getCloudClusterId()));
+                    }
+                    tmpContext.setCloudCluster(clusterName);
+                }
+                tmpContext.setCurrentUserIdentity(routineLoadJob.getUserIdentity());
+                tmpContext.setQualifiedUser(routineLoadJob.getUserIdentity().getQualifiedUser());
+
+                String wgName = routineLoadJob.getWorkloadGroup();
+                if (!StringUtils.isEmpty(wgName)) {
+                    tmpContext.getSessionVariable().setWorkloadGroup(wgName);
                 }
 
-                if (tWgList.size() == 0) {
-                    ConnectContext tmpContext = new ConnectContext();
-                    if (Config.isCloudMode()) {
-                        String clusterName = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
-                                .getClusterNameByClusterId(routineLoadJob.getCloudClusterId());
-                        if (Strings.isNullOrEmpty(clusterName)) {
-                            String err = String.format("cluster name is empty, cluster id is %s",
-                                    routineLoadJob.getCloudClusterId());
-                            LOG.warn(err);
-                            throw new UserException(err);
-                        }
-                        tmpContext.setCloudCluster(clusterName);
-                    }
-                    tmpContext.setCurrentUserIdentity(routineLoadJob.getUserIdentity());
-                    tmpContext.setQualifiedUser(routineLoadJob.getUserIdentity().getQualifiedUser());
-                    tWgList = Env.getCurrentEnv().getWorkloadGroupMgr().getWorkloadGroup(tmpContext);
-                }
+                tWgList = Env.getCurrentEnv().getWorkloadGroupMgr().getWorkloadGroup(tmpContext);
+
                 if (tWgList.size() != 0) {
                     tExecPlanFragmentParams.setWorkloadGroups(tWgList);
                 }
