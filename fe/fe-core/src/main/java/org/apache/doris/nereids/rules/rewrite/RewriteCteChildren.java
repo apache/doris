@@ -49,6 +49,7 @@ import java.util.List;
 import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 /**
@@ -86,7 +87,12 @@ public class RewriteCteChildren extends DefaultPlanRewriter<CascadesContext> imp
             CascadesContext outerCascadesCtx = CascadesContext.newSubtreeContext(
                     Optional.empty(), cascadesContext, cteAnchor.child(1),
                     cascadesContext.getCurrentJobContext().getRequiredProperties());
-            outer = (LogicalPlan) cteAnchor.child(1).accept(this, outerCascadesCtx);
+            AtomicReference<LogicalPlan> outerResult = new AtomicReference<>();
+            outerCascadesCtx.withPlanProcess(cascadesContext.showPlanProcess(), () -> {
+                outerResult.set((LogicalPlan) cteAnchor.child(1).accept(this, outerCascadesCtx));
+            });
+            outer = outerResult.get();
+            cascadesContext.addPlanProcesses(outerCascadesCtx.getPlanProcesses());
             cascadesContext.getStatementContext().getRewrittenCteConsumer().put(cteAnchor.getCteId(), outer);
         }
         Set<LogicalCTEConsumer> cteConsumers = Sets.newHashSet();
@@ -131,7 +137,12 @@ public class RewriteCteChildren extends DefaultPlanRewriter<CascadesContext> imp
             }
             CascadesContext rewrittenCtx = CascadesContext.newSubtreeContext(
                     Optional.of(cteProducer.getCteId()), cascadesContext, child, PhysicalProperties.ANY);
-            child = (LogicalPlan) child.accept(this, rewrittenCtx);
+            AtomicReference<LogicalPlan> result = new AtomicReference<>(child);
+            rewrittenCtx.withPlanProcess(cascadesContext.showPlanProcess(), () -> {
+                result.set((LogicalPlan) result.get().accept(this, rewrittenCtx));
+            });
+            child = result.get();
+            cascadesContext.addPlanProcesses(rewrittenCtx.getPlanProcesses());
             cascadesContext.getStatementContext().getRewrittenCteProducer().put(cteProducer.getCteId(), child);
         }
         return cteProducer.withChildren(child);

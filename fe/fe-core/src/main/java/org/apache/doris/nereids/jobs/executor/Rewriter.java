@@ -527,14 +527,11 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         topDown(new DeferMaterializeTopNResult())
                 ),
                 topic("add projection for join",
-                        bottomUp(
-                                new AddProjectForJoin(),
-                                new MergeProjects()
-                        )
+                        custom(RuleType.ADD_PROJECT_FOR_JOIN, AddProjectForJoin::new),
+                        topDown(new MergeProjects())
                 ),
                 topic("adjust topN project",
-                        topDown(new MergeProjects(),
-                                new PullUpProjectBetweenTopNAndAgg())),
+                        topDown(new PullUpProjectBetweenTopNAndAgg())),
                 topic("remove const hash join condition",
                         topDown(new EliminateConstHashJoinCondition())),
 
