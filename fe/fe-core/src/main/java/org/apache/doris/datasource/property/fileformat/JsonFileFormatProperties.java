@@ -56,7 +56,7 @@ public class JsonFileFormatProperties extends FileFormatProperties {
                 "", isRemoveOriginProperty);
         readJsonByLine = Boolean.valueOf(
                 getOrDefault(formatProperties, PROP_READ_JSON_BY_LINE,
-                        "", isRemoveOriginProperty)).booleanValue();
+                        "true", isRemoveOriginProperty)).booleanValue();
         stripOuterArray = Boolean.valueOf(
                 getOrDefault(formatProperties, PROP_STRIP_OUTER_ARRAY,
                         "", isRemoveOriginProperty)).booleanValue();
@@ -113,5 +113,9 @@ public class JsonFileFormatProperties extends FileFormatProperties {
 
     public boolean isFuzzyParse() {
         return fuzzyParse;
+    }
+
+    public String getLineDelimiter() {
+        return CsvFileFormatProperties.DEFAULT_LINE_DELIMITER;
     }
 }

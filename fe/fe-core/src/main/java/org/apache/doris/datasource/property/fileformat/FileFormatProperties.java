@@ -100,7 +100,7 @@ public abstract class FileFormatProperties {
 
     public static FileFormatProperties createFileFormatProperties(Map<String, String> formatProperties)
             throws AnalysisException {
-        String formatString = formatProperties.getOrDefault(PROP_FORMAT, "")
+        String formatString = formatProperties.getOrDefault(PROP_FORMAT, "csv")
                 .toLowerCase();
         return createFileFormatProperties(formatString);
     }
