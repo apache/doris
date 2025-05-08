@@ -146,7 +146,7 @@ TEST_F(DataTypeNumberTest, MetaInfoTest) {
             .is_value_unambiguously_represented_in_contiguous_memory_region = true,
             .default_field = (Int8)0,
     };
-    auto tmp_dt = DataTypeFactory::instance().create_data_type(TypeIndex::Int8);
+    auto tmp_dt = DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_TINYINT, false);
     helper->meta_info_assert(tmp_dt, meta_info_to_assert);
 }
 TEST_F(DataTypeNumberTest, get_type_as_type_descriptor) {
