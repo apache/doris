@@ -1051,13 +1051,11 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
         auto st = thread_pool->submit_func([tablet, compaction = std::move(compaction),
                                             compaction_type, permits, force, this]() {
             if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) [[likely]] {
-                DorisMetrics::instance()->cumulative_compaction_task_running_total->set_value(
-                        _cumu_compaction_thread_pool->num_active_threads());
+                DorisMetrics::instance()->cumulative_compaction_task_running_total->increment(1);
                 DorisMetrics::instance()->cumulative_compaction_task_pending_total->set_value(
                         _cumu_compaction_thread_pool->get_queue_size());
             } else if (compaction_type == CompactionType::BASE_COMPACTION) {
-                DorisMetrics::instance()->base_compaction_task_running_total->set_value(
-                        _base_compaction_thread_pool->num_active_threads());
+                DorisMetrics::instance()->base_compaction_task_running_total->increment(1);
                 DorisMetrics::instance()->base_compaction_task_pending_total->set_value(
                         _base_compaction_thread_pool->get_queue_size());
             }
@@ -1075,13 +1073,12 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
                     if (!is_large_task) {
                         _cumu_compaction_thread_pool_small_tasks_running--;
                     }
-                    DorisMetrics::instance()->cumulative_compaction_task_running_total->set_value(
-                            _cumu_compaction_thread_pool->num_active_threads());
+                    DorisMetrics::instance()->cumulative_compaction_task_running_total->increment(
+                            -1);
                     DorisMetrics::instance()->cumulative_compaction_task_pending_total->set_value(
                             _cumu_compaction_thread_pool->get_queue_size());
                 } else if (compaction_type == CompactionType::BASE_COMPACTION) {
-                    DorisMetrics::instance()->base_compaction_task_running_total->set_value(
-                            _base_compaction_thread_pool->num_active_threads());
+                    DorisMetrics::instance()->base_compaction_task_running_total->increment(-1);
                     DorisMetrics::instance()->base_compaction_task_pending_total->set_value(
                             _base_compaction_thread_pool->get_queue_size());
                 }
@@ -1143,13 +1140,9 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
             tablet->execute_compaction(*compaction);
         });
         if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) [[likely]] {
-            DorisMetrics::instance()->cumulative_compaction_task_running_total->set_value(
-                    _cumu_compaction_thread_pool->num_active_threads());
             DorisMetrics::instance()->cumulative_compaction_task_pending_total->set_value(
                     _cumu_compaction_thread_pool->get_queue_size());
         } else if (compaction_type == CompactionType::BASE_COMPACTION) {
-            DorisMetrics::instance()->base_compaction_task_running_total->set_value(
-                    _base_compaction_thread_pool->num_active_threads());
             DorisMetrics::instance()->base_compaction_task_pending_total->set_value(
                     _base_compaction_thread_pool->get_queue_size());
         }
