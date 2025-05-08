@@ -53,11 +53,11 @@ namespace vectorized {
 struct ScannerCounter;
 class Block;
 
-class HiveCsvTextFieldSplitter : public BaseCsvTextFieldSplitter<HiveCsvTextFieldSplitter> {
+class HiveTextFieldSplitter : public BaseCsvTextFieldSplitter<HiveTextFieldSplitter> {
 public:
-    explicit HiveCsvTextFieldSplitter(bool trim_tailing_space, bool trim_ends,
-                                      std::string value_sep, size_t value_sep_len = 1,
-                                      char trimming_char = 0, char escape_char = 0)
+    explicit HiveTextFieldSplitter(bool trim_tailing_space, bool trim_ends, std::string value_sep,
+                                   size_t value_sep_len = 1, char trimming_char = 0,
+                                   char escape_char = 0)
             : BaseCsvTextFieldSplitter(trim_tailing_space, trim_ends, value_sep_len, trimming_char),
               _value_sep(std::move(value_sep)),
               _escape_char(escape_char) {}

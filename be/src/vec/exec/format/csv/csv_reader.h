@@ -136,17 +136,16 @@ private:
 
 class EncloseCsvTextFieldSplitter : public BaseCsvTextFieldSplitter<EncloseCsvTextFieldSplitter> {
 public:
-    explicit EncloseCsvTextFieldSplitter(
-            bool trim_tailing_space, bool trim_ends,
-            std::shared_ptr<EncloseCsvLineReaderContext> line_reader_ctx, size_t value_sep_len = 1,
-            char trimming_char = 0)
+    explicit EncloseCsvTextFieldSplitter(bool trim_tailing_space, bool trim_ends,
+                                         std::shared_ptr<EncloseCsvLineReaderCtx> line_reader_ctx,
+                                         size_t value_sep_len = 1, char trimming_char = 0)
             : BaseCsvTextFieldSplitter(trim_tailing_space, trim_ends, value_sep_len, trimming_char),
               _text_line_reader_ctx(std::move(line_reader_ctx)) {}
 
     void do_split(const Slice& line, std::vector<Slice>* splitted_values);
 
 private:
-    std::shared_ptr<EncloseCsvLineReaderContext> _text_line_reader_ctx;
+    std::shared_ptr<EncloseCsvLineReaderCtx> _text_line_reader_ctx;
 };
 
 class PlainCsvTextFieldSplitter : public BaseCsvTextFieldSplitter<PlainCsvTextFieldSplitter> {

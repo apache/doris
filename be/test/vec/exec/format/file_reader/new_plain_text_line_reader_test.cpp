@@ -72,8 +72,8 @@ protected:
                           const std::string& col_sep, char enclose, char escape, bool keep_cr,
                           const std::vector<std::string>& expected_lines,
                           const std::vector<std::vector<size_t>>& expected_col_positions) {
-        EncloseCsvLineReaderContext ctx(line_delim, line_delim.size(), col_sep, col_sep.size(), 10,
-                                        enclose, escape, keep_cr);
+        EncloseCsvLineReaderCtx ctx(line_delim, line_delim.size(), col_sep, col_sep.size(), 10,
+                                    enclose, escape, keep_cr);
 
         const auto* data = reinterpret_cast<const uint8_t*>(input.c_str());
         size_t pos = 0;

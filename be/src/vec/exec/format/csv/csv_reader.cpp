@@ -328,18 +328,17 @@ Status CsvReader::init_reader(bool is_load) {
     if (_enclose == 0) {
         text_line_reader_ctx = std::make_shared<PlainTextLineReaderCtx>(
                 _line_delimiter, _line_delimiter_length, _keep_cr);
-        // TODO: make sure what table this splitter is used for
         _fields_splitter = std::make_unique<PlainCsvTextFieldSplitter>(
                 _trim_tailing_spaces, false, _value_separator, _value_separator_length, -1);
 
     } else {
-        text_line_reader_ctx = std::make_shared<EncloseCsvLineReaderContext>(
+        text_line_reader_ctx = std::make_shared<EncloseCsvLineReaderCtx>(
                 _line_delimiter, _line_delimiter_length, _value_separator, _value_separator_length,
                 _file_slot_descs.size() - 1, _enclose, _escape, _keep_cr);
 
         _fields_splitter = std::make_unique<EncloseCsvTextFieldSplitter>(
                 _trim_tailing_spaces, !_not_trim_enclose,
-                std::static_pointer_cast<EncloseCsvLineReaderContext>(text_line_reader_ctx),
+                std::static_pointer_cast<EncloseCsvLineReaderCtx>(text_line_reader_ctx),
                 _value_separator_length, _enclose);
     }
 
@@ -783,13 +782,13 @@ Status CsvReader::_prepare_parse(size_t* read_line, bool* is_parse_name) {
         // If we pass `_file_slot_descs.size() - 1` to EncloseCsvTextFieldSplitter, it will cause BE core dump
         // because currently _file_slot_descs is an empty vector.
         // The _file_slot_descs.size() is only used to reserve space,
-        // so it's ok to pass 0 to EncloseCsvLineReaderContext
-        text_line_reader_ctx = std::make_shared<EncloseCsvLineReaderContext>(
+        // so it's ok to pass 0 to EncloseCsvLineReaderCtx
+        text_line_reader_ctx = std::make_shared<EncloseCsvLineReaderCtx>(
                 _line_delimiter, _line_delimiter_length, _value_separator, _value_separator_length,
                 0, _enclose, _escape, _keep_cr);
         _fields_splitter = std::make_unique<EncloseCsvTextFieldSplitter>(
                 _trim_tailing_spaces, false,
-                std::static_pointer_cast<EncloseCsvLineReaderContext>(text_line_reader_ctx),
+                std::static_pointer_cast<EncloseCsvLineReaderCtx>(text_line_reader_ctx),
                 _value_separator_length);
     }
 
