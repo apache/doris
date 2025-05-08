@@ -349,18 +349,18 @@ public class Column implements GsonPostProcessable {
             EncodingTree itemEncodingTree = encodingTree == null ? null : encodingTree.child(0);
             Column c = new Column(COLUMN_ARRAY_CHILDREN, ((ArrayType) type).getItemType(), itemEncodingTree, false,
                     null, false, -1, null, "", true, null,
-                    COLUMN_UNIQUE_ID_INIT_VALUE, null, false, null);
+                    COLUMN_UNIQUE_ID_INIT_VALUE, null, false, null, null, Sets.newHashSet());
             c.setIsAllowNull(((ArrayType) type).getContainsNull());
             column.addChildrenColumn(c);
         } else if (type.isMapType()) {
             EncodingTree keyEncodingTree = encodingTree == null ? null : encodingTree.child(0);
             Column k = new Column(COLUMN_MAP_KEY, ((MapType) type).getKeyType(), keyEncodingTree, false, null, false,
                     -1, null, "", true, null,
-                    COLUMN_UNIQUE_ID_INIT_VALUE, null, false, null);
+                    COLUMN_UNIQUE_ID_INIT_VALUE, null, false, null, null, Sets.newHashSet());
             EncodingTree valueEncodingTree = encodingTree == null ? null : encodingTree.child(1);
             Column v = new Column(COLUMN_MAP_VALUE, ((MapType) type).getValueType(), valueEncodingTree, false, null,
                     false, -1, null, "", true, null,
-                    COLUMN_UNIQUE_ID_INIT_VALUE, null, false, null);
+                    COLUMN_UNIQUE_ID_INIT_VALUE, null, false, null, null, Sets.newHashSet());
             k.setIsAllowNull(((MapType) type).getIsKeyContainsNull());
             v.setIsAllowNull(((MapType) type).getIsValueContainsNull());
             column.addChildrenColumn(k);
@@ -372,7 +372,7 @@ public class Column implements GsonPostProcessable {
                 EncodingTree fieldEncodingTree = encodingTree == null ? null : encodingTree.child(i);
                 Column c = new Column(field.getName(), field.getType(), fieldEncodingTree, false, null, false, -1, null,
                         "", true, null,
-                        COLUMN_UNIQUE_ID_INIT_VALUE, null, false, null);
+                        COLUMN_UNIQUE_ID_INIT_VALUE, null, false, null, null, Sets.newHashSet());
                 c.setIsAllowNull(field.getContainsNull());
                 column.addChildrenColumn(c);
             }
