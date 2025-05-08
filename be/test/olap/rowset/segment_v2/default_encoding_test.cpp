@@ -82,13 +82,13 @@ public:
     void _test_encode_decode_page_template(EncodingTypePB& encoding_type,
                                            CompressionTypePB& compress_type,
                                            typename TypeTraits<FType>::CppType* src, size_t count,
-                                           size_t origin_size, std::string random = "随机") {
+                                           size_t origin_size, std::string random = "random") {
         size_t origin_count = count;
         const EncodingInfo* encoding_info;
         auto status = EncodingInfo::get(FType, encoding_type, &encoding_info);
         if (!status.ok()) {
-            LOG(WARNING) << "type=" << TabletColumn::get_string_by_field_type(FType)
-                         << " encoding_type=" << encoding_type << " get encoding fail";
+            std::cerr << "type=" << TabletColumn::get_string_by_field_type(FType)
+                      << " encoding_type=" << encoding_type << " get encoding fail" << std::endl;
         }
         PageBuilderOptions opts;
         opts.data_page_size = 5 * 1024 * 1024;
@@ -96,9 +96,9 @@ public:
         PageBuilder* page_builder = nullptr;
         status = encoding_info->create_page_builder(opts, &page_builder);
         if (!status.ok() || page_builder == nullptr) {
-            LOG(WARNING) << "type=" << TabletColumn::get_string_by_field_type(FType)
-                         << " encoding_type=" << encoding_type << " create encoding info fail"
-                         << status;
+            std::cerr << "type=" << TabletColumn::get_string_by_field_type(FType)
+                      << " encoding_type=" << encoding_type << " create encoding info fail "
+                      << status << std::endl;
         }
         std::unique_ptr<PageBuilder> page_builder_p;
         page_builder_p.reset(page_builder);
@@ -148,6 +148,7 @@ public:
             }
         }
 
+        // decoding
         //        OwnedSlice decompressed_body(encoded_size);
         //        Slice decompressed_slice(decompressed_body.slice());
         //        Slice compressed_slice(compressed_body.slice());
@@ -208,24 +209,23 @@ public:
         //                  << "\torigin_count=" << origin_count << "\tencode_count=" << count
         //                  << std::endl;
 
-        std::cout << TabletColumn::get_string_by_field_type(FType) << ","
-                  << get_string_by_encoding(encoding_type) << "," << random << ","
+        std::cout << TabletColumn::get_string_by_field_type(FType) << ", "
+                  << get_string_by_encoding(encoding_type) << ", " << random << ", "
                   << get_string_by_compression(compress_type)
-                  //                  << "\tencode_time="<< encode_time
-                  //                  << "\tcompress_time=" << compression_time
-                  << "," << origin_size << "," << encoded_size << ","
+                  //                  << ", "<< encode_time
+                  //                  << ", " << compression_time
+                  << "," << origin_size << ", " << encoded_size << ", "
                   << compress_size
-                  //<< decompress_time << "\t" << decode_time << "\t"
-                  << "," << double(origin_size) / double(compress_size) << ","
-                  << double(origin_size) / double(encoded_size) << "," << origin_count << ","
-                  << count << std::endl;
+                  //<< decompress_time << ", " << decode_time << ", "
+                  << ", " << double(origin_size) / double(compress_size) << ", "
+                  << double(origin_size) / double(encoded_size) << ", " << std::endl;
     }
 
     template <FieldType FType>
     void test_encode_decode_page_template(typename TypeTraits<FType>::CppType* src, size_t count,
                                           size_t origin_size,
                                           std::vector<EncodingTypePB> encoding_types,
-                                          std::string random = "随机") {
+                                          std::string random = "random") {
         static CompressionTypePB compressions[6] = {LZ4, LZ4F, SNAPPY, ZSTD, ZLIB, LZ4HC};
         for (int i = 0; i < 6; ++i) {
             for (EncodingTypePB& encode_type : encoding_types) {
@@ -244,20 +244,16 @@ public:
         encoding_types.emplace_back(FOR_ENCODING);
         using INT_TYPE = typename TypeTraits<FType>::CppType;
         auto int_count = DATA_SIZE / sizeof(INT_TYPE);
-        // 随机
-        //        std::cout << "type=" << TabletColumn::get_string_by_field_type(FType)
-        //                  << " 随机值" << std::endl;
+        // random
         INT_TYPE ints[int_count];
         std::srand(static_cast<unsigned int>(std::time(nullptr)));
         for (int i = 0; i < int_count; ++i) {
             ints[i] = std::rand() % 10000 + 10000;
         }
         test_encode_decode_page_template<FType>(ints, int_count, sizeof(INT_TYPE) * int_count,
-                                                encoding_types, "随机");
+                                                encoding_types, "random");
 
-        // 重复
-        //        std::cout << "type=" << TabletColumn::get_string_by_field_type(FType)
-        //                  << " 重复值" << std::endl;
+        // repeat
         std::srand(static_cast<unsigned int>(std::time(nullptr)));
         INT_TYPE value = std::rand() % 10000 + 10000;
         for (int i = 0; i < int_count; ++i) {
@@ -267,7 +263,7 @@ public:
             ints[i] = value;
         }
         test_encode_decode_page_template<FType>(ints, int_count, sizeof(INT_TYPE) * int_count,
-                                                encoding_types, "重复");
+                                                encoding_types, "repeat");
     }
 
     template <FieldType FType>
@@ -283,18 +279,14 @@ public:
         std::uniform_real_distribution<> dis(100.0, 10000.0);
         DOUBLE_TYPE doubles[double_count];
 
-        // 随机
+        // random
         for (int i = 0; i < double_count; ++i) {
             doubles[i] = dis(gen);
         }
-        //        std::cout << "type=" << TabletColumn::get_string_by_field_type(FType)
-        //                  << " 随机值" << std::endl;
         test_encode_decode_page_template<FType>(
-                doubles, double_count, sizeof(DOUBLE_TYPE) * double_count, encoding_types, "随机");
+                doubles, double_count, sizeof(DOUBLE_TYPE) * double_count, encoding_types, "random");
 
-        // 重复
-        //        std::cout << "type=" << TabletColumn::get_string_by_field_type(FType)
-        //                  << " 重复值" << std::endl;
+        // repeat
         double start = dis(gen);
         for (int i = 0; i < double_count; ++i) {
             doubles[i] = start;
@@ -303,7 +295,7 @@ public:
             }
         }
         test_encode_decode_page_template<FType>(
-                doubles, double_count, sizeof(DOUBLE_TYPE) * double_count, encoding_types, "重复");
+                doubles, double_count, sizeof(DOUBLE_TYPE) * double_count, encoding_types, "repeat");
     }
 
     template <FieldType FType>
@@ -313,9 +305,7 @@ public:
         encoding_types.emplace_back(PLAIN_ENCODING);
         using DECIMAL_TYPE = typename TypeTraits<FType>::CppType;
         auto int_count = DATA_SIZE / sizeof(DECIMAL_TYPE);
-        // 随机
-        //        std::cout << "type=" << TabletColumn::get_string_by_field_type(FType)
-        //                  << " 随机值" << std::endl;
+        // random
         DECIMAL_TYPE decimals[int_count];
         std::srand(static_cast<unsigned int>(std::time(nullptr)));
         for (int i = 0; i < int_count; ++i) {
@@ -325,11 +315,9 @@ public:
             decimals[i] = decimal;
         }
         test_encode_decode_page_template<FType>(
-                decimals, int_count, sizeof(DECIMAL_TYPE) * int_count, encoding_types, "随机");
+                decimals, int_count, sizeof(DECIMAL_TYPE) * int_count, encoding_types, "random");
 
-        // 重复
-        //        std::cout << "type=" << TabletColumn::get_string_by_field_type(FType)
-        //                  << " 重复值" << std::endl;
+        // repeat
         std::srand(static_cast<unsigned int>(std::time(nullptr)));
         decimal12_t value;
         value.integer = std::rand() % 100000 + 100000;
@@ -342,7 +330,7 @@ public:
             decimals[i] = value;
         }
         test_encode_decode_page_template<FType>(
-                decimals, int_count, sizeof(DECIMAL_TYPE) * int_count, encoding_types, "重复");
+                decimals, int_count, sizeof(DECIMAL_TYPE) * int_count, encoding_types, "repeat");
     }
 
     template <FieldType FType>
@@ -352,9 +340,7 @@ public:
         encoding_types.emplace_back(PLAIN_ENCODING);
         using DECIMAL_TYPE = typename TypeTraits<FType>::CppType;
         auto int_count = DATA_SIZE / sizeof(DECIMAL_TYPE);
-        // 随机
-        //        std::cout << "type=" << TabletColumn::get_string_by_field_type(FType)
-        //                  << " 随机值" << std::endl;
+        // random
         DECIMAL_TYPE decimals[int_count];
         std::srand(static_cast<unsigned int>(std::time(nullptr)));
         for (int i = 0; i < int_count; ++i) {
@@ -362,11 +348,9 @@ public:
             decimals[i] = std::rand() % ((high << 64) | std::rand()) % mod_value;
         }
         test_encode_decode_page_template<FType>(
-                decimals, int_count, sizeof(DECIMAL_TYPE) * int_count, encoding_types, "随机");
+                decimals, int_count, sizeof(DECIMAL_TYPE) * int_count, encoding_types, "random");
 
-        // 重复
-        //        std::cout << "type=" << TabletColumn::get_string_by_field_type(FType)
-        //                  << " 重复值" << std::endl;
+        // repeat
         int128_t value = std::rand();
         value = std::rand() % ((value << 64) | std::rand()) % mod_value;
         for (int i = 0; i < int_count; ++i) {
@@ -377,7 +361,7 @@ public:
             decimals[i] = value;
         }
         test_encode_decode_page_template<FType>(
-                decimals, int_count, sizeof(DECIMAL_TYPE) * int_count, encoding_types, "重复");
+                decimals, int_count, sizeof(DECIMAL_TYPE) * int_count, encoding_types, "repeat");
     }
 
     template <FieldType FType>
@@ -388,9 +372,7 @@ public:
         encoding_types.emplace_back(PREFIX_ENCODING);
         using CHAR_TYPE = typename TypeTraits<FType>::CppType;
         auto char_count = DATA_SIZE / sizeof(CHAR_TYPE);
-        // 随机
-        //        std::cout << "type=" << TabletColumn::get_string_by_field_type(FType)
-        //                  << " 随机值" << std::endl;
+        // random
         std::vector<CHAR_TYPE> strings;
         size_t real_count = 0;
         size_t real_size = 0;
@@ -409,9 +391,9 @@ public:
         }
 
         test_encode_decode_page_template<FType>(slices, real_count, real_size, encoding_types,
-                                                "随机");
+                                                "random");
 
-        // 重复
+        // repeat
         real_count = 0;
         real_size = 0;
         strings.clear();
@@ -432,11 +414,19 @@ public:
             new_slices[i] = strings[i];
         }
         test_encode_decode_page_template<FType>(new_slices, real_count, real_size, encoding_types,
-                                                "重复");
+                                                "repeat");
     }
 };
 
 TEST_F(DefaultEncodingTest, test) {
+    std::cout << "DataType, EncodingType" << ", randomness" << ", CompressionType"
+              //                  << ", EncodingTime"
+              //                  << ", CompressionTime"
+              << ", OriginSize, EncodedSize, CompressSize"
+              //<<  << ", DecompressTime, DecodeTime"
+              << ", CompressRatio, "
+              << ", EncodeRatio" << std::endl;
+
     test_integer_template<FieldType::OLAP_FIELD_TYPE_TINYINT>();
     test_integer_template<FieldType::OLAP_FIELD_TYPE_SMALLINT>();
     test_integer_template<FieldType::OLAP_FIELD_TYPE_INT>();
