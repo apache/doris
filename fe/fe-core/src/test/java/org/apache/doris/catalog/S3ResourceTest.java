@@ -31,6 +31,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableMap;
 import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mocked;
@@ -172,14 +173,15 @@ public class S3ResourceTest {
         S3Resource s3Resource1 = new S3Resource("s3_1");
         s3Resource1.write(s3Dos);
 
-        Map<String, String> properties = new HashMap<>();
-        properties.put("AWS_ENDPOINT", "aaa");
-        properties.put("AWS_REGION", "bbb");
-        properties.put("AWS_ROOT_PATH", "/path/to/root");
-        properties.put("AWS_ACCESS_KEY", "xxx");
-        properties.put("AWS_SECRET_KEY", "yyy");
-        properties.put("AWS_BUCKET", "test-bucket");
-        properties.put("s3_validity_check", "false");
+        ImmutableMap<String, String> properties = ImmutableMap.of(
+                "AWS_ENDPOINT", "aaa",
+                "AWS_REGION", "bbb",
+                "AWS_ROOT_PATH", "/path/to/root",
+                "AWS_ACCESS_KEY", "xxx",
+                "AWS_SECRET_KEY", "yyy",
+                "AWS_BUCKET", "test-bucket",
+                "s3_validity_check", "false"
+        );
         S3Resource s3Resource2 = new S3Resource("s3_2");
         s3Resource2.setProperties(properties);
         s3Resource2.write(s3Dos);
@@ -211,14 +213,15 @@ public class S3ResourceTest {
 
     @Test
     public void testModifyProperties() throws Exception {
-        Map<String, String> properties = new HashMap<>();
-        properties.put("AWS_ENDPOINT", "aaa");
-        properties.put("AWS_REGION", "bbb");
-        properties.put("AWS_ROOT_PATH", "/path/to/root");
-        properties.put("AWS_ACCESS_KEY", "xxx");
-        properties.put("AWS_SECRET_KEY", "yyy");
-        properties.put("AWS_BUCKET", "test-bucket");
-        properties.put("s3_validity_check", "false");
+        ImmutableMap<String, String> properties = ImmutableMap.of(
+                "AWS_ENDPOINT", "aaa",
+                "AWS_REGION", "bbb",
+                "AWS_ROOT_PATH", "/path/to/root",
+                "AWS_ACCESS_KEY", "xxx",
+                "AWS_SECRET_KEY", "yyy",
+                "AWS_BUCKET", "test-bucket",
+                "s3_validity_check", "false"
+        );
         S3Resource s3Resource = new S3Resource("t_source");
         s3Resource.setProperties(properties);
         FeConstants.runningUnitTest = true;
@@ -231,14 +234,15 @@ public class S3ResourceTest {
     @Test
     public void testHttpScheme() throws DdlException {
         // if https:// is set, it should be replaced with http://
-        Map<String, String> properties = new HashMap<>();
-        properties.put("AWS_ENDPOINT", "https://aaa");
-        properties.put("AWS_REGION", "bbb");
-        properties.put("AWS_ROOT_PATH", "/path/to/root");
-        properties.put("AWS_ACCESS_KEY", "xxx");
-        properties.put("AWS_SECRET_KEY", "yyy");
-        properties.put("AWS_BUCKET", "test-bucket");
-        properties.put("s3_validity_check", "false");
+        ImmutableMap<String, String> properties = ImmutableMap.of(
+                "AWS_ENDPOINT", "https://aaa",
+                "AWS_REGION", "bbb",
+                "AWS_ROOT_PATH", "/path/to/root",
+                "AWS_ACCESS_KEY", "xxx",
+                "AWS_SECRET_KEY", "yyy",
+                "AWS_BUCKET", "test-bucket",
+                "s3_validity_check", "false"
+        );
         S3Resource s3Resource = new S3Resource("s3_2");
         s3Resource.setProperties(properties);
         Assert.assertEquals(s3Resource.getProperty(S3Properties.ENDPOINT), "https://aaa");
@@ -270,6 +274,37 @@ public class S3ResourceTest {
             S3Resource.pingS3(bucket, "fe_ut_prefix", properties);
         } catch (DdlException e) {
             LOG.info("testPingS3 exception:", e);
+            Assert.assertTrue(e.getMessage(), false);
+        }
+    }
+
+    @Test
+    public void testPingS3WithRoleArn() {
+        try {
+            String endpoint = System.getenv("ENDPOINT");
+            String region = System.getenv("REGION");
+            String provider = System.getenv("PROVIDER");
+
+            String roleArn = System.getenv("ROLE_ARN");
+            String externalId = System.getenv("EXTERNAL_ID");
+            String bucket = System.getenv("BUCKET");
+
+            Assume.assumeTrue("ENDPOINT isNullOrEmpty.", !Strings.isNullOrEmpty(endpoint));
+            Assume.assumeTrue("REGION isNullOrEmpty.", !Strings.isNullOrEmpty(region));
+            Assume.assumeTrue("PROVIDER isNullOrEmpty.", !Strings.isNullOrEmpty(provider));
+            Assume.assumeTrue("ROLE_ARN isNullOrEmpty.", !Strings.isNullOrEmpty(roleArn));
+            Assume.assumeTrue("EXTERNAL_ID isNullOrEmpty.", !Strings.isNullOrEmpty(externalId));
+            Assume.assumeTrue("BUCKET isNullOrEmpty.", !Strings.isNullOrEmpty(bucket));
+
+            Map<String, String> properties = new HashMap<>();
+            properties.put("s3.endpoint", endpoint);
+            properties.put("s3.region", region);
+            properties.put("s3.role_arn", roleArn);
+            properties.put("s3.external_id", externalId);
+            properties.put("provider", provider);
+            S3Resource.pingS3(bucket, "fe_ut_role_prefix", properties);
+        } catch (DdlException e) {
+            LOG.info("testPingS3WithRoleArn exception:", e);
             Assert.assertTrue(e.getMessage(), false);
         }
     }

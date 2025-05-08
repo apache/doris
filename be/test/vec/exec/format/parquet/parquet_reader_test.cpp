@@ -157,15 +157,15 @@ TEST_F(ParquetReaderTest, normal) {
     static_cast<void>(p_reader->set_fill_columns(partition_columns, missing_columns));
     BlockUPtr block = Block::create_unique();
     for (const auto& slot_desc : tuple_desc->slots()) {
-        auto data_type =
-                vectorized::DataTypeFactory::instance().create_data_type(slot_desc->type(), true);
+        auto data_type = make_nullable(slot_desc->type());
         MutableColumnPtr data_column = data_type->create_column();
         block->insert(
                 ColumnWithTypeAndName(std::move(data_column), data_type, slot_desc->col_name()));
     }
     bool eof = false;
     size_t read_row = 0;
-    static_cast<void>(p_reader->get_next_block(block.get(), &read_row, &eof));
+    auto st = p_reader->get_next_block(block.get(), &read_row, &eof);
+    EXPECT_TRUE(st.ok()) << st;
     for (auto& col : block->get_columns_with_type_and_name()) {
         ASSERT_EQ(col.column->size(), 10);
     }

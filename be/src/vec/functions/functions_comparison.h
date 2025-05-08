@@ -395,9 +395,6 @@ private:
 
     Status execute_decimal(Block& block, uint32_t result, const ColumnWithTypeAndName& col_left,
                            const ColumnWithTypeAndName& col_right) const {
-        TypeIndex left_number = col_left.type->get_type_id();
-        TypeIndex right_number = col_right.type->get_type_id();
-
         auto call = [&](const auto& types) -> bool {
             using Types = std::decay_t<decltype(types)>;
             using LeftDataType = typename Types::LeftType;
@@ -408,7 +405,9 @@ private:
             return true;
         };
 
-        if (!call_on_basic_types<true, false, true, false>(left_number, right_number, call)) {
+        if (!call_on_basic_types<true, false, true, false>(col_left.type->get_primitive_type(),
+                                                           col_right.type->get_primitive_type(),
+                                                           call)) {
             return Status::RuntimeError("Wrong call for {} with {} and {}", get_name(),
                                         col_left.type->get_name(), col_right.type->get_name());
         }
@@ -573,7 +572,7 @@ public:
         std::string column_name = data_type_with_name.first;
         Field param_value;
         arguments[0].column->get(0, param_value);
-        auto param_type = arguments[0].type->get_type_as_type_descriptor().type;
+        auto param_type = arguments[0].type->get_primitive_type();
         std::unique_ptr<segment_v2::InvertedIndexQueryParamFactory> query_param = nullptr;
         RETURN_IF_ERROR(segment_v2::InvertedIndexQueryParamFactory::create_query_value(
                 param_type, &param_value, query_param));
@@ -643,11 +642,6 @@ public:
 
         const bool left_is_string = which_left.is_string_or_fixed_string();
         const bool right_is_string = which_right.is_string_or_fixed_string();
-
-        // Compare date and datetime direct use the Int64 compare. Keep the comment
-        // may we should refactor the code.
-        //        bool date_and_datetime = (left_type != right_type) && which_left.is_date_or_datetime() &&
-        //                                 which_right.is_date_or_datetime();
 
         if (left_is_num_can_compare && right_is_num_can_compare) {
             if (!(execute_num_left_type<UInt8>(block, result, col_left_untyped,

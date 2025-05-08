@@ -46,7 +46,6 @@
 #include "common/exception.h"
 #include "common/status.h"
 #include "gutil/strings/numbers.h"
-#include "gutil/strings/substitute.h"
 #include "runtime/decimalv2_value.h"
 #include "runtime/string_search.hpp"
 #include "util/sha.h"
@@ -710,14 +709,14 @@ public:
 
         auto str_col =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-        const auto& str_offset = assert_cast<const ColumnString*>(str_col.get())->get_offsets();
-
+        const auto* str_column = assert_cast<const ColumnString*>(str_col.get());
         auto pos_col =
                 block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
         const auto& pos_data = assert_cast<const ColumnInt32*>(pos_col.get())->get_data();
 
         for (int i = 0; i < input_rows_count; ++i) {
-            strlen_data[i] = str_offset[i] - str_offset[i - 1];
+            auto str = str_column->get_data_at(i);
+            strlen_data[i] = simd::VStringFunctions::get_char_len(str.data, str.size);
         }
 
         for (int i = 0; i < input_rows_count; ++i) {
@@ -4565,8 +4564,8 @@ private:
         return pattern_count;
     }
 
-    pair<size_t, size_t> get_text_set(StringRef& text, int gram_num, NgramMap& pattern_map,
-                                      std::vector<uint32_t>& restore_map) const {
+    std::pair<size_t, size_t> get_text_set(StringRef& text, int gram_num, NgramMap& pattern_map,
+                                           std::vector<uint32_t>& restore_map) const {
         restore_map.clear();
         //intersection_count indicates a substring both in pattern and text.
         size_t text_count = 0, intersection_count = 0;

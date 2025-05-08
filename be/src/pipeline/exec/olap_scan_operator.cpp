@@ -20,6 +20,7 @@
 #include <fmt/format.h>
 
 #include <memory>
+#include <numeric>
 
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_storage_engine.h"
@@ -68,12 +69,22 @@ Status OlapScanLocalState::_init_profile() {
     if (config::is_cloud_mode()) {
         static const char* sync_rowset_timer_name = "SyncRowsetTime";
         _sync_rowset_timer = ADD_TIMER(_scanner_profile, sync_rowset_timer_name);
+        _sync_rowset_tablet_meta_cache_hit =
+                ADD_CHILD_COUNTER(_scanner_profile, "SyncRowsetTabletMetaCacheHitCount",
+                                  TUnit::UNIT, sync_rowset_timer_name);
+        _sync_rowset_tablet_meta_cache_miss =
+                ADD_CHILD_COUNTER(_scanner_profile, "SyncRowsetTabletMetaCacheMissCount",
+                                  TUnit::UNIT, sync_rowset_timer_name);
+        _sync_rowset_get_remote_tablet_meta_rpc_timer = ADD_CHILD_TIMER(
+                _scanner_profile, "SyncRowsetGetRemoteTabletMetaRpcTime", sync_rowset_timer_name);
+        _sync_rowset_tablets_rowsets_total_num =
+                ADD_CHILD_COUNTER(_scanner_profile, "SyncRowsetTabletsRowsetsTotatCount",
+                                  TUnit::UNIT, sync_rowset_timer_name);
         _sync_rowset_get_remote_rowsets_num =
                 ADD_CHILD_COUNTER(_scanner_profile, "SyncRowsetGetRemoteRowsetsCount", TUnit::UNIT,
                                   sync_rowset_timer_name);
-        _sync_rowset_get_remote_rowsets_rpc_timer =
-                ADD_CHILD_COUNTER(_scanner_profile, "SyncRowsetGetRemoteRowsetsRpcMs",
-                                  TUnit::TIME_MS, sync_rowset_timer_name);
+        _sync_rowset_get_remote_rowsets_rpc_timer = ADD_CHILD_TIMER(
+                _scanner_profile, "SyncRowsetGetRemoteRowsetsRpcTime", sync_rowset_timer_name);
         _sync_rowset_get_local_delete_bitmap_rowsets_num =
                 ADD_CHILD_COUNTER(_scanner_profile, "SyncRowsetGetLocalDeleteBitmapRowsetsCount",
                                   TUnit::UNIT, sync_rowset_timer_name);
@@ -86,9 +97,8 @@ Status OlapScanLocalState::_init_profile() {
         _sync_rowset_get_remote_delete_bitmap_bytes =
                 ADD_CHILD_COUNTER(_scanner_profile, "SyncRowsetGetRemoteDeleteBitmapBytes",
                                   TUnit::BYTES, sync_rowset_timer_name);
-        _sync_rowset_get_remote_delete_bitmap_rpc_timer =
-                ADD_CHILD_COUNTER(_scanner_profile, "SyncRowsetGetRemoteDeleteBitmapRpcMs",
-                                  TUnit::TIME_MS, sync_rowset_timer_name);
+        _sync_rowset_get_remote_delete_bitmap_rpc_timer = ADD_CHILD_TIMER(
+                _scanner_profile, "SyncRowsetGetRemoteDeleteBitmapRpcTime", sync_rowset_timer_name);
     }
     _block_init_timer = ADD_TIMER(_segment_profile, "BlockInitTime");
     _block_init_seek_timer = ADD_TIMER(_segment_profile, "BlockInitSeekTime");
@@ -276,7 +286,7 @@ Status OlapScanLocalState::_should_push_down_function_filter(vectorized::Vectori
             pdt = PushDownType::UNACCEPTABLE;
             return Status::OK();
         } else {
-            DCHECK(children[1 - i]->type().is_string_type());
+            DCHECK(is_string_type(children[1 - i]->data_type()->get_primitive_type()));
             std::shared_ptr<ColumnPtrWrapper> const_col_wrapper;
             RETURN_IF_ERROR(children[1 - i]->get_const_col(expr_ctx, &const_col_wrapper));
             if (const auto* const_column = check_and_get_column<vectorized::ColumnConst>(
@@ -474,13 +484,24 @@ Status OlapScanLocalState::hold_tablets() {
                     return Status::OK();
                 });
             }
-            RETURN_IF_ERROR(cloud::bthread_fork_join(tasks, 10));
+            RETURN_IF_ERROR(
+                    cloud::bthread_fork_join(tasks, config::init_scanner_sync_rowsets_parallelism));
         }
         COUNTER_UPDATE(_sync_rowset_timer, duration_ns);
+        auto total_rowsets = std::accumulate(
+                _tablets.cbegin(), _tablets.cend(), 0LL,
+                [](long long acc, const auto& tabletWithVersion) {
+                    return acc + tabletWithVersion.tablet->tablet_meta()->all_rs_metas().size();
+                });
+        COUNTER_UPDATE(_sync_rowset_tablets_rowsets_total_num, total_rowsets);
         for (const auto& sync_stats : sync_statistics) {
+            COUNTER_UPDATE(_sync_rowset_tablet_meta_cache_hit, sync_stats.tablet_meta_cache_hit);
+            COUNTER_UPDATE(_sync_rowset_tablet_meta_cache_miss, sync_stats.tablet_meta_cache_miss);
+            COUNTER_UPDATE(_sync_rowset_get_remote_tablet_meta_rpc_timer,
+                           sync_stats.get_remote_tablet_meta_rpc_ns);
             COUNTER_UPDATE(_sync_rowset_get_remote_rowsets_num, sync_stats.get_remote_rowsets_num);
             COUNTER_UPDATE(_sync_rowset_get_remote_rowsets_rpc_timer,
-                           sync_stats.get_remote_rowsets_rpc_ms);
+                           sync_stats.get_remote_rowsets_rpc_ns);
             COUNTER_UPDATE(_sync_rowset_get_local_delete_bitmap_rowsets_num,
                            sync_stats.get_local_delete_bitmap_rowsets_num);
             COUNTER_UPDATE(_sync_rowset_get_remote_delete_bitmap_rowsets_num,
@@ -490,7 +511,7 @@ Status OlapScanLocalState::hold_tablets() {
             COUNTER_UPDATE(_sync_rowset_get_remote_delete_bitmap_bytes,
                            sync_stats.get_remote_delete_bitmap_bytes);
             COUNTER_UPDATE(_sync_rowset_get_remote_delete_bitmap_rpc_timer,
-                           sync_stats.get_remote_delete_bitmap_rpc_ms);
+                           sync_stats.get_remote_delete_bitmap_rpc_ns);
         }
     } else {
         for (size_t i = 0; i < _scan_ranges.size(); i++) {

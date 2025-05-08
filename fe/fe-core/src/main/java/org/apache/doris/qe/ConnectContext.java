@@ -133,6 +133,8 @@ public class ConnectContext {
     protected volatile LoadTaskInfo streamLoadInfo;
 
     protected volatile TUniqueId queryId = null;
+    // only be active one time. tell Coordinator to regenerate instance ids for certain query(when retry).
+    protected volatile TUniqueId needRegenerateInstanceId = null;
     protected volatile AtomicInteger instanceIdGenerator = new AtomicInteger();
     protected volatile String traceId;
     protected volatile TUniqueId lastQueryId = null;
@@ -941,6 +943,10 @@ public class ConnectContext {
         }
     }
 
+    public void setNeedRegenerateInstanceId(TUniqueId needRegenerateInstanceId) {
+        this.needRegenerateInstanceId = needRegenerateInstanceId;
+    }
+
     public void setTraceId(String traceId) {
         this.traceId = traceId;
     }
@@ -963,6 +969,14 @@ public class ConnectContext {
         } else {
             return new TUniqueId(queryId.hi, queryId.lo + instanceIdGenerator.incrementAndGet());
         }
+    }
+
+    public boolean consumeNeedRegenerateQueryId() {
+        if (needRegenerateInstanceId == queryId) {
+            needRegenerateInstanceId = null; // consume it
+            return true;
+        }
+        return false;
     }
 
     public String getSqlHash() {
@@ -1421,7 +1435,11 @@ public class ConnectContext {
         }
 
         if (Strings.isNullOrEmpty(cluster)) {
-            LOG.warn("cant get a valid compute group for user {} to use", getCurrentUserIdentity());
+            List<String> cloudClusterNames
+                    = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getCloudClusterNames();
+            LOG.warn("Can not get a valid compute group for user {} {} to use, all cluster: {}",
+                    getCurrentUserIdentity(),
+                    getQualifiedUser(), cloudClusterNames);
             ComputeGroupException exception = new ComputeGroupException(
                     "the user is not granted permission to the compute group",
                     ComputeGroupException.FailedTypeEnum.CURRENT_USER_NO_AUTH_TO_USE_ANY_COMPUTE_GROUP);

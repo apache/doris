@@ -26,6 +26,7 @@
 
 #include "olap/decimal12.h"
 #include "runtime/define_primitive_type.h"
+#include "vec/columns/column_array.h"
 #include "vec/columns/column_decimal.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
@@ -39,6 +40,14 @@ namespace vectorized {
 template <typename T>
 class ColumnStr;
 using ColumnString = ColumnStr<UInt32>;
+class JsonbField;
+struct Array;
+struct Map;
+template <typename T>
+class DecimalField;
+template <DecimalNativeTypeConcept T>
+struct Decimal;
+struct VariantMap;
 } // namespace vectorized
 
 class DecimalV2Value;
@@ -95,6 +104,14 @@ constexpr bool is_string_type(PrimitiveType type) {
     return type == TYPE_CHAR || type == TYPE_VARCHAR || type == TYPE_STRING;
 }
 
+constexpr bool is_var_len_object(PrimitiveType type) {
+    return type == TYPE_HLL || type == TYPE_OBJECT || type == TYPE_QUANTILE_STATE;
+}
+
+constexpr bool is_complex_type(PrimitiveType type) {
+    return type == TYPE_STRUCT || type == TYPE_ARRAY || type == TYPE_MAP;
+}
+
 constexpr bool is_variant_string_type(PrimitiveType type) {
     return type == TYPE_VARCHAR || type == TYPE_STRING;
 }
@@ -106,6 +123,11 @@ constexpr bool is_float_or_double(PrimitiveType type) {
 constexpr bool is_int_or_bool(PrimitiveType type) {
     return type == TYPE_BOOLEAN || type == TYPE_TINYINT || type == TYPE_SMALLINT ||
            type == TYPE_INT || type == TYPE_BIGINT || type == TYPE_LARGEINT;
+}
+
+constexpr bool is_decimal(PrimitiveType type) {
+    return type == TYPE_DECIMAL32 || type == TYPE_DECIMAL64 || type == TYPE_DECIMAL128I ||
+           type == TYPE_DECIMAL256 || type == TYPE_DECIMALV2;
 }
 
 PrimitiveType thrift_to_type(TPrimitiveType::type ttype);
@@ -275,6 +297,12 @@ struct PrimitiveTypeTraits<TYPE_JSONB> {
     using StorageFieldType = CppType;
     using ColumnType = vectorized::ColumnString;
 };
+template <>
+struct PrimitiveTypeTraits<TYPE_ARRAY> {
+    using CppType = vectorized::Array;
+    using StorageFieldType = CppType;
+    using ColumnType = vectorized::ColumnArray;
+};
 
 template <PrimitiveType PT>
 struct PrimitiveTypeConvertor {
@@ -318,6 +346,98 @@ struct PrimitiveTypeConvertor<TYPE_DECIMALV2> {
     static inline StorageFieldType to_storage_field_type(const CppType& value) {
         return {value.int_value(), value.frac_value()};
     }
+};
+
+template <typename T>
+struct TypeToPrimitiveType {
+    static constexpr PrimitiveType value = PrimitiveType::INVALID_TYPE;
+};
+template <>
+struct TypeToPrimitiveType<vectorized::Null> {
+    static constexpr PrimitiveType value = PrimitiveType::TYPE_NULL;
+};
+template <>
+struct TypeToPrimitiveType<vectorized::Int64> {
+    static constexpr PrimitiveType value = PrimitiveType::TYPE_BIGINT;
+};
+template <>
+struct TypeToPrimitiveType<vectorized::UInt64> {
+    static constexpr PrimitiveType value = PrimitiveType::TYPE_DATETIMEV2;
+};
+template <>
+struct TypeToPrimitiveType<vectorized::UInt32> {
+    static constexpr PrimitiveType value = PrimitiveType::TYPE_DATEV2;
+};
+template <>
+struct TypeToPrimitiveType<vectorized::Int128> {
+    static constexpr PrimitiveType value = PrimitiveType::TYPE_LARGEINT;
+};
+template <>
+struct TypeToPrimitiveType<vectorized::Float64> {
+    static constexpr PrimitiveType value = PrimitiveType::TYPE_DOUBLE;
+};
+template <>
+struct TypeToPrimitiveType<IPv6> {
+    static constexpr PrimitiveType value = PrimitiveType::TYPE_IPV6;
+};
+template <>
+struct TypeToPrimitiveType<vectorized::String> {
+    static constexpr PrimitiveType value = PrimitiveType::TYPE_STRING;
+};
+template <>
+struct TypeToPrimitiveType<vectorized::JsonbField> {
+    static const PrimitiveType value = PrimitiveType::TYPE_JSONB;
+};
+template <>
+struct TypeToPrimitiveType<vectorized::Array> {
+    static constexpr PrimitiveType value = PrimitiveType::TYPE_ARRAY;
+};
+template <>
+struct TypeToPrimitiveType<vectorized::Tuple> {
+    static constexpr PrimitiveType value = PrimitiveType::TYPE_STRUCT;
+};
+template <>
+struct TypeToPrimitiveType<vectorized::Map> {
+    static const PrimitiveType value = PrimitiveType::TYPE_MAP;
+};
+template <>
+struct TypeToPrimitiveType<vectorized::DecimalField<vectorized::Decimal<vectorized::Int32>>> {
+    static constexpr PrimitiveType value = PrimitiveType::TYPE_DECIMAL32;
+};
+template <>
+struct TypeToPrimitiveType<vectorized::DecimalField<vectorized::Decimal<vectorized::Int64>>> {
+    static constexpr PrimitiveType value = PrimitiveType::TYPE_DECIMAL64;
+};
+template <>
+struct TypeToPrimitiveType<vectorized::DecimalField<vectorized::Decimal<vectorized::Int128>>> {
+    static constexpr PrimitiveType value = PrimitiveType::TYPE_DECIMALV2;
+};
+template <>
+struct TypeToPrimitiveType<vectorized::DecimalField<vectorized::Decimal128V3>> {
+    static constexpr PrimitiveType value = PrimitiveType::TYPE_DECIMAL128I;
+};
+template <>
+struct TypeToPrimitiveType<vectorized::DecimalField<vectorized::Decimal<wide::Int256>>> {
+    static constexpr PrimitiveType value = PrimitiveType::TYPE_DECIMAL256;
+};
+template <>
+struct TypeToPrimitiveType<vectorized::VariantMap> {
+    static constexpr PrimitiveType value = PrimitiveType::TYPE_VARIANT;
+};
+
+template <>
+struct TypeToPrimitiveType<BitmapValue> {
+    static constexpr PrimitiveType value = PrimitiveType::TYPE_OBJECT;
+};
+
+template <>
+struct TypeToPrimitiveType<HyperLogLog> {
+    static constexpr PrimitiveType value = PrimitiveType::TYPE_HLL;
+};
+
+template <>
+struct TypeToPrimitiveType<QuantileState> {
+    static constexpr PrimitiveType value = PrimitiveType::TYPE_QUANTILE_STATE;
 };
 
 } // namespace doris

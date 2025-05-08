@@ -18,9 +18,9 @@
 #pragma once
 
 #include <gen_cpp/Types_types.h>
-#include <stddef.h>
-#include <stdint.h>
 
+#include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <string>
 
@@ -37,16 +37,13 @@
 #include "vec/data_types/serde/data_type_serde.h"
 #include "vec/data_types/serde/data_type_string_serde.h"
 
-namespace doris {
-namespace vectorized {
+namespace doris::vectorized {
+#include "common/compile_check_begin.h"
+
 class BufferWritable;
 class IColumn;
 class ReadBuffer;
-} // namespace vectorized
-} // namespace doris
 
-namespace doris::vectorized {
-#include "common/compile_check_begin.h"
 class DataTypeJsonb final : public IDataType {
 public:
     using ColumnType = ColumnString;
@@ -55,9 +52,7 @@ public:
 
     const char* get_family_name() const override { return "JSONB"; }
     TypeIndex get_type_id() const override { return TypeIndex::JSONB; }
-    TypeDescriptor get_type_as_type_descriptor() const override {
-        return TypeDescriptor(TYPE_JSONB);
-    }
+    PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_JSONB; }
     doris::FieldType get_storage_field_type() const override {
         return doris::FieldType::OLAP_FIELD_TYPE_JSONB;
     }
@@ -70,10 +65,12 @@ public:
 
     MutableColumnPtr create_column() const override;
 
-    virtual Field get_default() const override {
+    Field get_default() const override {
         std::string default_json = "null";
+        // convert default_json to binary
         JsonBinaryValue binary_val(default_json.c_str(), static_cast<Int32>(default_json.size()));
         // Throw exception if default_json.size() is large than INT32_MAX
+        // JsonbField keeps its own memory
         return JsonbField(binary_val.value(), cast_set<Int32>(binary_val.size()));
     }
 

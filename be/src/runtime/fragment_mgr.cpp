@@ -842,7 +842,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
 
     std::shared_ptr<QueryContext> query_ctx;
     RETURN_IF_ERROR(_get_or_create_query_ctx(params, parent, query_source, query_ctx));
-    SCOPED_SWITCH_RESOURCE_CONTEXT(query_ctx.get()->resource_ctx());
+    SCOPED_ATTACH_TASK(query_ctx.get()->resource_ctx());
     int64_t duration_ns = 0;
     std::shared_ptr<pipeline::PipelineFragmentContext> context =
             std::make_shared<pipeline::PipelineFragmentContext>(
@@ -1204,7 +1204,7 @@ Status FragmentMgr::exec_external_plan_fragment(const TScanOpenParams& params,
     for (const SlotDescriptor* slot : tuple_desc->slots()) {
         TScanColumnDesc col;
         col.__set_name(slot->col_name());
-        col.__set_type(to_thrift(slot->type().type));
+        col.__set_type(to_thrift(slot->type()->get_primitive_type()));
         selected_columns->emplace_back(std::move(col));
     }
 

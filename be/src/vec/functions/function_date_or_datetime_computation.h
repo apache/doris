@@ -441,9 +441,6 @@ public:
                         uint32_t result, size_t input_rows_count) const override {
         const auto& first_arg_type = block.get_by_position(arguments[0]).type;
         const auto& second_arg_type = block.get_by_position(arguments[1]).type;
-        WhichDataType which1(remove_nullable(first_arg_type));
-        WhichDataType which2(remove_nullable(second_arg_type));
-
         /// now dispatch with the two arguments' type. no need to consider return type because the same arguments decide a
         /// unique return type which could be extracted from Transform.
 
@@ -452,21 +449,21 @@ public:
         // in these situations, the first would be any datelike type.
         //TODO: now we use switch and if to do check in runtime.
         // it leads to generation of a lot of useless template. try to use if constexpr to avoid this.
-        if (which2.is_int32()) {
-            switch (which1.idx) {
-            case TypeIndex::Date:
+        if (second_arg_type->get_primitive_type() == PrimitiveType::TYPE_INT) {
+            switch (first_arg_type->get_primitive_type()) {
+            case PrimitiveType::TYPE_DATE:
                 return execute_inner<DataTypeDate, DataTypeInt32>(block, arguments, result,
                                                                   input_rows_count);
                 break;
-            case TypeIndex::DateTime:
+            case PrimitiveType::TYPE_DATETIME:
                 return execute_inner<DataTypeDateTime, DataTypeInt32>(block, arguments, result,
                                                                       input_rows_count);
                 break;
-            case TypeIndex::DateV2:
+            case PrimitiveType::TYPE_DATEV2:
                 return execute_inner<DataTypeDateV2, DataTypeInt32>(block, arguments, result,
                                                                     input_rows_count);
                 break;
-            case TypeIndex::DateTimeV2:
+            case PrimitiveType::TYPE_DATETIMEV2:
                 return execute_inner<DataTypeDateTimeV2, DataTypeInt32>(block, arguments, result,
                                                                         input_rows_count);
                 break;
@@ -479,19 +476,24 @@ public:
         }
         // then consider datelike - datelike. everything is possible here as well.
         // for `xxx_diff`, every combination of V2 is possible. but for V1 we only support Datetime - Datetime
-        if (which1.is_date_v2() && which2.is_date_v2()) {
+        if (first_arg_type->get_primitive_type() == PrimitiveType::TYPE_DATEV2 &&
+            second_arg_type->get_primitive_type() == PrimitiveType::TYPE_DATEV2) {
             return execute_inner<DataTypeDateV2, DataTypeDateV2>(block, arguments, result,
                                                                  input_rows_count);
-        } else if (which1.is_date_time_v2() && which2.is_date_time_v2()) {
+        } else if (first_arg_type->get_primitive_type() == PrimitiveType::TYPE_DATETIMEV2 &&
+                   second_arg_type->get_primitive_type() == PrimitiveType::TYPE_DATETIMEV2) {
             return execute_inner<DataTypeDateTimeV2, DataTypeDateTimeV2>(block, arguments, result,
                                                                          input_rows_count);
-        } else if (which1.is_date_v2() && which2.is_date_time_v2()) {
+        } else if (first_arg_type->get_primitive_type() == PrimitiveType::TYPE_DATEV2 &&
+                   second_arg_type->get_primitive_type() == PrimitiveType::TYPE_DATETIMEV2) {
             return execute_inner<DataTypeDateV2, DataTypeDateTimeV2>(block, arguments, result,
                                                                      input_rows_count);
-        } else if (which1.is_date_time_v2() && which2.is_date_v2()) {
+        } else if (first_arg_type->get_primitive_type() == PrimitiveType::TYPE_DATETIMEV2 &&
+                   second_arg_type->get_primitive_type() == PrimitiveType::TYPE_DATEV2) {
             return execute_inner<DataTypeDateTimeV2, DataTypeDateV2>(block, arguments, result,
                                                                      input_rows_count);
-        } else if (which1.is_date_time() && which2.is_date_time()) {
+        } else if (first_arg_type->get_primitive_type() == PrimitiveType::TYPE_DATETIME &&
+                   second_arg_type->get_primitive_type() == PrimitiveType::TYPE_DATETIME) {
             return execute_inner<DataTypeDateTime, DataTypeDateTime>(block, arguments, result,
                                                                      input_rows_count);
         }

@@ -122,11 +122,7 @@ void GlobalMemoryArbitrator::shrink_process_reserved(int64_t bytes) {
 }
 
 int64_t GlobalMemoryArbitrator::sub_thread_reserve_memory(int64_t bytes) {
-    doris::ThreadContext* thread_context = doris::thread_context(true);
-    if (thread_context) {
-        return bytes - doris::thread_context()->thread_mem_tracker_mgr->reserved_mem();
-    }
-    return bytes;
+    return bytes - doris::thread_context()->thread_mem_tracker_mgr->reserved_mem();
 }
 
 #include "common/compile_check_end.h"
