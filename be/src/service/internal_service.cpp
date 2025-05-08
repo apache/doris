@@ -680,11 +680,11 @@ void PInternalService::fetch_data(google::protobuf::RpcController* controller,
     // fetch_data is a light operation which will put a request rather than wait inplace when there's no data ready.
     // when there's data ready, use brpc to send. there's queue in brpc service. won't take it too long.
     auto ctx = vectorized::GetResultBatchCtx::create_shared(result, done);
-    TUniqueId tid = UniqueId(request->finst_id()).to_thrift();
+    TUniqueId unique_id = UniqueId(request->finst_id()).to_thrift(); // query_id or instance_id
     std::shared_ptr<vectorized::MySQLResultBlockBuffer> buffer;
-    Status st = ExecEnv::GetInstance()->result_mgr()->find_buffer(tid, buffer);
+    Status st = ExecEnv::GetInstance()->result_mgr()->find_buffer(unique_id, buffer);
     if (!st.ok()) {
-        LOG(WARNING) << "Result buffer not found! Query ID: " << print_id(tid);
+        LOG(WARNING) << "Result buffer not found! finst ID: " << print_id(unique_id);
         return;
     }
     if (st = buffer->get_batch(ctx); !st.ok()) {
@@ -699,11 +699,11 @@ void PInternalService::fetch_arrow_data(google::protobuf::RpcController* control
     bool ret = _arrow_flight_work_pool.try_offer([request, result, done]() {
         brpc::ClosureGuard closure_guard(done);
         auto ctx = vectorized::GetArrowResultBatchCtx::create_shared(result);
-        TUniqueId tid = UniqueId(request->finst_id()).to_thrift();
+        TUniqueId unique_id = UniqueId(request->finst_id()).to_thrift(); // query_id or instance_id
         std::shared_ptr<vectorized::ArrowFlightResultBlockBuffer> arrow_buffer;
-        auto st = ExecEnv::GetInstance()->result_mgr()->find_buffer(tid, arrow_buffer);
+        auto st = ExecEnv::GetInstance()->result_mgr()->find_buffer(unique_id, arrow_buffer);
         if (!st.ok()) {
-            LOG(WARNING) << "Result buffer not found! Query ID: " << print_id(tid);
+            LOG(WARNING) << "Result buffer not found! Query ID: " << print_id(unique_id);
             return;
         }
         if (st = arrow_buffer->get_batch(ctx); !st.ok()) {
