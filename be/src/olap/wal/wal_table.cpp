@@ -91,7 +91,6 @@ Status WalTable::_relay_wal_one_by_one() {
         int64_t file_size = 0;
         std::filesystem::path file_path(wal_info->get_wal_path());
         if (!std::filesystem::exists(file_path)) {
-            //            LOG(WARNING) << "wal file=" << wal_info->get_wal_path() << " does not exist";
             st = Status::InternalError("wal file {} does not exist", wal_info->get_wal_path());
         } else {
             file_size = std::filesystem::file_size(file_path);
