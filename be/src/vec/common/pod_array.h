@@ -198,7 +198,6 @@ protected:
     void alloc(size_t bytes, TAllocatorParams&&... allocator_params) {
         char* allocated = reinterpret_cast<char*>(
                 TAllocator::alloc(bytes, std::forward<TAllocatorParams>(allocator_params)...));
-        CONSUME_THREAD_MEM_TRACKER(pad_left);
 
         c_start = allocated + pad_left;
         c_end = c_start;
@@ -210,10 +209,8 @@ protected:
 
     void dealloc() {
         if (c_start == null) return;
-
         unprotect();
-
-        RELEASE_THREAD_MEM_TRACKER(c_res_mem - c_start + pad_left);
+        RELEASE_THREAD_MEM_TRACKER((c_res_mem - c_start));
         TAllocator::free(c_start - pad_left, allocated_bytes());
     }
 
@@ -449,21 +446,25 @@ public:
 
     /// Same as resize, but zeroes new elements.
     void resize_fill(size_t n) {
-        this->reset_resident_memory(this->c_start + this->byte_size(n));
         size_t old_size = this->size();
         if (n > old_size) {
             this->reserve(n);
+            this->reset_resident_memory(this->c_start + this->byte_size(n));
             memset(this->c_end, 0, this->byte_size(n - old_size));
+        } else {
+            this->reset_resident_memory(this->c_start + this->byte_size(n));
         }
         this->c_end = this->c_start + this->byte_size(n);
     }
 
     void resize_fill(size_t n, const T& value) {
-        this->reset_resident_memory(this->c_start + this->byte_size(n));
         size_t old_size = this->size();
         if (n > old_size) {
             this->reserve(n);
+            this->reset_resident_memory(this->c_start + this->byte_size(n));
             std::fill(t_end(), t_end() + n - old_size, value);
+        } else {
+            this->reset_resident_memory(this->c_start + this->byte_size(n));
         }
         this->c_end = this->c_start + this->byte_size(n);
     }
@@ -483,10 +484,10 @@ public:
     void add_num_element(U&& x, uint32_t num, TAllocatorParams&&... allocator_params) {
         if (num != 0) {
             const auto new_end = this->c_end + this->byte_size(num);
-            this->reset_resident_memory(new_end);
             if (UNLIKELY(new_end > this->c_end_of_storage)) {
                 this->reserve(this->size() + num);
             }
+            this->reset_resident_memory(new_end);
             std::fill(t_end(), t_end() + num, x);
             this->c_end = new_end;
         }

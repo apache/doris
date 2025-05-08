@@ -626,4 +626,59 @@ TEST(PODArrayTest, PODErase) {
     }
 }
 
+TEST(PODArrayTest, PODArrayTrackingMemory) {
+    auto t = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "UT");
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(t);
+    EXPECT_EQ(t->consumption(), 0);
+    static constexpr size_t PRE_GROWTH_SIZE = (1ULL << 20); // 1M
+
+    vectorized::PaddedPODArray<uint64_t, 4096> array1;
+    size_t pad_right = vectorized::integerRoundUp(16, sizeof(uint64_t));
+    size_t pad_left =
+            vectorized::integerRoundUp(vectorized::integerRoundUp(15, sizeof(uint64_t)), 16);
+    EXPECT_EQ(t->consumption(), 0);
+
+    array1.push_back(1);
+    EXPECT_EQ(array1.size(), 1);
+    doris::thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+    EXPECT_EQ(t->consumption(), array1.allocated_bytes() - pad_left - pad_right);
+
+    array1.push_back(2);
+    EXPECT_EQ(array1.size(), 2);
+    doris::thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+    EXPECT_EQ(t->consumption(), array1.allocated_bytes() - pad_left - pad_right);
+
+    array1.resize_fill(PRE_GROWTH_SIZE / sizeof(uint64_t));
+    EXPECT_EQ(array1.size(), PRE_GROWTH_SIZE / sizeof(uint64_t));
+    doris::thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+    EXPECT_EQ(t->consumption(), PRE_GROWTH_SIZE);
+
+    array1.push_back(3);
+    EXPECT_EQ(array1.size(), (PRE_GROWTH_SIZE / sizeof(uint64_t)) + 1);
+    doris::thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+    // c_end_of_storage - c_start < integerRoundUp(c_end_new - c_start, PRE_GROWTH_SIZE)
+    EXPECT_EQ(t->consumption(), array1.allocated_bytes() - pad_left - pad_right);
+
+    array1.assign({1, 2, 3});
+    EXPECT_EQ(array1.size(), 3);
+    doris::thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+    EXPECT_EQ(t->consumption(), array1.allocated_bytes() - pad_left - pad_right);
+
+    array1.resize((PRE_GROWTH_SIZE / sizeof(uint64_t)) * 3);
+    EXPECT_EQ(array1.size(), (PRE_GROWTH_SIZE / sizeof(uint64_t)) * 3);
+    doris::thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+    EXPECT_EQ(t->consumption(), PRE_GROWTH_SIZE * 3);
+
+    array1.add_num_element_without_reserve(1, 10);
+    EXPECT_EQ(array1.size(), (PRE_GROWTH_SIZE / sizeof(uint64_t)) * 3 + 10);
+    doris::thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+    EXPECT_EQ(t->consumption(), array1.allocated_bytes() - pad_left - pad_right);
+
+    // TODO
+    // array1.add_num_element(1, (PRE_GROWTH_SIZE / sizeof(uint64_t)) * 2);
+    // EXPECT_EQ(array1.size(), (PRE_GROWTH_SIZE / sizeof(uint64_t)) * 5);
+    // doris::thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+    // EXPECT_EQ(t->consumption(), PRE_GROWTH_SIZE * 5);
+}
+
 } // end namespace doris
