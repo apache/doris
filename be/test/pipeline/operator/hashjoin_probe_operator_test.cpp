@@ -798,6 +798,34 @@ TEST_F(HashJoinProbeOperatorTest, RightSemiJoin) {
     check_column_values(*sorted_block.get_by_position(1).column, {"c", "d"});
 }
 
+TEST_F(HashJoinProbeOperatorTest, RightSemiJoinMarkJoin) {
+    auto sink_block = ColumnHelper::create_block<DataTypeInt32>({1, 2, 3, 4, 5});
+    sink_block.insert(ColumnHelper::create_nullable_column_with_name<DataTypeString>(
+            {"a", "b", "c", "d", "e"}, {1, 0, 0, 0, 1}));
+
+    auto probe_block =
+            ColumnHelper::create_nullable_block<DataTypeInt32>({1, 2, 3, 4, 5}, {0, 1, 0, 0, 1});
+    probe_block.insert(
+            ColumnHelper::create_column_with_name<DataTypeString>({"a", "b", "c", "d", "e"}));
+
+    Block output_block;
+    std::vector<Block> build_blocks = {sink_block};
+    std::vector<Block> probe_blocks = {probe_block};
+    run_test({.join_op_type = TJoinOp::RIGHT_SEMI_JOIN,
+              .is_mark_join = true,
+              .mark_join_conjuncts_size = 1},
+             {TPrimitiveType::INT, TPrimitiveType::STRING}, {true, false}, {false, true},
+             build_blocks, probe_blocks, output_block);
+
+    auto sorted_block = sort_block_by_columns(output_block);
+    std::cout << "Output block: " << sorted_block.dump_data() << std::endl;
+    ASSERT_EQ(sorted_block.rows(), 5);
+
+    check_column_values(*sorted_block.get_by_position(2).column, {1, 2, 3, 4, 5});
+    check_column_values(*sorted_block.get_by_position(3).column, {Null(), "b", "c", "d", Null()});
+    check_column_values(*sorted_block.get_by_position(4).column, {0, Null(), 1, 1, 0});
+}
+
 TEST_F(HashJoinProbeOperatorTest, NullAwareLeftAntiJoin) {
     auto sink_block = ColumnHelper::create_block<DataTypeInt32>({1, 2, 3, 4, 5});
     sink_block.insert(ColumnHelper::create_nullable_column_with_name<DataTypeString>(
