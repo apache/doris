@@ -713,6 +713,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowTabletIdCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTabletStorageFormatCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTabletsBelongCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTabletsFromTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowTransactionCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTrashCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTriggersCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowUserPropertyCommand;
@@ -7139,6 +7140,27 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         } catch (org.apache.doris.common.AnalysisException e) {
             throw new ParseException(e.getMessage());
         }
+    }
+
+    @Override
+    public LogicalPlan visitShowTransaction(DorisParser.ShowTransactionContext ctx) {
+        String dbName = null;
+        if (ctx.database != null) {
+            List<String> parts = visitMultipartIdentifier(ctx.database);
+            if (parts.size() == 1) {
+                dbName = parts.get(0);
+            } else if (parts.size() == 2) {
+                dbName = parts.get(0) + "." + parts.get(1);
+            } else {
+                throw new ParseException("only support [<catalog_name>.]<db_name>", ctx.database);
+            }
+        }
+
+        Expression wildWhere = null;
+        if (ctx.wildWhere() != null) {
+            wildWhere = getWildWhere(ctx.wildWhere());
+        }
+        return new ShowTransactionCommand(dbName, wildWhere);
     }
 
     @Override
