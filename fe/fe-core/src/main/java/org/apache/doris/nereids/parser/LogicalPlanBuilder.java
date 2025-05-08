@@ -5021,8 +5021,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             Pair<Boolean, List<String>> partitionSpec = visitPartitionSpec(ctx.partitionSpec());
             partitionNamesInfo = new PartitionNamesInfo(partitionSpec.first, partitionSpec.second);
         }
-        IndexDefinition indexDefinition = new IndexDefinition(name, partitionNamesInfo);
-        List<AlterTableOp> alterTableOps = Lists.newArrayList(new BuildIndexOp(tableName, indexDefinition, false));
+        List<AlterTableOp> alterTableOps = Lists.newArrayList(new BuildIndexOp(tableName, name, partitionNamesInfo,
+                false));
         return new AlterTableCommand(tableName, alterTableOps);
     }
 
