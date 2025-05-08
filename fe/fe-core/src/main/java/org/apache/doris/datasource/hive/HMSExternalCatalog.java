@@ -123,7 +123,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
         if (Objects.nonNull(partitionCacheTtlSecond) && NumberUtils.toInt(partitionCacheTtlSecond, CACHE_NO_TTL)
                 < CACHE_TTL_DISABLE_CACHE) {
             throw new DdlException(
-                    "The parameter " + FILE_META_CACHE_TTL_SECOND + " is wrong, value is " + partitionCacheTtlSecond);
+                    "The parameter " + PARTITION_CACHE_TTL_SECOND + " is wrong, value is " + partitionCacheTtlSecond);
         }
 
         // check the dfs.ha properties
