@@ -27,14 +27,9 @@
 #include "vec/io/io_helper.h"
 #include "vec/io/var_int.h"
 
-namespace doris {
-namespace vectorized {
+namespace doris::vectorized {
 class BufferReadable;
 class BufferWritable;
-} // namespace vectorized
-} // namespace doris
-
-namespace doris::vectorized {
 
 template <>
 Decimal128V3 DecimalField<Decimal128V3>::get_scale_multiplier() const {
