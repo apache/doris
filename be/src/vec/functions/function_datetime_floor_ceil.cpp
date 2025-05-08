@@ -136,8 +136,8 @@ public:
                 const IColumn& delta_column = *block.get_by_position(arguments[1]).column;
                 if (const auto* const_second_column =
                             check_and_get_column<ColumnConst>(delta_column)) {
-                    if (block.get_by_position(arguments[1]).type->get_type_id() !=
-                        TypeIndex::Int32) {
+                    if (block.get_by_position(arguments[1]).type->get_primitive_type() !=
+                        PrimitiveType::TYPE_INT) {
                         // time_round(datetime, const(origin))
                         vector_const_anchor(sources->get_data(),
                                             const_second_column->get_field().get<NativeType>(),
