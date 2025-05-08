@@ -27,6 +27,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
@@ -62,9 +63,9 @@ public class PartitionCompensator {
     public static Set<String> getQueryTableUsedPartition(
             List<String> targetTableFullQualifiers,
             StructInfo queryStructInfo,
-            CascadesContext cascadesContext) {
+            StatementContext context) {
         Multimap<List<String>, Pair<RelationId, Set<String>>> tableUsedPartitionNameMap
-                = cascadesContext.getStatementContext().getTableUsedPartitionNameMap();
+                = context.getTableUsedPartitionNameMap();
         Collection<Pair<RelationId, Set<String>>> tableUsedPartitions =
                 tableUsedPartitionNameMap.get(targetTableFullQualifiers);
         Set<RelationId> queryUsedRelationSet = queryStructInfo.getRelationIdStructInfoNodeMap().keySet();
