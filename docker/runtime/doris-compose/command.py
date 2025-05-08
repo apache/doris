@@ -30,7 +30,7 @@ import time
 LOG = utils.get_logger()
 
 
-def wait_ready_service(wait_timeout, cluster, fe_ids, be_ids):
+def wait_service(is_alive, wait_timeout, cluster, fe_ids, be_ids):
     if wait_timeout == 0:
         return
     if wait_timeout == -1:
@@ -39,28 +39,31 @@ def wait_ready_service(wait_timeout, cluster, fe_ids, be_ids):
     while True:
         db_mgr = database.get_db_mgr(cluster.name,
                                      cluster.get_all_node_net_infos(), False)
-        dead_frontends = []
+        failed_frontends = []
         for id in fe_ids:
             fe = cluster.get_node(CLUSTER.Node.TYPE_FE, id)
             fe_state = db_mgr.get_fe(id)
-            if not fe_state or not fe_state.alive or not utils.is_socket_avail(
-                    fe.get_ip(), fe.meta["ports"]["query_port"]):
-                dead_frontends.append(id)
-        dead_backends = []
+            fe_alive = fe_state and fe_state.alive and utils.is_socket_avail(
+                fe.get_ip(), fe.meta["ports"]["query_port"])
+            if fe_alive != is_alive:
+                failed_frontends.append(id)
+        failed_backends = []
         for id in be_ids:
             be = cluster.get_node(CLUSTER.Node.TYPE_BE, id)
             be_state = db_mgr.get_be(id)
-            if not be_state or not be_state.alive or not utils.is_socket_avail(
-                    be.get_ip(), be.meta["ports"]["webserver_port"]):
-                dead_backends.append(id)
-        if not dead_frontends and not dead_backends:
+            be_alive = be_state and be_state.alive and utils.is_socket_avail(
+                be.get_ip(), be.meta["ports"]["webserver_port"])
+            if be_alive != is_alive:
+                failed_backends.append(id)
+        if not failed_frontends and not failed_backends:
             break
         if time.time() >= expire_ts:
             err = ""
-            if dead_frontends:
-                err += "dead fe: " + str(dead_frontends) + ". "
-            if dead_backends:
-                err += "dead be: " + str(dead_backends) + ". "
+            failed_status = "dead" if is_alive else "alive"
+            if failed_frontends:
+                err += failed_status + " fe: " + str(failed_frontends) + ". "
+            if failed_backends:
+                err += failed_status + " be: " + str(failed_backends) + ". "
             raise Exception(err)
         time.sleep(1)
 
@@ -189,10 +192,11 @@ class Command(object):
 
 class SimpleCommand(Command):
 
-    def __init__(self, command, help):
+    def __init__(self, command, help, options=[]):
         super().__init__(command)
         self.command = command
         self.help = help
+        self.options = options
 
     def add_parser(self, args_parsers):
         help = self.help + " If none of --fe-id, --be-id, --ms-id, --recycle-id, --fdb-id is specific, "\
@@ -210,14 +214,17 @@ class SimpleCommand(Command):
             args.fdb_id)
         utils.exec_docker_compose_command(cluster.get_compose_file(),
                                           self.command,
+                                          options=self.options,
                                           nodes=related_nodes)
         show_cmd = self.command[0].upper() + self.command[1:]
+
+        if for_all:
+            related_nodes = cluster.get_all_nodes()
+
         LOG.info(
             utils.render_green("{} succ, total related node num {}".format(
                 show_cmd, related_node_num)))
 
-        if for_all:
-            related_nodes = cluster.get_all_nodes()
         return cluster, related_nodes
 
 
@@ -240,7 +247,41 @@ class NeedStartCommand(SimpleCommand):
         fe_ids = [node.id for node in related_nodes if node.is_fe()]
         be_ids = [node.id for node in related_nodes if node.is_be()]
         if not cluster.is_host_network():
-            wait_ready_service(args.wait_timeout, cluster, fe_ids, be_ids)
+            wait_service(True, args.wait_timeout, cluster, fe_ids, be_ids)
+        return cluster, related_nodes
+
+
+class RestartCommand(NeedStartCommand):
+
+    def __init__(self, command):
+        super().__init__(command, "Restart the doris containers. ",
+                         ["-t", "1"]),
+
+
+class StopCommand(SimpleCommand):
+
+    def __init__(self, command):
+        super().__init__(command, "Stop the doris containers. ", ["-t", "1"]),
+
+    def add_parser(self, args_parsers):
+        parser = super().add_parser(args_parsers)
+        parser.add_argument(
+            "--wait-timeout",
+            type=int,
+            default=0,
+            help=
+            "Specify wait seconds for fe/be close for service: 0 not wait (default), "\
+            "> 0 max wait seconds, -1 wait unlimited."
+        )
+        return parser
+
+    def run(self, args):
+        cluster, related_nodes = super().run(args)
+        fe_ids = [node.id for node in related_nodes if node.is_fe()]
+        be_ids = [node.id for node in related_nodes if node.is_be()]
+        if not cluster.is_host_network():
+            wait_service(False, args.wait_timeout, cluster, fe_ids, be_ids)
+        return cluster, related_nodes
 
 
 class UpCommand(Command):
@@ -727,8 +768,8 @@ class UpCommand(Command):
                     db_mgr.create_default_storage_vault(cloud_store_config)
 
             if not cluster.is_host_network():
-                wait_ready_service(args.wait_timeout, cluster, add_fe_ids,
-                                   add_be_ids)
+                wait_service(True, args.wait_timeout, cluster, add_fe_ids,
+                             add_be_ids)
             LOG.info(
                 utils.render_green(
                     "Up cluster {} succ, related node num {}".format(
@@ -1424,8 +1465,8 @@ ALL_COMMANDS = [
     UpCommand("up"),
     DownCommand("down"),
     NeedStartCommand("start", "Start the doris containers. "),
-    SimpleCommand("stop", "Stop the doris containers. "),
-    NeedStartCommand("restart", "Restart the doris containers. "),
+    StopCommand("stop"),
+    RestartCommand("restart"),
     SimpleCommand("pause", "Pause the doris containers. "),
     SimpleCommand("unpause", "Unpause the doris containers. "),
     GenConfCommand("config"),

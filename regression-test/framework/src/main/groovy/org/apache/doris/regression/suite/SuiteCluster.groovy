@@ -544,6 +544,7 @@ class SuiteCluster {
     }
 
     int START_WAIT_TIMEOUT = 120
+    int STOP_WAIT_TIMEOUT = 30
 
     // if not specific fe indices, then start all frontends
     void startFrontends(int... indices) {
@@ -557,13 +558,13 @@ class SuiteCluster {
 
     // if not specific fe indices, then stop all frontends
     void stopFrontends(int... indices) {
-        runFrontendsCmd(60, 'stop', indices)
+        runFrontendsCmd(STOP_WAIT_TIMEOUT + 5, "stop --wait-timeout ${STOP_WAIT_TIMEOUT}".toString(), indices)
         waitHbChanged()
     }
 
     // if not specific be indices, then stop all backends
     void stopBackends(int... indices) {
-        runBackendsCmd(60, 'stop', indices)
+        runBackendsCmd(STOP_WAIT_TIMEOUT + 5, "stop --wait-timeout ${STOP_WAIT_TIMEOUT}".toString(), indices)
         waitHbChanged()
     }
 
@@ -580,7 +581,7 @@ class SuiteCluster {
     // if not specific ms indices, then restart all ms
     void restartMs(int... indices) {
         runMsCmd(START_WAIT_TIMEOUT + 5, "restart --wait-timeout ${START_WAIT_TIMEOUT}".toString(), indices)
-    } 
+    }
 
     // if not specific recycler indices, then restart all recyclers
     void restartRecyclers(int... indices) {
