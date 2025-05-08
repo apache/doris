@@ -682,11 +682,19 @@ Status CloudStorageEngine::_submit_base_compaction_task(const CloudTabletSPtr& t
         _submitted_base_compactions[tablet->tablet_id()] = compaction;
     }
     st = _base_compaction_thread_pool->submit_func([=, this, compaction = std::move(compaction)]() {
+        DorisMetrics::instance()->base_compaction_task_running_total->set_value(
+                _base_compaction_thread_pool->num_active_threads());
+        DorisMetrics::instance()->base_compaction_task_pending_total->set_value(
+                _base_compaction_thread_pool->get_queue_size());
         g_base_compaction_running_task_count << 1;
         signal::tablet_id = tablet->tablet_id();
         Defer defer {[&]() {
             g_base_compaction_running_task_count << -1;
             _submitted_base_compactions.erase(tablet->tablet_id());
+            DorisMetrics::instance()->base_compaction_task_running_total->set_value(
+                    _base_compaction_thread_pool->num_active_threads());
+            DorisMetrics::instance()->base_compaction_task_pending_total->set_value(
+                    _base_compaction_thread_pool->get_queue_size());
         }};
         auto st = _request_tablet_global_compaction_lock(ReaderType::READER_BASE_COMPACTION, tablet,
                                                          compaction);
@@ -778,6 +786,10 @@ Status CloudStorageEngine::_submit_cumulative_compaction_task(const CloudTabletS
         }
     };
     st = _cumu_compaction_thread_pool->submit_func([=, this, compaction = std::move(compaction)]() {
+        DorisMetrics::instance()->cumulative_compaction_task_running_total->set_value(
+                _cumu_compaction_thread_pool->num_active_threads());
+        DorisMetrics::instance()->cumulative_compaction_task_pending_total->set_value(
+                _cumu_compaction_thread_pool->get_queue_size());
         DBUG_EXECUTE_IF("CloudStorageEngine._submit_cumulative_compaction_task.wait_in_line",
                         { sleep(5); })
         signal::tablet_id = tablet->tablet_id();
@@ -793,6 +805,10 @@ Status CloudStorageEngine::_submit_cumulative_compaction_task(const CloudTabletS
             }
             g_cumu_compaction_running_task_count << -1;
             erase_submitted_cumu_compaction();
+            DorisMetrics::instance()->cumulative_compaction_task_running_total->set_value(
+                    _cumu_compaction_thread_pool->num_active_threads());
+            DorisMetrics::instance()->cumulative_compaction_task_pending_total->set_value(
+                    _cumu_compaction_thread_pool->get_queue_size());
         }};
         auto st = _request_tablet_global_compaction_lock(ReaderType::READER_CUMULATIVE_COMPACTION,
                                                          tablet, compaction);
