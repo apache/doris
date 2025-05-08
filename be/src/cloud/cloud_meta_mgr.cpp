@@ -532,8 +532,9 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
                                   ? GetRowsetRequest::NO_DICT
                                   : GetRowsetRequest::RETURN_DICT);
         VLOG_DEBUG << "send GetRowsetRequest: " << req.ShortDebugString();
-
+        auto start = std::chrono::steady_clock::now();
         stub->get_rowset(&cntl, &req, &resp, nullptr);
+        auto end = std::chrono::steady_clock::now();
         int64_t latency = cntl.latency_us();
         _get_rowset_latency << latency;
         int retry_times = config::meta_service_rpc_retry_times;
@@ -576,7 +577,8 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
         tablet->last_sync_time_s = now;
 
         if (sync_stats) {
-            sync_stats->get_remote_rowsets_rpc_ms += latency / 1000;
+            sync_stats->get_remote_rowsets_rpc_ns +=
+                    std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count();
             sync_stats->get_remote_rowsets_num += resp.rowset_meta().size();
         }
 
@@ -818,9 +820,9 @@ Status CloudMetaMgr::sync_tablet_delete_bitmap(CloudTablet* tablet, int64_t old_
 
     VLOG_DEBUG << "send GetDeleteBitmapRequest: " << req.ShortDebugString();
 
-    auto start = std::chrono::high_resolution_clock::now();
+    auto start = std::chrono::steady_clock::now();
     auto st = retry_rpc("get delete bitmap", req, &res, &MetaService_Stub::get_delete_bitmap);
-    auto end = std::chrono::high_resolution_clock::now();
+    auto end = std::chrono::steady_clock::now();
     if (st.code() == ErrorCode::THRIFT_RPC_ERROR) {
         return st;
     }
@@ -868,8 +870,8 @@ Status CloudMetaMgr::sync_tablet_delete_bitmap(CloudTablet* tablet, int64_t old_
                 rowset_ids.size(), segment_ids.size(), vers.size(), delete_bitmaps.size());
     }
     if (sync_stats) {
-        sync_stats->get_remote_delete_bitmap_rpc_ms +=
-                std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+        sync_stats->get_remote_delete_bitmap_rpc_ns +=
+                std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count();
         sync_stats->get_remote_delete_bitmap_key_count += delete_bitmaps.size();
         for (const auto& dbm : delete_bitmaps) {
             sync_stats->get_remote_delete_bitmap_bytes += dbm.length();
