@@ -4517,6 +4517,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             }
             List<String> l = Lists.newArrayList(dataType);
             ctx.INTEGER_VALUE().stream().map(ParseTree::getText).forEach(l::add);
+            if (!Config.enable_specify_column_encoding && ctx.encoding != null) {
+                throw new AnalysisException("do not support specify column encoding because fe config"
+                        + " enable_specify_column_encoding is false");
+            }
             String encoding = ctx.encoding != null
                     ? LogicalPlanBuilderAssistant.escapeBackSlash(
                     ctx.encoding.getText().substring(1, ctx.encoding.getText().length() - 1))
