@@ -771,12 +771,31 @@ public class ExpressionUtils {
         return flatten.build();
     }
 
-    /** containsType */
-    public static boolean containsType(Collection<? extends Expression> expressions, Class type) {
-        int classId = SuperClassId.getClassId(type);
-        for (Expression expression : expressions) {
-            if (expression.getAllChildrenTypes().get(classId)) {
-                return true;
+    /** containsTypes */
+    public static boolean containsTypes(
+            Collection<? extends Expression> expressions, Collection<Class<? extends Expression>> types) {
+        return containsTypes(expressions, types.toArray(new Class[0]));
+    }
+
+    /** containsTypes */
+    public static boolean containsTypes(
+            Collection<? extends Expression> expressions, Class<? extends Expression>... types) {
+        if (types.length == 1) {
+            int classId = SuperClassId.getClassId(types[0]);
+            for (Expression expression : expressions) {
+                if (expression.getAllChildrenTypes().get(classId)) {
+                    return true;
+                }
+            }
+        } else {
+            BitSet typeIds = new BitSet();
+            for (Class<?> type : types) {
+                typeIds.set(SuperClassId.getClassId(type));
+            }
+            for (Expression expression : expressions) {
+                if (expression.getAllChildrenTypes().intersects(typeIds)) {
+                    return true;
+                }
             }
         }
         return false;

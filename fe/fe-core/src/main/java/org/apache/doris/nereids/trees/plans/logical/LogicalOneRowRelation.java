@@ -24,20 +24,26 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.WindowExpression;
+import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.algebra.OneRowRelation;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * A relation that contains only one row consist of some constant expressions.
@@ -46,6 +52,10 @@ import java.util.Optional;
 public class LogicalOneRowRelation extends LogicalRelation implements OneRowRelation, OutputPrunable, ProjectMergeable {
 
     private final List<NamedExpression> projects;
+
+    public static final Set<Class<? extends Expression>> FORBIDDEN_EXPRESSIONS = ImmutableSet.of(
+            GroupingScalarFunction.class, TableGeneratingFunction.class, WindowExpression.class
+    );
 
     public LogicalOneRowRelation(RelationId relationId, List<NamedExpression> projects) {
         this(relationId, projects, Optional.empty(), Optional.empty());
@@ -62,9 +72,13 @@ public class LogicalOneRowRelation extends LogicalRelation implements OneRowRela
         return visitor.visitLogicalOneRowRelation(this, context);
     }
 
+    public boolean isValid() {
+        return !ExpressionUtils.containsTypes(projects, FORBIDDEN_EXPRESSIONS);
+    }
+
     @Override
     public boolean canMergeParentProjections(List<NamedExpression> parentProject) {
-        return true;
+        return isValid();
     }
 
     @Override

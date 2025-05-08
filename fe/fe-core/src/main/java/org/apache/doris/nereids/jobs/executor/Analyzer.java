@@ -41,6 +41,7 @@ import org.apache.doris.nereids.rules.analysis.NormalizeAggregate;
 import org.apache.doris.nereids.rules.analysis.NormalizeGenerate;
 import org.apache.doris.nereids.rules.analysis.NormalizeRepeat;
 import org.apache.doris.nereids.rules.analysis.OneRowRelationExtractAggregate;
+import org.apache.doris.nereids.rules.analysis.OneRowRelationToProject;
 import org.apache.doris.nereids.rules.analysis.ProjectToGlobalAggregate;
 import org.apache.doris.nereids.rules.analysis.ProjectWithDistinctToAggregate;
 import org.apache.doris.nereids.rules.analysis.QualifyToFilter;
@@ -109,6 +110,7 @@ public class Analyzer extends AbstractBatchJobExecutor {
             bottomUp(new CheckAfterBind()),
             topDown(new FillUpQualifyMissingSlot()),
             bottomUp(
+                    new OneRowRelationToProject(),
                     new ProjectToGlobalAggregate(),
                     // this rule check's the logicalProject node's isDistinct property
                     // and replace the logicalProject node with a LogicalAggregate node

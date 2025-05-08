@@ -526,11 +526,9 @@ public class BindRelation extends OneAnalysisRuleFactory {
         return parts.stream().map(name -> {
             Partition part = ((OlapTable) t).getPartition(name, unboundRelation.isTempPart());
             if (part == null) {
-                List<String> qualified;
+                List<String> qualified = Lists.newArrayList();
                 if (!CollectionUtils.isEmpty(qualifier)) {
-                    qualified = qualifier;
-                } else {
-                    qualified = Lists.newArrayList();
+                    qualified.addAll(qualifier);
                 }
                 qualified.add(unboundRelation.getTableName());
                 throw new AnalysisException(String.format("Partition: %s is not exists on table %s",
