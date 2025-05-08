@@ -395,9 +395,6 @@ private:
 
     Status execute_decimal(Block& block, uint32_t result, const ColumnWithTypeAndName& col_left,
                            const ColumnWithTypeAndName& col_right) const {
-        TypeIndex left_number = col_left.type->get_type_id();
-        TypeIndex right_number = col_right.type->get_type_id();
-
         auto call = [&](const auto& types) -> bool {
             using Types = std::decay_t<decltype(types)>;
             using LeftDataType = typename Types::LeftType;
@@ -408,7 +405,9 @@ private:
             return true;
         };
 
-        if (!call_on_basic_types<true, false, true, false>(left_number, right_number, call)) {
+        if (!call_on_basic_types<true, false, true, false>(col_left.type->get_primitive_type(),
+                                                           col_right.type->get_primitive_type(),
+                                                           call)) {
             return Status::RuntimeError("Wrong call for {} with {} and {}", get_name(),
                                         col_left.type->get_name(), col_right.type->get_name());
         }
