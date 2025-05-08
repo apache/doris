@@ -121,7 +121,7 @@ WrapperType create_boolean_wrapper(FunctionContext* context, const DataTypePtr& 
         }
     };
 
-    if (!call_on_index_and_data_type<void>(from_type->get_type_id(), make_bool_wrapper)) {
+    if (!call_on_index_and_data_type<void>(from_type->get_primitive_type(), make_bool_wrapper)) {
         return create_unsupport_wrapper(
                 fmt::format("CAST AS bool not supported {}", from_type->get_name()));
     }

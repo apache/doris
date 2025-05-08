@@ -193,7 +193,7 @@ struct ConvertImplGenericFromJsonb {
     }
 };
 
-template <TypeIndex type_index, typename ColumnType>
+template <PrimitiveType type, typename ColumnType>
 struct ConvertImplFromJsonb {
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           const uint32_t result, size_t input_rows_count) {
@@ -239,7 +239,7 @@ struct ConvertImplFromJsonb {
                     res[i] = 0;
                     continue;
                 }
-                if constexpr (type_index == TypeIndex::UInt8) {
+                if constexpr (type == PrimitiveType::TYPE_BOOLEAN) {
                     // cast from json value to boolean type
                     if (value->isTrue()) {
                         res[i] = 1;
@@ -256,11 +256,11 @@ struct ConvertImplFromJsonb {
                         null_map[i] = 1;
                         res[i] = 0;
                     }
-                } else if constexpr (type_index == TypeIndex::Int8 ||
-                                     type_index == TypeIndex::Int16 ||
-                                     type_index == TypeIndex::Int32 ||
-                                     type_index == TypeIndex::Int64 ||
-                                     type_index == TypeIndex::Int128) {
+                } else if constexpr (type == PrimitiveType::TYPE_TINYINT ||
+                                     type == PrimitiveType::TYPE_SMALLINT ||
+                                     type == PrimitiveType::TYPE_INT ||
+                                     type == PrimitiveType::TYPE_BIGINT ||
+                                     type == PrimitiveType::TYPE_LARGEINT) {
                     // cast from json value to integer types
                     if (value->isInt()) {
                         res[i] = ((const JsonbIntVal*)value)->val();
@@ -275,8 +275,8 @@ struct ConvertImplFromJsonb {
                         null_map[i] = 1;
                         res[i] = 0;
                     }
-                } else if constexpr (type_index == TypeIndex::Float64 ||
-                                     type_index == TypeIndex::Float32) {
+                } else if constexpr (type == PrimitiveType::TYPE_FLOAT ||
+                                     type == PrimitiveType::TYPE_DOUBLE) {
                     // cast from json value to floating point types
                     if (value->isDouble()) {
                         res[i] = ((const JsonbDoubleVal*)value)->val();
@@ -312,22 +312,24 @@ struct ConvertImplFromJsonb {
 WrapperType create_cast_from_jsonb_wrapper(const DataTypeJsonb& from_type,
                                            const DataTypePtr& to_type,
                                            bool jsonb_string_as_string) {
-    switch (to_type->get_type_id()) {
-    case TypeIndex::UInt8:
-        return &ConvertImplFromJsonb<TypeIndex::UInt8, ColumnUInt8>::execute;
-    case TypeIndex::Int8:
-        return &ConvertImplFromJsonb<TypeIndex::Int8, ColumnInt8>::execute;
-    case TypeIndex::Int16:
-        return &ConvertImplFromJsonb<TypeIndex::Int16, ColumnInt16>::execute;
-    case TypeIndex::Int32:
-        return &ConvertImplFromJsonb<TypeIndex::Int32, ColumnInt32>::execute;
-    case TypeIndex::Int64:
-        return &ConvertImplFromJsonb<TypeIndex::Int64, ColumnInt64>::execute;
-    case TypeIndex::Int128:
-        return &ConvertImplFromJsonb<TypeIndex::Int128, ColumnInt128>::execute;
-    case TypeIndex::Float64:
-        return &ConvertImplFromJsonb<TypeIndex::Float64, ColumnFloat64>::execute;
-    case TypeIndex::String:
+    switch (to_type->get_primitive_type()) {
+    case PrimitiveType::TYPE_BOOLEAN:
+        return &ConvertImplFromJsonb<PrimitiveType::TYPE_BOOLEAN, ColumnUInt8>::execute;
+    case PrimitiveType::TYPE_TINYINT:
+        return &ConvertImplFromJsonb<PrimitiveType::TYPE_TINYINT, ColumnInt8>::execute;
+    case PrimitiveType::TYPE_SMALLINT:
+        return &ConvertImplFromJsonb<PrimitiveType::TYPE_SMALLINT, ColumnInt16>::execute;
+    case PrimitiveType::TYPE_INT:
+        return &ConvertImplFromJsonb<PrimitiveType::TYPE_INT, ColumnInt32>::execute;
+    case PrimitiveType::TYPE_BIGINT:
+        return &ConvertImplFromJsonb<PrimitiveType::TYPE_BIGINT, ColumnInt64>::execute;
+    case PrimitiveType::TYPE_LARGEINT:
+        return &ConvertImplFromJsonb<PrimitiveType::TYPE_LARGEINT, ColumnInt128>::execute;
+    case PrimitiveType::TYPE_DOUBLE:
+        return &ConvertImplFromJsonb<PrimitiveType::TYPE_DOUBLE, ColumnFloat64>::execute;
+    case PrimitiveType::TYPE_STRING:
+    case PrimitiveType::TYPE_CHAR:
+    case PrimitiveType::TYPE_VARCHAR:
         if (!jsonb_string_as_string) {
             // Conversion from String through parsing.
             return &CastToString::execute_impl;
@@ -343,22 +345,24 @@ WrapperType create_cast_from_jsonb_wrapper(const DataTypeJsonb& from_type,
 // use jsonb writer to create jsonb value
 WrapperType create_cast_to_jsonb_wrapper(const DataTypePtr& from_type, const DataTypeJsonb& to_type,
                                          bool string_as_jsonb_string) {
-    switch (from_type->get_type_id()) {
-    case TypeIndex::UInt8:
+    switch (from_type->get_primitive_type()) {
+    case PrimitiveType::TYPE_BOOLEAN:
         return &ConvertImplNumberToJsonb<ColumnUInt8>::execute;
-    case TypeIndex::Int8:
+    case PrimitiveType::TYPE_TINYINT:
         return &ConvertImplNumberToJsonb<ColumnInt8>::execute;
-    case TypeIndex::Int16:
+    case PrimitiveType::TYPE_SMALLINT:
         return &ConvertImplNumberToJsonb<ColumnInt16>::execute;
-    case TypeIndex::Int32:
+    case PrimitiveType::TYPE_INT:
         return &ConvertImplNumberToJsonb<ColumnInt32>::execute;
-    case TypeIndex::Int64:
+    case PrimitiveType::TYPE_BIGINT:
         return &ConvertImplNumberToJsonb<ColumnInt64>::execute;
-    case TypeIndex::Int128:
+    case PrimitiveType::TYPE_LARGEINT:
         return &ConvertImplNumberToJsonb<ColumnInt128>::execute;
-    case TypeIndex::Float64:
+    case PrimitiveType::TYPE_DOUBLE:
         return &ConvertImplNumberToJsonb<ColumnFloat64>::execute;
-    case TypeIndex::String:
+    case PrimitiveType::TYPE_STRING:
+    case PrimitiveType::TYPE_CHAR:
+    case PrimitiveType::TYPE_VARCHAR:
         if (string_as_jsonb_string) {
             // We convert column string to jsonb type just add a string jsonb field to dst column instead of parse
             // each line in original string column.
@@ -366,7 +370,7 @@ WrapperType create_cast_to_jsonb_wrapper(const DataTypePtr& from_type, const Dat
         } else {
             return cast_from_string_to_generic;
         }
-    case TypeIndex::Nothing:
+    case PrimitiveType::INVALID_TYPE:
         return &ConvertNothingToJsonb::execute;
     default:
         return cast_from_generic_to_jsonb;

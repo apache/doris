@@ -24,7 +24,7 @@ namespace doris::vectorized::CastWrapper {
 //TODO(Amory) . Need support more cast for key , value for map
 WrapperType create_map_wrapper(FunctionContext* context, const DataTypePtr& from_type,
                                const DataTypeMap& to_type) {
-    if (from_type->get_type_id() == TypeIndex::String) {
+    if (is_string_type(from_type->get_primitive_type())) {
         return cast_from_string_to_generic;
     }
     auto from = check_and_get_data_type<DataTypeMap>(from_type.get());

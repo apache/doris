@@ -730,7 +730,8 @@ public:
             return true;
         };
 
-        bool done = call_on_index_and_number_data_type<ToDataType>(from_type->get_type_id(), call);
+        bool done = call_on_index_and_number_data_type<ToDataType>(from_type->get_primitive_type(),
+                                                                   call);
         if (!done) {
             return Status::RuntimeError("Illegal type {} of argument of function {}",
                                         block.get_by_position(arguments[0]).type->get_name(),
@@ -785,7 +786,7 @@ public:
             return true;
         };
 
-        bool done = call_on_index_and_data_type<ToDataType>(from_type->get_type_id(), call);
+        bool done = call_on_index_and_data_type<ToDataType>(from_type->get_primitive_type(), call);
         if (!done) {
             ret_status = Status::RuntimeError("Illegal type {} of argument of function cast",
                                               block.get_by_position(arguments[0]).type->get_name());

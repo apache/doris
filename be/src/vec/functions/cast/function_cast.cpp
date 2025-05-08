@@ -66,41 +66,38 @@ WrapperType create_decimal_wrapper(const DataTypePtr& from_type,
                                    const DataTypeDecimal<FieldType>* to_type) {
     using ToDataType = DataTypeDecimal<FieldType>;
 
-    TypeIndex type_index = from_type->get_type_id();
+    auto type = from_type->get_primitive_type();
     UInt32 precision = to_type->get_precision();
     UInt32 scale = to_type->get_scale();
 
-    WhichDataType which(type_index);
-    bool ok = which.is_int() || which.is_native_uint() || which.is_decimal() || which.is_float() ||
-              which.is_date_or_datetime() || which.is_date_v2_or_datetime_v2() ||
-              which.is_string_or_fixed_string();
+    bool ok = is_int_or_bool(type) || is_decimal(type) || is_float_or_double(type) ||
+              is_date_type(type) || is_string_type(type);
     if (!ok) {
-        return CastWrapper::create_unsupport_wrapper(from_type->get_name(), to_type->get_name());
+        return create_unsupport_wrapper(from_type->get_name(), to_type->get_name());
     }
 
-    return [type_index, precision, scale](FunctionContext* context, Block& block,
-                                          const ColumnNumbers& arguments, const uint32_t result,
-                                          size_t input_rows_count) {
-        auto res =
-                call_on_index_and_data_type<ToDataType>(type_index, [&](const auto& types) -> bool {
-                    using Types = std::decay_t<decltype(types)>;
-                    using LeftDataType = typename Types::LeftType;
-                    using RightDataType = typename Types::RightType;
+    return [type, precision, scale](FunctionContext* context, Block& block,
+                                    const ColumnNumbers& arguments, const uint32_t result,
+                                    size_t input_rows_count) {
+        auto res = call_on_index_and_data_type<ToDataType>(type, [&](const auto& types) -> bool {
+            using Types = std::decay_t<decltype(types)>;
+            using LeftDataType = typename Types::LeftType;
+            using RightDataType = typename Types::RightType;
 
-                    auto state = ConvertImpl<LeftDataType, RightDataType>::execute(
-                            context, block, arguments, result, input_rows_count,
-                            PrecisionScaleArg {precision, scale});
-                    if (!state) {
-                        throw Exception(state.code(), state.to_string());
-                    }
-                    return true;
-                });
+            auto state = ConvertImpl<LeftDataType, RightDataType>::execute(
+                    context, block, arguments, result, input_rows_count,
+                    PrecisionScaleArg {precision, scale});
+            if (!state) {
+                throw Exception(state.code(), state.to_string());
+            }
+            return true;
+        });
 
         /// Additionally check if call_on_index_and_data_type wasn't called at all.
         if (!res) {
             auto to = DataTypeDecimal<FieldType>(precision, scale);
             return Status::RuntimeError("Conversion from {} to {} is not supported",
-                                        getTypeName(type_index), to.get_name());
+                                        type_to_string(type), to.get_name());
         }
         return Status::OK();
     };
@@ -185,7 +182,7 @@ bool need_replace_null_data_to_default(FunctionContext* context, const DataTypeP
             return false;
         }
         return call_on_index_and_data_type<
-                ToDataType>(from_type->get_type_id(), [&](const auto& types2) -> bool {
+                ToDataType>(from_type->get_primitive_type(), [&](const auto& types2) -> bool {
             using Types2 = std::decay_t<decltype(types2)>;
             using FromDataType = typename Types2::LeftType;
             if constexpr (!(IsDataTypeDecimalOrNumber<FromDataType> || IsTimeType<FromDataType> ||
@@ -249,7 +246,7 @@ bool need_replace_null_data_to_default(FunctionContext* context, const DataTypeP
         });
     };
 
-    return call_on_index_and_data_type<void>(to_type->get_type_id(), make_default_wrapper);
+    return call_on_index_and_data_type<void>(to_type->get_primitive_type(), make_default_wrapper);
 }
 
 WrapperType prepare_remove_nullable(FunctionContext* context, const DataTypePtr& from_type,
@@ -299,21 +296,22 @@ WrapperType prepare_impl(FunctionContext* context, const DataTypePtr& from_type,
     }
 
     // variant needs to be judged first
-    if (to_type->get_type_id() == TypeIndex::VARIANT) {
+    if (to_type->get_primitive_type() == PrimitiveType::TYPE_VARIANT) {
         return create_cast_to_variant_wrapper(from_type,
                                               static_cast<const DataTypeObject&>(*to_type));
     }
-    if (from_type->get_type_id() == TypeIndex::VARIANT) {
+    if (from_type->get_primitive_type() == PrimitiveType::TYPE_VARIANT) {
         return create_cast_from_variant_wrapper(static_cast<const DataTypeObject&>(*from_type),
                                                 to_type);
     }
 
-    switch (from_type->get_type_id()) {
-    case TypeIndex::Nothing:
+    switch (from_type->get_primitive_type()) {
+    case PrimitiveType::INVALID_TYPE:
         return create_nothing_wrapper(to_type.get());
-    case TypeIndex::JSONB:
-        return create_cast_from_jsonb_wrapper(static_cast<const DataTypeJsonb&>(*from_type), to_type,
-                                         context ? context->jsonb_string_as_string() : false);
+    case PrimitiveType::TYPE_JSONB:
+        return create_cast_from_jsonb_wrapper(static_cast<const DataTypeJsonb&>(*from_type),
+                                              to_type,
+                                              context ? context->jsonb_string_as_string() : false);
     default:
         break;
     }
@@ -361,29 +359,31 @@ WrapperType prepare_impl(FunctionContext* context, const DataTypePtr& from_type,
         return false;
     };
 
-    if (call_on_index_and_data_type<void>(to_type->get_type_id(), make_default_wrapper)) {
+    if (call_on_index_and_data_type<void>(to_type->get_primitive_type(), make_default_wrapper)) {
         return ret;
     }
 
-    switch (to_type->get_type_id()) {
-    case TypeIndex::String:
+    switch (to_type->get_primitive_type()) {
+    case PrimitiveType::TYPE_CHAR:
+    case PrimitiveType::TYPE_VARCHAR:
+    case PrimitiveType::TYPE_STRING:
         return create_string_wrapper(from_type);
-    case TypeIndex::Array:
+    case PrimitiveType::TYPE_ARRAY:
         return create_array_wrapper(context, from_type,
                                     static_cast<const DataTypeArray&>(*to_type));
-    case TypeIndex::Struct:
+    case PrimitiveType::TYPE_STRUCT:
         return create_struct_wrapper(context, from_type,
                                      static_cast<const DataTypeStruct&>(*to_type));
-    case TypeIndex::Map:
+    case PrimitiveType::TYPE_MAP:
         return create_map_wrapper(context, from_type, static_cast<const DataTypeMap&>(*to_type));
-    case TypeIndex::HLL:
+    case PrimitiveType::TYPE_HLL:
         return create_hll_wrapper(context, from_type, static_cast<const DataTypeHLL&>(*to_type));
-    case TypeIndex::BitMap:
+    case PrimitiveType::TYPE_OBJECT:
         return create_bitmap_wrapper(context, from_type,
                                      static_cast<const DataTypeBitMap&>(*to_type));
-    case TypeIndex::JSONB:
+    case PrimitiveType::TYPE_JSONB:
         return create_cast_to_jsonb_wrapper(from_type, static_cast<const DataTypeJsonb&>(*to_type),
-                                       context ? context->string_as_jsonb_string() : false);
+                                            context ? context->string_as_jsonb_string() : false);
     default:
         break;
     }
@@ -474,18 +474,20 @@ protected:
         // 1. from_type is nullable
         need_to_be_nullable |= arguments[0].type->is_nullable();
         // 2. from_type is string, to_type is not string
-        need_to_be_nullable |= (arguments[0].type->get_type_id() == TypeIndex::String) &&
-                               (type->get_type_id() != TypeIndex::String);
+        need_to_be_nullable |= (is_string_type(arguments[0].type->get_primitive_type())) &&
+                               (!is_string_type(type->get_primitive_type()));
         // 3. from_type is not DateTime/Date, to_type is DateTime/Date
-        need_to_be_nullable |= (arguments[0].type->get_type_id() != TypeIndex::Date &&
-                                arguments[0].type->get_type_id() != TypeIndex::DateTime) &&
-                               (type->get_type_id() == TypeIndex::Date ||
-                                type->get_type_id() == TypeIndex::DateTime);
+        need_to_be_nullable |=
+                (arguments[0].type->get_primitive_type() != PrimitiveType::TYPE_DATE &&
+                 arguments[0].type->get_primitive_type() != PrimitiveType::TYPE_DATETIME) &&
+                (type->get_primitive_type() == PrimitiveType::TYPE_DATE ||
+                 type->get_primitive_type() == PrimitiveType::TYPE_DATETIME);
         // 4. from_type is not DateTimeV2/DateV2, to_type is DateTimeV2/DateV2
-        need_to_be_nullable |= (arguments[0].type->get_type_id() != TypeIndex::DateV2 &&
-                                arguments[0].type->get_type_id() != TypeIndex::DateTimeV2) &&
-                               (type->get_type_id() == TypeIndex::DateV2 ||
-                                type->get_type_id() == TypeIndex::DateTimeV2);
+        need_to_be_nullable |=
+                (arguments[0].type->get_primitive_type() != PrimitiveType::TYPE_DATEV2 &&
+                 arguments[0].type->get_primitive_type() != PrimitiveType::TYPE_DATETIMEV2) &&
+                (type->get_primitive_type() == PrimitiveType::TYPE_DATEV2 ||
+                 type->get_primitive_type() == PrimitiveType::TYPE_DATETIMEV2);
         if (need_to_be_nullable && !type->is_nullable()) {
             return make_nullable(type);
         }

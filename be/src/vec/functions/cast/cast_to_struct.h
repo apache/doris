@@ -25,7 +25,7 @@ namespace doris::vectorized::CastWrapper {
 WrapperType create_struct_wrapper(FunctionContext* context, const DataTypePtr& from_type,
                                   const DataTypeStruct& to_type) {
     // support CAST AS Struct from string
-    if (from_type->get_type_id() == TypeIndex::String) {
+    if (is_string_type(from_type->get_primitive_type())) {
         return cast_from_string_to_generic;
     }
 
