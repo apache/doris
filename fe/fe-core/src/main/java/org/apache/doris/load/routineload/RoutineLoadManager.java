@@ -80,6 +80,8 @@ import java.util.stream.Collectors;
 public class RoutineLoadManager implements Writable {
     private static final Logger LOG = LogManager.getLogger(RoutineLoadManager.class);
 
+    private static final long BLACKLIST_EXPIRE_TIME_MS = 2 * 60 * 1000; // 2 minutes
+
     // Long is beId, integer is the size of tasks in be
     private Map<Long, Integer> beIdToMaxConcurrentTasks = Maps.newHashMap();
 
@@ -90,6 +92,9 @@ public class RoutineLoadManager implements Writable {
     private ConcurrentHashMap<Long, Long> multiLoadTaskTxnIdToRoutineLoadJobId = new ConcurrentHashMap<>();
 
     private ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
+
+    // Map<beId, timestamp when added to blacklist>
+    private Map<Long, Long> blacklist = new ConcurrentHashMap<>();
 
     private void readLock() {
         lock.readLock().lock();
@@ -939,5 +944,22 @@ public class RoutineLoadManager implements Writable {
                 Env.getCurrentGlobalTransactionMgr().getCallbackFactory().addCallback(routineLoadJob);
             }
         }
+    }
+
+    public void addToBlacklist(long beId) {
+        blacklist.put(beId, System.currentTimeMillis());
+    }
+
+    public boolean isInBlacklist(long beId) {
+        Long timestamp = blacklist.get(beId);
+        if (timestamp == null) {
+            return false;
+        }
+
+        if (System.currentTimeMillis() - timestamp > BLACKLIST_EXPIRE_TIME_MS) {
+            blacklist.remove(beId);
+            return false;
+        }
+        return true;
     }
 }
