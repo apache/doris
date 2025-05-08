@@ -51,11 +51,11 @@ import java.util.Set;
  */
 public class LogicalOneRowRelation extends LogicalRelation implements OneRowRelation, OutputPrunable, ProjectMergeable {
 
-    private final List<NamedExpression> projects;
-
     public static final Set<Class<? extends Expression>> FORBIDDEN_EXPRESSIONS = ImmutableSet.of(
             GroupingScalarFunction.class, TableGeneratingFunction.class, WindowExpression.class
     );
+
+    private final List<NamedExpression> projects;
 
     public LogicalOneRowRelation(RelationId relationId, List<NamedExpression> projects) {
         this(relationId, projects, Optional.empty(), Optional.empty());
