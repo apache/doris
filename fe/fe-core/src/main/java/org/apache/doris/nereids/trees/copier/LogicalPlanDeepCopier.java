@@ -98,6 +98,8 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
         return newRelation;
     }
 
+    // TODO update scan
+
     @Override
     public Plan visitLogicalCatalogRelation(LogicalCatalogRelation relation, DeepCopierContext context) {
         if (context.getRelationReplaceMap().containsKey(relation.getRelationId())) {
