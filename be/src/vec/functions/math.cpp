@@ -329,7 +329,7 @@ struct NameBin {
 };
 struct BinImpl {
     using ReturnType = DataTypeString;
-    static constexpr auto TYPE_INDEX = TypeIndex::Int64;
+    static constexpr auto PrimitiveTypeImpl = PrimitiveType::TYPE_BIGINT;
     using Type = Int64;
     using ReturnColumnType = ColumnString;
 

@@ -51,7 +51,7 @@ struct NameStringASCII {
 
 struct StringASCII {
     using ReturnType = DataTypeInt32;
-    static constexpr auto TYPE_INDEX = TypeIndex::String;
+    static constexpr auto PrimitiveTypeImpl = PrimitiveType::TYPE_STRING;
     using Type = String;
     using ReturnColumnType = ColumnVector<Int32>;
 
@@ -97,7 +97,7 @@ struct NameStringLength {
 
 struct StringLengthImpl {
     using ReturnType = DataTypeInt32;
-    static constexpr auto TYPE_INDEX = TypeIndex::String;
+    static constexpr auto PrimitiveTypeImpl = PrimitiveType::TYPE_STRING;
     using Type = String;
     using ReturnColumnType = ColumnVector<Int32>;
 
@@ -119,7 +119,7 @@ struct NameCrc32 {
 
 struct Crc32Impl {
     using ReturnType = DataTypeInt64;
-    static constexpr auto TYPE_INDEX = TypeIndex::String;
+    static constexpr auto PrimitiveTypeImpl = PrimitiveType::TYPE_STRING;
     using Type = String;
     using ReturnColumnType = ColumnVector<Int64>;
 
@@ -141,7 +141,7 @@ struct NameStringUtf8Length {
 
 struct StringUtf8LengthImpl {
     using ReturnType = DataTypeInt32;
-    static constexpr auto TYPE_INDEX = TypeIndex::String;
+    static constexpr auto PrimitiveTypeImpl = PrimitiveType::TYPE_STRING;
     using Type = String;
     using ReturnColumnType = ColumnVector<Int32>;
 
@@ -1031,7 +1031,7 @@ struct NameStringSpace {
 
 struct StringSpace {
     using ReturnType = DataTypeString;
-    static constexpr auto TYPE_INDEX = TypeIndex::Int32;
+    static constexpr auto PrimitiveTypeImpl = PrimitiveType::TYPE_INT;
     using Type = Int32;
     using ReturnColumnType = ColumnString;
 

@@ -41,35 +41,39 @@ struct StaticVisitor {
 template <typename Visitor, typename F>
 typename std::decay_t<Visitor>::ResultType apply_visitor(Visitor&& visitor, F&& field) {
     switch (field.get_type()) {
-    case Field::Types::Null:
+    case PrimitiveType::TYPE_NULL:
         return visitor(field.template get<Null>());
-    case Field::Types::UInt64:
+    case PrimitiveType::TYPE_DATETIMEV2:
         return visitor(field.template get<UInt64>());
-    case Field::Types::UInt128:
-        return visitor(field.template get<UInt128>());
-    case Field::Types::Int64:
+    case PrimitiveType::TYPE_LARGEINT:
+        return visitor(field.template get<Int128>());
+    case PrimitiveType::TYPE_DATETIME:
+    case PrimitiveType::TYPE_DATE:
+    case PrimitiveType::TYPE_BIGINT:
         return visitor(field.template get<Int64>());
-    case Field::Types::Float64:
+    case PrimitiveType::TYPE_DOUBLE:
         return visitor(field.template get<Float64>());
-    case Field::Types::String:
+    case PrimitiveType::TYPE_STRING:
+    case PrimitiveType::TYPE_CHAR:
+    case PrimitiveType::TYPE_VARCHAR:
         return visitor(field.template get<String>());
-    case Field::Types::Array:
+    case PrimitiveType::TYPE_ARRAY:
         return visitor(field.template get<Array>());
-    case Field::Types::Tuple:
+    case PrimitiveType::TYPE_STRUCT:
         return visitor(field.template get<Tuple>());
-    case Field::Types::VariantMap:
+    case PrimitiveType::TYPE_VARIANT:
         return visitor(field.template get<VariantMap>());
-    case Field::Types::Decimal32:
+    case PrimitiveType::TYPE_DECIMAL32:
         return visitor(field.template get<DecimalField<Decimal32>>());
-    case Field::Types::Decimal64:
+    case PrimitiveType::TYPE_DECIMAL64:
         return visitor(field.template get<DecimalField<Decimal64>>());
-    case Field::Types::Decimal128V2:
+    case PrimitiveType::TYPE_DECIMALV2:
         return visitor(field.template get<DecimalField<Decimal128V2>>());
-    case Field::Types::Decimal128V3:
+    case PrimitiveType::TYPE_DECIMAL128I:
         return visitor(field.template get<DecimalField<Decimal128V3>>());
-    case Field::Types::Decimal256:
+    case PrimitiveType::TYPE_DECIMAL256:
         return visitor(field.template get<DecimalField<Decimal256>>());
-    case Field::Types::JSONB:
+    case PrimitiveType::TYPE_JSONB:
         return visitor(field.template get<JsonbField>());
     default:
         throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Bad type of Field {}",

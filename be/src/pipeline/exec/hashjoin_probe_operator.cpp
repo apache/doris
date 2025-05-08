@@ -561,7 +561,7 @@ Status HashJoinProbeOperatorX::prepare(RuntimeState* state) {
         }
 
         const auto& null_data_type = assert_cast<const vectorized::DataTypeNullable&>(*data_type);
-        if (null_data_type.get_nested_type()->get_type_id() != vectorized::TypeIndex::UInt8) {
+        if (null_data_type.get_nested_type()->get_primitive_type() != PrimitiveType::TYPE_BOOLEAN) {
             return Status::InternalError(
                     "The last column for mark join should be Nullable(UInt8), not {}",
                     data_type->get_name());

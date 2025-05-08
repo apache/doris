@@ -41,12 +41,12 @@ AggregateFunctionPtr create_aggregate_function_window_funnel(const std::string& 
     }
     if (WhichDataType(remove_nullable(argument_types[2])).is_date_time_v2()) {
         return creator_without_type::create<
-                AggregateFunctionWindowFunnel<TypeIndex::DateTimeV2, UInt64>>(argument_types,
-                                                                              result_is_nullable);
+                AggregateFunctionWindowFunnel<PrimitiveType::TYPE_DATETIMEV2, UInt64>>(
+                argument_types, result_is_nullable);
     } else if (WhichDataType(remove_nullable(argument_types[2])).is_date_time()) {
         return creator_without_type::create<
-                AggregateFunctionWindowFunnel<TypeIndex::DateTime, Int64>>(argument_types,
-                                                                           result_is_nullable);
+                AggregateFunctionWindowFunnel<PrimitiveType::TYPE_DATETIME, Int64>>(
+                argument_types, result_is_nullable);
     } else {
         LOG(WARNING) << "Only support DateTime type as window argument!";
         return nullptr;

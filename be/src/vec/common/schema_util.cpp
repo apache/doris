@@ -111,41 +111,29 @@ Array create_empty_array_field(size_t num_dimensions) {
     return array;
 }
 
-size_t get_size_of_interger(TypeIndex type) {
+size_t get_size_of_interger(PrimitiveType type) {
     switch (type) {
-    case TypeIndex::Int8:
+    case PrimitiveType::TYPE_TINYINT:
         return sizeof(int8_t);
-    case TypeIndex::Int16:
+    case PrimitiveType::TYPE_SMALLINT:
         return sizeof(int16_t);
-    case TypeIndex::Int32:
+    case PrimitiveType::TYPE_INT:
         return sizeof(int32_t);
-    case TypeIndex::Int64:
+    case PrimitiveType::TYPE_BIGINT:
         return sizeof(int64_t);
-    case TypeIndex::Int128:
+    case PrimitiveType::TYPE_LARGEINT:
         return sizeof(int128_t);
-    case TypeIndex::UInt8:
+    case PrimitiveType::TYPE_BOOLEAN:
         return sizeof(uint8_t);
-    case TypeIndex::UInt16:
-        return sizeof(uint16_t);
-    case TypeIndex::UInt32:
-        return sizeof(uint32_t);
-    case TypeIndex::UInt64:
-        return sizeof(uint64_t);
-    case TypeIndex::UInt128:
-        return sizeof(uint128_t);
     default:
-        throw Exception(Status::FatalError("Unknown integer type: {}", getTypeName(type)));
+        throw Exception(Status::FatalError("Unknown integer type: {}", type_to_string(type)));
         return 0;
     }
 }
 
-bool is_conversion_required_between_integers(const TypeIndex& lhs, const TypeIndex& rhs) {
-    WhichDataType which_lhs(lhs);
-    WhichDataType which_rhs(rhs);
-    bool is_native_int = which_lhs.is_native_int() && which_rhs.is_native_int();
-    bool is_native_uint = which_lhs.is_native_uint() && which_rhs.is_native_uint();
-    return (!is_native_int && !is_native_uint) ||
-           get_size_of_interger(lhs) > get_size_of_interger(rhs);
+bool is_conversion_required_between_integers(const PrimitiveType& lhs, const PrimitiveType& rhs) {
+    bool is_native_int = is_int_or_bool(lhs) && is_int_or_bool(rhs);
+    return !is_native_int || get_size_of_interger(lhs) > get_size_of_interger(rhs);
 }
 
 Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, ColumnPtr* result) {
@@ -220,7 +208,7 @@ void get_column_by_type(const vectorized::DataTypePtr& data_type, const std::str
         get_column_by_type(real_type.get_nested_type(), name, column, {});
         return;
     }
-    if (data_type->get_type_id() == TypeIndex::Array) {
+    if (data_type->get_primitive_type() == PrimitiveType::TYPE_ARRAY) {
         TabletColumn child;
         get_column_by_type(assert_cast<const DataTypeArray*>(data_type.get())->get_nested_type(),
                            "", child, {});

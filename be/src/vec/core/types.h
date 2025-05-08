@@ -992,24 +992,3 @@ struct std::hash<doris::vectorized::Decimal256> {
                std::hash<uint64_t>()(x.value & std::numeric_limits<uint64_t>::max());
     }
 };
-
-constexpr bool typeindex_is_int(doris::vectorized::TypeIndex index) {
-    using TypeIndex = doris::vectorized::TypeIndex;
-    switch (index) {
-    case TypeIndex::UInt8:
-    case TypeIndex::UInt16:
-    case TypeIndex::UInt32:
-    case TypeIndex::UInt64:
-    case TypeIndex::UInt128:
-    case TypeIndex::Int8:
-    case TypeIndex::Int16:
-    case TypeIndex::Int32:
-    case TypeIndex::Int64:
-    case TypeIndex::Int128: {
-        return true;
-    }
-    default: {
-        return false;
-    }
-    }
-}

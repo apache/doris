@@ -106,17 +106,17 @@ public:
                         uint32_t result, size_t input_rows_count) const override {
         ColumnWithTypeAndName& argument = block.get_by_position(arguments[0]);
 
-        switch (argument.type->get_type_id()) {
-        case TypeIndex::Int8:
+        switch (argument.type->get_primitive_type()) {
+        case PrimitiveType::TYPE_TINYINT:
             return execute_type<Int8>(block, argument, result);
             break;
-        case TypeIndex::Int16:
+        case PrimitiveType::TYPE_SMALLINT:
             return execute_type<Int16>(block, argument, result);
             break;
-        case TypeIndex::Int32:
+        case PrimitiveType::TYPE_INT:
             return execute_type<Int32>(block, argument, result);
             break;
-        case TypeIndex::Int64:
+        case PrimitiveType::TYPE_BIGINT:
             return execute_type<Int64>(block, argument, result);
             break;
         default:

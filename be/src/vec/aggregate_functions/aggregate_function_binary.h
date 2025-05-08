@@ -102,29 +102,76 @@ struct AggregateFunctionBinary
 template <template <typename> typename Moments, typename FirstType, typename... TArgs>
 AggregateFunctionPtr create_with_two_basic_numeric_types_second(const DataTypePtr& second_type,
                                                                 TArgs&&... args) {
-    WhichDataType which(remove_nullable(second_type));
-#define DISPATCH(TYPE)                                                        \
-    if (which.idx == TypeIndex::TYPE)                                         \
-        return creator_without_type::create<                                  \
-                AggregateFunctionBinary<StatFunc<FirstType, TYPE, Moments>>>( \
+    switch (second_type->get_primitive_type()) {
+    case PrimitiveType::TYPE_BOOLEAN:
+        return creator_without_type::create<
+                AggregateFunctionBinary<StatFunc<FirstType, UInt8, Moments>>>(
                 std::forward<TArgs>(args)...);
-    FOR_NUMERIC_TYPES(DISPATCH)
-#undef DISPATCH
-    return nullptr;
+    case PrimitiveType::TYPE_TINYINT:
+        return creator_without_type::create<
+                AggregateFunctionBinary<StatFunc<FirstType, Int8, Moments>>>(
+                std::forward<TArgs>(args)...);
+    case PrimitiveType::TYPE_SMALLINT:
+        return creator_without_type::create<
+                AggregateFunctionBinary<StatFunc<FirstType, Int16, Moments>>>(
+                std::forward<TArgs>(args)...);
+    case PrimitiveType::TYPE_INT:
+        return creator_without_type::create<
+                AggregateFunctionBinary<StatFunc<FirstType, Int32, Moments>>>(
+                std::forward<TArgs>(args)...);
+    case PrimitiveType::TYPE_BIGINT:
+        return creator_without_type::create<
+                AggregateFunctionBinary<StatFunc<FirstType, Int64, Moments>>>(
+                std::forward<TArgs>(args)...);
+    case PrimitiveType::TYPE_LARGEINT:
+        return creator_without_type::create<
+                AggregateFunctionBinary<StatFunc<FirstType, Int128, Moments>>>(
+                std::forward<TArgs>(args)...);
+    case PrimitiveType::TYPE_FLOAT:
+        return creator_without_type::create<
+                AggregateFunctionBinary<StatFunc<FirstType, Float32, Moments>>>(
+                std::forward<TArgs>(args)...);
+    case PrimitiveType::TYPE_DOUBLE:
+        return creator_without_type::create<
+                AggregateFunctionBinary<StatFunc<FirstType, Float64, Moments>>>(
+                std::forward<TArgs>(args)...);
+    default:
+        return nullptr;
+    }
 }
 
 template <template <typename> typename Moments, typename... TArgs>
 AggregateFunctionPtr create_with_two_basic_numeric_types(const DataTypePtr& first_type,
                                                          const DataTypePtr& second_type,
                                                          TArgs&&... args) {
-    WhichDataType which(remove_nullable(first_type));
-#define DISPATCH(TYPE)                                                    \
-    if (which.idx == TypeIndex::TYPE)                                     \
-        return create_with_two_basic_numeric_types_second<Moments, TYPE>( \
+    switch (first_type->get_primitive_type()) {
+    case PrimitiveType::TYPE_BOOLEAN:
+        return create_with_two_basic_numeric_types_second<Moments, UInt8>(
                 second_type, std::forward<TArgs>(args)...);
-    FOR_NUMERIC_TYPES(DISPATCH)
-#undef DISPATCH
-    return nullptr;
+    case PrimitiveType::TYPE_TINYINT:
+        return create_with_two_basic_numeric_types_second<Moments, Int8>(
+                second_type, std::forward<TArgs>(args)...);
+    case PrimitiveType::TYPE_SMALLINT:
+        return create_with_two_basic_numeric_types_second<Moments, Int16>(
+                second_type, std::forward<TArgs>(args)...);
+    case PrimitiveType::TYPE_INT:
+        return create_with_two_basic_numeric_types_second<Moments, Int32>(
+                second_type, std::forward<TArgs>(args)...);
+    case PrimitiveType::TYPE_BIGINT:
+        return create_with_two_basic_numeric_types_second<Moments, Int64>(
+                second_type, std::forward<TArgs>(args)...);
+    case PrimitiveType::TYPE_LARGEINT:
+        return create_with_two_basic_numeric_types_second<Moments, Int128>(
+                second_type, std::forward<TArgs>(args)...);
+    case PrimitiveType::TYPE_FLOAT:
+        return create_with_two_basic_numeric_types_second<Moments, Float32>(
+                second_type, std::forward<TArgs>(args)...);
+    case PrimitiveType::TYPE_DOUBLE:
+        return create_with_two_basic_numeric_types_second<Moments, Float64>(
+                second_type, std::forward<TArgs>(args)...);
+    default:
+        return nullptr;
+    }
 }
 
 } // namespace doris::vectorized

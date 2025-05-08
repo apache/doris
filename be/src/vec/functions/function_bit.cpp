@@ -94,7 +94,7 @@ struct NameBitLength {
 
 struct BitLengthImpl {
     using ReturnType = DataTypeInt32;
-    static constexpr auto TYPE_INDEX = TypeIndex::String;
+    static constexpr auto PrimitiveTypeImpl = PrimitiveType::TYPE_STRING;
     using Type = String;
     using ReturnColumnType = ColumnVector<Int32>;
 

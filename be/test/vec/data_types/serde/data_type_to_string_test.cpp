@@ -39,7 +39,8 @@ TEST(ToStringMethodTest, DataTypeToStringTest) {
     // prepare field
     DataTypeTestCases cases;
     DataTypes data_types;
-    std::vector<TypeIndex> type_ids = {TypeIndex::Int16, TypeIndex::String, TypeIndex::Decimal32};
+    std::vector<PrimitiveType> type_ids = {PrimitiveType::TYPE_SMALLINT, PrimitiveType::TYPE_STRING,
+                                           PrimitiveType::TYPE_DECIMAL32};
     Array a1, a2;
     a1.push_back(UInt64(123));
     a1.push_back(Null());
@@ -74,7 +75,8 @@ TEST(ToStringMethodTest, DataTypeToStringTest) {
                            "{123:\"hello amory\", null:\"NULL\", 12345678:\"cute amory\", 0:null}"};
 
     for (const auto id : type_ids) {
-        const auto data_type = DataTypeFactory::instance().create_data_type(id);
+        const auto data_type = DataTypeFactory::instance().create_data_type(
+                id, false, BeConsts::MAX_DECIMAL32_PRECISION, 0);
         data_types.push_back(data_type);
     }
 

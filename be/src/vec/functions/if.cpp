@@ -195,7 +195,7 @@ public:
                             const ColumnWithTypeAndName& then_col,
                             const ColumnWithTypeAndName& else_col, uint32_t result,
                             Status& status) const {
-        if (then_col.type->get_type_id() != else_col.type->get_type_id()) {
+        if (then_col.type->get_primitive_type() != else_col.type->get_primitive_type()) {
             status = Status::InternalError("then and else column type must be same");
             return;
         }
@@ -425,7 +425,8 @@ public:
         }
 
         if (const auto* nullable = check_and_get_column<ColumnNullable>(*arg_cond.column)) {
-            DCHECK(remove_nullable(arg_cond.type)->get_type_id() == TypeIndex::UInt8);
+            DCHECK(remove_nullable(arg_cond.type)->get_primitive_type() ==
+                   PrimitiveType::TYPE_BOOLEAN);
 
             // update nested column by null map
             const auto* __restrict null_map = nullable->get_null_map_data().data();

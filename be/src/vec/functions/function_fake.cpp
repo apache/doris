@@ -72,7 +72,7 @@ struct FunctionExplodeV2 {
     static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
         DataTypes fieldTypes(arguments.size());
         for (int i = 0; i < arguments.size(); i++) {
-            if (arguments[i]->get_type_id() == TypeIndex::VARIANT) {
+            if (arguments[i]->get_primitive_type() == PrimitiveType::TYPE_VARIANT) {
                 if (arguments[i]->is_nullable()) {
                     fieldTypes[i] = arguments[i];
                 } else {

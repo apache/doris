@@ -25,6 +25,7 @@
 #include <vector>
 
 #include "olap/hll.h"
+#include "runtime/primitive_type.h"
 #include "util/bitmap_value.h"
 #include "util/quantile_state.h"
 #include "vec/columns/column.h"
@@ -130,7 +131,7 @@ public:
     MutableColumnPtr clone_resized(size_t size) const override;
 
     void insert(const Field& x) override {
-        DCHECK_EQ(x.get_type(), Field::TypeToEnum<T>::value);
+        DCHECK_EQ(x.get_type(), TypeToPrimitiveType<T>::value);
         const T& s = doris::vectorized::get<const T&>(x);
         data.push_back(s);
     }

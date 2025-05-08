@@ -453,20 +453,20 @@ public:
         if (second_arg_type->get_primitive_type() == PrimitiveType::TYPE_INT) {
             switch (first_arg_type->get_primitive_type()) {
             case PrimitiveType::TYPE_DATE:
-                return execute_inner<TYPE_DATE, TYPE_INT>(block, arguments, result,
-                                                          input_rows_count);
+                return execute_inner<DataTypeDate, DataTypeInt32>(block, arguments, result,
+                                                                  input_rows_count);
                 break;
             case PrimitiveType::TYPE_DATETIME:
-                return execute_inner<TYPE_DATETIME, TYPE_INT>(block, arguments, result,
-                                                              input_rows_count);
+                return execute_inner<DataTypeDateTime, DataTypeInt32>(block, arguments, result,
+                                                                      input_rows_count);
                 break;
             case PrimitiveType::TYPE_DATEV2:
-                return execute_inner<TYPE_DATEV2, TYPE_INT>(block, arguments, result,
-                                                            input_rows_count);
+                return execute_inner<DataTypeDateV2, DataTypeInt32>(block, arguments, result,
+                                                                    input_rows_count);
                 break;
             case PrimitiveType::TYPE_DATETIMEV2:
-                return execute_inner<TYPE_DATETIMEV2, TYPE_INT>(block, arguments, result,
-                                                                input_rows_count);
+                return execute_inner<DataTypeDateTimeV2, DataTypeInt32>(block, arguments, result,
+                                                                        input_rows_count);
                 break;
             default:
                 return Status::InternalError("Illegal argument {} and {} of function {}",
@@ -479,24 +479,24 @@ public:
         // for `xxx_diff`, every combination of V2 is possible. but for V1 we only support Datetime - Datetime
         if (first_arg_type->get_primitive_type() == PrimitiveType::TYPE_DATEV2 &&
             second_arg_type->get_primitive_type() == PrimitiveType::TYPE_DATEV2) {
-            return execute_inner<TYPE_DATEV2, TYPE_DATEV2>(block, arguments, result,
-                                                           input_rows_count);
+            return execute_inner<DataTypeDateV2, DataTypeDateV2>(block, arguments, result,
+                                                                 input_rows_count);
         } else if (first_arg_type->get_primitive_type() == PrimitiveType::TYPE_DATETIMEV2 &&
                    second_arg_type->get_primitive_type() == PrimitiveType::TYPE_DATETIMEV2) {
-            return execute_inner<TYPE_DATETIMEV2, TYPE_DATETIMEV2>(block, arguments, result,
-                                                                   input_rows_count);
+            return execute_inner<DataTypeDateTimeV2, DataTypeDateTimeV2>(block, arguments, result,
+                                                                         input_rows_count);
         } else if (first_arg_type->get_primitive_type() == PrimitiveType::TYPE_DATEV2 &&
                    second_arg_type->get_primitive_type() == PrimitiveType::TYPE_DATETIMEV2) {
-            return execute_inner<TYPE_DATEV2, TYPE_DATETIMEV2>(block, arguments, result,
-                                                               input_rows_count);
+            return execute_inner<DataTypeDateV2, DataTypeDateTimeV2>(block, arguments, result,
+                                                                     input_rows_count);
         } else if (first_arg_type->get_primitive_type() == PrimitiveType::TYPE_DATETIMEV2 &&
                    second_arg_type->get_primitive_type() == PrimitiveType::TYPE_DATEV2) {
-            return execute_inner<TYPE_DATETIMEV2, TYPE_DATEV2>(block, arguments, result,
-                                                               input_rows_count);
+            return execute_inner<DataTypeDateTimeV2, DataTypeDateV2>(block, arguments, result,
+                                                                     input_rows_count);
         } else if (first_arg_type->get_primitive_type() == PrimitiveType::TYPE_DATETIME &&
                    second_arg_type->get_primitive_type() == PrimitiveType::TYPE_DATETIME) {
-            return execute_inner<TYPE_DATETIME, TYPE_DATETIME>(block, arguments, result,
-                                                               input_rows_count);
+            return execute_inner<DataTypeDateTime, DataTypeDateTime>(block, arguments, result,
+                                                                     input_rows_count);
         }
         return Status::InternalError("Illegal argument {} and {} of function {}",
                                      block.get_by_position(arguments[0]).type->get_name(),

@@ -85,9 +85,8 @@ static void from_thrift_checker(UInt32 scale, const String& input, const String&
                             doris::FieldType::OLAP_FIELD_TYPE_DATETIMEV2, 0, scale));
 
     auto field = datetime_ptr->get_field(expr_node);
-    uint64_t value = 0;
     //  = datetime_ptr->get_storage_field_type();
-    EXPECT_EQ(field.try_get(value), true);
+    EXPECT_EQ(field.get_type(), PrimitiveType::TYPE_DATETIMEV2);
     auto column = datetime_ptr->create_column_const(1, field);
     EXPECT_EQ(datetime_ptr->to_string(*column, 1), expected);
 }
