@@ -345,6 +345,7 @@ import org.apache.doris.nereids.DorisParser.ShowGrantsContext;
 import org.apache.doris.nereids.DorisParser.ShowGrantsForUserContext;
 import org.apache.doris.nereids.DorisParser.ShowLastInsertContext;
 import org.apache.doris.nereids.DorisParser.ShowLoadProfileContext;
+import org.apache.doris.nereids.DorisParser.ShowLoadWarningsContext;
 import org.apache.doris.nereids.DorisParser.ShowPartitionIdContext;
 import org.apache.doris.nereids.DorisParser.ShowPluginsContext;
 import org.apache.doris.nereids.DorisParser.ShowPrivilegesContext;
@@ -682,6 +683,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowGrantsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowIndexStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLastInsertCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLoadProfileCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowLoadWarningsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPartitionIdCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPluginsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPrivilegesCommand;
@@ -5696,6 +5698,29 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         long dbId = (ctx.id != null) ? Long.parseLong(ctx.id.getText()) : -1;
         String newDbName = (ctx.alias != null) ? ctx.alias.getText() : null;
         return new RecoverDatabaseCommand(dbName, dbId, newDbName);
+    }
+
+    @Override
+    public LogicalPlan visitShowLoadWarnings(ShowLoadWarningsContext ctx) {
+        String dbName = null;
+        Expression wildWhere = null;
+        String originUrl = null;
+        Long limit = null;
+
+        if (ctx.url != null) {
+            originUrl = stripQuotes(ctx.url.getText());
+        }
+        if (ctx.limitClause() != null) {
+            limit = Long.parseLong(ctx.limitClause().limit.getText());
+        }
+        if (ctx.database != null) {
+            List<String> nameParts = visitMultipartIdentifier(ctx.database);
+            dbName = nameParts.get(0); // only one entry possible
+        }
+        if (ctx.wildWhere() != null) {
+            wildWhere = getWildWhere(ctx.wildWhere());
+        }
+        return new ShowLoadWarningsCommand(dbName, wildWhere, limit, originUrl);
     }
 
     @Override

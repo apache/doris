@@ -157,6 +157,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowGrantsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowIndexStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLastInsertCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLoadProfileCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowLoadWarningsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPartitionIdCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPluginsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPrivilegesCommand;
@@ -414,6 +415,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitShowWarningErrorCountCommand(ShowWarningErrorCountCommand showWarnErrorCountCommand, C context) {
         return visitCommand(showWarnErrorCountCommand, context);
+    }
+
+    default R visitShowLoadWarningsCommand(ShowLoadWarningsCommand showLoadWarningsCommand, C context) {
+        return visitCommand(showLoadWarningsCommand, context);
     }
 
     default R visitShowSyncJobCommand(ShowSyncJobCommand showSyncJobCommand, C context) {
