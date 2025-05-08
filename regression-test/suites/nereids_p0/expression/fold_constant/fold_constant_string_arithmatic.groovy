@@ -50,7 +50,10 @@ suite("fold_constant_string_arithmatic") {
     testFoldConst("select append_trailing_char_if_absent('こんにちは', '!')")
     testFoldConst("select append_trailing_char_if_absent('\n\t', '\n')")
     testFoldConst("select append_trailing_char_if_absent('こんにちは', 'ちは')")
-
+    testFoldConst("select append_trailing_char_if_absent('中文', '文')")
+    testFoldConst("select append_trailing_char_if_absent('中', '文')")
+    testFoldConst("select append_trailing_char_if_absent('', '文')")
+    
     // ascii
     testFoldConst("select ascii('!')")
     testFoldConst("select ascii('1')")
@@ -767,7 +770,8 @@ suite("fold_constant_string_arithmatic") {
     testFoldConst("select right('Hello World', 5)")
     testFoldConst("select right('Hello World', 0)")
     testFoldConst("select right(NULL, 1)")
-
+    testFoldConst("select right('🐼abc🐼', 100)")
+    testFoldConst("select right('你好世界',5)")
     // rpad
     testFoldConst("select rpad(cast('hi' as string), 1, cast('xy' as string))")
     testFoldConst("select rpad(cast('hi' as string), 5, cast('xy' as string))")
@@ -1314,6 +1318,7 @@ suite("fold_constant_string_arithmatic") {
     testFoldConst("select url_decode('http%3A%2F%2Fwww.apache.org%2Flicenses%2FLICENSE-22.0')")
     testFoldConst("select url_encode('http://www.apache.org/licenses/LICENSE-2.0')")
     testFoldConst("select url_encode(' http://www.apache.org/licenses/LICENSE-2.0 ')")
+    testFoldConst("select url_encode(' http://www.baidu.com/?a=中文日文韩文俄文希伯来文Emoji')")
 
     // Normal Usage Test Cases
 
