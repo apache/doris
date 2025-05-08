@@ -130,6 +130,10 @@ std::string RuntimeFilter::_debug_string() const {
 }
 
 void RuntimeFilter::_check_wrapper_state(std::vector<RuntimeFilterWrapper::State> assumed_states) {
+    // _wrapper is null mean rf is published
+    if (!_wrapper) {
+        return;
+    }
     try {
         _wrapper->check_state(assumed_states);
     } catch (const Exception& e) {
