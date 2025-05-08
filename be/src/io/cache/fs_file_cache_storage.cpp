@@ -31,6 +31,8 @@
 #include "io/fs/local_file_reader.h"
 #include "io/fs/local_file_writer.h"
 #include "runtime/exec_env.h"
+#include "runtime/memory/mem_tracker_limiter.h"
+#include "runtime/thread_context.h"
 #include "vec/common/hex.h"
 
 namespace doris::io {
@@ -102,11 +104,23 @@ size_t FDCache::file_reader_cache_size() {
 
 Status FSFileCacheStorage::init(BlockFileCache* _mgr) {
     _cache_base_path = _mgr->_cache_base_path;
-    RETURN_IF_ERROR(upgrade_cache_dir_if_necessary());
     _cache_background_load_thread = std::thread([this, mgr = _mgr]() {
+        auto mem_tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::SCHEMA_CHANGE,
+                                                            fmt::format("FileCacheReader"));
+        SCOPED_ATTACH_TASK(mem_tracker);
+        Status st = upgrade_cache_dir_if_necessary();
+        if (!st.ok()) {
+            LOG_WARNING("file cache {} lazy load done with error. upgrade version failed. st={}",
+                        _cache_base_path, st.to_string());
+            if (!doris::config::ignore_broken_disk) {
+                throw doris::Exception(Status::InternalError(
+                        "file cache {} lazy load done with error. upgrade version failed. st={}",
+                        _cache_base_path, st.to_string()));
+            }
+        }
         load_cache_info_into_memory(mgr);
         mgr->_async_open_done = true;
-        LOG_INFO("FileCache {} lazy load done.", _cache_base_path);
+        LOG_INFO("file cache {} lazy load done.", _cache_base_path);
     });
     return Status::OK();
 }
@@ -349,6 +363,8 @@ Status FSFileCacheStorage::upgrade_cache_dir_if_necessary() const {
                             Path(_cache_base_path) / cache_key.substr(0, KEY_PREFIX_LENGTH);
                     bool exists = false;
                     auto exists_status = fs->exists(key_prefix, &exists);
+                    TEST_SYNC_POINT_CALLBACK("FSFileCacheStorage::upgrade_cache_dir_if_necessary",
+                                             &exists_status);
                     if (!exists_status.ok()) {
                         LOG(WARNING) << "Failed to check directory existence: " << key_prefix
                                      << ", error: " << exists_status.to_string();
