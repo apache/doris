@@ -40,7 +40,7 @@
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
-void HiveCsvTextFieldSplitter::do_split(const Slice& line, std::vector<Slice>* splitted_values) {
+void HiveTextFieldSplitter::do_split(const Slice& line, std::vector<Slice>* splitted_values) {
     const char* data = line.data;
     const size_t size = line.size;
     size_t value_start = 0;
@@ -352,7 +352,7 @@ Status TextReader::_create_line_reader() {
     text_line_reader_ctx = std::make_shared<PlainTextLineReaderCtx>(_line_delimiter,
                                                                     _line_delimiter_length, false);
 
-    _fields_splitter = std::make_unique<HiveCsvTextFieldSplitter>(
+    _fields_splitter = std::make_unique<HiveTextFieldSplitter>(
             false, false, _value_separator, _value_separator_length, -1, _escape);
 
     _line_reader =
