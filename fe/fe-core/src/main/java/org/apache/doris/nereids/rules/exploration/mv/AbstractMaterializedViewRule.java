@@ -297,7 +297,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 BaseTableInfo relatedTableInfo = mtmv.getMvPartitionInfo().getRelatedTableInfo();
                 try {
                     Set<String> queryUsedPartition = PartitionCompensator.getQueryTableUsedPartition(
-                            relatedTableInfo.toList(), queryStructInfo, cascadesContext);
+                            relatedTableInfo.toList(), queryStructInfo, cascadesContext.getStatementContext());
                     if (queryUsedPartition.isEmpty()) {
                         materializationContext.recordFailReason(queryStructInfo,
                                 String.format("queryUsedPartition is empty, table is %s, sql hash is %s",
