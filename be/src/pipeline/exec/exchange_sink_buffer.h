@@ -269,7 +269,7 @@ public:
                        RuntimeState* state, const std::vector<InstanceLoId>& sender_ins_ids);
 #ifdef BE_TEST
     ExchangeSinkBuffer(RuntimeState* state, int64_t sinknum)
-            : HasTaskExecutionCtx(state), _exchange_sink_num(sinknum) {};
+            : HasTaskExecutionCtx(state), _state(state), _exchange_sink_num(sinknum) {};
 #endif
 
     ~ExchangeSinkBuffer() override = default;

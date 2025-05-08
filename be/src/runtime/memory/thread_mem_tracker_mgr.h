@@ -42,12 +42,10 @@ namespace doris {
 
 constexpr size_t SYNC_PROC_RESERVED_INTERVAL_BYTES = (1ULL << 20); // 1M
 static std::string MEMORY_ORPHAN_CHECK_MSG =
-        "If you crash here, it means that SCOPED_ATTACH_TASK and "
-        "SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER are not used correctly. starting position of "
-        "each thread is expected to use SCOPED_ATTACH_TASK to bind a MemTrackerLimiter belonging "
-        "to Query/Load/Compaction/Other Tasks, otherwise memory alloc using Doris Allocator in the "
-        "thread will crash. If you want to switch MemTrackerLimiter during thread execution, "
-        "please use SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER, do not repeat Attach.";
+        "The ThreadContext of the current thread not attach a valid MemoryTracker. after the "
+        "thread is started, the ResourceContext in SCOPED_ATTACH_TASK macro should contain a valid "
+        "MemoryTracker, or a valid MemoryTracker should be passed in later using "
+        "SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER macro.";
 
 // Memory Hook is counted in the memory tracker of the current thread.
 class ThreadMemTrackerMgr {
@@ -125,7 +123,7 @@ public:
     int skip_large_memory_check = 0;
 
     void memory_orphan_check() {
-#ifdef USE_MEM_TRACKER
+#ifndef BE_TEST
         DCHECK(doris::k_doris_exit || !doris::config::enable_memory_orphan_check ||
                limiter_mem_tracker()->label() != "Orphan")
                 << doris::MEMORY_ORPHAN_CHECK_MSG;

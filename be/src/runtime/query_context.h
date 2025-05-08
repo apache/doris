@@ -218,6 +218,7 @@ public:
 
     WorkloadGroupPtr workload_group() const { return _resource_ctx->workload_group(); }
     std::shared_ptr<MemTrackerLimiter> query_mem_tracker() const {
+        DCHECK(_resource_ctx->memory_context()->mem_tracker() != nullptr);
         return _resource_ctx->memory_context()->mem_tracker();
     }
 

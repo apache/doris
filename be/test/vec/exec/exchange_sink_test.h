@@ -24,6 +24,7 @@
 #include "pipeline/exec/exchange_sink_buffer.h"
 #include "pipeline/exec/exchange_sink_operator.h"
 #include "runtime/runtime_state.h"
+#include "testutil/mock/mock_runtime_state.h"
 #include "udf/udf.h"
 #include "vec/sink/writer/vhive_utils.h"
 
@@ -101,7 +102,7 @@ class MockContext : public TaskExecutionContext {};
 std::shared_ptr<MockContext> _mock_context = std::make_shared<MockContext>();
 
 auto create_runtime_state() {
-    auto state = RuntimeState::create_shared();
+    auto state = std::make_shared<MockRuntimeState>();
 
     state->set_task_execution_context(_mock_context);
     return state;

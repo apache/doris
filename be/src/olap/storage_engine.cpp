@@ -243,6 +243,7 @@ static Status load_data_dirs(const std::vector<DataDir*>& data_dirs) {
 
     for (auto* data_dir : data_dirs) {
         st = pool->submit_func([&, data_dir] {
+            SCOPED_INIT_THREAD_CONTEXT();
             {
                 std::lock_guard lock(result_mtx);
                 if (!result.ok()) { // Some data dir has failed
@@ -303,6 +304,7 @@ Status StorageEngine::_init_store_map() {
         auto store = std::make_unique<DataDir>(*this, path.path, path.capacity_bytes,
                                                path.storage_medium);
         threads.emplace_back([store = store.get(), &error_msg_lock, &error_msg]() {
+            SCOPED_INIT_THREAD_CONTEXT();
             auto st = store->init();
             if (!st.ok()) {
                 {
