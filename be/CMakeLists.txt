@@ -202,8 +202,8 @@ SET(ZLIB_HOME "$ENV{DORIS_THIRDPARTY}/installed")
 SET(ZSTD_HOME "$ENV{DORIS_THIRDPARTY}/installed")
 SET(ZSTD_INCLUDE_DIR "$ENV{DORIS_THIRDPARTY}/installed/include/zstd")
 
-#add_subdirectory(${SRC_DIR}/apache-orc EXCLUDE_FROM_ALL)
-#target_compile_options(orc PRIVATE -Wno-implicit-fallthrough -w)
+add_subdirectory(${SRC_DIR}/apache-orc EXCLUDE_FROM_ALL)
+target_compile_options(orc PRIVATE -Wno-implicit-fallthrough -w)
 
 option(BUILD_STATIC_LIBRARIES "Build static libraries" ON)
 option(BUILD_SHARED_LIBRARIES "Build shared libraries" OFF)
@@ -217,7 +217,7 @@ set(USE_STAT64 0)
 # disable clucene bthread supported.
 set(USE_BTHREAD OFF)
 
-#add_subdirectory(${SRC_DIR}/clucene EXCLUDE_FROM_ALL)
+add_subdirectory(${SRC_DIR}/clucene EXCLUDE_FROM_ALL)
 
 set(clucene_options -w -Wall)
 if (COMPILER_CLANG)
@@ -226,10 +226,10 @@ else ()
     set(clucene_options ${clucene_options} -Wno-narrowing)
 endif()
 
-#target_compile_options(clucene-core-static PRIVATE ${clucene_options})
-#target_compile_options(clucene-shared-static PRIVATE ${clucene_options})
-#target_compile_options(clucene-contribs-lib PRIVATE ${clucene_options})
-#target_compile_options(ic PRIVATE ${clucene_options})
+target_compile_options(clucene-core-static PRIVATE ${clucene_options})
+target_compile_options(clucene-shared-static PRIVATE ${clucene_options})
+target_compile_options(clucene-contribs-lib PRIVATE ${clucene_options})
+target_compile_options(ic PRIVATE ${clucene_options})
 
 install(DIRECTORY
     ${SRC_DIR}/clucene/src/contribs-lib/CLucene/analysis/jieba/dict
