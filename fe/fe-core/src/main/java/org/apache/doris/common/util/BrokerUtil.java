@@ -208,7 +208,7 @@ public class BrokerUtil {
         try {
             // get file size
             TBrokerListPathRequest request = new TBrokerListPathRequest(
-                    TBrokerVersion.VERSION_ONE, path, false, brokerDesc.getProperties());
+                    TBrokerVersion.VERSION_ONE, path, false, brokerDesc.getBackendConfigProperties());
             TBrokerListResponse tBrokerListResponse = null;
             try {
                 tBrokerListResponse = client.listPath(request);
@@ -233,7 +233,7 @@ public class BrokerUtil {
             String clientId = NetUtils
                     .getHostPortInAccessibleFormat(FrontendOptions.getLocalHostAddress(), Config.rpc_port);
             TBrokerOpenReaderRequest tOpenReaderRequest = new TBrokerOpenReaderRequest(
-                    TBrokerVersion.VERSION_ONE, path, 0, clientId, brokerDesc.getProperties());
+                    TBrokerVersion.VERSION_ONE, path, 0, clientId, brokerDesc.getBackendConfigProperties());
             TBrokerOpenReaderResponse tOpenReaderResponse = null;
             try {
                 tOpenReaderResponse = client.openReader(tOpenReaderRequest);
@@ -381,7 +381,7 @@ public class BrokerUtil {
         boolean failed = true;
         try {
             TBrokerDeletePathRequest tDeletePathRequest = new TBrokerDeletePathRequest(
-                    TBrokerVersion.VERSION_ONE, path, brokerDesc.getProperties());
+                    TBrokerVersion.VERSION_ONE, path, brokerDesc.getBackendConfigProperties());
             TBrokerOperationStatus tOperationStatus = null;
             try {
                 tOperationStatus = client.deletePath(tDeletePathRequest);
@@ -409,7 +409,7 @@ public class BrokerUtil {
         boolean failed = true;
         try {
             TBrokerCheckPathExistRequest req = new TBrokerCheckPathExistRequest(TBrokerVersion.VERSION_ONE,
-                    remotePath, brokerDesc.getProperties());
+                    remotePath, brokerDesc.getBackendConfigProperties());
             TBrokerCheckPathExistResponse rep = client.checkPathExist(req);
             if (rep.getOpStatus().getStatusCode() != TBrokerOperationStatusCode.OK) {
                 throw new UserException("Broker check path exist failed. path=" + remotePath + ", broker=" + address
@@ -432,7 +432,7 @@ public class BrokerUtil {
         boolean failed = true;
         try {
             TBrokerRenamePathRequest req = new TBrokerRenamePathRequest(TBrokerVersion.VERSION_ONE, origFilePath,
-                    destFilePath, brokerDesc.getProperties());
+                    destFilePath, brokerDesc.getBackendConfigProperties());
             TBrokerOperationStatus rep = client.renamePath(req);
             if (rep.getStatusCode() != TBrokerOperationStatusCode.OK) {
                 throw new UserException("failed to rename " + origFilePath + " to " + destFilePath
@@ -522,7 +522,7 @@ public class BrokerUtil {
                         .getHostPortInAccessibleFormat(FrontendOptions.getLocalHostAddress(), Config.rpc_port);
                 TBrokerOpenWriterRequest tOpenWriterRequest = new TBrokerOpenWriterRequest(
                         TBrokerVersion.VERSION_ONE, brokerFilePath, TBrokerOpenMode.APPEND,
-                        clientId, brokerDesc.getProperties());
+                        clientId, brokerDesc.getBackendConfigProperties());
                 TBrokerOpenWriterResponse tOpenWriterResponse = null;
                 try {
                     tOpenWriterResponse = client.openWriter(tOpenWriterRequest);

@@ -48,9 +48,10 @@ public class HdfsTableValuedFunction extends ExternalFileTableValuedFunction {
         // 2. analyze uri
         try {
             this.storageProperties = StorageProperties.createPrimary(props);
-            locationProperties.putAll(storageProperties.getBackendConfigProperties());
+            backendConnectProperties.putAll(storageProperties.getBackendConfigProperties());
             String uri = storageProperties.validateAndGetUri(props);
             filePath = storageProperties.validateAndNormalizeUri(uri);
+            backendConnectProperties.put(URI_KEY, filePath);
         } catch (UserException e) {
             throw new AnalysisException("Failed check storage props", e);
         }
@@ -75,7 +76,7 @@ public class HdfsTableValuedFunction extends ExternalFileTableValuedFunction {
 
     @Override
     public BrokerDesc getBrokerDesc() {
-        return new BrokerDesc("HdfsTvfBroker", StorageType.HDFS, locationProperties);
+        return new BrokerDesc("HdfsTvfBroker", StorageType.HDFS, processedParams);
     }
 
     // =========== implement abstract methods of TableValuedFunctionIf =================

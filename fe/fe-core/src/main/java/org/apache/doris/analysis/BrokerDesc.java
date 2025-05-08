@@ -85,7 +85,7 @@ public class BrokerDesc extends StorageDesc implements Writable {
         if (MapUtils.isNotEmpty(properties)) {
             try {
                 this.storageProperties = StorageProperties.createPrimary(properties);
-                this.properties.putAll(storageProperties.getBackendConfigProperties());
+                this.storageType = StorageBackend.StorageType.valueOf(storageProperties.getStorageName());
             } catch (RuntimeException e) {
                 // Currently ignored: these properties might be broker-specific.
                 // Support for broker properties will be added in the future.
@@ -93,7 +93,10 @@ public class BrokerDesc extends StorageDesc implements Writable {
             }
 
         }
-        this.name = name;
+        if (StringUtils.isBlank(this.name)) {
+            this.name = this.storageType().name();
+        }
+
     }
 
     public BrokerDesc(String name, StorageBackend.StorageType storageType, Map<String, String> properties) {
@@ -103,9 +106,11 @@ public class BrokerDesc extends StorageDesc implements Writable {
             this.properties.putAll(properties);
         }
         if (MapUtils.isNotEmpty(properties)) {
-            this.storageProperties = StorageProperties.createPrimary(properties);
-            // we should use storage properties?
-            this.properties.putAll(storageProperties.getBackendConfigProperties());
+            try {
+                this.storageProperties = StorageProperties.createPrimary(properties);
+            } catch (RuntimeException e) {
+                //ignore
+            }
         }
         this.storageType = storageType;
     }
@@ -161,10 +166,16 @@ public class BrokerDesc extends StorageDesc implements Writable {
             properties.put(key, val);
         }
         if (MapUtils.isNotEmpty(properties)) {
-            this.storageProperties = StorageProperties.createPrimary(properties);
-            this.storageType = StorageBackend.StorageType.convertToStorageType(storageProperties.getStorageName());
-        } else {
-            this.storageType = StorageBackend.StorageType.BROKER;
+            try {
+                this.storageProperties = StorageProperties.createPrimary(properties);
+                this.storageType = StorageBackend.StorageType.valueOf(storageProperties.getStorageName());
+            } catch (RuntimeException e) {
+                // Currently ignored: these properties might be broker-specific.
+                // Support for broker properties will be added in the future.
+                LOG.warn("Failed to create storage properties for broker: {}, properties: {}", name, properties, e);
+                this.storageType = StorageBackend.StorageType.BROKER;
+            }
+
         }
     }
 

@@ -86,4 +86,8 @@ public class StorageDesc extends ResourceDesc {
     public Map<String, String> getProperties() {
         return properties;
     }
+
+    public Map<String, String> getBackendConfigProperties() {
+        return storageProperties.getBackendConfigProperties();
+    }
 }

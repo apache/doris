@@ -44,11 +44,11 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
         // 1. analyze common properties
         Map<String, String> props = super.parseCommonProperties(properties);
         try {
-            //todo  rename locationProperties
             this.storageProperties = StorageProperties.createPrimary(props);
-            locationProperties.putAll(storageProperties.getBackendConfigProperties());
+            this.backendConnectProperties.putAll(storageProperties.getBackendConfigProperties());
             String uri = storageProperties.validateAndGetUri(props);
             filePath = storageProperties.validateAndNormalizeUri(uri);
+            this.backendConnectProperties.put(URI_KEY, filePath);
         } catch (UserException e) {
             throw new RuntimeException(e);
         }
@@ -76,7 +76,7 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
 
     @Override
     public BrokerDesc getBrokerDesc() {
-        return new BrokerDesc("S3TvfBroker", locationProperties);
+        return new BrokerDesc("S3TvfBroker", processedParams);
     }
 
     // =========== implement abstract methods of TableValuedFunctionIf =================

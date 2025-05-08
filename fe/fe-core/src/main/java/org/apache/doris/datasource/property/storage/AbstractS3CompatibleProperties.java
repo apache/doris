@@ -128,6 +128,8 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
                                                        String usePathStyle) {
         Map<String, String> s3Props = new HashMap<>();
         s3Props.put("AWS_ENDPOINT", getEndpoint());
+        s3Props.put("s3.endpoint", getEndpoint());
+        s3Props.put("endpoint", getEndpoint());
         s3Props.put("AWS_REGION", getRegion());
         s3Props.put("AWS_ACCESS_KEY", getAccessKey());
         s3Props.put("AWS_SECRET_KEY", getSecretKey());
