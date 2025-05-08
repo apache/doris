@@ -22,6 +22,7 @@ import org.apache.doris.nereids.trees.plans.commands.AdminCancelRebalanceDiskCom
 import org.apache.doris.nereids.trees.plans.commands.AdminCheckTabletsCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminCleanTrashCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminCompactTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.AdminCopyTabletCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminRebalanceDiskCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetTableStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminShowReplicaStatusCommand;
@@ -998,6 +999,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitAlterColumnStatsCommand(AlterColumnStatsCommand alterColumnStatsCommand, C context) {
         return visitCommand(alterColumnStatsCommand, context);
+    }
+
+    default R visitAdminCopyTabletCommand(AdminCopyTabletCommand adminCopyTabletCommand, C context) {
+        return visitCommand(adminCopyTabletCommand, context);
     }
 
     default R visitShowCreateRoutineLoadCommand(ShowCreateRoutineLoadCommand showCreateRoutineLoadCommand, C context) {
