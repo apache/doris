@@ -150,7 +150,7 @@ protected:
     std::unordered_map<std::string, std::string> _file_col_to_table_col;
     // table column name to file column name map. For iceberg schema evolution.
     std::unordered_map<std::string, std::string> _table_col_to_file_col;
-    std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range;
+    const std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range;
     // copy from _colname_to_value_range with new column name that is in parquet/orc file, to support schema evolution.
     std::unordered_map<std::string, ColumnValueRangeType> _new_colname_to_value_range;
     // column id to name map. Collect from FE slot descriptor.
@@ -205,7 +205,7 @@ public:
     Status init_reader(
             const std::vector<std::string>& file_col_names,
             const std::unordered_map<int, std::string>& col_id_name_map,
-            std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
+            const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
             const VExprContextSPtrs& conjuncts, const TupleDescriptor* tuple_descriptor,
             const RowDescriptor* row_descriptor,
             const std::unordered_map<std::string, int>* colname_to_slot_id,
@@ -251,7 +251,7 @@ public:
     Status init_reader(
             const std::vector<std::string>& file_col_names,
             const std::unordered_map<int, std::string>& col_id_name_map,
-            std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
+            const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
             const VExprContextSPtrs& conjuncts, const TupleDescriptor* tuple_descriptor,
             const RowDescriptor* row_descriptor,
             const std::unordered_map<std::string, int>* colname_to_slot_id,
