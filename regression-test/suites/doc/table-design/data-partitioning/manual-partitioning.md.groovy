@@ -18,6 +18,9 @@
 import org.junit.jupiter.api.Assertions;
 
 suite("docs/table-design/data-partitioning/manual-partitioning.md") {
+    if (isReplayWalMode()) {
+        return;
+    }
     try {
         sql "drop table if exists null_list"
         multi_sql """

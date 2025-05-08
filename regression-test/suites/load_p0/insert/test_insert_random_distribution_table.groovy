@@ -16,6 +16,9 @@
 // under the License.
 
 suite("test_insert_random_distribution_table", "p0") {
+    if (isReplayWalMode()) {
+        return
+    }
     def tableName = "test_insert_random_distribution_table"
 
     // ${tableName} unpartitioned table

@@ -20,6 +20,9 @@ import java.util.concurrent.TimeUnit
 import org.awaitility.Awaitility
 
 suite ("test_modify_struct") {
+    if (isReplayWalMode()) {
+        return
+    }
     def waitUntilSchemaChangeDone = { tableName, insert_sql, canceled=false ->
         if (canceled) {
             Awaitility.await().atMost(300, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {

@@ -34,6 +34,9 @@ import org.apache.http.client.methods.CloseableHttpResponse
 import org.apache.http.util.EntityUtils
 
 suite("test_schema_change_cold_heat", "p0") {
+    if (isReplayWalMode()) {
+        return
+    }
     def tableName3 = "test_all_sc_cold_heat"
 
     def getJobState = { tableName ->

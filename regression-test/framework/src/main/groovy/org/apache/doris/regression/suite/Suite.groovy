@@ -1924,6 +1924,16 @@ class Suite implements GroovyInterceptable {
         return getFeConfig("wait_internal_group_commit_finish").equals("true")
     }
 
+    boolean isReplayWalMode() {
+        def results = sql_return_maparray """SHOW BACKEND CONFIG LIKE '%group_commit_wait_replay_wal_finish%'"""
+        for (def row in results) {
+            if (row.Key == "group_commit_wait_replay_wal_finish" && row.Value == "true") {
+                return true
+            }
+        }
+        return false
+    }
+
     String getFeConfig(String key) {
         return sql_return_maparray("SHOW FRONTEND CONFIG LIKE '${key}'")[0].Value
     }

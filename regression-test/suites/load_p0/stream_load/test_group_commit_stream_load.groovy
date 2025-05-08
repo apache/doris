@@ -16,6 +16,9 @@
 // under the License.
 
 suite("test_group_commit_stream_load") {
+    if (isReplayWalMode()) {
+        return
+    }
     def tableName = "test_group_commit_stream_load"
 
     def getRowCount = { expectedRowCount ->

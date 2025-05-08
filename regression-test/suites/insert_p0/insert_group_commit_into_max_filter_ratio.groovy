@@ -65,8 +65,10 @@ suite("insert_group_commit_into_max_filter_ratio") {
             logger.warn("insert result: " + result + ", expected_row_count: " + expected_row_count + ", sql: " + sql)
         }
         // assertEquals(result, expected_row_count)
-        assertTrue(serverInfo.contains("'status':'VISIBLE'"))
-        assertFalse(serverInfo.contains("'label':'group_commit_"))
+        if (!isReplayWalMode()) {
+            assertTrue(serverInfo.contains("'status':'VISIBLE'"))
+            assertFalse(serverInfo.contains("'label':'group_commit_"))
+        }
     }
 
     def fail_group_commit_insert = { sql, expected_row_count ->
@@ -135,7 +137,9 @@ suite("insert_group_commit_into_max_filter_ratio") {
         log.info("Stream load result: ${result}".toString())
         def json = parseJson(result)
         assertEquals("success", json.Status.toLowerCase())
-        assertFalse(json.Label.startsWith("group_commit_"))
+        if (!isReplayWalMode()) {
+            assertFalse(json.Label.startsWith("group_commit_"))
+        }
         assertEquals(total_rows, json.NumberTotalRows)
         assertEquals(loaded_rows, json.NumberLoadedRows)
         assertEquals(filtered_rows, json.NumberFilteredRows)

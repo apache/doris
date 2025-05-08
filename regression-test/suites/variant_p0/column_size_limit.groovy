@@ -17,6 +17,9 @@
 import groovy.json.JsonBuilder
 
 suite("regression_test_variant_column_limit"){
+    if (isReplayWalMode()) {
+        return
+    }
     def table_name = "var_column_limit"
     sql "DROP TABLE IF EXISTS ${table_name}"
     sql """

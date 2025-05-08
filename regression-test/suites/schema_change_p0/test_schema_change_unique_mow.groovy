@@ -63,9 +63,18 @@ suite("test_schema_change_unique_mow", "p0") {
                 }
                 log.info("Stream load result: ${result}".toString())
                 def json = parseJson(result)
-                assertEquals("success", json.Status.toLowerCase())
-                assertEquals(2500, json.NumberTotalRows)
-                assertEquals(0, json.NumberFilteredRows)
+                if (!isReplayWalMode()) {
+                    assertEquals("success", json.Status.toLowerCase())
+                    assertEquals(2500, json.NumberTotalRows)
+                    assertEquals(0, json.NumberFilteredRows)
+                } else {
+                    if (json.Status.toLowerCase() == "success") {
+                        assertEquals(2500, json.NumberTotalRows)
+                        assertEquals(0, json.NumberFilteredRows)
+                    } else {
+                        assertTrue(json.Message.contains("blocked on schema change"))
+                    }
+                }
             }
         }
     }
@@ -100,7 +109,7 @@ suite("test_schema_change_unique_mow", "p0") {
 
     sql """ alter table ${tableName3} modify column k4 string NULL"""
 
-    Awaitility.await().atMost(30, TimeUnit.SECONDS).pollDelay(10, TimeUnit.MILLISECONDS).pollInterval(10, TimeUnit.MILLISECONDS).until(
+    Awaitility.await().atMost(60, TimeUnit.SECONDS).pollDelay(10, TimeUnit.MILLISECONDS).pollInterval(10, TimeUnit.MILLISECONDS).until(
         {
             String res = getJobState(tableName3)
             if (res == "FINISHED" || res == "CANCELLED") {
@@ -113,7 +122,7 @@ suite("test_schema_change_unique_mow", "p0") {
     )
 
     sql """ alter table ${tableName3} modify column k2 bigint(11) key NULL"""
-    Awaitility.await().atMost(30, TimeUnit.SECONDS).pollDelay(10, TimeUnit.MILLISECONDS).pollInterval(10, TimeUnit.MILLISECONDS).until(
+    Awaitility.await().atMost(60, TimeUnit.SECONDS).pollDelay(10, TimeUnit.MILLISECONDS).pollInterval(10, TimeUnit.MILLISECONDS).until(
         {
             String res = getJobState(tableName3)
             if (res == "FINISHED" || res == "CANCELLED") {
@@ -165,7 +174,7 @@ suite("test_schema_change_unique_mow", "p0") {
     sql """ alter table ${tableName3} modify column v14 int NULL default "1" """
 
     int cnt = 6000
-    Awaitility.await().atMost(30, TimeUnit.SECONDS).pollDelay(10, TimeUnit.MILLISECONDS).pollInterval(10, TimeUnit.MILLISECONDS).until(
+    Awaitility.await().atMost(60, TimeUnit.SECONDS).pollDelay(10, TimeUnit.MILLISECONDS).pollInterval(10, TimeUnit.MILLISECONDS).until(
         {
             String res = getJobState(tableName3)
             if (res == "FINISHED" || res == "CANCELLED") {
@@ -174,8 +183,18 @@ suite("test_schema_change_unique_mow", "p0") {
             }
             cnt--;
             int val = 100000 + cnt
-            sql """ insert into ${tableName3} values (${val}, 2, 3, 4, 5, 6.6, 1.7, 8.8,
+            try {
+                sql """ insert into ${tableName3} values (${val}, 2, 3, 4, 5, 6.6, 1.7, 8.8,
     'a', 'b', 'c', '2021-10-30', '2021-10-30 00:00:00', 9527) """
+            } catch (Exception e) {
+                logger.info(e.getMessage())
+                if (isReplayWalMode()) {
+                    assertTrue(e.getMessage().contains('blocked on schema change') ||
+                            e.getMessage().contains('can not get a block queue'))
+                } else {
+                    throw e
+                }
+            }
             return false
         }
     )

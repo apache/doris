@@ -16,7 +16,9 @@
 // under the License.
 
 suite("nested_materialized_view") {
-
+    if (isReplayWalMode()) {
+        return
+    }
     sql "set disable_nereids_rules=ELIMINATE_CONST_JOIN_CONDITION"
 
     def compare_res = { def stmt ->

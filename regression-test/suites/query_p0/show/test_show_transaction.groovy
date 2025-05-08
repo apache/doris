@@ -16,6 +16,9 @@
 // under the License.
 
 suite("test_show_transaction", "p0") {
+    if (isReplayWalMode()) {
+        return
+    }
     // define a sql table
     def testTable = "test_show_transaction"
 

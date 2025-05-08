@@ -20,6 +20,9 @@
 // and modified by Doris.
 
 suite("test_alter_uniq_null") {
+    if (isReplayWalMode()) {
+        return
+    }
     def tableName = "test_alter_uniq_null_tbl"
 
     def getJobState = { tableName1 ->

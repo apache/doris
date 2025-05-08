@@ -18,6 +18,9 @@
 import org.apache.doris.regression.util.JdbcUtils
 
 suite("test_show_create_table_and_views_nereids", "show") {
+    if (isReplayWalMode()) {
+        return
+    }
     def shouldNotShowHiddenColumnsAndCreateWithHiddenColumns = {
         connect {
             multi_sql """

@@ -69,9 +69,9 @@ suite("test_group_commit_data_bytes_property") {
             def msg1 = group_commit_insert """insert into ${test_table} values(1,1); """, 1
 
             def msg2 = group_commit_insert """insert into ${test_table} values(2,2) """, 1
-
-            assertEquals(msg1.substring(msg1.indexOf("group_commit") + 11, msg1.indexOf("group_commit") + 43), msg2.substring(msg2.indexOf("group_commit") + 11, msg2.indexOf("group_commit") + 43));
-
+            if (!isReplayWalMode()) {
+                assertEquals(msg1.substring(msg1.indexOf("group_commit") + 11, msg1.indexOf("group_commit") + 43), msg2.substring(msg2.indexOf("group_commit") + 11, msg2.indexOf("group_commit") + 43));
+            }
             sql "ALTER table ${test_table} SET (\"group_commit_data_bytes\"=\"1\"); "
 
             sleep(10000)

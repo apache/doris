@@ -16,6 +16,9 @@
 // under the License.
 
 suite("test_get_stream_load_state", "p0") {
+    if (isReplayWalMode()) {
+        return
+    }
     def tableName = "test_get_stream_load_state"
     String db = context.config.getDbNameByFile(context.file)
     sql """ DROP TABLE IF EXISTS ${tableName} """

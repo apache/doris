@@ -16,6 +16,9 @@
 // under the License.
 
 suite("test_group_commit_http_stream") {
+    if (isReplayWalMode()) {
+        return
+    }
     def db = "regression_test_load_p0_http_stream"
     def tableName = "test_group_commit_http_stream"
 

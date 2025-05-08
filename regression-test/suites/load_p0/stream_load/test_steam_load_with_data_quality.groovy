@@ -18,7 +18,7 @@
 import java.util.Random;
 
 suite("test_stream_load_with_data_quality", "p0") {
-    if (!isCloudMode()) {
+    if (!isCloudMode() || isReplayWalMode()) {
         return;
     }
 

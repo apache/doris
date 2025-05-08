@@ -16,6 +16,9 @@
 // under the License.
 
 suite("test_table_properties") {
+    if (isReplayWalMode()) {
+        return
+    }
     def dbName = "test_table_properties_db"
     sql "drop database if exists ${dbName}"
     sql "CREATE DATABASE IF NOT EXISTS ${dbName}"

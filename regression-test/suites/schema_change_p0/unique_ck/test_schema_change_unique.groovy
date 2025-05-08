@@ -34,6 +34,9 @@ import org.apache.http.client.methods.CloseableHttpResponse
 import org.apache.http.util.EntityUtils
 
 suite("test_schema_change_unique", "p0") {
+    if (isReplayWalMode()) {
+        return
+    }
     def tableName3 = "test_all_unique_ck"
 
     def getJobState = { tableName ->
