@@ -580,7 +580,8 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
     private Plan newProjectIfNotPruned(
             Plan prunedChild, BitSet childRequiredSlotIds, List<? extends Slot> childRequiredSlots) {
         if (childRequiredSlots.isEmpty()) {
-            return prunedChild;
+            // change to `select 1` to prune columns
+            return new LogicalProject<>(ImmutableList.of(), prunedChild);
         }
         for (Slot prunedChildOutput : prunedChild.getOutput()) {
             if (!childRequiredSlotIds.get(prunedChildOutput.getExprId().asInt())) {

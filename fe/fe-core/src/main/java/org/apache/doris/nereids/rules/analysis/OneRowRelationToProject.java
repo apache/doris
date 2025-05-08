@@ -38,7 +38,7 @@ public class OneRowRelationToProject extends OneAnalysisRuleFactory {
                     oneRow.getProjects(),
                     new LogicalOneRowRelation(
                         oneRow.getRelationId(),
-                        ImmutableList.of(new Alias(new TinyIntLiteral((byte) 0)))
+                        ImmutableList.of(new Alias(new TinyIntLiteral((byte) 1)))
                     )
                 )
             )
