@@ -674,6 +674,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_ES_PARALLEL_SCROLL = "enable_es_parallel_scroll";
 
+    public static final String EXCHANGE_MULTI_BLOCKS_BYTE_SIZE = "exchange_multi_blocks_byte_size";
+
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
             SKIP_DELETE_BITMAP,
@@ -695,6 +697,8 @@ public class SessionVariable implements Serializable, Writable {
     // CLOUD_VARIABLES_BEGIN
     public static final String CLOUD_CLUSTER = "cloud_cluster";
     public static final String DISABLE_EMPTY_PARTITION_PRUNE = "disable_empty_partition_prune";
+    public static final String CLOUD_PARTITION_VERSION_CACHE_TTL_MS =
+            "cloud_partition_version_cache_ttl_ms";
     // CLOUD_VARIABLES_BEGIN
 
     public static final String ENABLE_MATCH_WITHOUT_INVERTED_INDEX = "enable_match_without_inverted_index";
@@ -2243,6 +2247,10 @@ public class SessionVariable implements Serializable, Writable {
                     "When processing both \\n and \\r\\n as CSV line separators, should \\r be retained?"})
     public boolean keepCarriageReturn = false;
 
+    @VariableMgr.VarAttr(name = EXCHANGE_MULTI_BLOCKS_BYTE_SIZE,
+            description = {"Enable exchange to send multiple blocks in one RPC. Default is 256KB. A negative"
+                    + " value disables multi-block exchange."})
+    public int exchangeMultiBlocksByteSize = 256 * 1024;
 
     @VariableMgr.VarAttr(name = FORCE_JNI_SCANNER,
             description = {"强制使用jni方式读取外表", "Force the use of jni mode to read external table"})
@@ -2368,6 +2376,8 @@ public class SessionVariable implements Serializable, Writable {
     public String cloudCluster = "";
     @VariableMgr.VarAttr(name = DISABLE_EMPTY_PARTITION_PRUNE)
     public boolean disableEmptyPartitionPrune = false;
+    @VariableMgr.VarAttr(name = CLOUD_PARTITION_VERSION_CACHE_TTL_MS)
+    public static long cloudPartitionVersionCacheTtlMs = 0;
     // CLOUD_VARIABLES_END
 
     // fetch remote schema rpc timeout
@@ -2591,6 +2601,12 @@ public class SessionVariable implements Serializable, Writable {
         this.disableStreamPreaggregations = random.nextBoolean();
         this.enableShareHashTableForBroadcastJoin = random.nextBoolean();
         this.enableParallelResultSink = random.nextBoolean();
+
+        // 4KB = 4 * 1024 bytes
+        int minBytes = 4 * 1024;
+        // 10MB = 10 * 1024 * 1024 bytes
+        int maxBytes = 10 * 1024 * 1024;
+        this.exchangeMultiBlocksByteSize = minBytes + (int) (random.nextDouble() * (maxBytes - minBytes));
         int randomInt = random.nextInt(4);
         if (randomInt % 2 == 0) {
             this.rewriteOrToInPredicateThreshold = 100000;
@@ -4165,6 +4181,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableRuntimeFilterPartitionPrune(enableRuntimeFilterPartitionPrune);
 
         tResult.setMinimumOperatorMemoryRequiredKb(minimumOperatorMemoryRequiredKB);
+        tResult.setExchangeMultiBlocksByteSize(exchangeMultiBlocksByteSize);
         return tResult;
     }
 

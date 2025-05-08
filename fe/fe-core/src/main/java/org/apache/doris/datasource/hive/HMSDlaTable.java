@@ -69,11 +69,22 @@ public abstract class HMSDlaTable implements MTMVBaseTableIf {
     abstract MTMVSnapshotIf getTableSnapshot(MTMVRefreshContext context, Optional<MvccSnapshot> snapshot)
             throws AnalysisException;
 
+    abstract MTMVSnapshotIf getTableSnapshot(Optional<MvccSnapshot> snapshot) throws AnalysisException;
+
     abstract boolean isPartitionColumnAllowNull();
 
     @Override
     public void beforeMTMVRefresh(MTMV mtmv) throws DdlException {
         Env.getCurrentEnv().getRefreshManager()
                 .refreshTable(hmsTable.getCatalog().getName(), hmsTable.getDbName(), hmsTable.getName(), true);
+    }
+
+    /**
+     * If the table is supported as related table.
+     * For example, an Iceberg table may become unsupported after partition revolution.
+     * @return
+     */
+    protected boolean isValidRelatedTable() {
+        return true;
     }
 }

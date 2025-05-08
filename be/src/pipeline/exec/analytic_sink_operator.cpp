@@ -160,8 +160,8 @@ Status AnalyticSinkLocalState::open(RuntimeState* state) {
     }
 
     // only support one order by column, so need two columns upper and lower bound
+    _range_between_expr_ctxs.resize(p._range_between_expr_ctxs.size());
     _range_result_columns.resize(_range_between_expr_ctxs.size());
-    _range_between_expr_ctxs = p._range_between_expr_ctxs;
     for (size_t i = 0; i < _range_between_expr_ctxs.size(); i++) {
         RETURN_IF_ERROR(p._range_between_expr_ctxs[i]->clone(state, _range_between_expr_ctxs[i]));
         _range_result_columns[i] =
