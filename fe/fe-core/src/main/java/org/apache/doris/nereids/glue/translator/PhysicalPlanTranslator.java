@@ -779,6 +779,26 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
         OlapScanNode olapScanNode = new OlapScanNode(context.nextPlanNodeId(), tupleDescriptor, "OlapScanNode");
         olapScanNode.setNereidsId(olapScan.getId());
+
+        // translate ann topn info
+        if (!olapScan.getAnnOrderKeys().isEmpty()) {
+            TupleDescriptor annSortTuple = olapScanNode.getTupleDesc();
+            List<Expr> orderingExprs = Lists.newArrayList();
+            List<Boolean> ascOrders = Lists.newArrayList();
+            List<Boolean> nullsFirstParams = Lists.newArrayList();
+            List<OrderKey> annOrderKeys = olapScan.getAnnOrderKeys();
+            annOrderKeys.forEach(k -> {
+                orderingExprs.add(ExpressionTranslator.translate(k.getExpr(), context));
+                ascOrders.add(k.isAsc());
+                nullsFirstParams.add(k.isNullFirst());
+            });
+            SortInfo annSortInfo = new SortInfo(orderingExprs, ascOrders, nullsFirstParams, annSortTuple);
+            olapScanNode.setAnnSortInfo(annSortInfo);
+        }
+        if (olapScan.getAnnLimit().isPresent()) {
+            olapScanNode.setAnnSortLimit(olapScan.getAnnLimit().get());
+        }
+
         // TODO: move all node set cardinality into one place
         if (olapScan.getStats() != null) {
             // NOTICE: we should not set stats row count

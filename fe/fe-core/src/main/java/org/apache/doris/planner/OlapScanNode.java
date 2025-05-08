@@ -208,6 +208,9 @@ public class OlapScanNode extends ScanNode {
 
     protected List<Expr> rewrittenProjectList;
 
+    private SortInfo annSortInfo = null;
+    private long annSortLimit = -1;
+
     // cached for prepared statement to quickly prune partition
     // only used in short circuit plan at present
     private final PartitionPruneV2ForShortCircuitPlan cachedPartitionPruner =
@@ -306,6 +309,14 @@ public class OlapScanNode extends ScanNode {
 
     public void setSortLimit(long sortLimit) {
         this.sortLimit = sortLimit;
+    }
+
+    public void setAnnSortInfo(SortInfo annSortInfo) {
+        this.annSortInfo = annSortInfo;
+    }
+
+    public void setAnnSortLimit(long annSortLimit) {
+        this.annSortLimit = annSortLimit;
     }
 
     public Collection<Long> getSelectedPartitionIds() {
@@ -1364,6 +1375,15 @@ public class OlapScanNode extends ScanNode {
         if (sortLimit != -1) {
             output.append(prefix).append("SORT LIMIT: ").append(sortLimit).append("\n");
         }
+        if (annSortInfo != null) {
+            output.append(prefix).append("ANN SORT INFO:\n");
+            annSortInfo.getOrderingExprs().forEach(expr -> {
+                output.append(prefix).append(prefix).append(expr.toSql()).append("\n");
+            });
+        }
+        if (annSortLimit != -1) {
+            output.append(prefix).append("ANN SORT LIMIT: ").append(annSortLimit).append("\n");
+        }
         if (useTopnFilter()) {
             String topnFilterSources = String.join(",",
                     topnFilterSortNodes.stream()
@@ -1549,6 +1569,19 @@ public class OlapScanNode extends ScanNode {
         }
         if (sortLimit != -1) {
             msg.olap_scan_node.setSortLimit(sortLimit);
+        }
+        if (annSortInfo != null) {
+            TSortInfo tAnnSortInfo = new TSortInfo(
+                    Expr.treesToThrift(annSortInfo.getOrderingExprs()),
+                    annSortInfo.getIsAscOrder(),
+                    annSortInfo.getNullsFirst());
+            if (annSortInfo.getSortTupleSlotExprs() != null) {
+                tAnnSortInfo.setSortTupleSlotExprs(Expr.treesToThrift(annSortInfo.getSortTupleSlotExprs()));
+            }
+            msg.olap_scan_node.setAnnSortInfo(tAnnSortInfo);
+        }
+        if (annSortLimit != -1) {
+            msg.olap_scan_node.setAnnSortLimit(annSortLimit);
         }
         msg.olap_scan_node.setKeyType(olapTable.getKeysType().toThrift());
         String tableName = olapTable.getName();
