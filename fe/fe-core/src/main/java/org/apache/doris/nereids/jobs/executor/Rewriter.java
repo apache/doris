@@ -132,7 +132,7 @@ import org.apache.doris.nereids.rules.rewrite.PushDownTopNDistinctThroughUnion;
 import org.apache.doris.nereids.rules.rewrite.PushDownTopNThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownTopNThroughUnion;
 import org.apache.doris.nereids.rules.rewrite.PushDownTopNThroughWindow;
-import org.apache.doris.nereids.rules.rewrite.PushDownVirualColumnsIntoOlapScan;
+import org.apache.doris.nereids.rules.rewrite.PushDownVectorTopNIntoOlapScan;
 import org.apache.doris.nereids.rules.rewrite.PushFilterInsideJoin;
 import org.apache.doris.nereids.rules.rewrite.PushProjectIntoOneRowRelation;
 import org.apache.doris.nereids.rules.rewrite.PushProjectIntoUnion;
@@ -470,7 +470,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     topDown(new CollectPredicateOnScan())
                 ),
                 topDown(new PushDownVirualColumnsIntoOlapScan()),
-
+                topDown(new PushDownVectorTopNIntoOlapScan()),
                 topic("Push project and filter on cte consumer to cte producer",
                         topDown(
                                 new CollectFilterAboveConsumer(),
