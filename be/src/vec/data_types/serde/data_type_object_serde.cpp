@@ -87,6 +87,12 @@ Status DataTypeObjectSerDe::write_column_to_mysql(const IColumn& column,
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
 }
 
+Status DataTypeObjectSerDe::serialize_column_to_json(const IColumn& column, int64_t start_idx,
+                                                     int64_t end_idx, BufferWritable& bw,
+                                                     FormatOptions& options) const {
+    SERIALIZE_COLUMN_TO_JSON();
+}
+
 void DataTypeObjectSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
                                                   Arena* mem_pool, int32_t col_id,
                                                   int64_t row_num) const {

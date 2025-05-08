@@ -1028,6 +1028,8 @@ enum TBinlogType {
   RENAME_PARTITION = 22,
   DROP_ROLLUP = 23,
   RECOVER_INFO = 24,
+  MODIFY_DISTRIBUTION_BUCKET_NUM = 25,
+  MODIFY_DISTRIBUTION_TYPE = 26,
 
   // Keep some IDs for allocation so that when new binlog types are added in the
   // future, the changes can be picked back to the old versions without breaking
@@ -1044,9 +1046,7 @@ enum TBinlogType {
   //    MODIFY_XXX = 17,
   //    MIN_UNKNOWN = 18,
   //    UNKNOWN_3 = 19,
-  MIN_UNKNOWN = 25,
-  UNKNOWN_10 = 26,
-  UNKNOWN_11 = 27,
+  MIN_UNKNOWN = 27,
   UNKNOWN_12 = 28,
   UNKNOWN_13 = 29,
   UNKNOWN_14 = 30,
@@ -1301,12 +1301,19 @@ struct TGetBinlogLagResult {
     5: optional i64 last_commit_seq
     6: optional i64 first_binlog_timestamp
     7: optional i64 last_binlog_timestamp
+    8: optional i64 next_commit_seq
+    9: optional i64 next_binlog_timestamp
 }
 
 struct TUpdateFollowerStatsCacheRequest {
     1: optional string key;
     2: optional list<string> statsRows;
     3: optional string colStatsData;
+}
+
+struct TUpdatePlanStatsCacheRequest {
+    1: optional string key;
+    2: optional string planStatsData;
 }
 
 struct TInvalidateFollowerStatsCacheRequest {
@@ -1555,6 +1562,52 @@ struct TFetchRunningQueriesResult {
 struct TFetchRunningQueriesRequest {
 }
 
+struct TFetchRoutineLoadJobRequest {
+}
+
+struct TRoutineLoadJob {
+    1: optional string job_id
+    2: optional string job_name
+    3: optional string create_time
+    4: optional string pause_time
+    5: optional string end_time
+    6: optional string db_name
+    7: optional string table_name
+    8: optional string state
+    9: optional string current_task_num
+    10: optional string job_properties
+    11: optional string data_source_properties
+    12: optional string custom_properties
+    13: optional string statistic
+    14: optional string progress
+    15: optional string lag
+    16: optional string reason_of_state_changed
+    17: optional string error_log_urls
+    18: optional string user_name
+    19: optional i32 current_abort_task_num
+    20: optional bool is_abnormal_pause
+}
+
+struct TFetchRoutineLoadJobResult {
+    1: optional list<TRoutineLoadJob> routineLoadJobs
+}
+
+struct TPlanNodeRuntimeStatsItem {
+    // node_id means PlanNodeId, add this field so that we can merge RuntimeProfile of same node more easily
+    1: optional i32 node_id
+    2: optional i64 input_rows
+    3: optional i64 output_rows
+    4: optional i64 common_filter_rows
+    5: optional i64 common_filter_input_rows
+    6: optional i64 runtime_filter_rows
+    7: optional i64 runtime_filter_input_rows
+    8: optional i64 join_builder_rows
+    9: optional i64 join_probe_rows
+    10: optional i32 join_builder_skew_ratio
+    11: optional i32 join_prober_skew_ratio
+    12: optional i32 instance_num
+}
+
 service FrontendService {
     TGetDbsResult getDbNames(1: TGetDbsParams params)
     TGetTablesResult getTableNames(1: TGetTablesParams params)
@@ -1629,6 +1682,8 @@ service FrontendService {
     TGetBinlogLagResult getBinlogLag(1: TGetBinlogLagRequest request)
 
     Status.TStatus updateStatsCache(1: TUpdateFollowerStatsCacheRequest request)
+    
+    Status.TStatus updatePlanStatsCache(1: TUpdatePlanStatsCacheRequest request)
 
     TAutoIncrementRangeResult getAutoIncrementRange(1: TAutoIncrementRangeRequest request)
 
@@ -1653,4 +1708,6 @@ service FrontendService {
     Status.TStatus updatePartitionStatsCache(1: TUpdateFollowerPartitionStatsCacheRequest request)
 
     TFetchRunningQueriesResult fetchRunningQueries(1: TFetchRunningQueriesRequest request)
+
+    TFetchRoutineLoadJobResult fetchRoutineLoadJob(1: TFetchRoutineLoadJobRequest request)
 }

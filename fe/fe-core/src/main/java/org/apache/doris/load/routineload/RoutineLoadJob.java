@@ -52,15 +52,17 @@ import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.kafka.KafkaConfiguration;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.nereids.load.NereidsRoutineLoadTaskInfo;
+import org.apache.doris.nereids.load.NereidsStreamLoadPlanner;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.persist.RoutineLoadOperation;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
-import org.apache.doris.planner.StreamLoadPlanner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.SqlModeHelper;
+import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.task.LoadTaskInfo;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
@@ -71,7 +73,6 @@ import org.apache.doris.transaction.TransactionException;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
 
-import com.aliyuncs.utils.StringUtils;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -83,6 +84,7 @@ import com.google.gson.GsonBuilder;
 import com.google.gson.annotations.SerializedName;
 import lombok.Getter;
 import lombok.Setter;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -434,8 +436,8 @@ public abstract class RoutineLoadJob
             this.escape = stmt.getEscape();
             jobProperties.put(LoadStmt.KEY_ESCAPE, String.valueOf(stmt.getEscape()));
         }
-        if (stmt.getWorkloadGroupId() > 0) {
-            jobProperties.put(WORKLOAD_GROUP, String.valueOf(stmt.getWorkloadGroupId()));
+        if (!StringUtils.isEmpty(stmt.getWorkloadGroupName())) {
+            jobProperties.put(WORKLOAD_GROUP, stmt.getWorkloadGroupName());
         }
     }
 
@@ -502,6 +504,18 @@ public abstract class RoutineLoadJob
         return dbId;
     }
 
+    public String getCreateTimestampString() {
+        return TimeUtils.longToTimeString(createTimestamp);
+    }
+
+    public String getPauseTimestampString() {
+        return TimeUtils.longToTimeString(pauseTimestamp);
+    }
+
+    public String getEndTimestampString() {
+        return TimeUtils.longToTimeString(endTimestamp);
+    }
+
     public void setOtherMsg(String otherMsg) {
         writeLock();
         try {
@@ -535,12 +549,8 @@ public abstract class RoutineLoadJob
         return database.getTableOrMetaException(tableId).getName();
     }
 
-    public long getWorkloadId() {
-        String workloadIdStr = jobProperties.get(WORKLOAD_GROUP);
-        if (!StringUtils.isEmpty(workloadIdStr)) {
-            return Long.parseLong(workloadIdStr);
-        }
-        return -1;
+    public String getWorkloadGroup() {
+        return jobProperties.get(WORKLOAD_GROUP);
     }
 
     public JobState getState() {
@@ -553,6 +563,10 @@ public abstract class RoutineLoadJob
 
     public long getEndTimestamp() {
         return endTimestamp;
+    }
+
+    public RoutineLoadStatistic getJobStatistic() {
+        return jobStatistic;
     }
 
     public PartitionNames getPartitions() {
@@ -790,6 +804,10 @@ public abstract class RoutineLoadJob
         }
     }
 
+    public Queue<String> getErrorLogUrls() {
+        return errorLogUrls;
+    }
+
     // RoutineLoadScheduler will run this method at fixed interval, and renew the timeout tasks
     public void processTimeoutTasks() {
         writeLock();
@@ -843,6 +861,11 @@ public abstract class RoutineLoadJob
         } finally {
             readUnlock();
         }
+    }
+
+    public boolean isAbnormalPause() {
+        return this.state == JobState.PAUSED && this.pauseReason != null
+                    && this.pauseReason.getCode() != InternalErrorCode.MANUAL_PAUSE_ERR;
     }
 
     // All of private method could not be call without lock
@@ -939,6 +962,7 @@ public abstract class RoutineLoadJob
             this.jobStatistic.currentErrorRows = 0;
             this.jobStatistic.currentTotalRows = 0;
             this.otherMsg = "";
+            this.jobStatistic.currentAbortedTaskNum = 0;
         } else if (this.jobStatistic.currentErrorRows > maxErrorNum
                 || (this.jobStatistic.currentTotalRows > 0
                     && ((double) this.jobStatistic.currentErrorRows
@@ -987,7 +1011,37 @@ public abstract class RoutineLoadJob
     // derived class can override this.
     public abstract void prepare() throws UserException;
 
-    public TPipelineFragmentParams plan(StreamLoadPlanner planner, TUniqueId loadId, long txnId) throws UserException {
+    // make this public here just for UT.
+    public void setComputeGroup() {
+        ComputeGroup computeGroup = null;
+        try {
+            if (ConnectContext.get() == null) {
+                ConnectContext ctx = new ConnectContext();
+                ctx.setThreadLocalInfo();
+            }
+            String currentUser = ConnectContext.get().getQualifiedUser();
+            if (StringUtils.isEmpty(currentUser)) {
+                currentUser = getUserIdentity().getQualifiedUser();
+            }
+            if (StringUtils.isEmpty(currentUser)) {
+                LOG.warn("can not find user in routine load");
+                computeGroup = Env.getCurrentEnv().getComputeGroupMgr().getAllBackendComputeGroup();
+            } else {
+                computeGroup = Env.getCurrentEnv().getAuth().getComputeGroup(currentUser);
+            }
+            if (ComputeGroup.INVALID_COMPUTE_GROUP.equals(computeGroup)) {
+                LOG.warn("get an invalid compute group in routine load");
+                computeGroup = Env.getCurrentEnv().getComputeGroupMgr().getAllBackendComputeGroup();
+            }
+        } catch (Throwable t) {
+            LOG.warn("error happens when set compute group for routine load", t);
+            computeGroup = Env.getCurrentEnv().getComputeGroupMgr().getAllBackendComputeGroup();
+        }
+        ConnectContext.get().setComputeGroup(computeGroup);
+    }
+
+    public TPipelineFragmentParams plan(NereidsStreamLoadPlanner planner, TUniqueId loadId, long txnId)
+            throws UserException {
         Preconditions.checkNotNull(planner);
         Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
         Table table = db.getTableOrMetaException(tableId, Table.TableType.OLAP);
@@ -1011,6 +1065,11 @@ public abstract class RoutineLoadJob
                 } else {
                     ConnectContext.get().setCloudCluster(clusterName);
                 }
+            } else {
+                setComputeGroup();
+            }
+            if (ConnectContext.get().getEnv() == null) {
+                ConnectContext.get().setEnv(Env.getCurrentEnv());
             }
 
             TPipelineFragmentParams planParams = planner.plan(loadId);
@@ -1246,6 +1305,7 @@ public abstract class RoutineLoadJob
                             .build());
                 }
                 ++this.jobStatistic.abortedTaskNum;
+                ++this.jobStatistic.currentAbortedTaskNum;
                 TransactionState.TxnStatusChangeReason txnStatusChangeReason = null;
                 if (txnStatusChangeReasonString != null) {
                     txnStatusChangeReason =
@@ -1615,9 +1675,20 @@ public abstract class RoutineLoadJob
                                                TransactionState txnState,
                                                TransactionState.TxnStatusChangeReason txnStatusChangeReason);
 
-    protected abstract String getStatistic();
+    public abstract String getStatistic();
 
-    protected abstract String getLag();
+    public abstract String getLag();
+
+    public String getStateReason() {
+        switch (state) {
+            case PAUSED:
+                return pauseReason == null ? "" : pauseReason.toString();
+            case CANCELLED:
+                return cancelReason == null ? "" : cancelReason.toString();
+            default:
+                return "";
+        }
+    }
 
     public List<String> getShowInfo() {
         Optional<Database> database = Env.getCurrentInternalCatalog().getDb(dbId);
@@ -1647,16 +1718,7 @@ public abstract class RoutineLoadJob
             row.add(getStatistic());
             row.add(getProgress().toJsonString());
             row.add(getLag());
-            switch (state) {
-                case PAUSED:
-                    row.add(pauseReason == null ? "" : pauseReason.toString());
-                    break;
-                case CANCELLED:
-                    row.add(cancelReason == null ? "" : cancelReason.toString());
-                    break;
-                default:
-                    row.add("");
-            }
+            row.add(getStateReason());
             row.add(Joiner.on(", ").join(errorLogUrls));
             row.add(otherMsg);
             row.add(userIdentity.getQualifiedUser());
@@ -1819,7 +1881,7 @@ public abstract class RoutineLoadJob
         }
     }
 
-    private String jobPropertiesToJsonString() {
+    public String jobPropertiesToJsonString() {
         Map<String, String> jobProperties = Maps.newHashMap();
         jobProperties.put("partitions", partitions == null
                 ? STAR_STRING : Joiner.on(",").join(partitions.getPartitionNames()));
@@ -1853,13 +1915,13 @@ public abstract class RoutineLoadJob
         return gson.toJson(jobProperties);
     }
 
-    abstract String dataSourcePropertiesJsonToString();
+    public abstract String dataSourcePropertiesJsonToString();
 
-    abstract String customPropertiesJsonToString();
+    public abstract String customPropertiesJsonToString();
 
-    abstract Map<String, String> getDataSourceProperties();
+    public abstract Map<String, String> getDataSourceProperties();
 
-    abstract Map<String, String> getCustomProperties();
+    public abstract Map<String, String> getCustomProperties();
 
     public boolean isExpired() {
         if (!isFinal()) {
@@ -2024,6 +2086,8 @@ public abstract class RoutineLoadJob
     public abstract void modifyProperties(AlterRoutineLoadStmt stmt) throws UserException;
 
     public abstract void replayModifyProperties(AlterRoutineLoadJobOperationLog log);
+
+    public abstract NereidsRoutineLoadTaskInfo toNereidsRoutineLoadTaskInfo() throws UserException;
 
     // for ALTER ROUTINE LOAD
     protected void modifyCommonJobProperties(Map<String, String> jobProperties) {

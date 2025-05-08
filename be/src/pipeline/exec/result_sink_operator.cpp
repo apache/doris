@@ -60,6 +60,7 @@ Status ResultSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info)
             RETURN_IF_ERROR(get_arrow_schema_from_expr_ctxs(_output_vexpr_ctxs, &arrow_schema,
                                                             state->timezone()));
         }
+        VLOG_DEBUG << "create sender in INIT with instance id " << fragment_instance_id;
         RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(
                 fragment_instance_id, p._result_sink_buffer_size_rows, &_sender, state,
                 p._sink_type == TResultSinkType::ARROW_FLIGHT_PROTOCAL, arrow_schema));
@@ -101,7 +102,8 @@ Status ResultSinkLocalState::open(RuntimeState* state) {
 ResultSinkOperatorX::ResultSinkOperatorX(int operator_id, const RowDescriptor& row_desc,
                                          const std::vector<TExpr>& t_output_expr,
                                          const TResultSink& sink)
-        : DataSinkOperatorX(operator_id, 0, 0),
+        : DataSinkOperatorX(operator_id, std::numeric_limits<int>::max(),
+                            std::numeric_limits<int>::max()),
           _sink_type(!sink.__isset.type || sink.type == TResultSinkType::MYSQL_PROTOCAL
                              ? TResultSinkType::MYSQL_PROTOCAL
                              : sink.type),
@@ -134,6 +136,7 @@ Status ResultSinkOperatorX::prepare(RuntimeState* state) {
             RETURN_IF_ERROR(get_arrow_schema_from_expr_ctxs(_output_vexpr_ctxs, &arrow_schema,
                                                             state->timezone()));
         }
+        VLOG_DEBUG << "create sender in prepare with query id " << state->query_id();
         RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(
                 state->query_id(), _result_sink_buffer_size_rows, &_sender, state,
                 _sink_type == TResultSinkType::ARROW_FLIGHT_PROTOCAL, arrow_schema));

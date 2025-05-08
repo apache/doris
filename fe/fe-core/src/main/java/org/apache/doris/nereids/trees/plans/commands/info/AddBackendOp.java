@@ -17,14 +17,13 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
-import org.apache.doris.analysis.AddBackendClause;
-import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.Tag;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -38,7 +37,7 @@ public class AddBackendOp extends BackendOp {
 
     public AddBackendOp(List<String> hostPorts, Map<String, String> properties) {
         super(hostPorts);
-        this.properties = properties;
+        this.properties = new HashMap<>(properties);
     }
 
     @Override
@@ -70,11 +69,6 @@ public class AddBackendOp extends BackendOp {
     @Override
     public Map<String, String> getProperties() {
         return properties;
-    }
-
-    @Override
-    public AlterClause translateToLegacyAlterClause() {
-        return new AddBackendClause(ids, hostInfos, tagMap);
     }
 
     public Map<String, String> getTagMap() {

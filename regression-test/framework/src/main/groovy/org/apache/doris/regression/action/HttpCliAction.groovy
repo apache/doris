@@ -22,6 +22,7 @@ import groovy.transform.stc.ClosureParams
 import groovy.transform.stc.FromString
 import groovy.util.logging.Slf4j
 import org.apache.doris.regression.suite.SuiteContext
+import org.apache.http.client.methods.HttpDelete
 import org.apache.http.client.methods.HttpGet
 import org.apache.http.entity.StringEntity
 import org.apache.http.entity.ContentType
@@ -123,7 +124,23 @@ class HttpCliAction implements SuiteAction {
                             return new ActionResult(respCode, respJson)
                         }
                     }
-                } else {
+                } else if (op == "delete") {
+					HttpDelete httpDelete = new HttpDelete(uri)
+					for (final def header in headers.entrySet()) {
+						httpDelete.setHeader(header.getKey(), header.getValue())
+					}
+					client.execute(httpDelete).withCloseable { resp ->
+						resp.withCloseable {
+							String respJson = EntityUtils.toString(resp.getEntity())
+							def respCode = resp.getStatusLine().getStatusCode()
+							if (printResponse) {
+								log.info("respCode: ${respCode}, respJson: ${respJson}")
+							}
+							return new ActionResult(respCode, respJson)
+						}
+					}
+				}
+                else {
                     HttpPost httpPost = new HttpPost(uri)
                     for (final def header in headers.entrySet()) {
                         httpPost.setHeader(header.getKey(), header.getValue())

@@ -32,20 +32,11 @@ SET(SOURCE_FILES
         stringprintf.cc
         strings/ascii_ctype.cc
         strings/charset.cc
-        strings/escaping.cc
-        strings/join.cc
         strings/memutil.cc
         strings/numbers.cc
-        strings/split.cc
-        strings/strip.cc
-        strings/strcat.cc
-        strings/stringpiece.cc
-        strings/substitute.cc
-        strings/util.cc
         strtoint.cc
         threading/thread_collision_warner.cc
-        utf/rune.c
-        cpu.cc)
+        utf/rune.c)
 
 if ("${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86" OR "${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86_64")
     set(SOURCE_FILES ${SOURCE_FILES} atomicops-internals-x86.cc)

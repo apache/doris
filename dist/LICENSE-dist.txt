@@ -229,12 +229,6 @@ Copyright 2011 Google Inc.
 
 --------------------------------------------------------------------------------
 
-be/src/gutil/stl_util.h : Apache 2.0 License
-
-Copyright 2007 Google Inc.
-
---------------------------------------------------------------------------------
-
 be/src/gutil/utf/*: licensed under the following terms:
 
   UTF-8 Library
@@ -1537,3 +1531,4 @@ Other dependencies:
     * concurrentqueue: 1.0.3  -- licenses/LICENSE-concurrentqueue.txt
     * FlameGraph -- licenses/LICENSE-CDDL-1.0.txt
     * icu 75.1 -- licenses/LICENSE-icu.txt
+    * pugixml 1.15 -- licenses/LICENSE-pugixml.txt

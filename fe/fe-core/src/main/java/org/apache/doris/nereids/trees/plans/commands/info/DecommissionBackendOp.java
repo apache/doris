@@ -17,9 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
-import org.apache.doris.analysis.AlterClause;
-import org.apache.doris.analysis.DecommissionBackendClause;
-
 import java.util.List;
 
 /**
@@ -42,10 +39,5 @@ public class DecommissionBackendOp extends BackendOp {
             }
         }
         return sb.toString();
-    }
-
-    @Override
-    public AlterClause translateToLegacyAlterClause() {
-        return new DecommissionBackendClause(ids, hostInfos);
     }
 }

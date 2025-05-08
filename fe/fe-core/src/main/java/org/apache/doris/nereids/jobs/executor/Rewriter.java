@@ -25,7 +25,6 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.analysis.AdjustAggregateNullableForEmptySet;
 import org.apache.doris.nereids.rules.analysis.AvgDistinctToSumDivCount;
 import org.apache.doris.nereids.rules.analysis.CheckAfterRewrite;
-import org.apache.doris.nereids.rules.analysis.EliminateGroupByConstant;
 import org.apache.doris.nereids.rules.analysis.LogicalSubQueryAliasToLogicalProject;
 import org.apache.doris.nereids.rules.analysis.NormalizeAggregate;
 import org.apache.doris.nereids.rules.expression.CheckLegalityAfterRewrite;
@@ -50,6 +49,7 @@ import org.apache.doris.nereids.rules.rewrite.CheckRestorePartition;
 import org.apache.doris.nereids.rules.rewrite.ClearContextStatus;
 import org.apache.doris.nereids.rules.rewrite.CollectCteConsumerOutput;
 import org.apache.doris.nereids.rules.rewrite.CollectFilterAboveConsumer;
+import org.apache.doris.nereids.rules.rewrite.CollectPredicateOnScan;
 import org.apache.doris.nereids.rules.rewrite.ColumnPruning;
 import org.apache.doris.nereids.rules.rewrite.ConvertInnerOrCrossJoin;
 import org.apache.doris.nereids.rules.rewrite.CountDistinctRewrite;
@@ -60,6 +60,7 @@ import org.apache.doris.nereids.rules.rewrite.DeferMaterializeTopNResult;
 import org.apache.doris.nereids.rules.rewrite.EliminateAggCaseWhen;
 import org.apache.doris.nereids.rules.rewrite.EliminateAggregate;
 import org.apache.doris.nereids.rules.rewrite.EliminateAssertNumRows;
+import org.apache.doris.nereids.rules.rewrite.EliminateConstHashJoinCondition;
 import org.apache.doris.nereids.rules.rewrite.EliminateDedupJoinCondition;
 import org.apache.doris.nereids.rules.rewrite.EliminateEmptyRelation;
 import org.apache.doris.nereids.rules.rewrite.EliminateFilter;
@@ -101,6 +102,7 @@ import org.apache.doris.nereids.rules.rewrite.MergeSetOperations;
 import org.apache.doris.nereids.rules.rewrite.MergeSetOperationsExcept;
 import org.apache.doris.nereids.rules.rewrite.MergeTopNs;
 import org.apache.doris.nereids.rules.rewrite.NormalizeSort;
+import org.apache.doris.nereids.rules.rewrite.OperativeColumnDerive;
 import org.apache.doris.nereids.rules.rewrite.OrExpansion;
 import org.apache.doris.nereids.rules.rewrite.ProjectOtherJoinConditionForNestedLoopJoin;
 import org.apache.doris.nereids.rules.rewrite.PruneEmptyPartition;
@@ -174,7 +176,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         topDown(
                                 new EliminateOrderByConstant(),
                                 new EliminateSortUnderSubqueryOrView(),
-                                new EliminateGroupByConstant(),
                                 // MergeProjects depends on this rule
                                 new LogicalSubQueryAliasToLogicalProject(),
                                 // TODO: we should do expression normalization after plan normalization
@@ -459,6 +460,10 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     topDown(new SumLiteralRewrite(),
                             new MergePercentileToArray())
                 ),
+                topic("collect scan filter for hbo",
+                    // this rule is to collect filter on basic table for hbo usage
+                    topDown(new CollectPredicateOnScan())
+                ),
                 topic("Push project and filter on cte consumer to cte producer",
                         topDown(
                                 new CollectFilterAboveConsumer(),
@@ -487,11 +492,14 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         custom(RuleType.ADD_PROJECT_FOR_JOIN, AddProjectForJoin::new),
                         topDown(new MergeProjects())
                 ),
-                topic("Adjust topN project",
+                topic("adjust topN project",
                         topDown(new MergeProjects(),
                                 new PullUpProjectBetweenTopNAndAgg())),
+                topic("remove const hash join condition",
+                        topDown(new EliminateConstHashJoinCondition())),
+
                 // this rule batch must keep at the end of rewrite to do some plan check
-                topic("Final rewrite and check",
+                topic("final rewrite and check",
                         custom(RuleType.CHECK_DATA_TYPES, CheckDataTypes::new),
                         topDown(new PushDownFilterThroughProject(), new MergeProjects()),
                         custom(RuleType.ADJUST_CONJUNCTS_RETURN_TYPE, AdjustConjunctsReturnType::new),
@@ -503,7 +511,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 new CheckAfterRewrite()
                         )
                 ),
-                topDown(new CollectCteConsumerOutput())
+                topDown(new CollectCteConsumerOutput()),
+                custom(RuleType.OPERATIVE_COLUMN_DERIVE, OperativeColumnDerive::new)
             )
     );
 

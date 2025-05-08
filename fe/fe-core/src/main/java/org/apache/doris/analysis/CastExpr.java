@@ -140,6 +140,9 @@ public class CastExpr extends Expr {
             if (type.isStructType() && e.type.isStructType()) {
                 getChild(0).setType(type);
             }
+            if (type.isScalarType()) {
+                targetTypeDef = new TypeDef(type);
+            }
             analysisDone();
             return;
         }
@@ -579,8 +582,13 @@ public class CastExpr extends Expr {
     }
 
     @Override
-    public String getStringValueForArray(FormatOptions options) {
-        return children.get(0).getStringValueForArray(options);
+    public String getStringValueForStreamLoad(FormatOptions options) {
+        return children.get(0).getStringValueForStreamLoad(options);
+    }
+
+    @Override
+    protected String getStringValueInComplexTypeForQuery(FormatOptions options) {
+        return children.get(0).getStringValueInComplexTypeForQuery(options);
     }
 
     public void setNotFold(boolean notFold) {

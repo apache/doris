@@ -42,6 +42,7 @@ import org.apache.doris.thrift.TCheckWarmUpCacheAsyncRequest;
 import org.apache.doris.thrift.TCheckWarmUpCacheAsyncResponse;
 import org.apache.doris.thrift.TCloneReq;
 import org.apache.doris.thrift.TCreateTabletReq;
+import org.apache.doris.thrift.TDictionaryStatusList;
 import org.apache.doris.thrift.TDiskTrashInfo;
 import org.apache.doris.thrift.TDropTabletReq;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
@@ -112,7 +113,7 @@ public class MockedBackendFactory {
     public static final int BE_DEFAULT_THRIFT_PORT = 9060;
     public static final int BE_DEFAULT_BRPC_PORT = 8060;
     public static final int BE_DEFAULT_HTTP_PORT = 8040;
-    public static final int BE_DEFAULT_ARROW_FLIGHT_SQL_PORT = 8070;
+    public static final int BE_DEFAULT_ARROW_FLIGHT_SQL_PORT = 8050;
 
     // create a mocked backend with customize parameters
     public static MockedBackend createBackend(String host, int heartbeatPort, int thriftPort, int brpcPort,
@@ -494,6 +495,11 @@ public class MockedBackendFactory {
         @Override
         public TGetRealtimeExecStatusResponse getRealtimeExecStatus(TGetRealtimeExecStatusRequest request)
                 throws TException {
+            return null;
+        }
+
+        @Override
+        public TDictionaryStatusList getDictionaryStatus(List<Long> dictionaryIds) throws TException {
             return null;
         }
     }

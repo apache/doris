@@ -19,6 +19,7 @@ package org.apache.doris.load.routineload;
 
 import org.apache.doris.analysis.AlterRoutineLoadStmt;
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
+import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -41,9 +42,16 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.kafka.KafkaUtil;
 import org.apache.doris.load.routineload.kafka.KafkaConfiguration;
 import org.apache.doris.load.routineload.kafka.KafkaDataSourceProperties;
+import org.apache.doris.nereids.load.NereidsImportColumnDesc;
+import org.apache.doris.nereids.load.NereidsLoadTaskInfo;
+import org.apache.doris.nereids.load.NereidsLoadUtils;
+import org.apache.doris.nereids.load.NereidsRoutineLoadTaskInfo;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.thrift.TFileCompressType;
+import org.apache.doris.thrift.TPipelineWorkloadGroup;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
 
@@ -58,6 +66,7 @@ import com.google.gson.annotations.SerializedName;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.collections.MapUtils;
 import org.apache.commons.lang3.BooleanUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -423,6 +432,12 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
     private boolean isKafkaPartitionsChanged() throws UserException {
         if (CollectionUtils.isNotEmpty(customKafkaPartitions)) {
+            // for the case where the currentKafkaPartitions has not been assigned,
+            // we assume that the fe master has restarted or the job has been newly created,
+            // in this case, we need to pull the saved progress from meta service once
+            if (Config.isCloudMode() && (currentKafkaPartitions == null || currentKafkaPartitions.isEmpty())) {
+                updateCloudProgress();
+            }
             currentKafkaPartitions = customKafkaPartitions;
             return false;
         }
@@ -474,7 +489,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     }
 
     @Override
-    protected String getStatistic() {
+    public String getStatistic() {
         Map<String, Object> summary = this.jobStatistic.summary();
         Gson gson = new GsonBuilder().disableHtmlEscaping().create();
         return gson.toJson(summary);
@@ -635,7 +650,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     }
 
     @Override
-    protected String dataSourcePropertiesJsonToString() {
+    public String dataSourcePropertiesJsonToString() {
         Map<String, String> dataSourceProperties = Maps.newHashMap();
         dataSourceProperties.put("brokerList", brokerList);
         dataSourceProperties.put("topic", topic);
@@ -647,13 +662,13 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     }
 
     @Override
-    protected String customPropertiesJsonToString() {
+    public String customPropertiesJsonToString() {
         Gson gson = new GsonBuilder().disableHtmlEscaping().create();
         return gson.toJson(customProperties);
     }
 
     @Override
-    protected Map<String, String> getDataSourceProperties() {
+    public Map<String, String> getDataSourceProperties() {
         Map<String, String> dataSourceProperties = Maps.newHashMap();
         dataSourceProperties.put("kafka_broker_list", brokerList);
         dataSourceProperties.put("kafka_topic", topic);
@@ -661,7 +676,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     }
 
     @Override
-    protected Map<String, String> getCustomProperties() {
+    public Map<String, String> getCustomProperties() {
         Map<String, String> ret = new HashMap<>();
         customProperties.forEach((k, v) -> ret.put("property." + k, v));
         return ret;
@@ -694,6 +709,22 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         if (null != dataSourceProperties) {
             // if the partition offset is set by timestamp, convert it to real offset
             convertOffset(dataSourceProperties);
+        }
+
+        String wgName = jobProperties.get(CreateRoutineLoadStmt.WORKLOAD_GROUP);
+        if (!StringUtils.isEmpty(wgName)) {
+            ConnectContext tmpCtx = new ConnectContext();
+            if (Config.isCloudMode()) {
+                tmpCtx.setCloudCluster(this.getCloudCluster());
+            }
+            tmpCtx.setCurrentUserIdentity(ConnectContext.get().getCurrentUserIdentity());
+            tmpCtx.setQualifiedUser(ConnectContext.get().getCurrentUserIdentity().getQualifiedUser());
+            tmpCtx.getSessionVariable().setWorkloadGroup(wgName);
+            List<TPipelineWorkloadGroup> wgList = Env.getCurrentEnv().getWorkloadGroupMgr()
+                    .getWorkloadGroup(tmpCtx);
+            if (wgList.size() == 0) {
+                throw new UserException("Can not find workload group " + wgName);
+            }
         }
 
         writeLock();
@@ -910,7 +941,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     }
 
     @Override
-    protected String getLag() {
+    public String getLag() {
         Map<Integer, Long> partitionIdToOffsetLag = ((KafkaProgress) progress).getLag(cachedPartitionWithLatestOffsets);
         Gson gson = new Gson();
         return gson.toJson(partitionIdToOffsetLag);
@@ -938,5 +969,32 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                 .filter(lag -> lag >= 0)
                 .mapToLong(v -> v)
                 .sum();
+    }
+
+    @Override
+    public NereidsRoutineLoadTaskInfo toNereidsRoutineLoadTaskInfo() throws UserException {
+        Expression deleteCondition = getDeleteCondition() != null
+                ? NereidsLoadUtils.parseExpressionSeq(getDeleteCondition().toSql()).get(0)
+                : null;
+        Expression precedingFilter = getPrecedingFilter() != null
+                ? NereidsLoadUtils.parseExpressionSeq(getPrecedingFilter().toSql()).get(0)
+                : null;
+        Expression whereExpr = getWhereExpr() != null
+                ? NereidsLoadUtils.parseExpressionSeq(getWhereExpr().toSql()).get(0)
+                : null;
+        NereidsLoadTaskInfo.NereidsImportColumnDescs importColumnDescs = null;
+        if (columnDescs != null) {
+            importColumnDescs = new NereidsLoadTaskInfo.NereidsImportColumnDescs();
+            for (ImportColumnDesc desc : columnDescs.descs) {
+                Expression expression = desc.getExpr() != null
+                        ? NereidsLoadUtils.parseExpressionSeq(desc.getExpr().toSql()).get(0)
+                        : null;
+                importColumnDescs.descs.add(new NereidsImportColumnDesc(desc.getColumnName(), expression));
+            }
+        }
+        return new NereidsRoutineLoadTaskInfo(execMemLimit, new HashMap<>(jobProperties), maxBatchIntervalS, partitions,
+                mergeType, deleteCondition, sequenceCol, maxFilterRatio, importColumnDescs, precedingFilter,
+                whereExpr, columnSeparator, lineDelimiter, enclose, escape, sendBatchParallelism, loadToSingleTablet,
+                isPartialUpdate, memtableOnSinkNode);
     }
 }

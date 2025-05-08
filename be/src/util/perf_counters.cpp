@@ -33,8 +33,8 @@
 #include <unordered_map>
 #include <utility>
 
+#include "absl/strings/substitute.h"
 #include "gutil/stringprintf.h"
-#include "gutil/strings/substitute.h"
 #include "util/pretty_printer.h"
 #include "util/string_parser.hpp"
 #include "util/string_util.h"
@@ -577,7 +577,7 @@ void PerfCounters::refresh_proc_status() {
         if (fields.size() < 2) continue;
         boost::algorithm::trim(fields[1]);
         std::string key = fields[0].substr(0, fields[0].size() - 1);
-        _process_state[strings::Substitute("status/$0", key)] = fields[1];
+        _process_state[absl::Substitute("status/$0", key)] = fields[1];
     }
 
     if (statusinfo.is_open()) statusinfo.close();

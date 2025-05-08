@@ -27,12 +27,14 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeFormatterBuilder;
+import java.time.format.ResolverStyle;
 import java.time.format.SignStyle;
 import java.time.format.TextStyle;
 import java.time.temporal.ChronoField;
 import java.time.temporal.IsoFields;
 import java.time.temporal.TemporalAccessor;
 import java.time.temporal.WeekFields;
+import java.util.Locale;
 import java.util.Set;
 
 /**
@@ -47,7 +49,7 @@ public class DateUtils {
     /**
      * format builder.
      */
-    public static DateTimeFormatterBuilder formatBuilder(String pattern) throws AnalysisException {
+    public static DateTimeFormatter dateTimeFormatter(String pattern) throws AnalysisException {
         DateTimeFormatterBuilder builder = new DateTimeFormatterBuilder();
         boolean escaped = false;
         for (int i = 0; i < pattern.length(); i++) {
@@ -74,7 +76,7 @@ public class DateUtils {
                         break;
                     case 'h': // %h Hour (01..12)
                     case 'I': // %I Hour (01..12)
-                        builder.appendValue(ChronoField.HOUR_OF_AMPM, 2);
+                        builder.appendValue(ChronoField.CLOCK_HOUR_OF_AMPM, 2);
                         break;
                     case 'i': // %i Minutes, numeric (00..59)
                         builder.appendValue(ChronoField.MINUTE_OF_HOUR, 2);
@@ -86,7 +88,7 @@ public class DateUtils {
                         builder.appendValue(ChronoField.HOUR_OF_DAY);
                         break;
                     case 'l': // %l Hour (1..12)
-                        builder.appendValue(ChronoField.HOUR_OF_AMPM);
+                        builder.appendValue(ChronoField.CLOCK_HOUR_OF_AMPM);
                         break;
                     case 'M': // %M Month name (January..December)
                         builder.appendText(ChronoField.MONTH_OF_YEAR, TextStyle.FULL);
@@ -98,8 +100,10 @@ public class DateUtils {
                         builder.appendText(ChronoField.AMPM_OF_DAY);
                         break;
                     case 'r': // %r Time, 12-hour (hh:mm:ss followed by AM or PM)
-                        builder.appendValue(ChronoField.HOUR_OF_AMPM, 2)
+                        builder.appendValue(ChronoField.CLOCK_HOUR_OF_AMPM, 2)
+                                .appendLiteral(':')
                                 .appendValue(ChronoField.MINUTE_OF_HOUR, 2)
+                                .appendLiteral(':')
                                 .appendValue(ChronoField.SECOND_OF_MINUTE, 2)
                                 .appendLiteral(' ')
                                 .appendText(ChronoField.AMPM_OF_DAY, TextStyle.FULL)
@@ -157,7 +161,7 @@ public class DateUtils {
                 builder.appendLiteral(character);
             }
         }
-        return builder;
+        return builder.toFormatter(Locale.US).withResolverStyle(ResolverStyle.STRICT);
     }
 
     /**

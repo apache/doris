@@ -25,14 +25,14 @@ namespace doris::vectorized {
 
 IAggregateFunction* create_with_extra_types(const DataTypePtr& nested_type,
                                             const DataTypes& argument_types) {
-    WhichDataType which(nested_type);
-    if (which.idx == TypeIndex::Date || which.idx == TypeIndex::DateTime) {
+    if (nested_type->get_primitive_type() == PrimitiveType::TYPE_DATE ||
+        nested_type->get_primitive_type() == PrimitiveType::TYPE_DATETIME) {
         throw Exception(ErrorCode::INVALID_ARGUMENT,
                         "We don't support array<date> or array<datetime> for "
                         "group_array_intersect(), please use array<datev2> or array<datetimev2>.");
-    } else if (which.idx == TypeIndex::DateV2) {
+    } else if (nested_type->get_primitive_type() == PrimitiveType::TYPE_DATEV2) {
         return new AggregateFunctionGroupArrayIntersect<DateV2>(argument_types);
-    } else if (which.idx == TypeIndex::DateTimeV2) {
+    } else if (nested_type->get_primitive_type() == PrimitiveType::TYPE_DATETIMEV2) {
         return new AggregateFunctionGroupArrayIntersect<DateTimeV2>(argument_types);
     } else {
         /// Check that we can use plain version of AggregateFunctionGroupArrayIntersectGeneric
@@ -49,15 +49,40 @@ inline AggregateFunctionPtr create_aggregate_function_group_array_intersect_impl
             dynamic_cast<const DataTypeArray&>(*(argument_types[0])).get_nested_type());
     AggregateFunctionPtr res = nullptr;
 
-    WhichDataType which(nested_type);
-#define DISPATCH(TYPE)                                                                  \
-    if (which.idx == TypeIndex::TYPE)                                                   \
-        res = creator_without_type::create<AggregateFunctionGroupArrayIntersect<TYPE>>( \
+    switch (nested_type->get_primitive_type()) {
+    case PrimitiveType::TYPE_BOOLEAN:
+        res = creator_without_type::create<AggregateFunctionGroupArrayIntersect<UInt8>>(
                 argument_types, result_is_nullable);
-    FOR_NUMERIC_TYPES(DISPATCH)
-#undef DISPATCH
-
-    if (!res) {
+        break;
+    case PrimitiveType::TYPE_TINYINT:
+        res = creator_without_type::create<AggregateFunctionGroupArrayIntersect<Int8>>(
+                argument_types, result_is_nullable);
+        break;
+    case PrimitiveType::TYPE_SMALLINT:
+        res = creator_without_type::create<AggregateFunctionGroupArrayIntersect<Int16>>(
+                argument_types, result_is_nullable);
+        break;
+    case PrimitiveType::TYPE_INT:
+        res = creator_without_type::create<AggregateFunctionGroupArrayIntersect<Int32>>(
+                argument_types, result_is_nullable);
+        break;
+    case PrimitiveType::TYPE_BIGINT:
+        res = creator_without_type::create<AggregateFunctionGroupArrayIntersect<Int64>>(
+                argument_types, result_is_nullable);
+        break;
+    case PrimitiveType::TYPE_LARGEINT:
+        res = creator_without_type::create<AggregateFunctionGroupArrayIntersect<Int128>>(
+                argument_types, result_is_nullable);
+        break;
+    case PrimitiveType::TYPE_FLOAT:
+        res = creator_without_type::create<AggregateFunctionGroupArrayIntersect<Float32>>(
+                argument_types, result_is_nullable);
+        break;
+    case PrimitiveType::TYPE_DOUBLE:
+        res = creator_without_type::create<AggregateFunctionGroupArrayIntersect<Float64>>(
+                argument_types, result_is_nullable);
+        break;
+    default:
         res = AggregateFunctionPtr(create_with_extra_types(nested_type, argument_types));
     }
 

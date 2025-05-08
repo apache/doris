@@ -175,7 +175,10 @@ void DataTypeDateTimeV2SerDe::read_column_from_arrow(IColumn& column,
             // convert second
             v.from_unixtime(utc_epoch / divisor, ctz);
             // get rest time
-            v.set_microsecond(utc_epoch % divisor);
+            // add 0 on the right to make it 6 digits. DateTimeV2Value microsecond is 6 digits,
+            // the scale decides to keep the first few digits, so the valid digits should be kept at the front.
+            // "2022-01-01 11:11:11.111", utc_epoch = 1641035471111, divisor = 1000, set_microsecond(111000)
+            v.set_microsecond((utc_epoch % divisor) * DIVISOR_FOR_MICRO / divisor);
             col_data.emplace_back(binary_cast<DateV2Value<DateTimeV2ValueType>, UInt64>(v));
         }
     } else {

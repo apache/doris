@@ -33,7 +33,6 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/exception.h"
 #include "common/status.h"
-#include "gutil/integral_types.h"
 #include "runtime/define_primitive_type.h"
 #include "util/hash_util.hpp"
 #include "vec/columns/column.h"
@@ -141,7 +140,7 @@ public:
     void get(size_t n, Field& res) const override {
         assert(n < size());
         sanity_check_simple();
-        if (res.get_type() == Field::Types::JSONB) {
+        if (res.get_type() == PrimitiveType::TYPE_JSONB) {
             // Handle JsonbField
             res = JsonbField(reinterpret_cast<const char*>(&chars[offset_at(n)]), size_at(n));
             return;
@@ -155,27 +154,11 @@ public:
         return StringRef(&chars[offset_at(n)], size_at(n));
     }
 
-    void insert(const Field& x) override {
-        StringRef s;
-        if (x.get_type() == Field::Types::JSONB) {
-            // Handle JsonbField
-            const auto& real_field = vectorized::get<const JsonbField&>(x);
-            s = StringRef(real_field.get_value(), real_field.get_size());
-        } else {
-            s.data = vectorized::get<const String&>(x).data();
-            s.size = vectorized::get<const String&>(x).size();
-        }
-        const size_t old_size = chars.size();
-        const size_t size_to_append = s.size;
-        const size_t new_size = old_size + size_to_append;
+    String get_element(size_t n) const { return get_data_at(n).to_string(); }
 
-        check_chars_length(new_size, old_size + 1);
+    void insert_value(const String& value) { insert_data(value.data(), value.size()); }
 
-        chars.resize(new_size);
-        memcpy(chars.data() + old_size, s.data, size_to_append);
-        offsets.push_back(new_size);
-        sanity_check_simple();
-    }
+    void insert(const Field& x) override;
 
     void insert_many_from(const IColumn& src, size_t position, size_t length) override;
 
@@ -555,6 +538,8 @@ public:
                           uint8* __restrict filter) const override;
 
     ColumnPtr convert_column_if_overflow() override;
+
+    void erase(size_t start, size_t length) override;
 };
 
 using ColumnString = ColumnStr<UInt32>;

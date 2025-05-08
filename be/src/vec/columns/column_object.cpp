@@ -44,6 +44,7 @@
 #include "common/status.h"
 #include "exprs/json_functions.h"
 #include "olap/olap_common.h"
+#include "runtime/primitive_type.h"
 #include "util/defer_op.h"
 #include "util/simd/bits.h"
 #include "vec/aggregate_functions/aggregate_function.h"
@@ -85,14 +86,18 @@ namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 namespace {
 
-DataTypePtr create_array_of_type(TypeIndex type, size_t num_dimensions, bool is_nullable) {
+DataTypePtr create_array_of_type(PrimitiveType type, size_t num_dimensions, bool is_nullable) {
     if (type == ColumnObject::MOST_COMMON_TYPE_ID) {
         // JSONB type MUST NOT wrapped in ARRAY column, it should be top level.
         // So we ignored num_dimensions.
         return is_nullable ? make_nullable(std::make_shared<ColumnObject::MostCommonType>())
                            : std::make_shared<ColumnObject::MostCommonType>();
     }
-    DataTypePtr result = DataTypeFactory::instance().create_data_type(type, is_nullable);
+    DataTypePtr result = type == PrimitiveType::INVALID_TYPE
+                                 ? is_nullable ? make_nullable(std::make_shared<DataTypeNothing>())
+                                               : std::dynamic_pointer_cast<IDataType>(
+                                                         std::make_shared<DataTypeNothing>())
+                                 : DataTypeFactory::instance().create_data_type(type, is_nullable);
     for (size_t i = 0; i < num_dimensions; ++i) {
         result = std::make_shared<DataTypeArray>(result);
         if (is_nullable) {
@@ -165,32 +170,32 @@ public:
     }
     size_t operator()(const UInt64& x) {
         if (x <= std::numeric_limits<Int8>::max()) {
-            type = TypeIndex::Int8;
+            type = PrimitiveType::TYPE_TINYINT;
         } else if (x <= std::numeric_limits<Int16>::max()) {
-            type = TypeIndex::Int16;
+            type = PrimitiveType::TYPE_SMALLINT;
         } else if (x <= std::numeric_limits<Int32>::max()) {
-            type = TypeIndex::Int32;
+            type = PrimitiveType::TYPE_INT;
         } else {
-            type = TypeIndex::Int64;
+            type = PrimitiveType::TYPE_BIGINT;
         }
         return 1;
     }
     size_t operator()(const Int64& x) {
         if (x <= std::numeric_limits<Int8>::max() && x >= std::numeric_limits<Int8>::min()) {
-            type = TypeIndex::Int8;
+            type = PrimitiveType::TYPE_TINYINT;
         } else if (x <= std::numeric_limits<Int16>::max() &&
                    x >= std::numeric_limits<Int16>::min()) {
-            type = TypeIndex::Int16;
+            type = PrimitiveType::TYPE_SMALLINT;
         } else if (x <= std::numeric_limits<Int32>::max() &&
                    x >= std::numeric_limits<Int32>::min()) {
-            type = TypeIndex::Int32;
+            type = PrimitiveType::TYPE_INT;
         } else {
-            type = TypeIndex::Int64;
+            type = PrimitiveType::TYPE_BIGINT;
         }
         return 1;
     }
     size_t operator()(const JsonbField& x) {
-        type = TypeIndex::JSONB;
+        type = PrimitiveType::TYPE_JSONB;
         return 1;
     }
     size_t operator()(const Null&) {
@@ -198,21 +203,21 @@ public:
         return 1;
     }
     size_t operator()(const VariantMap&) {
-        type = TypeIndex::VARIANT;
+        type = PrimitiveType::TYPE_VARIANT;
         return 1;
     }
     template <typename T>
     size_t operator()(const T&) {
-        type = TypeId<NearestFieldType<T>>::value;
+        type = TypeToPrimitiveType<NearestFieldType<T>>::value;
         return 1;
     }
-    void get_scalar_type(TypeIndex* data_type) const { *data_type = type; }
+    void get_scalar_type(PrimitiveType* data_type) const { *data_type = type; }
     bool contain_nulls() const { return have_nulls; }
 
     bool need_convert_field() const { return false; }
 
 private:
-    TypeIndex type = TypeIndex::Nothing;
+    PrimitiveType type = PrimitiveType::INVALID_TYPE;
     bool have_nulls = false;
 };
 
@@ -221,7 +226,7 @@ private:
 /// More optimized version of FieldToDataType.
 class FieldVisitorToScalarType : public StaticVisitor<size_t> {
 public:
-    using FieldType = Field::Types::Which;
+    using FieldType = PrimitiveType;
     size_t operator()(const Array& x) {
         size_t size = x.size();
         for (size_t i = 0; i < size; ++i) {
@@ -229,44 +234,43 @@ public:
         }
         return 0;
     }
-    // TODO doris not support unsigned integers for now
-    // treat as signed integers
+    // TODO(gabriel): remove this function
     size_t operator()(const UInt64& x) {
-        field_types.insert(FieldType::UInt64);
+        field_types.insert(PrimitiveType::TYPE_BIGINT);
         if (x <= std::numeric_limits<Int8>::max()) {
-            type_indexes.insert(TypeIndex::Int8);
+            type_indexes.insert(PrimitiveType::TYPE_TINYINT);
         } else if (x <= std::numeric_limits<Int16>::max()) {
-            type_indexes.insert(TypeIndex::Int16);
+            type_indexes.insert(PrimitiveType::TYPE_SMALLINT);
         } else if (x <= std::numeric_limits<Int32>::max()) {
-            type_indexes.insert(TypeIndex::Int32);
+            type_indexes.insert(PrimitiveType::TYPE_INT);
         } else {
-            type_indexes.insert(TypeIndex::Int64);
+            type_indexes.insert(PrimitiveType::TYPE_BIGINT);
         }
         return 0;
     }
     size_t operator()(const Int64& x) {
-        field_types.insert(FieldType::Int64);
+        field_types.insert(PrimitiveType::TYPE_BIGINT);
         if (x <= std::numeric_limits<Int8>::max() && x >= std::numeric_limits<Int8>::min()) {
-            type_indexes.insert(TypeIndex::Int8);
+            type_indexes.insert(PrimitiveType::TYPE_TINYINT);
         } else if (x <= std::numeric_limits<Int16>::max() &&
                    x >= std::numeric_limits<Int16>::min()) {
-            type_indexes.insert(TypeIndex::Int16);
+            type_indexes.insert(PrimitiveType::TYPE_SMALLINT);
         } else if (x <= std::numeric_limits<Int32>::max() &&
                    x >= std::numeric_limits<Int32>::min()) {
-            type_indexes.insert(TypeIndex::Int32);
+            type_indexes.insert(PrimitiveType::TYPE_INT);
         } else {
-            type_indexes.insert(TypeIndex::Int64);
+            type_indexes.insert(PrimitiveType::TYPE_BIGINT);
         }
         return 0;
     }
     size_t operator()(const JsonbField& x) {
-        field_types.insert(FieldType::JSONB);
-        type_indexes.insert(TypeIndex::JSONB);
+        field_types.insert(PrimitiveType::TYPE_JSONB);
+        type_indexes.insert(PrimitiveType::TYPE_JSONB);
         return 0;
     }
     size_t operator()(const VariantMap&) {
-        field_types.insert(FieldType::VariantMap);
-        type_indexes.insert(TypeIndex::VARIANT);
+        field_types.insert(PrimitiveType::TYPE_VARIANT);
+        type_indexes.insert(PrimitiveType::TYPE_VARIANT);
         return 0;
     }
     size_t operator()(const Null&) {
@@ -275,22 +279,22 @@ public:
     }
     template <typename T>
     size_t operator()(const T&) {
-        Field::EnumToType<Field::Types::Array>::Type a;
-        field_types.insert(Field::TypeToEnum<NearestFieldType<T>>::value);
-        type_indexes.insert(TypeId<NearestFieldType<T>>::value);
+        PrimitiveTypeTraits<PrimitiveType::TYPE_ARRAY>::CppType a;
+        field_types.insert(TypeToPrimitiveType<NearestFieldType<T>>::value);
+        type_indexes.insert(TypeToPrimitiveType<NearestFieldType<T>>::value);
         return 0;
     }
-    void get_scalar_type(TypeIndex* type) const {
+    void get_scalar_type(PrimitiveType* type) const {
         DataTypePtr data_type;
         get_least_supertype_jsonb(type_indexes, &data_type);
-        *type = data_type->get_type_id();
+        *type = data_type->get_primitive_type();
     }
     bool contain_nulls() const { return have_nulls; }
     bool need_convert_field() const { return field_types.size() > 1; }
 
 private:
-    phmap::flat_hash_set<TypeIndex> type_indexes;
-    phmap::flat_hash_set<FieldType> field_types;
+    phmap::flat_hash_set<PrimitiveType> type_indexes;
+    phmap::flat_hash_set<PrimitiveType> field_types;
     bool have_nulls = false;
 };
 
@@ -331,7 +335,7 @@ template <typename Visitor>
 void get_field_info_impl(const Field& field, FieldInfo* info) {
     Visitor to_scalar_type_visitor;
     apply_visitor(to_scalar_type_visitor, field);
-    TypeIndex type_id;
+    PrimitiveType type_id;
     to_scalar_type_visitor.get_scalar_type(&type_id);
     // array item's dimension may missmatch, eg. [1, 2, [1, 2, 3]]
     *info = {
@@ -400,8 +404,8 @@ void ColumnObject::Subcolumn::add_new_column_part(DataTypePtr type) {
 }
 
 void ColumnObject::Subcolumn::insert(Field field, FieldInfo info) {
-    auto base_type = WhichDataType(info.scalar_type_id);
-    if (base_type.is_nothing() && info.num_dimensions == 0) {
+    auto base_type = info.scalar_type_id;
+    if (base_type == PrimitiveType::INVALID_TYPE && info.num_dimensions == 0) {
         insert_default();
         return;
     }
@@ -410,7 +414,7 @@ void ColumnObject::Subcolumn::insert(Field field, FieldInfo info) {
     if (is_nothing(least_common_type.get_base())) {
         column_dim = value_dim;
     }
-    if (base_type.is_nothing()) {
+    if (base_type == PrimitiveType::INVALID_TYPE) {
         value_dim = column_dim;
     }
     bool type_changed = false;
@@ -425,19 +429,20 @@ void ColumnObject::Subcolumn::insert(Field field, FieldInfo info) {
         type_changed = true;
     }
     if (data.empty()) {
-        add_new_column_part(create_array_of_type(base_type.idx, value_dim, is_nullable));
-    } else if (least_common_type.get_base_type_id() != base_type.idx && !base_type.is_nothing()) {
+        add_new_column_part(create_array_of_type(base_type, value_dim, is_nullable));
+    } else if (least_common_type.get_base_type_id() != base_type &&
+               base_type != PrimitiveType::INVALID_TYPE) {
         if (schema_util::is_conversion_required_between_integers(
-                    base_type.idx, least_common_type.get_base_type_id())) {
-            VLOG_DEBUG << "Conversion between " << getTypeName(base_type.idx) << " and "
-                       << getTypeName(least_common_type.get_type_id());
+                    base_type, least_common_type.get_base_type_id())) {
+            VLOG_DEBUG << "Conversion between " << (int)base_type << " and "
+                       << (int)least_common_type.get_type_id();
             DataTypePtr base_data_type;
-            TypeIndex base_data_type_id;
+            PrimitiveType base_data_type_id;
             get_least_supertype_jsonb(
-                    TypeIndexSet {base_type.idx, least_common_type.get_base_type_id()},
+                    PrimitiveTypeSet {base_type, least_common_type.get_base_type_id()},
                     &base_data_type);
             type_changed = true;
-            base_data_type_id = base_data_type->get_type_id();
+            base_data_type_id = base_data_type->get_primitive_type();
             if (is_nullable) {
                 base_data_type = make_nullable(base_data_type);
             }
@@ -457,8 +462,10 @@ void ColumnObject::Subcolumn::insert(Field field, FieldInfo info) {
     data.back()->insert(field);
 }
 
-static DataTypePtr create_array(TypeIndex type, size_t num_dimensions) {
-    DataTypePtr result_type = make_nullable(DataTypeFactory::instance().create_data_type(type));
+static DataTypePtr create_array(PrimitiveType type, size_t num_dimensions) {
+    DataTypePtr result_type = type == PrimitiveType::INVALID_TYPE
+                                      ? make_nullable(std::make_shared<DataTypeNothing>())
+                                      : DataTypeFactory::instance().create_data_type(type, true);
     for (size_t i = 0; i < num_dimensions; ++i) {
         result_type = make_nullable(std::make_shared<DataTypeArray>(result_type));
     }
@@ -482,7 +489,8 @@ Array create_empty_array_field(size_t num_dimensions) {
 }
 
 // Recreates column with default scalar values and keeps sizes of arrays.
-static ColumnPtr recreate_column_with_default_values(const ColumnPtr& column, TypeIndex scalar_type,
+static ColumnPtr recreate_column_with_default_values(const ColumnPtr& column,
+                                                     PrimitiveType scalar_type,
                                                      size_t num_dimensions) {
     const auto* column_array = check_and_get_column<ColumnArray>(remove_nullable(column).get());
     if (column_array != nullptr && num_dimensions != 0) {
@@ -782,14 +790,8 @@ ColumnObject::Subcolumn::LeastCommonType::LeastCommonType(DataTypePtr type_)
           base_type(get_base_type_of_array(type)),
           num_dimensions(get_number_of_dimensions(*type)) {
     least_common_type_serder = type->get_serde();
-    type_id = type->is_nullable() ? assert_cast<const DataTypeNullable*>(type.get())
-                                            ->get_nested_type()
-                                            ->get_type_id()
-                                  : type->get_type_id();
-    base_type_id = base_type->is_nullable() ? assert_cast<const DataTypeNullable*>(base_type.get())
-                                                      ->get_nested_type()
-                                                      ->get_type_id()
-                                            : base_type->get_type_id();
+    type_id = type->get_primitive_type();
+    base_type_id = base_type->get_primitive_type();
 }
 
 ColumnObject::ColumnObject(bool is_nullable_, bool create_root_)
@@ -886,7 +888,7 @@ void ColumnObject::insert_from(const IColumn& src, size_t n) {
 }
 
 void ColumnObject::try_insert(const Field& field) {
-    if (field.get_type() != Field::Types::VariantMap) {
+    if (field.get_type() != PrimitiveType::TYPE_VARIANT) {
         if (field.is_null()) {
             insert_default();
             return;
@@ -946,12 +948,12 @@ void ColumnObject::insert_default() {
 }
 
 void ColumnObject::Subcolumn::get(size_t n, Field& res) const {
-    if (least_common_type.get_base_type_id() == TypeIndex::Nothing) {
+    if (least_common_type.get_base_type_id() == PrimitiveType::INVALID_TYPE) {
         res = Null();
         return;
     }
     if (is_finalized()) {
-        if (least_common_type.get_base_type_id() == TypeIndex::JSONB) {
+        if (least_common_type.get_base_type_id() == PrimitiveType::TYPE_JSONB) {
             // JsonbFiled is special case
             res = JsonbField();
         }
@@ -1004,7 +1006,7 @@ void ColumnObject::get(size_t n, Field& res) const {
         Field field;
         entry->data.get(n, field);
         // Notice: we treat null as empty field, since we do not distinguish null and empty for Variant type.
-        if (field.get_type() != Field::Types::Null) {
+        if (field.get_type() != PrimitiveType::TYPE_NULL) {
             object.try_emplace(entry->path.get_path(), field);
         }
     }
@@ -1102,7 +1104,7 @@ void ColumnObject::insert_range_from(const IColumn& src, size_t start, size_t le
 }
 
 ColumnPtr ColumnObject::replicate(const Offsets& offsets) const {
-    if (subcolumns.empty()) {
+    if (num_rows == 0 || subcolumns.empty()) {
         // Add an emtpy column with offsets.back rows
         auto res = ColumnObject::create(true, false);
         res->set_num_rows(offsets.back());
@@ -1112,7 +1114,7 @@ ColumnPtr ColumnObject::replicate(const Offsets& offsets) const {
 }
 
 ColumnPtr ColumnObject::permute(const Permutation& perm, size_t limit) const {
-    if (subcolumns.empty()) {
+    if (num_rows == 0 || subcolumns.empty()) {
         if (limit == 0) {
             limit = num_rows;
         } else {
@@ -1320,19 +1322,19 @@ rapidjson::Value* find_leaf_node_by_path(rapidjson::Value& json, const PathInDat
 // 3. empty root jsonb value(not null)
 // 4. type is nothing
 bool skip_empty_json(const ColumnNullable* nullable, const DataTypePtr& type,
-                     TypeIndex base_type_id, size_t row, const PathInData& path) {
+                     PrimitiveType base_type_id, size_t row, const PathInData& path) {
     // skip nulls
     if (nullable && nullable->is_null_at(row)) {
         return true;
     }
     // check if it is empty nested json array, then skip
-    if (base_type_id == TypeIndex::VARIANT && type->equals(*ColumnObject::NESTED_TYPE)) {
+    if (base_type_id == PrimitiveType::TYPE_VARIANT && type->equals(*ColumnObject::NESTED_TYPE)) {
         Field field = (*nullable)[row];
-        if (field.get_type() == Field::Types::Array) {
+        if (field.get_type() == PrimitiveType::TYPE_ARRAY) {
             const auto& array = field.get<Array>();
             bool only_nulls_inside = true;
             for (const auto& elem : array) {
-                if (elem.get_type() != Field::Types::Null) {
+                if (elem.get_type() != PrimitiveType::TYPE_NULL) {
                     only_nulls_inside = false;
                     break;
                 }
@@ -1346,7 +1348,7 @@ bool skip_empty_json(const ColumnNullable* nullable, const DataTypePtr& type,
         return true;
     }
     // skip nothing type
-    if (base_type_id == TypeIndex::Nothing) {
+    if (base_type_id == PrimitiveType::INVALID_TYPE) {
         return true;
     }
     return false;
@@ -1354,7 +1356,7 @@ bool skip_empty_json(const ColumnNullable* nullable, const DataTypePtr& type,
 
 Status find_and_set_leave_value(const IColumn* column, const PathInData& path,
                                 const DataTypeSerDeSPtr& type_serde, const DataTypePtr& type,
-                                TypeIndex base_type_index, rapidjson::Value& root,
+                                PrimitiveType base_type_index, rapidjson::Value& root,
                                 rapidjson::Document::AllocatorType& allocator, Arena& mem_pool,
                                 size_t row) {
 #ifndef NDEBUG
@@ -1647,7 +1649,8 @@ void ColumnObject::unnest(Subcolumns::NodePtr& entry, Subcolumns& arg_subcolumns
             assert_cast<ColumnObject&>(nested_object_nullable->get_nested_column());
     PathInData nested_path = entry->path;
     for (auto& nested_entry : nested_object_column.subcolumns) {
-        if (nested_entry->data.least_common_type.get_base_type_id() == TypeIndex::Nothing) {
+        if (nested_entry->data.least_common_type.get_base_type_id() ==
+            PrimitiveType::INVALID_TYPE) {
             continue;
         }
         nested_entry->data.finalize();
@@ -1747,7 +1750,7 @@ ColumnPtr ColumnObject::filter(const Filter& filter, ssize_t count) const {
         auto& finalized_object = assert_cast<ColumnObject&>(*finalized);
         return finalized_object.filter(filter, count);
     }
-    if (subcolumns.empty()) {
+    if (num_rows == 0 || subcolumns.empty()) {
         // Add an emtpy column with filtered rows
         auto res = ColumnObject::create(true, false);
         res->set_num_rows(count_bytes_in_filter(filter));
@@ -1766,7 +1769,7 @@ Status ColumnObject::filter_by_selector(const uint16_t* sel, size_t sel_size, IC
     if (!is_finalized()) {
         finalize();
     }
-    if (subcolumns.empty()) {
+    if (num_rows == 0 || subcolumns.empty()) {
         assert_cast<ColumnObject*>(col_ptr)->insert_many_defaults(sel_size);
         return Status::OK();
     }
@@ -1905,9 +1908,29 @@ Status ColumnObject::extract_root(const PathInData& path, MutableColumnPtr& dst)
 
 void ColumnObject::insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
                                        const uint32_t* indices_end) {
-    for (const auto* x = indices_begin; x != indices_end; ++x) {
-        ColumnObject::insert_from(src, *x);
+    // optimize when src and this column are scalar variant, since try_insert is inefficiency
+    const auto* src_v = check_and_get_column<ColumnObject>(src);
+
+    bool src_can_do_quick_insert =
+            src_v != nullptr && src_v->is_scalar_variant() && src_v->is_finalized();
+    // num_rows == 0 means this column is empty, we not need to check it type
+    if (num_rows == 0 && src_can_do_quick_insert) {
+        // add a new root column, and insert from src root column
+        clear();
+        add_sub_column({}, src_v->get_root()->clone_empty(), src_v->get_root_type());
+
+        get_root()->insert_indices_from(*src_v->get_root(), indices_begin, indices_end);
+        num_rows += indices_end - indices_begin;
+    } else if (src_can_do_quick_insert && is_scalar_variant() &&
+               src_v->get_root_type()->equals(*get_root_type())) {
+        get_root()->insert_indices_from(*src_v->get_root(), indices_begin, indices_end);
+        num_rows += indices_end - indices_begin;
+    } else {
+        for (const auto* x = indices_begin; x != indices_end; ++x) {
+            try_insert(src[*x]);
+        }
     }
+    finalize();
 }
 
 void ColumnObject::for_each_imutable_subcolumn(ImutableColumnCallback callback) const {

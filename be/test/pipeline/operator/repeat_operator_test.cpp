@@ -50,7 +50,7 @@ struct RepeatOperatorTest : public ::testing::Test {
         LocalStateInfo info {.parent_profile = &profile,
                              .scan_ranges = {},
                              .shared_state = nullptr,
-                             .le_state_map = {},
+                             .shared_state_map = {},
                              .task_idx = 0};
         EXPECT_TRUE(local_state->init(state.get(), info));
         state->resize_op_id_to_local_state(-100);
@@ -259,13 +259,10 @@ TEST_F(RepeatOperatorTest, test_with_expr2) {
     op->_slot_id_set_list.resize(op->_repeat_id_list_size);
 
     op->_output_slots[0]->_id = 0;
-    op->_output_slots[0]->_is_nullable = true;
 
     op->_output_slots[1]->_id = 1;
-    op->_output_slots[1]->_is_nullable = true;
 
     op->_output_slots[2]->_id = 2;
-    op->_output_slots[2]->_is_nullable = true;
 
     op->_slot_id_set_list[0].insert(1);
     op->_slot_id_set_list[0].insert(2);

@@ -40,6 +40,7 @@
 #include "exec/schema_scanner/schema_partitions_scanner.h"
 #include "exec/schema_scanner/schema_processlist_scanner.h"
 #include "exec/schema_scanner/schema_profiling_scanner.h"
+#include "exec/schema_scanner/schema_routine_load_job_scanner.h"
 #include "exec/schema_scanner/schema_routine_scanner.h"
 #include "exec/schema_scanner/schema_rowsets_scanner.h"
 #include "exec/schema_scanner/schema_schema_privileges_scanner.h"
@@ -228,6 +229,8 @@ std::unique_ptr<SchemaScanner> SchemaScanner::create(TSchemaTableType::type type
         return SchemaCatalogMetaCacheStatsScanner::create_unique();
     case TSchemaTableType::SCH_BACKEND_KERBEROS_TICKET_CACHE:
         return SchemaBackendKerberosTicketCacheScanner::create_unique();
+    case TSchemaTableType::SCH_ROUTINE_LOAD_JOBS:
+        return SchemaRoutineLoadJobScanner::create_unique();
     default:
         return SchemaDummyScanner::create_unique();
         break;
@@ -237,8 +240,8 @@ std::unique_ptr<SchemaScanner> SchemaScanner::create(TSchemaTableType::type type
 void SchemaScanner::_init_block(vectorized::Block* src_block) {
     const std::vector<SchemaScanner::ColumnDesc>& columns_desc(get_column_desc());
     for (int i = 0; i < columns_desc.size(); ++i) {
-        TypeDescriptor descriptor(columns_desc[i].type);
-        auto data_type = vectorized::DataTypeFactory::instance().create_data_type(descriptor, true);
+        auto data_type = vectorized::DataTypeFactory::instance().create_data_type(
+                columns_desc[i].type, true);
         src_block->insert(vectorized::ColumnWithTypeAndName(data_type->create_column(), data_type,
                                                             columns_desc[i].name));
     }

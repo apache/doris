@@ -611,9 +611,7 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
             Set<Pair<IndexType, List<String>>> distinctCol = new HashSet<>();
             TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat = PropertyAnalyzer
                     .analyzeInvertedIndexFileStorageFormat(new HashMap<>(properties));
-            boolean disableInvertedIndexV1ForVariant =
-                    (invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.V1)
-                            && ConnectContext.get().getSessionVariable().getDisableInvertedIndexV1ForVaraint();
+
             for (IndexDef indexDef : indexDefs) {
                 indexDef.analyze();
                 if (!engineName.equalsIgnoreCase(DEFAULT_ENGINE_NAME)) {
@@ -626,8 +624,7 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
                             indexDef.checkColumn(column,
                                     getKeysDesc().getKeysType(),
                                     enableUniqueKeyMergeOnWrite,
-                                    invertedIndexFileStorageFormat,
-                                    disableInvertedIndexV1ForVariant);
+                                    invertedIndexFileStorageFormat);
                             found = true;
                             break;
                         }
@@ -637,8 +634,7 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
                     }
                 }
                 indexes.add(new Index(Env.getCurrentEnv().getNextId(), indexDef.getIndexName(), indexDef.getColumns(),
-                        indexDef.getIndexType(), indexDef.getProperties(), indexDef.getComment(),
-                        indexDef.getColumnUniqueIds()));
+                        indexDef.getIndexType(), indexDef.getProperties(), indexDef.getComment()));
                 distinct.add(indexDef.getIndexName());
                 distinctCol.add(Pair.of(indexDef.getIndexType(),
                         indexDef.getColumns().stream().map(String::toUpperCase).collect(Collectors.toList())));

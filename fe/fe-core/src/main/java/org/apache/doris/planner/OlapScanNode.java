@@ -70,7 +70,7 @@ import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.planner.normalize.Normalizer;
 import org.apache.doris.planner.normalize.PartitionRangePredicateNormalizer;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.resource.Tag;
+import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsDeriveResult;
 import org.apache.doris.statistics.StatsRecursiveDerive;
@@ -207,6 +207,8 @@ public class OlapScanNode extends ScanNode {
     private boolean shouldColoScan = false;
 
     protected List<Expr> rewrittenProjectList;
+
+    private long maxVersion = -1L;
 
     // cached for prepared statement to quickly prune partition
     // only used in short circuit plan at present
@@ -715,7 +717,8 @@ public class OlapScanNode extends ScanNode {
         }
     }
 
-    // Update the visible version of the scan range locations.
+    // Update the visible version of the scan range locations. for cloud mode. called as the end of
+    // NereidsPlanner.splitFragments
     public void updateScanRangeVersions(Map<Long, Long> visibleVersionMap) {
         if (LOG.isDebugEnabled() && ConnectContext.get() != null) {
             LOG.debug("query id: {}, selectedPartitionIds: {}, visibleVersionMap: {}",
@@ -740,12 +743,18 @@ public class OlapScanNode extends ScanNode {
                 scanRange.setVersion(visibleVersionStr);
             }
         }
+        this.maxVersion = visibleVersionMap.values().stream().max(Long::compareTo).orElse(0L);
     }
 
     public Long getTabletSingleReplicaSize(Long tabletId) {
         return tabletBytes.get(tabletId);
     }
 
+    public long getMaxVersion() {
+        return maxVersion;
+    }
+
+    // for non-cloud mode. for cloud mode see `updateScanRangeVersions`
     private void addScanRangeLocations(Partition partition,
             List<Tablet> tablets, Map<Long, Set<Long>> backendAlivePathHashs) throws UserException {
         long visibleVersion = Partition.PARTITION_INIT_VERSION;
@@ -755,16 +764,15 @@ public class OlapScanNode extends ScanNode {
         if (!(Config.isCloudMode() && Config.enable_cloud_snapshot_version)) {
             visibleVersion = partition.getVisibleVersion();
         }
+        maxVersion = Math.max(maxVersion, visibleVersion);
         String visibleVersionStr = String.valueOf(visibleVersion);
 
-        Set<Tag> allowedTags = Sets.newHashSet();
         int useFixReplica = -1;
-        boolean needCheckTags = false;
         boolean skipMissingVersion = false;
         ConnectContext context = ConnectContext.get();
+        ComputeGroup computeGroup = null;
         if (context != null) {
-            allowedTags = context.getResourceTags();
-            needCheckTags = context.isResourceTagsSet();
+            computeGroup = context.getComputeGroupSafely();
             useFixReplica = context.getSessionVariable().useFixReplica;
             if (useFixReplica == -1
                     && context.getState().isNereids() && context.getSessionVariable().getEnableQueryCache()) {
@@ -791,6 +799,7 @@ public class OlapScanNode extends ScanNode {
                             tabletId, tabletVersion, partition.getId(), visibleVersion);
                     visibleVersion = tabletVersion;
                     visibleVersionStr = String.valueOf(visibleVersion);
+                    maxVersion = Math.max(maxVersion, visibleVersion);
                 }
             }
             TScanRangeLocations locations = new TScanRangeLocations();
@@ -915,10 +924,12 @@ public class OlapScanNode extends ScanNode {
                 if (!backend.isMixNode()) {
                     continue;
                 }
-                if (needCheckTags && !allowedTags.isEmpty() && !allowedTags.contains(backend.getLocationTag())) {
+                String beTagName = backend.getLocationTag().value;
+                if ((ComputeGroup.INVALID_COMPUTE_GROUP.equals(computeGroup)) || (computeGroup != null
+                        && !Config.isCloudMode() && !computeGroup.containsBackend(beTagName))) {
                     String err = String.format(
-                            "Replica on backend %d with tag %s," + " which is not in user's resource tags: %s",
-                            backend.getId(), backend.getLocationTag(), allowedTags);
+                            "Replica on backend %d with tag %s," + " which is not in user's resource tag: %s",
+                            backend.getId(), beTagName, computeGroup.toString());
                     if (LOG.isDebugEnabled()) {
                         LOG.debug(err);
                     }
@@ -1519,7 +1530,7 @@ public class OlapScanNode extends ScanNode {
         }
 
         for (Index index : olapTable.getIndexes()) {
-            TOlapTableIndex tIndex = index.toThrift();
+            TOlapTableIndex tIndex = index.toThrift(index.getColumnUniqueIds(olapTable.getBaseSchema()));
             indexDesc.add(tIndex);
         }
 

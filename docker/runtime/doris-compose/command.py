@@ -902,7 +902,7 @@ class DownCommand(Command):
                     shutil.rmtree(node.get_path())
                     register_file = "{}/{}-{}-register".format(
                         CLUSTER.get_status_path(cluster.name),
-                        node.node_type(), node.get_ip())
+                        node.node_type(), node.id)
                     if os.path.exists(register_file):
                         os.remove(register_file)
                     LOG.info(
@@ -1395,12 +1395,13 @@ class InfoCommand(Command):
             ("RECYCLER_PORT", CLUSTER.MS_PORT, "constant"),
         ]
 
-        with open(CLUSTER.CLOUD_CFG_FILE, "r") as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith('#'):
-                    key, value = line.split('=', 1)
-                    rows.append((key.strip(), value.strip(), "cloud.ini"))
+        if os.path.exists(CLUSTER.CLOUD_CFG_FILE):
+            with open(CLUSTER.CLOUD_CFG_FILE, "r") as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#"):
+                        key, value = line.split("=", 1)
+                        rows.append((key.strip(), value.strip(), "cloud.ini"))
 
         return self._print_table(header, rows)
 

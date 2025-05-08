@@ -376,7 +376,6 @@ public abstract class ConnectProcessor {
                     }
                     auditAfterExec(auditStmt, executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog(),
                             true);
-                    LOG.debug("Write audit logs for query {}", DebugUtil.printId(ctx.queryId));
                     // execute failed, skip remaining stmts
                     if (ctx.getState().getStateType() == MysqlStateType.ERR) {
                         break;
@@ -622,8 +621,8 @@ public abstract class ConnectProcessor {
             ctx.setUserVars(userVariableFromThrift(request.getUserVariables()));
         }
 
-        // set resource tag
-        ctx.setResourceTags(Env.getCurrentEnv().getAuth().getResourceTags(ctx.qualifiedUser));
+        // set compute group
+        ctx.setComputeGroup(Env.getCurrentEnv().getAuth().getComputeGroup(ctx.qualifiedUser));
 
         ctx.setThreadLocalInfo();
         StmtExecutor executor = null;

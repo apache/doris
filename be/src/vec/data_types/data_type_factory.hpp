@@ -42,9 +42,6 @@ namespace segment_v2 {
 class ColumnMetaPB;
 }
 
-namespace vectorized {
-enum class TypeIndex;
-} // namespace vectorized
 } // namespace doris
 
 namespace doris::vectorized {
@@ -60,20 +57,32 @@ public:
     }
 
     DataTypePtr create_data_type(const doris::Field& col_desc);
-    DataTypePtr create_data_type(const TypeIndex& type_index, bool is_nullable = false);
     DataTypePtr create_data_type(const TabletColumn& col_desc, bool is_nullable = false);
-
-    DataTypePtr create_data_type(const TypeDescriptor& col_desc, bool is_nullable = true);
 
     DataTypePtr create_data_type(const PColumnMeta& pcolumn);
     DataTypePtr create_data_type(const segment_v2::ColumnMetaPB& pcolumn);
 
-    DataTypePtr create_data_type(const TTypeDesc& raw_type) {
-        return create_data_type(TypeDescriptor::from_thrift(raw_type), raw_type.is_nullable);
-    }
+    DataTypePtr create_data_type(const TTypeDesc& t);
+    // Nullable will be not consistent with `raw_type.is_nullable` in SlotDescriptor.
+    DataTypePtr create_data_type(const TTypeDesc& raw_type, bool is_nullable);
 
     DataTypePtr create_data_type(const FieldType& type, int precision, int scale) {
         return _create_primitive_data_type(type, precision, scale);
+    }
+    // Create DataType by PrimitiveType (only for naive types)
+    DataTypePtr create_data_type(const PrimitiveType primitive_type, bool is_nullable,
+                                 int precision = 0, int scale = 0, int len = -1);
+    // Create DataType by TTypeNode
+    DataTypePtr create_data_type(const std::vector<TTypeNode>& types, int* idx, bool is_nullable);
+    // Create DataType by PTypeNode
+    // Create DataType by PTypeNode
+    DataTypePtr create_data_type(const google::protobuf::RepeatedPtrField<PTypeNode>& types,
+                                 int* idx, bool is_nullable);
+    DataTypePtr create_data_type(const PTypeDesc& ptype, bool is_nullable) {
+        int idx = 0;
+        auto res = create_data_type(ptype.types(), &idx, is_nullable);
+        DCHECK_EQ(idx, ptype.types_size() - 1) << res->get_name();
+        return res;
     }
 
 private:

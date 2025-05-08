@@ -26,57 +26,19 @@
 #include <gtest/gtest.h>
 
 #include <memory>
-#include <sstream>
 #include <vector>
 
+#include "testutil/creators.h"
+#include "testutil/mock/mock_operators.h"
+
 namespace doris::pipeline {
-void PartitionedHashJoinTestHelper::SetUp() {
-    runtime_state = std::make_unique<MockRuntimeState>();
-    obj_pool = std::make_unique<ObjectPool>();
-
-    runtime_profile = std::make_shared<RuntimeProfile>("test");
-
-    query_ctx = generate_one_query();
-
-    runtime_state->_query_ctx = query_ctx.get();
-    runtime_state->_query_id = query_ctx->query_id();
-    runtime_state->resize_op_id_to_local_state(-100);
-
-    ADD_TIMER(runtime_profile.get(), "ExecTime");
-    runtime_profile->AddHighWaterMarkCounter("MemoryUsed", TUnit::BYTES, "", 0);
-
-    auto desc_table = create_test_table_descriptor();
-    auto st = DescriptorTbl::create(obj_pool.get(), desc_table, &desc_tbl);
-    DCHECK(!desc_table.slotDescriptors.empty());
-    EXPECT_TRUE(st.ok()) << "create descriptor table failed: " << st.to_string();
-    runtime_state->set_desc_tbl(desc_tbl);
-
-    auto spill_data_dir = std::make_unique<vectorized::SpillDataDir>("/tmp/partitioned_join_test",
-                                                                     1024L * 1024 * 4);
-    st = io::global_local_filesystem()->create_directory(spill_data_dir->path(), false);
-    EXPECT_TRUE(st.ok()) << "create directory: " << spill_data_dir->path()
-                         << " failed: " << st.to_string();
-    std::unordered_map<std::string, std::unique_ptr<vectorized::SpillDataDir>> data_map;
-    data_map.emplace("test", std::move(spill_data_dir));
-    auto* spill_stream_manager = new vectorized::SpillStreamManager(std::move(data_map));
-    ExecEnv::GetInstance()->_spill_stream_mgr = spill_stream_manager;
-    st = spill_stream_manager->init();
-    EXPECT_TRUE(st.ok()) << "init spill stream manager failed: " << st.to_string();
-}
-
-void PartitionedHashJoinTestHelper::TearDown() {
-    ExecEnv::GetInstance()->spill_stream_mgr()->async_cleanup_query(runtime_state->query_id());
-    doris::ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool()->wait();
-    doris::ExecEnv::GetInstance()->spill_stream_mgr()->stop();
-    SAFE_DELETE(ExecEnv::GetInstance()->_spill_stream_mgr);
-}
-
 TPlanNode PartitionedHashJoinTestHelper::create_test_plan_node() {
     TPlanNode tnode;
     tnode.node_id = 0;
     tnode.node_type = TPlanNodeType::HASH_JOIN_NODE;
     tnode.num_children = 2;
     tnode.hash_join_node.join_op = TJoinOp::INNER_JOIN;
+    tnode.limit = -1;
 
     TEqJoinCondition eq_cond;
     eq_cond.left = TExpr();
@@ -118,6 +80,32 @@ TPlanNode PartitionedHashJoinTestHelper::create_test_plan_node() {
     return tnode;
 }
 
+TDescriptorTable PartitionedHashJoinTestHelper::create_test_table_descriptor(
+        bool nullable = false) {
+    TTupleDescriptorBuilder tuple_builder;
+    tuple_builder.add_slot(TSlotDescriptorBuilder()
+                                   .type(PrimitiveType::TYPE_INT)
+                                   .column_name("col1")
+                                   .column_pos(0)
+                                   .nullable(nullable)
+                                   .build());
+
+    TDescriptorTableBuilder builder;
+
+    tuple_builder.build(&builder);
+
+    TTupleDescriptorBuilder()
+            .add_slot(TSlotDescriptorBuilder()
+                              .type(TYPE_INT)
+                              .column_name("col2")
+                              .column_pos(0)
+                              .nullable(nullable)
+                              .build())
+            .build(&builder);
+
+    return builder.desc_tbl();
+}
+
 std::tuple<std::shared_ptr<PartitionedHashJoinProbeOperatorX>,
            std::shared_ptr<PartitionedHashJoinSinkOperatorX>>
 PartitionedHashJoinTestHelper::create_operators() {
@@ -134,8 +122,8 @@ PartitionedHashJoinTestHelper::create_operators() {
     auto child_operator = std::make_shared<MockChildOperator>();
     auto probe_side_source_operator = std::make_shared<MockChildOperator>();
     auto probe_side_sink_operator = std::make_shared<MockSinkOperator>();
-    auto [probe_pipeline, _] = generate_hash_join_pipeline(probe_operator, child_operator,
-                                                           probe_side_sink_operator, sink_operator);
+    auto [probe_pipeline, _] = generate_hash_join_pipeline(probe_operator, probe_side_sink_operator,
+                                                           sink_operator, child_operator);
 
     RowDescriptor row_desc(runtime_state->desc_tbl(), {1}, {false});
     child_operator->_row_descriptor = row_desc;
@@ -166,11 +154,11 @@ PartitionedHashJoinTestHelper::create_operators() {
     sink_operator->set_inner_operators(inner_sink_operator, inner_probe_operator);
 
     // Setup task and state
-    std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>, std::shared_ptr<Dependency>>>
-            le_state_map;
+    std::map<int,
+             std::pair<std::shared_ptr<BasicSharedState>, std::vector<std::shared_ptr<Dependency>>>>
+            shared_state_map;
     pipeline_task = std::make_shared<PipelineTask>(probe_pipeline, 0, runtime_state.get(), nullptr,
-                                                   nullptr, le_state_map, 0);
-    runtime_state->set_task(pipeline_task.get());
+                                                   nullptr, shared_state_map, 0);
     return {probe_operator, sink_operator};
 }
 

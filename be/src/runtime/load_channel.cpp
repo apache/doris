@@ -61,7 +61,6 @@ LoadChannel::LoadChannel(const UniqueId& load_id, int64_t timeout_s, bool is_hig
         if (wg_id > 0) {
             wg_ptr = ExecEnv::GetInstance()->workload_group_mgr()->get_group(wg_id);
             if (wg_ptr != nullptr) {
-                wg_ptr->add_mem_tracker_limiter(mem_tracker);
                 _resource_ctx->set_workload_group(wg_ptr);
             }
         }
@@ -106,6 +105,10 @@ Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
         return Status::InternalError(
                 "The txn expiration of PTabletWriterOpenRequest is invalid, value={}",
                 params.txn_expiration());
+    }
+    if (_resource_ctx->workload_group() != nullptr) {
+        RETURN_IF_ERROR(_resource_ctx->workload_group()->add_resource_ctx(
+                _resource_ctx->task_controller()->task_id(), _resource_ctx));
     }
     SCOPED_ATTACH_TASK(_resource_ctx);
 
@@ -270,7 +273,7 @@ void LoadChannel::_report_profile(PTabletWriterAddBlockResult* response) {
     ThriftSerializer ser(false, 4096);
     uint8_t* buf = nullptr;
     uint32_t len = 0;
-    std::lock_guard<SpinLock> l(_profile_serialize_lock);
+    std::lock_guard<std::mutex> l(_profile_serialize_lock);
     _profile->to_thrift(&tprofile);
     auto st = ser.serialize(&tprofile, &len, &buf);
     if (st.ok()) {

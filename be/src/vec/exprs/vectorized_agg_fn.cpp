@@ -70,13 +70,8 @@ AggFnEvaluator::AggFnEvaluator(const TExprNode& desc, const bool without_key)
         : _fn(desc.fn),
           _is_merge(desc.agg_expr.is_merge_agg),
           _without_key(without_key),
-          _return_type(TypeDescriptor::from_thrift(desc.fn.ret_type)) {
-    bool nullable = true;
-    if (desc.__isset.is_nullable) {
-        nullable = desc.is_nullable;
-    }
-    _data_type = DataTypeFactory::instance().create_data_type(_return_type, nullable);
-
+          _data_type(DataTypeFactory::instance().create_data_type(
+                  desc.fn.ret_type, desc.__isset.is_nullable ? desc.is_nullable : true)) {
     if (desc.agg_expr.__isset.param_types) {
         const auto& param_types = desc.agg_expr.param_types;
         for (const auto& param_type : param_types) {
@@ -170,8 +165,7 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
         if (argument_types[0]->is_nullable()) {
             return Status::InternalError("Agg state function input type must be not nullable");
         }
-        if (argument_types[0]->get_type_as_type_descriptor().type !=
-            PrimitiveType::TYPE_AGG_STATE) {
+        if (argument_types[0]->get_primitive_type() != PrimitiveType::TYPE_AGG_STATE) {
             return Status::InternalError(
                     "Agg state function input type must be agg_state but get {}",
                     argument_types[0]->get_family_name());
@@ -185,7 +179,7 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
                         "Union function return type must be not nullable, real={}",
                         _data_type->get_name());
             }
-            if (_data_type->get_type_as_type_descriptor().type != PrimitiveType::TYPE_AGG_STATE) {
+            if (_data_type->get_primitive_type() != PrimitiveType::TYPE_AGG_STATE) {
                 return Status::InternalError(
                         "Union function return type must be AGG_STATE, real={}",
                         _data_type->get_name());
@@ -346,7 +340,6 @@ AggFnEvaluator::AggFnEvaluator(AggFnEvaluator& evaluator, RuntimeState* state)
           _without_key(evaluator._without_key),
           _argument_types_with_sort(evaluator._argument_types_with_sort),
           _real_argument_types(evaluator._real_argument_types),
-          _return_type(evaluator._return_type),
           _intermediate_slot_desc(evaluator._intermediate_slot_desc),
           _output_slot_desc(evaluator._output_slot_desc),
           _sort_description(evaluator._sort_description),

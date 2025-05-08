@@ -104,6 +104,12 @@ bool MemTableMemoryLimiter::_load_usage_low() {
 }
 
 int64_t MemTableMemoryLimiter::_need_flush() {
+    DBUG_EXECUTE_IF("MemTableMemoryLimiter._need_flush.random_flush", {
+        if (rand() % 100 < (100 * dp->param("percent", 0.5))) {
+            LOG(INFO) << "debug memtable need flush return 1";
+            return 1;
+        }
+    });
     int64_t limit1 = _mem_tracker->consumption() - _load_soft_mem_limit;
     int64_t limit2 = _sys_avail_mem_less_than_warning_water_mark();
     int64_t limit3 = _process_used_mem_more_than_soft_mem_limit();
@@ -139,9 +145,15 @@ void MemTableMemoryLimiter::handle_workload_group_memtable_flush(WorkloadGroupPt
 void MemTableMemoryLimiter::_handle_memtable_flush(WorkloadGroupPtr wg) {
     // Check the soft limit.
     DCHECK(_load_soft_mem_limit > 0);
-    if (!_soft_limit_reached() || _load_usage_low()) {
-        return;
-    }
+    do {
+        DBUG_EXECUTE_IF("MemTableMemoryLimiter._handle_memtable_flush.limit_reached", {
+            LOG(INFO) << "debug memtable limit reached";
+            break;
+        });
+        if (!_soft_limit_reached() || _load_usage_low()) {
+            return;
+        }
+    } while (false);
     MonotonicStopWatch timer;
     timer.start();
     std::unique_lock<std::mutex> l(_lock);

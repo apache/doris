@@ -309,6 +309,12 @@ public class Config extends ConfigBase {
                     + "If the free disk space is less than this value, BDBJE will not be able to write."})
     public static long bdbje_free_disk_bytes = 1 * 1024 * 1024 * 1024; // 1G
 
+    @ConfField(description = {"BDBJE Cache 内存大小， 最小值为 96KB。", "Amount of memory used by by BDBJE as cache. "})
+    public static long bdbje_cache_size_bytes = 10 * 1024 * 1024; // 10 MB
+
+    @ConfField(description = {"BDBJE Message 大小限制。", "Max message size of BDBJE. "})
+    public static long bdbje_max_message_size_bytes = Integer.MAX_VALUE; // 2 GB
+
     @ConfField(masterOnly = true, description = {"心跳线程池的线程数",
             "Num of thread to handle heartbeat events"})
     public static int heartbeat_mgr_threads_num = 8;
@@ -475,7 +481,7 @@ public class Config extends ConfigBase {
     public static int query_port = 9030;
 
     @ConfField(description = {"FE Arrow-Flight-SQL server 的端口号", "The port of FE Arrow-Flight-SQL server"})
-    public static int arrow_flight_sql_port = -1;
+    public static int arrow_flight_sql_port = 8070;
 
     @ConfField(description = {"MySQL 服务的 IO 线程数", "The number of IO threads in MySQL service"})
     public static int mysql_service_io_threads_num = 4;
@@ -1487,6 +1493,37 @@ public class Config extends ConfigBase {
     )
     public static int expire_sql_cache_in_fe_second = 300;
 
+    /**
+     *  Expire hbo plan stats. cache in frontend time.
+     */
+    @ConfField(
+            mutable = true,
+            masterOnly = false,
+            callbackClassString = "org.apache.doris.nereids.stats.MemoryHboPlanStatisticsProvider$UpdateConfig",
+            description = {
+                    "当前默认设置为 86400，用来控制控制MemoryHboPlanStatisticsProvider中stats. cache过期时间，超过不访问会被回收",
+                    "The default setting is 86400, which is used to control the expiration time of plan stats. cache"
+                            + "in MemoryHboPlanStatisticsProvider. If the cache is not accessed for a period of time, "
+                            + "it will be reclaimed."
+            }
+    )
+    public static int expire_hbo_plan_stats_cache_in_fe_second = 86400;
+
+    /**
+     *  Expire hbo plan info cache in frontend time.
+     */
+    @ConfField(
+            mutable = true,
+            masterOnly = false,
+            callbackClassString = "org.apache.doris.nereids.stats.HboPlanInfoProvider$UpdateConfig",
+            description = {
+                    "当前默认设置为1000，用来控制控制HboPlanInfoProvider中plan info cache过期时间，超过一段时间不访问cache会被回收",
+                    "The default setting is 100, which is used to control the expiration time of hbo plan info cache"
+                            + "in HboPlanInfoProvider. If the cache is not accessed for a period of time, "
+                            + "it will be reclaimed."
+            }
+    )
+    public static int expire_hbo_plan_info_cache_in_fe_second = 1000;
 
     /**
      *  Expire sql sql in frontend time
@@ -1765,6 +1802,12 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int table_name_length_limit = 64;
 
+    @ConfField(mutable = true, description = {
+            "用于限制列注释长度；如果存量的列注释超长，则显示时进行截断",
+            "Used to limit the length of column comment; "
+                    + "If the existing column comment is too long, it will be truncated when displayed."})
+    public static int column_comment_length_limit = -1;
+
     /*
      * The job scheduling interval of the schema change handler.
      * The user should not set this parameter.
@@ -1924,8 +1967,10 @@ public class Config extends ConfigBase {
             "Maximum number of persistence allowed per task in a job,exceeding which old tasks will be discarded，"
                    + "If the value is less than 1, it will not be persisted." })
     public static int max_persistence_task_count = 100;
-    @ConfField(masterOnly = true, description = {"MV task 的等待队列大小，如果是负数，则会使用 1024，如果不是 2 的幂，则会自动选择一个最接近的"
-            + " 2 的幂次方数", "The size of the MV task's waiting queue If the size is negative, 1024 will be used. If "
+
+    @ConfField(masterOnly = true, description = { "MTMV task 的等待队列大小，如果是负数，则会使用 1024，如果不是 2 的幂，则会自动选择一个最接近的"
+                    + " 2 的幂次方数",
+            "The size of the MTMV task's waiting queue If the size is negative, 1024 will be used. If "
             + "the size is not a power of two, the nearest power of the size will be"
             + " automatically selected."})
     public static int mtmv_task_queue_size = 1024;
@@ -1934,6 +1979,13 @@ public class Config extends ConfigBase {
             + " If the size is not a power of two, the nearest power of the size will "
             + "be automatically selected."})
     public static int insert_task_queue_size = 1024;
+    @ConfField(masterOnly = true, description = { "字典导入 task 的等待队列大小，如果是负数，则会使用 1024，如果不是 2 的幂，则会自动选择一个最接近"
+            + " 的 2 的幂次方数",
+            "The size of the Dictionary loading task's waiting queue If the size is negative, 1024 will be used."
+            + " If the size is not a power of two, the nearest power of the size will "
+            + "be automatically selected." })
+    public static int dictionary_task_queue_size = 1024;
+
     @ConfField(masterOnly = true, description = {"finished 状态的 job 最长保存时间，超过这个时间将会被删除, 单位：小时",
             "The longest time to save the job in finished status, it will be deleted after this time. Unit: hour"})
     public static int finished_job_cleanup_threshold_time_hour = 24;
@@ -1944,9 +1996,14 @@ public class Config extends ConfigBase {
     public static int job_insert_task_consumer_thread_num = 10;
 
     @ConfField(masterOnly = true, description = {"用于执行 MTMV 任务的线程数,值应该大于0，否则默认为10",
-            "The number of threads used to consume mtmv tasks, "
+            "The number of threads used to consume MTMV tasks, "
                     + "the value should be greater than 0, if it is <=0, default is 10."})
     public static int job_mtmv_task_consumer_thread_num = 10;
+
+    @ConfField(masterOnly = true, description = { "用于执行字典导入和删除任务的线程数,值应该大于0，否则默认为3",
+            "The number of threads used to perform the dictionary import and delete tasks, which should be"
+                    + " greater than 0, otherwise it defaults to 3." })
+    public static int job_dictionary_task_consumer_thread_num = 3;
 
     /* job test config */
     /**
@@ -1985,10 +2042,6 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true)
     public static boolean enable_query_queue = true;
-
-    // used for regression test
-    @ConfField(mutable = true)
-    public static boolean enable_alter_queue_prop_sync = false;
 
     @ConfField(mutable = true)
     public static long query_queue_update_interval_ms = 5000;
@@ -2372,6 +2425,47 @@ public class Config extends ConfigBase {
             }
     )
     public static int cache_partition_meta_table_manage_num = 100;
+
+    /**
+     * HBO plan stats. cache number which can be reused for the next query.
+     */
+    @ConfField(
+            mutable = true,
+            callbackClassString = "org.apache.doris.nereids.stats.MemoryHboPlanStatisticsProvider$UpdateConfig",
+            description = {
+                    "当前默认设置为 100000，用来控制控制MemoryHboPlanStatisticsProvider管理的plan stats. cache数量。",
+                    "Now default set to 100000, this config is used to control the number of "
+                            + "hbo plan stats. cache"
+            }
+    )
+    public static int hbo_plan_stats_cache_num = 100000;
+
+    /**
+     * HBO plan recent runs entry number.
+     */
+    @ConfField(
+            mutable = true,
+            description = {
+                    "当前默认设置为 10，用来控制控制MemoryHboPlanStatisticsProvider管理的plan stats. cache recent runs数量。",
+                    "Now default set to 10, this config is used to control the number of "
+                            + "hbo plan stats. cache recent runs' entry number."
+            }
+    )
+    public static int hbo_plan_stats_cache_recent_runs_entry_num = 10;
+
+    /**
+     * Plan info cache number which is used for HboPlanInfoProvider.
+     */
+    @ConfField(
+            mutable = true,
+            callbackClassString = "org.apache.doris.nereids.stats.HboPlanInfoProvider$UpdateConfig",
+            description = {
+                    "当前默认设置为 1000，用来控制控制HboPlanInfoProvider管理的plan info cache数量。",
+                    "Now default set to 1000, this config is used to control the number of "
+                            + "hbo plan info cache"
+            }
+    )
+    public static int hbo_plan_info_cache_num = 1000;
 
     /**
      * Maximum number of events to poll in each RPC.
@@ -2799,6 +2893,19 @@ public class Config extends ConfigBase {
     })
     public static int sync_image_timeout_second = 300;
 
+    @ConfField(mutable = true, description = {
+        "FE启动时加载image文件某个模块的二进制内容到字节数组，并将字节数组反序列化为utf8编码字符串时单批次（单位：byte, 至少500MB）"
+            + "的大小。等于-1的值表示一次性读取完整的字节数组后反序列化反序列化为utf8编码字符串；"
+            + "不等于-1的值（至少16MB）表示分批每次读取多大的字节数组后反序列化为utf8编码字符串，最后合并成完成的字符串。默认值为-1",
+        "The size of a single batch (in bytes) when loading the binary content of a module of the "
+            + "image file into a byte array and deserializing the byte array into a utf8 encoded string when FE starts."
+            + " A value equal to -1 means reading the entire byte array at once and "
+            + "then deserializing it into a utf8 encoded string; a value not equal to -1 means reading "
+            + "a certain size (at least 16MB) of byte array in batches and then deserializing it into a "
+            + "utf8 encoded string, and finally merging it into a completed string. The default value is -1"
+    })
+    public static int metadata_text_read_max_batch_bytes = -1;
+
     @ConfField(mutable = true, masterOnly = true)
     public static int publish_topic_info_interval_ms = 30000; // 30s
 
@@ -3062,6 +3169,19 @@ public class Config extends ConfigBase {
             "Whether to enable the sync job feature. It is disabled by default and will be removed in version 3.1."
     })
     public static boolean enable_feature_data_sync_job = false;
+
+    @ConfField(description = {
+        "存放 hadoop conf 配置文件的默认目录。",
+        "The default directory for storing hadoop conf configuration files."})
+    public static String hadoop_config_dir = EnvUtils.getDorisHome() + "/plugins/hadoop_conf/";
+
+    @ConfField(mutable = true, masterOnly = true, description = {"字典相关的 RPC 的超时时间",
+            "Timeout of dictionary related RPC"})
+    public static int dictionary_rpc_timeout_seconds = 5;
+
+    @ConfField(mutable = true, masterOnly = true, description = { "字典触发数据过期检查的时间间隔，单位为秒",
+            "Interval at which the dictionary triggers a data expiration check, in seconds" })
+    public static int dictionary_auto_refresh_interval_seconds = 5;
 
     //==========================================================================
     //                    begin of cloud config
@@ -3372,6 +3492,18 @@ public class Config extends ConfigBase {
             "Whether to enable the use of ShowCacheHotSpotStmt, default is false."})
     public static boolean enable_show_file_cache_hotspot_stmt = false;
 
+    @ConfField(mutable = true, description = {"存算分离模式下FE连接meta service的请求超时, 默认30000ms",
+            "Request timeout for FE connecting to meta service in cloud mode, default is 30000ms."})
+    public static int meta_service_brpc_timeout_ms = 30000;
+
+    @ConfField(mutable = true, description = {"存算分离模式下FE连接meta service的连接超时，默认500ms",
+            "Connection timeout for FE connecting to meta service in cloud mode., default is 500ms."})
+    public static int meta_service_brpc_connect_timeout_ms = 500;
+
+    @ConfField(mutable = true, description = {"存算分离模式下FE请求meta service超时的重试次数，默认1次",
+            "In cloud mode, the retry number when the FE requests the meta service times out is 1 by default"})
+    public static int meta_service_rpc_timeout_retry_times = 1;
+
     // ATTN: DONOT add any config not related to cloud mode here
     // ATTN: DONOT add any config not related to cloud mode here
     // ATTN: DONOT add any config not related to cloud mode here
@@ -3438,4 +3570,8 @@ public class Config extends ConfigBase {
     public static long meta_service_rpc_reconnect_interval_ms = 5000;
 
     public static long meta_service_rpc_retry_cnt = 10;
+
+    @ConfField(mutable = true, masterOnly = true, description = {"是否允许 variant 类型的列使用倒排索引格式 v1",
+            "Whether to allow the use of inverted index v1 for variant"})
+    public static boolean enable_inverted_index_v1_for_variant = false;
 }

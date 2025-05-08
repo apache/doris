@@ -17,8 +17,7 @@
 
 package org.apache.doris.nereids.rules.expression.rules;
 
-import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
-import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
@@ -102,7 +101,7 @@ class SimplifyComparisonPredicateSqlTest extends TestWithFeService implements Me
                 .rewrite()
                 .matches(
                         logicalResultSink(
-                                logicalOneRowRelation().when(p -> p.getProjects().get(0).child(0).equals(new NullLiteral(DateTimeV2Type.of(6))))
+                                logicalOneRowRelation().when(p -> p.getProjects().get(0).child(0) instanceof Cast)
                         )
                 );
 
@@ -111,7 +110,7 @@ class SimplifyComparisonPredicateSqlTest extends TestWithFeService implements Me
                 .rewrite()
                 .matches(
                         logicalResultSink(
-                                logicalOneRowRelation().when(p -> p.getProjects().get(0).child(0).equals(new NullLiteral(DateTimeV2Type.of(6))))
+                                logicalOneRowRelation().when(p -> p.getProjects().get(0).child(0) instanceof Cast)
                         )
                 );
 
@@ -120,7 +119,7 @@ class SimplifyComparisonPredicateSqlTest extends TestWithFeService implements Me
                 .rewrite()
                 .matches(
                         logicalResultSink(
-                                logicalOneRowRelation().when(p -> p.getProjects().get(0).child(0) instanceof NullLiteral)
+                                logicalOneRowRelation().when(p -> p.getProjects().get(0).child(0).child(0).child(0) instanceof Cast)
                         )
                 );
 
@@ -129,7 +128,7 @@ class SimplifyComparisonPredicateSqlTest extends TestWithFeService implements Me
                 .rewrite()
                 .matches(
                         logicalResultSink(
-                                logicalOneRowRelation().when(p -> p.getProjects().get(0).child(0) instanceof NullLiteral)
+                                logicalOneRowRelation().when(p -> p.getProjects().get(0).child(0).child(0) instanceof Cast)
                         )
                 );
 
@@ -138,7 +137,7 @@ class SimplifyComparisonPredicateSqlTest extends TestWithFeService implements Me
                 .rewrite()
                 .matches(
                         logicalResultSink(
-                                logicalOneRowRelation().when(p -> p.getProjects().get(0).child(0) instanceof NullLiteral)
+                                logicalOneRowRelation().when(p -> p.getProjects().get(0).child(0).child(0) instanceof Cast)
                         )
                 );
 
@@ -147,7 +146,7 @@ class SimplifyComparisonPredicateSqlTest extends TestWithFeService implements Me
                 .rewrite()
                 .matches(
                         logicalResultSink(
-                                logicalOneRowRelation().when(p -> p.getProjects().get(0).child(0) instanceof NullLiteral)
+                                logicalOneRowRelation().when(p -> p.getProjects().get(0).child(0).child(0).child(0) instanceof Cast)
                         )
                 );
 
@@ -155,26 +154,26 @@ class SimplifyComparisonPredicateSqlTest extends TestWithFeService implements Me
                 .analyze("select CAST('2021-01-32 00:00:00' AS DATETIME(6)) = '2021-01-32 00:00:00'")
                 .rewrite()
                 .matches(logicalOneRowRelation().when(oneRowRelation ->
-                        oneRowRelation.getExpressions().get(0).child(0) instanceof NullLiteral)
+                        oneRowRelation.getExpressions().get(0).child(0).child(0).child(0).child(0) instanceof Cast)
                 );
 
         PlanChecker.from(connectContext)
                 .analyze("select CAST('2021-01-32 00:00:00' AS DATETIME(6)) = '2021-01-32 00:00:00'")
                 .rewrite()
                 .matches(logicalOneRowRelation().when(oneRowRelation ->
-                        oneRowRelation.getExpressions().get(0).child(0) instanceof NullLiteral)
+                        oneRowRelation.getExpressions().get(0).child(0).child(0).child(0).child(0) instanceof Cast)
                 );
         PlanChecker.from(connectContext)
-                .analyze("select CAST('2021-01-32 00:00:00' AS DATETIME(6)) = '2021-01-32 23:00:00'")
+                .analyze("select CAST('2021-01-32 00:00:00' AS DATETIME(6)) = '2022-01-32 23:00:00'")
                 .rewrite()
                 .matches(logicalOneRowRelation().when(oneRowRelation ->
-                        oneRowRelation.getExpressions().get(0).child(0) instanceof NullLiteral)
+                        oneRowRelation.getExpressions().get(0).child(0).child(0) instanceof Cast)
                 );
         PlanChecker.from(connectContext)
                 .analyze("select CAST('2021-01-32 00:00:00' AS DATETIME(6)) = '1000'")
                 .rewrite()
                 .matches(logicalOneRowRelation().when(oneRowRelation ->
-                        oneRowRelation.getExpressions().get(0).child(0) instanceof NullLiteral)
+                        oneRowRelation.getExpressions().get(0).child(0).child(0) instanceof Cast)
                 );
     }
 }

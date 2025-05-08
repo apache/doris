@@ -24,6 +24,7 @@
 #include <variant>
 #include <vector>
 
+#include "cloud/cloud_tablet.h"
 #include "common/status.h"
 #include "olap/rowset/rowset_meta.h"
 #include "util/s3_util.h"
@@ -62,8 +63,11 @@ public:
 
     Status get_schema_dict(int64_t index_id, std::shared_ptr<SchemaCloudDictionary>* schema_dict);
 
-    Status sync_tablet_rowsets(CloudTablet* tablet, bool warmup_delta_data = false,
-                               bool sync_delete_bitmap = true, bool full_sync = false);
+    Status sync_tablet_rowsets(CloudTablet* tablet, const SyncOptions& options = {},
+                               SyncRowsetStats* sync_stats = nullptr);
+    Status sync_tablet_rowsets_unlocked(
+            CloudTablet* tablet, std::unique_lock<bthread::Mutex>& lock /* _sync_meta_lock */,
+            const SyncOptions& options = {}, SyncRowsetStats* sync_stats = nullptr);
 
     Status prepare_rowset(const RowsetMeta& rs_meta,
                           std::shared_ptr<RowsetMeta>* existed_rs_meta = nullptr);
@@ -99,7 +103,8 @@ public:
     Status update_tablet_schema(int64_t tablet_id, const TabletSchema& tablet_schema);
 
     Status update_delete_bitmap(const CloudTablet& tablet, int64_t lock_id, int64_t initiator,
-                                DeleteBitmap* delete_bitmap);
+                                DeleteBitmap* delete_bitmap, int64_t txn_id = -1,
+                                bool is_explicit_txn = false, int64_t next_visible_version = -1);
 
     Status cloud_update_delete_bitmap_without_lock(const CloudTablet& tablet,
                                                    DeleteBitmap* delete_bitmap);
@@ -122,7 +127,7 @@ private:
     Status sync_tablet_delete_bitmap(CloudTablet* tablet, int64_t old_max_version,
                                      std::ranges::range auto&& rs_metas, const TabletStatsPB& stats,
                                      const TabletIndexPB& idx, DeleteBitmap* delete_bitmap,
-                                     bool full_sync = false);
+                                     bool full_sync = false, SyncRowsetStats* sync_stats = nullptr);
     void check_table_size_correctness(const RowsetMeta& rs_meta);
     int64_t get_segment_file_size(const RowsetMeta& rs_meta);
     int64_t get_inverted_index_file_szie(const RowsetMeta& rs_meta);

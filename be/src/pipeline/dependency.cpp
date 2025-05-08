@@ -21,23 +21,33 @@
 #include <mutex>
 
 #include "common/logging.h"
-#include "exprs/runtime_filter.h"
 #include "pipeline/exec/multi_cast_data_streamer.h"
 #include "pipeline/pipeline_fragment_context.h"
 #include "pipeline/pipeline_task.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
+#include "runtime_filter/runtime_filter_consumer.h"
 #include "vec/exprs/vectorized_agg_fn.h"
 #include "vec/exprs/vslot_ref.h"
 #include "vec/spill/spill_stream_manager.h"
 
 namespace doris::pipeline {
 #include "common/compile_check_begin.h"
+
 Dependency* BasicSharedState::create_source_dependency(int operator_id, int node_id,
                                                        const std::string& name) {
     source_deps.push_back(std::make_shared<Dependency>(operator_id, node_id, name + "_DEPENDENCY"));
     source_deps.back()->set_shared_state(this);
     return source_deps.back().get();
+}
+
+void BasicSharedState::create_source_dependencies(int num_sources, int operator_id, int node_id,
+                                                  const std::string& name) {
+    source_deps.resize(num_sources, nullptr);
+    for (auto& source_dep : source_deps) {
+        source_dep = std::make_shared<Dependency>(operator_id, node_id, name + "_DEPENDENCY");
+        source_dep->set_shared_state(this);
+    }
 }
 
 Dependency* BasicSharedState::create_sink_dependency(int dest_id, int node_id,
@@ -47,8 +57,9 @@ Dependency* BasicSharedState::create_sink_dependency(int dest_id, int node_id,
     return sink_deps.back().get();
 }
 
-void Dependency::_add_block_task(PipelineTask* task) {
-    DCHECK(_blocked_task.empty() || _blocked_task[_blocked_task.size() - 1] != task)
+void Dependency::_add_block_task(std::shared_ptr<PipelineTask> task) {
+    DCHECK(_blocked_task.empty() || _blocked_task[_blocked_task.size() - 1].lock() == nullptr ||
+           _blocked_task[_blocked_task.size() - 1].lock().get() != task.get())
             << "Duplicate task: " << task->debug_string();
     _blocked_task.push_back(task);
 }
@@ -58,7 +69,7 @@ void Dependency::set_ready() {
         return;
     }
     _watcher.stop();
-    std::vector<PipelineTask*> local_block_task {};
+    std::vector<std::weak_ptr<PipelineTask>> local_block_task {};
     {
         std::unique_lock<std::mutex> lc(_task_lock);
         if (_ready) {
@@ -67,33 +78,30 @@ void Dependency::set_ready() {
         _ready = true;
         local_block_task.swap(_blocked_task);
     }
-    for (auto* task : local_block_task) {
-        task->wake_up();
+    for (auto task : local_block_task) {
+        if (auto t = task.lock()) {
+            std::unique_lock<std::mutex> lc(_task_lock);
+            THROW_IF_ERROR(t->wake_up(this));
+        }
     }
 }
 
-Dependency* Dependency::is_blocked_by(PipelineTask* task) {
+Dependency* Dependency::is_blocked_by(std::shared_ptr<PipelineTask> task) {
     std::unique_lock<std::mutex> lc(_task_lock);
     auto ready = _ready.load();
     if (!ready && task) {
         _add_block_task(task);
+        start_watcher();
+        THROW_IF_ERROR(task->blocked(this));
     }
     return ready ? nullptr : this;
 }
 
-Dependency* QueryGlobalDependency::is_blocked_by(PipelineTask* task) {
-    if (task && task->wake_up_early()) {
-        return nullptr;
-    }
-    return Dependency::is_blocked_by(task);
-}
-
 std::string Dependency::debug_string(int indentation_level) {
     fmt::memory_buffer debug_string_buffer;
-    fmt::format_to(debug_string_buffer,
-                   "{}this={}, {}: id={}, block task = {}, ready={}, _always_ready={}",
-                   std::string(indentation_level * 2, ' '), (void*)this, _name, _node_id,
-                   _blocked_task.size(), _ready, _always_ready);
+    fmt::format_to(debug_string_buffer, "{}{}: id={}, block task = {}, ready={}, _always_ready={}",
+                   std::string(indentation_level * 2, ' '), _name, _node_id, _blocked_task.size(),
+                   _ready, _always_ready);
     return fmt::to_string(debug_string_buffer);
 }
 
@@ -103,13 +111,6 @@ std::string CountedFinishDependency::debug_string(int indentation_level) {
                    "{}{}: id={}, block_task={}, ready={}, _always_ready={}, count={}",
                    std::string(indentation_level * 2, ' '), _name, _node_id, _blocked_task.size(),
                    _ready, _always_ready, _counter);
-    return fmt::to_string(debug_string_buffer);
-}
-
-std::string RuntimeFilterDependency::debug_string(int indentation_level) {
-    fmt::memory_buffer debug_string_buffer;
-    fmt::format_to(debug_string_buffer, "{}, runtime filter: {}",
-                   Dependency::debug_string(indentation_level), _runtime_filter->formatted_state());
     return fmt::to_string(debug_string_buffer);
 }
 
@@ -159,7 +160,7 @@ void RuntimeFilterTimerQueue::start() {
                 if (it.use_count() == 1) {
                     // `use_count == 1` means this runtime filter has been released
                 } else if (it->should_be_check_timeout()) {
-                    if (it->_parent->is_blocked_by(nullptr)) {
+                    if (it->_parent->is_blocked_by()) {
                         // This means runtime filter is not ready, so we call timeout or continue to poll this timer.
                         int64_t ms_since_registration = MonotonicMillis() - it->registration_time();
                         if (ms_since_registration > it->wait_time_ms()) {
@@ -429,6 +430,19 @@ Status SetSharedState::update_build_not_ignore_null(const vectorized::VExprConte
     }
 
     return Status::OK();
+}
+
+size_t SetSharedState::get_hash_table_size() const {
+    size_t hash_table_size = 0;
+    std::visit(
+            [&](auto&& arg) {
+                using HashTableCtxType = std::decay_t<decltype(arg)>;
+                if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
+                    hash_table_size = arg.hash_table->size();
+                }
+            },
+            hash_table_variants->method_variant);
+    return hash_table_size;
 }
 
 Status SetSharedState::hash_table_init() {

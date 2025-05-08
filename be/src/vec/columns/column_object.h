@@ -65,7 +65,7 @@ namespace doris::vectorized {
 /// of dimensions or nullability.
 struct FieldInfo {
     /// The common type id of of all scalars in field.
-    TypeIndex scalar_type_id;
+    PrimitiveType scalar_type_id;
     /// Do we have NULL scalar in field.
     bool have_nulls;
     /// If true then we have scalars with different types in array and
@@ -94,7 +94,7 @@ public:
 
     // Using jsonb type as most common type, since it's adopted all types of json
     using MostCommonType = DataTypeJsonb;
-    constexpr static TypeIndex MOST_COMMON_TYPE_ID = TypeIndex::JSONB;
+    constexpr static PrimitiveType MOST_COMMON_TYPE_ID = PrimitiveType::TYPE_JSONB;
     // Nullable(Array(Nullable(Object)))
     const static DataTypePtr NESTED_TYPE;
     // Finlize mode for subcolumns, write mode will estimate which subcolumns are sparse columns(too many null values inside column),
@@ -193,12 +193,12 @@ public:
             const DataTypePtr& get_base() const { return base_type; }
 
             // The least command type id
-            const TypeIndex& get_type_id() const { return type_id; }
+            const PrimitiveType& get_type_id() const { return type_id; }
 
             // The inner least common type if of array,
             // example: Array(Nullable(Object))
             // then the base type id is Object
-            const TypeIndex& get_base_type_id() const { return base_type_id; }
+            const PrimitiveType& get_base_type_id() const { return base_type_id; }
 
             size_t get_dimensions() const { return num_dimensions; }
 
@@ -209,8 +209,8 @@ public:
         private:
             DataTypePtr type;
             DataTypePtr base_type;
-            TypeIndex type_id;
-            TypeIndex base_type_id;
+            PrimitiveType type_id;
+            PrimitiveType base_type_id;
             size_t num_dimensions = 0;
             DataTypeSerDeSPtr least_common_type_serder;
         };
@@ -235,7 +235,7 @@ public:
         // the root Node should be JSONB type when finalize
         bool is_root = false;
     };
-    using Subcolumns = SubcolumnsTree<Subcolumn>;
+    using Subcolumns = SubcolumnsTree<Subcolumn, false>;
 
 private:
     /// If true then all subcolumns are nullable.

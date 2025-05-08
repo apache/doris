@@ -1186,6 +1186,7 @@ void upload_callback(StorageEngine& engine, ExecEnv* env, const TAgentTaskReques
     std::unique_ptr<SnapshotLoader> loader = std::make_unique<SnapshotLoader>(
             engine, env, upload_request.job_id, req.signature, upload_request.broker_addr,
             upload_request.broker_prop);
+    SCOPED_ATTACH_TASK(loader->resource_ctx());
     Status status =
             loader->init(upload_request.__isset.storage_backend ? upload_request.storage_backend
                                                                 : TStorageBackendType::type::BROKER,
@@ -1875,14 +1876,17 @@ void PublishVersionWorkerPool::publish_version_callback(const TAgentTaskRequest&
                 .error(status);
     } else {
         if (!config::disable_auto_compaction &&
-            !GlobalMemoryArbitrator::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
+            (!config::enable_compaction_pause_on_high_memory ||
+             !GlobalMemoryArbitrator::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE))) {
             for (auto [tablet_id, _] : succ_tablets) {
                 TabletSharedPtr tablet = _engine.tablet_manager()->get_tablet(tablet_id);
                 if (tablet != nullptr) {
                     if (!tablet->tablet_meta()->tablet_schema()->disable_auto_compaction()) {
                         tablet->published_count.fetch_add(1);
                         int64_t published_count = tablet->published_count.load();
-                        if (tablet->exceed_version_limit(config::max_tablet_version_num * 2 / 3) &&
+                        if (tablet->exceed_version_limit(
+                                    config::max_tablet_version_num *
+                                    config::load_trigger_compaction_version_percent / 100) &&
                             published_count % 20 == 0) {
                             auto st = _engine.submit_compaction_task(
                                     tablet, CompactionType::CUMULATIVE_COMPACTION, true, false);
@@ -2122,6 +2126,12 @@ void calc_delete_bitmap_callback(CloudStorageEngine& engine, const TAgentTaskReq
     CloudEngineCalcDeleteBitmapTask engine_task(engine, calc_delete_bitmap_req, &error_tablet_ids,
                                                 &succ_tablet_ids);
     SCOPED_ATTACH_TASK(engine_task.mem_tracker());
+    if (req.signature != calc_delete_bitmap_req.transaction_id) {
+        // transaction_id may not be the same as req.signature, so add a log here
+        LOG_INFO("begin to execute calc delete bitmap task")
+                .tag("signature", req.signature)
+                .tag("transaction_id", calc_delete_bitmap_req.transaction_id);
+    }
     status = engine_task.execute();
 
     TFinishTaskRequest finish_task_request;

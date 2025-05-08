@@ -18,27 +18,31 @@
 #include "scan_operator.h"
 
 #include <fmt/format.h>
+#include <gen_cpp/Metrics_types.h>
 
 #include <cstdint>
 #include <memory>
 
-#include "pipeline/common/runtime_filter_consumer.h"
 #include "pipeline/exec/es_scan_operator.h"
 #include "pipeline/exec/file_scan_operator.h"
 #include "pipeline/exec/group_commit_scan_operator.h"
 #include "pipeline/exec/jdbc_scan_operator.h"
 #include "pipeline/exec/meta_scan_operator.h"
+#include "pipeline/exec/mock_scan_operator.h"
 #include "pipeline/exec/olap_scan_operator.h"
 #include "pipeline/exec/operator.h"
 #include "runtime/types.h"
+#include "runtime_filter/runtime_filter_consumer_helper.h"
 #include "util/runtime_profile.h"
+#include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_array.h"
 #include "vec/exec/scan/scanner_context.h"
 #include "vec/exprs/vcast_expr.h"
-#include "vec/exprs/vcompound_pred.h"
 #include "vec/exprs/vectorized_fn_call.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vin_predicate.h"
+#include "vec/exprs/vruntimefilter_wrapper.h"
 #include "vec/exprs/vslot_ref.h"
 #include "vec/exprs/vtopn_pred.h"
 #include "vec/functions/in.h"
@@ -73,21 +77,10 @@ Status ScanLocalState<Derived>::init(RuntimeState* state, LocalStateInfo& info) 
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
     auto& p = _parent->cast<typename Derived::Parent>();
-    RETURN_IF_ERROR(RuntimeFilterConsumer::init(state, p.is_serial_operator()));
-    // init profile for runtime filter
-    RuntimeFilterConsumer::_init_profile(profile());
-    init_runtime_filter_dependency(_filter_dependencies, p.operator_id(), p.node_id(),
-                                   p.get_name() + "_FILTER_DEPENDENCY");
-
-    // 1: running at not pipeline mode will init profile.
-    // 2: the scan node should create scanner at pipeline mode will init profile.
-    // during pipeline mode with more instances, olap scan node maybe not new Scanner object,
-    // so the profile of Scanner and SegmentIterator infos are always empty, could not init those.
+    RETURN_IF_ERROR(_helper.init(state, p.is_serial_operator(), p.node_id(), p.operator_id(),
+                                 _filter_dependencies, p.get_name() + "_FILTER_DEPENDENCY"));
     RETURN_IF_ERROR(_init_profile());
     set_scan_ranges(state, info.scan_ranges);
-    // if you want to add some profile in scan node, even it have not new Scanner object
-    // could add here, not in the _init_profile() function
-    _prepare_rf_timer(_runtime_profile.get());
 
     _wait_for_rf_timer = ADD_TIMER(_runtime_profile, "WaitForRuntimeFilter");
     return Status::OK();
@@ -107,7 +100,7 @@ Status ScanLocalState<Derived>::open(RuntimeState* state) {
         RETURN_IF_ERROR(
                 p._common_expr_ctxs_push_down[i]->clone(state, _common_expr_ctxs_push_down[i]));
     }
-    RETURN_IF_ERROR(_acquire_runtime_filter());
+    RETURN_IF_ERROR(_helper.acquire_runtime_filter(state, _conjuncts, p.row_descriptor()));
     _stale_expr_ctxs.resize(p._stale_expr_ctxs.size());
     for (size_t i = 0; i < _stale_expr_ctxs.size(); i++) {
         RETURN_IF_ERROR(p._stale_expr_ctxs[i]->clone(state, _stale_expr_ctxs[i]));
@@ -130,14 +123,15 @@ Status ScanLocalState<Derived>::_normalize_conjuncts(RuntimeState* state) {
     // The conjuncts is always on output tuple, so use _output_tuple_desc;
     std::vector<SlotDescriptor*> slots = p._output_tuple_desc->slots();
 
-    auto init_value_range = [&](SlotDescriptor* slot, const TypeDescriptor& type_desc) {
-        switch (type_desc.type) {
-#define M(NAME)                                                                    \
-    case TYPE_##NAME: {                                                            \
-        ColumnValueRange<TYPE_##NAME> range(slot->col_name(), slot->is_nullable(), \
-                                            type_desc.precision, type_desc.scale); \
-        _slot_id_to_value_range[slot->id()] = std::pair {slot, range};             \
-        break;                                                                     \
+    auto init_value_range = [&](SlotDescriptor* slot, const vectorized::DataTypePtr type_desc) {
+        switch (type_desc->get_primitive_type()) {
+#define M(NAME)                                                                        \
+    case TYPE_##NAME: {                                                                \
+        ColumnValueRange<TYPE_##NAME> range(slot->col_name(), slot->is_nullable(),     \
+                                            cast_set<int>(type_desc->get_precision()), \
+                                            cast_set<int>(type_desc->get_scale()));    \
+        _slot_id_to_value_range[slot->id()] = std::pair {slot, range};                 \
+        break;                                                                         \
     }
 #define APPLY_FOR_PRIMITIVE_TYPE(M) \
     M(TINYINT)                      \
@@ -171,9 +165,12 @@ Status ScanLocalState<Derived>::_normalize_conjuncts(RuntimeState* state) {
     };
 
     for (auto& slot : slots) {
-        auto type = slot->type().type;
-        if (slot->type().type == TYPE_ARRAY) {
-            type = slot->type().children[0].type;
+        auto type = slot->type()->get_primitive_type();
+        if (type == TYPE_ARRAY) {
+            type = assert_cast<const vectorized::DataTypeArray*>(
+                           vectorized::remove_nullable(slot->type()).get())
+                           ->get_nested_type()
+                           ->get_primitive_type();
             if (type == TYPE_ARRAY) {
                 continue;
             }
@@ -288,15 +285,21 @@ Status ScanLocalState<Derived>::_normalize_predicate(
                 Status status = Status::OK();
                 std::visit(
                         [&](auto& value_range) {
-                            bool need_set_mark_runtime_filter_predicate =
-                                    value_range.is_whole_value_range() &&
-                                    conjunct_expr_root->is_rf_wrapper();
-                            Defer mark_runtime_filter_flag {[&]() {
+                            bool need_set_runtime_filter_id = value_range.is_whole_value_range() &&
+                                                              conjunct_expr_root->is_rf_wrapper();
+                            Defer set_runtime_filter_id {[&]() {
                                 // rf predicates is always appended to the end of conjuncts. We need to ensure that there is no non-rf predicate after rf-predicate
                                 // If it is not a whole range, it means that the column has other non-rf predicates, so it cannot be marked as rf predicate.
                                 // If the range where non-rf predicates are located is incorrectly marked as rf, can_ignore will return true, resulting in the predicate not taking effect and getting an incorrect result.
-                                if (need_set_mark_runtime_filter_predicate) {
-                                    value_range.mark_runtime_filter_predicate(true);
+                                if (need_set_runtime_filter_id) {
+                                    auto* rf_expr = assert_cast<vectorized::VRuntimeFilterWrapper*>(
+                                            conjunct_expr_root.get());
+                                    DCHECK(rf_expr->predicate_filtered_rows_counter() != nullptr);
+                                    DCHECK(rf_expr->predicate_input_rows_counter() != nullptr);
+                                    value_range.attach_profile_counter(
+                                            rf_expr->filter_id(),
+                                            rf_expr->predicate_filtered_rows_counter(),
+                                            rf_expr->predicate_input_rows_counter());
                                 }
                             }};
                             RETURN_IF_PUSH_DOWN(_normalize_in_and_eq_predicate(
@@ -326,7 +329,7 @@ Status ScanLocalState<Derived>::_normalize_predicate(
                 RETURN_IF_ERROR(status);
             }
             if (pdt == PushDownType::ACCEPTABLE && slotref != nullptr &&
-                slotref->type().is_variant_type()) {
+                slotref->data_type()->get_primitive_type() == PrimitiveType::TYPE_VARIANT) {
                 // remaining it in the expr tree, in order to filter by function if the pushdown
                 // predicate is not applied
                 output_expr = conjunct_expr_root; // remaining in conjunct tree
@@ -342,34 +345,8 @@ Status ScanLocalState<Derived>::_normalize_predicate(
                 return Status::OK();
             }
         } else {
-            vectorized::VExprSPtr left_child;
-            RETURN_IF_ERROR(
-                    _normalize_predicate(conjunct_expr_root->children()[0], context, left_child));
-            vectorized::VExprSPtr right_child;
-            RETURN_IF_ERROR(
-                    _normalize_predicate(conjunct_expr_root->children()[1], context, right_child));
-
-            if (left_child != nullptr && right_child != nullptr) {
-                conjunct_expr_root->set_children({left_child, right_child});
-                output_expr = conjunct_expr_root;
-                return Status::OK();
-            } else {
-                if (left_child == nullptr) {
-                    conjunct_expr_root->children()[0]->close(context,
-                                                             context->get_function_state_scope());
-                }
-                if (right_child == nullptr) {
-                    conjunct_expr_root->children()[1]->close(context,
-                                                             context->get_function_state_scope());
-                }
-                // here only close the and expr self, do not close the child
-                conjunct_expr_root->set_children({});
-                conjunct_expr_root->close(context, context->get_function_state_scope());
-            }
-
-            // here do not close VExpr* now
-            output_expr = left_child != nullptr ? left_child : right_child;
-            return Status::OK();
+            return Status::InternalError("conjunct root should not and expr, but now {}",
+                                         conjunct_expr_root->debug_string());
         }
     }
     output_expr = conjunct_expr_root;
@@ -382,10 +359,14 @@ Status ScanLocalState<Derived>::_normalize_bloom_filter(vectorized::VExpr* expr,
                                                         SlotDescriptor* slot, PushDownType* pdt) {
     if (TExprNodeType::BLOOM_PRED == expr->node_type()) {
         DCHECK(expr->get_num_children() == 1);
+        DCHECK(expr_ctx->root()->is_rf_wrapper());
         PushDownType temp_pdt = _should_push_down_bloom_filter();
         if (temp_pdt != PushDownType::UNACCEPTABLE) {
-            _filter_predicates.bloom_filters.emplace_back(slot->col_name(),
-                                                          expr->get_bloom_filter_func());
+            auto* rf_expr = assert_cast<vectorized::VRuntimeFilterWrapper*>(expr_ctx->root().get());
+            _filter_predicates.bloom_filters.emplace_back(
+                    slot->col_name(), expr->get_bloom_filter_func(), rf_expr->filter_id(),
+                    rf_expr->predicate_filtered_rows_counter(),
+                    rf_expr->predicate_input_rows_counter());
             *pdt = temp_pdt;
         }
     }
@@ -398,10 +379,14 @@ Status ScanLocalState<Derived>::_normalize_bitmap_filter(vectorized::VExpr* expr
                                                          SlotDescriptor* slot, PushDownType* pdt) {
     if (TExprNodeType::BITMAP_PRED == expr->node_type()) {
         DCHECK(expr->get_num_children() == 1);
+        DCHECK(expr_ctx->root()->is_rf_wrapper());
         PushDownType temp_pdt = _should_push_down_bitmap_filter();
         if (temp_pdt != PushDownType::UNACCEPTABLE) {
-            _filter_predicates.bitmap_filters.emplace_back(slot->col_name(),
-                                                           expr->get_bitmap_filter_func());
+            auto* rf_expr = assert_cast<vectorized::VRuntimeFilterWrapper*>(expr_ctx->root().get());
+            _filter_predicates.bitmap_filters.emplace_back(
+                    slot->col_name(), expr->get_bitmap_filter_func(), rf_expr->filter_id(),
+                    rf_expr->predicate_filtered_rows_counter(),
+                    rf_expr->predicate_input_rows_counter());
             *pdt = temp_pdt;
         }
     }
@@ -451,6 +436,9 @@ bool ScanLocalState<Derived>::_is_predicate_acting_on_slot(
         return false;
     }
 
+    // slot_ref is a specific expr
+    // child_contains_slot may include a cast expr
+
     auto entry = _slot_id_to_value_range.find(slot_ref->slot_id());
     if (_slot_id_to_value_range.end() == entry) {
         return false;
@@ -458,19 +446,22 @@ bool ScanLocalState<Derived>::_is_predicate_acting_on_slot(
     // if the slot is a complex type(array/map/struct), we do not push down the predicate, because
     // we delete pack these type into predict column, and origin pack action is wrong. we should
     // make sense to push down this complex type after we delete predict column.
-    if (is_complex_type(remove_nullable(slot_ref->data_type()))) {
+    if (is_complex_type(slot_ref->data_type()->get_primitive_type())) {
         return false;
     }
     *slot_desc = entry->second.first;
     DCHECK(child_contains_slot != nullptr);
-    if (child_contains_slot->type().type != (*slot_desc)->type().type ||
-        child_contains_slot->type().precision != (*slot_desc)->type().precision ||
-        child_contains_slot->type().scale != (*slot_desc)->type().scale) {
+    if (child_contains_slot->data_type()->get_primitive_type() !=
+                (*slot_desc)->type()->get_primitive_type() ||
+        child_contains_slot->data_type()->get_precision() !=
+                (*slot_desc)->type()->get_precision() ||
+        child_contains_slot->data_type()->get_scale() != (*slot_desc)->type()->get_scale()) {
         if (!_ignore_cast(*slot_desc, child_contains_slot.get())) {
             // the type of predicate not match the slot's type
             return false;
         }
-    } else if (child_contains_slot->type().is_datetime_type() &&
+    } else if (child_contains_slot->data_type()->get_primitive_type() ==
+                       PrimitiveType::TYPE_DATETIME &&
                child_contains_slot->node_type() == doris::TExprNodeType::CAST_EXPR) {
         // Expr `CAST(CAST(datetime_col AS DATE) AS DATETIME) = datetime_literal` should not be
         // push down.
@@ -499,20 +490,28 @@ std::string ScanLocalState<Derived>::debug_string(int indentation_level) const {
 
 template <typename Derived>
 bool ScanLocalState<Derived>::_ignore_cast(SlotDescriptor* slot, vectorized::VExpr* expr) {
-    if (slot->type().is_string_type() && expr->type().is_string_type()) {
+    if (is_string_type(slot->type()->get_primitive_type()) &&
+        is_string_type(expr->data_type()->get_primitive_type())) {
         return true;
     }
     // only one level cast expr could push down for variant type
     // check if expr is cast and it's children is slot
-    if (slot->type().is_variant_type()) {
+    if (slot->type()->get_primitive_type() == PrimitiveType::TYPE_VARIANT) {
         return expr->node_type() == TExprNodeType::CAST_EXPR &&
                expr->children().at(0)->is_slot_ref();
     }
-    if (slot->type().is_array_type()) {
-        if (slot->type().children[0].type == expr->type().type) {
+    if (slot->type()->get_primitive_type() == PrimitiveType::TYPE_ARRAY) {
+        if (assert_cast<const vectorized::DataTypeArray*>(
+                    vectorized::remove_nullable(slot->type()).get())
+                    ->get_nested_type()
+                    ->get_primitive_type() == expr->data_type()->get_primitive_type()) {
             return true;
         }
-        if (slot->type().children[0].is_string_type() && expr->type().is_string_type()) {
+        if (is_string_type(assert_cast<const vectorized::DataTypeArray*>(
+                                   vectorized::remove_nullable(slot->type()).get())
+                                   ->get_nested_type()
+                                   ->get_primitive_type()) &&
+            is_string_type(expr->data_type()->get_primitive_type())) {
             return true;
         }
     }
@@ -547,6 +546,7 @@ Status ScanLocalState<Derived>::_eval_const_conjuncts(vectorized::VExpr* vexpr,
                          << "] should return a const column but actually is "
                          << const_col_wrapper->column_ptr->get_name();
             DCHECK_EQ(bool_column->size(), 1);
+            /// TODO: There is a DCHECK here, but an additional check is still needed. It should return an error code.
             if (bool_column->size() == 1) {
                 constant_val = const_cast<char*>(bool_column->get_data_at(0).data);
                 if (constant_val == nullptr || !*reinterpret_cast<bool*>(constant_val)) {
@@ -588,7 +588,19 @@ Status ScanLocalState<Derived>::_normalize_in_and_eq_predicate(vectorized::VExpr
                 _parent->cast<typename Derived::Parent>()._max_pushdown_conditions_per_column) {
                 iter = hybrid_set->begin();
             } else {
-                _filter_predicates.in_filters.emplace_back(slot->col_name(), expr->get_set_func());
+                int runtime_filter_id = -1;
+                std::shared_ptr<RuntimeProfile::Counter> predicate_filtered_rows_counter = nullptr;
+                std::shared_ptr<RuntimeProfile::Counter> predicate_input_rows_counter = nullptr;
+                if (expr_ctx->root()->is_rf_wrapper()) {
+                    auto* rf_expr =
+                            assert_cast<vectorized::VRuntimeFilterWrapper*>(expr_ctx->root().get());
+                    runtime_filter_id = rf_expr->filter_id();
+                    predicate_filtered_rows_counter = rf_expr->predicate_filtered_rows_counter();
+                    predicate_input_rows_counter = rf_expr->predicate_input_rows_counter();
+                }
+                _filter_predicates.in_filters.emplace_back(
+                        slot->col_name(), expr->get_set_func(), runtime_filter_id,
+                        predicate_filtered_rows_counter, predicate_input_rows_counter);
                 *pdt = PushDownType::ACCEPTABLE;
                 return Status::OK();
             }
@@ -616,10 +628,7 @@ Status ScanLocalState<Derived>::_normalize_in_and_eq_predicate(vectorized::VExpr
         while (iter->has_next()) {
             // column in (nullptr) is always false so continue to
             // dispose next item
-            if (nullptr == iter->get_value()) {
-                iter->next();
-                continue;
-            }
+            DCHECK(iter->get_value() != nullptr);
             auto* value = const_cast<void*>(iter->get_value());
             RETURN_IF_ERROR(_change_value_range<true>(
                     temp_range, value, ColumnValueRange<T>::add_fixed_value_range, ""));
@@ -763,9 +772,7 @@ Status ScanLocalState<Derived>::_normalize_not_in_and_not_eq_predicate(
         }
         while (iter->has_next()) {
             // column not in (nullptr) is always true
-            if (nullptr == iter->get_value()) {
-                continue;
-            }
+            DCHECK(iter->get_value() != nullptr);
             auto value = const_cast<void*>(iter->get_value());
             if (is_fixed_range) {
                 RETURN_IF_ERROR(_change_value_range<true>(
@@ -1035,7 +1042,7 @@ int64_t ScanLocalState<Derived>::limit_per_scanner() {
 template <typename Derived>
 Status ScanLocalState<Derived>::clone_conjunct_ctxs(vectorized::VExprContextSPtrs& conjuncts) {
     if (!_conjuncts.empty()) {
-        std::unique_lock l(_rf_locks);
+        std::unique_lock l(_conjunct_lock);
         conjuncts.resize(_conjuncts.size());
         for (size_t i = 0; i != _conjuncts.size(); ++i) {
             RETURN_IF_ERROR(_conjuncts[i]->clone(state(), conjuncts[i]));
@@ -1105,7 +1112,8 @@ Status ScanLocalState<Derived>::_get_topn_filters(RuntimeState* state) {
 template <typename Derived>
 void ScanLocalState<Derived>::_filter_and_collect_cast_type_for_variant(
         const vectorized::VExpr* expr,
-        std::unordered_map<std::string, std::vector<TypeDescriptor>>& colname_to_cast_types) {
+        std::unordered_map<std::string, std::vector<vectorized::DataTypePtr>>&
+                colname_to_cast_types) {
     auto& p = _parent->cast<typename Derived::Parent>();
     const auto* cast_expr = dynamic_cast<const vectorized::VCastExpr*>(expr);
     if (cast_expr != nullptr) {
@@ -1118,8 +1126,8 @@ void ScanLocalState<Derived>::_filter_and_collect_cast_type_for_variant(
         }
         std::vector<SlotDescriptor*> slots = output_tuple_desc()->slots();
         SlotDescriptor* src_slot_desc = p._slot_id_to_slot_desc[src_slot->slot_id()];
-        TypeDescriptor type_desc = cast_expr->get_target_type()->get_type_as_type_descriptor();
-        if (src_slot_desc->type().is_variant_type()) {
+        auto type_desc = cast_expr->get_target_type();
+        if (src_slot_desc->type()->get_primitive_type() == PrimitiveType::TYPE_VARIANT) {
             colname_to_cast_types[src_slot_desc->col_name()].push_back(type_desc);
         }
     }
@@ -1130,7 +1138,7 @@ void ScanLocalState<Derived>::_filter_and_collect_cast_type_for_variant(
 
 template <typename Derived>
 void ScanLocalState<Derived>::get_cast_types_for_variants() {
-    std::unordered_map<std::string, std::vector<TypeDescriptor>> colname_to_cast_types;
+    std::unordered_map<std::string, std::vector<vectorized::DataTypePtr>> colname_to_cast_types;
     for (auto it = _conjuncts.begin(); it != _conjuncts.end();) {
         auto& conjunct = *it;
         if (conjunct->root()) {
@@ -1261,7 +1269,7 @@ Status ScanLocalState<Derived>::close(RuntimeState* state) {
     std::list<std::shared_ptr<vectorized::ScannerDelegate>> {}.swap(_scanners);
     COUNTER_SET(_wait_for_dependency_timer, _scan_dependency->watcher_elapse_time());
     COUNTER_SET(_wait_for_rf_timer, rf_time);
-
+    _helper.collect_realtime_profile(profile());
     return PipelineXLocalState<>::close(state);
 }
 
@@ -1344,5 +1352,10 @@ template class ScanLocalState<MetaScanLocalState>;
 template class ScanOperatorX<MetaScanLocalState>;
 template class ScanOperatorX<GroupCommitLocalState>;
 template class ScanLocalState<GroupCommitLocalState>;
+
+#ifdef BE_TEST
+template class ScanOperatorX<MockScanLocalState>;
+template class ScanLocalState<MockScanLocalState>;
+#endif
 
 } // namespace doris::pipeline

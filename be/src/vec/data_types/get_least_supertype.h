@@ -31,9 +31,9 @@ enum class TypeIndex;
 
 namespace doris::vectorized {
 
-using TypeIndexSet = phmap::flat_hash_set<TypeIndex>;
+using PrimitiveTypeSet = phmap::flat_hash_set<PrimitiveType>;
 
 void get_least_supertype_jsonb(const DataTypes& types, DataTypePtr* type);
-void get_least_supertype_jsonb(const TypeIndexSet& types, DataTypePtr* type);
+void get_least_supertype_jsonb(const PrimitiveTypeSet& types, DataTypePtr* type);
 
 } // namespace doris::vectorized

@@ -85,9 +85,11 @@ import org.apache.doris.load.StreamLoadHandler;
 import org.apache.doris.load.routineload.ErrorReason;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.load.routineload.RoutineLoadJob.JobState;
+import org.apache.doris.load.routineload.RoutineLoadManager;
 import org.apache.doris.master.MasterImpl;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.trees.plans.PlanNodeAndHash;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.plsql.metastore.PlsqlPackage;
@@ -114,6 +116,7 @@ import org.apache.doris.statistics.InvalidateStatsTarget;
 import org.apache.doris.statistics.StatisticsCacheKey;
 import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.statistics.UpdatePartitionStatsTarget;
+import org.apache.doris.statistics.hbo.RecentRunsPlanStatistics;
 import org.apache.doris.statistics.query.QueryStats;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.system.Backend;
@@ -147,6 +150,8 @@ import org.apache.doris.thrift.TDropPlsqlPackageRequest;
 import org.apache.doris.thrift.TDropPlsqlStoredProcedureRequest;
 import org.apache.doris.thrift.TFeResult;
 import org.apache.doris.thrift.TFetchResourceResult;
+import org.apache.doris.thrift.TFetchRoutineLoadJobRequest;
+import org.apache.doris.thrift.TFetchRoutineLoadJobResult;
 import org.apache.doris.thrift.TFetchRunningQueriesRequest;
 import org.apache.doris.thrift.TFetchRunningQueriesResult;
 import org.apache.doris.thrift.TFetchSchemaTableDataRequest;
@@ -228,6 +233,7 @@ import org.apache.doris.thrift.TRestoreSnapshotRequest;
 import org.apache.doris.thrift.TRestoreSnapshotResult;
 import org.apache.doris.thrift.TRollbackTxnRequest;
 import org.apache.doris.thrift.TRollbackTxnResult;
+import org.apache.doris.thrift.TRoutineLoadJob;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TSchemaTableName;
 import org.apache.doris.thrift.TShowProcessListRequest;
@@ -256,6 +262,7 @@ import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.thrift.TUpdateExportTaskStatusRequest;
 import org.apache.doris.thrift.TUpdateFollowerPartitionStatsCacheRequest;
 import org.apache.doris.thrift.TUpdateFollowerStatsCacheRequest;
+import org.apache.doris.thrift.TUpdatePlanStatsCacheRequest;
 import org.apache.doris.thrift.TWaitingTxnStatusRequest;
 import org.apache.doris.thrift.TWaitingTxnStatusResult;
 import org.apache.doris.transaction.SubTransactionState;
@@ -266,6 +273,7 @@ import org.apache.doris.transaction.TransactionState.TxnSourceType;
 import org.apache.doris.transaction.TransactionStatus;
 import org.apache.doris.transaction.TxnCommitAttachment;
 
+import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -882,7 +890,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                             final TColumnDef colDef = new TColumnDef(desc);
                             final String comment = column.getComment();
                             if (comment != null) {
-                                colDef.setComment(comment);
+                                if (Config.column_comment_length_limit > 0
+                                        && comment.length() > Config.column_comment_length_limit) {
+                                    colDef.setComment(comment.substring(0, Config.column_comment_length_limit));
+                                } else {
+                                    colDef.setComment(comment);
+                                }
                             }
                             if (column.isKey()) {
                                 if (table instanceof OlapTable) {
@@ -1592,6 +1605,17 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             return result;
         }
 
+        if (DebugPointUtil.isEnable("load.commit_timeout")) {
+            try {
+                Thread.sleep(60 * 1000);
+            } catch (InterruptedException e) {
+                LOG.warn("failed to sleep", e);
+            }
+            status.setStatusCode(TStatusCode.INTERNAL_ERROR);
+            status.addToErrorMsgs("load commit timeout");
+            return result;
+        }
+
         try {
             if (!loadTxnCommitImpl(request)) {
                 // committed success but not visible
@@ -2010,8 +2034,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             boolean hasUserName = !StringUtils.isEmpty(request.getUser());
             if (Config.enable_workload_group && hasUserName) {
                 tWorkloadGroupList = Env.getCurrentEnv().getWorkloadGroupMgr()
-                        .getWorkloadGroupByUser(ConnectContext.get()
-                                .getCurrentUserIdentity(), true);
+                        .getWorkloadGroup(ConnectContext.get());
             }
             if (!Strings.isNullOrEmpty(request.getLoadSql())) {
                 httpStreamPutImpl(request, result);
@@ -3362,6 +3385,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             result.setLastCommitSeq(lagInfo.getLastCommitSeq());
             result.setFirstBinlogTimestamp(lagInfo.getFirstCommitTs());
             result.setLastBinlogTimestamp(lagInfo.getLastCommitTs());
+            result.setNextCommitSeq(lagInfo.getNextCommitSeq());
+            result.setNextBinlogTimestamp(lagInfo.getNextCommitTs());
         }
         return result;
     }
@@ -3475,6 +3500,15 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     k.catalogId, k.dbId, k.tableId, k.idxId, k.colName, c);
         }
         // Return Ok anyway
+        return new TStatus(TStatusCode.OK);
+    }
+
+    @Override
+    public TStatus updatePlanStatsCache(TUpdatePlanStatsCacheRequest request) throws TException {
+        PlanNodeAndHash key = GsonUtils.GSON.fromJson(request.key, PlanNodeAndHash.class);
+        RecentRunsPlanStatistics data = GsonUtils.GSON.fromJson(request.planStatsData, RecentRunsPlanStatistics.class);
+        Env.getCurrentEnv().getHboPlanStatisticsManager().getHboPlanStatisticsProvider()
+                .updatePlanStats(key, data);
         return new TStatus(TStatusCode.OK);
     }
 
@@ -3754,7 +3788,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             needReplace = overwriteManager.tryReplacePartitionIds(taskGroupId, reqPartitionIds, resultPartitionIds);
             // request: [1 2 3 4] result: [1 2 5 6] means ONLY 1 and 2 need replace.
             if (needReplace) {
-                // names for [1 2]
+                // names for [1 2]. if another txn dropped origin partitions, we will fail here. return the exception.
+                // that's reasonable because we want iot-auto-detect txn has as less impact as possible. so only when we
+                // detected the conflict in this RPC, we will fail the txn. it allows more concurrent transactions.
                 List<String> pendingPartitionNames = olapTable.getEqualPartitionNames(reqPartitionIds,
                                 resultPartitionIds);
                 for (String name : pendingPartitionNames) {
@@ -3782,7 +3818,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     }
                 }
             }
-        } catch (DdlException ex) {
+        } catch (DdlException | RuntimeException ex) {
             errorStatus.setErrorMsgs(Lists.newArrayList(ex.getMessage()));
             result.setStatus(errorStatus);
             LOG.warn("send create partition error status: {}", result);
@@ -3980,6 +4016,21 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         table = db.getTableNullable(getMetaTable.getId());
                     } else {
                         table = db.getTableNullable(getMetaTable.getName());
+                    }
+
+                    if (table == null) {
+                        // Since Database.getTableNullable is lock-free, we need to take lock and check again,
+                        // to ensure the visibility of the table.
+                        db.readLock();
+                        try {
+                            if (getMetaTable.isSetId()) {
+                                table = db.getTableNullable(getMetaTable.getId());
+                            } else {
+                                table = db.getTableNullable(getMetaTable.getName());
+                            }
+                        } finally {
+                            db.readUnlock();
+                        }
                     }
 
                     if (table == null) {
@@ -4207,6 +4258,57 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         result.setStatus(new TStatus(TStatusCode.OK));
         result.setRunningQueries(runningQueries);
+        return result;
+    }
+
+    @Override
+    public TFetchRoutineLoadJobResult fetchRoutineLoadJob(TFetchRoutineLoadJobRequest request) {
+        TFetchRoutineLoadJobResult result = new TFetchRoutineLoadJobResult();
+
+        if (!Env.getCurrentEnv().isReady()) {
+            return result;
+        }
+
+        RoutineLoadManager routineLoadManager = Env.getCurrentEnv().getRoutineLoadManager();
+        List<TRoutineLoadJob> jobInfos = Lists.newArrayList();
+        List<RoutineLoadJob> routineLoadJobs = routineLoadManager.getAllRoutineLoadJobs();
+        for (RoutineLoadJob job : routineLoadJobs) {
+            TRoutineLoadJob jobInfo = new TRoutineLoadJob();
+            jobInfo.setJobId(String.valueOf(job.getId()));
+            jobInfo.setJobName(job.getName());
+            jobInfo.setCreateTime(job.getCreateTimestampString());
+            jobInfo.setPauseTime(job.getPauseTimestampString());
+            jobInfo.setEndTime(job.getEndTimestampString());
+            String dbName = "";
+            String tableName = "";
+            try {
+                dbName = job.getDbFullName();
+                tableName = job.getTableName();
+            } catch (MetaNotFoundException e) {
+                LOG.warn("Failed to get db or table name for routine load job: {}", job.getId(), e);
+            }
+            jobInfo.setDbName(dbName);
+            jobInfo.setTableName(tableName);
+            jobInfo.setState(job.getState().name());
+            jobInfo.setCurrentTaskNum(String.valueOf(job.getSizeOfRoutineLoadTaskInfoList()));
+            jobInfo.setJobProperties(job.jobPropertiesToJsonString());
+            jobInfo.setDataSourceProperties(job.dataSourcePropertiesJsonToString());
+            jobInfo.setCustomProperties(job.customPropertiesJsonToString());
+            jobInfo.setStatistic(job.getStatistic());
+            jobInfo.setProgress(job.getProgress().toJsonString());
+            jobInfo.setLag(job.getLag());
+            jobInfo.setReasonOfStateChanged(job.getStateReason());
+            jobInfo.setErrorLogUrls(Joiner.on(", ").join(job.getErrorLogUrls()));
+            jobInfo.setUserName(job.getUserIdentity().getQualifiedUser());
+            jobInfo.setCurrentAbortTaskNum(job.getJobStatistic().currentAbortedTaskNum);
+            jobInfo.setIsAbnormalPause(job.isAbnormalPause());
+            jobInfos.add(jobInfo);
+        }
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("routine load job infos: {}", jobInfos);
+        }
+        result.setRoutineLoadJobs(jobInfos);
+
         return result;
     }
 }

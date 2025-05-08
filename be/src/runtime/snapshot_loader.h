@@ -19,6 +19,7 @@
 
 #include <gen_cpp/Types_types.h>
 
+#include <cstdint>
 #include <map>
 #include <memory>
 #include <string>
@@ -26,6 +27,7 @@
 
 #include "common/status.h"
 #include "olap/tablet_fwd.h"
+#include "runtime/workload_management/resource_context.h"
 
 namespace doris {
 namespace io {
@@ -86,6 +88,10 @@ public:
 
     Status move(const std::string& snapshot_path, TabletSharedPtr tablet, bool overwrite);
 
+    int64_t get_http_download_files_num() const { return _http_download_files_num; }
+
+    std::shared_ptr<ResourceContext> resource_ctx() { return _resource_ctx; }
+
 private:
     Status _get_tablet_id_and_schema_hash_from_file_path(const std::string& src_path,
                                                          int64_t* tablet_id, int32_t* schema_hash);
@@ -106,6 +112,8 @@ private:
 
     Status _list_with_checksum(const std::string& dir, std::map<std::string, FileStat>* md5_files);
 
+    void _set_http_download_files_num(int64_t num) { _http_download_files_num = num; }
+
 private:
     StorageEngine& _engine;
     ExecEnv* _env = nullptr;
@@ -114,6 +122,9 @@ private:
     const TNetworkAddress _broker_addr;
     const std::map<std::string, std::string> _prop;
     std::shared_ptr<io::RemoteFileSystem> _remote_fs;
+    // for test remote_http_download
+    size_t _http_download_files_num;
+    std::shared_ptr<ResourceContext> _resource_ctx;
 };
 
 } // end namespace doris

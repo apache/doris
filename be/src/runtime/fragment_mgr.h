@@ -36,7 +36,7 @@
 #include "gutil/ref_counted.h"
 #include "http/rest_monitor_iface.h"
 #include "runtime/query_context.h"
-#include "runtime_filter_mgr.h"
+#include "runtime_filter/runtime_filter_mgr.h"
 #include "util/countdown_latch.h"
 #include "util/hash_util.hpp" // IWYU pragma: keep
 #include "util/metrics.h"
@@ -58,7 +58,6 @@ class ThreadPool;
 class TExecPlanFragmentParams;
 class PExecPlanFragmentStartRequest;
 class PMergeFilterRequest;
-class PPublishFilterRequest;
 class RuntimeProfile;
 class RuntimeState;
 class TPipelineFragmentParams;
@@ -123,7 +122,8 @@ public:
     // execute one plan fragment
     Status exec_plan_fragment(const TExecPlanFragmentParams& params, const QuerySource query_type);
 
-    Status exec_plan_fragment(const TPipelineFragmentParams& params, const QuerySource query_type);
+    Status exec_plan_fragment(const TPipelineFragmentParams& params, const QuerySource query_type,
+                              const TPipelineFragmentParamsList& parent);
 
     void remove_pipeline_context(std::pair<TUniqueId, int> key);
 
@@ -132,7 +132,7 @@ public:
                               const FinishCallback& cb);
 
     Status exec_plan_fragment(const TPipelineFragmentParams& params, const QuerySource query_type,
-                              const FinishCallback& cb);
+                              const FinishCallback& cb, const TPipelineFragmentParamsList& parent);
 
     Status start_query_execution(const PExecPlanFragmentStartRequest* request);
 
@@ -192,8 +192,9 @@ private:
     template <typename Param>
     void _set_scan_concurrency(const Param& params, QueryContext* query_ctx);
 
-    Status _get_or_create_query_ctx(const TPipelineFragmentParams& params, TUniqueId query_id,
-                                    bool pipeline, QuerySource query_type,
+    Status _get_or_create_query_ctx(const TPipelineFragmentParams& params,
+                                    const TPipelineFragmentParamsList& parent,
+                                    QuerySource query_type,
                                     std::shared_ptr<QueryContext>& query_ctx);
 
     void _check_brpc_available(const std::shared_ptr<PBackendService_Stub>& brpc_stub,
@@ -219,8 +220,6 @@ private:
 
     std::shared_ptr<MetricEntity> _entity;
     UIntGauge* timeout_canceled_fragment_count = nullptr;
-
-    RuntimeFilterMergeController _runtimefilter_controller;
 };
 
 uint64_t get_fragment_executing_count();

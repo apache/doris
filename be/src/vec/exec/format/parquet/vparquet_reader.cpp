@@ -297,7 +297,7 @@ void ParquetReader::iceberg_sanitize(const std::vector<std::string>& read_column
 Status ParquetReader::init_reader(
         const std::vector<std::string>& all_column_names,
         const std::vector<std::string>& missing_column_names,
-        std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
+        const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
         const VExprContextSPtrs& conjuncts, const TupleDescriptor* tuple_descriptor,
         const RowDescriptor* row_descriptor,
         const std::unordered_map<std::string, int>* colname_to_slot_id,
@@ -347,8 +347,8 @@ Status ParquetReader::init_reader(
         for (const std::string& name : required_columns) {
             _missing_cols.emplace_back(name);
         }
+
     } else {
-        std::unordered_map<std::string, ColumnValueRangeType> new_colname_to_value_range;
         const auto& table_column_idxs = _scan_params.column_idxs;
         std::map<int, int> table_col_id_to_idx;
         for (int i = 0; i < table_column_idxs.size(); i++) {
@@ -362,21 +362,15 @@ Status ParquetReader::init_reader(
                 auto& table_col = all_column_names[idx];
                 auto file_col = schema_desc.get_column(id)->name;
                 _read_columns.emplace_back(file_col);
+                _table_col_to_file_col[table_col] = file_col;
 
-                if (table_col != file_col) {
-                    _table_col_to_file_col[table_col] = file_col;
-                    auto iter = _colname_to_value_range->find(table_col);
-                    if (iter != _colname_to_value_range->end()) {
-                        continue;
-                    }
-                    new_colname_to_value_range[file_col] = iter->second;
-                    _colname_to_value_range->erase(iter->first);
+                auto iter = _colname_to_value_range->find(table_col);
+                if (iter != _colname_to_value_range->end()) {
+                    _colname_to_value_range_index_read.emplace(file_col, iter->second);
                 }
             }
         }
-        for (auto it : new_colname_to_value_range) {
-            _colname_to_value_range->emplace(it.first, std::move(it.second));
-        }
+        _colname_to_value_range = &_colname_to_value_range_index_read;
     }
     // build column predicates for column lazy read
     _lazy_read_ctx.conjuncts = conjuncts;
@@ -435,8 +429,8 @@ Status ParquetReader::set_fill_columns(
     const FieldDescriptor& schema = _file_metadata->schema();
     for (auto& read_col : _read_columns) {
         _lazy_read_ctx.all_read_columns.emplace_back(read_col);
-        PrimitiveType column_type = schema.get_column(read_col)->type.type;
-        if (column_type == TYPE_ARRAY || column_type == TYPE_MAP || column_type == TYPE_STRUCT) {
+        auto column_type = schema.get_column(read_col)->data_type->get_primitive_type();
+        if (is_complex_type(column_type)) {
             _lazy_read_ctx.has_complex_type = true;
         }
         if (predicate_columns.size() > 0) {
@@ -498,7 +492,7 @@ Status ParquetReader::set_fill_columns(
 }
 
 Status ParquetReader::get_parsed_schema(std::vector<std::string>* col_names,
-                                        std::vector<TypeDescriptor>* col_types) {
+                                        std::vector<DataTypePtr>* col_types) {
     RETURN_IF_ERROR(_open_file());
     _t_metadata = &_file_metadata->to_thrift();
 
@@ -507,19 +501,19 @@ Status ParquetReader::get_parsed_schema(std::vector<std::string>* col_names,
     for (int i = 0; i < schema_desc.size(); ++i) {
         // Get the Column Reader for the boolean column
         col_names->emplace_back(schema_desc.get_column(i)->name);
-        col_types->emplace_back(schema_desc.get_column(i)->type);
+        col_types->emplace_back(make_nullable(schema_desc.get_column(i)->data_type));
     }
     return Status::OK();
 }
 
-Status ParquetReader::get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
+Status ParquetReader::get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
                                   std::unordered_set<std::string>* missing_cols) {
     const auto& schema_desc = _file_metadata->schema();
     std::unordered_set<std::string> column_names;
     schema_desc.get_column_names(&column_names);
     for (auto& name : column_names) {
         auto field = schema_desc.get_column(name);
-        name_to_type->emplace(name, field->type);
+        name_to_type->emplace(name, field->data_type);
     }
     for (auto& col : _missing_cols) {
         missing_cols->insert(col);
@@ -560,6 +554,7 @@ Status ParquetReader::get_next_block(Block* block, size_t* read_rows, bool* eof)
         return Status::OK();
     }
 
+    std::vector<std::string> original_block_column_name = block->get_names();
     if (!_hive_use_column_names) {
         for (auto i = 0; i < block->get_names().size(); i++) {
             auto& col = block->get_by_position(i);
@@ -583,7 +578,7 @@ Status ParquetReader::get_next_block(Block* block, size_t* read_rows, bool* eof)
 
     if (!_hive_use_column_names) {
         for (auto i = 0; i < block->columns(); i++) {
-            block->get_by_position(i).name = (*_column_names)[i];
+            block->get_by_position(i).name = original_block_column_name[i];
         }
         block->initialize_index_by_name();
     }
@@ -732,12 +727,12 @@ std::vector<io::PrefetchRange> ParquetReader::_generate_random_access_ranges(
     size_t total_io_size = 0;
     std::function<void(const FieldSchema*, const tparquet::RowGroup&)> scalar_range =
             [&](const FieldSchema* field, const tparquet::RowGroup& row_group) {
-                if (field->type.type == TYPE_ARRAY) {
+                if (field->data_type->get_primitive_type() == TYPE_ARRAY) {
                     scalar_range(&field->children[0], row_group);
-                } else if (field->type.type == TYPE_MAP) {
+                } else if (field->data_type->get_primitive_type() == TYPE_MAP) {
                     scalar_range(&field->children[0].children[0], row_group);
                     scalar_range(&field->children[0].children[1], row_group);
-                } else if (field->type.type == TYPE_STRUCT) {
+                } else if (field->data_type->get_primitive_type() == TYPE_STRUCT) {
                     for (int i = 0; i < field->children.size(); ++i) {
                         scalar_range(&field->children[i], row_group);
                     }

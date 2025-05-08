@@ -29,7 +29,6 @@
 #include <vector>
 
 #include "common/status.h"
-#include "gutil/integral_types.h"
 #include "olap/decimal12.h"
 #include "olap/uint24.h"
 #include "runtime/collection_value.h"

@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -66,7 +67,7 @@ public class ShowTabletIdCommand extends ShowCommand {
     /**
      * get meta for show tabletId
      */
-    private ShowResultSetMetaData getMetaData() {
+    public ShowResultSetMetaData getMetaData() {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
         builder.addColumn(new Column("DbName", ScalarType.createVarchar(30)));
         builder.addColumn(new Column("TableName", ScalarType.createVarchar(30)));
@@ -201,5 +202,14 @@ public class ShowTabletIdCommand extends ShowCommand {
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitShowTabletIdCommand(this, context);
+    }
+
+    @Override
+    public RedirectStatus toRedirectStatus() {
+        if (ConnectContext.get().getSessionVariable().getForwardToMaster()) {
+            return RedirectStatus.FORWARD_NO_SYNC;
+        } else {
+            return RedirectStatus.NO_FORWARD;
+        }
     }
 }

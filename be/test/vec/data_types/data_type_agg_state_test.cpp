@@ -72,12 +72,12 @@ public:
 };
 
 TEST_P(DataTypeAggStateTest, MetaInfoTest) {
-    TypeDescriptor agg_state_type_descriptor = {PrimitiveType::TYPE_AGG_STATE};
+    auto agg_state_type_descriptor = std::make_shared<DataTypeAggState>();
     auto col_meta = std::make_shared<PColumnMeta>();
     col_meta->set_type(PGenericType_TypeId_AGG_STATE);
     CommonDataTypeTest::DataTypeMetaInfo agg_state_meta_info_to_assert = {
             .type_id = TypeIndex::AggState,
-            .type_as_type_descriptor = &agg_state_type_descriptor,
+            .type_as_type_descriptor = agg_state_type_descriptor,
             .family_name = "AggState",
             .has_subtypes = false,
             .storage_field_type = doris::FieldType::OLAP_FIELD_TYPE_AGG_STATE,
@@ -97,7 +97,10 @@ TEST_P(DataTypeAggStateTest, MetaInfoTest) {
 }
 
 TEST_P(DataTypeAggStateTest, CreateColumnTest) {
-    Field default_field = Field(String());
+    std::string res;
+    res.resize(8);
+    memset(res.data(), 0, 8);
+    Field default_field = Field(res);
     std::cout << "create_column_assert: " << datatype_agg_state_count->get_name() << std::endl;
     auto column = (datatype_agg_state_count)->create_column();
     ASSERT_EQ(column->size(), 0);

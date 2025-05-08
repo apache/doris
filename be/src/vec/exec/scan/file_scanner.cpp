@@ -62,6 +62,7 @@
 #include "vec/exec/format/orc/vorc_reader.h"
 #include "vec/exec/format/parquet/vparquet_reader.h"
 #include "vec/exec/format/table/hudi_jni_reader.h"
+#include "vec/exec/format/table/hudi_reader.h"
 #include "vec/exec/format/table/iceberg_reader.h"
 #include "vec/exec/format/table/lakesoul_jni_reader.h"
 #include "vec/exec/format/table/max_compute_jni_reader.h"
@@ -78,6 +79,7 @@
 #include "vec/functions/function.h"
 #include "vec/functions/function_string.h"
 #include "vec/functions/simple_function_factory.h"
+#include "vec/utils/stringop_substring.h"
 
 namespace cctz {
 class time_zone;
@@ -95,7 +97,7 @@ FileScanner::FileScanner(
         RuntimeState* state, pipeline::FileScanLocalState* local_state, int64_t limit,
         std::shared_ptr<vectorized::SplitSourceConnector> split_source, RuntimeProfile* profile,
         ShardedKVCache* kv_cache,
-        std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
+        const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
         const std::unordered_map<std::string, int>* colname_to_slot_id)
         : Scanner(state, local_state, limit, profile),
           _split_source(split_source),
@@ -373,7 +375,7 @@ Status FileScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eof
     Status st = _get_block_wrapped(state, block, eof);
     if (!st.ok()) {
         // add cur path in error msg for easy debugging
-        return std::move(st.prepend("cur path: " + get_current_scan_range_name() + ". "));
+        return std::move(st.append(". cur path: " + get_current_scan_range_name()));
     }
     return st;
 }
@@ -478,7 +480,7 @@ Status FileScanner::_check_output_block_types() {
         if (format_type == TFileFormatType::FORMAT_PARQUET ||
             format_type == TFileFormatType::FORMAT_ORC) {
             for (auto slot : _output_tuple_desc->slots()) {
-                if (slot->type().is_complex_type()) {
+                if (is_complex_type(slot->type()->get_primitive_type())) {
                     return Status::InternalError(
                             "Parquet/orc doesn't support complex types in broker/stream load, "
                             "please use tvf(table value function) to insert complex types.");
@@ -520,14 +522,7 @@ Status FileScanner::_init_src_block(Block* block) {
                 _sequence_map_col_uid = slot->col_unique_id();
             }
         }
-        if (it == _name_to_col_type.end()) {
-            // not exist in file, using type from _input_tuple_desc
-            RETURN_IF_CATCH_EXCEPTION(data_type = DataTypeFactory::instance().create_data_type(
-                                              slot->type(), slot->is_nullable()));
-        } else {
-            RETURN_IF_CATCH_EXCEPTION(
-                    data_type = DataTypeFactory::instance().create_data_type(it->second, true));
-        }
+        data_type = it == _name_to_col_type.end() ? slot->type() : make_nullable(it->second);
         MutableColumnPtr data_column = data_type->create_column();
         _src_block.insert(
                 ColumnWithTypeAndName(std::move(data_column), data_type, slot->col_name()));
@@ -559,20 +554,24 @@ Status FileScanner::_cast_to_input_block(Block* block) {
             // skip columns which does not exist in file
             continue;
         }
-        if (slot_desc->type().is_variant_type()) {
+        if (slot_desc->type()->get_primitive_type() == PrimitiveType::TYPE_VARIANT) {
             // skip variant type
             continue;
         }
         auto& arg = _src_block_ptr->get_by_name(slot_desc->col_name());
         auto return_type = slot_desc->get_data_type_ptr();
         // remove nullable here, let the get_function decide whether nullable
-        auto data_type = vectorized::DataTypeFactory::instance().create_data_type(
-                remove_nullable(return_type)->get_type_as_type_descriptor());
+        auto data_type = get_data_type_with_default_argument(remove_nullable(return_type));
         ColumnsWithTypeAndName arguments {
                 arg, {data_type->create_column(), data_type, slot_desc->col_name()}};
         auto func_cast = SimpleFunctionFactory::instance().get_function(
                 "CAST", arguments, return_type,
                 {.enable_decimal256 = runtime_state()->enable_decimal256()});
+        if (!func_cast) {
+            return Status::InternalError("Function CAST[arg={}, col name={}, return={}] not found!",
+                                         arg.type->get_name(), slot_desc->col_name(),
+                                         return_type->get_name());
+        }
         idx = _src_block_name_to_idx[slot_desc->col_name()];
         RETURN_IF_ERROR(
                 func_cast->execute(nullptr, *_src_block_ptr, {idx}, idx, arg.column->size()));
@@ -739,6 +738,7 @@ Status FileScanner::_convert_to_output_block(Block* block) {
                         // clang-format off
                         if (_strict_mode && (_src_slot_descs_order_by_dest[dest_index]) &&
                             !_src_block_ptr->get_by_position(_dest_slot_to_src_slot_index[dest_index]).column->is_null_at(i)) {
+                            filter_map[i] = false;
                             RETURN_IF_ERROR(_state->append_error_msg_to_file(
                                 [&]() -> std::string {
                                     return _src_block_ptr->dump_one_line(i, _num_of_columns_from_file);
@@ -751,10 +751,9 @@ Status FileScanner::_convert_to_output_block(Block* block) {
                                     fmt::format_to(error_msg,"column({}) value is incorrect while strict mode is {}, src value is {}",
                                             slot_desc->col_name(), _strict_mode, raw_string);
                                     return fmt::to_string(error_msg);
-                                },
-                                &_scanner_eof));
-                            filter_map[i] = false;
+                                }));
                         } else if (!slot_desc->is_nullable()) {
+                            filter_map[i] = false;
                             RETURN_IF_ERROR(_state->append_error_msg_to_file(
                                 [&]() -> std::string {
                                     return _src_block_ptr->dump_one_line(i, _num_of_columns_from_file);
@@ -763,9 +762,7 @@ Status FileScanner::_convert_to_output_block(Block* block) {
                                     fmt::memory_buffer error_msg;
                                     fmt::format_to(error_msg, "column({}) values is null while columns is not nullable", slot_desc->col_name());
                                     return fmt::to_string(error_msg);
-                                },
-                                &_scanner_eof));
-                            filter_map[i] = false;
+                                }));
                         }
                         // clang-format on
                     }
@@ -806,21 +803,30 @@ Status FileScanner::_truncate_char_or_varchar_columns(Block* block) {
         if (!slot_desc->is_materialized()) {
             continue;
         }
-        const TypeDescriptor& type_desc = slot_desc->type();
-        if (type_desc.type != TYPE_VARCHAR && type_desc.type != TYPE_CHAR) {
+        const auto& type = slot_desc->type();
+        if (type->get_primitive_type() != TYPE_VARCHAR && type->get_primitive_type() != TYPE_CHAR) {
             ++idx;
             continue;
         }
         auto iter = _source_file_col_name_types.find(slot_desc->col_name());
         if (iter != _source_file_col_name_types.end()) {
-            const TypeDescriptor* file_type_desc =
-                    _source_file_col_name_types[slot_desc->col_name()];
-            if ((type_desc.len > 0) &&
-                (type_desc.len < file_type_desc->len || file_type_desc->len < 0)) {
-                _truncate_char_or_varchar_column(block, idx, type_desc.len);
+            const auto file_type_desc = _source_file_col_name_types[slot_desc->col_name()];
+            int l = -1;
+            if (auto* ftype = check_and_get_data_type<DataTypeString>(
+                        remove_nullable(file_type_desc).get())) {
+                l = ftype->len();
+            }
+            if ((assert_cast<const DataTypeString*>(remove_nullable(type).get())->len() > 0) &&
+                (assert_cast<const DataTypeString*>(remove_nullable(type).get())->len() < l ||
+                 l < 0)) {
+                _truncate_char_or_varchar_column(
+                        block, idx,
+                        assert_cast<const DataTypeString*>(remove_nullable(type).get())->len());
             }
         } else {
-            _truncate_char_or_varchar_column(block, idx, type_desc.len);
+            _truncate_char_or_varchar_column(
+                    block, idx,
+                    assert_cast<const DataTypeString*>(remove_nullable(type).get())->len());
         }
         ++idx;
     }
@@ -997,17 +1003,27 @@ Status FileScanner::_get_next_reader() {
                 _cur_reader = std::move(iceberg_reader);
             } else if (range.__isset.table_format_params &&
                        range.table_format_params.table_format_type == "paimon") {
-                std::vector<std::string> place_holder;
-                init_status = parquet_reader->init_reader(
-                        _file_col_names, place_holder, _colname_to_value_range,
-                        _push_down_conjuncts, _real_tuple_desc, _default_val_row_desc.get(),
-                        _col_name_to_slot_id, &_not_single_slot_filter_conjuncts,
-                        &_slot_id_to_filter_conjuncts);
                 std::unique_ptr<PaimonParquetReader> paimon_reader =
                         PaimonParquetReader::create_unique(std::move(parquet_reader), _profile,
                                                            _state, *_params, range, _io_ctx.get());
+                init_status = paimon_reader->init_reader(
+                        _file_col_names, _col_id_name_map, _colname_to_value_range,
+                        _push_down_conjuncts, _real_tuple_desc, _default_val_row_desc.get(),
+                        _col_name_to_slot_id, &_not_single_slot_filter_conjuncts,
+                        &_slot_id_to_filter_conjuncts);
                 RETURN_IF_ERROR(paimon_reader->init_row_filters());
                 _cur_reader = std::move(paimon_reader);
+            } else if (range.__isset.table_format_params &&
+                       range.table_format_params.table_format_type == "hudi") {
+                std::unique_ptr<HudiParquetReader> hudi_reader =
+                        HudiParquetReader::create_unique(std::move(parquet_reader), _profile,
+                                                         _state, *_params, range, _io_ctx.get());
+                init_status = hudi_reader->init_reader(
+                        _file_col_names, _col_id_name_map, _colname_to_value_range,
+                        _push_down_conjuncts, _real_tuple_desc, _default_val_row_desc.get(),
+                        _col_name_to_slot_id, &_not_single_slot_filter_conjuncts,
+                        &_slot_id_to_filter_conjuncts);
+                _cur_reader = std::move(hudi_reader);
             } else {
                 bool hive_parquet_use_column_names = true;
 
@@ -1063,14 +1079,25 @@ Status FileScanner::_get_next_reader() {
                 _cur_reader = std::move(iceberg_reader);
             } else if (range.__isset.table_format_params &&
                        range.table_format_params.table_format_type == "paimon") {
-                init_status = orc_reader->init_reader(
-                        &_file_col_names, _colname_to_value_range, _push_down_conjuncts, false,
-                        _real_tuple_desc, _default_val_row_desc.get(),
-                        &_not_single_slot_filter_conjuncts, &_slot_id_to_filter_conjuncts);
                 std::unique_ptr<PaimonOrcReader> paimon_reader = PaimonOrcReader::create_unique(
                         std::move(orc_reader), _profile, _state, *_params, range, _io_ctx.get());
+
+                init_status = paimon_reader->init_reader(
+                        _file_col_names, _col_id_name_map, _colname_to_value_range,
+                        _push_down_conjuncts, _real_tuple_desc, _default_val_row_desc.get(),
+                        &_not_single_slot_filter_conjuncts, &_slot_id_to_filter_conjuncts);
                 RETURN_IF_ERROR(paimon_reader->init_row_filters());
                 _cur_reader = std::move(paimon_reader);
+            } else if (range.__isset.table_format_params &&
+                       range.table_format_params.table_format_type == "hudi") {
+                std::unique_ptr<HudiOrcReader> hudi_reader = HudiOrcReader::create_unique(
+                        std::move(orc_reader), _profile, _state, *_params, range, _io_ctx.get());
+
+                init_status = hudi_reader->init_reader(
+                        _file_col_names, _col_id_name_map, _colname_to_value_range,
+                        _push_down_conjuncts, _real_tuple_desc, _default_val_row_desc.get(),
+                        &_not_single_slot_filter_conjuncts, &_slot_id_to_filter_conjuncts);
+                _cur_reader = std::move(hudi_reader);
             } else {
                 bool hive_orc_use_column_names = true;
 
@@ -1080,7 +1107,7 @@ Status FileScanner::_get_next_reader() {
                     hive_orc_use_column_names = _state->query_options().hive_orc_use_column_names;
                 }
                 init_status = orc_reader->init_reader(
-                        &_file_col_names, _colname_to_value_range, _push_down_conjuncts, false,
+                        &_file_col_names, {}, _colname_to_value_range, _push_down_conjuncts, false,
                         _real_tuple_desc, _default_val_row_desc.get(),
                         &_not_single_slot_filter_conjuncts, &_slot_id_to_filter_conjuncts,
                         hive_orc_use_column_names);
@@ -1181,7 +1208,7 @@ Status FileScanner::_get_next_reader() {
             }
             DCHECK(_source_file_col_names.size() == _source_file_col_types.size());
             for (int i = 0; i < _source_file_col_names.size(); ++i) {
-                _source_file_col_name_types[_source_file_col_names[i]] = &_source_file_col_types[i];
+                _source_file_col_name_types[_source_file_col_names[i]] = _source_file_col_types[i];
             }
         }
         _cur_reader_eof = false;
@@ -1273,7 +1300,9 @@ Status FileScanner::_init_expr_ctxes() {
         if (slot_info.is_file_slot) {
             _file_slot_descs.emplace_back(it->second);
             _file_col_names.push_back(it->second->col_name());
-            if (it->second->col_unique_id() > 0) {
+            if (it->second->col_unique_id() >= 0) {
+                // Iceberg field unique ID starts from 1, Paimon/Hudi field unique ID starts from 0.
+                // For other data sources, all columns are set to -1.
                 _col_id_name_map.emplace(it->second->col_unique_id(), it->second->col_name());
             }
         } else {

@@ -30,6 +30,8 @@
 #include "common/status.h"
 #include "runtime/types.h"
 #include "util/slice.h"
+#include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_nothing.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
@@ -39,8 +41,7 @@ struct FieldSchema {
     tparquet::SchemaElement parquet_schema;
 
     // Used to identify whether this field is a nested field.
-    TypeDescriptor type;
-    bool is_nullable;
+    DataTypePtr data_type;
 
     // Only valid when this field is a leaf node
     tparquet::Type::type physical_type;
@@ -54,7 +55,7 @@ struct FieldSchema {
     //For UInt8 -> Int16,UInt16 -> Int32,UInt32 -> Int64,UInt64 -> Int128.
     bool is_type_compatibility = false;
 
-    FieldSchema() = default;
+    FieldSchema() : data_type(std::make_shared<DataTypeNothing>()) {}
     ~FieldSchema() = default;
     FieldSchema(const FieldSchema& fieldSchema) = default;
     std::string debug_string() const;
@@ -72,7 +73,7 @@ private:
     std::unordered_map<std::string, const FieldSchema*> _name_to_field;
     // Used in from_thrift, marking the next schema position that should be parsed
     size_t _next_schema_pos;
-    std::unordered_map<uint64_t, std::string> _field_id_name_mapping;
+    std::map<int32_t, std::string> _field_id_name_mapping;
 
     void parse_physical_field(const tparquet::SchemaElement& physical_schema, bool is_nullable,
                               FieldSchema* physical_field);
@@ -92,14 +93,14 @@ private:
     Status parse_node_field(const std::vector<tparquet::SchemaElement>& t_schemas, size_t curr_pos,
                             FieldSchema* node_field);
 
-    std::pair<TypeDescriptor, bool> convert_to_doris_type(tparquet::LogicalType logicalType);
-
-    std::pair<TypeDescriptor, bool> convert_to_doris_type(
-            const tparquet::SchemaElement& physical_schema);
+    std::pair<DataTypePtr, bool> convert_to_doris_type(tparquet::LogicalType logicalType,
+                                                       bool nullable);
+    std::pair<DataTypePtr, bool> convert_to_doris_type(
+            const tparquet::SchemaElement& physical_schema, bool nullable);
+    std::pair<DataTypePtr, bool> get_doris_type(const tparquet::SchemaElement& physical_schema,
+                                                bool nullable);
 
 public:
-    std::pair<TypeDescriptor, bool> get_doris_type(const tparquet::SchemaElement& physical_schema);
-
     // org.apache.iceberg.avro.AvroSchemaUtil#sanitize will encode special characters,
     // we have to decode these characters
     void iceberg_sanitize(const std::vector<std::string>& read_columns);
@@ -134,9 +135,11 @@ public:
 
     int32_t size() const { return cast_set<int32_t>(_fields.size()); }
 
-    bool has_parquet_field_id() const { return _field_id_name_mapping.size() > 0; }
+    bool has_parquet_field_id() const { return !_field_id_name_mapping.empty(); }
 
-    const doris::Slice get_column_name_from_field_id(uint64_t id) const;
+    std::map<int32_t, std::string> get_field_id_name_map() { return _field_id_name_mapping; }
+
+    const doris::Slice get_column_name_from_field_id(int32_t id) const;
 };
 #include "common/compile_check_end.h"
 

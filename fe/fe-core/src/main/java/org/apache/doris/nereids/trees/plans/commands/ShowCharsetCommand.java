@@ -47,6 +47,11 @@ public class ShowCharsetCommand extends ShowCommand {
     }
 
     @Override
+    public ShowResultSetMetaData getMetaData() {
+        return CHARSET_META_DATA;
+    }
+
+    @Override
     public ShowResultSet doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
         List<List<String>> rows = Lists.newArrayList();
         List<String> row = Lists.newArrayList();
@@ -57,7 +62,7 @@ public class ShowCharsetCommand extends ShowCommand {
         row.add("4");
         rows.add(row);
 
-        return new ShowResultSet(CHARSET_META_DATA, rows);
+        return new ShowResultSet(getMetaData(), rows);
     }
 
     @Override

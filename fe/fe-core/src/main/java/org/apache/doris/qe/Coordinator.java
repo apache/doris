@@ -49,6 +49,7 @@ import org.apache.doris.nereids.trees.plans.physical.TopnFilter;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.DataStreamSink;
+import org.apache.doris.planner.DictionarySink;
 import org.apache.doris.planner.ExceptNode;
 import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.HashJoinNode;
@@ -225,6 +226,7 @@ public class Coordinator implements CoordInterface {
     private final Map<Pair<Integer, Long>, PipelineExecContext> pipelineExecContexts = new HashMap<>();
     private final List<PipelineExecContext> needCheckPipelineExecContexts = Lists.newArrayList();
     private List<ResultReceiver> receivers = Lists.newArrayList();
+    private ResultReceiverConsumer receiverConsumer;
     private final List<ScanNode> scanNodes;
     private int scanRangeNum = 0;
     // number of instances of this query, equals to
@@ -276,8 +278,6 @@ public class Coordinator implements CoordInterface {
     private ConnectContext context;
 
     private StatsErrorEstimator statsErrorEstimator;
-
-    private int receiverOffset = 0;
 
     // A countdown latch to mark the completion of each instance.
     // use for old pipeline
@@ -406,9 +406,6 @@ public class Coordinator implements CoordInterface {
         if (memLimit > 0) {
             // overwrite the exec_mem_limit from session variable;
             this.queryOptions.setMemLimit(memLimit);
-            this.queryOptions.setMaxReservation(memLimit);
-            this.queryOptions.setInitialReservationTotalClaims(memLimit);
-            this.queryOptions.setBufferPoolLimit(memLimit);
         }
     }
 
@@ -657,10 +654,15 @@ public class Coordinator implements CoordInterface {
         // LoadTask does not have context, not controlled by queue now
         if (context != null) {
             if (Config.enable_workload_group) {
-                this.setTWorkloadGroups(context.getEnv().getWorkloadGroupMgr().getWorkloadGroup(context));
+                List<TPipelineWorkloadGroup> wgList = context.getEnv().getWorkloadGroupMgr().getWorkloadGroup(context);
+                this.setTWorkloadGroups(wgList);
                 boolean shouldQueue = this.shouldQueue();
                 if (shouldQueue) {
-                    queryQueue = context.getEnv().getWorkloadGroupMgr().getWorkloadGroupQueryQueue(context);
+                    Set<Long> wgIdSet = Sets.newHashSet();
+                    for (TPipelineWorkloadGroup twg : wgList) {
+                        wgIdSet.add(twg.getId());
+                    }
+                    queryQueue = context.getEnv().getWorkloadGroupMgr().getWorkloadGroupQueryQueue(wgIdSet);
                     if (queryQueue == null) {
                         // This logic is actually useless, because when could not find query queue, it will
                         // throw exception during workload group manager.
@@ -749,6 +751,7 @@ public class Coordinator implements CoordInterface {
                             toArrowFlightHost(param.host), toBrpcHost(param.host), fragments.get(0).getOutputExprs()));
                 }
             }
+            receiverConsumer = new ResultReceiverConsumer(receivers, timeoutDeadline);
 
             LOG.info("dispatch result sink of query {} to {}", DebugUtil.printId(queryId),
                     topParams.instanceExecParams.get(0).host);
@@ -1155,10 +1158,8 @@ public class Coordinator implements CoordInterface {
             throw new UserException("There is no receiver.");
         }
 
-        RowBatch resultBatch;
         Status status = new Status();
-        ResultReceiver receiver = receivers.get(receiverOffset);
-        resultBatch = receiver.getNext(status);
+        RowBatch resultBatch = receiverConsumer.getNext(status);
         if (!status.ok()) {
             LOG.warn("Query {} coordinator get next fail, {}, need cancel.",
                     DebugUtil.printId(queryId), status.getErrorMsg());
@@ -1202,20 +1203,8 @@ public class Coordinator implements CoordInterface {
         boolean reachedLimit = LimitUtils.cancelIfReachLimit(
                 resultBatch, limitRows, numReceivedRows, this::cancelInternal);
 
-        if (resultBatch.isEos()) {
-            receivers.remove(receiver);
-            if (receivers.isEmpty()) {
-                returnedAllResults = true;
-            } else if (!reachedLimit) {
-                // if reachedLimit is true, which means this query has been cancelled.
-                // so no need to set eos to false again.
-                resultBatch.setEos(false);
-            }
-        }
-
-        if (!returnedAllResults) {
-            receiverOffset += 1;
-            receiverOffset %= receivers.size();
+        if (reachedLimit) {
+            resultBatch.setEos(true);
         }
         return resultBatch;
     }
@@ -1735,12 +1724,40 @@ public class Coordinator implements CoordInterface {
             PlanFragment fragment = fragments.get(i);
             FragmentExecParams params = fragmentExecParamsMap.get(fragment.getFragmentId());
 
+            // if need, we can abstract it to property function `toAllBackends()` or something.
+            if (fragment.getSink() instanceof DictionarySink) {
+                // set when assign all BE job
+                int expectedInstanceNum = fragment.getParallelExecNum();
+                int count = 0;
+                DictionarySink sink = (DictionarySink) fragment.getSink();
+
+                List<Backend> aliveBackends = sink.getPartialLoadBEs() == null
+                        // Coordinator only support this cluster backends. we need all cluster backends in dict loading.
+                        ? Env.getCurrentSystemInfo().getAllClusterBackends(true)
+                        // only load part of BEs
+                        : sink.getPartialLoadBEs();
+                for (Backend backend : aliveBackends) {
+                    TNetworkAddress execHostport = new TNetworkAddress(backend.getHost(), backend.getBePort());
+                    Reference<Long> backendIdRef = new Reference<Long>(backend.getId());
+                    this.addressToBackendID.put(execHostport, backendIdRef.getRef());
+                    FInstanceExecParam instanceParam = new FInstanceExecParam(null, execHostport, params);
+                    params.instanceExecParams.add(instanceParam);
+                    count++;
+                }
+                if (count != expectedInstanceNum) {
+                    throw new UserException("Expected " + expectedInstanceNum + " backends, but got " + count
+                            + ". partial load: " + context.getStatementContext().isPartialLoadDictionary());
+                }
+                // TODO: rethink the whole function logic. could All BE sink naturally merged into other judgements?
+                return;
+            }
+
             if (fragment.getDataPartition() == DataPartition.UNPARTITIONED) {
                 Reference<Long> backendIdRef = new Reference<Long>();
                 TNetworkAddress execHostport;
                 if (groupCommitBackend != null) {
                     execHostport = getGroupCommitBackend(addressToBackendID);
-                } else if (((ConnectContext.get() != null && ConnectContext.get().isResourceTagsSet()) || (
+                } else if (((ConnectContext.get() != null && ConnectContext.get().isSetComputeGroup()) || (
                         isAllExternalScan
                                 && Config.prefer_compute_node_for_external_table)) && !addressToBackendID.isEmpty()) {
                     // 2 cases:
@@ -1764,8 +1781,7 @@ public class Coordinator implements CoordInterface {
                     // backendIdRef can be null is we call getHostByCurrentBackend() before
                     this.addressToBackendID.put(execHostport, backendIdRef.getRef());
                 }
-                FInstanceExecParam instanceParam = new FInstanceExecParam(null, execHostport,
-                        0, params);
+                FInstanceExecParam instanceParam = new FInstanceExecParam(null, execHostport, params);
                 params.instanceExecParams.add(instanceParam);
 
                 // Using serial source means a serial source operator will be used in this fragment (e.g. data will be
@@ -1775,7 +1791,7 @@ public class Coordinator implements CoordInterface {
                 if (useSerialSource) {
                     for (int j = 1; j < expectedInstanceNum; j++) {
                         params.instanceExecParams.add(new FInstanceExecParam(
-                                null, execHostport, 0, params));
+                                null, execHostport, params));
                     }
                     params.ignoreDataDistribution = true;
                     params.parallelTasksNum = 1;
@@ -1827,7 +1843,7 @@ public class Coordinator implements CoordInterface {
                     Collections.shuffle(hosts, instanceRandom);
                     for (int index = 0; index < exchangeInstances; index++) {
                         FInstanceExecParam instanceParam = new FInstanceExecParam(null,
-                                hosts.get(index % hosts.size()), 0, params);
+                                hosts.get(index % hosts.size()), params);
                         params.instanceExecParams.add(instanceParam);
                     }
                     params.ignoreDataDistribution = useSerialSource;
@@ -1835,7 +1851,7 @@ public class Coordinator implements CoordInterface {
                 } else {
                     for (FInstanceExecParam execParams
                             : fragmentExecParamsMap.get(inputFragmentId).instanceExecParams) {
-                        FInstanceExecParam instanceParam = new FInstanceExecParam(null, execParams.host, 0, params);
+                        FInstanceExecParam instanceParam = new FInstanceExecParam(null, execParams.host, params);
                         params.instanceExecParams.add(instanceParam);
                     }
                     params.ignoreDataDistribution = useSerialSource;
@@ -1917,7 +1933,7 @@ public class Coordinator implements CoordInterface {
                         for (int j = 0; j < perInstanceScanRanges.size(); j++) {
                             List<TScanRangeParams> scanRangeParams = perInstanceScanRanges.get(j);
 
-                            FInstanceExecParam instanceParam = new FInstanceExecParam(null, key, 0, params);
+                            FInstanceExecParam instanceParam = new FInstanceExecParam(null, key, params);
                             instanceParam.perNodeScanRanges.put(planNodeId, scanRangeParams);
                             params.instanceExecParams.add(instanceParam);
                         }
@@ -1932,7 +1948,7 @@ public class Coordinator implements CoordInterface {
                 TNetworkAddress execHostport;
                 if (groupCommitBackend != null) {
                     execHostport = getGroupCommitBackend(addressToBackendID);
-                } else if (ConnectContext.get() != null && ConnectContext.get().isResourceTagsSet()
+                } else if (ConnectContext.get() != null && ConnectContext.get().isSetComputeGroup()
                         && !addressToBackendID.isEmpty()) {
                     // In this case, we only use the BE where the replica selected by the tag is located to
                     // execute this query. Otherwise, except for the scan node, the rest of the execution nodes
@@ -1950,7 +1966,7 @@ public class Coordinator implements CoordInterface {
                     // backendIdRef can be null is we call getHostByCurrentBackend() before
                     this.addressToBackendID.put(execHostport, backendIdRef.getRef());
                 }
-                FInstanceExecParam instanceParam = new FInstanceExecParam(null, execHostport, 0, params);
+                FInstanceExecParam instanceParam = new FInstanceExecParam(null, execHostport, params);
                 params.instanceExecParams.add(instanceParam);
             }
         }
@@ -2776,7 +2792,7 @@ public class Coordinator implements CoordInterface {
                 for (List<Pair<Integer, Map<Integer, List<TScanRangeParams>>>> perInstanceScanRange
                         : perInstanceScanRanges) {
                     FInstanceExecParam instanceParam = new FInstanceExecParam(
-                            null, addressScanRange.getKey(), 0, params);
+                            null, addressScanRange.getKey(), params);
 
                     if (firstInstanceParam == null) {
                         firstInstanceParam = instanceParam;
@@ -2804,7 +2820,7 @@ public class Coordinator implements CoordInterface {
                     params.instanceExecParams.add(instanceParam);
                 }
                 for (int i = perInstanceScanRanges.size(); i < parallelExecInstanceNum; i++) {
-                    params.instanceExecParams.add(new FInstanceExecParam(null, addressScanRange.getKey(), 0, params));
+                    params.instanceExecParams.add(new FInstanceExecParam(null, addressScanRange.getKey(), params));
                 }
             } else {
                 int expectedInstanceNum = 1;
@@ -2820,7 +2836,7 @@ public class Coordinator implements CoordInterface {
                 for (List<Pair<Integer, Map<Integer, List<TScanRangeParams>>>> perInstanceScanRange
                         : perInstanceScanRanges) {
                     FInstanceExecParam instanceParam = new FInstanceExecParam(
-                            null, addressScanRange.getKey(), 0, params);
+                            null, addressScanRange.getKey(), params);
 
                     for (Pair<Integer, Map<Integer, List<TScanRangeParams>>> nodeScanRangeMap : perInstanceScanRange) {
                         instanceParam.addBucketSeq(nodeScanRangeMap.first);
@@ -3354,8 +3370,6 @@ public class Coordinator implements CoordInterface {
         TNetworkAddress host;
         Map<Integer, List<TScanRangeParams>> perNodeScanRanges = Maps.newHashMap();
 
-        int perFragmentInstanceIdx;
-
         Set<Integer> bucketSeqSet = Sets.newHashSet();
 
         FragmentExecParams fragmentExecParams;
@@ -3368,11 +3382,9 @@ public class Coordinator implements CoordInterface {
             this.bucketSeqSet.add(bucketSeq);
         }
 
-        public FInstanceExecParam(TUniqueId id, TNetworkAddress host,
-                                  int perFragmentInstanceIdx, FragmentExecParams fragmentExecParams) {
+        public FInstanceExecParam(TUniqueId id, TNetworkAddress host, FragmentExecParams fragmentExecParams) {
             this.instanceId = id;
             this.host = host;
-            this.perFragmentInstanceIdx = perFragmentInstanceIdx;
             this.fragmentExecParams = fragmentExecParams;
         }
 

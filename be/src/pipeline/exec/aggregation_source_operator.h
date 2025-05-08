@@ -18,6 +18,7 @@
 
 #include <stdint.h>
 
+#include "common/be_mock_util.h"
 #include "common/status.h"
 #include "operator.h"
 
@@ -28,7 +29,7 @@ namespace pipeline {
 #include "common/compile_check_begin.h"
 class AggSourceOperatorX;
 
-class AggLocalState final : public PipelineXLocalState<AggSharedState> {
+class AggLocalState MOCK_REMOVE(final) : public PipelineXLocalState<AggSharedState> {
 public:
     using Base = PipelineXLocalState<AggSharedState>;
     ENABLE_FACTORY_CREATOR(AggLocalState);
@@ -39,7 +40,6 @@ public:
     Status close(RuntimeState* state) override;
 
     void make_nullable_output_key(vectorized::Block* block);
-    template <bool limit>
     Status merge_with_serialized_key_helper(vectorized::Block* block);
     void do_agg_limit(vectorized::Block* block, bool* eos);
 
@@ -63,8 +63,7 @@ protected:
             }
         }
     }
-    void _find_in_hash_table(vectorized::AggregateDataPtr* places,
-                             vectorized::ColumnRawPtrs& key_columns, size_t num_rows);
+
     void _emplace_into_hash_table(vectorized::AggregateDataPtr* places,
                                   vectorized::ColumnRawPtrs& key_columns, size_t num_rows);
 
@@ -111,7 +110,6 @@ public:
 
     bool is_source() const override { return true; }
 
-    template <bool limit>
     Status merge_with_serialized_key_helper(RuntimeState* state, vectorized::Block* block);
 
     size_t get_estimated_memory_size_for_merging(RuntimeState* state, size_t rows) const;

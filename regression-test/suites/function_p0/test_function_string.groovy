@@ -47,4 +47,39 @@ suite("test_function_string") {
         drop table if exists test_tb_function_space;
     """
 
+
+    sql """
+        drop table if exists test_parse_url;
+    """
+
+    sql """
+     CREATE TABLE `test_parse_url` (
+        `id` int NULL,
+        `url` text NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`id`)
+        DISTRIBUTED BY RANDOM BUCKETS AUTO
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+        );
+    """
+
+    sql """
+        insert into test_parse_url values (1, 'http://www.facebook.com'), (2, "http://www.google.com/test?name=abc&age=20");
+    """
+
+    qt_sql """
+        select parse_url(url, 'HOST') as host, parse_url(url, 'FILE') as file from test_parse_url order by id;
+    """
+
+
+    sql """
+        set DEBUG_SKIP_FOLD_CONSTANT = true;
+    """
+    qt_sql """
+       select initcap('GROSSE     àstanbul , ÀÇAC123    ΣΟΦΟΣ');
+    """
+    sql """
+        set DEBUG_SKIP_FOLD_CONSTANT = false;
+    """
 }

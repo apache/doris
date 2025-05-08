@@ -50,7 +50,7 @@ public:
 
     ~TaskScheduler();
 
-    Status schedule_task(PipelineTask* task);
+    Status schedule_task(PipelineTaskSPtr task);
 
     Status start();
 

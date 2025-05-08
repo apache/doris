@@ -64,6 +64,8 @@ import org.apache.doris.plsql.Exec;
 import org.apache.doris.plsql.executor.PlSqlOperation;
 import org.apache.doris.plugin.AuditEvent.AuditEventBuilder;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.resource.computegroup.ComputeGroup;
+import org.apache.doris.resource.computegroup.ComputeGroupMgr;
 import org.apache.doris.service.arrowflight.results.FlightSqlChannel;
 import org.apache.doris.service.arrowflight.results.FlightSqlEndpointsLocation;
 import org.apache.doris.statistics.ColumnStatistic;
@@ -79,7 +81,6 @@ import org.apache.doris.transaction.TransactionStatus;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
 import io.netty.util.concurrent.FastThreadLocal;
 import lombok.Getter;
 import lombok.Setter;
@@ -132,6 +133,8 @@ public class ConnectContext {
     protected volatile LoadTaskInfo streamLoadInfo;
 
     protected volatile TUniqueId queryId = null;
+    // only be active one time. tell Coordinator to regenerate instance ids for certain query(when retry).
+    protected volatile TUniqueId needRegenerateInstanceId = null;
     protected volatile AtomicInteger instanceIdGenerator = new AtomicInteger();
     protected volatile String traceId;
     protected volatile TUniqueId lastQueryId = null;
@@ -211,14 +214,11 @@ public class ConnectContext {
 
     // If set to true, the nondeterministic function will not be rewrote to constant.
     private boolean notEvalNondeterministicFunction = false;
-    // The resource tag is used to limit the node resources that the user can use for query.
+    // The compute group tag is used to limit the node resources that the user can use for query.
     // The default is empty, that is, unlimited.
     // This property is obtained from UserProperty when the client connection is created.
     // Only when the connection is created again, the new resource tags will be retrieved from the UserProperty
-    private Set<Tag> resourceTags = Sets.newHashSet();
-    // If set to true, the resource tags set in resourceTags will be used to limit the query resources.
-    // If set to false, the system will not restrict query resources.
-    private boolean isResourceTagsSet = false;
+    private ComputeGroup computeGroup = null;
 
     private PlSqlOperation plSqlOperation = null;
 
@@ -943,6 +943,10 @@ public class ConnectContext {
         }
     }
 
+    public void setNeedRegenerateInstanceId(TUniqueId needRegenerateInstanceId) {
+        this.needRegenerateInstanceId = needRegenerateInstanceId;
+    }
+
     public void setTraceId(String traceId) {
         this.traceId = traceId;
     }
@@ -965,6 +969,14 @@ public class ConnectContext {
         } else {
             return new TUniqueId(queryId.hi, queryId.lo + instanceIdGenerator.incrementAndGet());
         }
+    }
+
+    public boolean consumeNeedRegenerateQueryId() {
+        if (needRegenerateInstanceId == queryId) {
+            needRegenerateInstanceId = null; // consume it
+            return true;
+        }
+        return false;
     }
 
     public String getSqlHash() {
@@ -1086,17 +1098,12 @@ public class ConnectContext {
         return threadInfo;
     }
 
-    public boolean isResourceTagsSet() {
-        return isResourceTagsSet;
+    public boolean isSetComputeGroup() {
+        return computeGroup != null;
     }
 
-    public Set<Tag> getResourceTags() {
-        return resourceTags;
-    }
-
-    public void setResourceTags(Set<Tag> resourceTags) {
-        this.resourceTags = resourceTags;
-        this.isResourceTagsSet = !this.resourceTags.isEmpty();
+    public void setComputeGroup(ComputeGroup computeGroup) {
+        this.computeGroup = computeGroup;
     }
 
     public void setCurrentConnectedFEIp(String ip) {
@@ -1360,6 +1367,35 @@ public class ConnectContext {
             : new CloudClusterResult(hasAuthCluster.get(0), CloudClusterResult.Comment.FOUND_BY_FRIST_CLUSTER_HAS_AUTH);
     }
 
+    public ComputeGroup getComputeGroupSafely() {
+        try {
+            return getComputeGroup();
+        } catch (UserException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public ComputeGroup getComputeGroup() throws UserException {
+        ComputeGroupMgr cgMgr = Env.getCurrentEnv().getComputeGroupMgr();
+        if (Config.isCloudMode()) {
+            return cgMgr.getComputeGroupByName(getCurrentCloudCluster());
+        } else {
+            // In order to be compatible with resource tag's old logic,
+            // when a user login in FE by mysql client, then its tags are set in ConnectContext which
+            // means isSetComputeGroup = true
+            if (this.isSetComputeGroup()) {
+                return computeGroup;
+            } else {
+                String currentUser = getQualifiedUser();
+                if (!StringUtils.isEmpty(currentUser)) {
+                    return Env.getCurrentEnv().getAuth().getComputeGroup(currentUser);
+                } else {
+                    return Env.getCurrentEnv().getComputeGroupMgr().getComputeGroupByName(Tag.VALUE_DEFAULT_TAG);
+                }
+            }
+        }
+    }
+
     /**
      * Tries to choose an available cluster in the following order
      * 1. Do nothing if a cluster has been chosen for current session. It may be
@@ -1399,7 +1435,11 @@ public class ConnectContext {
         }
 
         if (Strings.isNullOrEmpty(cluster)) {
-            LOG.warn("cant get a valid compute group for user {} to use", getCurrentUserIdentity());
+            List<String> cloudClusterNames
+                    = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getCloudClusterNames();
+            LOG.warn("Can not get a valid compute group for user {} {} to use, all cluster: {}",
+                    getCurrentUserIdentity(),
+                    getQualifiedUser(), cloudClusterNames);
             ComputeGroupException exception = new ComputeGroupException(
                     "the user is not granted permission to the compute group",
                     ComputeGroupException.FailedTypeEnum.CURRENT_USER_NO_AUTH_TO_USE_ANY_COMPUTE_GROUP);

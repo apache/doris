@@ -106,17 +106,17 @@ public:
                         uint32_t result, size_t input_rows_count) const override {
         ColumnWithTypeAndName& argument = block.get_by_position(arguments[0]);
 
-        switch (argument.type->get_type_id()) {
-        case TypeIndex::Int8:
+        switch (argument.type->get_primitive_type()) {
+        case PrimitiveType::TYPE_TINYINT:
             return execute_type<Int8>(block, argument, result);
             break;
-        case TypeIndex::Int16:
+        case PrimitiveType::TYPE_SMALLINT:
             return execute_type<Int16>(block, argument, result);
             break;
-        case TypeIndex::Int32:
+        case PrimitiveType::TYPE_INT:
             return execute_type<Int32>(block, argument, result);
             break;
-        case TypeIndex::Int64:
+        case PrimitiveType::TYPE_BIGINT:
             return execute_type<Int64>(block, argument, result);
             break;
         default:
@@ -711,7 +711,7 @@ public:
         std::shared_ptr<roaring::Roaring> max_roaring = std::make_shared<roaring::Roaring>();
         std::shared_ptr<roaring::Roaring> null_bitmap = std::make_shared<roaring::Roaring>();
 
-        auto param_type = data_type_with_name.second->get_type_as_type_descriptor().type;
+        auto param_type = data_type_with_name.second->get_primitive_type();
         std::unique_ptr<segment_v2::InvertedIndexQueryParamFactory> query_param = nullptr;
         // >= min ip
         RETURN_IF_ERROR(segment_v2::InvertedIndexQueryParamFactory::create_query_value(
@@ -1230,12 +1230,6 @@ public:
 
         block.replace_by_position(result, std::move(col_res));
         return Status::OK();
-    }
-
-private:
-    static void map_ipv4_to_ipv6(IPv4 ipv4, UInt8* buf) {
-        unaligned_store<UInt64>(buf, 0x0000FFFF00000000ULL | static_cast<UInt64>(ipv4));
-        unaligned_store<UInt64>(buf + 8, 0);
     }
 };
 

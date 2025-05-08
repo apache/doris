@@ -514,7 +514,7 @@ public:
                 assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(nested_column);
 
         AggregateFunctionPercentileArray::data(place).add(
-                sources.get_int(row_num), nested_column_data.get_data(), null_maps,
+                sources.get_element(row_num), nested_column_data.get_data(), null_maps,
                 offset_column_data.data()[row_num] - offset_column_data[(ssize_t)row_num - 1]);
     }
 

@@ -67,8 +67,6 @@ Status PartitionedAggSinkLocalState::init(doris::RuntimeState* state,
 
     _spill_dependency = Dependency::create_shared(parent.operator_id(), parent.node_id(),
                                                   "AggSinkSpillDependency", true);
-    state->get_task()->add_spill_dependency(_spill_dependency.get());
-
     return Status::OK();
 }
 
@@ -130,8 +128,6 @@ Status PartitionedAggSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* s
     RETURN_IF_ERROR(DataSinkOperatorX<PartitionedAggSinkLocalState>::init(tnode, state));
     _name = "PARTITIONED_AGGREGATION_SINK_OPERATOR";
     _spill_partition_count = state->spill_aggregation_partition_count();
-    RETURN_IF_ERROR(
-            _agg_sink_operator->set_child(DataSinkOperatorX<PartitionedAggSinkLocalState>::_child));
     return _agg_sink_operator->init(tnode, state);
 }
 
@@ -155,7 +151,7 @@ Status PartitionedAggSinkOperatorX::sink(doris::RuntimeState* state, vectorized:
     int64_t query_mem_limit = 0;
     if (eos) {
         revocable_size = revocable_mem_size(state);
-        query_mem_limit = state->get_query_ctx()->get_mem_limit();
+        query_mem_limit = state->get_query_ctx()->resource_ctx()->memory_context()->mem_limit();
         LOG(INFO) << fmt::format(
                 "Query:{}, agg sink:{}, task:{}, eos, need spill:{}, query mem limit:{}, "
                 "revocable memory:{}",
@@ -255,10 +251,6 @@ Status PartitionedAggSinkLocalState::revoke_memory(
         update_profile<true>(sink_local_state->profile());
     }
 
-    // TODO: spill thread may set_ready before the task::execute thread put the task to blocked state
-    if (!_eos) {
-        Base::_spill_dependency->Dependency::block();
-    }
     auto& parent = Base::_parent->template cast<Parent>();
     Status status;
     Defer defer {[&]() {
@@ -277,7 +269,7 @@ Status PartitionedAggSinkLocalState::revoke_memory(
         return status;
     });
 
-    state->get_query_ctx()->increase_revoking_tasks_count();
+    state->get_query_ctx()->resource_ctx()->task_controller()->increase_revoking_tasks_count();
 
     auto spill_runnable = std::make_shared<SpillSinkRunnable>(
             state, spill_context, _spill_dependency, _profile, _shared_state->shared_from_this(),
@@ -311,7 +303,10 @@ Status PartitionedAggSinkLocalState::revoke_memory(
                     if (_eos) {
                         Base::_dependency->set_ready_to_read();
                     }
-                    state->get_query_ctx()->decrease_revoking_tasks_count();
+                    state->get_query_ctx()
+                            ->resource_ctx()
+                            ->task_controller()
+                            ->decrease_revoking_tasks_count();
                 }};
                 auto* runtime_state = _runtime_state.get();
                 auto* agg_data = parent._agg_sink_operator->get_agg_data(runtime_state);
@@ -331,6 +326,7 @@ Status PartitionedAggSinkLocalState::revoke_memory(
                 return status;
             });
 
+    Base::_spill_dependency->Dependency::block();
     return ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool()->submit(
             std::move(spill_runnable));
 }

@@ -102,7 +102,7 @@ enum class TypeIndex {
     Decimal256 = 45,
     IPv4 = 46,
     IPv6 = 47,
-    Int256
+    Int256 = 48
 };
 
 struct Consted {
@@ -548,7 +548,9 @@ struct Decimal {
         return T(value);
     }
 
-    static Decimal double_to_decimal(double value_) {
+    static Decimal double_to_decimalv2(double value_)
+        requires(std::is_same_v<T, Int128>)
+    {
         DecimalV2Value decimal_value;
         decimal_value.assign_from_double(value_);
         return Decimal(binary_cast<DecimalV2Value, T>(decimal_value));
@@ -792,6 +794,16 @@ template <>
 inline constexpr bool IsDecimal128V3<Decimal128V3> = true;
 
 template <typename T>
+constexpr bool IsDecimal64 = false;
+template <>
+inline constexpr bool IsDecimal64<Decimal64> = true;
+
+template <typename T>
+constexpr bool IsDecimal32 = false;
+template <>
+inline constexpr bool IsDecimal32<Decimal32> = true;
+
+template <typename T>
 constexpr bool IsDecimal256 = false;
 template <>
 inline constexpr bool IsDecimal256<Decimal256> = true;
@@ -980,24 +992,3 @@ struct std::hash<doris::vectorized::Decimal256> {
                std::hash<uint64_t>()(x.value & std::numeric_limits<uint64_t>::max());
     }
 };
-
-constexpr bool typeindex_is_int(doris::vectorized::TypeIndex index) {
-    using TypeIndex = doris::vectorized::TypeIndex;
-    switch (index) {
-    case TypeIndex::UInt8:
-    case TypeIndex::UInt16:
-    case TypeIndex::UInt32:
-    case TypeIndex::UInt64:
-    case TypeIndex::UInt128:
-    case TypeIndex::Int8:
-    case TypeIndex::Int16:
-    case TypeIndex::Int32:
-    case TypeIndex::Int64:
-    case TypeIndex::Int128: {
-        return true;
-    }
-    default: {
-        return false;
-    }
-    }
-}

@@ -27,6 +27,7 @@
 #include <string>
 #include <vector>
 
+#include "common/be_mock_util.h"
 #include "common/config.h"
 #include "common/status.h"
 #include "runtime/exec_env.h"
@@ -37,22 +38,21 @@
 #include "util/stack_util.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 constexpr size_t SYNC_PROC_RESERVED_INTERVAL_BYTES = (1ULL << 20); // 1M
 static std::string MEMORY_ORPHAN_CHECK_MSG =
-        "If you crash here, it means that SCOPED_ATTACH_TASK and "
-        "SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER are not used correctly. starting position of "
-        "each thread is expected to use SCOPED_ATTACH_TASK to bind a MemTrackerLimiter belonging "
-        "to Query/Load/Compaction/Other Tasks, otherwise memory alloc using Doris Allocator in the "
-        "thread will crash. If you want to switch MemTrackerLimiter during thread execution, "
-        "please use SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER, do not repeat Attach.";
+        "The ThreadContext of the current thread not attach a valid MemoryTracker. after the "
+        "thread is started, the ResourceContext in SCOPED_ATTACH_TASK macro should contain a valid "
+        "MemoryTracker, or a valid MemoryTracker should be passed in later using "
+        "SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER macro.";
 
 // Memory Hook is counted in the memory tracker of the current thread.
 class ThreadMemTrackerMgr {
 public:
     ThreadMemTrackerMgr() = default;
 
-    ~ThreadMemTrackerMgr() {
+    MOCK_FUNCTION ~ThreadMemTrackerMgr() {
         // if _init == false, exec env is not initialized when init(). and never consumed mem tracker once.
         if (_init) {
             DCHECK(_reserved_mem == 0);
@@ -82,13 +82,22 @@ public:
     void consume(int64_t size);
     void flush_untracked_mem();
 
-    doris::Status try_reserve(int64_t size, bool only_check_process_memory);
+    // if only_check_process_memory == true, still reserve query, wg, process memory, only check process memory.
+    MOCK_FUNCTION doris::Status try_reserve(int64_t size, bool only_check_process_memory = false);
 
     void shrink_reserved();
 
-    std::shared_ptr<MemTrackerLimiter> limiter_mem_tracker() {
+    MemTrackerLimiter* limiter_mem_tracker() {
         CHECK(init());
         return _limiter_tracker;
+    }
+
+    // Prefer use `limiter_mem_tracker`, which is faster than `limiter_mem_tracker_sptr`.
+    // when multiple threads hold the same `std::shared_ptr` at the same time,
+    // modifying the `std::shared_ptr` reference count will be expensive when there is high concurrency.
+    std::shared_ptr<MemTrackerLimiter> limiter_mem_tracker_sptr() {
+        CHECK(init());
+        return _limiter_tracker_sptr;
     }
 
     void enable_wait_gc() { _wait_gc = true; }
@@ -103,7 +112,7 @@ public:
         return fmt::format(
                 "ThreadMemTrackerMgr debug, _untracked_mem:{}, "
                 "_limiter_tracker:<{}>, _consumer_tracker_stack:<{}>",
-                std::to_string(_untracked_mem), limiter_mem_tracker()->make_profile_str(),
+                std::to_string(_untracked_mem), _limiter_tracker->make_profile_str(),
                 fmt::to_string(consumer_tracker_buf));
     }
 
@@ -114,7 +123,7 @@ public:
     int skip_large_memory_check = 0;
 
     void memory_orphan_check() {
-#ifdef USE_MEM_TRACKER
+#ifndef BE_TEST
         DCHECK(doris::k_doris_exit || !doris::config::enable_memory_orphan_check ||
                limiter_mem_tracker()->label() != "Orphan")
                 << doris::MEMORY_ORPHAN_CHECK_MSG;
@@ -146,7 +155,8 @@ private:
     // A thread of query/load will only wait once during execution.
     bool _wait_gc = false;
 
-    std::shared_ptr<MemTrackerLimiter> _limiter_tracker {nullptr};
+    std::shared_ptr<MemTrackerLimiter> _limiter_tracker_sptr {nullptr};
+    MemTrackerLimiter* _limiter_tracker {nullptr};
     std::vector<MemTracker*> _consumer_tracker_stack;
     std::weak_ptr<WorkloadGroup> _wg_wptr;
 
@@ -161,7 +171,8 @@ inline bool ThreadMemTrackerMgr::init() {
         return true;
     }
     if (ExecEnv::GetInstance()->orphan_mem_tracker() != nullptr) {
-        _limiter_tracker = ExecEnv::GetInstance()->orphan_mem_tracker();
+        _limiter_tracker_sptr = ExecEnv::GetInstance()->orphan_mem_tracker();
+        _limiter_tracker = _limiter_tracker_sptr.get();
         _wait_gc = true;
         _init = true;
         return true;
@@ -281,9 +292,9 @@ inline void ThreadMemTrackerMgr::flush_untracked_mem() {
 
 inline doris::Status ThreadMemTrackerMgr::try_reserve(int64_t size,
                                                       bool only_check_process_memory) {
-    DCHECK(_limiter_tracker);
     DCHECK(size >= 0);
     CHECK(init());
+    DCHECK(_limiter_tracker);
     memory_orphan_check();
     // if _reserved_mem not equal to 0, repeat reserve,
     // _untracked_mem store bytes that not synchronized to process reserved memory.
@@ -350,4 +361,5 @@ inline void ThreadMemTrackerMgr::shrink_reserved() {
     }
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

@@ -39,7 +39,6 @@
 #include "vec/common/columns_hashing.h"
 #include "vec/common/hash_table/hash.h"
 #include "vec/common/hash_table/hash_map_context.h"
-#include "vec/common/hash_table/hash_table_allocator.h"
 #include "vec/common/pod_array_fwd.h"
 #include "vec/common/string_ref.h"
 #include "vec/common/uint128.h"
@@ -80,7 +79,6 @@ public:
             throw doris::Exception(
                     ErrorCode::INVALID_ARGUMENT,
                     "Incorrect number of arguments for array_enumerate_uniq function");
-            __builtin_unreachable();
         }
         bool is_nested_nullable = false;
         for (size_t i = 0; i < arguments.size(); ++i) {

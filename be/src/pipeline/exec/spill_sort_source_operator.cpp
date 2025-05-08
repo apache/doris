@@ -39,8 +39,6 @@ Status SpillSortLocalState::init(RuntimeState* state, LocalStateInfo& info) {
 
     _spill_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
                                                   "SortSourceSpillDependency", true);
-    state->get_task()->add_spill_dependency(_spill_dependency.get());
-
     _internal_runtime_profile = std::make_unique<RuntimeProfile>("internal_profile");
     _spill_merge_sort_timer = ADD_TIMER_WITH_LEVEL(Base::profile(), "SpillMergeSortTime", 1);
     return Status::OK();
@@ -182,7 +180,7 @@ Status SpillSortLocalState::_create_intermediate_merger(
         int num_blocks, const vectorized::SortDescription& sort_description) {
     std::vector<vectorized::BlockSupplier> child_block_suppliers;
     _merger = std::make_unique<vectorized::VSortedRunMerger>(
-            sort_description, _shared_state->spill_block_batch_row_count,
+            sort_description, _runtime_state->batch_size(),
             Base::_shared_state->in_mem_shared_state->sorter->limit(),
             Base::_shared_state->in_mem_shared_state->sorter->offset(), profile());
 

@@ -25,32 +25,6 @@
 
 namespace doris {
 
-bool is_type_compatible(PrimitiveType lhs, PrimitiveType rhs) {
-    if (lhs == TYPE_VARCHAR) {
-        return rhs == TYPE_CHAR || rhs == TYPE_VARCHAR || rhs == TYPE_HLL || rhs == TYPE_OBJECT ||
-               rhs == TYPE_QUANTILE_STATE || rhs == TYPE_STRING;
-    }
-
-    if (lhs == TYPE_OBJECT) {
-        return rhs == TYPE_VARCHAR || rhs == TYPE_OBJECT || rhs == TYPE_STRING;
-    }
-
-    if (lhs == TYPE_CHAR || lhs == TYPE_HLL) {
-        return rhs == TYPE_CHAR || rhs == TYPE_VARCHAR || rhs == TYPE_HLL || rhs == TYPE_STRING;
-    }
-
-    if (lhs == TYPE_STRING) {
-        return rhs == TYPE_CHAR || rhs == TYPE_VARCHAR || rhs == TYPE_HLL || rhs == TYPE_OBJECT ||
-               rhs == TYPE_STRING;
-    }
-
-    if (lhs == TYPE_QUANTILE_STATE) {
-        return rhs == TYPE_VARCHAR || rhs == TYPE_QUANTILE_STATE || rhs == TYPE_STRING;
-    }
-
-    return lhs == rhs;
-}
-
 PrimitiveType thrift_to_type(TPrimitiveType::type ttype) {
     switch (ttype) {
     case TPrimitiveType::INVALID_TYPE:

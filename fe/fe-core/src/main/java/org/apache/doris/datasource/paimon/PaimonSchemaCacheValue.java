@@ -20,18 +20,28 @@ package org.apache.doris.datasource.paimon;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.datasource.SchemaCacheValue;
 
+import org.apache.paimon.schema.TableSchema;
+
 import java.util.List;
 
 public class PaimonSchemaCacheValue extends SchemaCacheValue {
 
     private List<Column> partitionColumns;
 
-    public PaimonSchemaCacheValue(List<Column> schema, List<Column> partitionColumns) {
+    private TableSchema tableSchema;
+    // Caching TableSchema can reduce the reading of schema files and json parsing.
+
+    public PaimonSchemaCacheValue(List<Column> schema, List<Column> partitionColumns, TableSchema tableSchema) {
         super(schema);
         this.partitionColumns = partitionColumns;
+        this.tableSchema = tableSchema;
     }
 
     public List<Column> getPartitionColumns() {
         return partitionColumns;
+    }
+
+    public TableSchema getTableSchema() {
+        return tableSchema;
     }
 }

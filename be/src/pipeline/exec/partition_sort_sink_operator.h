@@ -72,6 +72,18 @@ class PartitionSortSinkOperatorX final : public DataSinkOperatorX<PartitionSortS
 public:
     PartitionSortSinkOperatorX(ObjectPool* pool, int operator_id, int dest_id,
                                const TPlanNode& tnode, const DescriptorTbl& descs);
+
+#ifdef BE_TEST
+    PartitionSortSinkOperatorX(ObjectPool* pool, int limit, int partition_exprs_num,
+                               bool has_global_limit, int partition_inner_limit)
+            : _pool(pool),
+              _limit(limit),
+              _partition_exprs_num(partition_exprs_num),
+              _topn_phase(TPartTopNPhase::ONE_PHASE_GLOBAL),
+              _has_global_limit(has_global_limit),
+              _partition_inner_limit(partition_inner_limit) {}
+#endif
+
     Status init(const TDataSink& tsink) override {
         return Status::InternalError("{} should not init with TPlanNode",
                                      DataSinkOperatorX<PartitionSortSinkLocalState>::_name);
