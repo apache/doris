@@ -6712,6 +6712,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return new AdminCancelRepairTableCommand(tableRefInfo);
     }
 
+    @Override
     public LogicalPlan visitAdminCopyTablet(DorisParser.AdminCopyTabletContext ctx) {
         long tabletId = Long.parseLong(ctx.tabletId.getText());
         Map<String, String> properties;
