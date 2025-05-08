@@ -708,6 +708,10 @@ Status CloudStorageEngine::_submit_base_compaction_task(const CloudTabletSPtr& t
         std::lock_guard lock(_compaction_mtx);
         _executing_base_compactions.erase(tablet->tablet_id());
     });
+    DorisMetrics::instance()->base_compaction_task_running_total->set_value(
+            _base_compaction_thread_pool->num_active_threads());
+    DorisMetrics::instance()->base_compaction_task_pending_total->set_value(
+            _base_compaction_thread_pool->get_queue_size());
     if (!st.ok()) {
         std::lock_guard lock(_compaction_mtx);
         _submitted_base_compactions.erase(tablet->tablet_id());
@@ -862,6 +866,10 @@ Status CloudStorageEngine::_submit_cumulative_compaction_task(const CloudTabletS
         }
         erase_executing_cumu_compaction();
     });
+    DorisMetrics::instance()->cumulative_compaction_task_running_total->set_value(
+            _cumu_compaction_thread_pool->num_active_threads());
+    DorisMetrics::instance()->cumulative_compaction_task_pending_total->set_value(
+            _cumu_compaction_thread_pool->get_queue_size());
     if (!st.ok()) {
         erase_submitted_cumu_compaction();
         return Status::InternalError("failed to submit cumu compaction, tablet_id={}",

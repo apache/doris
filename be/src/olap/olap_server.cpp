@@ -1142,6 +1142,17 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
             TEST_SYNC_POINT_RETURN_WITH_VOID("olap_server::execute_compaction");
             tablet->execute_compaction(*compaction);
         });
+        if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) [[likely]] {
+            DorisMetrics::instance()->cumulative_compaction_task_running_total->set_value(
+                    _cumu_compaction_thread_pool->num_active_threads());
+            DorisMetrics::instance()->cumulative_compaction_task_pending_total->set_value(
+                    _cumu_compaction_thread_pool->get_queue_size());
+        } else if (compaction_type == CompactionType::BASE_COMPACTION) {
+            DorisMetrics::instance()->base_compaction_task_running_total->set_value(
+                    _base_compaction_thread_pool->num_active_threads());
+            DorisMetrics::instance()->base_compaction_task_pending_total->set_value(
+                    _base_compaction_thread_pool->get_queue_size());
+        }
         if (!st.ok()) {
             if (!force) {
                 _permit_limiter.release(permits);
