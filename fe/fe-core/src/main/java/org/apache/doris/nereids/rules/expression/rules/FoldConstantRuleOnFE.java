@@ -80,6 +80,7 @@ import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
+import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
@@ -464,6 +465,9 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
         }
         Expression child = cast.child();
         DataType dataType = cast.getDataType();
+        if (!safeToCast(cast)) {
+            return cast;
+        }
         // todo: process other null case
         if (child.isNullLiteral()) {
             return new NullLiteral(dataType);
@@ -487,6 +491,25 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
         } catch (Throwable t) {
             return cast;
         }
+    }
+
+    // Check if the given literal value is safe to cast to the targetType.
+    // We need to guarantee FE cast result is identical with BE cast result.
+    // Otherwise, it's not safe.
+    protected boolean safeToCast(Cast cast) {
+        if (cast == null || cast.child() == null || cast.getDataType() == null) {
+            return true;
+        }
+        // Check double type.
+        if (cast.child() instanceof DoubleLiteral && cast.getDataType().isStringLikeType()) {
+            Double value = ((DoubleLiteral) cast.child()).getValue();
+            if (value.isInfinite() || value.isNaN()) {
+                return true;
+            }
+            return -1E16 < value && value < 1E16;
+        }
+        // Check other types if needed.
+        return true;
     }
 
     @Override
