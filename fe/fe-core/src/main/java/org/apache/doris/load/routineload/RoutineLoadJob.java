@@ -391,7 +391,8 @@ public abstract class RoutineLoadJob
             jobProperties.put(FileFormatProperties.PROP_FORMAT, "csv");
             jobProperties.put(LoadStmt.KEY_ENCLOSE, String.valueOf(csvFileFormatProperties.getEnclose()));
             jobProperties.put(LoadStmt.KEY_ESCAPE, String.valueOf(csvFileFormatProperties.getEscape()));
-
+            this.enclose = csvFileFormatProperties.getEnclose();
+            this.escape = csvFileFormatProperties.getEscape();
         } else if (fileFormatProperties instanceof JsonFileFormatProperties) {
             JsonFileFormatProperties jsonFileFormatProperties = (JsonFileFormatProperties) fileFormatProperties;
             jobProperties.put(FileFormatProperties.PROP_FORMAT, "json");
