@@ -49,6 +49,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.dictionary.LayoutType;
 import org.apache.doris.job.common.IntervalUnit;
@@ -148,6 +149,7 @@ import org.apache.doris.nereids.DorisParser.CreateUserContext;
 import org.apache.doris.nereids.DorisParser.CreateUserDefineFunctionContext;
 import org.apache.doris.nereids.DorisParser.CreateViewContext;
 import org.apache.doris.nereids.DorisParser.CreateWorkloadGroupContext;
+import org.apache.doris.nereids.DorisParser.CreateWorkloadPolicyContext;
 import org.apache.doris.nereids.DorisParser.CteContext;
 import org.apache.doris.nereids.DorisParser.DataTypeListContext;
 import org.apache.doris.nereids.DorisParser.DataTypeWithNullableContext;
@@ -592,6 +594,7 @@ import org.apache.doris.nereids.trees.plans.commands.CreateTableLikeCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateUserCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateWorkloadGroupCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateWorkloadPolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromUsingCommand;
 import org.apache.doris.nereids.trees.plans.commands.DescribeCommand;
@@ -902,6 +905,8 @@ import org.apache.doris.policy.FilterType;
 import org.apache.doris.policy.PolicyTypeEnum;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SqlModeHelper;
+import org.apache.doris.resource.workloadschedpolicy.WorkloadActionMeta;
+import org.apache.doris.resource.workloadschedpolicy.WorkloadConditionMeta;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.system.NodeType;
 
@@ -6382,6 +6387,57 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public Plan visitUnlockTables(UnlockTablesContext ctx) {
         return new UnlockTablesCommand();
+    }
+
+    @Override
+    public LogicalPlan visitCreateWorkloadPolicy(CreateWorkloadPolicyContext ctx) {
+        String policyName = ctx.name.getText();
+        boolean ifNotExists = ctx.IF() != null;
+
+        List<WorkloadConditionMeta> conditions = new ArrayList<>();
+        if (ctx.workloadPolicyConditions() != null) {
+            for (DorisParser.WorkloadPolicyConditionContext conditionCtx :
+                    ctx.workloadPolicyConditions().workloadPolicyCondition()) {
+                String metricName = conditionCtx.metricName.getText();
+                String operator = conditionCtx.comparisonOperator().getText();
+                String value = conditionCtx.number() != null
+                        ? conditionCtx.number().getText()
+                        : stripQuotes(conditionCtx.STRING_LITERAL().getText());
+                try {
+                    WorkloadConditionMeta conditionMeta = new WorkloadConditionMeta(metricName, operator, value);
+                    conditions.add(conditionMeta);
+                } catch (UserException e) {
+                    throw new AnalysisException(e.getMessage(), e);
+                }
+            }
+        }
+
+        List<WorkloadActionMeta> actions = new ArrayList<>();
+        if (ctx.workloadPolicyActions() != null) {
+            for (DorisParser.WorkloadPolicyActionContext actionCtx :
+                    ctx.workloadPolicyActions().workloadPolicyAction()) {
+                try {
+                    if (actionCtx.SET_SESSION_VARIABLE() != null) {
+                        actions.add(new WorkloadActionMeta("SET_SESSION_VARIABLE",
+                                stripQuotes(actionCtx.STRING_LITERAL().getText())));
+                    } else {
+                        String identifier = actionCtx.identifier().getText();
+                        String value = actionCtx.STRING_LITERAL() != null
+                                ? stripQuotes(actionCtx.STRING_LITERAL().getText())
+                                : null;
+                        actions.add(new WorkloadActionMeta(identifier, value));
+                    }
+                } catch (UserException e) {
+                    throw new AnalysisException(e.getMessage(), e);
+                }
+            }
+        }
+
+        Map<String, String> properties = ctx.propertyClause() != null
+                ? Maps.newHashMap(visitPropertyClause(ctx.propertyClause()))
+                : Maps.newHashMap();
+
+        return new CreateWorkloadPolicyCommand(ifNotExists, policyName, conditions, actions, properties);
     }
 
     @Override
