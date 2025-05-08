@@ -104,8 +104,8 @@ public class StringArithmetic {
             rightIndex = third + leftIndex;
         }
         // at here leftIndex and rightIndex can not be exceeding boundary
-        int finalLeftIndex = first.codePointCount(0, (int) leftIndex);
-        int finalRightIndex = first.codePointCount(0, (int) rightIndex);
+        int finalLeftIndex = first.offsetByCodePoints(0, (int) leftIndex);
+        int finalRightIndex = first.offsetByCodePoints(0, (int) rightIndex);
         // left index and right index are in integer range because of definition, so we can safely cast it to int
         return first.substring(finalLeftIndex, finalRightIndex);
     }
@@ -132,7 +132,11 @@ public class StringArithmetic {
      */
     @ExecFunction(name = "lower")
     public static Expression lowerVarchar(StringLikeLiteral first) {
-        return castStringLikeLiteral(first, first.getValue().toLowerCase());
+        StringBuilder result = new StringBuilder(first.getValue().length());
+        for (char c : first.getValue().toCharArray()) {
+            result.append(Character.toLowerCase(c));
+        }
+        return castStringLikeLiteral(first, result.toString());
     }
 
     /**
@@ -140,7 +144,11 @@ public class StringArithmetic {
      */
     @ExecFunction(name = "upper")
     public static Expression upperVarchar(StringLikeLiteral first) {
-        return castStringLikeLiteral(first, first.getValue().toUpperCase());
+        StringBuilder result = new StringBuilder(first.getValue().length());
+        for (char c : first.getValue().toCharArray()) {
+            result.append(Character.toUpperCase(c));
+        }
+        return castStringLikeLiteral(first, result.toString());
     }
 
     private static String trimImpl(String first, String second, boolean left, boolean right) {
@@ -304,7 +312,8 @@ public class StringArithmetic {
         } else if (second.getValue() >= inputLength) {
             return first;
         } else {
-            int index = first.getValue().codePointCount(0, second.getValue());
+            // at here leftIndex and rightIndex can not be exceeding boundary
+            int index = first.getValue().offsetByCodePoints(0, second.getValue());
             return castStringLikeLiteral(first, first.getValue().substring(0, index));
         }
     }
@@ -320,14 +329,15 @@ public class StringArithmetic {
         } else if (second.getValue() >= inputLength) {
             return first;
         } else {
+            // at here second can not be exceeding boundary
             if (second.getValue() >= 0) {
-                int index = first.getValue().codePointCount(0, second.getValue());
+                int index = first.getValue().offsetByCodePoints(0, second.getValue());
                 return castStringLikeLiteral(first, first.getValue().substring(
                     inputLength - index, inputLength));
             } else {
-                int index = first.getValue().codePointCount(Math.abs(second.getValue()) - 1, first.getValue().length());
+                int index = first.getValue().offsetByCodePoints(0, Math.abs(second.getValue()) - 1);
                 return castStringLikeLiteral(first, first.getValue().substring(
-                    Math.abs(index) - 1, inputLength));
+                    index, inputLength));
             }
         }
     }
