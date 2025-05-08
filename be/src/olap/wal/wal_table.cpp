@@ -89,12 +89,17 @@ Status WalTable::_relay_wal_one_by_one() {
         wal_info->add_retry_num();
         auto st = _replay_wal_internal(wal_info->get_wal_path());
         auto msg = st.msg();
+        std::filesystem::path file_path(wal_info->get_wal_path());
+        if (!std::filesystem::exists(file_path)) {
+            LOG(WARNING) << "wal file=" << wal_info->get_wal_path() << " does not exist";
+        }
+        auto file_size = std::filesystem::file_size(file_path);
         if (st.ok() || st.is<ErrorCode::PUBLISH_TIMEOUT>() || st.is<ErrorCode::NOT_FOUND>() ||
             st.is<ErrorCode::DATA_QUALITY_ERROR>() ||
             (msg.find("has already been used") != msg.npos &&
              (msg.find("COMMITTED") != msg.npos || msg.find("VISIBLE") != msg.npos))) {
             LOG(INFO) << "succeed to replay wal=" << wal_info->get_wal_path()
-                      << ", st=" << st.to_string();
+                      << ", st=" << st.to_string() << ", file size=" << file_size;
             // delete wal
             WARN_IF_ERROR(_exec_env->wal_mgr()->delete_wal(_table_id, wal_info->get_wal_id()),
                           "failed to delete wal=" + wal_info->get_wal_path());
