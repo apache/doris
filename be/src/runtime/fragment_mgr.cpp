@@ -765,10 +765,23 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
         stream_load_ctx->pipe = pipe;
         stream_load_ctx->max_filter_ratio = params.txn_conf.max_filter_ratio;
 
+        MonotonicStopWatch watcher;
+        watcher.start();
         RETURN_IF_ERROR(
                 _exec_env->new_load_stream_mgr()->put(stream_load_ctx->id, stream_load_ctx));
 
+        if (watcher.elapsed_time() > 5 * NANOS_PER_SEC) {
+            LOG_WARNING("Fragment {} of query {} costs {} seconds, it costs too much",
+                        params.fragment_id, print_id(params.query_id), watcher.elapsed_time());
+        }
+        watcher.reset();
+        watcher.start();
         RETURN_IF_ERROR(_exec_env->stream_load_executor()->execute_plan_fragment(stream_load_ctx));
+        if (watcher.elapsed_time() > 5 * NANOS_PER_SEC) {
+            LOG_WARNING("Fragment {} of query {} costs {} seconds, it costs too much",
+                        params.fragment_id, print_id(params.query_id), watcher.elapsed_time());
+        }
+        watcher.reset();
         return Status::OK();
     } else {
         return exec_plan_fragment(params, query_source, empty_function);
@@ -1040,6 +1053,7 @@ std::string FragmentMgr::dump_pipeline_tasks(TUniqueId& query_id) {
 
 Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
                                        QuerySource query_source, const FinishCallback& cb) {
+    MonotonicStopWatch watcher;
     VLOG_ROW << "query: " << print_id(params.query_id) << " exec_plan_fragment params is "
              << apache::thrift::ThriftDebugString(params).c_str();
     // sometimes TExecPlanFragmentParams debug string is too long and glog
@@ -1047,13 +1061,26 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
     VLOG_ROW << "query: " << print_id(params.query_id) << "query options is "
              << apache::thrift::ThriftDebugString(params.query_options).c_str();
 
+    watcher.start();
     std::shared_ptr<QueryContext> query_ctx;
     RETURN_IF_ERROR(_get_query_ctx(params, params.query_id, true, query_source, query_ctx));
+    if (watcher.elapsed_time() > 5 * NANOS_PER_SEC) {
+        LOG_WARNING("Fragment {} of query {} costs {} seconds, it costs too much",
+                    params.fragment_id, print_id(params.query_id), watcher.elapsed_time());
+    }
+    watcher.reset();
+    watcher.start();
     SCOPED_ATTACH_TASK(query_ctx.get());
     const bool enable_pipeline_x = params.query_options.__isset.enable_pipeline_x_engine &&
                                    params.query_options.enable_pipeline_x_engine;
     if (enable_pipeline_x) {
         _setup_shared_hashtable_for_broadcast_join(params, query_ctx.get());
+        if (watcher.elapsed_time() > 5 * NANOS_PER_SEC) {
+            LOG_WARNING("Fragment {} of query {} costs {} seconds, it costs too much",
+                        params.fragment_id, print_id(params.query_id), watcher.elapsed_time());
+        }
+        watcher.reset();
+        watcher.start();
         int64_t duration_ns = 0;
         std::shared_ptr<pipeline::PipelineFragmentContext> context =
                 std::make_shared<pipeline::PipelineXFragmentContext>(
@@ -1061,9 +1088,21 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
                         std::bind<Status>(
                                 std::mem_fn(&FragmentMgr::trigger_pipeline_context_report), this,
                                 std::placeholders::_1, std::placeholders::_2));
+        if (watcher.elapsed_time() > 5 * NANOS_PER_SEC) {
+            LOG_WARNING("Fragment {} of query {} costs {} seconds, it costs too much",
+                        params.fragment_id, print_id(params.query_id), watcher.elapsed_time());
+        }
+        watcher.reset();
+        watcher.start();
         {
             SCOPED_RAW_TIMER(&duration_ns);
             auto prepare_st = context->prepare(params, _thread_pool.get());
+            if (watcher.elapsed_time() > 5 * NANOS_PER_SEC) {
+                LOG_WARNING("Fragment {} of query {} costs {} seconds, it costs too much",
+                            params.fragment_id, print_id(params.query_id), watcher.elapsed_time());
+            }
+            watcher.reset();
+            watcher.start();
             if (!prepare_st.ok()) {
                 context->close_if_prepare_failed(prepare_st);
                 query_ctx->set_execution_dependency_ready();
@@ -1082,6 +1121,12 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
         if (handler) {
             query_ctx->set_merge_controller_handler(handler);
         }
+        if (watcher.elapsed_time() > 5 * NANOS_PER_SEC) {
+            LOG_WARNING("Fragment {} of query {} costs {} seconds, it costs too much",
+                        params.fragment_id, print_id(params.query_id), watcher.elapsed_time());
+        }
+        watcher.reset();
+        watcher.start();
 
         for (const auto& local_param : params.local_params) {
             const TUniqueId& fragment_instance_id = local_param.fragment_instance_id;
@@ -1093,6 +1138,12 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
             }
             query_ctx->push_instance_ids(fragment_instance_id);
         }
+        if (watcher.elapsed_time() > 5 * NANOS_PER_SEC) {
+            LOG_WARNING("Fragment {} of query {} costs {} seconds, it costs too much",
+                        params.fragment_id, print_id(params.query_id), watcher.elapsed_time());
+        }
+        watcher.reset();
+        watcher.start();
 
         if (!params.__isset.need_wait_execution_trigger || !params.need_wait_execution_trigger) {
             query_ctx->set_ready_to_execute_only();
@@ -1107,9 +1158,20 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
                 _pipeline_map.insert(ins_id, context);
             }
         }
+        if (watcher.elapsed_time() > 5 * NANOS_PER_SEC) {
+            LOG_WARNING("Fragment {} of query {} costs {} seconds, it costs too much",
+                        params.fragment_id, print_id(params.query_id), watcher.elapsed_time());
+        }
+        watcher.reset();
+        watcher.start();
         query_ctx->set_pipeline_context(params.fragment_id, context);
 
         RETURN_IF_ERROR(context->submit());
+        if (watcher.elapsed_time() > 5 * NANOS_PER_SEC) {
+            LOG_WARNING("Fragment {} of query {} costs {} seconds, it costs too much",
+                        params.fragment_id, print_id(params.query_id), watcher.elapsed_time());
+        }
+        watcher.reset();
         return Status::OK();
     } else {
         auto pre_and_submit = [&](int i) {
