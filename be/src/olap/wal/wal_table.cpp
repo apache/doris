@@ -87,13 +87,17 @@ Status WalTable::_relay_wal_one_by_one() {
     std::vector<std::shared_ptr<WalInfo>> need_retry_wals;
     for (auto wal_info : _replaying_queue) {
         wal_info->add_retry_num();
-        auto st = _replay_wal_internal(wal_info->get_wal_path());
-        auto msg = st.msg();
+        Status st;
+        int64_t file_size = 0;
         std::filesystem::path file_path(wal_info->get_wal_path());
         if (!std::filesystem::exists(file_path)) {
-            LOG(WARNING) << "wal file=" << wal_info->get_wal_path() << " does not exist";
+            //            LOG(WARNING) << "wal file=" << wal_info->get_wal_path() << " does not exist";
+            st = Status::InternalError("wal file {} does not exist", wal_info->get_wal_path());
+        } else {
+            file_size = std::filesystem::file_size(file_path);
+            st = _replay_wal_internal(wal_info->get_wal_path());
         }
-        auto file_size = std::filesystem::file_size(file_path);
+        auto msg = st.msg();
         if (st.ok() || st.is<ErrorCode::PUBLISH_TIMEOUT>() || st.is<ErrorCode::NOT_FOUND>() ||
             st.is<ErrorCode::DATA_QUALITY_ERROR>() ||
             (msg.find("has already been used") != msg.npos &&
