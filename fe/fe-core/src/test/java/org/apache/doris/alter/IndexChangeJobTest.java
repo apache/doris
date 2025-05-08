@@ -55,6 +55,8 @@ import org.apache.doris.transaction.GlobalTransactionMgr;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import mockit.Mock;
+import mockit.MockUp;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Rule;
@@ -85,6 +87,8 @@ public class IndexChangeJobTest {
     private static BuildIndexClause buildIndexClause;
     private static DropIndexClause dropIndexClause;
     private static CancelAlterTableStmt cancelAlterTableStmt;
+    private static TableName tableName;
+    private static String indexName;
 
     @Rule
     public ExpectedException expectedEx = ExpectedException.none();
@@ -108,25 +112,31 @@ public class IndexChangeJobTest {
         db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
         olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
 
+        new MockUp<Env>() {
+            @Mock
+            public Env getCurrentEnv() {
+                return masterEnv;
+            }
+        };
+
         // set mow table property
         Map<String, String> properties = Maps.newHashMap();
         properties.put(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, "false");
         TableProperty tableProperty = new TableProperty(properties);
         olapTable.setTableProperty(tableProperty);
 
-        TableName tableName = new TableName(masterEnv.getInternalCatalog().getName(), db.getName(),
+        tableName = new TableName(masterEnv.getInternalCatalog().getName(), db.getName(),
                 olapTable.getName());
-        IndexDef indexDef = new IndexDef("index1", false,
+        indexName = "index1";
+        IndexDef indexDef = new IndexDef(indexName, false,
                 Lists.newArrayList(olapTable.getBaseSchema().get(1).getName()),
                 IndexDef.IndexType.INVERTED,
                 Maps.newHashMap(), "balabala");
+        FakeEnv.setEnv(masterEnv);
         createIndexClause = new CreateIndexClause(tableName, indexDef, false);
         createIndexClause.analyze(analyzer);
 
-        buildIndexClause = new BuildIndexClause(tableName, indexDef, false);
-        buildIndexClause.analyze(analyzer);
-
-        dropIndexClause = new DropIndexClause("index1", false, tableName, false);
+        dropIndexClause = new DropIndexClause(indexName, false, tableName, false);
         dropIndexClause.analyze(analyzer);
 
         cancelAlterTableStmt = new CancelAlterTableStmt(ShowAlterStmt.AlterType.INDEX, tableName);
@@ -163,6 +173,8 @@ public class IndexChangeJobTest {
         Assert.assertEquals(olapTable.getIndexes().size(), 1);
         Assert.assertEquals(olapTable.getIndexes().get(0).getIndexName(), "index1");
         alterClauses.clear();
+        buildIndexClause = new BuildIndexClause(tableName, indexName, null, false);
+        buildIndexClause.analyze(analyzer);
         alterClauses.add(buildIndexClause);
         schemaChangeHandler.process(alterClauses, db, olapTable);
         Map<Long, IndexChangeJob> indexChangeJobMap = schemaChangeHandler.getIndexChangeJobs();
@@ -203,6 +215,8 @@ public class IndexChangeJobTest {
         Assert.assertEquals(olapTable.getIndexes().size(), 1);
         Assert.assertEquals(olapTable.getIndexes().get(0).getIndexName(), "index1");
         alterClauses.clear();
+        buildIndexClause = new BuildIndexClause(tableName, indexName, null, false);
+        buildIndexClause.analyze(analyzer);
         alterClauses.add(buildIndexClause);
         schemaChangeHandler.process(alterClauses, db, olapTable);
         Map<Long, IndexChangeJob> indexChangeJobMap = schemaChangeHandler.getIndexChangeJobs();
@@ -292,6 +306,8 @@ public class IndexChangeJobTest {
         Assert.assertEquals(olapTable.getIndexes().size(), 1);
         Assert.assertEquals(olapTable.getIndexes().get(0).getIndexName(), "index1");
         alterClauses.clear();
+        buildIndexClause = new BuildIndexClause(tableName, indexName, null, false);
+        buildIndexClause.analyze(analyzer);
         alterClauses.add(buildIndexClause);
         schemaChangeHandler.process(alterClauses, db, olapTable);
         Map<Long, IndexChangeJob> indexChangeJobMap = schemaChangeHandler.getIndexChangeJobs();
@@ -339,6 +355,8 @@ public class IndexChangeJobTest {
         Assert.assertEquals(olapTable.getIndexes().size(), 1);
         Assert.assertEquals(olapTable.getIndexes().get(0).getIndexName(), "index1");
         alterClauses.clear();
+        buildIndexClause = new BuildIndexClause(tableName, indexName, null, false);
+        buildIndexClause.analyze(analyzer);
         alterClauses.add(buildIndexClause);
         schemaChangeHandler.process(alterClauses, db, olapTable);
         Map<Long, IndexChangeJob> indexChangeJobMap = schemaChangeHandler.getIndexChangeJobs();
@@ -467,6 +485,8 @@ public class IndexChangeJobTest {
         Assert.assertEquals(olapTable.getIndexes().size(), 1);
         Assert.assertEquals(olapTable.getIndexes().get(0).getIndexName(), "index1");
         alterClauses.clear();
+        buildIndexClause = new BuildIndexClause(tableName, indexName, null, false);
+        buildIndexClause.analyze(analyzer);
         alterClauses.add(buildIndexClause);
         schemaChangeHandler.process(alterClauses, db, olapTable);
         Map<Long, IndexChangeJob> indexChangeJobMap = schemaChangeHandler.getIndexChangeJobs();
@@ -519,6 +539,8 @@ public class IndexChangeJobTest {
         Assert.assertEquals(olapTable.getIndexes().size(), 1);
         Assert.assertEquals(olapTable.getIndexes().get(0).getIndexName(), "index1");
         alterClauses.clear();
+        buildIndexClause = new BuildIndexClause(tableName, indexName, null, false);
+        buildIndexClause.analyze(analyzer);
         alterClauses.add(buildIndexClause);
         schemaChangeHandler.process(alterClauses, db, olapTable);
         Map<Long, IndexChangeJob> indexChangeJobMap = schemaChangeHandler.getIndexChangeJobs();
@@ -526,13 +548,13 @@ public class IndexChangeJobTest {
         Assert.assertEquals(OlapTableState.NORMAL, olapTable.getState());
 
         IndexChangeJob indexChangejob = indexChangeJobMap.values().stream().findAny().get();
-        Assert.assertEquals(indexChangejob.invertedIndexBatchTask.getTaskNum(), 0);
+        Assert.assertEquals(0, indexChangejob.invertedIndexBatchTask.getTaskNum());
 
         Assert.assertEquals(IndexChangeJob.JobState.WAITING_TXN, indexChangejob.getJobState());
         // run waiting txn job
         schemaChangeHandler.runAfterCatalogReady();
         Assert.assertEquals(IndexChangeJob.JobState.RUNNING, indexChangejob.getJobState());
-        Assert.assertEquals(indexChangejob.invertedIndexBatchTask.getTaskNum(), 3);
+        Assert.assertEquals(3, indexChangejob.invertedIndexBatchTask.getTaskNum());
         // run running job
         schemaChangeHandler.runAfterCatalogReady();
         Assert.assertEquals(IndexChangeJob.JobState.RUNNING, indexChangejob.getJobState());
@@ -565,17 +587,123 @@ public class IndexChangeJobTest {
         fakeEditLog = new FakeEditLog();
         FakeEnv.setEnv(masterEnv);
 
-        IndexDef indexDef = new IndexDef("ngram_bf_index", false,
-                Lists.newArrayList(olapTable.getBaseSchema().get(1).getName()),
+        OlapTable table = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId2);
+        String indexName = "ngram_bf_index";
+        IndexDef indexDef = new IndexDef(indexName, false,
+                Lists.newArrayList(table.getBaseSchema().get(3).getName()),
                 org.apache.doris.analysis.IndexDef.IndexType.NGRAM_BF,
                 Maps.newHashMap(), "ngram bf index");
         TableName tableName = new TableName(masterEnv.getInternalCatalog().getName(), db.getName(),
-                olapTable.getName());
+                table.getName());
         createIndexClause = new CreateIndexClause(tableName, indexDef, false);
         createIndexClause.analyze(analyzer);
+        SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
+        ArrayList<AlterClause> alterClauses = new ArrayList<>();
+        alterClauses.add(createIndexClause);
+        schemaChangeHandler.process(alterClauses, db, table);
+        Map<Long, AlterJobV2> indexChangeJobMap = schemaChangeHandler.getAlterJobsV2();
+        Assert.assertEquals(1, indexChangeJobMap.size());
+        Assert.assertEquals(1, table.getIndexes().size());
+        Assert.assertEquals("ngram_bf_index", table.getIndexes().get(0).getIndexName());
 
-        buildIndexClause = new BuildIndexClause(tableName, indexDef, false);
-        org.junit.jupiter.api.Assertions.assertThrows(org.apache.doris.common.AnalysisException.class,
-                () -> buildIndexClause.analyze(analyzer));
+        long jobId = indexChangeJobMap.values().stream().findAny().get().jobId;
+
+        buildIndexClause = new BuildIndexClause(tableName, indexName, null, false);
+        buildIndexClause.analyze(analyzer);
+        alterClauses.clear();
+        alterClauses.add(buildIndexClause);
+
+        schemaChangeHandler.process(alterClauses, db, table);
+        Assert.assertEquals(2, indexChangeJobMap.size());
+        Assert.assertEquals(OlapTableState.SCHEMA_CHANGE, table.getState());
+
+        SchemaChangeJobV2 jobV2 = (SchemaChangeJobV2) indexChangeJobMap.values().stream()
+                .filter(job -> job.jobId != jobId)
+                .findFirst()
+                .orElse(null);
+        Assert.assertEquals(0, jobV2.schemaChangeBatchTask.getTaskNum());
+
+        schemaChangeHandler.runAfterCatalogReady();
+        Assert.assertEquals(AlterJobV2.JobState.WAITING_TXN, jobV2.getJobState());
+        Assert.assertEquals(0, jobV2.schemaChangeBatchTask.getTaskNum());
+
+        schemaChangeHandler.runAfterCatalogReady();
+        Assert.assertEquals(AlterJobV2.JobState.RUNNING, jobV2.getJobState());
+        Assert.assertEquals(1, jobV2.schemaChangeBatchTask.getTaskNum());
+
+        schemaChangeHandler.runAfterCatalogReady();
+        Assert.assertEquals(AlterJobV2.JobState.RUNNING, jobV2.getJobState());
+        Assert.assertEquals(1, jobV2.schemaChangeBatchTask.getTaskNum());
+
+        List<AgentTask> tasks = AgentTaskQueue.getTask(TTaskType.ALTER);
+        Assert.assertEquals(1, tasks.size());
+        for (AgentTask agentTask : tasks) {
+            agentTask.setFinished(true);
+        }
+
+        schemaChangeHandler.runAfterCatalogReady();
+        Assert.assertEquals(AlterJobV2.JobState.FINISHED, jobV2.getJobState());
+    }
+
+    @Test
+    public void testCancelNgramBfBuildIndex() throws UserException {
+        fakeEnv = new FakeEnv();
+        fakeEditLog = new FakeEditLog();
+        FakeEnv.setEnv(masterEnv);
+
+        OlapTable table = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId2);
+        String indexName = "ngram_bf_index";
+        IndexDef indexDef = new IndexDef(indexName, false,
+                Lists.newArrayList(table.getBaseSchema().get(3).getName()),
+                org.apache.doris.analysis.IndexDef.IndexType.NGRAM_BF,
+                Maps.newHashMap(), "ngram bf index");
+        TableName tableName = new TableName(masterEnv.getInternalCatalog().getName(), db.getName(),
+                table.getName());
+        createIndexClause = new CreateIndexClause(tableName, indexDef, false);
+        createIndexClause.analyze(analyzer);
+        SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
+        ArrayList<AlterClause> alterClauses = new ArrayList<>();
+        alterClauses.add(createIndexClause);
+        schemaChangeHandler.process(alterClauses, db, table);
+        Map<Long, AlterJobV2> indexChangeJobMap = schemaChangeHandler.getAlterJobsV2();
+        Assert.assertEquals(1, indexChangeJobMap.size());
+        Assert.assertEquals(1, table.getIndexes().size());
+        Assert.assertEquals("ngram_bf_index", table.getIndexes().get(0).getIndexName());
+
+        long jobId = indexChangeJobMap.values().stream().findAny().get().jobId;
+
+        buildIndexClause = new BuildIndexClause(tableName, indexName, null, false);
+        buildIndexClause.analyze(analyzer);
+        alterClauses.clear();
+        alterClauses.add(buildIndexClause);
+
+        schemaChangeHandler.process(alterClauses, db, table);
+        Assert.assertEquals(2, indexChangeJobMap.size());
+        Assert.assertEquals(OlapTableState.SCHEMA_CHANGE, table.getState());
+
+        SchemaChangeJobV2 jobV2 = (SchemaChangeJobV2) indexChangeJobMap.values().stream()
+                .filter(job -> job.jobId != jobId)
+                .findFirst()
+                .orElse(null);
+        Assert.assertEquals(0, jobV2.schemaChangeBatchTask.getTaskNum());
+
+        schemaChangeHandler.runAfterCatalogReady();
+        Assert.assertEquals(AlterJobV2.JobState.WAITING_TXN, jobV2.getJobState());
+        Assert.assertEquals(0, jobV2.schemaChangeBatchTask.getTaskNum());
+
+        schemaChangeHandler.runAfterCatalogReady();
+        Assert.assertEquals(AlterJobV2.JobState.RUNNING, jobV2.getJobState());
+        Assert.assertEquals(1, jobV2.schemaChangeBatchTask.getTaskNum());
+
+        schemaChangeHandler.runAfterCatalogReady();
+        Assert.assertEquals(AlterJobV2.JobState.RUNNING, jobV2.getJobState());
+        Assert.assertEquals(1, jobV2.schemaChangeBatchTask.getTaskNum());
+
+        cancelAlterTableStmt = new CancelAlterTableStmt(ShowAlterStmt.AlterType.INDEX, tableName);
+        cancelAlterTableStmt.analyze(analyzer);
+        schemaChangeHandler.cancel(cancelAlterTableStmt);
+
+        schemaChangeHandler.runAfterCatalogReady();
+        Assert.assertEquals(AlterJobV2.JobState.CANCELLED, jobV2.getJobState());
     }
 }

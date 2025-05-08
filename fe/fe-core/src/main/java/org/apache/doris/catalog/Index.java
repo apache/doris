@@ -20,6 +20,7 @@ package org.apache.doris.catalog;
 import org.apache.doris.analysis.IndexDef;
 import org.apache.doris.analysis.InvertedIndexUtil;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.PrintableMap;
@@ -168,8 +169,17 @@ public class Index implements Writable {
         return InvertedIndexUtil.getInvertedIndexParserStopwords(properties);
     }
 
+    // Whether the index can be changed in light mode
+    // cloud mode only supports light change for ngram_bf index
+    // local mode supports light change for both inverted index and ngram_bf index
+    // the rest of the index types do not support light change
     public boolean isLightIndexChangeSupported() {
-        return indexType == IndexDef.IndexType.INVERTED;
+        if (Config.isCloudMode()) {
+            return indexType == IndexDef.IndexType.NGRAM_BF;
+        } else {
+            return indexType == IndexDef.IndexType.INVERTED
+                || indexType == IndexDef.IndexType.NGRAM_BF;
+        }
     }
 
     public String getInvertedIndexCustomAnalyzer() {
