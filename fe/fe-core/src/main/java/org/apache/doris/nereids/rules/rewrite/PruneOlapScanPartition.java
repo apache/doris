@@ -170,7 +170,9 @@ public class PruneOlapScanPartition implements RewriteRuleFactory {
     private List<Long> prunePartitionByTabletIds(LogicalOlapScan scan,
                                                  OlapTable table,
                                                  List<Long> prunedPartitionsByFilters) {
-        if (scan.getManuallySpecifiedTabletIds().size() == 0) {
+        if (scan.getManuallySpecifiedTabletIds().size() == 0
+                || (prunedPartitionsByFilters!= null && prunedPartitionsByFilters.isEmpty())) {
+            // `prunedPartitionsByFilters is not null and is empty` means empty partitions after pruner
             return prunedPartitionsByFilters;
         }
 
