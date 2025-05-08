@@ -163,57 +163,61 @@ using FieldMap = std::map<PathInData, Field>;
 DEFINE_FIELD_MAP(VariantMap);
 #undef DEFINE_FIELD_MAP
 
+//TODO: rethink if we really need this? it only save one pointer from std::string
+// not POD type so could only use read/write_json_binary instead of read/write_binary
 class JsonbField {
 public:
     JsonbField() = default;
+    ~JsonbField() = default; // unique_ptr will handle cleanup automatically
 
-    JsonbField(const char* ptr, uint32_t len) : size(len) {
-        data = new char[size];
+    JsonbField(const char* ptr, size_t len) : size(len) {
+        data = std::make_unique<char[]>(size);
         if (!data) {
             LOG(FATAL) << "new data buffer failed, size: " << size;
         }
-        memcpy(data, ptr, size);
+        if (size > 0) {
+            memcpy(data.get(), ptr, size);
+        }
     }
 
     JsonbField(const JsonbField& x) : size(x.size) {
-        data = new char[size];
+        data = std::make_unique<char[]>(size);
         if (!data) {
             LOG(FATAL) << "new data buffer failed, size: " << size;
         }
-        memcpy(data, x.data, size);
+        if (size > 0) {
+            memcpy(data.get(), x.data.get(), size);
+        }
     }
 
+    JsonbField(JsonbField&& x) noexcept : data(std::move(x.data)), size(x.size) { x.size = 0; }
+
+    // dispatch for all type of storage. so need this. but not really used now.
     JsonbField& operator=(const JsonbField& x) {
-        if (data) {
-            delete[] data;
+        if (this != &x) {
+            data = std::make_unique<char[]>(x.size);
+            if (!data) {
+                LOG(FATAL) << "new data buffer failed, size: " << x.size;
+            }
+            if (x.size > 0) {
+                memcpy(data.get(), x.data.get(), x.size);
+            }
+            size = x.size;
         }
-        data = new char[size];
-        if (!data) {
-            LOG(FATAL) << "new data buffer failed, size: " << size;
-        }
-        memcpy(data, x.data, size);
         return *this;
     }
 
-    JsonbField& operator=(JsonbField&& x) {
-        if (data) {
-            delete[] data;
+    JsonbField& operator=(JsonbField&& x) noexcept {
+        if (this != &x) {
+            data = std::move(x.data);
+            size = x.size;
+            x.size = 0;
         }
-        data = x.data;
-        size = x.size;
-        x.data = nullptr;
-        x.size = 0;
         return *this;
     }
 
-    ~JsonbField() {
-        if (data) {
-            delete[] data;
-        }
-    }
-
-    const char* get_value() const { return data; }
-    uint32_t get_size() const { return size; }
+    const char* get_value() const { return data.get(); }
+    size_t get_size() const { return size; }
 
     bool operator<(const JsonbField& r) const {
         LOG(FATAL) << "comparing between JsonbField is not supported";
@@ -251,8 +255,8 @@ public:
     }
 
 private:
-    char* data = nullptr;
-    uint32_t size = 0;
+    std::unique_ptr<char[]> data = nullptr;
+    size_t size = 0;
 };
 
 template <typename T>
