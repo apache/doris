@@ -48,45 +48,43 @@ AggregateFunctionPtr create_aggregate_function_single_value(const String& name,
     if (res) {
         return res;
     }
-    const DataTypePtr& argument_type = remove_nullable(argument_types[0]);
-    WhichDataType which(argument_type);
-
-    if (which.idx == TypeIndex::String || which.idx == TypeIndex::JSONB) {
+    switch (argument_types[0]->get_primitive_type()) {
+    case PrimitiveType::TYPE_STRING:
+    case PrimitiveType::TYPE_CHAR:
+    case PrimitiveType::TYPE_VARCHAR:
+    case PrimitiveType::TYPE_JSONB:
         return creator_without_type::create<
                 AggregateFunctionsSingleValue<Data<SingleValueDataString>>>(argument_types,
                                                                             result_is_nullable);
-    }
-    if (which.idx == TypeIndex::DateTime || which.idx == TypeIndex::Date) {
+    case PrimitiveType::TYPE_DATE:
+    case PrimitiveType::TYPE_DATETIME:
         return creator_without_type::create<
                 AggregateFunctionsSingleValue<Data<SingleValueDataFixed<Int64>>>>(
                 argument_types, result_is_nullable);
-    }
-    if (which.idx == TypeIndex::DateV2) {
+    case PrimitiveType::TYPE_DATEV2:
         return creator_without_type::create<
                 AggregateFunctionsSingleValue<Data<SingleValueDataFixed<UInt32>>>>(
                 argument_types, result_is_nullable);
-    }
-    if (which.idx == TypeIndex::DateTimeV2) {
+    case PrimitiveType::TYPE_DATETIMEV2:
         return creator_without_type::create<
                 AggregateFunctionsSingleValue<Data<SingleValueDataFixed<UInt64>>>>(
                 argument_types, result_is_nullable);
-    }
-    if (which.idx == TypeIndex::Time || which.idx == TypeIndex::TimeV2) {
+    case PrimitiveType::TYPE_TIME:
+    case PrimitiveType::TYPE_TIMEV2:
         return creator_without_type::create<
                 AggregateFunctionsSingleValue<Data<SingleValueDataFixed<Float64>>>>(
                 argument_types, result_is_nullable);
-    }
-    if (which.idx == TypeIndex::IPv4) {
+    case PrimitiveType::TYPE_IPV4:
         return creator_without_type::create<
                 AggregateFunctionsSingleValue<Data<SingleValueDataFixed<IPv4>>>>(
                 argument_types, result_is_nullable);
-    }
-    if (which.idx == TypeIndex::IPv6) {
+    case PrimitiveType::TYPE_IPV6:
         return creator_without_type::create<
                 AggregateFunctionsSingleValue<Data<SingleValueDataFixed<IPv6>>>>(
                 argument_types, result_is_nullable);
+    default:
+        return nullptr;
     }
-    return nullptr;
 }
 
 void register_aggregate_function_minmax(AggregateFunctionSimpleFactory& factory) {

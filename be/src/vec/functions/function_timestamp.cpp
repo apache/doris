@@ -229,7 +229,8 @@ private:
             null_map[index] = 1;
         } else {
             if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {
-                if (context->get_return_type().type == doris::PrimitiveType::TYPE_DATETIME) {
+                if (context->get_return_type()->get_primitive_type() ==
+                    doris::PrimitiveType::TYPE_DATETIME) {
                     ts_val.to_datetime();
                 } else {
                     ts_val.cast_to_date();
@@ -1242,7 +1243,7 @@ struct FromIso8601DateV2 {
 
             int iso_string_format_value = 0;
 
-            vector<int> src_string_values;
+            std::vector<int> src_string_values;
             src_string_values.reserve(10);
 
             //The maximum length of the current iso8601 format is 10.

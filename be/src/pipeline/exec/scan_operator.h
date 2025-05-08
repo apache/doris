@@ -298,7 +298,8 @@ protected:
     void get_cast_types_for_variants();
     void _filter_and_collect_cast_type_for_variant(
             const vectorized::VExpr* expr,
-            std::unordered_map<std::string, std::vector<TypeDescriptor>>& colname_to_cast_types);
+            std::unordered_map<std::string, std::vector<vectorized::DataTypePtr>>&
+                    colname_to_cast_types);
 
     Status _get_topn_filters(RuntimeState* state);
 
@@ -315,7 +316,7 @@ protected:
     std::vector<FunctionFilter> _push_down_functions;
 
     // colname -> cast dst type
-    std::map<std::string, TypeDescriptor> _cast_types_for_variants;
+    std::map<std::string, vectorized::DataTypePtr> _cast_types_for_variants;
 
     // slot id -> ColumnValueRange
     // Parsed from conjuncts

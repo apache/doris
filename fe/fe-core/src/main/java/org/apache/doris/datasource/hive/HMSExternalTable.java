@@ -47,6 +47,8 @@ import org.apache.doris.datasource.mvcc.EmptyMvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.datasource.mvcc.MvccUtil;
+import org.apache.doris.datasource.systable.SupportedSysTables;
+import org.apache.doris.datasource.systable.SysTable;
 import org.apache.doris.fs.FileSystemDirectoryLister;
 import org.apache.doris.mtmv.MTMVBaseTableIf;
 import org.apache.doris.mtmv.MTMVRefreshContext;
@@ -939,6 +941,25 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         return dlaTable.getTableSnapshot(context, snapshot);
     }
 
+    @Override
+    public MTMVSnapshotIf getTableSnapshot(Optional<MvccSnapshot> snapshot) throws AnalysisException {
+        makeSureInitialized();
+        return dlaTable.getTableSnapshot(snapshot);
+    }
+
+    @Override
+    public long getNewestUpdateVersionOrTime() {
+        HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
+                .getMetaStoreCache((HMSExternalCatalog) getCatalog());
+        HiveMetaStoreCache.HivePartitionValues hivePartitionValues = cache.getPartitionValues(getDbName(), getName(),
+                getPartitionColumnTypes(MvccUtil.getSnapshotFromContext(this)));
+        List<HivePartition> partitionList = cache.getAllPartitionsWithCache(getDbName(), getName(),
+                Lists.newArrayList(hivePartitionValues.getPartitionValuesMap().values()));
+        if (CollectionUtils.isEmpty(partitionList)) {
+            return 0;
+        }
+        return partitionList.stream().mapToLong(HivePartition::getLastModifiedTime).max().orElse(0);
+    }
 
     @Override
     public boolean isPartitionColumnAllowNull() {
@@ -1117,5 +1138,20 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     public boolean isValidRelatedTable() {
         makeSureInitialized();
         return dlaTable.isValidRelatedTable();
+    }
+
+    @Override
+    public List<SysTable> getSupportedSysTables() {
+        makeSureInitialized();
+        switch (dlaType) {
+            case HIVE:
+                return SupportedSysTables.HIVE_SUPPORTED_SYS_TABLES;
+            case ICEBERG:
+                return SupportedSysTables.ICEBERG_SUPPORTED_SYS_TABLES;
+            case HUDI:
+                return SupportedSysTables.HUDI_SUPPORTED_SYS_TABLES;
+            default:
+                return Lists.newArrayList();
+        }
     }
 }

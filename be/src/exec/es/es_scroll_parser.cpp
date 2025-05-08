@@ -47,6 +47,8 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/core/field.h"
+#include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_nullable.h"
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
@@ -675,7 +677,7 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
 
         const rapidjson::Value& col = (*line)[col_name];
 
-        PrimitiveType type = slot_desc->type().type;
+        auto type = slot_desc->type()->get_primitive_type();
 
         // when the column value is null, the subsequent type casting will report an error
         if (col.IsNull() && slot_desc->is_nullable()) {
@@ -837,7 +839,11 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
         }
         case TYPE_ARRAY: {
             vectorized::Array array;
-            const auto& sub_type = tuple_desc->slots()[i]->type().children[0].type;
+            const auto& sub_type =
+                    assert_cast<const vectorized::DataTypeArray*>(
+                            vectorized::remove_nullable(tuple_desc->slots()[i]->type()).get())
+                            ->get_nested_type()
+                            ->get_primitive_type();
             RETURN_IF_ERROR(parse_column(col, sub_type, pure_doc_value, array, time_zone));
             col_ptr->insert(array);
             break;

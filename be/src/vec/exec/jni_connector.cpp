@@ -44,28 +44,25 @@ class RuntimeProfile;
 
 namespace doris::vectorized {
 
-#define FOR_FIXED_LENGTH_TYPES(M)                                   \
-    M(TypeIndex::Int8, ColumnVector<Int8>, Int8)                    \
-    M(TypeIndex::UInt8, ColumnVector<UInt8>, UInt8)                 \
-    M(TypeIndex::Int16, ColumnVector<Int16>, Int16)                 \
-    M(TypeIndex::UInt16, ColumnVector<UInt16>, UInt16)              \
-    M(TypeIndex::Int32, ColumnVector<Int32>, Int32)                 \
-    M(TypeIndex::UInt32, ColumnVector<UInt32>, UInt32)              \
-    M(TypeIndex::Int64, ColumnVector<Int64>, Int64)                 \
-    M(TypeIndex::UInt64, ColumnVector<UInt64>, UInt64)              \
-    M(TypeIndex::Int128, ColumnVector<Int128>, Int128)              \
-    M(TypeIndex::Float32, ColumnVector<Float32>, Float32)           \
-    M(TypeIndex::Float64, ColumnVector<Float64>, Float64)           \
-    M(TypeIndex::Decimal128V2, ColumnDecimal<Decimal128V2>, Int128) \
-    M(TypeIndex::Decimal128V3, ColumnDecimal<Decimal128V3>, Int128) \
-    M(TypeIndex::Decimal32, ColumnDecimal<Decimal<Int32>>, Int32)   \
-    M(TypeIndex::Decimal64, ColumnDecimal<Decimal<Int64>>, Int64)   \
-    M(TypeIndex::Date, ColumnVector<Int64>, Int64)                  \
-    M(TypeIndex::DateV2, ColumnVector<UInt32>, UInt32)              \
-    M(TypeIndex::DateTime, ColumnVector<Int64>, Int64)              \
-    M(TypeIndex::DateTimeV2, ColumnVector<UInt64>, UInt64)          \
-    M(TypeIndex::IPv4, ColumnVector<IPv4>, IPv4)                    \
-    M(TypeIndex::IPv6, ColumnVector<IPv6>, IPv6)
+#define FOR_FIXED_LENGTH_TYPES(M)                                           \
+    M(PrimitiveType::TYPE_TINYINT, ColumnVector<Int8>, Int8)                \
+    M(PrimitiveType::TYPE_BOOLEAN, ColumnVector<UInt8>, UInt8)              \
+    M(PrimitiveType::TYPE_SMALLINT, ColumnVector<Int16>, Int16)             \
+    M(PrimitiveType::TYPE_INT, ColumnVector<Int32>, Int32)                  \
+    M(PrimitiveType::TYPE_BIGINT, ColumnVector<Int64>, Int64)               \
+    M(PrimitiveType::TYPE_LARGEINT, ColumnVector<Int128>, Int128)           \
+    M(PrimitiveType::TYPE_FLOAT, ColumnVector<Float32>, Float32)            \
+    M(PrimitiveType::TYPE_DOUBLE, ColumnVector<Float64>, Float64)           \
+    M(PrimitiveType::TYPE_DECIMALV2, ColumnDecimal<Decimal128V2>, Int128)   \
+    M(PrimitiveType::TYPE_DECIMAL128I, ColumnDecimal<Decimal128V3>, Int128) \
+    M(PrimitiveType::TYPE_DECIMAL32, ColumnDecimal<Decimal<Int32>>, Int32)  \
+    M(PrimitiveType::TYPE_DECIMAL64, ColumnDecimal<Decimal<Int64>>, Int64)  \
+    M(PrimitiveType::TYPE_DATE, ColumnVector<Int64>, Int64)                 \
+    M(PrimitiveType::TYPE_DATEV2, ColumnVector<UInt32>, UInt32)             \
+    M(PrimitiveType::TYPE_DATETIME, ColumnVector<Int64>, Int64)             \
+    M(PrimitiveType::TYPE_DATETIMEV2, ColumnVector<UInt64>, UInt64)         \
+    M(PrimitiveType::TYPE_IPV4, ColumnVector<IPv4>, IPv4)                   \
+    M(PrimitiveType::TYPE_IPV6, ColumnVector<IPv6>, IPv6)
 
 Status JniConnector::open(RuntimeState* state, RuntimeProfile* profile) {
     _state = state;
@@ -320,11 +317,11 @@ Status JniConnector::_fill_block(Block* block, size_t num_rows) {
 
 Status JniConnector::_fill_column(TableMetaAddress& address, ColumnPtr& doris_column,
                                   DataTypePtr& data_type, size_t num_rows) {
-    TypeIndex logical_type = remove_nullable(data_type)->get_type_id();
+    auto logical_type = data_type->get_primitive_type();
     void* null_map_ptr = address.next_meta_as_ptr();
     if (null_map_ptr == nullptr) {
         // org.apache.doris.common.jni.vec.ColumnType.Type#UNSUPPORTED will set column address as 0
-        return Status::InternalError("Unsupported type {} in java side", getTypeName(logical_type));
+        return Status::InternalError("Unsupported type {} in java side", data_type->get_name());
     }
     MutableColumnPtr data_column;
     if (doris_column->is_nullable()) {
@@ -346,19 +343,20 @@ Status JniConnector::_fill_column(TableMetaAddress& address, ColumnPtr& doris_co
                 data_column, reinterpret_cast<CPP_TYPE*>(address.next_meta_as_ptr()), num_rows);
         FOR_FIXED_LENGTH_TYPES(DISPATCH)
 #undef DISPATCH
-    case TypeIndex::String:
+    case PrimitiveType::TYPE_STRING:
         [[fallthrough]];
-    case TypeIndex::FixedString:
+    case PrimitiveType::TYPE_CHAR:
+        [[fallthrough]];
+    case PrimitiveType::TYPE_VARCHAR:
         return _fill_string_column(address, data_column, num_rows);
-    case TypeIndex::Array:
+    case PrimitiveType::TYPE_ARRAY:
         return _fill_array_column(address, data_column, data_type, num_rows);
-    case TypeIndex::Map:
+    case PrimitiveType::TYPE_MAP:
         return _fill_map_column(address, data_column, data_type, num_rows);
-    case TypeIndex::Struct:
+    case PrimitiveType::TYPE_STRUCT:
         return _fill_struct_column(address, data_column, data_type, num_rows);
     default:
-        return Status::InvalidArgument("Unsupported type {} in jni scanner",
-                                       getTypeName(logical_type));
+        return Status::InvalidArgument("Unsupported type {} in jni scanner", data_type->get_name());
     }
     return Status::OK();
 }
@@ -396,7 +394,7 @@ Status JniConnector::_fill_array_column(TableMetaAddress& address, MutableColumn
                                         DataTypePtr& data_type, size_t num_rows) {
     ColumnPtr& element_column = static_cast<ColumnArray&>(*doris_column).get_data_ptr();
     DataTypePtr& element_type = const_cast<DataTypePtr&>(
-            (reinterpret_cast<const DataTypeArray*>(remove_nullable(data_type).get()))
+            (assert_cast<const DataTypeArray*>(remove_nullable(data_type).get()))
                     ->get_nested_type());
     ColumnArray::Offsets64& offsets_data = static_cast<ColumnArray&>(*doris_column).get_offsets();
 
@@ -468,7 +466,7 @@ void JniConnector::_generate_predicates(
 std::string JniConnector::get_jni_type(const DataTypePtr& data_type) {
     DataTypePtr type = remove_nullable(data_type);
     std::ostringstream buffer;
-    switch (type->get_type_as_type_descriptor().type) {
+    switch (type->get_primitive_type()) {
     case TYPE_BOOLEAN:
         return "boolean";
     case TYPE_TINYINT:
@@ -554,9 +552,10 @@ std::string JniConnector::get_jni_type(const DataTypePtr& data_type) {
     }
 }
 
-std::string JniConnector::get_jni_type(const TypeDescriptor& desc) {
+std::string JniConnector::get_jni_type_with_different_string(const DataTypePtr& data_type) {
+    DataTypePtr type = remove_nullable(data_type);
     std::ostringstream buffer;
-    switch (desc.type) {
+    switch (data_type->get_primitive_type()) {
     case TYPE_BOOLEAN:
         return "boolean";
     case TYPE_TINYINT:
@@ -578,7 +577,9 @@ std::string JniConnector::get_jni_type(const TypeDescriptor& desc) {
     case TYPE_IPV6:
         return "ipv6";
     case TYPE_VARCHAR: {
-        buffer << "varchar(" << desc.len << ")";
+        buffer << "varchar("
+               << assert_cast<const DataTypeString*>(remove_nullable(data_type).get())->len()
+               << ")";
         return buffer.str();
     }
     case TYPE_DATE:
@@ -590,13 +591,15 @@ std::string JniConnector::get_jni_type(const TypeDescriptor& desc) {
     case TYPE_DATETIMEV2:
         [[fallthrough]];
     case TYPE_TIMEV2: {
-        buffer << "datetimev2(" << desc.scale << ")";
+        buffer << "datetimev2(" << data_type->get_scale() << ")";
         return buffer.str();
     }
     case TYPE_BINARY:
         return "binary";
     case TYPE_CHAR: {
-        buffer << "char(" << desc.len << ")";
+        buffer << "char("
+               << assert_cast<const DataTypeString*>(remove_nullable(data_type).get())->len()
+               << ")";
         return buffer.str();
     }
     case TYPE_STRING:
@@ -606,35 +609,44 @@ std::string JniConnector::get_jni_type(const TypeDescriptor& desc) {
         return buffer.str();
     }
     case TYPE_DECIMAL32: {
-        buffer << "decimal32(" << desc.precision << "," << desc.scale << ")";
+        buffer << "decimal32(" << data_type->get_precision() << "," << data_type->get_scale()
+               << ")";
         return buffer.str();
     }
     case TYPE_DECIMAL64: {
-        buffer << "decimal64(" << desc.precision << "," << desc.scale << ")";
+        buffer << "decimal64(" << data_type->get_precision() << "," << data_type->get_scale()
+               << ")";
         return buffer.str();
     }
     case TYPE_DECIMAL128I: {
-        buffer << "decimal128(" << desc.precision << "," << desc.scale << ")";
+        buffer << "decimal128(" << data_type->get_precision() << "," << data_type->get_scale()
+               << ")";
         return buffer.str();
     }
     case TYPE_STRUCT: {
+        const auto* type_struct =
+                assert_cast<const DataTypeStruct*>(remove_nullable(data_type).get());
         buffer << "struct<";
-        for (int i = 0; i < desc.children.size(); ++i) {
+        for (int i = 0; i < type_struct->get_elements().size(); ++i) {
             if (i != 0) {
                 buffer << ",";
             }
-            buffer << desc.field_names[i] << ":" << get_jni_type(desc.children[i]);
+            buffer << type_struct->get_element_name(i) << ":"
+                   << get_jni_type_with_different_string(type_struct->get_element(i));
         }
         buffer << ">";
         return buffer.str();
     }
     case TYPE_ARRAY: {
-        buffer << "array<" << get_jni_type(desc.children[0]) << ">";
+        const auto* type_arr = assert_cast<const DataTypeArray*>(remove_nullable(data_type).get());
+        buffer << "array<" << get_jni_type_with_different_string(type_arr->get_nested_type())
+               << ">";
         return buffer.str();
     }
     case TYPE_MAP: {
-        buffer << "map<" << get_jni_type(desc.children[0]) << "," << get_jni_type(desc.children[1])
-               << ">";
+        const auto* type_map = assert_cast<const DataTypeMap*>(remove_nullable(data_type).get());
+        buffer << "map<" << get_jni_type_with_different_string(type_map->get_key_type()) << ","
+               << get_jni_type_with_different_string(type_map->get_value_type()) << ">";
         return buffer.str();
     }
     default:
@@ -644,7 +656,7 @@ std::string JniConnector::get_jni_type(const TypeDescriptor& desc) {
 
 Status JniConnector::_fill_column_meta(const ColumnPtr& doris_column, const DataTypePtr& data_type,
                                        std::vector<long>& meta_data) {
-    TypeIndex logical_type = remove_nullable(data_type)->get_type_id();
+    auto logical_type = data_type->get_primitive_type();
     const IColumn* column = nullptr;
     // insert const flag
     if (is_column_const(*doris_column)) {
@@ -675,16 +687,18 @@ Status JniConnector::_fill_column_meta(const ColumnPtr& doris_column, const Data
     }
         FOR_FIXED_LENGTH_TYPES(DISPATCH)
 #undef DISPATCH
-    case TypeIndex::String:
+    case PrimitiveType::TYPE_STRING:
         [[fallthrough]];
-    case TypeIndex::FixedString: {
+    case PrimitiveType::TYPE_CHAR:
+        [[fallthrough]];
+    case PrimitiveType::TYPE_VARCHAR: {
         const auto& string_column = assert_cast<const ColumnString&>(*data_column);
         // inert offsets
         meta_data.emplace_back((long)string_column.get_offsets().data());
         meta_data.emplace_back((long)string_column.get_chars().data());
         break;
     }
-    case TypeIndex::Array: {
+    case PrimitiveType::TYPE_ARRAY: {
         const auto& element_column = assert_cast<const ColumnArray&>(*data_column).get_data_ptr();
         meta_data.emplace_back(
                 (long)assert_cast<const ColumnArray&>(*data_column).get_offsets().data());
@@ -694,7 +708,7 @@ Status JniConnector::_fill_column_meta(const ColumnPtr& doris_column, const Data
         RETURN_IF_ERROR(_fill_column_meta(element_column, element_type, meta_data));
         break;
     }
-    case TypeIndex::Struct: {
+    case PrimitiveType::TYPE_STRUCT: {
         const auto& doris_struct = assert_cast<const ColumnStruct&>(*data_column);
         const auto* doris_struct_type =
                 assert_cast<const DataTypeStruct*>(remove_nullable(data_type).get());
@@ -706,7 +720,7 @@ Status JniConnector::_fill_column_meta(const ColumnPtr& doris_column, const Data
         }
         break;
     }
-    case TypeIndex::Map: {
+    case PrimitiveType::TYPE_MAP: {
         const auto& map = assert_cast<const ColumnMap&>(*data_column);
         const auto& key_type = assert_cast<const DataTypePtr&>(
                 assert_cast<const DataTypeMap*>(remove_nullable(data_type).get())->get_key_type());
@@ -721,7 +735,7 @@ Status JniConnector::_fill_column_meta(const ColumnPtr& doris_column, const Data
         break;
     }
     default:
-        return Status::InternalError("Unsupported type: {}", getTypeName(logical_type));
+        return Status::InternalError("Unsupported type: {}", data_type->get_name());
     }
     return Status::OK();
 }

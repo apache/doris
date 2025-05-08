@@ -102,14 +102,14 @@ public:
         }
 
         DCHECK(context->get_num_args() >= 1);
-        DCHECK(context->get_arg_type(0)->is_array_type());
+        DCHECK_EQ(context->get_arg_type(0)->get_primitive_type(), PrimitiveType::TYPE_ARRAY);
         // now we only support same
         std::shared_ptr<ParamValue> state = std::make_shared<ParamValue>();
         Field field;
         if (context->get_constant_col(1)) {
             context->get_constant_col(1)->column_ptr->get(0, field);
             state->value = field;
-            state->type = context->get_arg_type(1)->type;
+            state->type = context->get_arg_type(1)->get_primitive_type();
             context->set_function_state(scope, state);
         }
         return Status::OK();
@@ -140,7 +140,7 @@ public:
         }
         Field param_value;
         arguments[0].column->get(0, param_value);
-        auto param_type = arguments[0].type->get_type_as_type_descriptor().type;
+        auto param_type = arguments[0].type->get_primitive_type();
         // The current implementation for the inverted index of arrays cannot handle cases where the array contains null values,
         // meaning an item in the array is null.
         if (param_value.is_null()) {

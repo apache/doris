@@ -52,11 +52,12 @@ import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.kafka.KafkaConfiguration;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.nereids.load.NereidsRoutineLoadTaskInfo;
+import org.apache.doris.nereids.load.NereidsStreamLoadPlanner;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.persist.RoutineLoadOperation;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
-import org.apache.doris.planner.StreamLoadPlanner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
@@ -435,8 +436,8 @@ public abstract class RoutineLoadJob
             this.escape = stmt.getEscape();
             jobProperties.put(LoadStmt.KEY_ESCAPE, String.valueOf(stmt.getEscape()));
         }
-        if (stmt.getWorkloadGroupId() > 0) {
-            jobProperties.put(WORKLOAD_GROUP, String.valueOf(stmt.getWorkloadGroupId()));
+        if (!StringUtils.isEmpty(stmt.getWorkloadGroupName())) {
+            jobProperties.put(WORKLOAD_GROUP, stmt.getWorkloadGroupName());
         }
     }
 
@@ -548,12 +549,8 @@ public abstract class RoutineLoadJob
         return database.getTableOrMetaException(tableId).getName();
     }
 
-    public long getWorkloadId() {
-        String workloadIdStr = jobProperties.get(WORKLOAD_GROUP);
-        if (!StringUtils.isEmpty(workloadIdStr)) {
-            return Long.parseLong(workloadIdStr);
-        }
-        return -1;
+    public String getWorkloadGroup() {
+        return jobProperties.get(WORKLOAD_GROUP);
     }
 
     public JobState getState() {
@@ -1043,7 +1040,8 @@ public abstract class RoutineLoadJob
         ConnectContext.get().setComputeGroup(computeGroup);
     }
 
-    public TPipelineFragmentParams plan(StreamLoadPlanner planner, TUniqueId loadId, long txnId) throws UserException {
+    public TPipelineFragmentParams plan(NereidsStreamLoadPlanner planner, TUniqueId loadId, long txnId)
+            throws UserException {
         Preconditions.checkNotNull(planner);
         Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
         Table table = db.getTableOrMetaException(tableId, Table.TableType.OLAP);
@@ -1069,6 +1067,9 @@ public abstract class RoutineLoadJob
                 }
             } else {
                 setComputeGroup();
+            }
+            if (ConnectContext.get().getEnv() == null) {
+                ConnectContext.get().setEnv(Env.getCurrentEnv());
             }
 
             TPipelineFragmentParams planParams = planner.plan(loadId);
@@ -2085,6 +2086,8 @@ public abstract class RoutineLoadJob
     public abstract void modifyProperties(AlterRoutineLoadStmt stmt) throws UserException;
 
     public abstract void replayModifyProperties(AlterRoutineLoadJobOperationLog log);
+
+    public abstract NereidsRoutineLoadTaskInfo toNereidsRoutineLoadTaskInfo() throws UserException;
 
     // for ALTER ROUTINE LOAD
     protected void modifyCommonJobProperties(Map<String, String> jobProperties) {

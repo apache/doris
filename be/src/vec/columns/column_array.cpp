@@ -312,7 +312,7 @@ void ColumnArray::update_crcs_with_value(uint32_t* __restrict hash, PrimitiveTyp
 }
 
 void ColumnArray::insert(const Field& x) {
-    DCHECK_EQ(x.get_type(), Field::Types::Array);
+    DCHECK_EQ(x.get_type(), PrimitiveType::TYPE_ARRAY);
     if (x.is_null()) {
         get_data().insert(Null());
         get_offsets().push_back(get_offsets().back() + 1);

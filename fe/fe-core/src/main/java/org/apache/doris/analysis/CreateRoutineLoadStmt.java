@@ -35,6 +35,7 @@ import org.apache.doris.load.routineload.RoutineLoadDataSourcePropertyFactory;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.thrift.TPipelineWorkloadGroup;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
@@ -185,7 +186,7 @@ public class CreateRoutineLoadStmt extends DdlStmt implements NotFallbackInParse
 
     private byte escape;
 
-    private long workloadGroupId = -1;
+    private String workloadGroupName = "";
 
     /**
      * support partial columns load(Only Unique Key Columns)
@@ -238,7 +239,7 @@ public class CreateRoutineLoadStmt extends DdlStmt implements NotFallbackInParse
             Map<String, String> jobProperties, String typeName, RoutineLoadDesc routineLoadDesc,
             int desireTaskConcurrentNum, long maxErrorNum, double maxFilterRatio, long maxBatchIntervalS,
             long maxBatchRows, long maxBatchSizeBytes, long execMemLimit, int sendBatchParallelism, String timezone,
-            String format, String jsonPaths, String jsonRoot, byte enclose, byte escape, long workloadGroupId,
+            String format, String jsonPaths, String jsonRoot, byte enclose, byte escape, String workloadGroupName,
             boolean loadToSingleTablet, boolean strictMode, boolean isPartialUpdate, boolean stripOuterArray,
             boolean numAsString, boolean fuzzyParse, AbstractDataSourceProperties dataSourceProperties) {
         this.labelName = labelName;
@@ -265,7 +266,7 @@ public class CreateRoutineLoadStmt extends DdlStmt implements NotFallbackInParse
         this.jsonRoot = jsonRoot;
         this.enclose = enclose;
         this.escape = escape;
-        this.workloadGroupId = workloadGroupId;
+        this.workloadGroupName = workloadGroupName;
         this.loadToSingleTablet = loadToSingleTablet;
         this.strictMode = strictMode;
         this.isPartialUpdate = isPartialUpdate;
@@ -383,8 +384,8 @@ public class CreateRoutineLoadStmt extends DdlStmt implements NotFallbackInParse
         return comment;
     }
 
-    public long getWorkloadGroupId() {
-        return workloadGroupId;
+    public String getWorkloadGroupName() {
+        return this.workloadGroupName;
     }
 
     @Override
@@ -583,19 +584,18 @@ public class CreateRoutineLoadStmt extends DdlStmt implements NotFallbackInParse
         String inputWorkloadGroupStr = jobProperties.get(WORKLOAD_GROUP);
         if (!StringUtils.isEmpty(inputWorkloadGroupStr)) {
             ConnectContext tmpCtx = new ConnectContext();
-            tmpCtx.setCurrentUserIdentity(ConnectContext.get().getCurrentUserIdentity());
-            tmpCtx.getSessionVariable().setWorkloadGroup(inputWorkloadGroupStr);
-            try {
-                // NOTE(wb): why get 0th wg here;
-                // currently a routineload can only be executed in one workload group;
-                // but the workload group thrift sent from FE to BE is a list, this is for scalability.
-                this.workloadGroupId = Env.getCurrentEnv().getWorkloadGroupMgr()
-                        .getWorkloadGroup(tmpCtx).get(0)
-                        .getId();
-            } catch (Throwable t) {
-                LOG.info("Get workload group failed when create routine load,", t);
-                throw  t;
+            if (Config.isCloudMode()) {
+                tmpCtx.setCloudCluster(ConnectContext.get().getCloudCluster());
             }
+            tmpCtx.setCurrentUserIdentity(ConnectContext.get().getCurrentUserIdentity());
+            tmpCtx.setQualifiedUser(ConnectContext.get().getCurrentUserIdentity().getQualifiedUser());
+            tmpCtx.getSessionVariable().setWorkloadGroup(inputWorkloadGroupStr);
+            List<TPipelineWorkloadGroup> wgList = Env.getCurrentEnv().getWorkloadGroupMgr()
+                    .getWorkloadGroup(tmpCtx);
+            if (wgList.size() == 0) {
+                throw new UserException("Can not find workload group " + inputWorkloadGroupStr);
+            }
+            workloadGroupName = inputWorkloadGroupStr;
         }
 
         if (ConnectContext.get() != null) {

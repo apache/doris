@@ -29,6 +29,8 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
+import org.apache.doris.datasource.systable.SupportedSysTables;
+import org.apache.doris.datasource.systable.SysTable;
 import org.apache.doris.mtmv.MTMVBaseTableIf;
 import org.apache.doris.mtmv.MTMVRefreshContext;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
@@ -174,10 +176,22 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
     @Override
     public MTMVSnapshotIf getTableSnapshot(MTMVRefreshContext context, Optional<MvccSnapshot> snapshot)
             throws AnalysisException {
+        return getTableSnapshot(snapshot);
+    }
+
+    @Override
+    public MTMVSnapshotIf getTableSnapshot(Optional<MvccSnapshot> snapshot) throws AnalysisException {
         makeSureInitialized();
         IcebergSnapshotCacheValue snapshotValue =
                 IcebergUtils.getOrFetchSnapshotCacheValue(snapshot, getCatalog(), getDbName(), getName());
         return new MTMVSnapshotIdSnapshot(snapshotValue.getSnapshot().getSnapshotId());
+    }
+
+    @Override
+    public long getNewestUpdateVersionOrTime() {
+        return IcebergUtils.getIcebergSnapshotCacheValue(Optional.empty(), getCatalog(), getDbName(), getName())
+                .getPartitionInfo().getNameToIcebergPartition().values().stream()
+                .mapToLong(IcebergPartition::getLastUpdateTime).max().orElse(0);
     }
 
     @Override
@@ -253,5 +267,11 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
 
     public void setIsValidRelatedTableCached(boolean isCached) {
         this.isValidRelatedTableCached = isCached;
+    }
+
+    @Override
+    public List<SysTable> getSupportedSysTables() {
+        makeSureInitialized();
+        return SupportedSysTables.ICEBERG_SUPPORTED_SYS_TABLES;
     }
 }
