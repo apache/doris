@@ -137,6 +137,7 @@ Status SegcompactionWorker::_get_segcompaction_reader(
     reader_params.use_page_cache = false;
     reader_params.record_rowids = record_rowids;
     reader_params.key_group_cluster_key_idxes = key_group_cluster_key_idxes;
+    reader_params.unique_key_read_by_mor = tablet->tablet_schema()->cluster_key_uids().empty();
     return (*reader)->init(reader_params, nullptr);
 }
 
