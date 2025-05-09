@@ -1111,22 +1111,22 @@ TEST_F(IndexBuilderTest, RenameColumnIndexTest) {
     writer_context.tablet_schema_hash = 567997577;
     writer_context.partition_id = 10;
     writer_context.rowset_type = BETA_ROWSET;
-    writer_context.tablet_path = _absolute_dir + "/" + std::to_string(15679);
+    writer_context.rowset_dir = _absolute_dir + "/" + std::to_string(15679);
     writer_context.rowset_state = VISIBLE;
     writer_context.tablet_schema = schema;
     writer_context.version.first = 10;
     writer_context.version.second = 10;
 
-    ASSERT_TRUE(io::global_local_filesystem()->create_directory(writer_context.tablet_path).ok());
+    ASSERT_TRUE(io::global_local_filesystem()->create_directory(writer_context.rowset_dir).ok());
 
     // 4. Create a rowset writer
-    auto res = RowsetFactory::create_rowset_writer(*_engine_ref, writer_context, false);
-    ASSERT_TRUE(res.has_value()) << res.error();
-    auto rowset_writer = std::move(res).value();
+    std::unique_ptr<RowsetWriter> rowset_writer;
+    auto status = RowsetFactory::create_rowset_writer(writer_context, false, &rowset_writer);
+    ASSERT_TRUE(status.ok()) << status.to_string();
 
     // 5. Write data to the rowset
     {
-        vectorized::Block block = _tablet_schema->create_block();
+        vectorized::Block block = schema->create_block();
         auto columns = block.mutate_columns();
 
         // Add data for k1 and k2 columns
@@ -1169,11 +1169,10 @@ TEST_F(IndexBuilderTest, RenameColumnIndexTest) {
     _alter_indexes.push_back(index2);
 
     // 7. Create IndexBuilder
-    IndexBuilder builder(ExecEnv::GetInstance()->storage_engine().to_local(), _tablet, _columns,
-                         _alter_indexes, false);
+    IndexBuilder builder(_tablet, _columns, _alter_indexes, false);
 
     // 8. Initialize and verify
-    auto status = builder.init();
+    status = builder.init();
     EXPECT_TRUE(status.ok()) << status.to_string();
     EXPECT_EQ(builder._alter_index_ids.size(), 1); // Only k1 is considered for building
 
