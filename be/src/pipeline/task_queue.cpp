@@ -149,8 +149,6 @@ void MultiCoreTaskQueue::close() {
     for (int i = 0; i < _core_size; ++i) {
         (*_prio_task_queue_list)[i]->close();
     }
-    std::atomic_store(&_prio_task_queue_list,
-                      std::shared_ptr<std::vector<std::unique_ptr<PriorityTaskQueue>>>(nullptr));
 }
 
 PipelineTask* MultiCoreTaskQueue::take(int core_id) {
