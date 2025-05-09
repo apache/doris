@@ -19,16 +19,17 @@ package org.apache.doris.fs.remote;
 
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.backup.Status;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.security.authentication.AuthenticationConfig;
 import org.apache.doris.common.security.authentication.HadoopAuthenticator;
 import org.apache.doris.datasource.property.PropertyConverter;
+// import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.fs.obj.S3ObjStorage;
 import org.apache.doris.fs.remote.dfs.DFSFileSystem;
 
 import com.amazonaws.services.s3.model.AmazonS3Exception;
 import com.google.common.annotations.VisibleForTesting;
+// import com.google.common.base.Strings;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
@@ -143,16 +144,50 @@ public class S3FileSystem extends ObjFileSystem {
         return Status.OK;
     }
 
+
     private Status globListImplV2(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
         return ((S3ObjStorage) objStorage).globList(remotePath, result, fileNameOnly);
     }
 
+    // @Override
+    // public Status globList(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
+    //     if (!Strings.isNullOrEmpty(properties.get(S3Properties.ROLE_ARN))
+    //             || !Strings.isNullOrEmpty(properties.get(S3Properties.Env.ROLE_ARN))) {
+    //         // https://issues.apache.org/jira/browse/HADOOP-19201
+    //         // hadoop 3.3.6 we used now, not support aws assumed role with external id, so we
+    //         // write a globListImplV2 to support it
+    //         LOG.info("aws role arn mode, use globListImplV2");
+    //         return globListImplV2(remotePath, result, fileNameOnly);
+    //     }
+    //     // TODO: should return globListImplV1(remotePath, result, fileNameOnly);
+    //     // after debug
+    //     return globListImplV2(remotePath, result, fileNameOnly);
+    // }
+
     @Override
     public Status globList(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
-        if (Config.enable_deadlock_detection) {
-            return globListImplV1(remotePath, result, fileNameOnly);
+        List<RemoteFile> resultV1 = new java.util.ArrayList<>();
+        try {
+            globListImplV1(remotePath, resultV1, fileNameOnly);
+            return globListImplV2(remotePath, result, fileNameOnly);
+        } finally {
+            LOG.info("remotePath: {}, resultV1Size: {}, resultV2Size: {}",
+                    remotePath, resultV1.size(), result.size());
+
+            if (resultV1.size() != result.size()) {
+                LOG.warn("globListImplV1 and globListImplV2 result size not equal, "
+                        + "resultV1Size: {}, resultV2Size: {}", resultV1.size(), result.size());
+                for (int i = 0; i < Math.min(resultV1.size(), result.size()); i++) {
+                    if (!resultV1.get(i).getName().equals(result.get(i).getName())) {
+                        LOG.warn("globListImplV1 and globListImplV2 result not equal, "
+                                + "resultV1: {}, resultV2: {}", resultV1.get(i), result.get(i));
+                    }
+                }
+            }
+
+            LOG.info("globListImplV1 result: {}", resultV1);
+            LOG.info("globListImplV2 result: {}", result);
         }
-        return globListImplV2(remotePath, result, fileNameOnly);
     }
 
     @VisibleForTesting
