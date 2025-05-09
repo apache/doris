@@ -686,8 +686,16 @@ public class TypeCoercionUtils {
         // TODO: if we have other functions need to add argument after bind and before coercion,
         //  we need to use a new framework to do this.
         // this moved from translate phase to here, because we need to add the type info before cast all args to string
-        if (boundFunction instanceof JsonArray || boundFunction instanceof JsonObject) {
-            boundFunction = TypeCoercionUtils.fillJsonTypeArgument(boundFunction, boundFunction instanceof JsonObject);
+        if (boundFunction instanceof JsonObject) {
+            JsonObject jsonObject = (JsonObject) boundFunction;
+            if (!jsonObject.isTypeCoercion()) {
+                boundFunction = TypeCoercionUtils.fillJsonTypeArgument(boundFunction, true);
+                ((JsonObject) boundFunction).typeCoercion();
+            }
+        }
+
+        if (boundFunction instanceof JsonArray) {
+            boundFunction = TypeCoercionUtils.fillJsonTypeArgument(boundFunction, false);
         }
         if (boundFunction instanceof JsonInsert
                 || boundFunction instanceof JsonReplace
