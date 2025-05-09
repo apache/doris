@@ -208,25 +208,16 @@ suite("test_mow_compaction_and_schema_change", "nonConcurrent") {
             assertEquals(1, tablets.size())
             def tablet = tablets[0]
 
-            // write some data
+            // 1. write some data
             sql """ INSERT INTO ${testTable} VALUES (1,'99'); """
             sql """ INSERT INTO ${testTable} VALUES (2,'99'); """
             sql """ INSERT INTO ${testTable} VALUES (3,'99'); """
             sql """ INSERT INTO ${testTable} VALUES (4,'99'); """
-            sql "sync"
-
-            // for solution1
-            GetDebugPoint().enableDebugPointForAllBEs("CumulativeCompaction.modify_rowsets.delete_expired_stale_rowsets")
-            // for solution2
-            GetDebugPoint().enableDebugPointForAllBEs("CumulativeCompaction.modify_rowsets.delete_expired_stale_rowset")
-            GetDebugPoint().enableDebugPointForAllBEs("Tablet.delete_expired_stale_rowset.start_delete_unused_rowset")
-
-            // write some data
             sql """ INSERT INTO ${testTable} VALUES (5,'99'); """
             sql "sync"
             order_qt_sql1 """ select * from ${testTable}; """
 
-            // trigger compaction to generate base rowset
+            // 2. trigger compaction to generate base rowset
             getTabletStatus(tablet)
             assertTrue(triggerCompaction(tablet).contains("Success"))
             waitForCompaction(tablet)
@@ -235,11 +226,15 @@ suite("test_mow_compaction_and_schema_change", "nonConcurrent") {
             logger.info(testTable + ", local_dm 0: " + local_dm)
             order_qt_sql2 "select * from ${testTable}"
 
-            // write some data
+            GetDebugPoint().enableDebugPointForAllBEs("Tablet.delete_expired_stale_rowset.start_delete_unused_rowset")
+            GetDebugPoint().enableDebugPointForAllBEs("CumulativeCompaction.modify_rowsets.delete_expired_stale_rowsets") // solution 1
+            GetDebugPoint().enableDebugPointForAllBEs("CumulativeCompaction.modify_rowsets.delete_expired_stale_rowset") // solution 2
+
+            // 3.0 write some data
             sql """ INSERT INTO ${testTable} VALUES (1, '100'), (2, '97'); """
             sql " sync "
 
-            // schema change and block data convert
+            // 3.1 schema change and block data convert
             block_convert_historical_rowsets()
             sql """alter table ${testTable} modify column v int not null;"""
             // wait for schema change state is running
@@ -253,6 +248,7 @@ suite("test_mow_compaction_and_schema_change", "nonConcurrent") {
             }
             logger.info("alter_state: " + alter_state)
 
+            // 3.0 write some data
             sql """ INSERT INTO ${testTable} VALUES (2, '100'); """
             sql """ INSERT INTO ${testTable} VALUES (3, '100'); """
             sql """ INSERT INTO ${testTable} VALUES (4, '100'); """
@@ -260,7 +256,7 @@ suite("test_mow_compaction_and_schema_change", "nonConcurrent") {
             sql """ sync """
             order_qt_sql3 "select * from ${testTable}"
 
-            // trigger compaction
+            // 4. trigger compaction
             getTabletStatus(tablet)
             local_dm = getLocalDeleteBitmapStatus(tablet)
             logger.info(testTable + ", local_dm 1: " + local_dm)
@@ -271,20 +267,34 @@ suite("test_mow_compaction_and_schema_change", "nonConcurrent") {
             order_qt_sql4 "select * from ${testTable}"
 
             // wait for no stale rowsets
-            for (int i = 0; i < 100; i++) {
+            for (int i = 0; i < 20; i++) {
                 def tablet_status = getTabletStatus(tablet)
-                if (tablet_status["stale_rowsets"].size() == 0) {
+                if (tablet_status["stale_rowsets"].size() == 0 && tablet_status["rowsets"].size() <= 4) {
                     break
                 }
-                sleep(100)
+                sleep(1000)
             }
             logger.info("wait for no stale rowsets")
-            getTabletStatus(tablet)
+            def tablet_status = getTabletStatus(tablet)
+            assertEquals(0, tablet_status["stale_rowsets"].size())
+            if (isCloudMode()) {
+                assertEquals(4, tablet_status["rowsets"].size()) // compaction select [8-11]
+            } else {
+                assertEquals(3, tablet_status["rowsets"].size())
+            }
+
+            // unused rowsets are not deleted
+            GetDebugPoint().enableDebugPointForAllBEs("DeleteBitmapAction._handle_show_local_delete_bitmap_count.vacuum_stale_rowsets") // cloud
+            GetDebugPoint().enableDebugPointForAllBEs("DeleteBitmapAction._handle_show_local_delete_bitmap_count.start_delete_unused_rowset") // local
             local_dm = getLocalDeleteBitmapStatus(tablet)
             logger.info(testTable + ", local_dm 2: " + local_dm)
             if (method == 0) {
-                // check is agged, wait for unused rowsets is deleted
-                assertEquals(9, local_dm["cardinality"]) // the last one is agged
+                if (isCloudMode()) {
+                    assertEquals(3, local_dm["delete_bitmap_count"])
+                    assertEquals(6, local_dm["cardinality"]) // the last one is agged
+                } else {
+                    assertEquals(9, local_dm["cardinality"]) // the last one is agged
+                }
             } else if (method == 1) {
                 if (isCloudMode()) { // compaction select [8-11]
                     assertEquals(2, local_dm["delete_bitmap_count"])
@@ -295,12 +305,13 @@ suite("test_mow_compaction_and_schema_change", "nonConcurrent") {
                 }
             }
 
-            // unblock schema change
+            // 5. unblock schema change and wait for schema change done
             GetDebugPoint().clearDebugPointsForAllBEs()
             alter_state = getAlterTableState()
             logger.info("alter_state: " + alter_state)
             order_qt_sql5 "select * from ${testTable}"
-            // check duplicated keys
+
+            // 6. check duplicated keys
             def result = sql "select `k`, count(*) from ${testTable} group by `k` having count(*) > 1"
             if (method == 0) {
                 logger.info("no duplicated keys: " + result)

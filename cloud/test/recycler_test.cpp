@@ -3122,7 +3122,6 @@ TEST(CheckerTest, delete_bitmap_storage_optimize_check_abnormal) {
     ASSERT_EQ(expected_abnormal_rowsets, real_abnormal_rowsets);
 }
 
-<<<<<<< HEAD
 std::unique_ptr<MetaServiceProxy> get_meta_service() {
     int ret = 0;
     // MemKv
