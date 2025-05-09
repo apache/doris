@@ -27,7 +27,6 @@
 #include "common/config.h"
 #include "common/logging.h" // LOG
 #include "common/status.h"
-#include "gutil/port.h"
 #include "inverted_index_fs_directory.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/block_file_cache_factory.h"

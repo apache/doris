@@ -24,7 +24,6 @@
 #include <vector>
 
 #include "common/status.h"
-#include "gutil/port.h"
 #include "util/coding.h"
 #include "util/faststring.h"
 #include "util/slice.h"

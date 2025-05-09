@@ -19,8 +19,6 @@
 
 #ifdef __AVX2__
 #include <immintrin.h>
-
-#include "gutil/macros.h"
 #endif
 #include <unistd.h>
 

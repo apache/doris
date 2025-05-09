@@ -33,7 +33,6 @@
 #include "gen_cpp/FrontendService.h"
 #include "gen_cpp/FrontendService_types.h"
 #include "gen_cpp/HeartbeatService_types.h"
-#include "gutil/ref_counted.h"
 #include "olap/wal/wal_dirs_info.h"
 #include "olap/wal/wal_reader.h"
 #include "olap/wal/wal_table.h"

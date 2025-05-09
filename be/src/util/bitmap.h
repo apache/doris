@@ -28,7 +28,6 @@
 #include <string>
 #include <vector>
 
-#include "gutil/port.h"
 #include "util/bit_util.h"
 
 namespace doris {

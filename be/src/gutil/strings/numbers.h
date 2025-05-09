@@ -24,7 +24,6 @@ using std::vector;
 #include "gutil/integral_types.h"
 // IWYU pragma: no_include <butil/macros.h>
 #include "gutil/macros.h" // IWYU pragma: keep
-#include "gutil/port.h"
 #include "gutil/stringprintf.h"
 
 // START DOXYGEN NumbersFunctions grouping
@@ -155,118 +154,6 @@ inline char* FastUIntToBuffer(unsigned int i, char* buffer) {
 //  The function checks for '\0' for string termination.
 // ----------------------------------------------------------------------
 int HexDigitsPrefix(const char* buf, int num_digits);
-
-// ----------------------------------------------------------------------
-// ConsumeStrayLeadingZeroes
-//    Eliminates all leading zeroes (unless the string itself is composed
-//    of nothing but zeroes, in which case one is kept: 0...0 becomes 0).
-void ConsumeStrayLeadingZeroes(string* str);
-
-// ----------------------------------------------------------------------
-// ParseLeadingInt32Value
-//    A simple parser for int32 values. Returns the parsed value
-//    if a valid integer is found; else returns deflt. It does not
-//    check if str is entirely consumed.
-//    This cannot handle decimal numbers with leading 0s, since they will be
-//    treated as octal.  If you know it's decimal, use ParseLeadingDec32Value.
-// --------------------------------------------------------------------
-int32 ParseLeadingInt32Value(const char* str, int32 deflt);
-inline int32 ParseLeadingInt32Value(const string& str, int32 deflt) {
-    return ParseLeadingInt32Value(str.c_str(), deflt);
-}
-
-// ParseLeadingUInt32Value
-//    A simple parser for uint32 values. Returns the parsed value
-//    if a valid integer is found; else returns deflt. It does not
-//    check if str is entirely consumed.
-//    This cannot handle decimal numbers with leading 0s, since they will be
-//    treated as octal.  If you know it's decimal, use ParseLeadingUDec32Value.
-// --------------------------------------------------------------------
-uint32 ParseLeadingUInt32Value(const char* str, uint32 deflt);
-inline uint32 ParseLeadingUInt32Value(const string& str, uint32 deflt) {
-    return ParseLeadingUInt32Value(str.c_str(), deflt);
-}
-
-// ----------------------------------------------------------------------
-// ParseLeadingDec32Value
-//    A simple parser for decimal int32 values. Returns the parsed value
-//    if a valid integer is found; else returns deflt. It does not
-//    check if str is entirely consumed.
-//    The string passed in is treated as *10 based*.
-//    This can handle strings with leading 0s.
-//    See also: ParseLeadingDec64Value
-// --------------------------------------------------------------------
-int32 ParseLeadingDec32Value(const char* str, int32 deflt);
-inline int32 ParseLeadingDec32Value(const string& str, int32 deflt) {
-    return ParseLeadingDec32Value(str.c_str(), deflt);
-}
-
-// ParseLeadingUDec32Value
-//    A simple parser for decimal uint32 values. Returns the parsed value
-//    if a valid integer is found; else returns deflt. It does not
-//    check if str is entirely consumed.
-//    The string passed in is treated as *10 based*.
-//    This can handle strings with leading 0s.
-//    See also: ParseLeadingUDec64Value
-// --------------------------------------------------------------------
-uint32 ParseLeadingUDec32Value(const char* str, uint32 deflt);
-inline uint32 ParseLeadingUDec32Value(const string& str, uint32 deflt) {
-    return ParseLeadingUDec32Value(str.c_str(), deflt);
-}
-
-// ----------------------------------------------------------------------
-// ParseLeadingUInt64Value
-// ParseLeadingInt64Value
-// ParseLeadingHex64Value
-// ParseLeadingDec64Value
-// ParseLeadingUDec64Value
-//    A simple parser for long long values.
-//    Returns the parsed value if a
-//    valid integer is found; else returns deflt
-// --------------------------------------------------------------------
-uint64 ParseLeadingUInt64Value(const char* str, uint64 deflt);
-inline uint64 ParseLeadingUInt64Value(const string& str, uint64 deflt) {
-    return ParseLeadingUInt64Value(str.c_str(), deflt);
-}
-int64 ParseLeadingInt64Value(const char* str, int64 deflt);
-inline int64 ParseLeadingInt64Value(const string& str, int64 deflt) {
-    return ParseLeadingInt64Value(str.c_str(), deflt);
-}
-uint64 ParseLeadingHex64Value(const char* str, uint64 deflt);
-inline uint64 ParseLeadingHex64Value(const string& str, uint64 deflt) {
-    return ParseLeadingHex64Value(str.c_str(), deflt);
-}
-int64 ParseLeadingDec64Value(const char* str, int64 deflt);
-inline int64 ParseLeadingDec64Value(const string& str, int64 deflt) {
-    return ParseLeadingDec64Value(str.c_str(), deflt);
-}
-uint64 ParseLeadingUDec64Value(const char* str, uint64 deflt);
-inline uint64 ParseLeadingUDec64Value(const string& str, uint64 deflt) {
-    return ParseLeadingUDec64Value(str.c_str(), deflt);
-}
-
-// ----------------------------------------------------------------------
-// ParseLeadingDoubleValue
-//    A simple parser for double values. Returns the parsed value
-//    if a valid double is found; else returns deflt. It does not
-//    check if str is entirely consumed.
-// --------------------------------------------------------------------
-double ParseLeadingDoubleValue(const char* str, double deflt);
-inline double ParseLeadingDoubleValue(const string& str, double deflt) {
-    return ParseLeadingDoubleValue(str.c_str(), deflt);
-}
-
-// ----------------------------------------------------------------------
-// ParseLeadingBoolValue()
-//    A recognizer of boolean string values. Returns the parsed value
-//    if a valid value is found; else returns deflt.  This skips leading
-//    whitespace, is case insensitive, and recognizes these forms:
-//    0/1, false/true, no/yes, n/y
-// --------------------------------------------------------------------
-bool ParseLeadingBoolValue(const char* str, bool deflt);
-inline bool ParseLeadingBoolValue(const string& str, bool deflt) {
-    return ParseLeadingBoolValue(str.c_str(), deflt);
-}
 
 // ----------------------------------------------------------------------
 // AutoDigitStrCmp

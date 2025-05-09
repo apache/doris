@@ -39,7 +39,6 @@
 
 #include "common/config.h"
 #include "common/status.h"
-#include "gutil/ref_counted.h"
 #include "olap/calc_delete_bitmap_executor.h"
 #include "olap/compaction_permit_limiter.h"
 #include "olap/olap_common.h"

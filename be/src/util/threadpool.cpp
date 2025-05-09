@@ -30,7 +30,6 @@
 #include "absl/strings/substitute.h"
 #include "common/exception.h"
 #include "common/logging.h"
-#include "gutil/port.h"
 #include "util/debug/sanitizer_scopes.h"
 #include "util/debug_points.h"
 #include "util/doris_metrics.h"
