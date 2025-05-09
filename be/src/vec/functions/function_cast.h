@@ -72,6 +72,7 @@
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_agg_state.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_bitmap.h"
 #include "vec/data_types/data_type_date.h"
@@ -335,8 +336,8 @@ struct ConvertImpl {
                     block.get_by_position(result).column =
                             ColumnNullable::create(std::move(col_to), std::move(col_null_map_to));
                     return Status::OK();
-                } else if constexpr ((std::is_same_v<FromDataType, DataTypeIPv4>)&&(
-                                             std::is_same_v<ToDataType, DataTypeIPv6>)) {
+                } else if constexpr ((std::is_same_v<FromDataType, DataTypeIPv4>) &&
+                                     (std::is_same_v<ToDataType, DataTypeIPv6>)) {
                     for (size_t i = 0; i < size; ++i) {
                         map_ipv4_to_ipv6(vec_from[i], reinterpret_cast<UInt8*>(&vec_to[i]));
                     }
@@ -1489,18 +1490,20 @@ private:
             /// that will not throw an exception but return NULL in case of malformed input.
             function = FunctionConvertFromString<DataType, NameCast>::create();
         } else if (requested_result_is_nullable &&
-                   (IsTimeType<DataType> || IsTimeV2Type<DataType>)&&!(
-                           check_and_get_data_type<DataTypeDateTime>(from_type.get()) ||
-                           check_and_get_data_type<DataTypeDate>(from_type.get()) ||
-                           check_and_get_data_type<DataTypeDateV2>(from_type.get()) ||
-                           check_and_get_data_type<DataTypeDateTimeV2>(from_type.get()))) {
+                   (IsTimeType<DataType> || IsTimeV2Type<DataType>) &&
+                   !(check_and_get_data_type<DataTypeDateTime>(from_type.get()) ||
+                     check_and_get_data_type<DataTypeDate>(from_type.get()) ||
+                     check_and_get_data_type<DataTypeDateV2>(from_type.get()) ||
+                     check_and_get_data_type<DataTypeDateTimeV2>(from_type.get()))) {
             function = FunctionConvertToTimeType<DataType, NameCast>::create();
         } else {
             function = FunctionTo<DataType>::Type::create();
         }
 
         /// Check conversion using underlying function
-        { function->get_return_type(ColumnsWithTypeAndName(1, {nullptr, from_type, ""})); }
+        {
+            function->get_return_type(ColumnsWithTypeAndName(1, {nullptr, from_type, ""}));
+        }
 
         return [function](FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           const uint32_t result, size_t input_rows_count) {
@@ -1512,7 +1515,9 @@ private:
         FunctionPtr function = FunctionToString::create();
 
         /// Check conversion using underlying function
-        { function->get_return_type(ColumnsWithTypeAndName(1, {nullptr, from_type, ""})); }
+        {
+            function->get_return_type(ColumnsWithTypeAndName(1, {nullptr, from_type, ""}));
+        }
 
         return [function](FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           const uint32_t result, size_t input_rows_count) {
@@ -2168,8 +2173,20 @@ private:
 
     /// 'from_type' and 'to_type' are nested types in case of Nullable.
     /// 'requested_result_is_nullable' is true if CAST to Nullable type is requested.
-    WrapperType prepare_impl(FunctionContext* context, const DataTypePtr& from_type,
-                             const DataTypePtr& to_type, bool requested_result_is_nullable) const {
+    WrapperType prepare_impl(FunctionContext* context, const DataTypePtr& origin_from_type,
+                             const DataTypePtr& origin_to_type,
+                             bool requested_result_is_nullable) const {
+        auto to_type = origin_to_type;
+        auto from_type = origin_from_type;
+        if (to_type->get_primitive_type() == PrimitiveType::TYPE_AGG_STATE) {
+            const auto& agg_state_type = assert_cast<const DataTypeAggState&>(*to_type);
+            to_type = agg_state_type.get_serialized_type();
+        }
+        if (from_type->get_primitive_type() == PrimitiveType::TYPE_AGG_STATE) {
+            const auto& agg_state_type = assert_cast<const DataTypeAggState&>(*from_type);
+            from_type = agg_state_type.get_serialized_type();
+        }
+
         if (from_type->equals(*to_type)) {
             return create_identity_wrapper(from_type);
         }
