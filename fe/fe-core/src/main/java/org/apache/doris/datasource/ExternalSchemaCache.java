@@ -19,6 +19,7 @@ package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.CacheFactory;
+import org.apache.doris.common.CacheLogRemovalListener;
 import org.apache.doris.common.Config;
 import org.apache.doris.metric.GaugeMetric;
 import org.apache.doris.metric.Metric;
@@ -57,7 +58,8 @@ public class ExternalSchemaCache {
                 Config.max_external_schema_cache_num,
                 false,
                 null);
-        schemaCache = schemaCacheFactory.buildCache(key -> loadSchema(key), null, executor);
+        schemaCache = schemaCacheFactory.buildCache(key -> loadSchema(key),
+                new CacheLogRemovalListener<>("ExternalSchemaCache schemaCache"), executor);
     }
 
     private void initMetrics() {

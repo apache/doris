@@ -20,6 +20,7 @@ package org.apache.doris.datasource.paimon;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CacheFactory;
+import org.apache.doris.common.CacheLogRemovalListener;
 import org.apache.doris.common.Config;
 import org.apache.doris.datasource.CacheException;
 import org.apache.doris.datasource.CatalogIf;
@@ -51,7 +52,8 @@ public class PaimonMetadataCache {
                 Config.max_external_table_cache_num,
                 true,
                 null);
-        this.snapshotCache = snapshotCacheFactory.buildCache(key -> loadSnapshot(key), null, executor);
+        this.snapshotCache = snapshotCacheFactory.buildCache(key -> loadSnapshot(key),
+                new CacheLogRemovalListener<>("PaimonMetadataCache snapshotCache"), executor);
     }
 
     @NotNull

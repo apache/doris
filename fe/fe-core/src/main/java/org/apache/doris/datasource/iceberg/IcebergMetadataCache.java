@@ -20,6 +20,7 @@ package org.apache.doris.datasource.iceberg;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CacheFactory;
+import org.apache.doris.common.CacheLogRemovalListener;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
@@ -60,7 +61,8 @@ public class IcebergMetadataCache {
                 Config.max_external_table_cache_num,
                 true,
                 null);
-        this.snapshotListCache = snapshotListCacheFactory.buildCache(key -> loadSnapshots(key), null, executor);
+        this.snapshotListCache = snapshotListCacheFactory.buildCache(key -> loadSnapshots(key),
+                new CacheLogRemovalListener<>("IcebergMetadataCache snapshotListCache"), executor);
 
         CacheFactory tableCacheFactory = new CacheFactory(
                 OptionalLong.of(28800L),
@@ -68,7 +70,8 @@ public class IcebergMetadataCache {
                 Config.max_external_table_cache_num,
                 true,
                 null);
-        this.tableCache = tableCacheFactory.buildCache(key -> loadTable(key), null, executor);
+        this.tableCache = tableCacheFactory.buildCache(key -> loadTable(key),
+                new CacheLogRemovalListener<>("IcebergMetadataCache tableCache"), executor);
 
         CacheFactory snapshotCacheFactory = new CacheFactory(
                 OptionalLong.of(28800L),
@@ -76,7 +79,8 @@ public class IcebergMetadataCache {
                 Config.max_external_table_cache_num,
                 true,
                 null);
-        this.snapshotCache = snapshotCacheFactory.buildCache(key -> loadSnapshot(key), null, executor);
+        this.snapshotCache = snapshotCacheFactory.buildCache(key -> loadSnapshot(key),
+                new CacheLogRemovalListener<>("IcebergMetadataCache snapshotCache"), executor);
     }
 
     public List<Snapshot> getSnapshotList(TIcebergMetadataParams params) throws UserException {
