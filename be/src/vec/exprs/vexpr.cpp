@@ -718,7 +718,9 @@ Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBase
         }
     }
 
-    if (iterators.empty() || arguments.empty()) {
+    // is null or is not null has no arguments
+    if (iterators.empty() || (arguments.empty() && !(function->get_name() == "is_not_null_pred" ||
+                                                     function->get_name() == "is_null_pred"))) {
         return Status::OK(); // Nothing to evaluate or no literals to compare against
     }
 
