@@ -51,62 +51,6 @@ namespace vectorized {
 
 struct Null {};
 
-#ifdef BE_TEST
-// The identifier should be less than int16, because castexpr using the identifier
-// instead of type name as type parameter. It will using int16 as column type.
-enum class TypeIndex {
-    Nothing = 0,
-    UInt8 = 1, // bool
-    UInt16 = 2,
-    UInt32 = 3,
-    UInt64 = 4,
-    UInt128 = 5,
-    Int8 = 6,
-    Int16 = 7,
-    Int32 = 8,
-    Int64 = 9,
-    Int128 = 10,
-    Float32 = 11,
-    Float64 = 12,
-    Date = 13,
-    DateTime = 14,
-    String = 15,
-    FixedString = 16,
-    Enum8 = 17,
-    Enum16 = 18,
-    Decimal32 = 19,
-    Decimal64 = 20,
-    Decimal128V2 = 21,
-    UUID = 22,
-    Array = 23,
-    Tuple = 24,
-    Set = 25,
-    Interval = 26,
-    Nullable = 27,
-    Function = 28,
-    AggregateFunction = 29,
-    LowCardinality = 30,
-    BitMap = 31,
-    HLL = 32,
-    DateV2 = 33,
-    DateTimeV2 = 34,
-    TimeV2 = 35,
-    FixedLengthObject = 36,
-    JSONB = 37,
-    Decimal128V3 = 38,
-    Map = 39,
-    Struct = 40,
-    VARIANT = 41,
-    QuantileState = 42,
-    Time = 43,
-    AggState = 44,
-    Decimal256 = 45,
-    IPv4 = 46,
-    IPv6 = 47,
-    Int256 = 48
-};
-#endif
-
 using UInt8 = uint8_t;
 using UInt16 = uint16_t;
 using UInt32 = uint32_t;

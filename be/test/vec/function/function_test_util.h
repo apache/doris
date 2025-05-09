@@ -108,47 +108,48 @@ using IPV4 = uint32_t;
 using IPV6 = uint128_t;
 
 //ATTN: keep same with `insert_cell`. not applicable for DataTypeNullable
+//TODO: make default_value constexpr when we upgrade to clang++17
 template <typename DataType>
 struct ut_input_type {};
 template <typename NativeType>
 struct ut_input_type<DataTypeNumber<NativeType>> {
     using type = DataTypeNumber<NativeType>::FieldType;
-    static constexpr type default_value = 123;
+    inline static type default_value = 123;
 };
 template <typename DecimalType>
 struct ut_input_type<DataTypeDecimal<DecimalType>> {
     using type = DataTypeDecimal<DecimalType>::FieldType;
-    static constexpr type default_value = type {123};
+    inline static type default_value = type {123};
 };
 template <>
 struct ut_input_type<DataTypeString> {
     using type = std::string;
-    static constexpr type default_value = "test_default";
+    inline static type default_value = "test_default";
 };
 template <>
 struct ut_input_type<DataTypeDate> {
     using type = std::string;
-    static constexpr type default_value = "1970-01-01";
+    inline static type default_value = "1970-01-01";
 };
 template <>
 struct ut_input_type<DataTypeDateTime> {
     using type = std::string;
-    static constexpr type default_value = "1970-01-01";
+    inline static type default_value = "1970-01-01";
 };
 template <>
 struct ut_input_type<DataTypeDateV2> {
     using type = std::string;
-    static constexpr type default_value = "1970-01-01";
+    inline static type default_value = "1970-01-01";
 };
 template <>
 struct ut_input_type<DataTypeDateTimeV2> {
     using type = std::string;
-    static constexpr type default_value = "1970-01-01";
+    inline static type default_value = "1970-01-01";
 };
 template <>
 struct ut_input_type<DataTypeTimeV2> {
     using type = std::string;
-    static constexpr type default_value = "01:02:03";
+    inline static type default_value = "01:02:03";
 };
 template <>
 struct ut_input_type<DataTypeJsonb> {
@@ -181,7 +182,7 @@ struct ut_input_type<DataTypeStruct> {
 
 // for cast tests, the target type need a placeholder column with some legal value.
 template <typename DataType>
-constexpr static ut_input_type<DataType>::type ut_input_type_default_v =
+inline static ut_input_type<DataType>::type ut_input_type_default_v =
         ut_input_type<DataType>::default_value;
 
 // cell constructors. could also use from_int_frac if you'd like
