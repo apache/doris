@@ -64,7 +64,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 public class S3ObjStorage implements ObjStorage<S3Client> {
@@ -114,7 +113,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
         return client;
     }
 
-    public Status globListV2(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
+    public Status globList(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
 
         long startTime = System.nanoTime();
         Status st = Status.OK;
@@ -154,7 +153,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                         java.nio.file.Path blobPath = Paths.get(obj.key());
                         LOG.info("s3 glob list object {}", obj);
                         boolean isPrefix = false;
-                        while (blobPath.toString().startsWith(listPrefix)) {
+                        while (blobPath != null && blobPath.toString().startsWith(listPrefix)) {
                             if (!matcher.matches(blobPath)) {
                                 isPrefix = true;
                                 blobPath = blobPath.getParent();
@@ -169,7 +168,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
 
                             matchCnt++;
                             RemoteFile remoteFile = new RemoteFile(fileNameOnly ? blobPath.getFileName()
-                                    .toString() : "s3://" + bucket + "/" + blobPath.toString(), !isPrefix,
+                                    .toString() : "s3://" + bucket + "/" + blobPath, !isPrefix,
                                     isPrefix ? -1 : obj.size(), isPrefix ? -1 : obj.size(), isPrefix ? 0 : obj
                                     .lastModified().toEpochMilli());
                             result.add(remoteFile);
@@ -210,49 +209,6 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
         }
 
         return globPattern.substring(0, earliestSpecialCharIndex);
-    }
-
-    public Status globList(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
-        try {
-            remotePath = s3Properties.validateAndNormalizeUri(remotePath);
-            URI uri = new URI(remotePath);
-            String bucketName = uri.getHost();
-            String prefix = uri.getPath().substring(1);
-            int wildcardIndex = prefix.indexOf('*');
-            String searchPrefix = wildcardIndex > 0 ? prefix.substring(0, wildcardIndex) : prefix;
-            try (S3Client s3 = getClient()) {
-                ListObjectsV2Request listRequest = ListObjectsV2Request.builder()
-                        .bucket(bucketName)
-                        .prefix(searchPrefix)
-                        .build();
-
-                ListObjectsV2Response listResponse = s3.listObjectsV2(listRequest);
-                String regex = prefix.replace(".", "\\.")
-                        .replace("*", ".*")
-                        .replace("?", ".");
-                Pattern pattern = Pattern.compile(regex);
-                List<RemoteFile> matchedFiles = listResponse.contents().stream()
-                        .filter(obj -> pattern.matcher(obj.key()).matches())
-                        .map(obj -> {
-                            String fullKey = obj.key();
-                            String fullPath = "s3://" + bucketName + "/" + fullKey;
-                            return new RemoteFile(
-                                    fileNameOnly ? fullPath.substring(fullPath.lastIndexOf('/') + 1) : fullPath,
-                                    true,
-                                    obj.size(),
-                                    -1,
-                                    obj.lastModified().toEpochMilli()
-                            );
-                        })
-                        .collect(Collectors.toList());
-
-                result.addAll(matchedFiles);
-            }
-            return Status.OK;
-        } catch (Exception e) {
-            LOG.warn("Errors while getting file status", e);
-            return new Status(Status.ErrCode.COMMON_ERROR, "Errors while getting file status " + e.getMessage());
-        }
     }
 
     @Override
