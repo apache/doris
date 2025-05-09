@@ -44,7 +44,7 @@ public class ExternalRowCountCache {
         // 2. set refreshAfterWrite to 10min(default), so that the cache will be refreshed after 10min
         CacheFactory rowCountCacheFactory = new CacheFactory(
                 OptionalLong.of(86400L),
-                OptionalLong.of(Config.external_cache_expire_time_minutes_after_access * 60),
+                OptionalLong.of(Config.external_cache_refresh_time_minutes * 60),
                 Config.max_external_table_row_count_cache_num,
                 false,
                 null);

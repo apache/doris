@@ -182,7 +182,7 @@ public class HiveMetaStoreCache {
         CacheFactory fileCacheFactory = new CacheFactory(
                 OptionalLong.of(fileMetaCacheTtlSecond >= ExternalCatalog.CACHE_TTL_DISABLE_CACHE
                         ? fileMetaCacheTtlSecond : 28800L),
-                OptionalLong.of(Config.external_cache_expire_time_minutes_after_access * 60L),
+                OptionalLong.of(Config.external_cache_refresh_time_minutes * 60L),
                 Config.max_external_file_cache_num,
                 true,
                 null);
