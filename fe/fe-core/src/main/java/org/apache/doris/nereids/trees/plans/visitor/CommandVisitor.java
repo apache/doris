@@ -177,6 +177,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowSnapshotCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowSqlBlockRuleCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowStagesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowStatusCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowStorageVaultCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowStorageEnginesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowStoragePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowSyncJobCommand;
@@ -1083,5 +1084,9 @@ public interface CommandVisitor<R, C> {
 
     default R visitDropStageCommand(DropStageCommand dropStageCommand, C context) {
         return visitCommand(dropStageCommand, context);
+    }
+
+    default R visitShowStorageVaultCommand(ShowStorageVaultCommand showStorageVaultCommand, C context) {
+        return visitCommand(showStorageVaultCommand, context);
     }
 }

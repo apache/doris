@@ -704,6 +704,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowStagesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowStorageEnginesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowStoragePolicyCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowStorageVaultCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowSyncJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTableCreationCommand;
@@ -7190,5 +7191,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
 
         return new RefreshDictionaryCommand(dbName, dictName);
+    }
+
+    @Override
+    public LogicalPlan visitShowStorageVault(DorisParser.ShowStorageVaultContext ctx) {
+        return new ShowStorageVaultCommand();
     }
 }

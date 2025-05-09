@@ -381,6 +381,7 @@ supportedShowStatement
         wildWhere? sortClause? limitClause?                                         #showTabletsFromTable
     | SHOW TABLET tabletId=INTEGER_VALUE                                            #showTabletId
     | SHOW DICTIONARIES wildWhere?                                                  #showDictionaries
+    | SHOW STORAGE (VAULT | VAULTS)                                                 #showStorageVault
     ;
 
 supportedLoadStatement
@@ -437,8 +438,7 @@ lockTable
     ;
 
 unsupportedShowStatement
-    : SHOW STORAGE (VAULT | VAULTS)                                                 #showStorageVault
-    | SHOW OPEN TABLES ((FROM | IN) database=multipartIdentifier)? wildWhere?       #showOpenTables
+    : SHOW OPEN TABLES ((FROM | IN) database=multipartIdentifier)? wildWhere?       #showOpenTables
     | SHOW CREATE MATERIALIZED VIEW name=multipartIdentifier                        #showMaterializedView
     | SHOW CREATE statementScope? FUNCTION functionIdentifier
         LEFT_PAREN functionArguments? RIGHT_PAREN
