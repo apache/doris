@@ -264,6 +264,7 @@ CONF_Bool(enable_loopback_address_for_ms, "false");
 
 // delete_bitmap_lock version config
 CONF_mString(use_delete_bitmap_lock_version, "v1");
+CONF_mInt64(update_delete_bitmap_lock_white_list_interval_seconds, "10");
 // FOR DEBUGGING
 CONF_mBool(use_delete_bitmap_lock_random_version, "false");
 

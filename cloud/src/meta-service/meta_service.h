@@ -29,6 +29,7 @@
 
 #include "common/config.h"
 #include "cpp/sync_point.h"
+#include "meta-service/delete_bitmap_lock_white_list.h"
 #include "meta-service/txn_kv.h"
 #include "meta-service/txn_lazy_committer.h"
 #include "rate-limiter/rate_limiter.h"
@@ -316,7 +317,7 @@ public:
     MetaServiceResponseStatus fix_tablet_stats(std::string cloud_unique_id_str,
                                                std::string table_id_str);
 
-    void check_version(std::string& use_version, std::string& instance_id);
+    void get_version(std::string& use_version, std::string& instance_id);
 
 private:
     std::pair<MetaServiceCode, std::string> alter_instance(
@@ -351,12 +352,11 @@ private:
                                              std::string& instance_id, MetaServiceCode& code,
                                              std::string& msg, std::stringstream& ss);
 
-    bool use_new_version_random();
-
     std::shared_ptr<TxnKv> txn_kv_;
     std::shared_ptr<ResourceManager> resource_mgr_;
     std::shared_ptr<RateLimiter> rate_limiter_;
     std::shared_ptr<TxnLazyCommitter> txn_lazy_committer_;
+    std::shared_ptr<DeleteBitmapLockWhiteList> delete_bitmap_lock_white_list_;
 };
 
 class MetaServiceProxy final : public MetaService {
@@ -738,8 +738,8 @@ public:
         call_impl(&cloud::MetaService::get_schema_dict, controller, request, response, done);
     }
 
-    void check_version(std::string& use_version, std::string& instance_id) {
-        impl_->check_version(use_version, instance_id);
+    void get_version(std::string& use_version, std::string& instance_id) {
+        impl_->get_version(use_version, instance_id);
     }
 
 private:

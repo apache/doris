@@ -1541,9 +1541,8 @@ void MetaServiceImpl::finish_tablet_job(::google::protobuf::RpcController* contr
                     return;
                 }
             });
-
-    std::string use_version = config::use_delete_bitmap_lock_version;
-    check_version(use_version, instance_id);
+    std::string use_version =
+            delete_bitmap_lock_white_list_->get_delete_bitmap_lock_version(instance_id);
     LOG(INFO) << "finish_tablet_job instance_id=" << instance_id << " use_version=" << use_version;
     // Process compaction commit
     if (!request->job().compaction().empty()) {

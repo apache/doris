@@ -1774,15 +1774,17 @@ TEST(MetaServiceHttpTest, UpdateConfig) {
                     ctx.query<std::string>("update_config",
                                            "configs=delete_bitmap_lock_version_white_list="
                                            "warehouse1:v1;warehouse2:v2&persist=true");
+            sleep(config::update_delete_bitmap_lock_white_list_interval_seconds);
+
             ASSERT_EQ(status_code, 200);
             ASSERT_EQ(config::delete_bitmap_lock_version_white_list, "warehouse1:v1;warehouse2:v2");
             auto& meta_service = ctx.meta_service_;
             std::string use_version = "";
             std::string instance_id = "warehouse1";
-            meta_service->check_version(use_version, instance_id);
+            meta_service->get_version(use_version, instance_id);
             ASSERT_EQ(use_version, "v1");
             instance_id = "warehouse2";
-            meta_service->check_version(use_version, instance_id);
+            meta_service->get_version(use_version, instance_id);
             ASSERT_EQ(use_version, "v2");
             config::Properties props;
             ASSERT_TRUE(props.load(config::custom_conf_path.c_str(), true));
@@ -1794,10 +1796,10 @@ TEST(MetaServiceHttpTest, UpdateConfig) {
                 ASSERT_TRUE(new_val_set);
                 ASSERT_EQ(white_list, "warehouse1:v1;warehouse2:v2");
                 instance_id = "warehouse1";
-                meta_service->check_version(use_version, instance_id);
+                meta_service->get_version(use_version, instance_id);
                 ASSERT_EQ(use_version, "v1");
                 instance_id = "warehouse2";
-                meta_service->check_version(use_version, instance_id);
+                meta_service->get_version(use_version, instance_id);
                 ASSERT_EQ(use_version, "v2");
             }
         }
@@ -1807,15 +1809,16 @@ TEST(MetaServiceHttpTest, UpdateConfig) {
                     ctx.query<std::string>("update_config",
                                            "configs=delete_bitmap_lock_version_white_list="
                                            "warehouse3:v1;warehouse4:v2&persist=true");
+            sleep(config::update_delete_bitmap_lock_white_list_interval_seconds);
             ASSERT_EQ(status_code, 200);
             ASSERT_EQ(config::delete_bitmap_lock_version_white_list, "warehouse3:v1;warehouse4:v2");
             auto& meta_service = ctx.meta_service_;
             std::string use_version = "";
             std::string instance_id = "warehouse3";
-            meta_service->check_version(use_version, instance_id);
+            meta_service->get_version(use_version, instance_id);
             ASSERT_EQ(use_version, "v1");
             instance_id = "warehouse4";
-            meta_service->check_version(use_version, instance_id);
+            meta_service->get_version(use_version, instance_id);
             ASSERT_EQ(use_version, "v2");
             config::Properties props;
             ASSERT_TRUE(props.load(config::custom_conf_path.c_str(), true));
@@ -1827,10 +1830,10 @@ TEST(MetaServiceHttpTest, UpdateConfig) {
                 ASSERT_TRUE(new_val_set);
                 ASSERT_EQ(white_list, "warehouse3:v1;warehouse4:v2");
                 instance_id = "warehouse3";
-                meta_service->check_version(use_version, instance_id);
+                meta_service->get_version(use_version, instance_id);
                 ASSERT_EQ(use_version, "v1");
                 instance_id = "warehouse4";
-                meta_service->check_version(use_version, instance_id);
+                meta_service->get_version(use_version, instance_id);
                 ASSERT_EQ(use_version, "v2");
             }
         }
@@ -1876,10 +1879,10 @@ TEST(MetaServiceHttpTest, UpdateConfig) {
                 auto& meta_service = ctx.meta_service_;
                 std::string use_version = "";
                 std::string instance_id = "warehouse3";
-                meta_service->check_version(use_version, instance_id);
+                meta_service->get_version(use_version, instance_id);
                 ASSERT_EQ(use_version, "v1");
                 instance_id = "warehouse4";
-                meta_service->check_version(use_version, instance_id);
+                meta_service->get_version(use_version, instance_id);
                 ASSERT_EQ(use_version, "v2");
             }
         }

@@ -26,4 +26,5 @@ add_library(MetaService
     mem_txn_kv.cpp
     http_encode_key.cpp
     txn_lazy_committer.cpp
+    delete_bitmap_lock_white_list.cpp
 )

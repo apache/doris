@@ -96,6 +96,7 @@ std::unique_ptr<MetaServiceProxy> get_meta_service(bool mock_resource_mgr) {
     auto rs = mock_resource_mgr ? std::make_shared<MockResourceManager>(txn_kv)
                                 : std::make_shared<ResourceManager>(txn_kv);
     auto rl = std::make_shared<RateLimiter>();
+    config::update_delete_bitmap_lock_white_list_interval_seconds = 1;
     auto meta_service = std::make_unique<MetaServiceImpl>(txn_kv, rs, rl);
     return std::make_unique<MetaServiceProxy>(std::move(meta_service));
 }

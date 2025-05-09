@@ -1954,12 +1954,13 @@ TEST(MetaServiceJobTest, DeleteBitmapUpdateLockCompatibilityTest) {
     config::use_delete_bitmap_lock_version = "v1";
     //1. normal test
     config::delete_bitmap_lock_version_white_list =
-            "instance_id1:v1;instance_id2:v2;instance_id3:v3;instance_id5:v1_2_3;仓库6:v2;Instance_"
-            "id7:v2;Instance_id*:v2;instance_id8v2;instance_id9;v2;instance_id10$v2;instance_id1:"
-            "v1;instance_id11 : v2 ;;instance_id12:v2";
+            "instance_id1:v1;instance_id1:v2;instance_id2:v2;instance_id3:v3;instance_id5:v1_2_3;"
+            "仓库6:v2;Instance_id7:v2;Instance_id*:v2;instance_id8v2;instance_id9;v2;instance_id10$"
+            "v2;instance_id11 : v2 ;;instance_id12:v2";
     //after parse config,the test result should be:
-    //instance_id1->v1 instance_id2->v2 instance_id3->v1 instance_id4->v1 instance_id5->v1 instance_id6->v1
+    //instance_id1->v2 instance_id2->v2 instance_id3->v1 instance_id4->v1 instance_id5->v1 instance_id6->v1
     //instance_id7->v1 instance_id8->v1 instance_id9->v1 instance_id10->v1 instance_id11->v2 instance_id12->v2
+    sleep(config::update_delete_bitmap_lock_white_list_interval_seconds);
     table_id = 7890;
     //compaction
     remove_delete_bitmap_lock(meta_service.get(), table_id);
@@ -1972,13 +1973,14 @@ TEST(MetaServiceJobTest, DeleteBitmapUpdateLockCompatibilityTest) {
     res_code = get_delete_bitmap_lock(meta_service.get(), table_id, -1, 101);
     ASSERT_EQ(res_code, MetaServiceCode::OK);
     check_delete_bitmap_lock(meta_service.get(), instance_id_x, table_id, -1, true);
+    check_compaction_key(meta_service.get(), instance_id_x, table_id, 101, true);
     test_start_compaction_job(table_id, 2, 3, 5, TabletCompactionJobPB::BASE, "job_id123",
                               instance_id_x);
     res_code = update_delete_bitmap(meta_service.get(), table_id, 3, 5, -1, 101);
     ASSERT_EQ(res_code, MetaServiceCode::OK);
     test_commit_compaction_job(table_id, 2, 3, 5, TabletCompactionJobPB::BASE, 101, "job_id123",
                                instance_id_x);
-    check_delete_bitmap_lock(meta_service.get(), instance_id_x, table_id, -1, false);
+    check_compaction_key(meta_service.get(), instance_id_x, table_id, 101, false);
     clear_rowsets(5);
 
     instance_id_x = "instance_id2";
@@ -2498,6 +2500,7 @@ TEST(MetaServiceJobTest, DeleteBitmapUpdateLockCompatibilityTest) {
 
     //2. empty white list
     config::delete_bitmap_lock_version_white_list = "";
+    sleep(config::update_delete_bitmap_lock_white_list_interval_seconds);
     // compaction
     instance_id_x = "instance_id20";
     sp->set_call_back("get_instance_id", [&](auto&& args) {
@@ -2539,6 +2542,7 @@ TEST(MetaServiceJobTest, DeleteBitmapUpdateLockCompatibilityTest) {
     }
     ss << "instance_id1000";
     config::delete_bitmap_lock_version_white_list = ss.str();
+    sleep(config::update_delete_bitmap_lock_white_list_interval_seconds);
     instance_id_x = "instance_id0";
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
