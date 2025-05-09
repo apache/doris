@@ -696,7 +696,7 @@ public class OutFileClause {
         sinkOptions.setWithBom(withBom);
 
         if (brokerDesc != null) {
-            sinkOptions.setBrokerProperties(brokerDesc.getStorageProperties().getBackendConfigProperties());
+            sinkOptions.setBrokerProperties(brokerDesc.getBackendConfigProperties());
             // broker_addresses of sinkOptions will be set in Coordinator.
             // Because we need to choose the nearest broker with the result sink node.
         }

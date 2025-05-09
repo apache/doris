@@ -152,7 +152,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                     for (S3Object obj : response.contents()) {
                         elementCnt++;
                         java.nio.file.Path blobPath = Paths.get(obj.key());
-
+                        LOG.info("s3 glob list object {}", obj);
                         boolean isPrefix = false;
                         while (blobPath.toString().startsWith(listPrefix)) {
                             if (!matcher.matches(blobPath)) {

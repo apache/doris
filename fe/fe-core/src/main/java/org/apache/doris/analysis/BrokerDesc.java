@@ -89,7 +89,7 @@ public class BrokerDesc extends StorageDesc implements Writable {
             } catch (RuntimeException e) {
                 // Currently ignored: these properties might be broker-specific.
                 // Support for broker properties will be added in the future.
-                LOG.warn("Failed to create storage properties for broker: {}, properties: {}", name, properties, e);
+                LOG.info("Failed to create storage properties for broker: {}, properties: {}", name, properties, e);
             }
 
         }
@@ -109,7 +109,9 @@ public class BrokerDesc extends StorageDesc implements Writable {
             try {
                 this.storageProperties = StorageProperties.createPrimary(properties);
             } catch (RuntimeException e) {
-                //ignore
+                // Currently ignored: these properties might be broker-specific.
+                // Support for broker properties will be added in the future.
+                LOG.info("Failed to create storage properties for broker: {}, properties: {}", name, properties, e);
             }
         }
         this.storageType = storageType;

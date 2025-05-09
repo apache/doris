@@ -66,7 +66,7 @@ class S3PropertyUtilsTest {
         Assertions.assertNull(S3PropertyUtils.constructEndpointFromUrl(props, "false", "true"));
 
         props.put("uri", "invalid uri without scheme");
-        Assertions.assertThrowsExactly(UserException.class, () -> S3PropertyUtils.constructEndpointFromUrl(props, "true", "true"));
+        Assertions.assertThrowsExactly(IllegalArgumentException.class, () -> S3PropertyUtils.constructEndpointFromUrl(props, "true", "true"));
     }
 
     @Test
@@ -86,7 +86,7 @@ class S3PropertyUtilsTest {
         Assertions.assertNull(S3PropertyUtils.constructRegionFromUrl(props, "false", "true"));
 
         props.put("uri", "not a uri");
-        Assertions.assertThrowsExactly(UserException.class, () -> S3PropertyUtils.constructRegionFromUrl(props, "false", "true"));
+        Assertions.assertThrowsExactly(IllegalArgumentException.class, () -> S3PropertyUtils.constructRegionFromUrl(props, "false", "true"));
         props.put("uri", "https://my-bucket.s3.us-west-1.amazonaws.com/test.txt");
         Assertions.assertEquals("us-west-1", S3PropertyUtils.constructRegionFromUrl(props, "false", "true"));
     }
