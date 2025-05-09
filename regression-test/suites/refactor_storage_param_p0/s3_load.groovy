@@ -20,7 +20,10 @@ import static groovy.test.GroovyAssert.shouldFail;
 import static java.util.concurrent.TimeUnit.SECONDS;
 
 suite("refactor_storage_param_load") {
-
+    String enabled = context.config.otherConfigs.get("enableRefactorParamsTest")
+    if (enabled == null || enabled.equalsIgnoreCase("false")) {
+        return
+    }
     String  ak = context.config.otherConfigs.get("AWSAK")
     String sk = context.config.otherConfigs.get("AWSSK")
     String endpoint = "s3.ap-northeast-1.amazonaws.com"

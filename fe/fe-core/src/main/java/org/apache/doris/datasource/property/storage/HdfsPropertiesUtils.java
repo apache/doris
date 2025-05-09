@@ -126,7 +126,7 @@ public class HdfsPropertiesUtils {
      */
     private static String validateAndNormalizeUri(String uriStr) throws AnalysisException {
         if (StringUtils.isBlank(uriStr)) {
-            throw new IllegalArgumentException("uri is null, pls check your params");
+            throw new IllegalArgumentException("Properties 'uri' is required");
         }
         URI uri = URI.create(uriStr);
         String schema = uri.getScheme();

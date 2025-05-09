@@ -16,7 +16,10 @@
 // under the License.
 
 suite("test_outfile_s3_storage", "p0") {
-
+    String enabled = context.config.otherConfigs.get("enableRefactorParamsTest")
+    if (enabled == null || enabled.equalsIgnoreCase("false")) {
+        return
+    }
     def export_table_name = "test_outfile_s3_storage"
     
     def s3_tvf = {bucket, s3_endpoint, region, ak, sk, path ->

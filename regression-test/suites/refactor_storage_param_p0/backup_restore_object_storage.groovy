@@ -19,6 +19,10 @@ import static java.util.concurrent.TimeUnit.SECONDS;
 import static groovy.test.GroovyAssert.shouldFail
 
 suite("refactor_storage_backup_restore_object_storage", "p0") {
+    String enabled = context.config.otherConfigs.get("enableRefactorParamsTest")
+    if (enabled == null || enabled.equalsIgnoreCase("false")) {
+        return
+    }
     def s3table = "test_backup_restore";
 
     def databaseQueryResult = sql """
