@@ -169,13 +169,14 @@ public class LogicalWindowToPhysicalWindow extends OneImplementationRuleFactory 
             return physicalWindow.withRequirePropertiesAndChild(RequireProperties.of(PhysicalProperties.GATHER), root);
         }
 
+        boolean isSkew = windowFrameGroup.isSkew();
         // todo: WFGs in the same OKG only need same RequiredProperties
         PhysicalProperties properties;
         if (windowFrameGroup.partitionKeys.isEmpty()) {
             properties = PhysicalProperties.GATHER.withOrderSpec(new OrderSpec(requiredOrderKeys));
         } else {
             properties = PhysicalProperties.createHash(
-                windowFrameGroup.partitionKeys, ShuffleType.REQUIRE);
+                windowFrameGroup.partitionKeys, ShuffleType.REQUIRE, isSkew);
             // requiredOrderKeys contain partitionKeys, so there is no need to check if requiredOrderKeys.isEmpty()
             properties = properties.withOrderSpec(new OrderSpec(requiredOrderKeys));
         }
@@ -434,6 +435,17 @@ public class LogicalWindowToPhysicalWindow extends OneImplementationRuleFactory 
 
         public WindowFrame getWindowFrame() {
             return windowFrame;
+        }
+
+        /**isSkew*/
+        public boolean isSkew() {
+            for (NamedExpression windowAlias : groups) {
+                WindowExpression window = (WindowExpression) (windowAlias.child(0));
+                if (window.isSkew()) {
+                    return true;
+                }
+            }
+            return false;
         }
 
     }

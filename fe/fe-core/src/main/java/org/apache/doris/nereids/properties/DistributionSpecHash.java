@@ -54,6 +54,8 @@ public class DistributionSpecHash extends DistributionSpec {
     private final Set<Long> partitionIds;
     private final long selectedIndexId;
 
+    private boolean isSkew;
+
     /**
      * Use for no need set table related attributes.
      */
@@ -61,19 +63,28 @@ public class DistributionSpecHash extends DistributionSpec {
         this(orderedShuffledColumns, shuffleType, -1L, Collections.emptySet());
     }
 
+    public DistributionSpecHash(List<ExprId> orderedShuffledColumns, ShuffleType shuffleType, boolean isSkew) {
+        this(orderedShuffledColumns, shuffleType, -1L, -1L, Collections.emptySet(), isSkew);
+    }
+
     /**
      * Used in ut
      */
     public DistributionSpecHash(List<ExprId> orderedShuffledColumns, ShuffleType shuffleType,
             long tableId, Set<Long> partitionIds) {
-        this(orderedShuffledColumns, shuffleType, tableId, -1L, partitionIds);
+        this(orderedShuffledColumns, shuffleType, tableId, -1L, partitionIds, false);
+    }
+
+    public DistributionSpecHash(List<ExprId> orderedShuffledColumns, ShuffleType shuffleType,
+            long tableId, long selectedIndexId, Set<Long> partitionIds) {
+        this(orderedShuffledColumns, shuffleType, tableId, selectedIndexId, partitionIds, false);
     }
 
     /**
      * Normal constructor.
      */
     public DistributionSpecHash(List<ExprId> orderedShuffledColumns, ShuffleType shuffleType,
-            long tableId, long selectedIndexId, Set<Long> partitionIds) {
+            long tableId, long selectedIndexId, Set<Long> partitionIds, boolean isSkew) {
         this.orderedShuffledColumns = ImmutableList.copyOf(
                 Objects.requireNonNull(orderedShuffledColumns, "orderedShuffledColumns should not null"));
         this.shuffleType = Objects.requireNonNull(shuffleType, "shuffleType should not null");
@@ -92,6 +103,7 @@ public class DistributionSpecHash extends DistributionSpec {
         }
         this.equivalenceExprIds = equivalenceExprIdsBuilder.build();
         this.exprIdToEquivalenceSet = exprIdToEquivalenceSetBuilder.buildKeepingLast();
+        this.isSkew = isSkew;
     }
 
     /**
@@ -101,7 +113,7 @@ public class DistributionSpecHash extends DistributionSpec {
             long tableId, Set<Long> partitionIds, List<Set<ExprId>> equivalenceExprIds,
             Map<ExprId, Integer> exprIdToEquivalenceSet) {
         this(orderedShuffledColumns, shuffleType, tableId, -1L, partitionIds,
-                equivalenceExprIds, exprIdToEquivalenceSet);
+                equivalenceExprIds, exprIdToEquivalenceSet, false);
     }
 
     /**
@@ -109,7 +121,7 @@ public class DistributionSpecHash extends DistributionSpec {
      */
     public DistributionSpecHash(List<ExprId> orderedShuffledColumns, ShuffleType shuffleType, long tableId,
             long selectedIndexId, Set<Long> partitionIds, List<Set<ExprId>> equivalenceExprIds,
-            Map<ExprId, Integer> exprIdToEquivalenceSet) {
+            Map<ExprId, Integer> exprIdToEquivalenceSet, boolean isSkew) {
         this.orderedShuffledColumns = ImmutableList.copyOf(Objects.requireNonNull(orderedShuffledColumns,
                 "orderedShuffledColumns should not null"));
         this.shuffleType = Objects.requireNonNull(shuffleType, "shuffleType should not null");
@@ -121,6 +133,7 @@ public class DistributionSpecHash extends DistributionSpec {
                 Objects.requireNonNull(equivalenceExprIds, "equivalenceExprIds should not null"));
         this.exprIdToEquivalenceSet = ImmutableMap.copyOf(
                 Objects.requireNonNull(exprIdToEquivalenceSet, "exprIdToEquivalenceSet should not null"));
+        this.isSkew = isSkew;
     }
 
     static DistributionSpecHash merge(DistributionSpecHash left, DistributionSpecHash right, ShuffleType shuffleType) {
@@ -138,9 +151,10 @@ public class DistributionSpecHash extends DistributionSpec {
                 left.getExprIdToEquivalenceSet().size() + right.getExprIdToEquivalenceSet().size());
         exprIdToEquivalenceSet.putAll(left.getExprIdToEquivalenceSet());
         exprIdToEquivalenceSet.putAll(right.getExprIdToEquivalenceSet());
+        // left.isSkew这个改动还需要再看一下
         return new DistributionSpecHash(orderedShuffledColumns, shuffleType,
                 left.getTableId(), left.getSelectedIndexId(), left.getPartitionIds(), equivalenceExprIds.build(),
-                exprIdToEquivalenceSet.buildKeepingLast());
+                exprIdToEquivalenceSet.buildKeepingLast(), left.isSkew);
     }
 
     static DistributionSpecHash merge(DistributionSpecHash left, DistributionSpecHash right) {
@@ -229,12 +243,12 @@ public class DistributionSpecHash extends DistributionSpec {
 
     public DistributionSpecHash withShuffleType(ShuffleType shuffleType) {
         return new DistributionSpecHash(orderedShuffledColumns, shuffleType, tableId, selectedIndexId, partitionIds,
-                equivalenceExprIds, exprIdToEquivalenceSet);
+                equivalenceExprIds, exprIdToEquivalenceSet, isSkew);
     }
 
     public DistributionSpecHash withShuffleTypeAndForbidColocateJoin(ShuffleType shuffleType) {
         return new DistributionSpecHash(orderedShuffledColumns, shuffleType, -1, -1, partitionIds,
-                equivalenceExprIds, exprIdToEquivalenceSet);
+                equivalenceExprIds, exprIdToEquivalenceSet, isSkew);
     }
 
     /**
@@ -272,7 +286,7 @@ public class DistributionSpecHash extends DistributionSpec {
             }
         }
         return new DistributionSpecHash(orderedShuffledColumns, shuffleType, tableId, selectedIndexId, partitionIds,
-                equivalenceExprIds, exprIdToEquivalenceSet);
+                equivalenceExprIds, exprIdToEquivalenceSet, isSkew);
     }
 
     @Override
@@ -315,4 +329,8 @@ public class DistributionSpecHash extends DistributionSpec {
         STORAGE_BUCKETED,
     }
 
+    /**isSkew*/
+    public boolean isSkew() {
+        return isSkew;
+    }
 }
