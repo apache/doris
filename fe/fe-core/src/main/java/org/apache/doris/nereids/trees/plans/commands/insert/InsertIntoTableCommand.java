@@ -47,6 +47,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.TVFRelation;
 import org.apache.doris.nereids.trees.plans.commands.Command;
+import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.commands.ForwardWithSync;
 import org.apache.doris.nereids.trees.plans.commands.NeedAuditEncryption;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -441,7 +442,7 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
         FastInsertIntoValuesPlanner planner = new FastInsertIntoValuesPlanner(
                 ctx.getStatementContext(), supportFastInsertIntoValues) {
             @Override
-            protected void doDistribute(boolean canUseNereidsDistributePlanner) {
+            protected void doDistribute(boolean canUseNereidsDistributePlanner, ExplainLevel explainLevel) {
                 // when enter this method, the step 1 already executed
 
                 // step 2
@@ -449,7 +450,7 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
                         selectInsertExecutorFactory(this, ctx, stmtExecutor, targetTableIf)
                 );
                 // step 3
-                super.doDistribute(canUseNereidsDistributePlanner);
+                super.doDistribute(canUseNereidsDistributePlanner, explainLevel);
             }
         };
 
@@ -457,7 +458,9 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
         planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
 
         // step 4
-        return executorFactoryRef.get().build();
+        BuildInsertExecutorResult build = executorFactoryRef.get().build();
+        LOG.info("insert plan: \n" + build.physicalSink.treeString());
+        return build;
     }
 
     private void runInternal(ConnectContext ctx, StmtExecutor executor) throws Exception {

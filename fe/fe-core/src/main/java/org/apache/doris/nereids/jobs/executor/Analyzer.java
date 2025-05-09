@@ -41,12 +41,14 @@ import org.apache.doris.nereids.rules.analysis.NormalizeAggregate;
 import org.apache.doris.nereids.rules.analysis.NormalizeGenerate;
 import org.apache.doris.nereids.rules.analysis.NormalizeRepeat;
 import org.apache.doris.nereids.rules.analysis.OneRowRelationExtractAggregate;
+import org.apache.doris.nereids.rules.analysis.OneRowRelationToProject;
 import org.apache.doris.nereids.rules.analysis.ProjectToGlobalAggregate;
 import org.apache.doris.nereids.rules.analysis.ProjectWithDistinctToAggregate;
 import org.apache.doris.nereids.rules.analysis.QualifyToFilter;
 import org.apache.doris.nereids.rules.analysis.ReplaceExpressionByChildOutput;
 import org.apache.doris.nereids.rules.analysis.SubqueryToApply;
 import org.apache.doris.nereids.rules.analysis.VariableToLiteral;
+import org.apache.doris.nereids.rules.rewrite.MergeFilters;
 import org.apache.doris.nereids.rules.rewrite.MergeProjects;
 import org.apache.doris.nereids.rules.rewrite.SemiJoinCommute;
 import org.apache.doris.nereids.rules.rewrite.SimplifyAggGroupBy;
@@ -101,13 +103,14 @@ public class Analyzer extends AbstractBatchJobExecutor {
                     new EliminateLogicalPreAggOnHint()),
             bottomUp(
                     new BindRelation(),
-                    new CheckPolicy()
+                    new CheckPolicy(),
+                    new BindExpression()
             ),
-            bottomUp(new BindExpression()),
             topDown(new BindSink()),
             bottomUp(new CheckAfterBind()),
             topDown(new FillUpQualifyMissingSlot()),
             bottomUp(
+                    new OneRowRelationToProject(),
                     new ProjectToGlobalAggregate(),
                     // this rule check's the logicalProject node's isDistinct property
                     // and replace the logicalProject node with a LogicalAggregate node
@@ -155,7 +158,11 @@ public class Analyzer extends AbstractBatchJobExecutor {
             topDown(new LeadingJoin()),
             bottomUp(new NormalizeGenerate()),
             bottomUp(new SubqueryToApply()),
-            topDown(new MergeProjects())
+            topDown(
+                    new MergeProjects(),
+                    // merge normal filter and hidden column filter
+                    new MergeFilters()
+            )
         );
     }
 }

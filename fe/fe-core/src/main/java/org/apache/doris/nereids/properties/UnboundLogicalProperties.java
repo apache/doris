@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.properties;
 
-import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.Slot;
 
 import com.google.common.collect.ImmutableList;
@@ -37,7 +36,7 @@ public class UnboundLogicalProperties extends LogicalProperties {
 
     @Override
     public List<Slot> getOutput() {
-        throw new UnboundException("getOutput");
+        return ImmutableList.of();
     }
 
     @Override

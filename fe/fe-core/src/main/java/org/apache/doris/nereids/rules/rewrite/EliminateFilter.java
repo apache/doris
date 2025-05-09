@@ -46,8 +46,8 @@ public class EliminateFilter implements RewriteRuleFactory {
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(logicalFilter().when(
-                filter -> ExpressionUtils.containsType(filter.getConjuncts(), BooleanLiteral.class)
-                || ExpressionUtils.containsType(filter.getConjuncts(), NullLiteral.class))
+                filter -> filter.getConjuncts().isEmpty()
+                    || ExpressionUtils.containsTypes(filter.getConjuncts(), BooleanLiteral.class, NullLiteral.class))
                 .thenApply(ctx -> {
                     LogicalFilter<Plan> filter = ctx.root;
                     ImmutableSet.Builder<Expression> newConjuncts = ImmutableSet.builder();

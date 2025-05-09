@@ -181,7 +181,7 @@ public class MaterializedViewUtils {
         // If plan belong to some group, construct it with group struct info
         if (plan.getGroupExpression().isPresent()) {
             Group ownerGroup = plan.getGroupExpression().get().getOwnerGroup();
-            StructInfoMap structInfoMap = ownerGroup.getstructInfoMap();
+            StructInfoMap structInfoMap = ownerGroup.getStructInfoMap();
             // Refresh struct info in current level plan from top to bottom
             structInfoMap.refresh(ownerGroup, cascadesContext, new HashSet<>());
             structInfoMap.setRefreshVersion(cascadesContext.getMemo().getRefreshVersion());

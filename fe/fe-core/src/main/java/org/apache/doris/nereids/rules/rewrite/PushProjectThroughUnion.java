@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.Maps;
 
 import java.util.List;
@@ -56,29 +57,30 @@ public class PushProjectThroughUnion extends OneRewriteRuleFactory {
                 ))
                 .then(project -> {
                     LogicalSetOperation union = project.child();
-                    ImmutableList.Builder<Plan> newChildren = ImmutableList.builder();
-                    ImmutableList.Builder<List<SlotReference>> newRegularChildrenOutput = ImmutableList.builder();
+                    Builder<Plan> newChildren = ImmutableList.builder();
+                    Builder<List<SlotReference>> newRegularChildrenOutput = ImmutableList.builder();
                     for (int i = 0; i < union.arity(); i++) {
                         Plan child = union.child(i);
                         Map<Expression, Expression> replaceMap = Maps.newHashMap();
                         for (int j = 0; j < union.getOutput().size(); j++) {
                             replaceMap.put(union.getOutput().get(j), union.getRegularChildOutput(i).get(j));
                         }
-                        List<NamedExpression> childProjections = project.getProjects().stream()
-                                .map(e -> (NamedExpression) ExpressionUtils.replaceNameExpression(e, replaceMap))
-                                .map(e -> {
-                                    if (e instanceof Alias) {
-                                        return new Alias(((Alias) e).child(), e.getName());
-                                    }
-                                    return e;
-                                })
-                                .collect(ImmutableList.toImmutableList());
-                        Plan newChild = new LogicalProject<>(childProjections, child);
-                        newChildren.add(newChild);
-                        newRegularChildrenOutput.add(childProjections.stream()
-                                .map(NamedExpression::toSlot)
-                                .map(SlotReference.class::cast)
-                                .collect(ImmutableList.toImmutableList()));
+                        ImmutableList.Builder<NamedExpression> childProjections
+                                = ImmutableList.builderWithExpectedSize(project.getProjects().size());
+                        ImmutableList.Builder<SlotReference> childOutputSlots
+                                = ImmutableList.builderWithExpectedSize(project.getProjects().size());
+                        for (NamedExpression selectItem : project.getProjects()) {
+                            NamedExpression newSelectItem
+                                    = ExpressionUtils.replaceNameExpression(selectItem, replaceMap);
+                            NamedExpression childProject = newSelectItem;
+                            if (newSelectItem instanceof Alias) {
+                                childProject = new Alias(((Alias) newSelectItem).child(), newSelectItem.getName());
+                            }
+                            childProjections.add(childProject);
+                            childOutputSlots.add((SlotReference) childProject.toSlot());
+                        }
+                        newChildren.add(new LogicalProject<>(childProjections.build(), child));
+                        newRegularChildrenOutput.add(childOutputSlots.build());
                     }
                     List<NamedExpression> newOutput = (List) project.getOutput();
                     return union.withNewOutputs(newOutput)
