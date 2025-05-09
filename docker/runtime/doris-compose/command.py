@@ -228,7 +228,7 @@ class SimpleCommand(Command):
         return cluster, related_nodes
 
 
-class NeedStartCommand(SimpleCommand):
+class StartBaseCommand(SimpleCommand):
 
     def add_parser(self, args_parsers):
         parser = super().add_parser(args_parsers)
@@ -251,7 +251,13 @@ class NeedStartCommand(SimpleCommand):
         return cluster, related_nodes
 
 
-class RestartCommand(NeedStartCommand):
+class StartCommand(StartBaseCommand):
+
+    def __init__(self, command):
+        super().__init__(command, "Start the doris containers. "),
+
+
+class RestartCommand(StartBaseCommand):
 
     def __init__(self, command):
         super().__init__(command, "Restart the doris containers. ",
@@ -1464,7 +1470,7 @@ class AddRWPermCommand(Command):
 ALL_COMMANDS = [
     UpCommand("up"),
     DownCommand("down"),
-    NeedStartCommand("start", "Start the doris containers. "),
+    StartCommand("start"),
     StopCommand("stop"),
     RestartCommand("restart"),
     SimpleCommand("pause", "Pause the doris containers. "),
