@@ -74,19 +74,19 @@ using InputDataSet = std::vector<InputCell>;
 using Expect = AnyType;
 using Row = std::pair<InputCell, Expect>;
 using DataSet = std::vector<Row>;
-// to represent Array<Int64>: {TypeIndex::Array, TypeIndex::Int64}
+// to represent Array<Int64>: {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_BIGINT}
 using InputTypeSet = std::vector<AnyType>;
 
 struct Nullable {
-    TypeIndex tp;
+    PrimitiveType tp;
 };
 
 struct Notnull {
-    TypeIndex tp;
+    PrimitiveType tp;
 };
 // Consted already defined in types.h
 struct ConstedNotnull {
-    TypeIndex tp;
+    PrimitiveType tp;
 };
 
 namespace ut_type {
@@ -261,16 +261,16 @@ DataTypePtr get_return_type_descriptor(int scale, int precision) {
 }
 
 struct Consted {
-    TypeIndex tp;
+    PrimitiveType tp;
 };
 
 /**
  * Null values are represented by Null()
- * The type of the constant column is represented as follows: Consted {TypeIndex::String}
+ * The type of the constant column is represented as follows: Consted {PrimitiveType::TYPE_VARCHAR}
  * A DataSet with a constant column can only have one row of data
  * About scales and precisions:
     When you need scale in and scale out(like, DatetimeV2 to DatetimeV2), you need:
-        InputTypeSet input_types = {{TypeIndex::DateTimeV2, 3}}; // input scale
+        InputTypeSet input_types = {{PrimitiveType::TYPE_DATETIMEV2, 3}}; // input scale
         ...
         check_function<DataTypeDateTimeV2, true, 3>(func_name, input_types, data_set); // output scale
      IF YOU FORGET TO SET THE SCALE, THE MICROSECOND WILL NOT BE TESTED. we can't force to check it because Field doesn't
@@ -435,7 +435,7 @@ void check_function_all_arg_comb(const std::string& func_name, const InputTypeSe
         InputTypeSet input_types {};
         for (int j = 0; j < arg_cnt; j++) {
             bool is_const = (1 << j) & i;
-            auto base_type_idx = any_cast<TypeIndex>(base_types[j]);
+            auto base_type_idx = any_cast<PrimitiveType>(base_types[j]);
             if (is_const) { // wrap in consted
                 if (base_types[j].type() == &typeid(Notnull)) {
                     input_types.emplace_back(ConstedNotnull {base_type_idx},

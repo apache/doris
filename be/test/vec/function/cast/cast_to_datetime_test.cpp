@@ -22,7 +22,7 @@ namespace doris::vectorized {
 using namespace ut_type;
 
 TEST_F(FunctionCastTest, strict_test_from_string_to_datetime) {
-    InputTypeSet input_types = {TypeIndex::String};
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
     DataSet data_set = {
             // Valid ISO 8601 format with timezone
             {{std::string("2023-07-16T19:20:30.123+08:00")},
@@ -91,7 +91,7 @@ TEST_F(FunctionCastTest, strict_test_from_string_to_datetime) {
 }
 
 TEST_F(FunctionCastTest, non_strict_test_from_string_to_datetime) {
-    InputTypeSet input_types = {TypeIndex::String};
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
     DataSet data_set = {
             // Flexible date formats
             {{std::string("2023-7-4T9-5-3.1Z")}, std::string("2023-07-04 17:05:03.100000")},
@@ -117,7 +117,7 @@ TEST_F(FunctionCastTest, non_strict_test_from_string_to_datetime) {
 TEST_F(FunctionCastTest, test_from_numeric_to_datetime) {
     // Test casting from Double
     {
-        InputTypeSet input_types = {TypeIndex::Float64};
+        InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE};
         DataSet data_set = {
                 {{123.123}, std::string("2000-01-23")},
                 {{20150102030405.0}, std::string("2015-01-02 03:04:05")},
@@ -130,7 +130,7 @@ TEST_F(FunctionCastTest, test_from_numeric_to_datetime) {
 
     // Test casting from Int64
     {
-        InputTypeSet input_types = {TypeIndex::Int64};
+        InputTypeSet input_types = {PrimitiveType::TYPE_BIGINT};
         DataSet data_set = {
                 {{int64_t(123)}, std::string("2000-01-23")},
                 {{int64_t(1000)}, Null()},
@@ -143,7 +143,7 @@ TEST_F(FunctionCastTest, test_from_numeric_to_datetime) {
 TEST_F(FunctionCastTest, test_from_decimal_to_datetime) {
     // Test casting from Decimal(9,3)
     {
-        InputTypeSet input_types = {{TypeIndex::Decimal64, 3, 10}};
+        InputTypeSet input_types = {{PrimitiveType::TYPE_DECIMAL64, 3, 10}};
         DataSet data_set = {{{DECIMAL64(123, 123, 3)}, Null()},
                             {{DECIMAL64(20150102, 123, 3)}, Null()},
                             {{DECIMAL64(20151231, 999, 3)}, Null()},
@@ -153,7 +153,7 @@ TEST_F(FunctionCastTest, test_from_decimal_to_datetime) {
     }
     // Test casting from Decimal(18,6)
     {
-        InputTypeSet input_types = {{TypeIndex::Decimal64, 6, 18}};
+        InputTypeSet input_types = {{PrimitiveType::TYPE_DECIMAL64, 6, 18}};
         DataSet data_set = {{{DECIMAL64(123123, 123456, 6)}, Null()},
                             {{DECIMAL64(20150102, 123456, 6)}, std::string("2015-01-02 12:34:56")},
                             {{DECIMAL64(20151231, 999999, 6)}, Null()},
@@ -164,13 +164,13 @@ TEST_F(FunctionCastTest, test_from_decimal_to_datetime) {
 
 TEST_F(FunctionCastTest, test_from_date_to_datetime) {
     {
-        InputTypeSet input_types = {{TypeIndex::DateV2}};
+        InputTypeSet input_types = {{PrimitiveType::TYPE_DATEV2}};
         DataSet data_set = {{{std::string("2012-02-05")}, std::string("2012-02-05 00:00:00")},
                             {{Null()}, Null()}};
         check_function_for_cast<DataTypeDateTimeV2, 0>(input_types, data_set);
     }
     {
-        InputTypeSet input_types = {{TypeIndex::DateV2}};
+        InputTypeSet input_types = {{PrimitiveType::TYPE_DATEV2}};
         DataSet data_set = {
                 {{std::string("2012-02-05")}, std::string("2012-02-05 00:00:00.000000")},
                 {{Null()}, Null()}};
@@ -182,7 +182,7 @@ TEST_F(FunctionCastTest, test_from_time_to_datetime) {
     // we mocked current time in function test util
     //FIXME: now microsecond not useful
     {
-        InputTypeSet input_types = {{TypeIndex::TimeV2, 3}};
+        InputTypeSet input_types = {{PrimitiveType::TYPE_TIMEV2, 3}};
         DataSet data_set = {{{std::string("500:00:00.123456")}, std::string("2019-08-26 20:00:00")},
                             {{std::string("23:59:59")}, std::string("2019-08-06 23:59:59")},
                             {{std::string("-128:00:00")}, std::string("2019-07-31 16:00:00")},
@@ -191,7 +191,7 @@ TEST_F(FunctionCastTest, test_from_time_to_datetime) {
     }
 
     {
-        InputTypeSet input_types = {{TypeIndex::TimeV2, 6}};
+        InputTypeSet input_types = {{PrimitiveType::TYPE_TIMEV2, 6}};
         DataSet data_set = {{{std::string("500:00:00.123456")}, std::string("2019-08-26 20:00:00")},
                             {{std::string("23:59:59")}, std::string("2019-08-06 23:59:59")},
                             {{std::string("-128:00:00")}, std::string("2019-07-31 16:00:00")},

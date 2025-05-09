@@ -18,9 +18,7 @@
 #pragma once
 
 #include <string>
-#include <type_traits>
 
-#include "vec/data_types/data_type_date_or_datetime_v2.h"
 #include "vec/function/function_test_util.h"
 
 namespace doris::vectorized {
@@ -36,7 +34,7 @@ struct FunctionCastTest : public testing::Test {
         std::string func_name = "CAST";
 
         InputTypeSet add_input_types = input_types;
-        add_input_types.emplace_back(ConstedNotnull {ResultDataType {}.get_type_id()});
+        add_input_types.emplace_back(ConstedNotnull {ResultDataType {}.get_primitive_type()});
 
         // the column-1(target type placeholder) must be const. so we must split the data_set into const_datasets with
         // only 1 row.

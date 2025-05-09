@@ -20,7 +20,7 @@
 namespace doris::vectorized {
 
 TEST_F(FunctionCastTest, test_from_string_to_time) {
-    InputTypeSet input_types = {TypeIndex::String};
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
     // now it's wrong. here input can't parse microseconds.
     DataSet data_set = {
             {{std::string("1")}, std::string("00:00:01.000000")},
@@ -52,7 +52,7 @@ TEST_F(FunctionCastTest, test_from_string_to_time) {
 TEST_F(FunctionCastTest, test_from_numeric_to_time) {
     // Test casting from Int64
     {
-        InputTypeSet input_types = {TypeIndex::Int64};
+        InputTypeSet input_types = {PrimitiveType::TYPE_BIGINT};
         DataSet data_set = {{{(int64_t)123456}, std::string("12:34:56.000")},
                             {{(int64_t)-123456}, std::string("-12:34:56.000")},
                             {{(int64_t)123}, std::string("00:01:23.000")},
@@ -66,7 +66,7 @@ TEST_F(FunctionCastTest, test_from_numeric_to_time) {
 
     // Test casting from Float64
     {
-        InputTypeSet input_types = {TypeIndex::Float64};
+        InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE};
         DataSet data_set = {{{(double)123456.0}, std::string("12:34:56.000")},
                             {{(double)-123456.0}, std::string("-12:34:56.000")},
                             {{(double)123.0}, std::string("00:01:23.000")},
@@ -82,7 +82,7 @@ TEST_F(FunctionCastTest, test_from_numeric_to_time) {
 
     // Test casting from Decimal Type FIXME:not support now
     {
-        InputTypeSet input_types_d32_p0s0 = {{TypeIndex::Decimal64, 5, 18}};
+        InputTypeSet input_types_d32_p0s0 = {{PrimitiveType::TYPE_DECIMAL64, 5, 18}};
         DataSet data_set_d32_p0s0 = {{{DECIMAL64(123456, 0, 5)}, std::string("12:34:56.000")},
                                      {{DECIMAL64(-123456, 0, 5)}, std::string("-12:34:56.000")},
                                      {{DECIMAL64(123, 0, 5)}, std::string("00:01:23.000")},
@@ -99,7 +99,7 @@ TEST_F(FunctionCastTest, test_from_numeric_to_time) {
 
 TEST_F(FunctionCastTest, test_from_datetime_to_time) {
     // Cast from DateTimeV2 (as string) to TimeV2
-    InputTypeSet input_types = {{TypeIndex::DateTimeV2, 6}};
+    InputTypeSet input_types = {{PrimitiveType::TYPE_DATETIMEV2, 6}};
     // FIXME: now it's wrong. need support cast with scale. and must store legal value in memory.
     DataSet data_set = {
             {{std::string("2012-02-05 12:12:12.123456")}, std::string("838:59:59.0000")}};

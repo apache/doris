@@ -56,7 +56,7 @@ struct Null {};
 // instead of type name as type parameter. It will using int16 as column type.
 enum class TypeIndex {
     Nothing = 0,
-    UInt8 = 1,
+    UInt8 = 1, // bool
     UInt16 = 2,
     UInt32 = 3,
     UInt64 = 4,
