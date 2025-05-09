@@ -46,22 +46,22 @@ suite("test_hive_meta_cache", "p0,external,hive,external_docker,external_docker_
                   amount DOUBLE
                 )
                 PARTITIONED BY (year INT)
-                STORED AS PARQUET;
             """
-            hive_docker """insert into test_hive_meta_cache_db.sales values(1, 2.0, 2024)"""
+            hive_docker """ set hive.stats.column.autogather=false """
+            hive_docker """insert into test_hive_meta_cache_db.sales partition(year=2024) values(1, 2.0)"""
             // select 1 row
-            order_qt_sql01 """select * from test_hive_meta_cache_db.sales"""
+            order_qt_sql_1row """select * from test_hive_meta_cache_db.sales"""
             // insert into same partition
             hive_docker """insert into test_hive_meta_cache_db.sales values(2, 2.0, 2024)"""
             // still select 1 row
-            order_qt_sql01 """select * from test_hive_meta_cache_db.sales"""
+            order_qt_sql_1row """select * from test_hive_meta_cache_db.sales"""
             // insert into new partition
             hive_docker """insert into test_hive_meta_cache_db.sales values(1, 3.0, 2025)"""
             // still select 1 row
-            order_qt_sql01 """select * from test_hive_meta_cache_db.sales"""
+            order_qt_sql_1row """select * from test_hive_meta_cache_db.sales"""
             sql """refresh table test_hive_meta_cache_db.sales"""
             // select 3 rows
-            order_qt_sql01 """select * from test_hive_meta_cache_db.sales"""
+            order_qt_sql_3row """select * from test_hive_meta_cache_db.sales"""
             sql """drop table test_hive_meta_cache_db.sales"""
 
             // 2. test catalog with file.meta.cache.ttl-second
@@ -102,18 +102,18 @@ suite("test_hive_meta_cache", "p0,external,hive,external_docker,external_docker_
             """
             hive_docker """insert into test_hive_meta_cache_db.sales values(1, 2.0, 2024)"""
             // select 1 row
-            order_qt_sql01 """select * from test_hive_meta_cache_db.sales"""
+            order_qt_sql_1row """select * from test_hive_meta_cache_db.sales"""
             // insert into same partition
             hive_docker """insert into test_hive_meta_cache_db.sales values(2, 2.0, 2024)"""
             // select 2 rows
-            order_qt_sql01 """select * from test_hive_meta_cache_db.sales"""
+            order_qt_sql_2row """select * from test_hive_meta_cache_db.sales"""
             // insert into new partition
             hive_docker """insert into test_hive_meta_cache_db.sales values(1, 3.0, 2025)"""
             // still select 2 rows
-            order_qt_sql01 """select * from test_hive_meta_cache_db.sales"""
+            order_qt_sql_2row """select * from test_hive_meta_cache_db.sales"""
             sql """refresh table test_hive_meta_cache_db.sales"""
             // select 3 rows
-            order_qt_sql01 """select * from test_hive_meta_cache_db.sales"""
+            order_qt_sql_3row """select * from test_hive_meta_cache_db.sales"""
             sql """drop table test_hive_meta_cache_db.sales"""
 
             // 3. test catalog with partition.cache.ttl-second
@@ -154,18 +154,18 @@ suite("test_hive_meta_cache", "p0,external,hive,external_docker,external_docker_
             """
             hive_docker """insert into test_hive_meta_cache_db.sales values(1, 2.0, 2024)"""
             // select 1 row
-            order_qt_sql01 """select * from test_hive_meta_cache_db.sales"""
+            order_qt_sql_1row """select * from test_hive_meta_cache_db.sales"""
             // insert into same partition
             hive_docker """insert into test_hive_meta_cache_db.sales values(2, 2.0, 2024)"""
             // still select 1 row
-            order_qt_sql01 """select * from test_hive_meta_cache_db.sales"""
+            order_qt_sql_1row """select * from test_hive_meta_cache_db.sales"""
             // insert into new partition
             hive_docker """insert into test_hive_meta_cache_db.sales values(1, 3.0, 2025)"""
             // select 2 rows
-            order_qt_sql01 """select * from test_hive_meta_cache_db.sales"""
+            order_qt_sql_2row """select * from test_hive_meta_cache_db.sales"""
             sql """refresh table test_hive_meta_cache_db.sales"""
             // select 3 rows
-            order_qt_sql01 """select * from test_hive_meta_cache_db.sales"""
+            order_qt_sql_3row """select * from test_hive_meta_cache_db.sales"""
             sql """drop table test_hive_meta_cache_db.sales"""
         }
     }
