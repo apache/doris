@@ -610,22 +610,7 @@ public class ScalarType extends Type {
     }
 
     public String toSql(int depth, EncodingTree encodingTree)  {
-        String encodingStr = null;
-        if (encodingTree != null) {
-            int encodingNum = encodingTree.getEncodingNumber();
-            encodingStr = EncodingInfo.getEncodingString(encodingNum);
-        }
-
-        if (encodingStr == null || EncodingInfo.isDefaultEncoding(encodingStr)) {
-            return toSql(depth);
-        } else {
-            StringBuilder stringBuilder = new StringBuilder();
-            stringBuilder.append(toSql(depth));
-            stringBuilder.append(" ").append("ENCODING \"");
-            stringBuilder.append(encodingStr);
-            stringBuilder.append("\"");
-            return stringBuilder.toString();
-        }
+        return toSql(depth) + EncodingTree.toSql(encodingTree);
     }
 
     @Override

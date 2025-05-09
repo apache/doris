@@ -41,4 +41,18 @@ public class EncodingTree {
         }
         return child;
     }
+
+    public static String toSql(EncodingTree encodingTree) {
+        if (null == encodingTree) {
+            return "";
+        }
+        String encodingStr = EncodingInfo.getEncodingString(encodingTree.getEncodingNumber());
+        if (encodingStr == null) {
+            throw new IllegalArgumentException("unknown encoding number: " + encodingTree.getEncodingNumber());
+        }
+        if (EncodingInfo.isDefaultEncoding(encodingStr)) {
+            return "";
+        }
+        return " ENCODING \"" + encodingStr + "\"";
+    }
 }

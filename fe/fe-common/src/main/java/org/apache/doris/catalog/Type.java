@@ -487,21 +487,24 @@ public abstract class Type {
             if (((ScalarType) this).getScalarScale() > 0) {
                 typeStr.append("(").append(((ScalarType) this).getScalarScale()).append(")");
             }
+            typeStr.append(EncodingTree.toSql(encodingTree));
             return typeStr.toString();
         } else if (isDate() || isDateV2()) {
-            return "date";
+            return "date" + EncodingTree.toSql(encodingTree);
         } else if (isDecimalV2() || isDecimalV3()) {
             StringBuilder typeStr = new StringBuilder("decimal");
             ScalarType sType = (ScalarType) this;
             int scale = sType.getScalarScale();
             int precision = sType.getScalarPrecision();
             typeStr.append("(").append(precision).append(",").append(scale).append(")");
+            typeStr.append(EncodingTree.toSql(encodingTree));
             return typeStr.toString();
         } else if (isTime() || isTimeV2()) {
             StringBuilder typeStr = new StringBuilder("time");
             if (((ScalarType) this).getScalarScale() > 0) {
                 typeStr.append("(").append(((ScalarType) this).getScalarScale()).append(")");
             }
+            typeStr.append(EncodingTree.toSql(encodingTree));
             return typeStr.toString();
         } else if (isArrayType()) {
             String nestedDesc = ((ArrayType) this).getItemType().hideVersionForVersionColumn(isToSql,
