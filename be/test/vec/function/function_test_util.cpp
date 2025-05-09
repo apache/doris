@@ -339,93 +339,7 @@ bool insert_cell(MutableColumnPtr& column, DataTypePtr type_ptr, const AnyType& 
 #define RETURN_IF_FALSE(x) \
     if (UNLIKELY(!(x))) return false
 
-    WhichDataType type = type_ptr->get_type_id();
-    if (type.is_string()) {
-        auto str = any_cast<ut_type::STRING>(cell);
-        column->insert_data(str.c_str(), str.size());
-    } else if (type.is_json()) {
-        auto str = any_cast<ut_type::STRING>(cell);
-        JsonBinaryValue jsonb_val(str.c_str(), str.size());
-        column->insert_data(jsonb_val.value(), jsonb_val.size());
-    } else if (type.is_bitmap()) {
-        auto* bitmap = any_cast<BitmapValue*>(cell);
-        column->insert_data((char*)bitmap, sizeof(BitmapValue));
-    } else if (type.is_hll()) {
-        auto* hll = any_cast<HyperLogLog*>(cell);
-        column->insert_data((char*)hll, sizeof(HyperLogLog));
-    } else if (type.is_ipv4()) {
-        auto value = any_cast<ut_type::IPV4>(cell);
-        column->insert_data(reinterpret_cast<char*>(&value), 0);
-    } else if (type.is_ipv6()) {
-        auto value = any_cast<ut_type::IPV6>(cell);
-        column->insert_data(reinterpret_cast<char*>(&value), 0);
-    } else if (type.is_uint8()) {
-        auto value = any_cast<ut_type::BOOLEAN>(cell);
-        column->insert_data(reinterpret_cast<char*>(&value), 0);
-    } else if (type.is_int8()) {
-        auto value = any_cast<ut_type::TINYINT>(cell);
-        column->insert_data(reinterpret_cast<char*>(&value), 0);
-    } else if (type.is_int16()) {
-        auto value = any_cast<ut_type::SMALLINT>(cell);
-        column->insert_data(reinterpret_cast<char*>(&value), 0);
-    } else if (type.is_int32()) {
-        auto value = any_cast<ut_type::INT>(cell);
-        column->insert_data(reinterpret_cast<char*>(&value), 0);
-    } else if (type.is_int64()) {
-        auto value = any_cast<ut_type::BIGINT>(cell);
-        column->insert_data(reinterpret_cast<char*>(&value), 0);
-    } else if (type.is_int128()) {
-        auto value = any_cast<ut_type::LARGEINT>(cell);
-        column->insert_data(reinterpret_cast<char*>(&value), 0);
-    } else if (type.is_float32()) {
-        auto value = any_cast<ut_type::FLOAT>(cell);
-        column->insert_data(reinterpret_cast<char*>(&value), 0);
-    } else if (type.is_float64()) {
-        auto value = any_cast<ut_type::DOUBLE>(cell);
-        column->insert_data(reinterpret_cast<char*>(&value), 0);
-    } else if (type.is_decimal128v2()) {
-        auto value = any_cast<Decimal128V2>(cell);
-        column->insert_data(reinterpret_cast<char*>(&value), 0);
-    } else if (type.is_decimal32()) {
-        auto value = any_cast<Decimal32>(cell);
-        column->insert_data(reinterpret_cast<char*>(&value), 0);
-    } else if (type.is_decimal64()) {
-        auto value = any_cast<Decimal64>(cell);
-        column->insert_data(reinterpret_cast<char*>(&value), 0);
-    } else if (type.is_decimal128v3()) {
-        auto value = any_cast<Decimal128V3>(cell);
-        column->insert_data(reinterpret_cast<char*>(&value), 0);
-    } else if (type.is_decimal256()) {
-        auto value = any_cast<Decimal256>(cell);
-        column->insert_data(reinterpret_cast<char*>(&value), 0);
-    } else if (type.is_date_time()) {
-        RETURN_IF_FALSE((insert_datetime_cell<DataTypeDateTime>(column, type_ptr, cell)));
-    } else if (type.is_date()) {
-        RETURN_IF_FALSE((insert_datetime_cell<DataTypeDate>(column, type_ptr, cell)));
-    } else if (type.is_date_v2()) {
-        RETURN_IF_FALSE((insert_datetime_cell<DataTypeDateV2>(column, type_ptr, cell)));
-    } else if (type.is_date_time_v2()) {
-        RETURN_IF_FALSE((insert_datetime_cell<DataTypeDateTimeV2>(column, type_ptr, cell)));
-    } else if (type.is_time_v2()) {
-        auto value = any_cast<ut_type::DOUBLE>(cell);
-        column->insert_data(reinterpret_cast<char*>(&value), 0);
-    } else if (type.is_array()) {
-        RETURN_IF_FALSE((insert_array_cell(column, type_ptr, cell)));
-    } else if (type.is_struct()) {
-        auto v = any_cast<InputCell>(cell);
-        const auto* struct_type = assert_cast<const DataTypeStruct*>(type_ptr.get());
-        auto* nullable_column = assert_cast<ColumnNullable*>(column.get());
-        auto* struct_column =
-                assert_cast<ColumnStruct*>(nullable_column->get_nested_column_ptr().get());
-        auto* nullmap_column =
-                assert_cast<ColumnUInt8*>(nullable_column->get_null_map_column_ptr().get());
-        nullmap_column->insert_default();
-        for (size_t i = 0; i < v.size(); ++i) {
-            auto& field = v[i];
-            auto col = struct_column->get_column(i).get_ptr();
-            RETURN_IF_FALSE(insert_cell(col, struct_type->get_element(i), field));
-        }
-    } else if (type.is_nullable()) {
+    if (type_ptr->is_nullable()) {
         auto* nullable_column = assert_cast<ColumnNullable*>(column.get());
         auto col_type = remove_nullable(type_ptr);
         auto col = nullable_column->get_nested_column_ptr();
@@ -434,8 +348,152 @@ bool insert_cell(MutableColumnPtr& column, DataTypePtr type_ptr, const AnyType& 
         bool ok = insert_cell(col, col_type, cell);
         nullmap_column->insert_value(ok ? 0 : 1);
     } else {
-        std::cerr << "dataset not supported for TypeIndex:" << (int)type.idx;
-        return false;
+        auto type = type_ptr->get_primitive_type();
+        switch (type) {
+        case PrimitiveType::TYPE_STRING:
+        case PrimitiveType::TYPE_CHAR:
+        case PrimitiveType::TYPE_VARCHAR: {
+            auto str = any_cast<ut_type::STRING>(cell);
+            column->insert_data(str.c_str(), str.size());
+            break;
+        }
+        case PrimitiveType::TYPE_JSONB: {
+            auto str = any_cast<ut_type::STRING>(cell);
+            JsonBinaryValue jsonb_val(str.c_str(), str.size());
+            column->insert_data(jsonb_val.value(), jsonb_val.size());
+            break;
+        }
+        case PrimitiveType::TYPE_OBJECT: {
+            auto* bitmap = any_cast<BitmapValue*>(cell);
+            column->insert_data((char*)bitmap, sizeof(BitmapValue));
+            break;
+        }
+        case PrimitiveType::TYPE_HLL: {
+            auto* hll = any_cast<HyperLogLog*>(cell);
+            column->insert_data((char*)hll, sizeof(HyperLogLog));
+            break;
+        }
+        case PrimitiveType::TYPE_IPV4: {
+            auto value = any_cast<ut_type::IPV4>(cell);
+            column->insert_data(reinterpret_cast<char*>(&value), 0);
+            break;
+        }
+        case PrimitiveType::TYPE_IPV6: {
+            auto value = any_cast<ut_type::IPV6>(cell);
+            column->insert_data(reinterpret_cast<char*>(&value), 0);
+            break;
+        }
+        case PrimitiveType::TYPE_BOOLEAN: {
+            auto value = any_cast<ut_type::BOOLEAN>(cell);
+            column->insert_data(reinterpret_cast<char*>(&value), 0);
+            break;
+        }
+        case PrimitiveType::TYPE_TINYINT: {
+            auto value = any_cast<ut_type::TINYINT>(cell);
+            column->insert_data(reinterpret_cast<char*>(&value), 0);
+            break;
+        }
+        case PrimitiveType::TYPE_SMALLINT: {
+            auto value = any_cast<ut_type::SMALLINT>(cell);
+            column->insert_data(reinterpret_cast<char*>(&value), 0);
+            break;
+        }
+        case PrimitiveType::TYPE_INT: {
+            auto value = any_cast<ut_type::INT>(cell);
+            column->insert_data(reinterpret_cast<char*>(&value), 0);
+            break;
+        }
+        case PrimitiveType::TYPE_BIGINT: {
+            auto value = any_cast<ut_type::BIGINT>(cell);
+            column->insert_data(reinterpret_cast<char*>(&value), 0);
+            break;
+        }
+        case PrimitiveType::TYPE_LARGEINT: {
+            auto value = any_cast<ut_type::LARGEINT>(cell);
+            column->insert_data(reinterpret_cast<char*>(&value), 0);
+            break;
+        }
+        case PrimitiveType::TYPE_FLOAT: {
+            auto value = any_cast<ut_type::FLOAT>(cell);
+            column->insert_data(reinterpret_cast<char*>(&value), 0);
+            break;
+        }
+        case PrimitiveType::TYPE_DOUBLE: {
+            auto value = any_cast<ut_type::DOUBLE>(cell);
+            column->insert_data(reinterpret_cast<char*>(&value), 0);
+            break;
+        }
+        case PrimitiveType::TYPE_DECIMAL32: {
+            auto value = any_cast<Decimal32>(cell);
+            column->insert_data(reinterpret_cast<char*>(&value), 0);
+            break;
+        }
+        case PrimitiveType::TYPE_DECIMAL64: {
+            auto value = any_cast<Decimal64>(cell);
+            column->insert_data(reinterpret_cast<char*>(&value), 0);
+            break;
+        }
+        case PrimitiveType::TYPE_DECIMAL128I: {
+            auto value = any_cast<Decimal128V3>(cell);
+            column->insert_data(reinterpret_cast<char*>(&value), 0);
+            break;
+        }
+        case PrimitiveType::TYPE_DECIMALV2: {
+            auto value = any_cast<Decimal128V2>(cell);
+            column->insert_data(reinterpret_cast<char*>(&value), 0);
+            break;
+        }
+        case PrimitiveType::TYPE_DECIMAL256: {
+            auto value = any_cast<Decimal256>(cell);
+            column->insert_data(reinterpret_cast<char*>(&value), 0);
+            break;
+        }
+        case PrimitiveType::TYPE_DATE: {
+            RETURN_IF_FALSE((insert_datetime_cell<DataTypeDate>(column, type_ptr, cell)));
+            break;
+        }
+        case PrimitiveType::TYPE_DATEV2: {
+            RETURN_IF_FALSE((insert_datetime_cell<DataTypeDateV2>(column, type_ptr, cell)));
+            break;
+        }
+        case PrimitiveType::TYPE_DATETIME: {
+            RETURN_IF_FALSE((insert_datetime_cell<DataTypeDateTime>(column, type_ptr, cell)));
+            break;
+        }
+        case PrimitiveType::TYPE_DATETIMEV2: {
+            RETURN_IF_FALSE((insert_datetime_cell<DataTypeDateTimeV2>(column, type_ptr, cell)));
+            break;
+        }
+        case PrimitiveType::TYPE_TIMEV2: {
+            auto value = any_cast<ut_type::DOUBLE>(cell);
+            column->insert_data(reinterpret_cast<char*>(&value), 0);
+            break;
+        }
+        case PrimitiveType::TYPE_ARRAY: {
+            RETURN_IF_FALSE((insert_array_cell(column, type_ptr, cell)));
+            break;
+        }
+        case PrimitiveType::TYPE_STRUCT: {
+            auto v = any_cast<InputCell>(cell);
+            const auto* struct_type = assert_cast<const DataTypeStruct*>(type_ptr.get());
+            auto* nullable_column = assert_cast<ColumnNullable*>(column.get());
+            auto* struct_column =
+                    assert_cast<ColumnStruct*>(nullable_column->get_nested_column_ptr().get());
+            auto* nullmap_column =
+                    assert_cast<ColumnUInt8*>(nullable_column->get_null_map_column_ptr().get());
+            nullmap_column->insert_default();
+            for (size_t i = 0; i < v.size(); ++i) {
+                auto& field = v[i];
+                auto col = struct_column->get_column(i).get_ptr();
+                RETURN_IF_FALSE(insert_cell(col, struct_type->get_element(i), field));
+            }
+            break;
+        }
+        default: {
+            std::cerr << "dataset not supported for type:" << type_to_string(type);
+            return false;
+        }
+        }
     }
     return true;
 }
@@ -467,7 +525,6 @@ static Block* create_block_from_inputset(const InputTypeSet& input_types,
             auto type_ptr = desc.data_type->is_nullable()
                                     ? ((DataTypeNullable*)(desc.data_type.get()))->get_nested_type()
                                     : desc.data_type;
-            WhichDataType type(type_ptr);
 
             for (int r = 0; r < row_size; r++) {
                 if (!insert_cell(column, type_ptr, input_set[r][i * input_col_size + j])) {

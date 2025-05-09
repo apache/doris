@@ -79,8 +79,6 @@ public:
                         uint32_t result, size_t input_rows_count) const override {
         const ColumnPtr& column = block.get_by_position(arguments[0]).column;
         const DataTypePtr& data_type = block.get_by_position(arguments[0]).type;
-        WhichDataType which(data_type);
-
         MutableColumnPtr column_result = get_return_type_impl({})->create_column();
         column_result->resize(input_rows_count);
 
@@ -90,20 +88,19 @@ public:
                                         get_name());
         };
         Status status = Status::OK();
-        if (which.is_nullable()) {
+        if (data_type->is_nullable()) {
             const DataTypePtr& nested_data_type =
                     static_cast<const DataTypeNullable*>(data_type.get())->get_nested_type();
-            WhichDataType nested_which(nested_data_type);
-            if (nested_which.is_string_or_fixed_string()) {
+            if (is_string_type(nested_data_type->get_primitive_type())) {
                 status = execute_internal<ColumnString, true>(column, data_type, column_result);
-            } else if (nested_which.is_int64()) {
+            } else if (nested_data_type->get_primitive_type() == TYPE_BIGINT) {
                 status = execute_internal<ColumnInt64, true>(column, data_type, column_result);
             } else {
                 return type_error();
             }
-        } else if (which.is_string_or_fixed_string()) {
+        } else if (is_string_type(data_type->get_primitive_type())) {
             status = execute_internal<ColumnString, false>(column, data_type, column_result);
-        } else if (which.is_int64()) {
+        } else if (data_type->get_primitive_type() == TYPE_BIGINT) {
             status = execute_internal<ColumnInt64, false>(column, data_type, column_result);
         } else {
             return type_error();

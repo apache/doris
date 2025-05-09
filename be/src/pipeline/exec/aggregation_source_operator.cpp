@@ -405,7 +405,7 @@ Status AggLocalState::_get_without_key_result(RuntimeState* state, vectorized::B
     for (int i = 0; i < block_schema.size(); ++i) {
         const auto column_type = block_schema[i].type;
         if (!column_type->equals(*data_types[i])) {
-            if (!vectorized::is_array(remove_nullable(column_type))) {
+            if (column_type->get_primitive_type() != TYPE_ARRAY) {
                 if (!column_type->is_nullable() || data_types[i]->is_nullable() ||
                     !remove_nullable(column_type)->equals(*data_types[i])) {
                     return Status::InternalError(

@@ -93,7 +93,7 @@ Status SegmentFlusher::_internal_parse_variant_columns(vectorized::Block& block)
     std::vector<int> variant_column_pos;
     for (int i = 0; i < block.columns(); ++i) {
         const auto& entry = block.get_by_position(i);
-        if (vectorized::is_variant_type(remove_nullable(entry.type))) {
+        if (entry.type->get_primitive_type() == TYPE_VARIANT) {
             variant_column_pos.push_back(i);
         }
     }

@@ -379,9 +379,8 @@ Status VOrcTransformer::write(const Block& block) {
 Status VOrcTransformer::_resize_row_batch(const DataTypePtr& type, const IColumn& column,
                                           orc::ColumnVectorBatch* orc_col_batch) {
     auto real_type = remove_nullable(type);
-    WhichDataType which(real_type);
-
-    if (which.is_struct()) {
+    switch (type->get_primitive_type()) {
+    case TYPE_STRUCT: {
         auto* struct_batch = dynamic_cast<orc::StructVectorBatch*>(orc_col_batch);
         const auto& struct_col =
                 column.is_nullable()
@@ -397,7 +396,9 @@ Status VOrcTransformer::_resize_row_batch(const DataTypePtr& type, const IColumn
             ++idx;
             RETURN_IF_ERROR(_resize_row_batch(child_type, child_column, child));
         }
-    } else if (which.is_map()) {
+        break;
+    }
+    case TYPE_MAP: {
         auto* map_batch = dynamic_cast<orc::MapVectorBatch*>(orc_col_batch);
         const auto& map_column =
                 column.is_nullable()
@@ -419,7 +420,9 @@ Status VOrcTransformer::_resize_row_batch(const DataTypePtr& type, const IColumn
                 assert_cast<const vectorized::DataTypeMap*>(real_type.get())->get_value_type();
         RETURN_IF_ERROR(
                 _resize_row_batch(value_type, nested_values_column, map_batch->elements.get()));
-    } else if (which.is_array()) {
+        break;
+    }
+    case TYPE_ARRAY: {
         auto* list_batch = dynamic_cast<orc::ListVectorBatch*>(orc_col_batch);
         const auto& array_col =
                 column.is_nullable()
@@ -431,6 +434,9 @@ Status VOrcTransformer::_resize_row_batch(const DataTypePtr& type, const IColumn
         auto child_type =
                 assert_cast<const vectorized::DataTypeArray*>(real_type.get())->get_nested_type();
         RETURN_IF_ERROR(_resize_row_batch(child_type, nested_column, list_batch->elements.get()));
+    }
+    default:
+        break;
     }
     return Status::OK();
 }

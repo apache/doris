@@ -50,7 +50,6 @@ public:
 
     const char* get_family_name() const override { return "DataTypeFixedLengthObject"; }
 
-    TypeIndex get_type_id() const override { return TypeIndex::FixedLengthObject; }
     PrimitiveType get_primitive_type() const override { return PrimitiveType::INVALID_TYPE; }
 
     doris::FieldType get_storage_field_type() const override {
@@ -81,6 +80,7 @@ public:
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
         return std::make_shared<DataTypeFixedLengthObjectSerDe>(nesting_level);
     };
+    bool is_fixed_length_object() const override { return true; }
 };
 
 } // namespace doris::vectorized

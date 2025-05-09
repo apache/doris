@@ -56,7 +56,6 @@ private:
 public:
     DataTypeObject(const String& schema_format_ = "json", bool is_nullable_ = true);
     const char* get_family_name() const override { return "Variant"; }
-    TypeIndex get_type_id() const override { return TypeIndex::VARIANT; }
     PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_VARIANT; }
 
     doris::FieldType get_storage_field_type() const override {

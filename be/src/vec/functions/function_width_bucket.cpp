@@ -122,52 +122,69 @@ private:
     void _execute_by_type(const IColumn& expr_column, const IColumn& min_value_column,
                           const IColumn& max_value_column, const int64_t num_buckets,
                           IColumn& nested_column_column, DataTypePtr& expr_type) const {
-        WhichDataType which(remove_nullable(expr_type));
-        if (which.is_int8()) {
+        switch (expr_type->get_primitive_type()) {
+        case PrimitiveType::TYPE_TINYINT:
             _execute<ColumnInt8>(expr_column, min_value_column, max_value_column, num_buckets,
                                  nested_column_column);
-        } else if (which.is_int16()) {
+            break;
+        case PrimitiveType::TYPE_SMALLINT:
             _execute<ColumnInt16>(expr_column, min_value_column, max_value_column, num_buckets,
                                   nested_column_column);
-        } else if (which.is_int32()) {
+            break;
+        case PrimitiveType::TYPE_INT:
             _execute<ColumnInt32>(expr_column, min_value_column, max_value_column, num_buckets,
                                   nested_column_column);
-        } else if (which.is_int64()) {
+            break;
+        case PrimitiveType::TYPE_BIGINT:
             _execute<ColumnInt64>(expr_column, min_value_column, max_value_column, num_buckets,
                                   nested_column_column);
-        } else if (which.is_float32()) {
+            break;
+        case PrimitiveType::TYPE_FLOAT:
             _execute<ColumnFloat32>(expr_column, min_value_column, max_value_column, num_buckets,
                                     nested_column_column);
-        } else if (which.is_float64()) {
+            break;
+        case PrimitiveType::TYPE_DOUBLE:
             _execute<ColumnFloat64>(expr_column, min_value_column, max_value_column, num_buckets,
                                     nested_column_column);
-        } else if (which.is_decimal128v2()) {
-            _execute<ColumnDecimal128V2>(expr_column, min_value_column, max_value_column,
-                                         num_buckets, nested_column_column);
-        } else if (which.is_decimal32()) {
+            break;
+        case PrimitiveType::TYPE_DECIMAL32:
             _execute<ColumnDecimal32>(expr_column, min_value_column, max_value_column, num_buckets,
                                       nested_column_column);
-        } else if (which.is_decimal64()) {
+            break;
+        case PrimitiveType::TYPE_DECIMAL64:
             _execute<ColumnDecimal64>(expr_column, min_value_column, max_value_column, num_buckets,
                                       nested_column_column);
-        } else if (which.is_decimal128v3()) {
+            break;
+        case PrimitiveType::TYPE_DECIMALV2:
+            _execute<ColumnDecimal128V2>(expr_column, min_value_column, max_value_column,
+                                         num_buckets, nested_column_column);
+            break;
+        case PrimitiveType::TYPE_DECIMAL128I:
             _execute<ColumnDecimal128V3>(expr_column, min_value_column, max_value_column,
                                          num_buckets, nested_column_column);
-        } else if (which.is_decimal256()) {
+            break;
+        case PrimitiveType::TYPE_DECIMAL256:
             _execute<ColumnDecimal256>(expr_column, min_value_column, max_value_column, num_buckets,
                                        nested_column_column);
-        } else if (which.is_date()) {
+            break;
+        case PrimitiveType::TYPE_DATE:
             _execute<ColumnDate>(expr_column, min_value_column, max_value_column, num_buckets,
                                  nested_column_column);
-        } else if (which.is_date_v2()) {
+            break;
+        case PrimitiveType::TYPE_DATEV2:
             _execute<ColumnDateV2>(expr_column, min_value_column, max_value_column, num_buckets,
                                    nested_column_column);
-        } else if (which.is_date_time()) {
+            break;
+        case PrimitiveType::TYPE_DATETIME:
             _execute<ColumnDateTime>(expr_column, min_value_column, max_value_column, num_buckets,
                                      nested_column_column);
-        } else if (which.is_date_time_v2()) {
+            break;
+        case PrimitiveType::TYPE_DATETIMEV2:
             _execute<ColumnDateTimeV2>(expr_column, min_value_column, max_value_column, num_buckets,
                                        nested_column_column);
+            break;
+        default:
+            break;
         }
     }
 };

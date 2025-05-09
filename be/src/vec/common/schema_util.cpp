@@ -143,9 +143,9 @@ Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, Co
     // nullable to Variant instead of the root of Variant
     // correct output: Nullable(Array(int)) -> Nullable(Variant(Nullable(Array(int))))
     // incorrect output: Nullable(Array(int)) -> Nullable(Variant(Array(int)))
-    if (WhichDataType(remove_nullable(type)).is_variant_type()) {
+    if (type->get_primitive_type() == TYPE_VARIANT) {
         // If source column is variant, so the nullable info is different from dst column
-        if (WhichDataType(remove_nullable(arg.type)).is_variant_type()) {
+        if (arg.type->get_primitive_type() == TYPE_VARIANT) {
             *result = type->is_nullable() ? make_nullable(arg.column) : remove_nullable(arg.column);
             return Status::OK();
         }
@@ -169,7 +169,7 @@ Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, Co
     uint32_t result_column = cast_set<uint32_t>(tmp_block.columns());
     auto ctx = FunctionContext::create_context(nullptr, {}, {});
 
-    if (WhichDataType(arg.type).is_nothing()) {
+    if (arg.type->get_primitive_type() == INVALID_TYPE) {
         // cast from nothing to any type should result in nulls
         *result = type->create_column_const_with_default_value(arg.column->size())
                           ->convert_to_full_column_if_const();
@@ -217,11 +217,14 @@ void get_column_by_type(const vectorized::DataTypePtr& data_type, const std::str
         return;
     }
     // size is not fixed when type is string or json
-    if (WhichDataType(*data_type).is_string() || WhichDataType(*data_type).is_json()) {
+    if (is_string_type(data_type->get_primitive_type()) ||
+        data_type->get_primitive_type() == TYPE_JSONB) {
         column.set_length(INT_MAX);
         return;
     }
-    if (WhichDataType(*data_type).is_simple()) {
+    if (is_int_or_bool(data_type->get_primitive_type()) ||
+        is_string_type(data_type->get_primitive_type()) ||
+        is_float_or_double(data_type->get_primitive_type())) {
         column.set_length(data_type->get_size_of_value_in_memory());
         return;
     }
@@ -482,7 +485,7 @@ Status _parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
             continue;
         }
         ColumnPtr scalar_root_column;
-        if (WhichDataType(remove_nullable(var.get_root_type())).is_json()) {
+        if (var.get_root_type()->get_primitive_type() == TYPE_JSONB) {
             // TODO more efficient way to parse jsonb type, currently we just convert jsonb to
             // json str and parse them into variant
             RETURN_IF_ERROR(cast_column({var.get_root(), var.get_root_type(), ""},

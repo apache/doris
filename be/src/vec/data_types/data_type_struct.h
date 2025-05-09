@@ -70,8 +70,6 @@ public:
 
     explicit DataTypeStruct(const DataTypes& elems);
     DataTypeStruct(const DataTypes& elems, const Strings& names);
-
-    TypeIndex get_type_id() const override { return TypeIndex::Struct; }
     PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_STRUCT; }
 
     doris::FieldType get_storage_field_type() const override {

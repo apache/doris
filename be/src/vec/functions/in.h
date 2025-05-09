@@ -243,7 +243,7 @@ public:
                 }
 
             } else { // non-nullable
-                if (WhichDataType(left_arg.type).is_string()) {
+                if (is_string_type(left_arg.type->get_primitive_type())) {
                     const auto* column_string_ptr =
                             assert_cast<const vectorized::ColumnString*>(materialized_column.get());
                     search_hash_set(in_state, input_rows_count, vec_res, column_string_ptr);

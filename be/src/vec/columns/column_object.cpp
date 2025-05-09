@@ -411,7 +411,7 @@ void ColumnObject::Subcolumn::insert(Field field, FieldInfo info) {
     }
     auto column_dim = least_common_type.get_dimensions();
     auto value_dim = info.num_dimensions;
-    if (is_nothing(least_common_type.get_base())) {
+    if (least_common_type.get_base()->get_primitive_type() == INVALID_TYPE) {
         column_dim = value_dim;
     }
     if (base_type == PrimitiveType::INVALID_TYPE) {
@@ -434,8 +434,8 @@ void ColumnObject::Subcolumn::insert(Field field, FieldInfo info) {
                base_type != PrimitiveType::INVALID_TYPE) {
         if (schema_util::is_conversion_required_between_integers(
                     base_type, least_common_type.get_base_type_id())) {
-            VLOG_DEBUG << "Conversion between " << (int)base_type << " and "
-                       << (int)least_common_type.get_type_id();
+            VLOG_DEBUG << "Conversion between " << type_to_string(base_type) << " and "
+                       << type_to_string(least_common_type.get_type_id());
             DataTypePtr base_data_type;
             PrimitiveType base_data_type_id;
             get_least_supertype_jsonb(
@@ -1201,7 +1201,8 @@ bool ColumnObject::add_sub_column(const PathInData& key, MutableColumnPtr&& subc
         return true;
     }
     if (key.empty() && ((!subcolumns.get_root()->is_scalar()) ||
-                        is_nothing(subcolumns.get_root()->data.get_least_common_type()))) {
+                        subcolumns.get_root()->data.get_least_common_type()->get_primitive_type() ==
+                                INVALID_TYPE)) {
         bool root_it_scalar = subcolumns.get_root()->is_scalar();
         // update root to scalar
         subcolumns.get_mutable_root()->modify_to_scalar(
@@ -1681,7 +1682,7 @@ void ColumnObject::finalize(FinalizeMode mode) {
     for (auto&& entry : subcolumns) {
         const auto& least_common_type = entry->data.get_least_common_type();
         /// Do not add subcolumns, which consists only from NULLs
-        if (is_nothing(remove_nullable(get_base_type_of_array(least_common_type)))) {
+        if (get_base_type_of_array(least_common_type)->get_primitive_type() == INVALID_TYPE) {
             continue;
         }
 
@@ -1859,7 +1860,8 @@ bool ColumnObject::is_null_root() const {
         return true;
     }
     if (root->data.num_of_defaults_in_prefix == 0 &&
-        (root->data.data.empty() || is_nothing(root->data.get_least_common_type()))) {
+        (root->data.data.empty() ||
+         root->data.get_least_common_type()->get_primitive_type() == INVALID_TYPE)) {
         return true;
     }
     return false;
@@ -1883,8 +1885,7 @@ DataTypePtr ColumnObject::get_root_type() const {
     if (is_null_root()) {                                                                          \
         return Status::InternalError("No root column, path {}", path.get_path());                  \
     }                                                                                              \
-    if (!WhichDataType(remove_nullable(subcolumns.get_root()->data.get_least_common_type()))       \
-                 .is_json()) {                                                                     \
+    if (subcolumns.get_root()->data.get_least_common_type()->get_primitive_type() != TYPE_JSONB) { \
         return Status::InternalError(                                                              \
                 "Root column is not jsonb type but {}, path {}",                                   \
                 subcolumns.get_root()->data.get_least_common_type()->get_name(), path.get_path()); \
@@ -2036,7 +2037,7 @@ const ColumnObject::Subcolumns::Node* ColumnObject::get_leaf_of_the_same_nested(
     const auto* leaf = subcolumns.get_leaf_of_the_same_nested(
             entry->path,
             [&](const Subcolumns::Node& node) { return node.data.size() > entry->data.size(); });
-    if (leaf && is_nothing(leaf->data.get_least_common_typeBase())) {
+    if (leaf && leaf->data.get_least_common_typeBase()->get_primitive_type() == INVALID_TYPE) {
         return nullptr;
     }
     return leaf;

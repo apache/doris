@@ -498,7 +498,7 @@ struct ConvertImplGenericFromString {
 
             ColumnUInt8::MutablePtr col_null_map_to = ColumnUInt8::create(size, 0);
             ColumnUInt8::Container* vec_null_map_to = &col_null_map_to->get_data();
-            const bool is_complex = is_complex_type(data_type_to);
+            const bool is_complex = is_complex_type(data_type_to->get_primitive_type());
             DataTypeSerDe::FormatOptions format_options;
             format_options.converted_from_string = true;
             format_options.escape_char = '\\';
@@ -622,8 +622,8 @@ struct ConvertImplGenericFromJsonb {
 
             ColumnUInt8::MutablePtr col_null_map_to = ColumnUInt8::create(size, 0);
             ColumnUInt8::Container* vec_null_map_to = &col_null_map_to->get_data();
-            const bool is_complex = is_complex_type(data_type_to);
-            const bool is_dst_string = is_string_or_fixed_string(data_type_to);
+            const bool is_complex = is_complex_type(data_type_to->get_primitive_type());
+            const bool is_dst_string = is_string_type(data_type_to->get_primitive_type());
             for (size_t i = 0; i < size; ++i) {
                 const auto& val = col_from_string->get_data_at(i);
                 JsonbDocument* doc = JsonbDocument::checkAndCreateDocument(val.data, val.size);
@@ -1654,7 +1654,7 @@ private:
         DataTypePtr from_nested_type = from_type->get_nested_type();
 
         /// In query SELECT CAST([] AS Array(Array(String))) from type is Array(Nothing)
-        bool from_empty_array = is_nothing(from_nested_type);
+        bool from_empty_array = from_nested_type->get_primitive_type() == INVALID_TYPE;
 
         if (from_type->get_number_of_dimensions() != to_type.get_number_of_dimensions() &&
             !from_empty_array) {
@@ -1790,9 +1790,9 @@ private:
             bool is_root_valuable =
                     variant.is_scalar_variant() ||
                     (!variant.is_null_root() &&
-                     !WhichDataType(remove_nullable(variant.get_root_type())).is_nothing() &&
-                     !WhichDataType(data_type_to).is_string() &&
-                     !WhichDataType(data_type_to).is_json());
+                     variant.get_root_type()->get_primitive_type() != INVALID_TYPE &&
+                     !is_string_type(data_type_to->get_primitive_type()) &&
+                     data_type_to->get_primitive_type() != TYPE_JSONB);
             if (is_root_valuable) {
                 ColumnPtr nested = variant.get_root();
                 auto nested_from_type = variant.get_root_type();
@@ -1824,16 +1824,16 @@ private:
                     // TODO not found root cause, a tmp fix
                     col_to->assume_mutable()->insert_many_defaults(input_rows_count);
                     col_to = make_nullable(col_to, true);
-                } else if (WhichDataType(data_type_to).is_string()) {
+                } else if (is_string_type(data_type_to->get_primitive_type())) {
                     // serialize to string
                     return ConvertImplGenericToString::execute2(context, block, arguments, result,
                                                                 input_rows_count);
-                } else if (WhichDataType(data_type_to).is_json()) {
+                } else if (data_type_to->get_primitive_type() == TYPE_JSONB) {
                     // serialize to json by parsing
                     return ConvertImplGenericToJsonb::execute(context, block, arguments, result,
                                                               input_rows_count);
                 } else if (!data_type_to->is_nullable() &&
-                           !WhichDataType(data_type_to).is_string()) {
+                           !is_string_type(data_type_to->get_primitive_type())) {
                     // other types
                     col_to->assume_mutable()->insert_many_defaults(input_rows_count);
                     col_to = make_nullable(col_to, true);

@@ -297,22 +297,25 @@ public:
             result_type =
                     reinterpret_cast<const DataTypeNullable*>(return_type.get())->get_nested_type();
         }
-        WhichDataType which(result_type);
-        if (which.is_float32()) {
+        switch (result_type->get_primitive_type()) {
+        case TYPE_FLOAT:
             GETDATA(float, float);
-        } else if (which.is_float64()) {
+            break;
+        case TYPE_DOUBLE:
             GETDATA(double, double);
-        } else if (which.is_int32()) {
+            break;
+        case TYPE_INT:
             GETDATA(int32_t, int32);
-        } else if (which.is_uint32()) {
-            GETDATA(uint32_t, uint32);
-        } else if (which.is_int64()) {
+            break;
+        case TYPE_BIGINT:
             GETDATA(int64_t, int64);
-        } else if (which.is_uint64()) {
-            GETDATA(uint64_t, uint64);
-        } else if (which.is_uint8()) {
+            break;
+        case TYPE_BOOLEAN:
             GETDATA(uint8_t, bool);
-        } else if (which.is_string()) {
+            break;
+        case TYPE_STRING:
+        case TYPE_CHAR:
+        case TYPE_VARCHAR: {
             if (response.result_size() > 0 && response.result(0).string_value_size() > 0) {
                 std::string ret = response.result(0).string_value(0);
                 to.insert_data(ret.c_str(), ret.size());
@@ -322,7 +325,9 @@ public:
                               "result is empty";
                 to.insert_default();
             }
-        } else {
+            break;
+        }
+        default:
             LOG(ERROR) << "failed to get result cause unkown return type";
             to.insert_default();
         }

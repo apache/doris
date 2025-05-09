@@ -26,10 +26,6 @@
 #include "vec/data_types/data_type.h"
 
 namespace doris::vectorized {
-enum class TypeIndex;
-} // namespace doris::vectorized
-
-namespace doris::vectorized {
 
 using PrimitiveTypeSet = phmap::flat_hash_set<PrimitiveType>;
 

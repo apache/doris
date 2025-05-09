@@ -279,7 +279,7 @@ TEST_F(DataTypeStringTest, simple_func_test) {
         EXPECT_EQ(dt.get_default(), Field(String()));
     };
     test_func(dt_str);
-    EXPECT_EQ(dt_str.get_type_id(), TypeIndex::String);
+    EXPECT_EQ(dt_str.get_primitive_type(), TYPE_STRING);
 }
 TEST_F(DataTypeStringTest, to_string) {
     auto test_func = [](auto& dt, const auto& source_column) {

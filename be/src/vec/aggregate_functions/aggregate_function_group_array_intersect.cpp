@@ -101,7 +101,7 @@ AggregateFunctionPtr create_aggregate_function_group_array_intersect(
     assert_unary(name, argument_types);
     const DataTypePtr& argument_type = remove_nullable(argument_types[0]);
 
-    if (!WhichDataType(argument_type).is_array())
+    if (argument_type->get_primitive_type() != TYPE_ARRAY)
         throw Exception(ErrorCode::INVALID_ARGUMENT,
                         "Aggregate function groupArrayIntersect accepts only array type argument. "
                         "Provided argument type: " +

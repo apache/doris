@@ -77,8 +77,7 @@ Status VExplodeTableFunction::process_init(Block* block, RuntimeState* state) {
     int value_column_idx = -1;
     RETURN_IF_ERROR(_expr_context->root()->children()[0]->execute(_expr_context.get(), block,
                                                                   &value_column_idx));
-    if (WhichDataType(remove_nullable(block->get_by_position(value_column_idx).type))
-                .is_variant_type()) {
+    if (block->get_by_position(value_column_idx).type->get_primitive_type() == TYPE_VARIANT) {
         RETURN_IF_ERROR(_process_init_variant(block, value_column_idx));
     } else {
         _array_column =

@@ -41,12 +41,12 @@ using IntDataSet = std::vector<std::pair<std::vector<AnyValue<int>>, AnyValue<in
 //TODO: this interlayer could be removed totally
 template <typename DataType, typename ReturnType = DataType>
 void check_function_array_wrapper(const std::string& func_name, const IntDataSet data_set,
-                                  bool nullable = false) {
+                                  TypeIndex t_idx, TypeIndex ret_t_idx, bool nullable = false) {
     InputTypeSet input_types;
     if (!nullable) {
-        input_types = {TypeIndex::Array, DataType {}.get_type_id()};
+        input_types = {TypeIndex::Array, t_idx};
     } else {
-        input_types = {TypeIndex::Array, TypeIndex::Nullable, DataType {}.get_type_id()};
+        input_types = {TypeIndex::Array, TypeIndex::Nullable, t_idx};
     }
     DataSet converted_data_set;
     for (const auto& row : data_set) {
@@ -77,13 +77,20 @@ TEST(VFunctionArrayAggregationTest, TestArrayMin) {
             {{}, nullptr},
             {{1, 2, 3}, 1},
     };
-    static_cast<void>(check_function_array_wrapper<DataTypeInt8>(func_name, data_set));
-    static_cast<void>(check_function_array_wrapper<DataTypeInt16>(func_name, data_set));
-    static_cast<void>(check_function_array_wrapper<DataTypeInt32>(func_name, data_set));
-    static_cast<void>(check_function_array_wrapper<DataTypeInt64>(func_name, data_set));
-    static_cast<void>(check_function_array_wrapper<DataTypeInt128>(func_name, data_set));
-    static_cast<void>(check_function_array_wrapper<DataTypeFloat32>(func_name, data_set));
-    static_cast<void>(check_function_array_wrapper<DataTypeFloat64>(func_name, data_set));
+    static_cast<void>(check_function_array_wrapper<DataTypeInt8>(func_name, data_set,
+                                                                 TypeIndex::Int8, TypeIndex::Int8));
+    static_cast<void>(check_function_array_wrapper<DataTypeInt16>(
+            func_name, data_set, TypeIndex::Int16, TypeIndex::Int16));
+    static_cast<void>(check_function_array_wrapper<DataTypeInt32>(
+            func_name, data_set, TypeIndex::Int32, TypeIndex::Int32));
+    static_cast<void>(check_function_array_wrapper<DataTypeInt64>(
+            func_name, data_set, TypeIndex::Int64, TypeIndex::Int64));
+    static_cast<void>(check_function_array_wrapper<DataTypeInt128>(
+            func_name, data_set, TypeIndex::Int128, TypeIndex::Int128));
+    static_cast<void>(check_function_array_wrapper<DataTypeFloat32>(
+            func_name, data_set, TypeIndex::Float32, TypeIndex::Float32));
+    static_cast<void>(check_function_array_wrapper<DataTypeFloat64>(
+            func_name, data_set, TypeIndex::Float64, TypeIndex::Float64));
 }
 
 TEST(VFunctionArrayAggregationTest, TestArrayMinNullable) {
@@ -93,13 +100,20 @@ TEST(VFunctionArrayAggregationTest, TestArrayMinNullable) {
             {{nullptr}, nullptr},
             {{1, nullptr, 3}, 1},
     };
-    static_cast<void>(check_function_array_wrapper<DataTypeInt8>(func_name, data_set, true));
-    static_cast<void>(check_function_array_wrapper<DataTypeInt16>(func_name, data_set, true));
-    static_cast<void>(check_function_array_wrapper<DataTypeInt32>(func_name, data_set, true));
-    static_cast<void>(check_function_array_wrapper<DataTypeInt64>(func_name, data_set, true));
-    static_cast<void>(check_function_array_wrapper<DataTypeInt128>(func_name, data_set, true));
-    static_cast<void>(check_function_array_wrapper<DataTypeFloat32>(func_name, data_set, true));
-    static_cast<void>(check_function_array_wrapper<DataTypeFloat64>(func_name, data_set, true));
+    static_cast<void>(check_function_array_wrapper<DataTypeInt8>(
+            func_name, data_set, TypeIndex::Int8, TypeIndex::Int8, true));
+    static_cast<void>(check_function_array_wrapper<DataTypeInt16>(
+            func_name, data_set, TypeIndex::Int16, TypeIndex::Int16, true));
+    static_cast<void>(check_function_array_wrapper<DataTypeInt32>(
+            func_name, data_set, TypeIndex::Int32, TypeIndex::Int32, true));
+    static_cast<void>(check_function_array_wrapper<DataTypeInt64>(
+            func_name, data_set, TypeIndex::Int64, TypeIndex::Int64, true));
+    static_cast<void>(check_function_array_wrapper<DataTypeInt128>(
+            func_name, data_set, TypeIndex::Int128, TypeIndex::Int128, true));
+    static_cast<void>(check_function_array_wrapper<DataTypeFloat32>(
+            func_name, data_set, TypeIndex::Float32, TypeIndex::Float32, true));
+    static_cast<void>(check_function_array_wrapper<DataTypeFloat64>(
+            func_name, data_set, TypeIndex::Float64, TypeIndex::Float64, true));
 }
 
 TEST(VFunctionArrayAggregationTest, TestArrayMax) {
@@ -108,13 +122,20 @@ TEST(VFunctionArrayAggregationTest, TestArrayMax) {
             {{}, nullptr},
             {{1, 2, 3}, 3},
     };
-    static_cast<void>(check_function_array_wrapper<DataTypeInt8>(func_name, data_set));
-    static_cast<void>(check_function_array_wrapper<DataTypeInt16>(func_name, data_set));
-    static_cast<void>(check_function_array_wrapper<DataTypeInt32>(func_name, data_set));
-    static_cast<void>(check_function_array_wrapper<DataTypeInt64>(func_name, data_set));
-    static_cast<void>(check_function_array_wrapper<DataTypeInt128>(func_name, data_set));
-    static_cast<void>(check_function_array_wrapper<DataTypeFloat32>(func_name, data_set));
-    static_cast<void>(check_function_array_wrapper<DataTypeFloat64>(func_name, data_set));
+    static_cast<void>(check_function_array_wrapper<DataTypeInt8>(func_name, data_set,
+                                                                 TypeIndex::Int8, TypeIndex::Int8));
+    static_cast<void>(check_function_array_wrapper<DataTypeInt16>(
+            func_name, data_set, TypeIndex::Int16, TypeIndex::Int16));
+    static_cast<void>(check_function_array_wrapper<DataTypeInt32>(
+            func_name, data_set, TypeIndex::Int32, TypeIndex::Int32));
+    static_cast<void>(check_function_array_wrapper<DataTypeInt64>(
+            func_name, data_set, TypeIndex::Int64, TypeIndex::Int64));
+    static_cast<void>(check_function_array_wrapper<DataTypeInt128>(
+            func_name, data_set, TypeIndex::Int128, TypeIndex::Int128));
+    static_cast<void>(check_function_array_wrapper<DataTypeFloat32>(
+            func_name, data_set, TypeIndex::Float32, TypeIndex::Float32));
+    static_cast<void>(check_function_array_wrapper<DataTypeFloat64>(
+            func_name, data_set, TypeIndex::Float64, TypeIndex::Float64));
 }
 
 TEST(VFunctionArrayAggregationTest, TestArrayMaxNullable) {
@@ -124,13 +145,20 @@ TEST(VFunctionArrayAggregationTest, TestArrayMaxNullable) {
             {{nullptr}, nullptr},
             {{1, nullptr, 3}, 3},
     };
-    static_cast<void>(check_function_array_wrapper<DataTypeInt8>(func_name, data_set, true));
-    static_cast<void>(check_function_array_wrapper<DataTypeInt16>(func_name, data_set, true));
-    static_cast<void>(check_function_array_wrapper<DataTypeInt32>(func_name, data_set, true));
-    static_cast<void>(check_function_array_wrapper<DataTypeInt64>(func_name, data_set, true));
-    static_cast<void>(check_function_array_wrapper<DataTypeInt128>(func_name, data_set, true));
-    static_cast<void>(check_function_array_wrapper<DataTypeFloat32>(func_name, data_set, true));
-    static_cast<void>(check_function_array_wrapper<DataTypeFloat64>(func_name, data_set, true));
+    static_cast<void>(check_function_array_wrapper<DataTypeInt8>(
+            func_name, data_set, TypeIndex::Int8, TypeIndex::Int8, true));
+    static_cast<void>(check_function_array_wrapper<DataTypeInt16>(
+            func_name, data_set, TypeIndex::Int16, TypeIndex::Int16, true));
+    static_cast<void>(check_function_array_wrapper<DataTypeInt32>(
+            func_name, data_set, TypeIndex::Int32, TypeIndex::Int32, true));
+    static_cast<void>(check_function_array_wrapper<DataTypeInt64>(
+            func_name, data_set, TypeIndex::Int64, TypeIndex::Int64, true));
+    static_cast<void>(check_function_array_wrapper<DataTypeInt128>(
+            func_name, data_set, TypeIndex::Int128, TypeIndex::Int128, true));
+    static_cast<void>(check_function_array_wrapper<DataTypeFloat32>(
+            func_name, data_set, TypeIndex::Float32, TypeIndex::Float32, true));
+    static_cast<void>(check_function_array_wrapper<DataTypeFloat64>(
+            func_name, data_set, TypeIndex::Float64, TypeIndex::Float64, true));
 }
 
 TEST(VFunctionArrayAggregationTest, TestArraySum) {
@@ -139,20 +167,20 @@ TEST(VFunctionArrayAggregationTest, TestArraySum) {
             {{}, nullptr},
             {{1, 2, 3}, 6},
     };
-    static_cast<void>(
-            check_function_array_wrapper<DataTypeInt8, DataTypeInt64>(func_name, data_set));
-    static_cast<void>(
-            check_function_array_wrapper<DataTypeInt16, DataTypeInt64>(func_name, data_set));
-    static_cast<void>(
-            check_function_array_wrapper<DataTypeInt32, DataTypeInt64>(func_name, data_set));
-    static_cast<void>(
-            check_function_array_wrapper<DataTypeInt64, DataTypeInt64>(func_name, data_set));
-    static_cast<void>(
-            check_function_array_wrapper<DataTypeInt128, DataTypeInt128>(func_name, data_set));
-    static_cast<void>(
-            check_function_array_wrapper<DataTypeFloat32, DataTypeFloat64>(func_name, data_set));
-    static_cast<void>(
-            check_function_array_wrapper<DataTypeFloat64, DataTypeFloat64>(func_name, data_set));
+    static_cast<void>(check_function_array_wrapper<DataTypeInt8, DataTypeInt64>(
+            func_name, data_set, TypeIndex::Int8, TypeIndex::Int64));
+    static_cast<void>(check_function_array_wrapper<DataTypeInt16, DataTypeInt64>(
+            func_name, data_set, TypeIndex::Int16, TypeIndex::Int64));
+    static_cast<void>(check_function_array_wrapper<DataTypeInt32, DataTypeInt64>(
+            func_name, data_set, TypeIndex::Int32, TypeIndex::Int64));
+    static_cast<void>(check_function_array_wrapper<DataTypeInt64, DataTypeInt64>(
+            func_name, data_set, TypeIndex::Int64, TypeIndex::Int64));
+    static_cast<void>(check_function_array_wrapper<DataTypeInt128, DataTypeInt128>(
+            func_name, data_set, TypeIndex::Int128, TypeIndex::Int128));
+    static_cast<void>(check_function_array_wrapper<DataTypeFloat32, DataTypeFloat64>(
+            func_name, data_set, TypeIndex::Float32, TypeIndex::Float64));
+    static_cast<void>(check_function_array_wrapper<DataTypeFloat64, DataTypeFloat64>(
+            func_name, data_set, TypeIndex::Float64, TypeIndex::Float64));
 }
 
 TEST(VFunctionArrayAggregationTest, TestArraySumNullable) {
@@ -162,20 +190,20 @@ TEST(VFunctionArrayAggregationTest, TestArraySumNullable) {
             {{nullptr}, nullptr},
             {{1, nullptr, 3}, 4},
     };
-    static_cast<void>(
-            check_function_array_wrapper<DataTypeInt8, DataTypeInt64>(func_name, data_set, true));
-    static_cast<void>(
-            check_function_array_wrapper<DataTypeInt16, DataTypeInt64>(func_name, data_set, true));
-    static_cast<void>(
-            check_function_array_wrapper<DataTypeInt32, DataTypeInt64>(func_name, data_set, true));
-    static_cast<void>(
-            check_function_array_wrapper<DataTypeInt64, DataTypeInt64>(func_name, data_set, true));
-    static_cast<void>(check_function_array_wrapper<DataTypeInt128, DataTypeInt128>(func_name,
-                                                                                   data_set, true));
+    static_cast<void>(check_function_array_wrapper<DataTypeInt8, DataTypeInt64>(
+            func_name, data_set, TypeIndex::Int8, TypeIndex::Int64, true));
+    static_cast<void>(check_function_array_wrapper<DataTypeInt16, DataTypeInt64>(
+            func_name, data_set, TypeIndex::Int16, TypeIndex::Int64, true));
+    static_cast<void>(check_function_array_wrapper<DataTypeInt32, DataTypeInt64>(
+            func_name, data_set, TypeIndex::Int32, TypeIndex::Int64, true));
+    static_cast<void>(check_function_array_wrapper<DataTypeInt64, DataTypeInt64>(
+            func_name, data_set, TypeIndex::Int64, TypeIndex::Int64, true));
+    static_cast<void>(check_function_array_wrapper<DataTypeInt128, DataTypeInt128>(
+            func_name, data_set, TypeIndex::Int128, TypeIndex::Int128, true));
     static_cast<void>(check_function_array_wrapper<DataTypeFloat32, DataTypeFloat64>(
-            func_name, data_set, true));
+            func_name, data_set, TypeIndex::Float32, TypeIndex::Float64, true));
     static_cast<void>(check_function_array_wrapper<DataTypeFloat64, DataTypeFloat64>(
-            func_name, data_set, true));
+            func_name, data_set, TypeIndex::Float64, TypeIndex::Float64, true));
 }
 
 TEST(VFunctionArrayAggregationTest, TestArrayAverage) {
@@ -184,20 +212,20 @@ TEST(VFunctionArrayAggregationTest, TestArrayAverage) {
             {{}, nullptr},
             {{1, 2, 3}, 2},
     };
-    static_cast<void>(
-            check_function_array_wrapper<DataTypeInt8, DataTypeFloat64>(func_name, data_set));
-    static_cast<void>(
-            check_function_array_wrapper<DataTypeInt16, DataTypeFloat64>(func_name, data_set));
-    static_cast<void>(
-            check_function_array_wrapper<DataTypeInt32, DataTypeFloat64>(func_name, data_set));
-    static_cast<void>(
-            check_function_array_wrapper<DataTypeInt64, DataTypeFloat64>(func_name, data_set));
-    static_cast<void>(
-            check_function_array_wrapper<DataTypeInt128, DataTypeFloat64>(func_name, data_set));
-    static_cast<void>(
-            check_function_array_wrapper<DataTypeFloat32, DataTypeFloat64>(func_name, data_set));
-    static_cast<void>(
-            check_function_array_wrapper<DataTypeFloat64, DataTypeFloat64>(func_name, data_set));
+    static_cast<void>(check_function_array_wrapper<DataTypeInt8, DataTypeFloat64>(
+            func_name, data_set, TypeIndex::Int8, TypeIndex::Float64));
+    static_cast<void>(check_function_array_wrapper<DataTypeInt16, DataTypeFloat64>(
+            func_name, data_set, TypeIndex::Int16, TypeIndex::Float64));
+    static_cast<void>(check_function_array_wrapper<DataTypeInt32, DataTypeFloat64>(
+            func_name, data_set, TypeIndex::Int32, TypeIndex::Float64));
+    static_cast<void>(check_function_array_wrapper<DataTypeInt64, DataTypeFloat64>(
+            func_name, data_set, TypeIndex::Int64, TypeIndex::Float64));
+    static_cast<void>(check_function_array_wrapper<DataTypeInt128, DataTypeFloat64>(
+            func_name, data_set, TypeIndex::Int128, TypeIndex::Float64));
+    static_cast<void>(check_function_array_wrapper<DataTypeFloat32, DataTypeFloat64>(
+            func_name, data_set, TypeIndex::Float32, TypeIndex::Float64));
+    static_cast<void>(check_function_array_wrapper<DataTypeFloat64, DataTypeFloat64>(
+            func_name, data_set, TypeIndex::Float64, TypeIndex::Float64));
 }
 
 TEST(VFunctionArrayAggregationTest, TestArrayAverageNullable) {
@@ -207,20 +235,20 @@ TEST(VFunctionArrayAggregationTest, TestArrayAverageNullable) {
             {{nullptr}, nullptr},
             {{1, nullptr, 3}, 2},
     };
-    static_cast<void>(
-            check_function_array_wrapper<DataTypeInt8, DataTypeFloat64>(func_name, data_set, true));
-    static_cast<void>(check_function_array_wrapper<DataTypeInt16, DataTypeFloat64>(func_name,
-                                                                                   data_set, true));
-    static_cast<void>(check_function_array_wrapper<DataTypeInt32, DataTypeFloat64>(func_name,
-                                                                                   data_set, true));
-    static_cast<void>(check_function_array_wrapper<DataTypeInt64, DataTypeFloat64>(func_name,
-                                                                                   data_set, true));
+    static_cast<void>(check_function_array_wrapper<DataTypeInt8, DataTypeFloat64>(
+            func_name, data_set, TypeIndex::Int8, TypeIndex::Float64, true));
+    static_cast<void>(check_function_array_wrapper<DataTypeInt16, DataTypeFloat64>(
+            func_name, data_set, TypeIndex::Int16, TypeIndex::Float64, true));
+    static_cast<void>(check_function_array_wrapper<DataTypeInt32, DataTypeFloat64>(
+            func_name, data_set, TypeIndex::Int32, TypeIndex::Float64, true));
+    static_cast<void>(check_function_array_wrapper<DataTypeInt64, DataTypeFloat64>(
+            func_name, data_set, TypeIndex::Int64, TypeIndex::Float64, true));
     static_cast<void>(check_function_array_wrapper<DataTypeInt128, DataTypeFloat64>(
-            func_name, data_set, true));
+            func_name, data_set, TypeIndex::Int128, TypeIndex::Float64, true));
     static_cast<void>(check_function_array_wrapper<DataTypeFloat32, DataTypeFloat64>(
-            func_name, data_set, true));
+            func_name, data_set, TypeIndex::Float32, TypeIndex::Float64, true));
     static_cast<void>(check_function_array_wrapper<DataTypeFloat64, DataTypeFloat64>(
-            func_name, data_set, true));
+            func_name, data_set, TypeIndex::Float64, TypeIndex::Float64, true));
 }
 
 TEST(VFunctionArrayAggregationTest, TestArrayProduct) {
@@ -229,20 +257,20 @@ TEST(VFunctionArrayAggregationTest, TestArrayProduct) {
             {{}, nullptr},
             {{1, 2, 3}, 6},
     };
-    static_cast<void>(
-            check_function_array_wrapper<DataTypeInt8, DataTypeFloat64>(func_name, data_set));
-    static_cast<void>(
-            check_function_array_wrapper<DataTypeInt16, DataTypeFloat64>(func_name, data_set));
-    static_cast<void>(
-            check_function_array_wrapper<DataTypeInt32, DataTypeFloat64>(func_name, data_set));
-    static_cast<void>(
-            check_function_array_wrapper<DataTypeInt64, DataTypeFloat64>(func_name, data_set));
-    static_cast<void>(
-            check_function_array_wrapper<DataTypeInt128, DataTypeFloat64>(func_name, data_set));
-    static_cast<void>(
-            check_function_array_wrapper<DataTypeFloat32, DataTypeFloat64>(func_name, data_set));
-    static_cast<void>(
-            check_function_array_wrapper<DataTypeFloat64, DataTypeFloat64>(func_name, data_set));
+    static_cast<void>(check_function_array_wrapper<DataTypeInt8, DataTypeFloat64>(
+            func_name, data_set, TypeIndex::Int8, TypeIndex::Float64));
+    static_cast<void>(check_function_array_wrapper<DataTypeInt16, DataTypeFloat64>(
+            func_name, data_set, TypeIndex::Int16, TypeIndex::Float64));
+    static_cast<void>(check_function_array_wrapper<DataTypeInt32, DataTypeFloat64>(
+            func_name, data_set, TypeIndex::Int32, TypeIndex::Float64));
+    static_cast<void>(check_function_array_wrapper<DataTypeInt64, DataTypeFloat64>(
+            func_name, data_set, TypeIndex::Int64, TypeIndex::Float64));
+    static_cast<void>(check_function_array_wrapper<DataTypeInt128, DataTypeFloat64>(
+            func_name, data_set, TypeIndex::Int128, TypeIndex::Float64));
+    static_cast<void>(check_function_array_wrapper<DataTypeFloat32, DataTypeFloat64>(
+            func_name, data_set, TypeIndex::Float32, TypeIndex::Float64));
+    static_cast<void>(check_function_array_wrapper<DataTypeFloat64, DataTypeFloat64>(
+            func_name, data_set, TypeIndex::Float64, TypeIndex::Float64));
 }
 
 TEST(VFunctionArrayAggregationTest, TestArrayProductNullable) {
@@ -252,20 +280,20 @@ TEST(VFunctionArrayAggregationTest, TestArrayProductNullable) {
             {{nullptr}, nullptr},
             {{1, nullptr, 3}, 3},
     };
-    static_cast<void>(
-            check_function_array_wrapper<DataTypeInt8, DataTypeFloat64>(func_name, data_set, true));
-    static_cast<void>(check_function_array_wrapper<DataTypeInt16, DataTypeFloat64>(func_name,
-                                                                                   data_set, true));
-    static_cast<void>(check_function_array_wrapper<DataTypeInt32, DataTypeFloat64>(func_name,
-                                                                                   data_set, true));
-    static_cast<void>(check_function_array_wrapper<DataTypeInt64, DataTypeFloat64>(func_name,
-                                                                                   data_set, true));
+    static_cast<void>(check_function_array_wrapper<DataTypeInt8, DataTypeFloat64>(
+            func_name, data_set, TypeIndex::Int8, TypeIndex::Float64, true));
+    static_cast<void>(check_function_array_wrapper<DataTypeInt16, DataTypeFloat64>(
+            func_name, data_set, TypeIndex::Int16, TypeIndex::Float64, true));
+    static_cast<void>(check_function_array_wrapper<DataTypeInt32, DataTypeFloat64>(
+            func_name, data_set, TypeIndex::Int32, TypeIndex::Float64, true));
+    static_cast<void>(check_function_array_wrapper<DataTypeInt64, DataTypeFloat64>(
+            func_name, data_set, TypeIndex::Int64, TypeIndex::Float64, true));
     static_cast<void>(check_function_array_wrapper<DataTypeInt128, DataTypeFloat64>(
-            func_name, data_set, true));
+            func_name, data_set, TypeIndex::Int128, TypeIndex::Float64, true));
     static_cast<void>(check_function_array_wrapper<DataTypeFloat32, DataTypeFloat64>(
-            func_name, data_set, true));
+            func_name, data_set, TypeIndex::Float32, TypeIndex::Float64, true));
     static_cast<void>(check_function_array_wrapper<DataTypeFloat64, DataTypeFloat64>(
-            func_name, data_set, true));
+            func_name, data_set, TypeIndex::Float64, TypeIndex::Float64, true));
 }
 
 } // namespace doris::vectorized

@@ -72,7 +72,6 @@ public:
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
         return std::make_shared<DataTypeTimeV2SerDe>(_scale, nesting_level);
     };
-    TypeIndex get_type_id() const override { return TypeIndex::TimeV2; }
     PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_TIMEV2; }
     const char* get_family_name() const override { return "timev2"; }
     UInt32 get_scale() const override { return _scale; }

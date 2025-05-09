@@ -204,8 +204,7 @@ public:
             // Default column iterator
             return true;
         }
-        if (vectorized::WhichDataType(vectorized::remove_nullable(storage_column_type))
-                    .is_variant_type()) {
+        if (storage_column_type->get_primitive_type() == TYPE_VARIANT) {
             // Predicate should nerver apply on variant type
             return false;
         }

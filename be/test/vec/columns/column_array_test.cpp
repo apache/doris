@@ -735,14 +735,15 @@ TEST_F(ColumnArrayTest, GetNumberOfDimensionsTest) {
                 remove_nullable(array_columns[i]->assume_mutable()).get());
         auto check_type = remove_nullable(array_types[i]);
         auto dimension = 0;
-        while (is_array(check_type)) {
-            auto nested_type = reinterpret_cast<const vectorized::DataTypeArray&>(*check_type)
-                                       .get_nested_type();
+        while (check_type->get_primitive_type() == TYPE_ARRAY && !check_type->is_nullable()) {
+            auto nested_type =
+                    assert_cast<const vectorized::DataTypeArray&>(*check_type).get_nested_type();
             dimension++;
             check_type = nested_type;
         }
         EXPECT_EQ(column->get_number_of_dimensions(), dimension)
-                << "column dimension is not equal to check_type dimension";
+                << "column " << column->get_name()
+                << " dimension is not equal to check_type dimension";
     }
 }
 

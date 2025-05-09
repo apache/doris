@@ -56,8 +56,6 @@ namespace vectorized {
 class BufferWritable;
 class IColumn;
 class ReadBuffer;
-template <typename T>
-struct TypeId;
 } // namespace vectorized
 } // namespace doris
 
@@ -152,7 +150,6 @@ public:
 
     const char* get_family_name() const override { return "Decimal"; }
     std::string do_get_name() const override;
-    TypeIndex get_type_id() const override { return TypeId<T>::value; }
     PrimitiveType get_primitive_type() const override {
         return IsDecimal256<T>     ? PrimitiveType::TYPE_DECIMAL256
                : IsDecimal128V3<T> ? PrimitiveType::TYPE_DECIMAL128I
@@ -190,7 +187,7 @@ public:
         DCHECK_EQ(node.node_type, TExprNodeType::DECIMAL_LITERAL);
         DCHECK(node.__isset.decimal_literal);
         // decimalv2
-        if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal128V2>>) {
+        if constexpr (std::is_same_v<T, Decimal128V2>) {
             DecimalV2Value value;
             if (value.parse_from_str(node.decimal_literal.value.c_str(),
                                      node.decimal_literal.value.size()) == E_DEC_OK) {

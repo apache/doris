@@ -171,7 +171,7 @@ PGenericType_TypeId IDataType::get_pdata_type(const IDataType* data_type) {
         return PGenericType::TIMEV2;
     case PrimitiveType::INVALID_TYPE: {
         // TODO(gabriel): we need another primitive type to represent FixedLengthObject
-        if (data_type->get_type_id() == TypeIndex::FixedLengthObject) {
+        if (data_type->is_fixed_length_object()) {
             return PGenericType::FIXEDLENGTHOBJECT;
         }
         break;

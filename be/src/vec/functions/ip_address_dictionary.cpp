@@ -64,7 +64,8 @@ ColumnPtr IPAddressDictionary::get_column(const std::string& attribute_name,
                 ErrorCode::INVALID_ARGUMENT,
                 "IPAddressDictionary get_column attribute_type or key_type must not nullable type");
     }
-    if (!WhichDataType {key_type}.is_ip()) {
+    if (key_type->get_primitive_type() != TYPE_IPV4 &&
+        key_type->get_primitive_type() != TYPE_IPV6) {
         throw doris::Exception(
                 ErrorCode::INVALID_ARGUMENT,
                 "IPAddressDictionary only support ip type key , input key type is {} ",
@@ -77,7 +78,7 @@ ColumnPtr IPAddressDictionary::get_column(const std::string& attribute_name,
     auto& res_null_map = res_null->get_data();
     const auto& value_data = _values_data[attribute_index(attribute_name)];
 
-    if (WhichDataType {key_type}.is_ipv6()) {
+    if (key_type->get_primitive_type() == TYPE_IPV6) {
         // input key column without nullable
         const auto* ipv6_column = assert_cast<const ColumnIPv6*>(remove_nullable(key_column).get());
         // if input key column is nullable, will not be null

@@ -35,7 +35,6 @@ AggregateFunctionPtr create_aggregate_function_map_agg(const std::string& name,
                                                        const DataTypes& argument_types,
                                                        const bool result_is_nullable,
                                                        const AggregateFunctionAttr& attr) {
-    WhichDataType type(remove_nullable(argument_types[0]));
     switch (argument_types[0]->get_primitive_type()) {
     case PrimitiveType::TYPE_BOOLEAN:
         return create_agg_function_map_agg<UInt8>(argument_types, result_is_nullable);

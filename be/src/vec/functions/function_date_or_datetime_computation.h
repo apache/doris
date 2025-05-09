@@ -660,59 +660,55 @@ struct CurrentDateTimeImpl {
             if (block.get_by_position(result).type->get_primitive_type() == TYPE_DATETIMEV2) {
                 return executeImpl<TYPE_DATETIMEV2>(context, block, arguments, result,
                                                     input_rows_count);
-            } else {
-                return executeImpl<TYPE_DATEV2>(context, block, arguments, result,
-                                                input_rows_count);
-            }
-        } else {
-            if (block.get_by_position(result).type->get_primitive_type() == TYPE_DATETIMEV2) {
-                return executeImpl<TYPE_DATETIMEV2>(context, block, arguments, result,
+                DCHECK(block.get_by_position(result).type->get_primitive_type() ==
+                               TYPE_DATETIMEV2 ||
+                       block.get_by_position(result).type->get_primitive_type() == TYPE_DATEV2);
+                if (block.get_by_position(result).type->get_primitive_type() == TYPE_DATETIMEV2) {
+                    return executeImpl<DateV2Value<DateTimeV2ValueType>, UInt64>(
+                            context, block, arguments, result, input_rows_count);
+                } else {
+                    return executeImpl<TYPE_DATEV2>(context, block, arguments, result,
                                                     input_rows_count);
-            } else if (block.get_by_position(result).type->get_primitive_type() == TYPE_DATEV2) {
-                return executeImpl<TYPE_DATEV2>(context, block, arguments, result,
-                                                input_rows_count);
-            } else {
-                return executeImpl<TYPE_DATETIME>(context, block, arguments, result,
-                                                  input_rows_count);
-            }
-        }
-    }
-
-    template <PrimitiveType PType>
-    static Status executeImpl(FunctionContext* context, Block& block,
-                              const ColumnNumbers& arguments, uint32_t result,
-                              size_t input_rows_count) {
-        using DateValueType = typename PrimitiveTypeTraits<PType>::CppType;
-        using NativeType = typename PrimitiveTypeTraits<PType>::CppNativeType;
-        auto col_to = ColumnVector<PType>::create();
-        DateValueType dtv;
-        bool use_const;
-        if constexpr (WithPrecision) {
-            if (const auto* const_column = check_and_get_column<ColumnConst>(
-                        block.get_by_position(arguments[0]).column.get())) {
-                int64_t scale = const_column->get_int(0);
-                dtv.from_unixtime(context->state()->timestamp_ms() / 1000,
-                                  context->state()->nano_seconds(),
-                                  context->state()->timezone_obj(), scale);
-                if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {
-                    reinterpret_cast<DateValueType*>(&dtv)->set_type(TIME_DATETIME);
                 }
-                auto date_packed_int = binary_cast<DateValueType, NativeType>(dtv);
-                col_to->insert_data(
-                        const_cast<const char*>(reinterpret_cast<char*>(&date_packed_int)), 0);
+            } else {
+                if (block.get_by_position(result).type->get_primitive_type() == TYPE_DATETIMEV2) {
+                    return executeImpl<TYPE_DATETIMEV2>(context, block, arguments, result,
+                                                        input_rows_count);
+                } else if (block.get_by_position(result).type->get_primitive_type() ==
+                           TYPE_DATEV2) {
+                    return executeImpl<TYPE_DATEV2>(context, block, arguments, result,
+                                                    input_rows_count);
+                    if (block.get_by_position(result).type->get_primitive_type() ==
+                        TYPE_DATETIMEV2) {
+                        return executeImpl<DateV2Value<DateTimeV2ValueType>, UInt64>(
+                                context, block, arguments, result, input_rows_count);
+                    } else if (block.get_by_position(result).type->get_primitive_type() ==
+                               TYPE_DATEV2) {
+                        return executeImpl<DateV2Value<DateV2ValueType>, UInt32>(
+                                context, block, arguments, result, input_rows_count);
+                    } else {
+                        return executeImpl<TYPE_DATETIME>(context, block, arguments, result,
+                                                          input_rows_count);
+                    }
+                }
+            }
 
-                use_const = true;
-            } else if (const auto* nullable_column = check_and_get_column<ColumnNullable>(
-                               block.get_by_position(arguments[0]).column.get())) {
-                const auto& null_map = nullable_column->get_null_map_data();
-                const auto& nested_column = assert_cast<const ColumnInt32*>(
-                        nullable_column->get_nested_column_ptr().get());
-                for (int i = 0; i < input_rows_count; i++) {
-                    if (!null_map[i]) {
+            template <PrimitiveType PType>
+            static Status executeImpl(FunctionContext * context, Block & block,
+                                      const ColumnNumbers& arguments, uint32_t result,
+                                      size_t input_rows_count) {
+                using DateValueType = typename PrimitiveTypeTraits<PType>::CppType;
+                using NativeType = typename PrimitiveTypeTraits<PType>::CppNativeType;
+                auto col_to = ColumnVector<PType>::create();
+                DateValueType dtv;
+                bool use_const;
+                if constexpr (WithPrecision) {
+                    if (const auto* const_column = check_and_get_column<ColumnConst>(
+                                block.get_by_position(arguments[0]).column.get())) {
+                        int64_t scale = const_column->get_int(0);
                         dtv.from_unixtime(context->state()->timestamp_ms() / 1000,
                                           context->state()->nano_seconds(),
-                                          context->state()->timezone_obj(),
-                                          nested_column->get_element(i));
+                                          context->state()->timezone_obj(), scale);
                         if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {
                             reinterpret_cast<DateValueType*>(&dtv)->set_type(TIME_DATETIME);
                         }
@@ -720,48 +716,73 @@ struct CurrentDateTimeImpl {
                         col_to->insert_data(
                                 const_cast<const char*>(reinterpret_cast<char*>(&date_packed_int)),
                                 0);
+
+                        use_const = true;
+                    } else if (const auto* nullable_column = check_and_get_column<ColumnNullable>(
+                                       block.get_by_position(arguments[0]).column.get())) {
+                        const auto& null_map = nullable_column->get_null_map_data();
+                        const auto& nested_column = assert_cast<const ColumnInt32*>(
+                                nullable_column->get_nested_column_ptr().get());
+                        for (int i = 0; i < input_rows_count; i++) {
+                            if (!null_map[i]) {
+                                dtv.from_unixtime(context->state()->timestamp_ms() / 1000,
+                                                  context->state()->nano_seconds(),
+                                                  context->state()->timezone_obj(),
+                                                  nested_column->get_element(i));
+                                if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {
+                                    reinterpret_cast<DateValueType*>(&dtv)->set_type(TIME_DATETIME);
+                                }
+                                auto date_packed_int = binary_cast<DateValueType, NativeType>(dtv);
+                                col_to->insert_data(const_cast<const char*>(reinterpret_cast<char*>(
+                                                            &date_packed_int)),
+                                                    0);
+                            } else {
+                                auto invalid_val = 0;
+                                col_to->insert_data(const_cast<const char*>(
+                                                            reinterpret_cast<char*>(&invalid_val)),
+                                                    0);
+                            }
+                        }
+                        use_const = false;
                     } else {
-                        auto invalid_val = 0;
-                        col_to->insert_data(
-                                const_cast<const char*>(reinterpret_cast<char*>(&invalid_val)), 0);
+                        const auto* int_column = assert_cast<const ColumnInt32*>(
+                                block.get_by_position(arguments[0]).column.get());
+                        for (int i = 0; i < input_rows_count; i++) {
+                            dtv.from_unixtime(context->state()->timestamp_ms() / 1000,
+                                              context->state()->nano_seconds(),
+                                              context->state()->timezone_obj(),
+                                              int_column->get_element(i));
+                            if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {
+                                reinterpret_cast<DateValueType*>(&dtv)->set_type(TIME_DATETIME);
+                            }
+                            auto date_packed_int = binary_cast<DateValueType, NativeType>(dtv);
+                            col_to->insert_data(const_cast<const char*>(
+                                                        reinterpret_cast<char*>(&date_packed_int)),
+                                                0);
+                        }
+                        use_const = false;
                     }
-                }
-                use_const = false;
-            } else {
-                const auto* int_column = assert_cast<const ColumnInt32*>(
-                        block.get_by_position(arguments[0]).column.get());
-                for (int i = 0; i < input_rows_count; i++) {
+                } else {
                     dtv.from_unixtime(context->state()->timestamp_ms() / 1000,
-                                      context->state()->nano_seconds(),
-                                      context->state()->timezone_obj(), int_column->get_element(i));
+                                      context->state()->timezone_obj());
                     if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {
                         reinterpret_cast<DateValueType*>(&dtv)->set_type(TIME_DATETIME);
                     }
                     auto date_packed_int = binary_cast<DateValueType, NativeType>(dtv);
                     col_to->insert_data(
                             const_cast<const char*>(reinterpret_cast<char*>(&date_packed_int)), 0);
+                    use_const = true;
                 }
-                use_const = false;
-            }
-        } else {
-            dtv.from_unixtime(context->state()->timestamp_ms() / 1000,
-                              context->state()->timezone_obj());
-            if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {
-                reinterpret_cast<DateValueType*>(&dtv)->set_type(TIME_DATETIME);
-            }
-            auto date_packed_int = binary_cast<DateValueType, NativeType>(dtv);
-            col_to->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&date_packed_int)),
-                                0);
-            use_const = true;
-        }
 
-        if (use_const) {
-            block.get_by_position(result).column =
-                    ColumnConst::create(std::move(col_to), input_rows_count);
-        } else {
-            block.get_by_position(result).column = std::move(col_to);
+                if (use_const) {
+                    block.get_by_position(result).column =
+                            ColumnConst::create(std::move(col_to), input_rows_count);
+                } else {
+                    block.get_by_position(result).column = std::move(col_to);
+                }
+                return Status::OK();
+            }
         }
-        return Status::OK();
     }
 };
 
@@ -922,40 +943,45 @@ struct UtcTimestampImpl {
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           uint32_t result, size_t input_rows_count) {
         if (block.get_by_position(result).type->get_primitive_type() == TYPE_DATETIMEV2) {
-            return executeImpl<DateV2Value<DateTimeV2ValueType>, UInt64>(context, block, result,
+            if (block.get_by_position(result).type->get_primitive_type() == TYPE_DATETIMEV2) {
+                return executeImpl<DateV2Value<DateTimeV2ValueType>, UInt64>(context, block, result,
+                                                                             input_rows_count);
+            } else if (block.get_by_position(result).type->get_primitive_type() == TYPE_DATEV2) {
+            } else if (block.get_by_position(result).type->get_primitive_type() == TYPE_DATEV2) {
+                return executeImpl<DateV2Value<DateV2ValueType>, UInt32>(context, block, result,
                                                                          input_rows_count);
-        } else if (block.get_by_position(result).type->get_primitive_type() == TYPE_DATEV2) {
-            return executeImpl<DateV2Value<DateV2ValueType>, UInt32>(context, block, result,
-                                                                     input_rows_count);
-        } else {
-            return executeImpl<VecDateTimeValue, Int64>(context, block, result, input_rows_count);
-        }
-    }
-
-    template <typename DateValueType, typename NativeType>
-    static Status executeImpl(FunctionContext* context, Block& block, uint32_t result,
-                              size_t input_rows_count) {
-        auto col_to = ColumnDateTime::create();
-        DateValueType dtv;
-        if (dtv.from_unixtime(context->state()->timestamp_ms() / 1000, "+00:00")) {
-            if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {
-                reinterpret_cast<DateValueType*>(&dtv)->set_type(TIME_DATETIME);
+            } else {
+                return executeImpl<VecDateTimeValue, Int64>(context, block, result,
+                                                            input_rows_count);
             }
-
-            auto date_packed_int =
-                    binary_cast<DateValueType, NativeType>(*reinterpret_cast<DateValueType*>(&dtv));
-
-            col_to->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&date_packed_int)),
-                                0);
-
-        } else {
-            auto invalid_val = 0;
-
-            col_to->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&invalid_val)), 0);
         }
-        block.get_by_position(result).column =
-                ColumnConst::create(std::move(col_to), input_rows_count);
-        return Status::OK();
+
+        template <typename DateValueType, typename NativeType>
+        static Status executeImpl(FunctionContext * context, Block & block, uint32_t result,
+                                  size_t input_rows_count) {
+            auto col_to = ColumnDateTime::create();
+            DateValueType dtv;
+            if (dtv.from_unixtime(context->state()->timestamp_ms() / 1000, "+00:00")) {
+                if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {
+                    reinterpret_cast<DateValueType*>(&dtv)->set_type(TIME_DATETIME);
+                }
+
+                auto date_packed_int = binary_cast<DateValueType, NativeType>(
+                        *reinterpret_cast<DateValueType*>(&dtv));
+
+                col_to->insert_data(
+                        const_cast<const char*>(reinterpret_cast<char*>(&date_packed_int)), 0);
+
+            } else {
+                auto invalid_val = 0;
+
+                col_to->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&invalid_val)),
+                                    0);
+            }
+            block.get_by_position(result).column =
+                    ColumnConst::create(std::move(col_to), input_rows_count);
+            return Status::OK();
+        }
     }
 };
 
@@ -984,17 +1010,20 @@ protected:
             data_types[i] = arguments[i].type;
         }
         if (return_type->get_primitive_type() == TYPE_DATEV2) {
-            auto function = FunctionCurrentDateOrDateTime<
-                    CurrentDateImpl<FunctionName, TYPE_DATEV2>>::create();
-            return std::make_shared<DefaultFunction>(function, data_types, return_type);
-        } else if (return_type->get_primitive_type() == TYPE_DATETIMEV2) {
-            auto function = FunctionCurrentDateOrDateTime<
-                    CurrentDateImpl<FunctionName, TYPE_DATETIMEV2>>::create();
-            return std::make_shared<DefaultFunction>(function, data_types, return_type);
-        } else {
-            auto function = FunctionCurrentDateOrDateTime<
-                    CurrentDateImpl<FunctionName, TYPE_DATE>>::create();
-            return std::make_shared<DefaultFunction>(function, data_types, return_type);
+            if (return_type->get_primitive_type() == TYPE_DATEV2) {
+                auto function = FunctionCurrentDateOrDateTime<
+                        CurrentDateImpl<FunctionName, TYPE_DATEV2>>::create();
+                return std::make_shared<DefaultFunction>(function, data_types, return_type);
+            } else if (return_type->get_primitive_type() == TYPE_DATETIMEV2) {
+            } else if (return_type->get_primitive_type() == TYPE_DATETIMEV2) {
+                auto function = FunctionCurrentDateOrDateTime<
+                        CurrentDateImpl<FunctionName, TYPE_DATETIMEV2>>::create();
+                return std::make_shared<DefaultFunction>(function, data_types, return_type);
+            } else {
+                auto function = FunctionCurrentDateOrDateTime<
+                        CurrentDateImpl<FunctionName, TYPE_DATE>>::create();
+                return std::make_shared<DefaultFunction>(function, data_types, return_type);
+            }
         }
     }
 };

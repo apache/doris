@@ -51,7 +51,6 @@ public:
     std::string do_get_name() const override { return get_family_name(); }
     const char* get_family_name() const override { return "HLL"; }
 
-    TypeIndex get_type_id() const override { return TypeIndex::HLL; }
     PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_HLL; }
 
     doris::FieldType get_storage_field_type() const override {

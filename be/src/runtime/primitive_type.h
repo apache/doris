@@ -100,6 +100,18 @@ constexpr bool is_date_type(PrimitiveType type) {
            type == TYPE_DATEV2;
 }
 
+constexpr bool is_date_or_datetime(PrimitiveType type) {
+    return type == TYPE_DATETIME || type == TYPE_DATE;
+}
+
+constexpr bool is_date_v2_or_datetime_v2(PrimitiveType type) {
+    return type == TYPE_DATETIMEV2 || type == TYPE_DATEV2;
+}
+
+constexpr bool is_ip(PrimitiveType type) {
+    return type == TYPE_IPV4 || type == TYPE_IPV6;
+}
+
 constexpr bool is_string_type(PrimitiveType type) {
     return type == TYPE_CHAR || type == TYPE_VARCHAR || type == TYPE_STRING;
 }
@@ -120,14 +132,22 @@ constexpr bool is_float_or_double(PrimitiveType type) {
     return type == TYPE_FLOAT || type == TYPE_DOUBLE;
 }
 
+constexpr bool is_int(PrimitiveType type) {
+    return type == TYPE_TINYINT || type == TYPE_SMALLINT || type == TYPE_INT ||
+           type == TYPE_BIGINT || type == TYPE_LARGEINT;
+}
+
 constexpr bool is_int_or_bool(PrimitiveType type) {
-    return type == TYPE_BOOLEAN || type == TYPE_TINYINT || type == TYPE_SMALLINT ||
-           type == TYPE_INT || type == TYPE_BIGINT || type == TYPE_LARGEINT;
+    return type == TYPE_BOOLEAN || is_int(type);
 }
 
 constexpr bool is_decimal(PrimitiveType type) {
     return type == TYPE_DECIMAL32 || type == TYPE_DECIMAL64 || type == TYPE_DECIMAL128I ||
            type == TYPE_DECIMAL256 || type == TYPE_DECIMALV2;
+}
+
+constexpr bool is_number(PrimitiveType type) {
+    return is_int_or_bool(type) || is_float_or_double(type) || is_decimal(type);
 }
 
 PrimitiveType thrift_to_type(TPrimitiveType::type ttype);
