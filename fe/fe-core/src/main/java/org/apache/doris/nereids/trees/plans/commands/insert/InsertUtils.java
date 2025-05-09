@@ -41,6 +41,7 @@ import org.apache.doris.nereids.analyzer.UnboundJdbcTableSink;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
+import org.apache.doris.nereids.analyzer.UnboundTrinoConnectorTableSink;
 import org.apache.doris.nereids.analyzer.UnboundVariable;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -565,10 +566,12 @@ public class InsertUtils {
             unboundTableSink = (UnboundJdbcTableSink<? extends Plan>) plan;
         } else if (plan instanceof UnboundDictionarySink) {
             unboundTableSink = (UnboundDictionarySink<? extends Plan>) plan;
+        } else if (plan instanceof UnboundTrinoConnectorTableSink) {
+            unboundTableSink = (UnboundTrinoConnectorTableSink<? extends Plan>) plan;
         } else {
             throw new AnalysisException(
-                    "the root of plan only accept Olap, Dictionary, Hive, Iceberg or Jdbc table sink, but it is "
-                            + plan.getType());
+                    "the root of plan only accept Olap, Dictionary, Hive, Iceberg, TrinoConnector or Jdbc table sink, "
+                            + "but it is " + plan.getType());
         }
         return RelationUtil.getQualifierName(ctx, unboundTableSink.getNameParts());
     }
