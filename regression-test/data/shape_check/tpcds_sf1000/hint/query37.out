@@ -26,7 +26,7 @@ PhysicalResultSink
 --------------------------PhysicalOlapScan[date_dim]
 
 Hint log:
-Used: leading(catalog_sales { inventory item date_dim } )
-UnUsed: 
-SyntaxError:
+Used:
+UnUsed:
+SyntaxError: leading(catalog_sales { inventory item date_dim }) Msg:can not find table: {
 
