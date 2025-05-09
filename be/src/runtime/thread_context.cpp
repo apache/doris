@@ -28,7 +28,7 @@ class MemTracker;
 QueryThreadContext ThreadContext::query_thread_context() {
     DCHECK(doris::pthread_context_ptr_init);
     ORPHAN_TRACKER_CHECK();
-    return {_task_id, thread_mem_tracker_mgr->limiter_mem_tracker(), _wg_wptr};
+    return {_task_id, thread_mem_tracker_mgr->limiter_mem_tracker_sptr(), _wg_wptr};
 }
 
 void AttachTask::init(const QueryThreadContext& query_thread_context) {
