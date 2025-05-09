@@ -24,7 +24,6 @@
 #include <olap/tablet_manager.h>
 #include <runtime/exec_env.h>
 
-#include "gutil/ref_counted.h"
 #include "olap/lru_cache.h"
 #include "runtime/load_channel.h"
 #include "runtime/load_stream.h"

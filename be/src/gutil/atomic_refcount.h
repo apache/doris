@@ -37,8 +37,6 @@
 #include <glog/logging.h>
 
 #include "gutil/atomicops.h"
-#include "gutil/integral_types.h"
-#include "gutil/logging-inl.h"
 
 namespace base {
 
