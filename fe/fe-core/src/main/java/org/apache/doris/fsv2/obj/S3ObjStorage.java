@@ -153,7 +153,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                         java.nio.file.Path blobPath = Paths.get(obj.key());
                         LOG.info("s3 glob list object {}", obj);
                         boolean isPrefix = false;
-                        while (blobPath != null && blobPath.toString().startsWith(listPrefix)) {
+                        while (null != blobPath && blobPath.toString().startsWith(listPrefix)) {
                             if (!matcher.matches(blobPath)) {
                                 isPrefix = true;
                                 blobPath = blobPath.getParent();

@@ -28,6 +28,7 @@ import java.lang.reflect.Field;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
@@ -143,11 +144,11 @@ public class S3Properties extends AbstractS3CompatibleProperties {
         if (!Strings.isNullOrEmpty(endpoint)) {
             return ENDPOINT_PATTERN.matcher(endpoint).matches();
         }
-        if (!origProps.containsKey("uri")) {
-            return false;
-        }
-        String uri = origProps.get("uri");
-        return uri.contains("amazonaws.com");
+        Optional<String> uriValue = origProps.entrySet().stream()
+                .filter(e -> e.getKey().equalsIgnoreCase("uri"))
+                .map(Map.Entry::getValue)
+                .findFirst();
+        return uriValue.isPresent() && uriValue.get().contains("amazonaws.com");
     }
 
     @Override

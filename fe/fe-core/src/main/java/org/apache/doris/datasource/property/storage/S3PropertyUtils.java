@@ -23,6 +23,7 @@ import org.apache.doris.common.util.S3URI;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.Map;
+import java.util.Optional;
 
 public class S3PropertyUtils {
 
@@ -44,8 +45,16 @@ public class S3PropertyUtils {
     public static String constructEndpointFromUrl(Map<String, String> props,
                                                   String stringUsePathStyle,
                                                   String stringForceParsingByStandardUri) {
-        String uri = props.get(URI_KEY);
-        if (uri == null || uri.isEmpty()) {
+        Optional<String> uriOptional = props.entrySet().stream()
+                .filter(e -> e.getKey().equalsIgnoreCase(URI_KEY))
+                .map(Map.Entry::getValue)
+                .findFirst();
+
+        if (!uriOptional.isPresent()) {
+            return null;
+        }
+        String uri = uriOptional.get();
+        if (StringUtils.isBlank(uri)) {
             return null;
         }
         boolean usePathStyle = Boolean.parseBoolean(stringUsePathStyle);
@@ -75,8 +84,16 @@ public class S3PropertyUtils {
     public static String constructRegionFromUrl(Map<String, String> props,
                                                 String stringUsePathStyle,
                                                 String stringForceParsingByStandardUri) {
-        String uri = props.get(URI_KEY);
-        if (uri == null || uri.isEmpty()) {
+        Optional<String> uriOptional = props.entrySet().stream()
+                .filter(e -> e.getKey().equalsIgnoreCase(URI_KEY))
+                .map(Map.Entry::getValue)
+                .findFirst();
+
+        if (!uriOptional.isPresent()) {
+            return null;
+        }
+        String uri = uriOptional.get();
+        if (StringUtils.isBlank(uri)) {
             return null;
         }
         boolean usePathStyle = Boolean.parseBoolean(stringUsePathStyle);
@@ -138,9 +155,14 @@ public class S3PropertyUtils {
         if (props.isEmpty()) {
             throw new UserException("props is empty");
         }
-        if (!props.containsKey(URI_KEY)) {
+        Optional<String> uriOptional = props.entrySet().stream()
+                .filter(e -> e.getKey().equalsIgnoreCase(URI_KEY))
+                .map(Map.Entry::getValue)
+                .findFirst();
+
+        if (!uriOptional.isPresent()) {
             throw new UserException("props must contain uri");
         }
-        return props.get(URI_KEY);
+        return uriOptional.get();
     }
 }

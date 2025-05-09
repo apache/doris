@@ -25,6 +25,7 @@ import lombok.Setter;
 
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
@@ -77,10 +78,11 @@ public class COSProperties extends AbstractS3CompatibleProperties {
         if (!Strings.isNullOrEmpty(value)) {
             return ENDPOINT_PATTERN.matcher(value).matches();
         }
-        if (!origProps.containsKey("uri")) {
-            return false;
-        }
-        return origProps.get("uri").contains("myqcloud.com");
+        Optional<String> uriValue = origProps.entrySet().stream()
+                .filter(e -> e.getKey().equalsIgnoreCase("uri"))
+                .map(Map.Entry::getValue)
+                .findFirst();
+        return uriValue.isPresent() && uriValue.get().contains("myqcloud.com");
     }
 
     @Override
