@@ -296,23 +296,23 @@ public class JdbcExternalCatalog extends ExternalCatalog {
     @Override
     public void checkWhenCreating() throws DdlException {
         super.checkWhenCreating();
-        Map<String, String> properties = catalogProperty.getProperties();
-        if (properties.containsKey(JdbcResource.DRIVER_URL)) {
-            String computedChecksum = JdbcResource.computeObjectChecksum(properties.get(JdbcResource.DRIVER_URL));
-            if (properties.containsKey(JdbcResource.CHECK_SUM)) {
-                String providedChecksum = properties.get(JdbcResource.CHECK_SUM);
-                if (!providedChecksum.equals(computedChecksum)) {
-                    throw new DdlException(
-                            "The provided checksum (" + providedChecksum
-                                    + ") does not match the computed checksum (" + computedChecksum
-                                    + ") for the driver_url."
-                    );
-                }
-            } else {
-                catalogProperty.addProperty(JdbcResource.CHECK_SUM, computedChecksum);
-            }
-        }
-        testJdbcConnection();
+        // Map<String, String> properties = catalogProperty.getProperties();
+        // if (properties.containsKey(JdbcResource.DRIVER_URL)) {
+        //     String computedChecksum = JdbcResource.computeObjectChecksum(properties.get(JdbcResource.DRIVER_URL));
+        //     if (properties.containsKey(JdbcResource.CHECK_SUM)) {
+        //         String providedChecksum = properties.get(JdbcResource.CHECK_SUM);
+        //         if (!providedChecksum.equals(computedChecksum)) {
+        //             throw new DdlException(
+        //                     "The provided checksum (" + providedChecksum
+        //                             + ") does not match the computed checksum (" + computedChecksum
+        //                             + ") for the driver_url."
+        //             );
+        //         }
+        //     } else {
+        //         catalogProperty.addProperty(JdbcResource.CHECK_SUM, computedChecksum);
+        //     }
+        // }
+        // testJdbcConnection();
     }
 
     /**

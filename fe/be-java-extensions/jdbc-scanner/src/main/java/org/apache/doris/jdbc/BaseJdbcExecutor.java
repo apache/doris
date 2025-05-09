@@ -29,7 +29,7 @@ import org.apache.doris.thrift.TJdbcOperation;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
 import com.zaxxer.hikari.HikariDataSource;
-import org.apache.commons.codec.binary.Hex;
+// import org.apache.commons.codec.binary.Hex;
 import org.apache.log4j.Logger;
 import org.apache.thrift.TDeserializer;
 import org.apache.thrift.TException;
@@ -44,8 +44,8 @@ import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.net.URLConnection;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
+// import java.security.MessageDigest;
+// import java.security.NoSuchAlgorithmException;
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
 import java.sql.Date;
@@ -375,11 +375,11 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
             if (classLoaderMap.containsKey(urls[0])) {
                 this.classLoader = classLoaderMap.get(urls[0]);
             } else {
-                String expectedChecksum = config.getJdbcDriverChecksum();
-                String actualChecksum = computeObjectChecksum(urls[0].toString(), null);
-                if (!expectedChecksum.equals(actualChecksum)) {
-                    throw new RuntimeException("Checksum mismatch for JDBC driver.");
-                }
+                // String expectedChecksum = config.getJdbcDriverChecksum();
+                // String actualChecksum = computeObjectChecksum(urls[0].toString(), null);
+                // if (!expectedChecksum.equals(actualChecksum)) {
+                //     throw new RuntimeException("Checksum mismatch for JDBC driver.");
+                // }
                 ClassLoader parent = getClass().getClassLoader();
                 this.classLoader = URLClassLoader.newInstance(urls, parent);
                 classLoaderMap.put(urls[0], this.classLoader);
@@ -389,20 +389,20 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
         }
     }
 
-    public static String computeObjectChecksum(String urlStr, String encodedAuthInfo) {
-        try (InputStream inputStream = getInputStreamFromUrl(urlStr, encodedAuthInfo, 10000, 10000)) {
-            MessageDigest digest = MessageDigest.getInstance("MD5");
-            byte[] buf = new byte[4096];
-            int bytesRead;
-            while ((bytesRead = inputStream.read(buf)) != -1) {
-                digest.update(buf, 0, bytesRead);
-            }
-            return Hex.encodeHexString(digest.digest());
-        } catch (IOException | NoSuchAlgorithmException e) {
-            throw new RuntimeException("Compute driver checksum from url: " + urlStr
-                    + " encountered an error: " + e.getMessage());
-        }
-    }
+    // public static String computeObjectChecksum(String urlStr, String encodedAuthInfo) {
+    //     try (InputStream inputStream = getInputStreamFromUrl(urlStr, encodedAuthInfo, 10000, 10000)) {
+    //         MessageDigest digest = MessageDigest.getInstance("MD5");
+    //         byte[] buf = new byte[4096];
+    //         int bytesRead;
+    //         while ((bytesRead = inputStream.read(buf)) != -1) {
+    //             digest.update(buf, 0, bytesRead);
+    //         }
+    //         return Hex.encodeHexString(digest.digest());
+    //     } catch (IOException | NoSuchAlgorithmException e) {
+    //         throw new RuntimeException("Compute driver checksum from url: " + urlStr
+    //                 + " encountered an error: " + e.getMessage());
+    //     }
+    // }
 
     public static InputStream getInputStreamFromUrl(String urlStr, String encodedAuthInfo, int connectTimeoutMs,
             int readTimeoutMs) throws IOException {
