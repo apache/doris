@@ -216,6 +216,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("dynamic", new Integer(SqlParserSymbols.KW_DYNAMIC));
         keywordMap.put("else", new Integer(SqlParserSymbols.KW_ELSE));
         keywordMap.put("enable", new Integer(SqlParserSymbols.KW_ENABLE));
+        keywordMap.put("encoding", new Integer(SqlParserSymbols.KW_ENCODING));
         keywordMap.put("encryptkey", new Integer(SqlParserSymbols.KW_ENCRYPTKEY));
         keywordMap.put("encryptkeys", new Integer(SqlParserSymbols.KW_ENCRYPTKEYS));
         keywordMap.put("end", new Integer(SqlParserSymbols.KW_END));

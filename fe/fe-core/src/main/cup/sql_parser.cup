@@ -374,6 +374,7 @@ terminal String
     KW_DYNAMIC,
     KW_ELSE,
     KW_ENABLE,
+    KW_ENCODING,
     KW_ENCRYPTKEY,
     KW_ENCRYPTKEYS,
     KW_END,
@@ -791,6 +792,8 @@ nonterminal TypeDef type_def, type_def_nullable, opt_intermediate_type;
 nonterminal List<TypeDef> type_def_list, type_def_nullable_list;
 nonterminal FunctionArgsDef func_args_def;
 nonterminal Type type;
+nonterminal ScalarType scalar_type;
+nonterminal String opt_encoding;
 nonterminal Expr cast_expr, case_else_clause, analytic_expr;
 nonterminal LiteralExpr literal;
 nonterminal CaseExpr case_expr;
@@ -5335,7 +5338,18 @@ limit_clause ::=
   {: RESULT = new LimitElement(offset.longValue(), limit.longValue()); :}
   ;
 
-type ::=
+opt_encoding ::=
+    /* empty */
+    {:
+        RESULT = "";
+    :}
+    | KW_ENCODING STRING_LITERAL:encoding
+    {:
+        RESULT = encoding;
+    :}
+    ;
+
+scalar_type ::=
   KW_TINYINT opt_field_length
   {: RESULT = Type.TINYINT; :}
   | KW_SMALLINT opt_field_length
@@ -5405,12 +5419,6 @@ type ::=
   {: RESULT = ScalarType.createVarcharType(-1); :}
   | KW_VARCHAR
   {: RESULT = ScalarType.createVarcharType(-1); :}
-  | KW_ARRAY LESSTHAN type:value_type GREATERTHAN
-  {: RESULT = new ArrayType(value_type); :}
-  | KW_MAP LESSTHAN type:key_type COMMA type:value_type GREATERTHAN
-  {: RESULT = new MapType(key_type,value_type); :}
-  | KW_STRUCT LESSTHAN struct_field_list:fields GREATERTHAN
-  {: RESULT = new StructType(fields); :}
   | KW_CHAR LPAREN INTEGER_LITERAL:len RPAREN
   {: ScalarType type = ScalarType.createCharType(len.intValue());
      RESULT = type;
@@ -5455,14 +5463,26 @@ type ::=
   {: ScalarType type = ScalarType.createHllType();
      RESULT = type;
   :}
+  | KW_ALL
+  {: RESULT = Type.ALL; :}
+  ;
+
+type ::=
+  // ignore encoding in old planner
+  scalar_type:scalaType opt_encoding:encoding
+  {: RESULT = scalaType; :}
+  | KW_ARRAY LESSTHAN type:value_type GREATERTHAN
+  {: RESULT = new ArrayType(value_type); :}
+  | KW_MAP LESSTHAN type:key_type COMMA type:value_type GREATERTHAN
+  {: RESULT = new MapType(key_type,value_type); :}
+  | KW_STRUCT LESSTHAN struct_field_list:fields GREATERTHAN
+  {: RESULT = new StructType(fields); :}
   | KW_AGG_STATE LESSTHAN IDENT:fnName LPAREN type_def_nullable_list:list RPAREN GREATERTHAN
   {:
     RESULT = Expr.createAggStateType(fnName,
             list.stream().map(TypeDef::getType).collect(Collectors.toList()),
             list.stream().map(TypeDef::getNullable).collect(Collectors.toList()));
   :}
-  | KW_ALL
-  {: RESULT = Type.ALL; :}
   ;
 
 opt_field_length ::=
@@ -6855,6 +6875,8 @@ keyword ::=
     | time_unit:id
     {: RESULT = id; :}
     | KW_ENABLE:id
+    | KW_ENCODING:id
+    {: RESULT = id; :}
     {: RESULT = id; :}
     | KW_FEATURE:id
     {: RESULT = id; :}
