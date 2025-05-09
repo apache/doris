@@ -19,9 +19,33 @@
 
 namespace doris::segment_v2 {
 
+PrefixQuery::PrefixQuery(const std::shared_ptr<lucene::search::IndexSearcher>& searcher,
+                         const TQueryOptions& query_options, const io::IOContext* io_ctx)
+        : _searcher(searcher) {}
+
+void PrefixQuery::add(const std::wstring& field_name, const std::vector<std::wstring>& terms) {
+    if (terms.empty()) {
+        _CLTHROWA(CL_ERR_IllegalArgument, "PhraseQuery::add: terms empty");
+    }
+
+    std::vector<TermPositionIterator> subs;
+    for (const auto& ws_term : terms) {
+        auto* term_doc = TermPositionIterator::ensure_term_position(_searcher->getReader(),
+                                                                    field_name, ws_term);
+        subs.emplace_back(term_doc);
+    }
+    _lead1 = std::make_shared<UnionTermIterator<TermPositionIterator>>(subs);
+}
+
+void PrefixQuery::search(roaring::Roaring& roaring) {
+    while (_lead1->next_doc() != INT32_MAX) {
+        roaring.add(_lead1->doc_id());
+    }
+}
+
 void PrefixQuery::get_prefix_terms(IndexReader* reader, const std::wstring& field_name,
                                    const std::string& prefix,
-                                   std::vector<CL_NS(index)::Term*>& prefix_terms,
+                                   std::vector<std::wstring>& prefix_terms,
                                    int32_t max_expansions) {
     std::wstring ws_prefix = StringUtil::string_to_wstring(prefix);
 
@@ -60,8 +84,8 @@ void PrefixQuery::get_prefix_terms(IndexReader* reader, const std::wstring& fiel
                     break;
                 }
 
-                Term* t = _CLNEW Term(field_name.c_str(), tmp);
-                prefix_terms.push_back(t);
+                prefix_terms.emplace_back(tmp, termLen);
+
                 count++;
             } else {
                 break;
