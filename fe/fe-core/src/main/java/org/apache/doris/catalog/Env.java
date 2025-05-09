@@ -206,6 +206,7 @@ import org.apache.doris.nereids.stats.HboPlanStatisticsManager;
 import org.apache.doris.nereids.trees.plans.commands.AlterSystemCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.AnalyzeCommand;
+import org.apache.doris.nereids.trees.plans.commands.CancelBackupCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand.IdType;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVPropertyInfo;
@@ -4991,6 +4992,10 @@ public class Env {
 
     public void restore(RestoreStmt stmt) throws DdlException {
         getBackupHandler().process(stmt);
+    }
+
+    public void cancelBackup(CancelBackupCommand command) throws DdlException {
+        getBackupHandler().cancel(command);
     }
 
     public void cancelBackup(CancelBackupStmt stmt) throws DdlException {
