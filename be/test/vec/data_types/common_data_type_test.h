@@ -138,7 +138,8 @@ public:
                   meta_info.is_value_unambiguously_represented_in_contiguous_memory_region);
         if (is_decimal(data_type->get_primitive_type()) || data_type->is_nullable() ||
             data_type->get_primitive_type() == TYPE_STRUCT ||
-            data_type->get_primitive_type() == INVALID_TYPE ||
+            (data_type->get_primitive_type() == INVALID_TYPE &&
+             !data_type->is_fixed_length_object()) ||
             is_number(data_type->get_primitive_type()) ||
             is_int_or_bool(data_type->get_primitive_type()) ||
             is_float_or_double(data_type->get_primitive_type()) ||
