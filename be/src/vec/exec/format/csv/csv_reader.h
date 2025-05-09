@@ -136,17 +136,16 @@ private:
 
 class EncloseCsvTextFieldSplitter : public BaseCsvTextFieldSplitter<EncloseCsvTextFieldSplitter> {
 public:
-    explicit EncloseCsvTextFieldSplitter(
-            bool trim_tailing_space, bool trim_ends,
-            std::shared_ptr<EncloseCsvLineReaderContext> line_reader_ctx, size_t value_sep_len = 1,
-            char trimming_char = 0)
+    explicit EncloseCsvTextFieldSplitter(bool trim_tailing_space, bool trim_ends,
+                                         std::shared_ptr<EncloseCsvLineReaderCtx> line_reader_ctx,
+                                         size_t value_sep_len = 1, char trimming_char = 0)
             : BaseCsvTextFieldSplitter(trim_tailing_space, trim_ends, value_sep_len, trimming_char),
               _text_line_reader_ctx(std::move(line_reader_ctx)) {}
 
     void do_split(const Slice& line, std::vector<Slice>* splitted_values);
 
 private:
-    std::shared_ptr<EncloseCsvLineReaderContext> _text_line_reader_ctx;
+    std::shared_ptr<EncloseCsvLineReaderCtx> _text_line_reader_ctx;
 };
 
 class PlainCsvTextFieldSplitter : public BaseCsvTextFieldSplitter<PlainCsvTextFieldSplitter> {
@@ -169,22 +168,6 @@ private:
     std::string _value_sep;
 };
 
-class HiveCsvTextFieldSplitter : public BaseCsvTextFieldSplitter<HiveCsvTextFieldSplitter> {
-public:
-    explicit HiveCsvTextFieldSplitter(bool trim_tailing_space, bool trim_ends,
-                                      std::string value_sep, size_t value_sep_len = 1,
-                                      char trimming_char = 0, char escape_char = 0)
-            : BaseCsvTextFieldSplitter(trim_tailing_space, trim_ends, value_sep_len, trimming_char),
-              _value_sep(std::move(value_sep)),
-              _escape_char(escape_char) {}
-
-    void do_split(const Slice& line, std::vector<Slice>* splitted_values);
-
-private:
-    std::string _value_sep;
-    char _escape_char;
-};
-
 class CsvReader : public GenericReader {
     ENABLE_FACTORY_CREATOR(CsvReader);
 
@@ -192,13 +175,9 @@ public:
     CsvReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounter* counter,
               const TFileScanRangeParams& params, const TFileRangeDesc& range,
               const std::vector<SlotDescriptor*>& file_slot_descs, io::IOContext* io_ctx);
-
-    CsvReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
-              const TFileRangeDesc& range, const std::vector<SlotDescriptor*>& file_slot_descs,
-              io::IOContext* io_ctx);
     ~CsvReader() override;
 
-    Status init_reader(bool is_query);
+    Status init_reader(bool is_load);
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
     Status get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
                        std::unordered_set<std::string>* missing_cols) override;
@@ -221,13 +200,9 @@ private:
     Status _fill_empty_line(Block* block, std::vector<MutableColumnPtr>& columns, size_t* rows);
     Status _line_split_to_values(const Slice& line, bool* success);
     void _split_line(const Slice& line);
-    bool _is_null(const Slice& slice);
-    bool _is_array(const Slice& slice);
     void _init_system_properties();
     void _init_file_description();
 
-    //if from_json = false , deserialize from hive_text
-    template <bool from_json>
     Status deserialize_nullable_string(IColumn& column, Slice& slice);
 
     // used for parse table schema of csv file.
@@ -287,7 +262,6 @@ private:
     std::string _value_separator;
     std::string _line_delimiter;
 
-    std::string _array_delimiter;
     char _enclose = 0;
     char _escape = 0;
 
@@ -307,7 +281,6 @@ private:
     // save source text which have been splitted.
     std::vector<Slice> _split_values;
     std::unique_ptr<LineFieldSplitterIf> _fields_splitter;
-    TTextSerdeType::type _text_serde_type;
     std::vector<int> _use_nullable_string_opt;
 };
 } // namespace vectorized

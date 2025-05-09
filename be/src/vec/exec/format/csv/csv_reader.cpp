@@ -41,7 +41,6 @@
 #include "io/fs/s3_file_reader.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
-#include "runtime/types.h"
 #include "util/string_util.h"
 #include "util/utf8_check.h"
 #include "vec/core/block.h"
@@ -170,23 +169,6 @@ void PlainCsvTextFieldSplitter::do_split(const Slice& line, std::vector<Slice>* 
     }
 }
 
-void HiveCsvTextFieldSplitter::do_split(const Slice& line, std::vector<Slice>* splitted_values) {
-    const char* data = line.data;
-    const size_t size = line.size;
-    size_t value_start = 0;
-    for (size_t i = 0; i < size; ++i) {
-        if (data[i] == _value_sep[0]) {
-            // hive will escape the field separator in string
-            if (_escape_char != 0 && i > 0 && data[i - 1] == _escape_char) {
-                continue;
-            }
-            process_value_func(data, value_start, i - value_start, _trimming_char, splitted_values);
-            value_start = i + _value_sep_len;
-        }
-    }
-    process_value_func(data, value_start, size - value_start, _trimming_char, splitted_values);
-}
-
 CsvReader::CsvReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounter* counter,
                      const TFileScanRangeParams& params, const TFileRangeDesc& range,
                      const std::vector<SlotDescriptor*>& file_slot_descs, io::IOContext* io_ctx)
@@ -201,8 +183,7 @@ CsvReader::CsvReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounte
           _line_reader_eof(false),
           _decompressor(nullptr),
           _skip_lines(0),
-          _io_ctx(io_ctx),
-          _text_serde_type(TTextSerdeType::JSON_TEXT_SERDE) {
+          _io_ctx(io_ctx) {
     _file_format_type = _params.format_type;
     _is_proto_format = _file_format_type == TFileFormatType::FORMAT_PROTO;
     if (_range.__isset.compress_type) {
@@ -217,38 +198,6 @@ CsvReader::CsvReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounte
     _init_system_properties();
     _init_file_description();
     _serdes = vectorized::create_data_type_serdes(_file_slot_descs);
-
-    if (this->_params.__isset.text_serde_type) {
-        _text_serde_type = this->_params.text_serde_type;
-    }
-}
-
-CsvReader::CsvReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
-                     const TFileRangeDesc& range,
-                     const std::vector<SlotDescriptor*>& file_slot_descs, io::IOContext* io_ctx)
-        : _profile(profile),
-          _params(params),
-          _range(range),
-          _file_slot_descs(file_slot_descs),
-          _line_reader(nullptr),
-          _line_reader_eof(false),
-          _decompressor(nullptr),
-          _io_ctx(io_ctx),
-          _text_serde_type(TTextSerdeType::JSON_TEXT_SERDE) {
-    _file_format_type = _params.format_type;
-    if (_range.__isset.compress_type) {
-        // for compatibility
-        _file_compress_type = _range.compress_type;
-    } else {
-        _file_compress_type = _params.compress_type;
-    }
-    _size = _range.size;
-    _init_system_properties();
-    _init_file_description();
-    _serdes = vectorized::create_data_type_serdes(_file_slot_descs);
-    if (this->_params.__isset.text_serde_type) {
-        _text_serde_type = this->_params.text_serde_type;
-    }
 }
 
 CsvReader::~CsvReader() = default;
@@ -337,31 +286,15 @@ Status CsvReader::init_reader(bool is_load) {
             (_state != nullptr && _state->trim_tailing_spaces_for_external_table_query());
 
     _options.escape_char = _escape;
+    _options.quote_char = _enclose;
+
     if (_params.file_attributes.text_params.collection_delimiter.empty()) {
-        switch (_text_serde_type) {
-        case TTextSerdeType::JSON_TEXT_SERDE:
-            _options.collection_delim = ',';
-            break;
-        case TTextSerdeType::HIVE_TEXT_SERDE:
-            _options.collection_delim = '\002';
-            break;
-        default:
-            break;
-        }
+        _options.collection_delim = ',';
     } else {
         _options.collection_delim = _params.file_attributes.text_params.collection_delimiter[0];
     }
     if (_params.file_attributes.text_params.mapkv_delimiter.empty()) {
-        switch (_text_serde_type) {
-        case TTextSerdeType::JSON_TEXT_SERDE:
-            _options.map_key_delim = ':';
-            break;
-        case TTextSerdeType::HIVE_TEXT_SERDE:
-            _options.map_key_delim = '\003';
-            break;
-        default:
-            break;
-        }
+        _options.map_key_delim = ':';
     } else {
         _options.map_key_delim = _params.file_attributes.text_params.mapkv_delimiter[0];
     }
@@ -393,22 +326,17 @@ Status CsvReader::init_reader(bool is_load) {
     if (_enclose == 0) {
         text_line_reader_ctx = std::make_shared<PlainTextLineReaderCtx>(
                 _line_delimiter, _line_delimiter_length, _keep_cr);
-        if (_text_serde_type == TTextSerdeType::HIVE_TEXT_SERDE) {
-            _fields_splitter = std::make_unique<HiveCsvTextFieldSplitter>(
-                    _trim_tailing_spaces, false, _value_separator, _value_separator_length, -1,
-                    _escape);
-        } else {
-            _fields_splitter = std::make_unique<PlainCsvTextFieldSplitter>(
-                    _trim_tailing_spaces, false, _value_separator, _value_separator_length, -1);
-        }
+        _fields_splitter = std::make_unique<PlainCsvTextFieldSplitter>(
+                _trim_tailing_spaces, false, _value_separator, _value_separator_length, -1);
+
     } else {
-        text_line_reader_ctx = std::make_shared<EncloseCsvLineReaderContext>(
+        text_line_reader_ctx = std::make_shared<EncloseCsvLineReaderCtx>(
                 _line_delimiter, _line_delimiter_length, _value_separator, _value_separator_length,
                 _file_slot_descs.size() - 1, _enclose, _escape, _keep_cr);
 
         _fields_splitter = std::make_unique<EncloseCsvTextFieldSplitter>(
                 _trim_tailing_spaces, !_not_trim_enclose,
-                std::static_pointer_cast<EncloseCsvLineReaderContext>(text_line_reader_ctx),
+                std::static_pointer_cast<EncloseCsvLineReaderCtx>(text_line_reader_ctx),
                 _value_separator_length, _enclose);
     }
 
@@ -613,18 +541,17 @@ Status CsvReader::_create_decompressor() {
     return Status::OK();
 }
 
-template <bool from_json>
 Status CsvReader::deserialize_nullable_string(IColumn& column, Slice& slice) {
     auto& null_column = assert_cast<ColumnNullable&>(column);
-    if (!(from_json && _options.converted_from_string && slice.trim_double_quotes())) {
+    if (_options.null_len > 0 && !(_options.converted_from_string && slice.trim_double_quotes())) {
         if (slice.compare(Slice(_options.null_format, _options.null_len)) == 0) {
             null_column.insert_data(nullptr, 0);
             return Status::OK();
         }
     }
     static DataTypeStringSerDe stringSerDe;
-    auto st = stringSerDe.deserialize_one_cell_from_json(null_column.get_nested_column(), slice,
-                                                         _options);
+    auto st = stringSerDe.deserialize_one_cell_from_csv(null_column.get_nested_column(), slice,
+                                                        _options);
     if (!st.ok()) {
         // fill null if fail
         null_column.insert_data(nullptr, 0); // 0 is meaningless here
@@ -647,11 +574,10 @@ Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
 
     for (int i = 0; i < _file_slot_descs.size(); ++i) {
         int col_idx = _col_idxs[i];
-        // col idx is out of range, fill with null.
-        const Slice& value = col_idx < _split_values.size()
-                                     ? _split_values[col_idx]
-                                     : Slice {_options.null_format, _options.null_len};
-        Slice slice {value.data, value.size};
+        // col idx is out of range, fill with null format
+        auto value = col_idx < _split_values.size()
+                             ? _split_values[col_idx]
+                             : Slice(_options.null_format, _options.null_len);
 
         IColumn* col_ptr = columns[i].get();
         if (!_is_load) {
@@ -663,29 +589,10 @@ Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
             // For load task, we always read "string" from file.
             // So serdes[i] here must be DataTypeNullableSerDe, and DataTypeNullableSerDe -> nested_serde must be DataTypeStringSerDe.
             // So we use deserialize_nullable_string and stringSerDe to reduce virtual function calls.
-            switch (_text_serde_type) {
-            case TTextSerdeType::JSON_TEXT_SERDE:
-                RETURN_IF_ERROR(deserialize_nullable_string<true>(*col_ptr, slice));
-                break;
-            case TTextSerdeType::HIVE_TEXT_SERDE:
-                RETURN_IF_ERROR(deserialize_nullable_string<false>(*col_ptr, slice));
-                break;
-            default:
-                break;
-            }
+
+            RETURN_IF_ERROR(deserialize_nullable_string(*col_ptr, value));
         } else {
-            switch (_text_serde_type) {
-            case TTextSerdeType::JSON_TEXT_SERDE:
-                RETURN_IF_ERROR(
-                        _serdes[i]->deserialize_one_cell_from_json(*col_ptr, slice, _options));
-                break;
-            case TTextSerdeType::HIVE_TEXT_SERDE:
-                RETURN_IF_ERROR(
-                        _serdes[i]->deserialize_one_cell_from_hive_text(*col_ptr, slice, _options));
-                break;
-            default:
-                break;
-            }
+            RETURN_IF_ERROR(_serdes[i]->deserialize_one_cell_from_csv(*col_ptr, value, _options));
         }
     }
     ++(*rows);
@@ -786,14 +693,6 @@ void CsvReader::_split_line(const Slice& line) {
     _fields_splitter->split_line(line, &_split_values);
 }
 
-bool CsvReader::_is_null(const Slice& slice) {
-    return slice.size == 2 && slice.data[0] == '\\' && slice.data[1] == 'N';
-}
-
-bool CsvReader::_is_array(const Slice& slice) {
-    return slice.size > 1 && slice.data[0] == '[' && slice.data[slice.size - 1] == ']';
-}
-
 Status CsvReader::_prepare_parse(size_t* read_line, bool* is_parse_name) {
     int64_t start_offset = _range.start_offset;
     if (start_offset != 0) {
@@ -851,31 +750,14 @@ Status CsvReader::_prepare_parse(size_t* read_line, bool* is_parse_name) {
     _not_trim_enclose = (!_trim_double_quotes && _enclose == '\"');
     _options.converted_from_string = _trim_double_quotes;
     _options.escape_char = _escape;
+
     if (_params.file_attributes.text_params.collection_delimiter.empty()) {
-        switch (_text_serde_type) {
-        case TTextSerdeType::JSON_TEXT_SERDE:
-            _options.collection_delim = ',';
-            break;
-        case TTextSerdeType::HIVE_TEXT_SERDE:
-            _options.collection_delim = '\002';
-            break;
-        default:
-            break;
-        }
+        _options.collection_delim = ',';
     } else {
         _options.collection_delim = _params.file_attributes.text_params.collection_delimiter[0];
     }
     if (_params.file_attributes.text_params.mapkv_delimiter.empty()) {
-        switch (_text_serde_type) {
-        case TTextSerdeType::JSON_TEXT_SERDE:
-            _options.collection_delim = ':';
-            break;
-        case TTextSerdeType::HIVE_TEXT_SERDE:
-            _options.collection_delim = '\003';
-            break;
-        default:
-            break;
-        }
+        _options.map_key_delim = ':';
     } else {
         _options.map_key_delim = _params.file_attributes.text_params.mapkv_delimiter[0];
     }
@@ -898,13 +780,13 @@ Status CsvReader::_prepare_parse(size_t* read_line, bool* is_parse_name) {
         // If we pass `_file_slot_descs.size() - 1` to EncloseCsvTextFieldSplitter, it will cause BE core dump
         // because currently _file_slot_descs is an empty vector.
         // The _file_slot_descs.size() is only used to reserve space,
-        // so it's ok to pass 0 to EncloseCsvLineReaderContext
-        text_line_reader_ctx = std::make_shared<EncloseCsvLineReaderContext>(
+        // so it's ok to pass 0 to EncloseCsvLineReaderCtx
+        text_line_reader_ctx = std::make_shared<EncloseCsvLineReaderCtx>(
                 _line_delimiter, _line_delimiter_length, _value_separator, _value_separator_length,
                 0, _enclose, _escape, _keep_cr);
         _fields_splitter = std::make_unique<EncloseCsvTextFieldSplitter>(
                 _trim_tailing_spaces, false,
-                std::static_pointer_cast<EncloseCsvLineReaderContext>(text_line_reader_ctx),
+                std::static_pointer_cast<EncloseCsvLineReaderCtx>(text_line_reader_ctx),
                 _value_separator_length);
     }
 
