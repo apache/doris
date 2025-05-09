@@ -872,6 +872,8 @@ public abstract class Type {
             return StructType.canCastTo((StructType) sourceType, (StructType) targetType);
         } else if (sourceType.isAggStateType() && targetType.getPrimitiveType().isCharFamily()) {
             return true;
+        } else if (sourceType.getPrimitiveType().isCharFamily() && targetType.isAggStateType()) {
+            return true;
         } else if (sourceType.isAggStateType() && targetType.isAggStateType()) {
             AggStateType sourceAggState = (AggStateType) sourceType;
             AggStateType targetAggState = (AggStateType) targetType;

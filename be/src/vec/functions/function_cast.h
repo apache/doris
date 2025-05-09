@@ -66,6 +66,7 @@
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_agg_state.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_bitmap.h"
 #include "vec/data_types/data_type_date.h"
@@ -2164,8 +2165,20 @@ private:
 
     /// 'from_type' and 'to_type' are nested types in case of Nullable.
     /// 'requested_result_is_nullable' is true if CAST to Nullable type is requested.
-    WrapperType prepare_impl(FunctionContext* context, const DataTypePtr& from_type,
-                             const DataTypePtr& to_type, bool requested_result_is_nullable) const {
+    WrapperType prepare_impl(FunctionContext* context, const DataTypePtr& origin_from_type,
+                             const DataTypePtr& origin_to_type,
+                             bool requested_result_is_nullable) const {
+        auto to_type = origin_to_type;
+        auto from_type = origin_from_type;
+        if (to_type->get_primitive_type() == PrimitiveType::TYPE_AGG_STATE) {
+            const auto& agg_state_type = assert_cast<const DataTypeAggState&>(*to_type);
+            to_type = agg_state_type.get_serialized_type();
+        }
+        if (from_type->get_primitive_type() == PrimitiveType::TYPE_AGG_STATE) {
+            const auto& agg_state_type = assert_cast<const DataTypeAggState&>(*from_type);
+            from_type = agg_state_type.get_serialized_type();
+        }
+
         if (from_type->equals(*to_type)) {
             return create_identity_wrapper(from_type);
         }
