@@ -115,4 +115,8 @@ public class DistributionDescriptor {
     public boolean inDistributionColumns(String columnName) {
         return cols != null && cols.contains(columnName);
     }
+
+    public List<String> getCols() {
+        return cols;
+    }
 }
