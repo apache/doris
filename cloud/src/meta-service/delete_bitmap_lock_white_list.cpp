@@ -39,7 +39,6 @@ DeleteBitmapLockWhiteList::~DeleteBitmapLockWhiteList() {
 }
 
 void DeleteBitmapLockWhiteList::init() {
-    LOG(INFO) << "init DeleteBitmapLockWhiteList";
     _update_thread = std::make_unique<std::thread>([this]() {
         while (_update_thread_run) {
             update_white_list();
@@ -51,7 +50,6 @@ void DeleteBitmapLockWhiteList::init() {
 
 void DeleteBitmapLockWhiteList::update_white_list() {
     std::string white_list = config::delete_bitmap_lock_version_white_list;
-    LOG(INFO) << "update_white_list=" << white_list;
     if (!white_list.empty()) {
         auto white_list_vector = split(white_list, ';');
         for (auto& item : white_list_vector) {
