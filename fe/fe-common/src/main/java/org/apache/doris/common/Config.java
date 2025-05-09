@@ -2330,7 +2330,14 @@ public class Config extends ConfigBase {
      * For external schema cache and hive meta cache.
      */
     @ConfField(mutable = false, masterOnly = false)
-    public static long external_cache_expire_time_minutes_after_access = 10; // 10 mins
+    public static long external_cache_expire_time_minutes_after_access = 86400L; // 8 hours
+
+    /**
+     * The expiration time of a cache object after last access of it.
+     * For external schema cache and hive meta cache.
+     */
+    @ConfField(mutable = false, masterOnly = false)
+    public static long external_cache_refresh_time_minutes = 10; // 10 mins
 
     /**
      * Github workflow test type, for setting some session variables
