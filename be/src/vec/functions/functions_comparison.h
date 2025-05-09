@@ -692,7 +692,10 @@ public:
                                    col_with_type_and_name_right);
         }
 
-        if (left_type->get_primitive_type() != right_type->get_primitive_type()) {
+        // Types from left and right hand should be same (char/varchar/string are string type.)
+        if (!(left_type->get_primitive_type() == right_type->get_primitive_type() ||
+              (is_string_type(left_type->get_primitive_type()) &&
+               is_string_type(right_type->get_primitive_type())))) {
             return Status::InternalError(
                     "comparison must input two same type column or column type is "
                     "decimalv3/numeric, lhs={}, rhs={}",
