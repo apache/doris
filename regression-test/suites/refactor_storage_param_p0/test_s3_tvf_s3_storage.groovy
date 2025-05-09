@@ -17,7 +17,10 @@
 import static groovy.test.GroovyAssert.shouldFail
 
 suite("test_s3_tvf_s3_storage", "p0") {
-
+    String enabled = context.config.otherConfigs.get("enableRefactorParamsTest")
+    if (enabled == null || enabled.equalsIgnoreCase("false")) {
+        return
+    }
     def export_table_name = "test_s3_tvf_s3_storage"
 
     def outfile_to_S3 = { bucket, s3_endpoint, region, ak, sk ->

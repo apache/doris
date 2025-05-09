@@ -19,7 +19,7 @@ import static java.util.concurrent.TimeUnit.SECONDS;
 import static groovy.test.GroovyAssert.shouldFail
 
 suite("refactor_params_hdfs_all_test", "p0,external,kerberos,external_docker,external_docker_kerberos") {
-    String enabled = context.config.otherConfigs.get("enableRefactorParamsHdfsTest")
+    String enabled = context.config.otherConfigs.get("enableRefactorParamsTest")
     if (enabled == null || enabled.equalsIgnoreCase("false")) {
         return
     }
