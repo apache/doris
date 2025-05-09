@@ -46,8 +46,9 @@ public:
         return std::make_pair(MetaServiceCode::OK, "");
     }
 
-    std::pair<MetaServiceCode, std::string> drop_cluster(const std::string& instance_id,
-                                                         const ClusterInfo& cluster) override {
+    std::pair<MetaServiceCode, std::string> drop_cluster(
+            const std::string& instance_id, const ClusterInfo& cluster,
+            bool safe_drop_on_sql_cluster = true) override {
         return std::make_pair(MetaServiceCode::OK, "");
     }
 
