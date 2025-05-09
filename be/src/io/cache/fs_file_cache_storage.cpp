@@ -105,8 +105,8 @@ size_t FDCache::file_reader_cache_size() {
 Status FSFileCacheStorage::init(BlockFileCache* _mgr) {
     _cache_base_path = _mgr->_cache_base_path;
     _cache_background_load_thread = std::thread([this, mgr = _mgr]() {
-        auto mem_tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::SCHEMA_CHANGE,
-                                                            fmt::format("FileCacheReader"));
+        auto mem_tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER,
+                                                            fmt::format("FileCacheVersionReader"));
         SCOPED_ATTACH_TASK(mem_tracker);
         Status st = upgrade_cache_dir_if_necessary();
         if (!st.ok()) {
