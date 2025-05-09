@@ -448,8 +448,6 @@ public class LoadStmt extends DdlStmt implements NotFallbackInParser {
                 for (int i = 0; i < dataDescription.getFilePaths().size(); i++) {
                     String location = brokerDesc.getFileLocation(dataDescription.getFilePaths().get(i));
                     dataDescription.getFilePaths().set(i, location);
-                    StorageBackend.checkPath(dataDescription.getFilePaths().get(i),
-                            brokerDesc.getStorageType(), "DATA INFILE must be specified.");
                     dataDescription.getFilePaths().set(i, dataDescription.getFilePaths().get(i));
                 }
             }

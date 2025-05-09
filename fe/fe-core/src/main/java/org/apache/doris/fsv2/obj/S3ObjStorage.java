@@ -125,7 +125,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
         try {
             remotePath = s3Properties.validateAndNormalizeUri(remotePath);
             S3URI uri = S3URI.create(remotePath, isUsePathStyle, forceParsingByStandardUri);
-            String globPath = uri.getKey(); // 类似 path/to/*.csv
+            String globPath = uri.getKey(); // e.g., path/to/*.csv
             String bucket = uri.getBucket();
             LOG.info("try to glob list for s3, remote path {}, orig {}", globPath, remotePath);
 
@@ -133,59 +133,64 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
             PathMatcher matcher = FileSystems.getDefault().getPathMatcher("glob:" + pathPattern);
             HashSet<String> directorySet = new HashSet<>();
 
-            String listPrefix = getLongestPrefix(globPath); // 和 Azure 相同逻辑
+            String listPrefix = getLongestPrefix(globPath); // 同 Azure 逻辑
             LOG.info("s3 glob list prefix is {}", listPrefix);
 
             try (S3Client s3 = getClient()) {
-                ListObjectsV2Request request = ListObjectsV2Request.builder()
-                        .bucket(bucket)
-                        .prefix(listPrefix)
-                        .build();
+                String continuationToken = null;
 
-                ListObjectsV2Response response = s3.listObjectsV2(request);
-                for (S3Object obj : response.contents()) {
-                    elementCnt++;
-                    java.nio.file.Path blobPath = Paths.get(obj.key());
-
-                    boolean isPrefix = false;
-                    while (blobPath.normalize().toString().startsWith(listPrefix)) {
-                        if (!matcher.matches(blobPath)) {
-                            isPrefix = true;
-                            blobPath = blobPath.getParent();
-                            continue;
-                        }
-                        if (directorySet.contains(blobPath.normalize().toString())) {
-                            break;
-                        }
-                        if (isPrefix) {
-                            directorySet.add(blobPath.normalize().toString());
-                        }
-
-                        matchCnt++;
-                        RemoteFile remoteFile = new RemoteFile(
-                                fileNameOnly ? blobPath.getFileName().toString() :
-                                        "s3://" + bucket + "/" + blobPath.toString(),
-                                !isPrefix,
-                                isPrefix ? -1 : obj.size(),
-                                isPrefix ? -1 : obj.size(),
-                                isPrefix ? 0 : obj.lastModified().toEpochMilli()
-                        );
-                        result.add(remoteFile);
-                        blobPath = blobPath.getParent();
-                        isPrefix = true;
+                do {
+                    roundCnt++;
+                    ListObjectsV2Request.Builder builder = ListObjectsV2Request.builder()
+                            .bucket(bucket).prefix(listPrefix);
+                    if (continuationToken != null) {
+                        builder.continuationToken(continuationToken);
                     }
-                }
+
+                    ListObjectsV2Response response = s3.listObjectsV2(builder.build());
+
+                    for (S3Object obj : response.contents()) {
+                        elementCnt++;
+                        java.nio.file.Path blobPath = Paths.get(obj.key());
+
+                        boolean isPrefix = false;
+                        while (blobPath.toString().startsWith(listPrefix)) {
+                            if (!matcher.matches(blobPath)) {
+                                isPrefix = true;
+                                blobPath = blobPath.getParent();
+                                continue;
+                            }
+                            if (directorySet.contains(blobPath.normalize().toString())) {
+                                break;
+                            }
+                            if (isPrefix) {
+                                directorySet.add(blobPath.normalize().toString());
+                            }
+
+                            matchCnt++;
+                            RemoteFile remoteFile = new RemoteFile(fileNameOnly ? blobPath.getFileName()
+                                    .toString() : "s3://" + bucket + "/" + blobPath.toString(), !isPrefix,
+                                    isPrefix ? -1 : obj.size(), isPrefix ? -1 : obj.size(), isPrefix ? 0 : obj
+                                    .lastModified().toEpochMilli());
+                            result.add(remoteFile);
+                            blobPath = blobPath.getParent();
+                            isPrefix = true;
+                        }
+                    }
+
+                    continuationToken = response.nextContinuationToken();
+                } while (continuationToken != null);
             }
 
         } catch (Exception e) {
             LOG.warn("errors while glob file " + remotePath, e);
-            st = new Status(Status.ErrCode.COMMON_ERROR, "errors while glob file "
-                    + remotePath + ": " + e.getMessage());
+            st = new Status(Status.ErrCode.COMMON_ERROR, "errors while glob file " + remotePath + ": "
+                   + e.getMessage());
         } finally {
             long endTime = System.nanoTime();
             long duration = endTime - startTime;
-            LOG.info("process {} elements under prefix {} for {} round, match {} elements, take {} micro second",
-                    remotePath, elementCnt, roundCnt, matchCnt, duration / 1000);
+            LOG.info("process {} elements under prefix {} for {} round, match {} elements, take {} "
+                    + "micro second", remotePath, elementCnt, roundCnt, matchCnt, duration / 1000);
         }
 
         return st;
