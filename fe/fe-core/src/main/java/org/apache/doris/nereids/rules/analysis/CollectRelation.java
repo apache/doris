@@ -31,7 +31,6 @@ import org.apache.doris.nereids.analyzer.UnboundDictionarySink;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundResultSink;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.pattern.MatchingContext;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -214,10 +213,17 @@ public class CollectRelation implements AnalysisRuleFactory {
             }
         }
         if (shouldCollect) {
-            Set<MTMV> mtmvSet = Env.getCurrentEnv().getMtmvService().getRelationManager()
-                    .getAllMTMVs(Lists.newArrayList(new BaseTableInfo(table)));
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("table {} related mv set is {}", new BaseTableInfo(table), mtmvSet);
+            Set<MTMV> mtmvSet;
+            try {
+                mtmvSet = Env.getCurrentEnv().getMtmvService().getRelationManager()
+                        .getAllMTMVs(Lists.newArrayList(new BaseTableInfo(table)));
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("table {} related mv set is {}", new BaseTableInfo(table), mtmvSet);
+                }
+            } catch (Exception exception) {
+                LOG.warn("collectMTMVCandidates getAllMTMVs fail, current table is {}",
+                        table.getName(), exception);
+                return;
             }
             for (MTMV mtmv : mtmvSet) {
                 cascadesContext.getStatementContext().getMtmvRelatedTables().put(mtmv.getFullQualifiers(), mtmv);
@@ -227,15 +233,16 @@ public class CollectRelation implements AnalysisRuleFactory {
                         if (!baseTableInfo.isValid()) {
                             continue;
                         }
-                        if (LOG.isDebugEnabled()) {
-                            LOG.debug("mtmv {} related base table include {}", new BaseTableInfo(mtmv), baseTableInfo);
-                        }
                         try {
+                            if (LOG.isDebugEnabled()) {
+                                LOG.debug("mtmv {} related base table include {}",
+                                        mtmv.getFullQualifiers(), baseTableInfo);
+                            }
                             cascadesContext.getStatementContext().getAndCacheTable(baseTableInfo.toList(),
                                     TableFrom.MTMV);
-                        } catch (AnalysisException exception) {
-                            LOG.warn("mtmv related base table get err, related table is {}",
-                                    baseTableInfo.toList(), exception);
+                        } catch (Exception exception) {
+                            LOG.warn("get mtmv related base table fail, current mv is {}, related table is {}",
+                                    mtmv.getName(), baseTableInfo.toList(), exception);
                         }
                     }
                 } finally {
