@@ -17,18 +17,29 @@
 
 #pragma once
 
+#include <bits/types/struct_tm.h>
+
+#include "common/exception.h"
 #include "olap/rowset/segment_v2/inverted_index/abstract_analysis_factory.h"
-#include "olap/rowset/segment_v2/inverted_index/token_filter/token_filter.h"
+#include "olap/rowset/segment_v2/inverted_index/setting.h"
 
 namespace doris::segment_v2::inverted_index {
 
-class TokenFilterFactory : public AbstractAnalysisFactory {
+class AnalysisFactoryMgr {
 public:
-    TokenFilterFactory() = default;
-    ~TokenFilterFactory() override = default;
+    using FactoryCreator = std::function<AbstractAnalysisFactoryPtr()>;
 
-    virtual TokenFilterPtr create(const TokenStreamPtr& in) = 0;
+    AnalysisFactoryMgr() = default;
+    ~AnalysisFactoryMgr() = default;
+
+    void initialise();
+    void registerFactory(const std::string& name, FactoryCreator creator);
+
+    template <typename FactoryType>
+    std::shared_ptr<FactoryType> create(const std::string& name, const Settings& params);
+
+private:
+    std::map<std::string, FactoryCreator> registry_;
 };
-using TokenFilterFactoryPtr = std::shared_ptr<TokenFilterFactory>;
 
 } // namespace doris::segment_v2::inverted_index

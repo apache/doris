@@ -51,6 +51,7 @@
 #include "olap/olap_define.h"
 #include "olap/options.h"
 #include "olap/page_cache.h"
+#include "olap/rowset/segment_v2/inverted_index/analysis_factory_mgr.h"
 #include "olap/rowset/segment_v2/inverted_index_cache.h"
 #include "olap/schema_cache.h"
 #include "olap/segment_loader.h"
@@ -367,6 +368,8 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _workload_sched_mgr = new WorkloadSchedPolicyMgr();
     _workload_sched_mgr->start(this);
 
+    _analysis_factory_mgr = new segment_v2::inverted_index::AnalysisFactoryMgr();
+    _analysis_factory_mgr->initialise();
     _index_policy_mgr = new IndexPolicyMgr();
 
     RETURN_IF_ERROR(_spill_stream_mgr->init());
@@ -834,6 +837,7 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_process_profile);
     SAFE_DELETE(_heap_profiler);
 
+    SAFE_DELETE(_analysis_factory_mgr);
     SAFE_DELETE(_index_policy_mgr);
 
     _s_tracking_memory = false;

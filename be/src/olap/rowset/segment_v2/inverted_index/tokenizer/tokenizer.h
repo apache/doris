@@ -17,18 +17,13 @@
 
 #pragma once
 
-#include "CLucene.h" // IWYU pragma: keep
-#include "CLucene/analysis/AnalysisHeader.h"
-#include "common/exception.h"
-
-using namespace lucene::analysis;
+#include "olap/rowset/segment_v2/inverted_index/token_stream.h"
 
 using TokenStreamPtr = std::shared_ptr<TokenStream>;
-using TokenPtr = std::shared_ptr<Token>;
 
 namespace doris::segment_v2::inverted_index {
 
-class DorisTokenizer : public Tokenizer {
+class DorisTokenizer : public Tokenizer, public DorisTokenStream {
 public:
     DorisTokenizer() = default;
     ~DorisTokenizer() override = default;

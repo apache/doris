@@ -128,6 +128,11 @@ public class InvertedIndexUtil {
         return stopwrods != null ? stopwrods : "";
     }
 
+    public static String getInvertedIndexCustomAnalyzer(Map<String, String> properties) {
+        String customAnalyzer = properties == null ? null : properties.get(INVERTED_INDEX_CUSTOM_ANALYZER_KEY);
+        return customAnalyzer != null ? customAnalyzer : "";
+    }
+
     public static void checkInvertedIndexParser(String indexColName, PrimitiveType colType,
             Map<String, String> properties,
             TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat) throws AnalysisException {

@@ -54,7 +54,7 @@ private:
                                                int32_t char_length, std::vector<UChar32>& buffer,
                                                int32_t buffer_end) const;
 
-    std::string to_chars(const std::vector<UChar32>& buffer, int32_t start, int32_t size);
+    void to_chars(const std::vector<UChar32>& buffer, int32_t start, int32_t size);
 
     int32_t _buffer_start = 0;
     int32_t _buffer_end = 0;
@@ -72,6 +72,7 @@ private:
     int32_t _char_length = 0;
 
     std::vector<UChar32> _buffer;
+    std::string _utf8_buffer;
 };
 
 } // namespace doris::segment_v2::inverted_index

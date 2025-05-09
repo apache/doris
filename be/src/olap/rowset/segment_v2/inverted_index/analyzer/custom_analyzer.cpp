@@ -17,53 +17,10 @@
 
 #include "custom_analyzer.h"
 
-#include <memory>
-#include <unordered_map>
-
-#include "olap/rowset/segment_v2/inverted_index/token_filter/ascii_folding_filter_factory.h"
-#include "olap/rowset/segment_v2/inverted_index/token_filter/loser_case_filter_factory.h"
-#include "olap/rowset/segment_v2/inverted_index/token_filter/word_delimiter_filter_factory.h"
-#include "olap/rowset/segment_v2/inverted_index/tokenizer/keyword/keyword_tokenizer_factory.h"
-#include "olap/rowset/segment_v2/inverted_index/tokenizer/ngram/edge_ngram_tokenizer_factory.h"
-#include "olap/rowset/segment_v2/inverted_index/tokenizer/standard/standard_tokenizer_factory.h"
+#include "olap/rowset/segment_v2/inverted_index/analysis_factory_mgr.h"
+#include "runtime/exec_env.h"
 
 namespace doris::segment_v2::inverted_index {
-
-TokenizerFactoryPtr get_tokenizer_factory(const std::string& name, const Settings& params) {
-    using FactoryCreator = std::function<TokenizerFactoryPtr()>;
-
-    static const std::map<std::string, FactoryCreator> factoryCreators = {
-            {"standard", []() { return std::make_shared<StandardTokenizerFactory>(); }},
-            {"keyword", []() { return std::make_shared<KeywordTokenizerFactory>(); }},
-            {"edge_ngram", []() { return std::make_shared<EdgeNGramTokenizerFactory>(); }}};
-
-    auto it = factoryCreators.find(name);
-    if (it != factoryCreators.end()) {
-        auto tk = it->second();
-        tk->initialize(params);
-        return tk;
-    } else {
-        throw std::invalid_argument("Unknown tokenizer name: " + name);
-    }
-}
-
-TokenFilterFactoryPtr get_token_filter_factory(const std::string& name, const Settings& params) {
-    using FactoryCreator = std::function<TokenFilterFactoryPtr()>;
-
-    static const std::map<std::string, FactoryCreator> factoryCreators = {
-            {"lowercase", []() { return std::make_shared<LowerCaseFilterFactory>(); }},
-            {"asciifolding", []() { return std::make_shared<ASCIIFoldingFilterFactory>(); }},
-            {"word_delimiter", []() { return std::make_shared<WordDelimiterFilterFactory>(); }}};
-
-    auto it = factoryCreators.find(name);
-    if (it != factoryCreators.end()) {
-        auto tk = it->second();
-        tk->initialize(params);
-        return tk;
-    } else {
-        throw std::invalid_argument("Unknown token filter name: " + name);
-    }
-}
 
 CustomAnalyzer::CustomAnalyzer(Builder* builder) {
     _tokenizer = builder->_tokenizer;
@@ -121,11 +78,14 @@ CustomAnalyzerPtr CustomAnalyzer::build_custom_analyzer(const CustomAnalyzerConf
 }
 
 void CustomAnalyzer::Builder::with_tokenizer(const std::string& name, const Settings& params) {
-    _tokenizer = get_tokenizer_factory(name, params);
+    _tokenizer = doris::ExecEnv::GetInstance()->analysis_factory_mgr()->create<TokenizerFactory>(
+            name, params);
 }
 
 void CustomAnalyzer::Builder::add_token_filter(const std::string& name, const Settings& params) {
-    _token_filters.emplace_back(get_token_filter_factory(name, params));
+    _token_filters.push_back(
+            doris::ExecEnv::GetInstance()->analysis_factory_mgr()->create<TokenFilterFactory>(
+                    name, params));
 }
 
 CustomAnalyzerPtr CustomAnalyzer::Builder::build() {

@@ -65,6 +65,11 @@ namespace segment_v2 {
 class InvertedIndexSearcherCache;
 class InvertedIndexQueryCache;
 class TmpFileDirs;
+
+namespace inverted_index {
+class AnalysisFactoryMgr;
+}
+
 } // namespace segment_v2
 
 namespace kerberos {
@@ -274,6 +279,9 @@ public:
 
     kerberos::KerberosTicketMgr* kerberos_ticket_mgr() { return _kerberos_ticket_mgr; }
     io::HdfsMgr* hdfs_mgr() { return _hdfs_mgr; }
+    segment_v2::inverted_index::AnalysisFactoryMgr* analysis_factory_mgr() {
+        return _analysis_factory_mgr;
+    }
     IndexPolicyMgr* index_policy_mgr() { return _index_policy_mgr; }
 
 #ifdef BE_TEST
@@ -494,6 +502,7 @@ private:
     pipeline::RuntimeFilterTimerQueue* _runtime_filter_timer_queue = nullptr;
 
     WorkloadSchedPolicyMgr* _workload_sched_mgr = nullptr;
+    segment_v2::inverted_index::AnalysisFactoryMgr* _analysis_factory_mgr = nullptr;
     IndexPolicyMgr* _index_policy_mgr = nullptr;
 
     RuntimeQueryStatisticsMgr* _runtime_query_statistics_mgr = nullptr;

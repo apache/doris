@@ -18,6 +18,7 @@
 #pragma once
 
 #include <memory>
+#include <vector>
 
 #include "olap/inverted_index_parser.h"
 #include "olap/rowset/segment_v2/inverted_index_query_type.h"
@@ -35,6 +36,11 @@ namespace doris::segment_v2::inverted_index {
 
 class InvertedIndexAnalyzer {
 public:
+    struct AnalyzerToken {
+        std::string token;
+        int32_t position;
+    };
+
     static std::unique_ptr<lucene::util::Reader> create_reader(CharFilterMap& char_filter_map);
 
     static std::shared_ptr<lucene::analysis::Analyzer> create_analyzer(
@@ -50,5 +56,10 @@ public:
             const std::string& search_str, const std::string& field_name,
             InvertedIndexQueryType query_type,
             const std::map<std::string, std::string>& properties);
+
+    static std::vector<AnalyzerToken> get_analyse_result(lucene::util::Reader* reader,
+                                                         lucene::analysis::Analyzer* analyzer);
+
+    static bool should_analyzer(const std::map<std::string, std::string>& properties);
 };
 } // namespace doris::segment_v2::inverted_index

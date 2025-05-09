@@ -33,7 +33,7 @@ public:
         if (!_remaining_token_part.empty()) {
             size_t chunkSize =
                     std::min(_remaining_token_part.size(), static_cast<size_t>(_max_token_length));
-            t->set(_remaining_token_part.data(), 0, chunkSize);
+            set_text(t, _remaining_token_part.substr(0, chunkSize));
             if (chunkSize < _remaining_token_part.size()) {
                 _remaining_token_part = _remaining_token_part.substr(chunkSize);
             } else {
@@ -53,12 +53,12 @@ public:
             std::string_view term = _scanner->get_text();
             size_t tokenLength = _scanner->yylength();
             if (tokenLength <= _max_token_length) {
-                t->set(term.data(), 0, term.size());
+                set_text(t, term);
                 return t;
             } else {
                 // Split the long token
                 size_t chunkSize = _max_token_length;
-                t->set(term.data(), 0, chunkSize);
+                set_text(t, term.substr(0, chunkSize));
                 _remaining_token_part = term.substr(chunkSize);
                 return t;
             }

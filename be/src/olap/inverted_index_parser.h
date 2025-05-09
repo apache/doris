@@ -49,6 +49,7 @@ struct InvertedIndexCtx {
     std::string custom_analyzer;
     InvertedIndexParserType parser_type;
     std::string parser_mode;
+    std::string support_phrase;
     CharFilterMap char_filter_map;
     std::string lower_case;
     std::string stop_words;

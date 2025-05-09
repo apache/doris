@@ -149,6 +149,7 @@ std::vector<std::string> InvertedIndexAnalyzer::get_analyse_result(
             get_inverted_index_parser_type_from_string(
                     get_parser_string_from_properties(properties)),
             get_parser_mode_string_from_properties(properties),
+            get_parser_phrase_support_string_from_properties(properties),
             get_parser_char_filter_map_from_properties(properties),
             get_parser_lowercase_from_properties(properties),
             get_parser_stopwords_from_properties(properties));
@@ -157,6 +158,37 @@ std::vector<std::string> InvertedIndexAnalyzer::get_analyse_result(
     auto reader = create_reader(inverted_index_ctx->char_filter_map);
     reader->init(search_str.data(), static_cast<int32_t>(search_str.size()), true);
     return get_analyse_result(reader.get(), analyzer.get(), field_name, query_type);
+}
+
+std::vector<InvertedIndexAnalyzer::AnalyzerToken> InvertedIndexAnalyzer::get_analyse_result(
+        lucene::util::Reader* reader, lucene::analysis::Analyzer* analyzer) {
+    std::vector<AnalyzerToken> analyse_result;
+    std::unique_ptr<lucene::analysis::TokenStream> token_stream;
+    token_stream.reset(analyzer->tokenStream(L"", reader));
+    lucene::analysis::Token token;
+    int32_t position = 0;
+    while (token_stream->next(&token)) {
+        AnalyzerToken analyse_token;
+        analyse_token.token.append(token.termBuffer<char>(), token.termLength<char>());
+        position += token.getPositionIncrement();
+        analyse_token.position = position;
+        analyse_result.emplace_back(std::move(analyse_token));
+    }
+    return analyse_result;
+}
+
+bool InvertedIndexAnalyzer::should_analyzer(const std::map<std::string, std::string>& properties) {
+    auto parser_type = get_inverted_index_parser_type_from_string(
+            get_parser_string_from_properties(properties));
+    auto analyzer_name = get_custom_analyzer_string_from_properties(properties);
+    if (!analyzer_name.empty()) {
+        return true;
+    }
+    if (parser_type != InvertedIndexParserType::PARSER_UNKNOWN &&
+        parser_type != InvertedIndexParserType::PARSER_NONE) {
+        return true;
+    }
+    return false;
 }
 
 } // namespace doris::segment_v2::inverted_index

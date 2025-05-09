@@ -126,7 +126,7 @@ int32_t WordDelimiterIterator::type() const {
     }
 }
 
-void WordDelimiterIterator::set_text(char* text, int32_t length) {
+void WordDelimiterIterator::set_text(const char* text, int32_t length) {
     _text = text;
     _length = _end_bounds = length;
     _current = _start_bounds = _end = 0;

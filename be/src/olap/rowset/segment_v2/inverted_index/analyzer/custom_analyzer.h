@@ -17,9 +17,6 @@
 
 #pragma once
 
-#include <memory>
-#include <string>
-
 #include "common/exception.h"
 #include "olap/rowset/segment_v2/inverted_index/analyzer/custom_analyzer_config.h"
 #include "olap/rowset/segment_v2/inverted_index/setting.h"

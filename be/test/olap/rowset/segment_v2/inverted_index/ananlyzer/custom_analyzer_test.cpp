@@ -56,22 +56,17 @@ private:
 
 class CustomAnalyzerTest : public ::testing::Test {};
 
-TEST_F(CustomAnalyzerTest, all) {
+TEST_F(CustomAnalyzerTest, test1) {
     std::vector<std::string> lines;
 
-    // std::ifstream ifs("/mnt/disk2/yangsiyu/httplogs/wikipedia/wikipedia.json000");
-    // std::string line;
-    // while (getline(ifs, line)) {
-    //     lines.emplace_back(line);
-    // }
-    // ifs.close();
-
+    std::ifstream ifs("/mnt/disk2/yangsiyu/httplogs/wikipedia/wikipedia.json000");
     std::string line;
-    for (int32_t i = 0; i < 16384; i++) {
-        line += "\u1ffc";
+    while (getline(ifs, line)) {
+        lines.emplace_back(line);
     }
-    std::cout << "line size: " << line.size() << std::endl;
-    lines.emplace_back(line);
+    ifs.close();
+
+    // lines.emplace_back("1080º Avalanche");
 
     std::cout << "lines size: " << lines.size() << std::endl;
 
@@ -85,9 +80,9 @@ TEST_F(CustomAnalyzerTest, all) {
     edge_ngram_params.set("token_chars", "digit");
 
     CustomAnalyzerConfig::Builder builder;
-    builder.add_tokenizer_config("keyword", {});
+    builder.with_tokenizer_config("standard", {});
     builder.add_token_filter_config("asciifolding", {});
-    // builder.add_token_filter_config("word_delimiter", word_delimiter_params);
+    builder.add_token_filter_config("word_delimiter", word_delimiter_params);
     builder.add_token_filter_config("lowercase", {});
     auto custom_analyzer_config = builder.build();
 
@@ -97,7 +92,7 @@ TEST_F(CustomAnalyzerTest, all) {
 
     size_t total_count = 0;
     Token t;
-    for (size_t i = 0; i < 1; ++i) {
+    for (size_t i = 0; i < 10000; ++i) {
         reader.init(lines[i].data(), lines[i].size(), false);
         auto* token_stream = custom_analyzer->reusableTokenStream(L"", &reader);
         token_stream->reset();
@@ -108,130 +103,131 @@ TEST_F(CustomAnalyzerTest, all) {
             // std::cout << "term: " << term << std::endl;
             ++count;
         }
-        std::cout << i << ", count: " << count << std::endl;
+        // std::cout << i << ", count: " << count << std::endl;
         total_count += count;
     }
     std::cout << "total count: " << total_count << std::endl;
 }
 
-// TEST_F(CustomAnalyzerTest, test) {
-//     std::string name = "name";
-//     std::string path = "/mnt/disk2/yangsiyu/clucene/index";
+TEST_F(CustomAnalyzerTest, test2) {
+    std::string name = "name";
+    std::string path = "/mnt/disk2/yangsiyu/clucene/index";
 
-//     std::vector<std::string> lines;
+    std::vector<std::string> lines;
 
-//     // std::ifstream ifs("/mnt/disk2/yangsiyu/httplogs/wikipedia/wikipedia.json000");
-//     // std::string line;
-//     // while (getline(ifs, line)) {
-//     //     lines.emplace_back(line);
-//     // }
-//     // ifs.close();
+    // std::ifstream ifs("/mnt/disk2/yangsiyu/httplogs/wikipedia/wikipedia.json000");
+    // std::string line;
+    // while (getline(ifs, line)) {
+    //     lines.emplace_back(line);
+    // }
+    // ifs.close();
 
-//     lines.emplace_back("Wi-Fi PowerPoint AT&T H2O 3D");
+    lines.emplace_back("Wi-Fi PowerPoint AT&T H2O 3D");
 
-//     std::cout << "lines size: " << lines.size() << std::endl;
+    std::cout << "lines size: " << lines.size() << std::endl;
 
-//     Settings word_delimiter_params;
-//     word_delimiter_params.set("generate_word_parts", "true");
-//     word_delimiter_params.set("generate_number_parts", "true");
-//     word_delimiter_params.set("split_on_case_change", "true");
-//     word_delimiter_params.set("split_on_numerics", "true");
-//     word_delimiter_params.set("stem_english_possessive", "true");
-//     word_delimiter_params.set("preserve_original", "true");
+    Settings word_delimiter_params;
+    word_delimiter_params.set("generate_word_parts", "true");
+    word_delimiter_params.set("generate_number_parts", "true");
+    word_delimiter_params.set("split_on_case_change", "true");
+    word_delimiter_params.set("split_on_numerics", "true");
+    word_delimiter_params.set("stem_english_possessive", "true");
+    word_delimiter_params.set("preserve_original", "true");
 
-//     // Settings edge_ngram_params;
-//     // edge_ngram_params.set("min_gram", "3");
-//     // edge_ngram_params.set("max_gram", "10");
-//     // edge_ngram_params.set("token_chars", "digit");
+    // Settings edge_ngram_params;
+    // edge_ngram_params.set("min_gram", "3");
+    // edge_ngram_params.set("max_gram", "10");
+    // edge_ngram_params.set("token_chars", "digit");
 
-//     CustomAnalyzerConfig::Builder builder;
-//     builder.add_tokenizer_config("standard", {});
-//     builder.add_token_filter_config("asciifolding", {});
-//     builder.add_token_filter_config("word_delimiter", word_delimiter_params);
-//     builder.add_token_filter_config("lowercase", {});
-//     auto custom_analyzer_config = builder.build();
+    CustomAnalyzerConfig::Builder builder;
+    builder.with_tokenizer_config("standard", {});
+    builder.add_token_filter_config("asciifolding", {});
+    builder.add_token_filter_config("word_delimiter", word_delimiter_params);
+    builder.add_token_filter_config("lowercase", {});
+    auto custom_analyzer_config = builder.build();
 
-//     auto custom_analyzer = CustomAnalyzer::build_custom_analyzer(custom_analyzer_config);
+    auto custom_analyzer = CustomAnalyzer::build_custom_analyzer(custom_analyzer_config);
 
-//     {
-//         TimeGuard t("load time");
+    {
+        TimeGuard t("load time");
 
-//         lucene::index::IndexWriter indexwriter(path.c_str(), custom_analyzer.get(), true);
-//         indexwriter.setRAMBufferSizeMB(512);
-//         indexwriter.setMaxFieldLength(0x7FFFFFFFL);
-//         indexwriter.setMergeFactor(1000000000);
-//         indexwriter.setUseCompoundFile(false);
+        lucene::index::IndexWriter indexwriter(path.c_str(), custom_analyzer.get(), true);
+        indexwriter.setRAMBufferSizeMB(512);
+        indexwriter.setMaxFieldLength(0x7FFFFFFFL);
+        indexwriter.setMergeFactor(1000000000);
+        indexwriter.setUseCompoundFile(false);
 
-//         lucene::util::SStringReader<char> reader;
+        lucene::util::SStringReader<char> reader;
 
-//         lucene::document::Document doc;
-//         int32_t field_config = lucene::document::Field::STORE_NO;
-//         field_config |= lucene::document::Field::INDEX_NONORMS;
-//         field_config |= lucene::document::Field::INDEX_TOKENIZED;
-//         auto field_name = std::wstring(name.begin(), name.end());
-//         auto* field = _CLNEW lucene::document::Field(field_name.c_str(), field_config);
-//         field->setOmitTermFreqAndPositions(false);
-//         doc.add(*field);
+        lucene::document::Document doc;
+        int32_t field_config = lucene::document::Field::STORE_NO;
+        field_config |= lucene::document::Field::INDEX_NONORMS;
+        field_config |= lucene::document::Field::INDEX_TOKENIZED;
+        auto field_name = std::wstring(name.begin(), name.end());
+        auto* field = _CLNEW lucene::document::Field(field_name.c_str(), field_config);
+        field->setOmitTermFreqAndPositions(false);
+        doc.add(*field);
 
-//         for (int32_t j = 0; j < 1; j++) {
-//             for (size_t k = 0; k < lines.size(); k++) {
-//                 reader.init(lines[k].data(), lines[k].size(), false);
-//                 auto* stream = custom_analyzer->reusableTokenStream(field->name(), &reader);
-//                 field->setValue(stream);
+        for (int32_t j = 0; j < 1; j++) {
+            for (size_t k = 0; k < lines.size(); k++) {
+                reader.init(lines[k].data(), lines[k].size(), false);
+                auto* stream = custom_analyzer->reusableTokenStream(field->name(), &reader);
+                field->setValue(stream);
 
-//                 indexwriter.addDocument(&doc);
-//             }
-//         }
+                indexwriter.addDocument(&doc);
+            }
+        }
 
-//         std::cout << "---------------------" << std::endl;
+        std::cout << "---------------------" << std::endl;
 
-//         indexwriter.close();
-//     }
+        indexwriter.close();
+    }
 
-//     std::cout << "-----------" << std::endl;
+    std::cout << "-----------" << std::endl;
 
-//     try {
-//         {
-//             auto* dir = FSDirectory::getDirectory(path.c_str());
-//             auto* reader = IndexReader::open(dir, 1024 * 1024, true);
-//             IndexSearcher index_searcher(reader);
+    try {
+        {
+            auto* dir = FSDirectory::getDirectory(path.c_str());
+            auto* reader = IndexReader::open(dir, 1024 * 1024, true);
+            IndexSearcher index_searcher(reader);
 
-//             // std::cout << "macDoc: " << reader->maxDoc() << std::endl;
+            // std::cout << "macDoc: " << reader->maxDoc() << std::endl;
 
-//             {
-//                 std::vector<std::string> terms;
-//                 terms.emplace_back("wi");
-//                 terms.emplace_back("fi");
-//                 terms.emplace_back("powerpoint");
+            {
+                std::vector<std::string> terms;
+                terms.emplace_back("wi");
+                terms.emplace_back("fi");
+                terms.emplace_back("power");
+                terms.emplace_back("point");
 
-//                 TimeGuard time("query time");
+                TimeGuard time("query time");
 
-//                 PhraseQuery query;
-//                 for (auto& term : terms) {
-//                     std::wstring ws_term = StringUtil::string_to_wstring(term);
-//                     Term* t = _CLNEW Term(_T("name"), ws_term.c_str());
-//                     query.add(t);
-//                     _CLLDECDELETE(t);
-//                 }
-//                 // query.setSlop(10);
+                PhraseQuery query;
+                for (auto& term : terms) {
+                    std::wstring ws_term = StringUtil::string_to_wstring(term);
+                    Term* t = _CLNEW Term(_T("name"), ws_term.c_str());
+                    query.add(t);
+                    _CLLDECDELETE(t);
+                }
+                // query.setSlop(10);
 
-//                 roaring::Roaring result;
-//                 index_searcher._search(&query,
-//                                        [&result](const int32_t docid, const float_t /*score*/) {
-//                                            //    std::cout << "doc: " << docid << std::endl;
-//                                            result.add(docid);
-//                                        });
+                roaring::Roaring result;
+                index_searcher._search(&query,
+                                       [&result](const int32_t docid, const float_t /*score*/) {
+                                           //    std::cout << "doc: " << docid << std::endl;
+                                           result.add(docid);
+                                       });
 
-//                 std::cout << "count: " << result.cardinality() << std::endl;
-//             }
+                std::cout << "count: " << result.cardinality() << std::endl;
+            }
 
-//             reader->close();
-//             _CLLDELETE(reader);
-//             _CLDECDELETE(dir);
-//         }
-//     } catch (const CLuceneError& e) {
-//         std::cout << e.number() << ": " << e.what() << std::endl;
-//     }
-// }
+            reader->close();
+            _CLLDELETE(reader);
+            _CLDECDELETE(dir);
+        }
+    } catch (const CLuceneError& e) {
+        std::cout << e.number() << ": " << e.what() << std::endl;
+    }
+}
 
 } // namespace doris::segment_v2::inverted_index

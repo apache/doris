@@ -72,8 +72,8 @@ Token* NGramTokenizer::next(Token* token) {
             continue;
         }
 
-        std::string term = to_chars(_buffer, _buffer_start, _gram_size);
-        token->set(term.data(), 0, term.size());
+        to_chars(_buffer, _buffer_start, _gram_size);
+        set_text(token, _utf8_buffer);
         ++_gram_size;
 
         return token;
@@ -136,15 +136,13 @@ std::pair<int32_t, int32_t> NGramTokenizer::to_code_points(const char* char_buff
     return {i - char_offset, write_pos - buffer_end};
 }
 
-std::string NGramTokenizer::to_chars(const std::vector<UChar32>& buffer, int32_t start,
-                                     int32_t size) {
+void NGramTokenizer::to_chars(const std::vector<UChar32>& buffer, int32_t start, int32_t size) {
     icu::UnicodeString unistr;
     for (int32_t i = start; i < start + size; i++) {
         unistr.append(buffer[i]);
     }
-    std::string utf8_str;
-    unistr.toUTF8String(utf8_str);
-    return utf8_str;
+    _utf8_buffer.clear();
+    unistr.toUTF8String(_utf8_buffer);
 }
 
 } // namespace doris::segment_v2::inverted_index

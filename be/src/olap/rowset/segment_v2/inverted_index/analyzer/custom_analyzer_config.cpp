@@ -34,8 +34,8 @@ std::vector<ComponentConfigPtr> CustomAnalyzerConfig::get_token_filter_configs()
     return _token_filters;
 }
 
-void CustomAnalyzerConfig::Builder::add_tokenizer_config(const std::string& name,
-                                                         const Settings& params) {
+void CustomAnalyzerConfig::Builder::with_tokenizer_config(const std::string& name,
+                                                          const Settings& params) {
     _tokenizer_config = std::make_shared<ComponentConfig>(name, params);
 }
 

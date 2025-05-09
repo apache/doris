@@ -38,7 +38,7 @@ public:
         Builder() = default;
         ~Builder() = default;
 
-        void add_tokenizer_config(const std::string& name, const Settings& params);
+        void with_tokenizer_config(const std::string& name, const Settings& params);
         void add_token_filter_config(const std::string& name, const Settings& params);
         CustomAnalyzerConfigPtr build();
 

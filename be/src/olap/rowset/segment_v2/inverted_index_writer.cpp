@@ -105,13 +105,8 @@ public:
             : _single_field(single_field),
               _index_meta(index_meta),
               _index_file_writer(index_file_writer) {
-        _parser_type = get_inverted_index_parser_type_from_string(
-                get_parser_string_from_properties(_index_meta->properties()));
-        std::string analyzer_name =
-                get_custom_analyzer_string_from_properties(_index_meta->properties());
-        _should_analyzer = !analyzer_name.empty() ||
-                           (_parser_type != InvertedIndexParserType::PARSER_UNKNOWN &&
-                            _parser_type != InvertedIndexParserType::PARSER_NONE);
+        _should_analyzer =
+                inverted_index::InvertedIndexAnalyzer::should_analyzer(_index_meta->properties());
         _value_key_coder = get_key_coder(field_type);
         _field_name = StringUtil::string_to_wstring(field_name);
     }
@@ -268,6 +263,7 @@ public:
                 get_inverted_index_parser_type_from_string(
                         get_parser_string_from_properties(_index_meta->properties())),
                 get_parser_mode_string_from_properties(_index_meta->properties()),
+                get_parser_phrase_support_string_from_properties(_index_meta->properties()),
                 get_parser_char_filter_map_from_properties(_index_meta->properties()),
                 get_parser_lowercase_from_properties<true>(_index_meta->properties()),
                 get_parser_stopwords_from_properties(_index_meta->properties()));
@@ -760,7 +756,6 @@ private:
     InvertedIndexCtxSPtr _inverted_index_ctx = nullptr;
     const KeyCoder* _value_key_coder;
     const TabletIndex* _index_meta;
-    InvertedIndexParserType _parser_type;
     std::wstring _field_name;
     InvertedIndexFileWriter* _index_file_writer;
     uint32_t _ignore_above;

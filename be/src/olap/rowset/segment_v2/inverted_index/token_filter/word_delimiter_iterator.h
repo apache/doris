@@ -35,7 +35,7 @@ public:
     int32_t next();
 
     int32_t type() const;
-    void set_text(char* text, int32_t _length);
+    void set_text(const char* text, int32_t _length);
     bool is_single_word() const;
     void set_bounds();
 
@@ -68,7 +68,7 @@ private:
     static std::vector<char> initializeDelimTable();
 
 public:
-    char* _text = nullptr;
+    const char* _text = nullptr;
     int32_t _length = 0;
     int32_t _current = 0;
     int32_t _end = 0;

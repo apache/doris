@@ -124,9 +124,9 @@ segment_v2::inverted_index::CustomAnalyzerPtr IndexPolicyMgr::get_policy_by_name
                 settings.set(prop.first, prop.second);
             }
         }
-        builder.add_tokenizer_config(type_it->second, settings);
+        builder.with_tokenizer_config(type_it->second, settings);
     } else {
-        builder.add_tokenizer_config(tokenzier_name, {});
+        builder.with_tokenizer_config(tokenzier_name, {});
     }
 
     // Process token filters

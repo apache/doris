@@ -17,17 +17,16 @@
 
 #pragma once
 
-#include "olap/rowset/segment_v2/inverted_index/setting.h"
+#include "olap/rowset/segment_v2/inverted_index/abstract_analysis_factory.h"
 #include "olap/rowset/segment_v2/inverted_index/tokenizer/tokenizer.h"
 
 namespace doris::segment_v2::inverted_index {
 
-class TokenizerFactory {
+class TokenizerFactory : public AbstractAnalysisFactory {
 public:
     TokenizerFactory() = default;
-    virtual ~TokenizerFactory() = default;
+    ~TokenizerFactory() override = default;
 
-    virtual void initialize(const Settings& args) = 0;
     virtual TokenizerPtr create() = 0;
 };
 using TokenizerFactoryPtr = std::shared_ptr<TokenizerFactory>;

@@ -17,24 +17,13 @@
 
 #pragma once
 
-#include <unicode/utext.h>
-
-#include <memory>
-#include <string_view>
-#include <unordered_set>
-
-#include "CLucene.h" // IWYU pragma: keep
-#include "CLucene/analysis/AnalysisHeader.h"
-#include "common/logging.h"
-
-using namespace lucene::analysis;
+#include "olap/rowset/segment_v2/inverted_index/token_stream.h"
 
 using TokenStreamPtr = std::shared_ptr<TokenStream>;
-using TokenPtr = std::shared_ptr<Token>;
 
 namespace doris::segment_v2::inverted_index {
 
-class DorisTokenFilter : public TokenFilter {
+class DorisTokenFilter : public TokenFilter, public DorisTokenStream {
 public:
     DorisTokenFilter(TokenStreamPtr in) : TokenFilter(nullptr), _in(std::move(in)) {}
     ~DorisTokenFilter() override = default;

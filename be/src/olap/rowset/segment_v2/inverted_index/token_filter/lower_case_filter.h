@@ -69,7 +69,7 @@ public:
             return nullptr;
         }
 
-        t->set(_lower_term.data(), 0, result_len);
+        set_text(t, std::string_view(_lower_term.data(), result_len));
         return t;
     }
 

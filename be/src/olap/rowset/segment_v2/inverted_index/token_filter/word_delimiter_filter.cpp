@@ -32,9 +32,7 @@ WordDelimiterFilter::WordDelimiterFilter(const TokenStreamPtr& in,
         : DorisTokenFilter(in),
           _flags(configuration_flags),
           _prot_words(std::move(prot_words)),
-          _saved_buffer(1024, 0),
           _states(8) {
-    _attribute = std::make_shared<Token>();
     _iterator = std::make_unique<WordDelimiterIterator>(char_type_table, has(SPLIT_ON_CASE_CHANGE),
                                                         has(SPLIT_ON_NUMERICS),
                                                         has(STEM_ENGLISH_POSSESSIVE));
@@ -53,8 +51,8 @@ Token* WordDelimiterFilter::next(Token* t) {
             int32_t term_length = t->termLength<char>();
             std::string_view term(term_buffer, term_length);
 
-            _accum_pos_inc += t->getPositionIncrement();
-            _iterator->set_text(term_buffer, term_length);
+            _accum_pos_inc += get_position_increment(t);
+            _iterator->set_text(term.data(), term.size());
             _iterator->next();
 
             if ((_iterator->_current == 0 && _iterator->_end == term_length) ||
@@ -67,7 +65,7 @@ Token* WordDelimiterFilter::next(Token* t) {
             }
 
             if (_iterator->_end == WordDelimiterIterator::DONE && !has(PRESERVE_ORIGINAL)) {
-                if (t->getPositionIncrement() == 1 && !_first) {
+                if (get_position_increment(t) == 1 && !_first) {
                     _accum_pos_inc--;
                 }
                 continue;
@@ -107,20 +105,20 @@ Token* WordDelimiterFilter::next(Token* t) {
             if (_buffered_pos < _buffered_len) {
                 if (_buffered_pos == 0) {
                     std::sort(_states.begin(), _states.begin() + _buffered_len,
-                              [](const State& a, const State& b) {
-                                  if (a._start_off != b._start_off) {
-                                      return a._start_off < b._start_off;
+                              [](const Attribute& a, const Attribute& b) {
+                                  if (a.start_off != b.start_off) {
+                                      return a.start_off < b.start_off;
                                   }
-                                  return a._pos_inc > b._pos_inc;
+                                  return a.pos_inc > b.pos_inc;
                               });
                 }
-                const auto& term = _states[_buffered_pos]._buffered;
-                int32_t position = _states[_buffered_pos]._pos_inc;
+                const auto& term = _states[_buffered_pos].buffered;
+                int32_t position = _states[_buffered_pos].pos_inc;
                 _buffered_pos++;
-                t->set(term.data(), 0, term.size());
-                t->setPositionIncrement(position);
-                if (_first && t->getPositionIncrement() == 0) {
-                    t->setPositionIncrement(1);
+                set_text(t, term);
+                set_position_increment(t, position);
+                if (_first && get_position_increment(t) == 0) {
+                    set_position_increment(t, 1);
                 }
                 _first = false;
                 return t;
@@ -135,7 +133,7 @@ Token* WordDelimiterFilter::next(Token* t) {
             generate_part(true);
             _iterator->next();
             _first = false;
-            t->set(_attribute->termBuffer<char>(), 0, _attribute->termLength<char>());
+            set_text(t, _attribute.buffered);
             return t;
         }
 
@@ -200,18 +198,17 @@ void WordDelimiterFilter::buffer() {
     if (_buffered_len == _states.size()) {
         _states.resize(_states.size() * 2);
     }
-    _states[_buffered_len]._start_off = _attribute->startOffset();
-    _states[_buffered_len]._pos_inc = _attribute->getPositionIncrement();
-    _states[_buffered_len]._buffered =
-            std::string_view(_attribute->termBuffer<char>(), _attribute->termLength<char>());
+    _states[_buffered_len].buffered = _attribute.buffered;
+    _states[_buffered_len].start_off = _attribute.start_off;
+    _states[_buffered_len].pos_inc = _attribute.pos_inc;
     _buffered_len++;
 }
 
 void WordDelimiterFilter::generate_part(bool is_single_word) {
-    _attribute->set(_saved_buffer.data() + _iterator->_current, 0,
-                    _iterator->_end - _iterator->_current);
-    _attribute->setStartOffset(_iterator->_current);
-    _attribute->setPositionIncrement(position(false));
+    _attribute.buffered =
+            _saved_buffer.substr(_iterator->_current, _iterator->_end - _iterator->_current);
+    _attribute.start_off = _iterator->_current;
+    _attribute.pos_inc = position(false);
 }
 
 int32_t WordDelimiterFilter::position(bool inject) {

@@ -27,8 +27,7 @@ ASCIIFoldingFilter::ASCIIFoldingFilter(const TokenStreamPtr& in, bool preserve_o
 Token* ASCIIFoldingFilter::next(Token* t) {
     if (!_state.empty()) {
         assert(_preserve_original);
-        t->set(_state.data(), 0, _state.size());
-        t->setPositionIncrement(0);
+        set_text(t, std::string_view(_state.data(), _state.size()));
         _state.clear();
         return t;
     }
@@ -43,7 +42,7 @@ Token* ASCIIFoldingFilter::next(Token* t) {
             }
             if (c >= 0x0080) {
                 fold_to_ascii(buffer, length);
-                t->set(_output.data(), 0, _output_pos);
+                set_text(t, std::string_view(_output.data(), _output_pos));
                 break;
             }
         }

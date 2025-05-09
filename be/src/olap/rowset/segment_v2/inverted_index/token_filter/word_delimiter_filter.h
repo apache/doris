@@ -69,7 +69,12 @@ private:
     int32_t position(bool inject);
     void concatenate(const WordDelimiterConcatenationPtr& concatenation);
 
-    TokenPtr _attribute;
+    struct Attribute {
+        std::string buffered;
+        int32_t start_off = 0;
+        int32_t pos_inc = 0;
+    };
+    Attribute _attribute;
 
     int32_t _flags = 0;
     std::unordered_set<std::string> _prot_words;
@@ -81,17 +86,12 @@ private:
     int32_t _last_concat_count = 0;
     int32_t _accum_pos_inc = 0;
 
-    std::string _saved_buffer;
+    std::string_view _saved_buffer;
     bool _has_saved_state = false;
     bool _has_output_token = false;
     bool _has_output_following_original = false;
 
-    struct State {
-        std::string _buffered;
-        int32_t _start_off = 0;
-        int32_t _pos_inc = 0;
-    };
-    std::vector<State> _states;
+    std::vector<Attribute> _states;
     int32_t _buffered_len = 0;
     int32_t _buffered_pos = 0;
     bool _first = false;
@@ -110,9 +110,9 @@ public:
     }
 
     void write() {
-        _filter._attribute->set(_buffer.data(), 0, _buffer.size());
-        _filter._attribute->setPositionIncrement(_filter.position(true));
-        _filter._attribute->setStartOffset(_start_offset);
+        _filter._attribute.buffered = _buffer;
+        _filter._attribute.start_off = _start_offset;
+        _filter._attribute.pos_inc = _filter.position(true);
         _filter._accum_pos_inc = 0;
     }
 
