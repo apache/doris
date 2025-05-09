@@ -150,6 +150,14 @@ a	1
 1	a
 
 -- !sql --
+\N
+a
+
+-- !sql --
+\N
+1
+
+-- !sql --
 doris_jdbc_catalog
 
 -- !sql --
