@@ -35,6 +35,7 @@
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_bitmap.h"
 #include "vec/data_types/data_type_date.h"
+#include "vec/data_types/data_type_date_or_datetime_v2.h"
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_hll.h"
@@ -44,8 +45,9 @@
 #include "vec/data_types/data_type_map.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/data_types/data_type_struct.h"
-#include "vec/data_types/data_type_time_v2.h"
+#include "vec/data_types/data_type_time.h"
 #include "vec/exprs/table_function/table_function.h"
+#include "vec/runtime/time_value.h"
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris::vectorized {
@@ -173,6 +175,10 @@ static size_t type_index_to_data_type(const std::vector<AnyType>& input_types, s
         return 1;
     case TypeIndex::DateTimeV2:
         type = std::make_shared<DataTypeDateTimeV2>(input_types[index].scale_or(0));
+        desc = type;
+        return 1;
+    case TypeIndex::TimeV2:
+        type = std::make_shared<DataTypeTimeV2>(input_types[index].scale_or(0));
         desc = type;
         return 1;
     case TypeIndex::Array: {
@@ -465,8 +471,10 @@ bool insert_cell(MutableColumnPtr& column, DataTypePtr type_ptr, const AnyType& 
             break;
         }
         case PrimitiveType::TYPE_TIMEV2: {
-            auto value = any_cast<ut_type::DOUBLE>(cell);
-            column->insert_data(reinterpret_cast<char*>(&value), 0);
+            auto value = any_cast<std::string>(cell);
+            double time_value = 0;
+            RETURN_IF_FALSE((TimeValue::try_as_time(value.c_str(), value.size(), time_value)));
+            column->insert_data(reinterpret_cast<char*>(&time_value), 0);
             break;
         }
         case PrimitiveType::TYPE_ARRAY: {

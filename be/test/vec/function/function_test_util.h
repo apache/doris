@@ -30,25 +30,32 @@
 #include <utility>
 #include <vector>
 
+#include "olap/hll.h"
 #include "olap/olap_common.h"
-#include "runtime/types.h"
 #include "testutil/any_type.h"
 #include "testutil/function_utils.h"
 #include "testutil/test_util.h"
 #include "udf/udf.h"
+#include "util/bitmap_value.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/core/block.h"
 #include "vec/core/types.h"
 #include "vec/core/wide_integer.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_bitmap.h"
+#include "vec/data_types/data_type_date.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_hll.h"
+#include "vec/data_types/data_type_ipv4.h"
+#include "vec/data_types/data_type_ipv6.h"
 #include "vec/data_types/data_type_nothing.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
+#include "vec/data_types/data_type_string.h"
+#include "vec/data_types/data_type_struct.h"
 #include "vec/data_types/data_type_time.h"
 #include "vec/functions/simple_function_factory.h"
 
@@ -100,6 +107,83 @@ using FLOAT = float;
 using IPV4 = uint32_t;
 using IPV6 = uint128_t;
 
+//ATTN: keep same with `insert_cell`. not applicable for DataTypeNullable
+template <typename DataType>
+struct ut_input_type {};
+template <typename NativeType>
+struct ut_input_type<DataTypeNumber<NativeType>> {
+    using type = DataTypeNumber<NativeType>::FieldType;
+    static constexpr type default_value = 123;
+};
+template <typename DecimalType>
+struct ut_input_type<DataTypeDecimal<DecimalType>> {
+    using type = DataTypeDecimal<DecimalType>::FieldType;
+    static constexpr type default_value = type {123};
+};
+template <>
+struct ut_input_type<DataTypeString> {
+    using type = std::string;
+    static constexpr type default_value = "test_default";
+};
+template <>
+struct ut_input_type<DataTypeDate> {
+    using type = std::string;
+    static constexpr type default_value = "1970-01-01";
+};
+template <>
+struct ut_input_type<DataTypeDateTime> {
+    using type = std::string;
+    static constexpr type default_value = "1970-01-01";
+};
+template <>
+struct ut_input_type<DataTypeDateV2> {
+    using type = std::string;
+    static constexpr type default_value = "1970-01-01";
+};
+template <>
+struct ut_input_type<DataTypeDateTimeV2> {
+    using type = std::string;
+    static constexpr type default_value = "1970-01-01";
+};
+template <>
+struct ut_input_type<DataTypeTimeV2> {
+    using type = std::string;
+    static constexpr type default_value = "01:02:03";
+};
+template <>
+struct ut_input_type<DataTypeJsonb> {
+    using type = std::string;
+};
+template <>
+struct ut_input_type<DataTypeBitMap> {
+    using type = BitmapValue*;
+};
+template <>
+struct ut_input_type<DataTypeHLL> {
+    using type = HyperLogLog*;
+};
+template <>
+struct ut_input_type<DataTypeIPv4> {
+    using type = IPV4;
+};
+template <>
+struct ut_input_type<DataTypeIPv6> {
+    using type = IPV6;
+};
+template <>
+struct ut_input_type<DataTypeArray> {
+    using type = TestArray;
+};
+template <>
+struct ut_input_type<DataTypeStruct> {
+    using type = InputCell;
+};
+
+// for cast tests, the target type need a placeholder column with some legal value.
+template <typename DataType>
+constexpr static ut_input_type<DataType>::type ut_input_type_default_v =
+        ut_input_type<DataType>::default_value;
+
 // cell constructors. could also use from_int_frac if you'd like
 inline auto DECIMALV2 = Decimal128V2::double_to_decimalv2;
 inline auto DECIMAL32 = [](int32_t x, int32_t y, int scale) {
@@ -135,16 +219,18 @@ void check_vec_table_function(TableFunction* fn, const InputTypeSet& input_types
                               const InputDataSet& output_set, bool test_get_value_func = false);
 
 template <typename ReturnType>
-DataTypePtr get_return_type_descriptor() {
+DataTypePtr get_return_type_descriptor(int scale, int precision) {
     if constexpr (std::is_same_v<ReturnType, DataTypeUInt8>) {
         return DataTypeFactory::instance().create_data_type(doris::PrimitiveType::TYPE_BOOLEAN,
                                                             false);
     } else if constexpr (std::is_same_v<ReturnType, DataTypeInt32>) {
         return DataTypeFactory::instance().create_data_type(doris::PrimitiveType::TYPE_INT, false);
-    } else if constexpr (std::is_same_v<ReturnType, DataTypeFloat64> ||
-                         std::is_same_v<ReturnType, DataTypeTimeV2>) {
+    } else if constexpr (std::is_same_v<ReturnType, DataTypeFloat64>) {
         return DataTypeFactory::instance().create_data_type(doris::PrimitiveType::TYPE_DOUBLE,
                                                             false);
+    } else if constexpr (std::is_same_v<ReturnType, DataTypeTimeV2>) {
+        return DataTypeFactory::instance().create_data_type(doris::PrimitiveType::TYPE_TIMEV2,
+                                                            false, precision, scale);
     } else if constexpr (std::is_same_v<ReturnType, DateTime>) {
         return DataTypeFactory::instance().create_data_type(doris::PrimitiveType::TYPE_DATETIME,
                                                             false);
@@ -153,25 +239,22 @@ DataTypePtr get_return_type_descriptor() {
                                                             false);
     } else if (std::is_same_v<ReturnType, DateTimeV2>) {
         return DataTypeFactory::instance().create_data_type(doris::PrimitiveType::TYPE_DATETIMEV2,
-                                                            false);
+                                                            false, precision, scale);
     } else if (std::is_same_v<ReturnType, DataTypeDecimal<Decimal128V2>>) {
-        return DataTypeFactory::instance().create_data_type(
-                doris::PrimitiveType::TYPE_DECIMALV2, false, BeConsts::MAX_DECIMALV2_PRECISION,
-                BeConsts::MAX_DECIMALV2_SCALE);
+        return DataTypeFactory::instance().create_data_type(doris::PrimitiveType::TYPE_DECIMALV2,
+                                                            false, precision, scale);
     } else if (std::is_same_v<ReturnType, DataTypeDecimal<Decimal32>>) {
-        return DataTypeFactory::instance().create_data_type(
-                doris::PrimitiveType::TYPE_DECIMAL32, false, BeConsts::MAX_DECIMAL32_PRECISION, 0);
+        return DataTypeFactory::instance().create_data_type(doris::PrimitiveType::TYPE_DECIMAL32,
+                                                            false, precision, scale);
     } else if (std::is_same_v<ReturnType, DataTypeDecimal<Decimal64>>) {
-        return DataTypeFactory::instance().create_data_type(
-                doris::PrimitiveType::TYPE_DECIMAL64, false, BeConsts::MAX_DECIMAL64_PRECISION, 0);
+        return DataTypeFactory::instance().create_data_type(doris::PrimitiveType::TYPE_DECIMAL64,
+                                                            false, precision, scale);
     } else if (std::is_same_v<ReturnType, DataTypeDecimal<Decimal128V3>>) {
         return DataTypeFactory::instance().create_data_type(doris::PrimitiveType::TYPE_DECIMAL128I,
-                                                            false,
-                                                            BeConsts::MAX_DECIMAL128_PRECISION, 0);
+                                                            false, precision, scale);
     } else if (std::is_same_v<ReturnType, DataTypeDecimal<Decimal256>>) {
         return DataTypeFactory::instance().create_data_type(doris::PrimitiveType::TYPE_DECIMAL256,
-                                                            false,
-                                                            BeConsts::MAX_DECIMAL256_PRECISION, 0);
+                                                            false, precision, scale);
     } else {
         return std::make_shared<DataTypeNothing>();
     }
@@ -267,7 +350,9 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
             func_name, block.get_columns_with_type_and_name(), return_type);
     assert(func.get() != nullptr);
 
-    auto fn_ctx_return = get_return_type_descriptor<ResultType>();
+    // this may be useless now. for some type like array, it's wrong. TODO: need more details explainations
+    auto fn_ctx_return = get_return_type_descriptor<ResultType>(std::max(0, ResultScale),
+                                                                std::max(0, ResultPrecision));
 
     FunctionUtils fn_utils(fn_ctx_return, arg_types, 0);
     auto* fn_ctx = fn_utils.get_fn_ctx();
