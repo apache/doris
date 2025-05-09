@@ -28,9 +28,11 @@
 #include "pipeline/exec/meta_scan_operator.h"
 #include "pipeline/exec/olap_scan_operator.h"
 #include "pipeline/exec/operator.h"
+#include "pipeline/pipeline_fragment_context.h"
 #include "runtime/types.h"
 #include "util/runtime_profile.h"
 #include "vec/exec/runtime_filter_consumer.h"
+//#include "vec/exec/scan/TaskId.h"
 #include "vec/exec/scan/pip_scanner_context.h"
 #include "vec/exec/scan/scanner_context.h"
 #include "vec/exec/scan/vscan_node.h"
@@ -1046,9 +1048,10 @@ template <typename Derived>
 Status ScanLocalState<Derived>::_start_scanners(
         const std::list<std::shared_ptr<vectorized::ScannerDelegate>>& scanners) {
     auto& p = _parent->cast<typename Derived::Parent>();
-    _scanner_ctx = PipXScannerContext::create_shared(
-            state(), this, p._output_tuple_desc, p.output_row_descriptor(), scanners, p.limit(),
-            _scan_dependency, p.ignore_data_distribution(), p.is_file_scan_operator());
+    _scanner_ctx = PipXScannerContext::create_shared(state(), this, p._output_tuple_desc,
+                                                     p.output_row_descriptor(), scanners, p.limit(),
+                                                     _scan_dependency, p.ignore_data_distribution(),
+                                                     p.is_file_scan_operator(), p._task_handle);
     return Status::OK();
 }
 
@@ -1221,6 +1224,10 @@ Status ScanOperatorX<LocalStateType>::init(const TPlanNode& tnode, RuntimeState*
     } else {
         _push_down_agg_type = TPushAggOp::type::NONE;
     }
+
+    auto* fragment_ctx = state->pipeline_fragment_ctx();
+    CHECK(fragment_ctx != nullptr) << "Fragment context is null";
+    _task_handle = fragment_ctx->task_handle();
 
     // The first branch is kept for compatibility with the old version of the FE
     if (!query_options.__isset.enable_adaptive_pipeline_task_serial_read_on_limit) {
