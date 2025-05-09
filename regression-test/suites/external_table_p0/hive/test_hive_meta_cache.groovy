@@ -167,6 +167,68 @@ suite("test_hive_meta_cache", "p0,external,hive,external_docker,external_docker_
             // select 3 rows
             order_qt_sql_3row """select * from test_hive_meta_cache_db.sales"""
             sql """drop table test_hive_meta_cache_db.sales"""
+
+            // test modify ttl property
+            sql """drop catalog if exists ${catalog_name_no_cache};"""
+            // 1. create catalog with default property fisrt
+            sql """
+            create catalog ${catalog_name_no_cache} properties (
+                'type'='hms',
+                'hadoop.username' = 'hadoop',
+                'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hmsPort}',
+                'fs.defaultFS' = 'hdfs://${externalEnvIp}:${hdfs_port}'
+            );
+            """
+            sql """switch ${catalog_name_no_cache}"""
+            hive_docker """drop database if exists test_hive_meta_cache_db CASCADE"""
+            hive_docker """create database test_hive_meta_cache_db"""
+            hive_docker """
+                CREATE TABLE test_hive_meta_cache_db.sales (
+                  id INT,
+                  amount DOUBLE
+                )
+                PARTITIONED BY (year INT)
+                STORED AS PARQUET;
+            """
+            hive_docker """insert into test_hive_meta_cache_db.sales values(1, 2.0, 2024)"""
+            // select 1 row
+            order_qt_sql_1row """select * from test_hive_meta_cache_db.sales"""
+            // insert into same partition
+            hive_docker """insert into test_hive_meta_cache_db.sales values(2, 2.0, 2024)"""
+            // still select 1 row
+            order_qt_sql_1row """select * from test_hive_meta_cache_db.sales"""
+            // alter wrong catalog property
+            test {
+                sql """alter catalog ${catalog_name_no_cache} set properties ("file.meta.cache.ttl-second" = "-2")"""
+                exception "is wrong"
+            }
+            // alter catalog property, disable file list cache
+            sql """alter catalog ${catalog_name_no_cache} set properties ("file.meta.cache.ttl-second" = "0")"""
+            // select 2 rows
+            order_qt_sql_2row """select * from test_hive_meta_cache_db.sales"""
+            // insert into same partition
+            hive_docker """insert into test_hive_meta_cache_db.sales values(3, 2.0, 2024)"""
+            // select 3 row
+            order_qt_sql_3row """select * from test_hive_meta_cache_db.sales"""
+
+            // insert into new partition
+            hive_docker """insert into test_hive_meta_cache_db.sales values(1, 3.0, 2025)"""
+            // still select 3 rows
+            order_qt_sql_3row """select * from test_hive_meta_cache_db.sales"""
+            // alter wrong catalog property
+            test {
+                sql """alter catalog ${catalog_name_no_cache} set properties ("partition.cache.ttl-second" = "-2")"""
+                exception "is wrong"
+            }
+            // alter catalog property, disable partition cache
+            sql """alter catalog ${catalog_name_no_cache} set properties ("partition.cache.ttl-second" = "0")"""
+            // select 4 rows
+            order_qt_sql_4row """select * from test_hive_meta_cache_db.sales"""
+            // insert into new partition
+            hive_docker """insert into test_hive_meta_cache_db.sales values(1, 4.0, 2026)"""
+            // select 5 rows
+            order_qt_sql_5row """select * from test_hive_meta_cache_db.sales"""
+            sql """drop table test_hive_meta_cache_db.sales"""
         }
     }
 }
