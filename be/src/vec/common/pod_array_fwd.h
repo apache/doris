@@ -51,8 +51,9 @@ using PaddedPODArray = PODArray<T, initial_bytes, TAllocator, 16, 15>;
   */
 template <typename T, size_t inline_bytes,
           size_t rounded_bytes = integerRoundUp(inline_bytes, sizeof(T))>
-using PODArrayWithStackMemory =
-        PODArray<T, rounded_bytes,
-                 AllocatorWithStackMemory<Allocator<false>, rounded_bytes, alignof(T)>>;
+using PODArrayWithStackMemory = PODArray<
+        T, rounded_bytes,
+        AllocatorWithStackMemory<Allocator<false, false, false, NoTrackingDefaultMemoryAllocator>,
+                                 rounded_bytes, alignof(T)>>;
 
 } // namespace doris::vectorized

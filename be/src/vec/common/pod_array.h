@@ -171,7 +171,8 @@ protected:
     }
 
     inline void reset_resident_memory(const char* c_end_new) {
-        DCHECK(!TAllocator::need_check_and_tracking_memory());
+        static_assert(!TAllocator::need_check_and_tracking_memory(),
+                      "TAllocator should specify `NoTrackingDefaultMemoryAllocator`");
         if (UNLIKELY(c_end_new - c_res_mem > 0)) {
             // - allocated_bytes = c_end_of_storage - c_start = 4 MB;
             // - used_bytes = c_end_new - c_start = 2.1 MB;
