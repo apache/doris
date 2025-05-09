@@ -255,6 +255,10 @@ public:
 
     bool memory_tracker_exceed(size_t size, std::string* err_msg) const;
 
+    static constexpr bool need_check_and_tracking_memory() {
+        return MemoryAllocator::need_check_and_tracking_memory();
+    }
+
 protected:
     static constexpr size_t get_stack_threshold() { return 0; }
 
@@ -344,6 +348,10 @@ public:
 
     bool memory_tracker_exceed(size_t size, std::string* err_msg) const {
         return Base::memory_tracker_exceed(size, err_msg);
+    }
+
+    static constexpr bool need_check_and_tracking_memory() {
+        return Base::need_check_and_tracking_memory();
     }
 
 protected:
