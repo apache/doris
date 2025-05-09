@@ -63,7 +63,18 @@ suite("test_analyze_mv") {
             }
             throw new Exception("Row count report timeout.")
         }
+    }
 
+    def wait_local_row_count_reported = {table, index, row, column, expected ->
+        for (int i = 0; i < 120; i++) {
+            def result_row = sql """show index stats ${table} ${index}"""
+            logger.info("show index stats: " + result_row)
+            if (result_row[row][column] == expected) {
+                return;
+            }
+            Thread.sleep(5000)
+        }
+        throw new Exception("Row count report timeout.")
     }
 
     def wait_analyze_finish = { table ->
@@ -513,6 +524,10 @@ suite("test_analyze_mv") {
         logger.info(e.getMessage());
         return;
     }
+    wait_local_row_count_reported("mvTestDup", "mvTestDup", 0, 4, "6")
+    wait_local_row_count_reported("mvTestDup", "mv1", 0, 4, "6")
+    wait_local_row_count_reported("mvTestDup", "mv2", 0, 4, "6")
+    wait_local_row_count_reported("mvTestDup", "mv3", 0, 4, "4")
 
     // Test row count report and report for nereids
     result_row = sql """show index stats mvTestDup mvTestDup"""
@@ -725,6 +740,7 @@ suite("test_analyze_mv") {
     assertEquals("0", result_row[0][4])
 
     // ** Embedded test for skip auto analyze when table is empty again
+    wait_row_count_reported("test_analyze_mv", "mvTestDup", 0, 4, "0")
     sql """analyze table mvTestDup properties ("use.auto.analyzer" = "true")"""
     empty_test = sql """show auto analyze mvTestDup"""
     assertEquals(0, empty_test.size())
