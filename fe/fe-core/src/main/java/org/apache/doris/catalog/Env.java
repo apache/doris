@@ -6155,7 +6155,7 @@ public class Env {
      * we can't set callback which is in fe-core to config items which are in fe-common. so wrap them here. it's not so
      * good but is best for us now.
      */
-    public void setMutableConfigwithCallback(String key, String value) throws ConfigException {
+    public void setMutableConfigWithCallback(String key, String value) throws ConfigException {
         ConfigBase.setMutableConfig(key, value);
         if (configtoThreads.get(key) != null) {
             try {
@@ -6175,7 +6175,7 @@ public class Env {
 
         for (Map.Entry<String, String> entry : configs.entrySet()) {
             try {
-                setMutableConfigwithCallback(entry.getKey(), entry.getValue());
+                setMutableConfigWithCallback(entry.getKey(), entry.getValue());
             } catch (ConfigException e) {
                 throw new DdlException(e.getMessage());
             }
