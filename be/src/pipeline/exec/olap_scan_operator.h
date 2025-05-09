@@ -131,6 +131,10 @@ private:
     RuntimeProfile::Counter* _block_fetch_timer = nullptr;
     RuntimeProfile::Counter* _delete_bitmap_get_agg_timer = nullptr;
     RuntimeProfile::Counter* _sync_rowset_timer = nullptr;
+    RuntimeProfile::Counter* _sync_rowset_get_remote_tablet_meta_rpc_timer = nullptr;
+    RuntimeProfile::Counter* _sync_rowset_tablet_meta_cache_hit = nullptr;
+    RuntimeProfile::Counter* _sync_rowset_tablet_meta_cache_miss = nullptr;
+    RuntimeProfile::Counter* _sync_rowset_tablets_rowsets_total_num = nullptr;
     RuntimeProfile::Counter* _sync_rowset_get_remote_rowsets_num = nullptr;
     RuntimeProfile::Counter* _sync_rowset_get_remote_rowsets_rpc_timer = nullptr;
     RuntimeProfile::Counter* _sync_rowset_get_local_delete_bitmap_rowsets_num = nullptr;

@@ -19,6 +19,8 @@
 
 #include <bthread/countdown_event.h>
 
+#include <chrono>
+
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
@@ -169,10 +171,19 @@ Result<std::shared_ptr<CloudTablet>> CloudTabletMgr::get_tablet(int64_t tablet_i
     CacheKey key(tablet_id_str);
     auto* handle = _cache->lookup(key);
     if (handle == nullptr) {
+        if (sync_stats) {
+            ++sync_stats->tablet_meta_cache_miss;
+        }
         auto load_tablet = [this, &key, warmup_data, sync_delete_bitmap,
                             sync_stats](int64_t tablet_id) -> std::shared_ptr<CloudTablet> {
             TabletMetaSharedPtr tablet_meta;
+            auto start = std::chrono::steady_clock::now();
             auto st = _engine.meta_mgr().get_tablet_meta(tablet_id, &tablet_meta);
+            auto end = std::chrono::steady_clock::now();
+            if (sync_stats) {
+                sync_stats->get_remote_tablet_meta_rpc_ns +=
+                        std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count();
+            }
             if (!st.ok()) {
                 LOG(WARNING) << "failed to tablet " << tablet_id << ": " << st;
                 return nullptr;
@@ -206,7 +217,9 @@ Result<std::shared_ptr<CloudTablet>> CloudTabletMgr::get_tablet(int64_t tablet_i
         set_tablet_access_time_ms(tablet.get());
         return tablet;
     }
-
+    if (sync_stats) {
+        ++sync_stats->tablet_meta_cache_hit;
+    }
     CloudTablet* tablet_raw_ptr = reinterpret_cast<Value*>(_cache->value(handle))->tablet.get();
     set_tablet_access_time_ms(tablet_raw_ptr);
     auto tablet = std::shared_ptr<CloudTablet>(tablet_raw_ptr, [this, handle](CloudTablet* tablet) {
