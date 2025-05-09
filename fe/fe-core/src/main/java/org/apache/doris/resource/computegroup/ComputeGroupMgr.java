@@ -46,7 +46,7 @@ public class ComputeGroupMgr {
             }
             return new CloudComputeGroup(clusterId, name, cloudSystemInfoService);
         } else {
-            return new ComputeGroup("", name, systemInfoService);
+            return new ComputeGroup(name, name, systemInfoService);
         }
     }
 
