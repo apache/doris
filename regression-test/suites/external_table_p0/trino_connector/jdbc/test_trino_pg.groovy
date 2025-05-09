@@ -42,7 +42,7 @@ suite("test_trino_pg", "p0,external,pg,external_docker,external_docker_pg") {
                 "trino.connection-user" = "postgres",
                 "trino.connection-url" = "jdbc:postgresql://${externalEnvIp}:${pg_port}/postgres?currentSchema=doris_test&useSSL=false",
                 "trino.connection-password" = "123456",
-                "trino.jdbc-types-mapped-to-varchar" = "uuid,interval,inet,cidr,macaddr,point,line,circle,date,timestamp,timestamptz"
+                "trino.jdbc-types-mapped-to-varchar" = "uuid,interval,inet,cidr,macaddr,point,line,circle,date,timestamp,timestamptz,json,jsonb"
         );"""
 
         sql """use trino_pg_test.catalog_pg_test"""
