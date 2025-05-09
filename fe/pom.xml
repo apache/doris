@@ -224,7 +224,7 @@ under the License.
     <properties>
         <doris.hive.catalog.shade.version>2.1.4</doris.hive.catalog.shade.version>
         <avro.version>1.11.4</avro.version>
-        <parquet.version>1.13.1</parquet.version>
+        <parquet.version>1.15.2</parquet.version>
         <spark.version>3.4.3</spark.version>
         <hudi.version>0.15.0</hudi.version>
         <obs.dependency.scope>compile</obs.dependency.scope>
