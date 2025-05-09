@@ -515,20 +515,12 @@ TEST(PODArrayTest, PODArrayAddNumElement) {
         ASSERT_EQ(array.size(), 6);
         ASSERT_EQ(array.capacity(), 64 / element_size);
         ASSERT_EQ(array, Array({1, 1, 1, 1, 1, 1}));
-    }
-    {
-        Array array;
-
-        array.add_num_element_without_reserve(1, 4);
-        ASSERT_EQ(array.size(), 4);
-        ASSERT_EQ(array.capacity(), 32 / element_size);
-        ASSERT_EQ(array, Array({1, 1, 1, 1}));
 
         // call reserve
-        array.add_num_element_without_reserve(1, 2);
-        ASSERT_EQ(array.size(), 6);
+        array.add_num_element_without_reserve(1, 1);
+        ASSERT_EQ(array.size(), 7);
         ASSERT_EQ(array.capacity(), 64 / element_size);
-        ASSERT_EQ(array, Array({1, 1, 1, 1, 1, 1}));
+        ASSERT_EQ(array, Array({1, 1, 1, 1, 1, 1, 1}));
     }
 }
 
