@@ -62,6 +62,7 @@ import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.SetVar;
 import org.apache.doris.analysis.SetVar.SetVarType;
 import org.apache.doris.analysis.ShowStmt;
+import org.apache.doris.analysis.ShowVariablesStmt;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
@@ -900,7 +901,8 @@ public class StmtExecutor {
                 throw new TException("This is in a transaction, only insert, commit, rollback is acceptable.");
             }
             SessionVariable sessionVariable = context.getSessionVariable();
-            if (!(parsedStmt instanceof SetStmt) && !(parsedStmt instanceof UnsetVariableStmt)) {
+            if (!(parsedStmt instanceof SetStmt) && !(parsedStmt instanceof UnsetVariableStmt)
+                    && !(parsedStmt instanceof ShowVariablesStmt)) {
                 sessionVariable.disableNereidsPlannerOnce();
             }
 
