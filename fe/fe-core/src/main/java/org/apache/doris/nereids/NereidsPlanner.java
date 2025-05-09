@@ -411,10 +411,6 @@ public class NereidsPlanner extends Planner {
             LOG.debug("Start rewrite plan");
         }
         keepOrShowPlanProcess(showPlanProcess, () -> Rewriter.getWholeTreeRewriter(cascadesContext).execute());
-        // collect partitions table used, this is for query rewrite by materialized view
-        // this is needed before init hook
-        collectTableUsedPartitions(showPlanProcess);
-        cascadesContext.getStatementContext().getPlannerHooks().forEach(hook -> hook.afterRewrite(this));
         NereidsTracer.logImportantTime("EndRewritePlan");
         if (LOG.isDebugEnabled()) {
             LOG.debug("End rewrite plan");
@@ -422,6 +418,10 @@ public class NereidsPlanner extends Planner {
         if (statementContext.getConnectContext().getExecutor() != null) {
             statementContext.getConnectContext().getExecutor().getSummaryProfile().setNereidsRewriteTime();
         }
+        // collect partitions table used, this is for query rewrite by materialized view
+        // this is needed before init hook
+        collectTableUsedPartitions(showPlanProcess);
+        cascadesContext.getStatementContext().getPlannerHooks().forEach(hook -> hook.afterRewrite(this));
     }
 
     // DependsRules: EnsureProjectOnTopJoin.class

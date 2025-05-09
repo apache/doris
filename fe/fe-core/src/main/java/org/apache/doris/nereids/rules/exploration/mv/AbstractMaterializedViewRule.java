@@ -306,7 +306,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                                         relatedTableInfo.toList(), cascadesContext.getConnectContext().getSqlHash()));
                         LOG.warn(String.format("queryUsedPartition is empty, table is %s, sql hash is %s",
                                 relatedTableInfo.toList(), cascadesContext.getConnectContext().getSqlHash()));
-                        continue;
+                        break;
                     }
                     invalidPartitions = calcInvalidPartitions(queryUsedPartition, rewrittenPlan,
                             cascadesContext, (AsyncMaterializationContext) materializationContext);
