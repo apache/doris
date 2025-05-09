@@ -1093,8 +1093,8 @@ TEST(BlockTest, ctor) {
 
     vectorized::Block block(slot_descs, 1);
     ASSERT_EQ(block.columns(), 2);
-    ASSERT_EQ(block.get_by_position(0).type->get_type_id(), vectorized::TypeIndex::Int32);
-    ASSERT_EQ(block.get_by_position(1).type->get_type_id(), vectorized::TypeIndex::Nullable);
+    ASSERT_EQ(block.get_by_position(0).type->get_primitive_type(), TYPE_INT);
+    ASSERT_TRUE(block.get_by_position(1).type->is_nullable());
 
     {
         auto mutable_block =
@@ -1126,7 +1126,7 @@ TEST(BlockTest, insert_erase) {
     block.insert(0, column_with_name);
 
     ASSERT_EQ(block.columns(), 2);
-    ASSERT_EQ(block.get_by_position(0).type->get_type_id(), vectorized::TypeIndex::String);
+    ASSERT_EQ(block.get_by_position(0).type->get_primitive_type(), TYPE_STRING);
 
     EXPECT_ANY_THROW(block.insert(3, std::move(column_with_name)));
 
@@ -1134,13 +1134,13 @@ TEST(BlockTest, insert_erase) {
             vectorized::ColumnHelper::create_column_with_name<vectorized::DataTypeFloat64>({});
     block.insert(0, std::move(column_with_name));
     ASSERT_EQ(block.columns(), 3);
-    ASSERT_EQ(block.get_by_position(0).type->get_type_id(), vectorized::TypeIndex::Float64);
+    ASSERT_EQ(block.get_by_position(0).type->get_primitive_type(), TYPE_DOUBLE);
 
     std::set<size_t> positions = {0, 2};
     block.erase(positions);
 
     ASSERT_EQ(block.columns(), 1);
-    ASSERT_EQ(block.get_by_position(0).type->get_type_id(), vectorized::TypeIndex::String);
+    ASSERT_EQ(block.get_by_position(0).type->get_primitive_type(), TYPE_STRING);
 
     block.erase_tail(0);
     ASSERT_EQ(block.columns(), 0);
@@ -1351,17 +1351,17 @@ TEST(BlockTest, others) {
 
     std::vector<int> result_column_ids = {0, 1};
     block.shuffle_columns(result_column_ids);
-    ASSERT_EQ(block.get_by_position(0).type->get_type_id(), vectorized::TypeIndex::Int32);
-    ASSERT_EQ(block.get_by_position(1).type->get_type_id(), vectorized::TypeIndex::String);
+    ASSERT_EQ(block.get_by_position(0).type->get_primitive_type(), TYPE_INT);
+    ASSERT_EQ(block.get_by_position(1).type->get_primitive_type(), TYPE_STRING);
 
     result_column_ids = {1, 0};
     block.shuffle_columns(result_column_ids);
-    ASSERT_EQ(block.get_by_position(1).type->get_type_id(), vectorized::TypeIndex::Int32);
-    ASSERT_EQ(block.get_by_position(0).type->get_type_id(), vectorized::TypeIndex::String);
+    ASSERT_EQ(block.get_by_position(1).type->get_primitive_type(), TYPE_INT);
+    ASSERT_EQ(block.get_by_position(0).type->get_primitive_type(), TYPE_STRING);
 
     result_column_ids = {1};
     block.shuffle_columns(result_column_ids);
-    ASSERT_EQ(block.get_by_position(0).type->get_type_id(), vectorized::TypeIndex::Int32);
+    ASSERT_EQ(block.get_by_position(0).type->get_primitive_type(), TYPE_INT);
     ASSERT_EQ(block.columns(), 1);
 
     vectorized::MutableBlock mutable_block(&block);

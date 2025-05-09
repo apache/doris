@@ -68,10 +68,10 @@ public:
     }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        DCHECK((WhichDataType(remove_nullable(arguments[0]))).is_variant_type())
+        DCHECK_EQ(arguments[0]->get_primitive_type(), TYPE_VARIANT)
                 << "First argument for function: " << name
                 << " should be DataTypeObject but it has type " << arguments[0]->get_name() << ".";
-        DCHECK(is_string(arguments[1]))
+        DCHECK(is_string_type(arguments[1]->get_primitive_type()))
                 << "Second argument for function: " << name << " should be String but it has type "
                 << arguments[1]->get_name() << ".";
         return make_nullable(std::make_shared<DataTypeObject>());
@@ -131,8 +131,7 @@ private:
             (*result)->assume_mutable()->finalize();
             return Status::OK();
         }
-        if (src.is_scalar_variant() &&
-            WhichDataType(remove_nullable(src.get_root_type())).is_string_or_fixed_string()) {
+        if (src.is_scalar_variant() && is_string_type(src.get_root_type()->get_primitive_type())) {
             // use parser to extract from root
             auto type = std::make_shared<DataTypeString>();
             MutableColumnPtr result_column = type->create_column();

@@ -175,7 +175,7 @@ void get_least_supertype_jsonb(const DataTypes& types, DataTypePtr* type) {
         non_nothing_types.reserve(types.size());
 
         for (const auto& type : types) {
-            if (!WhichDataType(type).is_nothing()) {
+            if (type->get_primitive_type() != PrimitiveType::INVALID_TYPE) {
                 non_nothing_types.emplace_back(type);
             }
         }
