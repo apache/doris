@@ -17,3 +17,5 @@
 3	-3	\N	c
 3	3	\N	c
 
+-- !test_right_semi_mark_join --
+company	o1	N
