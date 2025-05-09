@@ -2797,11 +2797,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         boolean syncJournal = false;
         if (!Env.getCurrentEnv().isMaster()) {
-            if (request.isAllowFollowerRead()) {
+            if (!request.isAllowFollowerRead()) {
                 status.setStatusCode(TStatusCode.NOT_MASTER);
                 status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
                 result.setMasterAddress(getMasterAddress());
-                LOG.error("failed to get beginTxn: {}", NOT_MASTER_ERR_MSG);
+                LOG.error("failed to get binlog: {}", NOT_MASTER_ERR_MSG);
                 return result;
             }
             syncJournal = true;
