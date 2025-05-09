@@ -637,8 +637,12 @@ public:
         WhichDataType which_left {left_type};
         WhichDataType which_right {right_type};
 
-        const bool left_is_num_can_compare = which_left.is_num_can_compare();
-        const bool right_is_num_can_compare = which_right.is_num_can_compare();
+        // In the past, we only checked for numeric types here,
+        // but actually, date and datetime can also be compared directly
+        const bool left_is_num_can_compare =
+                which_left.is_num_can_compare() || which_left.is_date_v2_or_datetime_v2();
+        const bool right_is_num_can_compare =
+                which_right.is_num_can_compare() || which_right.is_date_v2_or_datetime_v2();
 
         const bool left_is_string = which_left.is_string_or_fixed_string();
         const bool right_is_string = which_right.is_string_or_fixed_string();
