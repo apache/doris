@@ -68,7 +68,7 @@ public class S3FileSystem extends ObjFileSystem {
     @Override
     public Status globList(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
         S3ObjStorage objStorage = (S3ObjStorage) this.objStorage;
-        return objStorage.globList(remotePath, result, fileNameOnly);
+        return objStorage.globListV2(remotePath, result, fileNameOnly);
     }
 
     @Override

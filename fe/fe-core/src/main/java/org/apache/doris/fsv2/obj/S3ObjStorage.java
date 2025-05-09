@@ -56,7 +56,11 @@ import software.amazon.awssdk.services.s3.model.S3Object;
 import java.io.File;
 import java.io.InputStream;
 import java.net.URI;
+import java.nio.file.FileSystems;
+import java.nio.file.PathMatcher;
+import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
@@ -110,7 +114,98 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
         return client;
     }
 
+    public Status globListV2(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
 
+        long startTime = System.nanoTime();
+        Status st = Status.OK;
+        int elementCnt = 0;
+        int matchCnt = 0;
+        int roundCnt = 0;
+
+        try {
+            remotePath = s3Properties.validateAndNormalizeUri(remotePath);
+            S3URI uri = S3URI.create(remotePath, isUsePathStyle, forceParsingByStandardUri);
+            String globPath = uri.getKey(); // 类似 path/to/*.csv
+            String bucket = uri.getBucket();
+            LOG.info("try to glob list for s3, remote path {}, orig {}", globPath, remotePath);
+
+            java.nio.file.Path pathPattern = Paths.get(globPath);
+            PathMatcher matcher = FileSystems.getDefault().getPathMatcher("glob:" + pathPattern);
+            HashSet<String> directorySet = new HashSet<>();
+
+            String listPrefix = getLongestPrefix(globPath); // 和 Azure 相同逻辑
+            LOG.info("s3 glob list prefix is {}", listPrefix);
+
+            try (S3Client s3 = getClient()) {
+                ListObjectsV2Request request = ListObjectsV2Request.builder()
+                        .bucket(bucket)
+                        .prefix(listPrefix)
+                        .build();
+
+                ListObjectsV2Response response = s3.listObjectsV2(request);
+                for (S3Object obj : response.contents()) {
+                    elementCnt++;
+                    java.nio.file.Path blobPath = Paths.get(obj.key());
+
+                    boolean isPrefix = false;
+                    while (blobPath.normalize().toString().startsWith(listPrefix)) {
+                        if (!matcher.matches(blobPath)) {
+                            isPrefix = true;
+                            blobPath = blobPath.getParent();
+                            continue;
+                        }
+                        if (directorySet.contains(blobPath.normalize().toString())) {
+                            break;
+                        }
+                        if (isPrefix) {
+                            directorySet.add(blobPath.normalize().toString());
+                        }
+
+                        matchCnt++;
+                        RemoteFile remoteFile = new RemoteFile(
+                                fileNameOnly ? blobPath.getFileName().toString() :
+                                        "s3://" + bucket + "/" + blobPath.toString(),
+                                !isPrefix,
+                                isPrefix ? -1 : obj.size(),
+                                isPrefix ? -1 : obj.size(),
+                                isPrefix ? 0 : obj.lastModified().toEpochMilli()
+                        );
+                        result.add(remoteFile);
+                        blobPath = blobPath.getParent();
+                        isPrefix = true;
+                    }
+                }
+            }
+
+        } catch (Exception e) {
+            LOG.warn("errors while glob file " + remotePath, e);
+            st = new Status(Status.ErrCode.COMMON_ERROR, "errors while glob file "
+                    + remotePath + ": " + e.getMessage());
+        } finally {
+            long endTime = System.nanoTime();
+            long duration = endTime - startTime;
+            LOG.info("process {} elements under prefix {} for {} round, match {} elements, take {} micro second",
+                    remotePath, elementCnt, roundCnt, matchCnt, duration / 1000);
+        }
+
+        return st;
+    }
+
+    public static String getLongestPrefix(String globPattern) {
+        int length = globPattern.length();
+        int earliestSpecialCharIndex = length;
+
+        char[] specialChars = {'*', '?', '[', '{', '\\'};
+
+        for (char specialChar : specialChars) {
+            int index = globPattern.indexOf(specialChar);
+            if (index != -1 && index < earliestSpecialCharIndex) {
+                earliestSpecialCharIndex = index;
+            }
+        }
+
+        return globPattern.substring(0, earliestSpecialCharIndex);
+    }
 
     public Status globList(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
         try {
