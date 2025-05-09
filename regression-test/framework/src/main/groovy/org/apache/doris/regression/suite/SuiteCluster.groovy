@@ -544,7 +544,7 @@ class SuiteCluster {
     }
 
     int START_WAIT_TIMEOUT = 120
-    int STOP_WAIT_TIMEOUT = 30
+    int STOP_WAIT_TIMEOUT = 60
 
     // if not specific fe indices, then start all frontends
     void startFrontends(int... indices) {
