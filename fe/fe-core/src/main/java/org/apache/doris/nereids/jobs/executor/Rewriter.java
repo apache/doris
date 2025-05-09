@@ -137,6 +137,7 @@ import org.apache.doris.nereids.rules.rewrite.PushFilterInsideJoin;
 import org.apache.doris.nereids.rules.rewrite.PushProjectIntoOneRowRelation;
 import org.apache.doris.nereids.rules.rewrite.PushProjectIntoUnion;
 import org.apache.doris.nereids.rules.rewrite.PushProjectThroughUnion;
+import org.apache.doris.nereids.rules.rewrite.RecordPlanAndTryToMvRewrite;
 import org.apache.doris.nereids.rules.rewrite.ReduceAggregateChildOutputRows;
 import org.apache.doris.nereids.rules.rewrite.ReorderJoin;
 import org.apache.doris.nereids.rules.rewrite.RewriteCteChildren;
@@ -161,6 +162,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -169,7 +171,213 @@ import java.util.stream.Collectors;
  */
 public class Rewriter extends AbstractBatchJobExecutor {
 
-    private static final List<RewriteJob> CTE_CHILDREN_REWRITE_JOBS_BEFORE_SUB_PATH_PUSH_DOWN = notTraverseChildrenOf(
+    public static final List<RewriteJob> CTE_CHILDREN_REWRITE_JOBS_MV_REWRITE_USED =
+            notTraverseChildrenOf(
+                    ImmutableSet.of(LogicalCTEAnchor.class),
+                    () -> jobs(
+                            topic("Plan Normalization",
+                                    topDown(
+                                            new EliminateOrderByConstant(),
+                                            new EliminateSortUnderSubqueryOrView(),
+                                            // MergeProjects depends on this rule
+                                            new LogicalSubQueryAliasToLogicalProject(),
+                                            // TODO: we should do expression normalization after plan normalization
+                                            //   because some rewritten depends on sub expression tree matching
+                                            //   such as group by key matching and replaced
+                                            //   but we need to do some normalization before subquery unnesting,
+                                            //   such as extract common expression.
+                                            new ExpressionNormalizationAndOptimization(),
+                                            new AvgDistinctToSumDivCount(),
+                                            new CountDistinctRewrite(),
+                                            new ExtractFilterFromCrossJoin()
+                                    ),
+                                    topDown(
+                                            // ExtractSingleTableExpressionFromDisjunction conflict to
+                                            // InPredicateToEqualToRule
+                                            // in the ExpressionNormalization, so must invoke in another job,
+                                            // otherwise dead loop.
+                                            new ExtractSingleTableExpressionFromDisjunction()
+                                    )
+                            ),
+                            // subquery unnesting relay on ExpressionNormalization to extract common factor expression
+                            topic("Subquery unnesting",
+                                    // after doing NormalizeAggregate in analysis job
+                                    // we need run the following 2 rules to make
+                                    // AGG_SCALAR_SUBQUERY_TO_WINDOW_FUNCTION work
+                                    bottomUp(new PullUpProjectUnderApply()),
+                                    topDown(
+                                            new PushDownFilterThroughProject(),
+                                            // the subquery may have where and having clause
+                                            // so there may be two filters we need to merge them
+                                            new MergeFilters()
+                                    ),
+                                    custom(RuleType.AGG_SCALAR_SUBQUERY_TO_WINDOW_FUNCTION,
+                                            AggScalarSubQueryToWindowFunction::new),
+                                    bottomUp(
+                                            new EliminateUselessPlanUnderApply(),
+                                            // CorrelateApplyToUnCorrelateApply and ApplyToJoin
+                                            // and SelectMaterializedIndexWithAggregate depends on this rule
+                                            new MergeProjects(),
+                                            /*
+                                             * Subquery unnesting.
+                                             * 1. Adjust the plan in correlated logicalApply
+                                             *    so that there are no correlated columns in the subquery.
+                                             * 2. Convert logicalApply to a logicalJoin.
+                                             *  TODO: group these rules to make sure the result plan is what
+                                             *   we expected.
+                                             */
+                                            new CorrelateApplyToUnCorrelateApply(),
+                                            new ApplyToJoin(),
+                                            // UnCorrelatedApplyAggregateFilter rule will create new aggregate outputs,
+                                            // The later rule CheckPrivileges which inherent from ColumnPruning
+                                            // only works
+                                            // if the aggregation node is normalized, so we need call
+                                            // NormalizeAggregate here
+                                            new NormalizeAggregate()
+                                    )
+                            ),
+                            // before `Subquery unnesting` topic, some correlate slots should have appeared at
+                            // LogicalApply.left,
+                            // but it appeared at LogicalApply.right. After the `Subquery unnesting` topic, all
+                            // slots is placed in a
+                            // normal position, then we can check column privileges by these steps
+                            //
+                            // 1. use ColumnPruning rule to derive the used slots in LogicalView
+                            // 2. and then check the column privileges
+                            // 3. finally, we can eliminate the LogicalView
+                            topic("Inline view and check column privileges",
+                                    custom(RuleType.CHECK_PRIVILEGES, CheckPrivileges::new),
+                                    bottomUp(new InlineLogicalView())
+                            ),
+                            topic("Eliminate optimization",
+                                    bottomUp(
+                                            new EliminateLimit(),
+                                            new EliminateFilter(),
+                                            new EliminateAggregate(),
+                                            new EliminateAggCaseWhen(),
+                                            new ReduceAggregateChildOutputRows(),
+                                            new EliminateJoinCondition(),
+                                            new EliminateAssertNumRows(),
+                                            new EliminateSemiJoin()
+                                    )
+                            ),
+                            // please note: this rule must run before NormalizeAggregate
+                            topDown(new AdjustAggregateNullableForEmptySet()),
+                            // The rule modification needs to be done after the subquery is unnested,
+                            // because for scalarSubQuery, the connection condition is stored in apply in
+                            // the analyzer phase,
+                            // but when normalizeAggregate/normalizeSort is performed, the members in apply
+                            // cannot be obtained,
+                            // resulting in inconsistent output results and results in apply
+                            topDown(
+                                    new NormalizeAggregate(),
+                                    new CountLiteralRewrite(),
+                                    new NormalizeSort()
+                            ),
+
+                            topDown(// must behind NormalizeAggregate/NormalizeSort
+                                    new MergeProjects(),
+                                    new PushDownEncodeSlot(),
+                                    new DecoupleEncodeDecode()
+                            ),
+
+                            topic("Window analysis",
+                                    topDown(
+                                            new ExtractAndNormalizeWindowExpression(),
+                                            new CheckAndStandardizeWindowFunctionAndFrame(),
+                                            new SimplifyWindowExpression()
+                                    )
+                            ),
+                            topic("Rewrite join",
+                                    // infer not null filter, then push down filter, and then reorder join
+                                    // (cross join to inner join)
+                                    topDown(
+                                            new InferAggNotNull(),
+                                            new InferFilterNotNull(),
+                                            new InferJoinNotNull()
+                                    ),
+                                    // ReorderJoin depends PUSH_DOWN_FILTERS
+                                    // the PUSH_DOWN_FILTERS depends on lots of rules, e.g. merge project,
+                                    // eliminate outer,
+                                    // sometimes transform the bottom plan make some rules usable which can apply to
+                                    // the top plan,
+                                    // but top-down traverse can not cover this case in one iteration,
+                                    // so bottom-up is more
+                                    // efficient because it can find the new plans and apply transform wherever it is
+                                    bottomUp(RuleSet.PUSH_DOWN_FILTERS),
+                                    // after push down, some new filters are generated, which needs to be optimized.
+                                    // (example: tpch q19)
+                                    // topDown(new ExpressionOptimization()),
+                                    topDown(
+                                            new MergeFilters(),
+                                            new ReorderJoin(),
+                                            new PushFilterInsideJoin(),
+                                            new FindHashConditionForJoin(),
+                                            new ConvertInnerOrCrossJoin(),
+                                            new EliminateNullAwareLeftAntiJoin()
+                                    ),
+                                    // push down SEMI Join
+                                    bottomUp(
+                                            new TransposeSemiJoinLogicalJoin(),
+                                            new TransposeSemiJoinLogicalJoinProject(),
+                                            new TransposeSemiJoinAgg(),
+                                            new TransposeSemiJoinAggProject()
+                                    ),
+                                    topDown(
+                                            new EliminateDedupJoinCondition()
+                                    ),
+                                    // eliminate useless not null or inferred not null
+                                    // TODO: wait InferPredicates to infer more not null.
+                                    bottomUp(new EliminateNotNull()),
+                                    topDown(new ConvertInnerOrCrossJoin())
+                            ),
+                            topic("Set operation optimization",
+                                    // Do MergeSetOperation first because we hope to match pattern of
+                                    // Distinct SetOperator.
+                                    topDown(new PushProjectThroughUnion(), new MergeProjects()),
+                                    bottomUp(new MergeSetOperations(), new MergeSetOperationsExcept()),
+                                    bottomUp(new PushProjectIntoOneRowRelation()),
+                                    topDown(new MergeOneRowRelationIntoUnion()),
+                                    topDown(new BuildAggForUnion()),
+                                    bottomUp(new EliminateEmptyRelation()),
+                                    // when union has empty relation child and constantExprsList is not empty,
+                                    // after EliminateEmptyRelation, project can be pushed into union
+                                    topDown(new PushProjectIntoUnion())
+                            ),
+                            topic("infer In-predicate from Or-predicate",
+                                    topDown(new InferInPredicateFromOr())
+                            ),
+                            // putting the "Column pruning and infer predicate" topic behind the "Set operation
+                            // optimization"
+                            // is because that pulling up predicates from union needs EliminateEmptyRelation in
+                            // union child
+                            topic("Column pruning and infer predicate",
+                                    custom(RuleType.COLUMN_PRUNING, ColumnPruning::new),
+                                    custom(RuleType.INFER_PREDICATES, InferPredicates::new),
+                                    // column pruning create new project, so we should use PUSH_DOWN_FILTERS
+                                    // to change filter-project to project-filter
+                                    bottomUp(RuleSet.PUSH_DOWN_FILTERS),
+                                    // after eliminate outer join in the PUSH_DOWN_FILTERS,
+                                    // we can infer more predicate and push down
+                                    custom(RuleType.INFER_PREDICATES, InferPredicates::new),
+                                    bottomUp(RuleSet.PUSH_DOWN_FILTERS),
+                                    // after eliminate outer join, we can move some filters to join.otherJoinConjuncts,
+                                    // this can help to translate plan to backend
+                                    topDown(new PushFilterInsideJoin()),
+                                    topDown(new FindHashConditionForJoin()),
+                                    // ProjectOtherJoinConditionForNestedLoopJoin will push down the expression
+                                    // in the non-equivalent join condition and turn it into slotReference,
+                                    // This results in the inability to obtain Cast child information in
+                                    // INFER_PREDICATES,
+                                    // which will affect predicate inference with cast. So put this rule
+                                    // behind the INFER_PREDICATES
+                                    topDown(new ProjectOtherJoinConditionForNestedLoopJoin())
+                            )
+                    )
+            );
+
+    public static final List<RewriteJob> CTE_CHILDREN_REWRITE_JOBS_BEFORE_SUB_PATH_PUSH_DOWN_STAGE_1 =
+             notTraverseChildrenOf(
             ImmutableSet.of(LogicalCTEAnchor.class),
             () -> jobs(
                 topic("Plan Normalization",
@@ -351,129 +559,142 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         // This results in the inability to obtain Cast child information in INFER_PREDICATES,
                         // which will affect predicate inference with cast. So put this rule behind the INFER_PREDICATES
                         topDown(new ProjectOtherJoinConditionForNestedLoopJoin())
-                ),
-                // this rule should invoke after ColumnPruning
-                custom(RuleType.ELIMINATE_UNNECESSARY_PROJECT, EliminateUnnecessaryProject::new),
-                topic("Eliminate Order By Key",
-                        topDown(new EliminateOrderByKey())),
-                topic("Eliminate GroupBy",
-                        topDown(new EliminateGroupBy(),
-                                new MergeAggregate(),
-                                // need to adjust min/max/sum nullable attribute after merge aggregate
-                                new AdjustAggregateNullableForEmptySet())
-                ),
-
-                topic("Eager aggregation",
-                        costBased(topDown(
-                                new PushDownAggWithDistinctThroughJoinOneSide(),
-                                new PushDownAggThroughJoinOneSide(),
-                                new PushDownAggThroughJoin()
-                        )),
-                        costBased(custom(RuleType.PUSH_DOWN_DISTINCT_THROUGH_JOIN, PushDownDistinctThroughJoin::new)),
-                        topDown(new PushCountIntoUnionAll())
-                ),
-
-                // this rule should invoke after infer predicate and push down distinct, and before push down limit
-                topic("eliminate join according unique or foreign key",
-                    bottomUp(new EliminateJoinByFK()),
-                    topDown(new EliminateJoinByUnique())
-                ),
-                topic("eliminate Aggregate according to fd items",
-                        custom(RuleType.ELIMINATE_GROUP_BY_KEY_BY_UNIFORM, EliminateGroupByKeyByUniform::new),
-                        topDown(new EliminateGroupByKey()),
-                        topDown(new PushDownAggThroughJoinOnPkFk()),
-                        topDown(new PullUpJoinFromUnionAll())
-                ),
-
-                topic("Limit optimization",
-                        // TODO: the logical plan should not contains any phase information,
-                        //       we should refactor like AggregateStrategies, e.g. LimitStrategies,
-                        //       generate one PhysicalLimit if current distribution is gather or two
-                        //       PhysicalLimits with gather exchange
-                        topDown(new LimitSortToTopN()),
-                        topDown(new MergeTopNs()),
-                        topDown(new SimplifyEncodeDecode(),
-                                new MergeProjects()
-                        ),
-                        topDown(new LimitAggToTopNAgg()),
-                        topDown(new SplitLimit()),
-                        topDown(
-                                new PushDownLimit(),
-                                new PushDownLimitDistinctThroughJoin(),
-                                new PushDownLimitDistinctThroughUnion(),
-                                new PushDownTopNDistinctThroughJoin(),
-                                new PushDownTopNDistinctThroughUnion(),
-                                new PushDownTopNThroughJoin(),
-                                new PushDownTopNThroughWindow(),
-                                new PushDownTopNThroughUnion()
-                        ),
-                        topDown(new CreatePartitionTopNFromWindow()),
-                        topDown(
-                                new PullUpProjectUnderTopN(),
-                                new PullUpProjectUnderLimit()
-                        )
-                ),
-                // TODO: these rules should be implementation rules, and generate alternative physical plans.
-                topic("Table/Physical optimization",
-                        topDown(
-                                new PruneOlapScanPartition(),
-                                new PruneEmptyPartition(),
-                                new PruneFileScanPartition(),
-                                new PushDownFilterIntoSchemaScan()
-                        )
-                ),
-                topic("MV optimization",
-                        topDown(
-                                new SelectMaterializedIndexWithAggregate(),
-                                new SelectMaterializedIndexWithoutAggregate(),
-                                new EliminateFilter(),
-                                new PushDownFilterThroughProject(),
-                                new MergeProjects(),
-                                new PruneOlapScanTablet()
-                        ),
-                        custom(RuleType.COLUMN_PRUNING, ColumnPruning::new),
-                        bottomUp(RuleSet.PUSH_DOWN_FILTERS),
-                        custom(RuleType.ELIMINATE_UNNECESSARY_PROJECT, EliminateUnnecessaryProject::new)
-                ),
-                topic("adjust preagg status",
-                        topDown(new AdjustPreAggStatus())
-                ),
-                topic("Point query short circuit",
-                        topDown(new LogicalResultSinkToShortCircuitPointQuery())),
-                topic("eliminate",
-                        // SORT_PRUNING should be applied after mergeLimit
-                        custom(RuleType.ELIMINATE_SORT, EliminateSort::new),
-                        bottomUp(
-                                new EliminateEmptyRelation(),
-                                // after eliminate empty relation under union, we could get
-                                // limit
-                                // +-- project
-                                //     +-- limit
-                                //         + project
-                                // so, we need push project through limit to satisfy translator's assumptions
-                                new PushDownFilterThroughProject(),
-                                new PushDownProjectThroughLimit(),
-                                new MergeProjects())
-                ),
-                topic("agg rewrite",
-                    // these rules should be put after mv optimization to avoid mv matching fail
-                    topDown(new SumLiteralRewrite(),
-                            new MergePercentileToArray())
-                ),
-                topic("collect scan filter for hbo",
-                    // this rule is to collect filter on basic table for hbo usage
-                    topDown(new CollectPredicateOnScan())
-                ),
-                topic("Push project and filter on cte consumer to cte producer",
-                        topDown(
-                                new CollectFilterAboveConsumer(),
-                                new CollectCteConsumerOutput()
-                        )
-                ),
-                topic("Collect used column", custom(RuleType.COLLECT_COLUMNS, QueryColumnCollector::new)
-            )
+                )
         )
     );
+
+    private static final List<RewriteJob> CTE_CHILDREN_REWRITE_JOBS_BEFORE_SUB_PATH_PUSH_DOWN_STAGE_2 =
+            notTraverseChildrenOf(
+                    ImmutableSet.of(LogicalCTEAnchor.class),
+                    () -> jobs(
+                            // this rule should invoke after ColumnPruning
+                            custom(RuleType.ELIMINATE_UNNECESSARY_PROJECT, EliminateUnnecessaryProject::new),
+                            topic("Eliminate Order By Key",
+                                    topDown(new EliminateOrderByKey())),
+                            topic("Eliminate GroupBy",
+                                    topDown(new EliminateGroupBy(),
+                                            new MergeAggregate(),
+                                            // need to adjust min/max/sum nullable attribute after merge aggregate
+                                            new AdjustAggregateNullableForEmptySet())
+                            ),
+
+                            topic("Eager aggregation",
+                                    costBased(topDown(
+                                            new PushDownAggWithDistinctThroughJoinOneSide(),
+                                            new PushDownAggThroughJoinOneSide(),
+                                            new PushDownAggThroughJoin()
+                                    )),
+                                    costBased(custom(RuleType.PUSH_DOWN_DISTINCT_THROUGH_JOIN,
+                                            PushDownDistinctThroughJoin::new)),
+                                    topDown(new PushCountIntoUnionAll())
+                            ),
+
+                            // this rule should invoke after infer predicate and push down distinct,
+                            // and before push down limit
+                            topic("eliminate join according unique or foreign key",
+                                    bottomUp(new EliminateJoinByFK()),
+                                    topDown(new EliminateJoinByUnique())
+                            ),
+                            topic("eliminate Aggregate according to fd items",
+                                    custom(RuleType.ELIMINATE_GROUP_BY_KEY_BY_UNIFORM,
+                                            EliminateGroupByKeyByUniform::new),
+                                    topDown(new EliminateGroupByKey()),
+                                    topDown(new PushDownAggThroughJoinOnPkFk()),
+                                    topDown(new PullUpJoinFromUnionAll())
+                            ),
+
+                            topic("Limit optimization",
+                                    // TODO: the logical plan should not contains any phase information,
+                                    //       we should refactor like AggregateStrategies, e.g. LimitStrategies,
+                                    //       generate one PhysicalLimit if current distribution is gather or two
+                                    //       PhysicalLimits with gather exchange
+                                    topDown(new LimitSortToTopN()),
+                                    topDown(new MergeTopNs()),
+                                    topDown(new SimplifyEncodeDecode(),
+                                            new MergeProjects()
+                                    ),
+                                    topDown(new LimitAggToTopNAgg()),
+                                    topDown(new SplitLimit()),
+                                    topDown(
+                                            new PushDownLimit(),
+                                            new PushDownLimitDistinctThroughJoin(),
+                                            new PushDownLimitDistinctThroughUnion(),
+                                            new PushDownTopNDistinctThroughJoin(),
+                                            new PushDownTopNDistinctThroughUnion(),
+                                            new PushDownTopNThroughJoin(),
+                                            new PushDownTopNThroughWindow(),
+                                            new PushDownTopNThroughUnion()
+                                    ),
+                                    topDown(new CreatePartitionTopNFromWindow()),
+                                    topDown(
+                                            new PullUpProjectUnderTopN(),
+                                            new PullUpProjectUnderLimit()
+                                    )
+                            ),
+                            // TODO: these rules should be implementation rules,
+                            //  and generate alternative physical plans.
+                            topic("Table/Physical optimization",
+                                    topDown(
+                                            new PruneOlapScanPartition(),
+                                            new PruneEmptyPartition(),
+                                            new PruneFileScanPartition(),
+                                            new PushDownFilterIntoSchemaScan()
+                                    )
+                            ),
+                            topic("MV optimization",
+                                    topDown(
+                                            new SelectMaterializedIndexWithAggregate(),
+                                            new SelectMaterializedIndexWithoutAggregate(),
+                                            new EliminateFilter(),
+                                            new PushDownFilterThroughProject(),
+                                            new MergeProjects(),
+                                            new PruneOlapScanTablet()
+                                    ),
+                                    custom(RuleType.COLUMN_PRUNING, ColumnPruning::new),
+                                    bottomUp(RuleSet.PUSH_DOWN_FILTERS),
+                                    custom(RuleType.ELIMINATE_UNNECESSARY_PROJECT, EliminateUnnecessaryProject::new)
+                            ),
+                            topic("adjust preagg status",
+                                    topDown(new AdjustPreAggStatus())
+                            ),
+                            topic("Point query short circuit",
+                                    topDown(new LogicalResultSinkToShortCircuitPointQuery())),
+                            topic("eliminate",
+                                    // SORT_PRUNING should be applied after mergeLimit
+                                    custom(RuleType.ELIMINATE_SORT, EliminateSort::new),
+                                    bottomUp(
+                                            new EliminateEmptyRelation(),
+                                            // after eliminate empty relation under union, we could get
+                                            // limit
+                                            // +-- project
+                                            //     +-- limit
+                                            //         + project
+                                            // so, we need push project through limit to satisfy
+                                            // translator's assumptions
+                                            new PushDownFilterThroughProject(),
+                                            new PushDownProjectThroughLimit(),
+                                            new MergeProjects())
+                            ),
+                            topic("agg rewrite",
+                                    // these rules should be put after mv optimization to avoid mv matching fail
+                                    topDown(new SumLiteralRewrite(),
+                                            new MergePercentileToArray())
+                            ),
+                            topic("collect scan filter for hbo",
+                                    // this rule is to collect filter on basic table for hbo usage
+                                    topDown(new CollectPredicateOnScan())
+                            ),
+                            topic("Push project and filter on cte consumer to cte producer",
+                                    topDown(
+                                            new CollectFilterAboveConsumer(),
+                                            new CollectCteConsumerOutput()
+                                    )
+                            ),
+                            topic("Collect used column", custom(RuleType.COLLECT_COLUMNS,
+                                    QueryColumnCollector::new)
+                            )
+                    )
+            );
 
     private static final List<RewriteJob> CTE_CHILDREN_REWRITE_JOBS_AFTER_SUB_PATH_PUSH_DOWN = notTraverseChildrenOf(
             ImmutableSet.of(LogicalCTEAnchor.class),
@@ -545,15 +766,30 @@ public class Rewriter extends AbstractBatchJobExecutor {
      * only
      */
     public static Rewriter getWholeTreeRewriterWithCustomJobs(CascadesContext cascadesContext, List<RewriteJob> jobs) {
-        return new Rewriter(cascadesContext, getWholeTreeRewriteJobs(false, false, jobs, ImmutableList.of()));
+        return new Rewriter(cascadesContext, getWholeTreeRewriteJobs(false, false,
+                jobs, ImmutableList.of()));
     }
 
     private static List<RewriteJob> getWholeTreeRewriteJobs(boolean withCostBased) {
-        List<RewriteJob> withoutCostBased = Rewriter.CTE_CHILDREN_REWRITE_JOBS_BEFORE_SUB_PATH_PUSH_DOWN.stream()
-                .filter(j -> !(j instanceof CostBasedRewriteJob))
-                .collect(Collectors.toList());
-        return getWholeTreeRewriteJobs(true, true,
-                withCostBased ? CTE_CHILDREN_REWRITE_JOBS_BEFORE_SUB_PATH_PUSH_DOWN : withoutCostBased,
+        if (!withCostBased) {
+            List<RewriteJob> beforeSubPathAndMvJobsStage1 = CTE_CHILDREN_REWRITE_JOBS_BEFORE_SUB_PATH_PUSH_DOWN_STAGE_1
+                    .stream()
+                    .filter(j -> !(j instanceof CostBasedRewriteJob))
+                    .collect(Collectors.toList());
+
+            List<RewriteJob> beforeSubPathAndMvJobsStage2 = CTE_CHILDREN_REWRITE_JOBS_BEFORE_SUB_PATH_PUSH_DOWN_STAGE_2
+                    .stream()
+                    .filter(j -> !(j instanceof CostBasedRewriteJob))
+                    .collect(Collectors.toList());
+            beforeSubPathAndMvJobsStage1.addAll(beforeSubPathAndMvJobsStage2);
+
+            return getWholeTreeRewriteJobs(true, true, beforeSubPathAndMvJobsStage1,
+                    CTE_CHILDREN_REWRITE_JOBS_AFTER_SUB_PATH_PUSH_DOWN);
+        }
+        List<RewriteJob> copiedRewriteJobs
+                = new ArrayList<>(CTE_CHILDREN_REWRITE_JOBS_BEFORE_SUB_PATH_PUSH_DOWN_STAGE_1);
+        copiedRewriteJobs.addAll(CTE_CHILDREN_REWRITE_JOBS_BEFORE_SUB_PATH_PUSH_DOWN_STAGE_2);
+        return getWholeTreeRewriteJobs(true, true, copiedRewriteJobs,
                 CTE_CHILDREN_REWRITE_JOBS_AFTER_SUB_PATH_PUSH_DOWN);
     }
 
@@ -576,8 +812,12 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         topic("process limit session variables",
                                 custom(RuleType.ADD_DEFAULT_LIMIT, AddDefaultLimit::new)
                         ),
+                        topic("record tmp plan and try to rewrite by mv",
+                                custom(RuleType.RECORD_PLAN_FOR_LATER_MV_REWRITE, RecordPlanAndTryToMvRewrite::new)
+                        ),
                         topic("rewrite cte sub-tree before sub path push down",
-                                custom(RuleType.REWRITE_CTE_CHILDREN, () -> new RewriteCteChildren(beforePushDownJobs))
+                                custom(RuleType.REWRITE_CTE_CHILDREN,
+                                        () -> new RewriteCteChildren(beforePushDownJobs))
                         )));
                 if (needOrExpansion) {
                     rewriteJobs.addAll(jobs(topic("or expansion",

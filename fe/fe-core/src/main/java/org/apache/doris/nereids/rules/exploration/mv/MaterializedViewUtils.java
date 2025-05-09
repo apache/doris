@@ -28,6 +28,8 @@ import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.PlannerHook;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.StructInfoMap;
 import org.apache.doris.nereids.rules.RuleType;
@@ -195,11 +197,9 @@ public class MaterializedViewUtils {
                             && !materializedViewTableSet.equals(queryTableSet)) {
                         continue;
                     }
-                    StructInfo structInfo = structInfoMap.getStructInfo(cascadesContext,
+                    Collection<StructInfo> structInfo = structInfoMap.getStructInfo(cascadesContext,
                             queryTableSet, ownerGroup, originalPlan);
-                    if (structInfo != null) {
-                        structInfosBuilder.add(structInfo);
-                    }
+                    structInfosBuilder.addAll(structInfo);
                 }
             }
             return structInfosBuilder.build();
@@ -240,9 +240,8 @@ public class MaterializedViewUtils {
      * rules, this method is only for materialized view rewrite
      */
     public static Plan rewriteByRules(
-            CascadesContext cascadesContext,
-            Function<CascadesContext, Plan> planRewriter,
-            Plan rewrittenPlan, Plan originPlan) {
+            CascadesContext cascadesContext, Function<CascadesContext, Plan> planRewriter,
+            Plan rewrittenPlan, Plan originPlan, boolean checkResult, boolean mvRewrite) {
         if (originPlan == null || rewrittenPlan == null) {
             return null;
         }
@@ -254,9 +253,8 @@ public class MaterializedViewUtils {
         List<ExprId> originalRewrittenPlanExprIds =
                 rewrittenPlan.getOutput().stream().map(Slot::getExprId).collect(Collectors.toList());
         // run rbo job on mv rewritten plan
-        CascadesContext rewrittenPlanContext = CascadesContext.initContext(
-                cascadesContext.getStatementContext(), rewrittenPlan,
-                cascadesContext.getCurrentJobContext().getRequiredProperties());
+        CascadesContext rewrittenPlanContext = CascadesContext.initContext(cascadesContext.getStatementContext(),
+                rewrittenPlan, cascadesContext.getCurrentJobContext().getRequiredProperties());
         // Tmp old disable rule variable
         Set<String> oldDisableRuleNames = rewrittenPlanContext.getStatementContext().getConnectContext()
                 .getSessionVariable()
@@ -264,6 +262,10 @@ public class MaterializedViewUtils {
         rewrittenPlanContext.getStatementContext().getConnectContext().getSessionVariable()
                 .setDisableNereidsRules(String.join(",", ImmutableSet.of(RuleType.ADD_DEFAULT_LIMIT.name())));
         rewrittenPlanContext.getStatementContext().invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
+        List<PlannerHook> removedMaterializedViewHooks = new ArrayList<>();
+        if (!mvRewrite) {
+            removedMaterializedViewHooks = removeMaterializedViewHooks(rewrittenPlanContext.getStatementContext());
+        }
         try {
             rewrittenPlanContext.getConnectContext().setSkipAuth(true);
             rewrittenPlan = planRewriter.apply(rewrittenPlanContext);
@@ -273,6 +275,7 @@ public class MaterializedViewUtils {
             rewrittenPlanContext.getStatementContext().getConnectContext().getSessionVariable()
                     .setDisableNereidsRules(String.join(",", oldDisableRuleNames));
             rewrittenPlanContext.getStatementContext().invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
+            rewrittenPlanContext.getStatementContext().getPlannerHooks().addAll(removedMaterializedViewHooks);
         }
         Map<ExprId, Slot> exprIdToNewRewrittenSlot = Maps.newLinkedHashMap();
         for (Slot slot : rewrittenPlan.getOutput()) {
@@ -281,13 +284,29 @@ public class MaterializedViewUtils {
         List<ExprId> rewrittenPlanExprIds = rewrittenPlan.getOutput().stream()
                 .map(Slot::getExprId).collect(Collectors.toList());
         // If project order doesn't change, return rewrittenPlan directly
-        if (originalRewrittenPlanExprIds.equals(rewrittenPlanExprIds)) {
+        if (originalRewrittenPlanExprIds.equals(rewrittenPlanExprIds) || !checkResult) {
             return rewrittenPlan;
         }
         // If project order change, return rewrittenPlan with reordered projects
         return new LogicalProject<>(originalRewrittenPlanExprIds.stream()
                 .map(exprId -> (NamedExpression) exprIdToNewRewrittenSlot.get(exprId)).collect(Collectors.toList()),
                 rewrittenPlan);
+    }
+
+    /**
+     * removeMaterializedViewHooks
+     *
+     * @return removed materialized view hooks
+     */
+    public static List<PlannerHook> removeMaterializedViewHooks(StatementContext statementContext) {
+        List<PlannerHook> tmpMaterializedViewHooks = new ArrayList<>();
+        for (PlannerHook hook : statementContext.getPlannerHooks()) {
+            if (hook instanceof InitMaterializationContextHook) {
+                tmpMaterializedViewHooks.add(hook);
+            }
+        }
+        statementContext.clearMaterializedHooks();
+        return tmpMaterializedViewHooks;
     }
 
     /**
@@ -299,6 +318,19 @@ public class MaterializedViewUtils {
         List<Expression> nondeterministicFunctions = new ArrayList<>();
         plan.accept(NondeterministicFunctionCollector.INSTANCE, nondeterministicFunctions);
         return nondeterministicFunctions;
+    }
+
+    /**
+     * Decide the statementContext if contain materialized view hook or not
+     */
+    public static boolean containMaterializedViewHook(StatementContext statementContext) {
+        for (PlannerHook plannerHook : statementContext.getPlannerHooks()) {
+            // only collect when InitMaterializationContextHook exists in planner hooks
+            if (plannerHook instanceof InitMaterializationContextHook) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
