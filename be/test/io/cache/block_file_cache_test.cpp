@@ -7477,9 +7477,7 @@ TEST_F(BlockFileCacheTest, test_upgrade_cache_dir_version) {
         }
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-    { // make the cache dir VERSION1
-        move_dir_to_version1(cache_base_path);
-    }
+    move_dir_to_version1(cache_base_path);
     std::this_thread::sleep_for(std::chrono::milliseconds(1000));
     // try the 3rd, update dir
     {
@@ -7507,9 +7505,7 @@ TEST_F(BlockFileCacheTest, test_upgrade_cache_dir_version) {
     }
 
     std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-    { // make the cache dir VERSION1
-        move_dir_to_version1(cache_base_path);
-    }
+    move_dir_to_version1(cache_base_path);
     std::this_thread::sleep_for(std::chrono::milliseconds(1000));
     // inject failure and try the 4th
     sp->enable_processing();
@@ -7540,11 +7536,9 @@ TEST_F(BlockFileCacheTest, test_upgrade_cache_dir_version) {
             blocks.clear();
         }
     }
-    LOG_INFO("OOXX");
+
     std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-    { // make the cache dir VERSION1 again
-        move_dir_to_version1(cache_base_path);
-    }
+    move_dir_to_version1(cache_base_path);
     std::this_thread::sleep_for(std::chrono::milliseconds(1000));
     config::ignore_broken_disk = false;
     { // set ignore_broken_disk = false, inject failure and try the 5th cache initialize
