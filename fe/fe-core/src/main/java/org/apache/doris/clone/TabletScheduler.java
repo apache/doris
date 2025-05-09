@@ -1038,10 +1038,13 @@ public class TabletScheduler extends MasterDaemon {
     private boolean deleteReplicaChosenByRebalancer(TabletSchedCtx tabletCtx, boolean force) throws SchedException {
         Long id = rebalancer.getToDeleteReplicaId(tabletCtx);
         if (id == -1L) {
+            LOG.debug("deleteReplicaChosenByRebalancer cant get id eq -1");
             return false;
         }
+        LOG.debug("get from rebalancer replicaId {} to del", id);
         Replica chosenReplica = tabletCtx.getTablet().getReplicaById(id);
         if (chosenReplica == null) {
+            LOG.debug("deleteReplicaChosenByRebalancer cant get chosenReplica eq null");
             return false;
         }
 
@@ -1376,7 +1379,9 @@ public class TabletScheduler extends MasterDaemon {
             if (addNum >= limit) {
                 break;
             }
-            if (addTablet(tabletCtx, false) == AddResult.ADDED) {
+            AddResult ar = addTablet(tabletCtx, false);
+            LOG.debug("selectTabletsForBeBalance add Tablet result {}", ar);
+            if (ar == AddResult.ADDED) {
                 addNum++;
             } else {
                 rebalancer.onTabletFailed(tabletCtx);
@@ -1648,6 +1653,7 @@ public class TabletScheduler extends MasterDaemon {
         if (state == TabletSchedCtx.State.CANCELLED || state == TabletSchedCtx.State.UNEXPECTED) {
             if (tabletCtx.getType() == TabletSchedCtx.Type.BALANCE
                     && tabletCtx.getBalanceType() == TabletSchedCtx.BalanceType.BE_BALANCE) {
+                LOG.debug("finalizeTabletCtx onTabletFailed {}", tabletCtx);
                 rebalancer.onTabletFailed(tabletCtx);
             }
         }
