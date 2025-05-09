@@ -43,6 +43,7 @@ void register_aggregate_function_uniq(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_uniq_distribute_key(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_bit(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_bitmap(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_bool_or(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_quantile_state(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_window_rank(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_window_lead_lag_first_last(
@@ -94,6 +95,7 @@ AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
         register_aggregate_function_uniq_distribute_key(instance);
         register_aggregate_function_bit(instance);
         register_aggregate_function_bitmap(instance);
+        register_aggregate_function_bool_or(instance);
         register_aggregate_function_group_array_intersect(instance);
         register_aggregate_function_group_concat(instance);
         register_aggregate_function_quantile_state(instance);
