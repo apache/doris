@@ -21,6 +21,7 @@ import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -28,6 +29,9 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.Map;
 import java.util.Objects;
@@ -40,10 +44,10 @@ import java.util.Objects;
  *      "status" = "drop"/"bad"/"ok"
  */
 public class AdminSetReplicaStatusCommand extends Command implements ForwardWithSync {
-
-    public static final String TABLET_ID = "tablet_id";
-    public static final String BACKEND_ID = "backend_id";
-    public static final String STATUS = "status";
+    private static final Logger LOG = LogManager.getLogger(AdminSetReplicaStatusCommand.class);
+    private static final String TABLET_ID = "tablet_id";
+    private static final String BACKEND_ID = "backend_id";
+    private static final String STATUS = "status";
 
     private final Map<String, String> properties;
     private long tabletId = -1;
@@ -113,6 +117,12 @@ public class AdminSetReplicaStatusCommand extends Command implements ForwardWith
         if (tabletId == -1 || backendId == -1 || status == null) {
             throw new AnalysisException("Should add following properties: TABLET_ID, BACKEND_ID and STATUS");
         }
+    }
+
+    @Override
+    protected void checkSupportedInCloudMode(ConnectContext ctx) throws DdlException {
+        LOG.info("AdminSetReplicaStatusCommand not supported in cloud mode");
+        throw new DdlException("Unsupported operation");
     }
 
     @Override

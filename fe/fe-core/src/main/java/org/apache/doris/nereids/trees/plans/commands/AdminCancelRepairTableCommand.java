@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.commands;
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.util.Util;
@@ -32,6 +33,8 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.collect.Lists;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Objects;
@@ -40,7 +43,7 @@ import java.util.Objects;
  * AdminCancelRepairTableCommand
  */
 public class AdminCancelRepairTableCommand extends Command implements ForwardWithSync {
-
+    private static final Logger LOG = LogManager.getLogger(AdminCancelRepairTableCommand.class);
     private final TableRefInfo tableRefInfo;
     private List<String> partitions = Lists.newArrayList();
 
@@ -89,6 +92,12 @@ public class AdminCancelRepairTableCommand extends Command implements ForwardWit
             }
             partitions.addAll(partitionNamesInfo.getPartitionNames());
         }
+    }
+
+    @Override
+    protected void checkSupportedInCloudMode(ConnectContext ctx) throws DdlException {
+        LOG.info("AdminCancelRepairTableCommand not supported in cloud mode");
+        throw new DdlException("Unsupported operation");
     }
 
     @Override
