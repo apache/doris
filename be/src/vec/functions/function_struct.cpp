@@ -103,10 +103,11 @@ public:
         }
 
         // insert value into struct column by column
-        for (size_t i = 0; i < num_element; ++i) {
-            struct_column->get_column(i).insert_range_from(*arg[i], 0, input_rows_count);
-        }
-        block.replace_by_position(result, std::move(result_col));
+        auto col_struct = ColumnStruct::create(arg);
+        // for (size_t i = 0; i < num_element; ++i) {
+        //     struct_column->get_column(i).insert_range_from(*arg[i], 0, input_rows_count);
+        // }
+        block.replace_by_position(result, std::move(col_struct));
         return Status::OK();
     }
 };
