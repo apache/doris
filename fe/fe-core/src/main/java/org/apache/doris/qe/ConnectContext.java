@@ -655,13 +655,14 @@ public class ConnectContext {
         this.isTempUser = isTempUser;
     }
 
-    // for USER() function
-    public UserIdentity getUserIdentity() {
-        return UserIdentity.createAnalyzedUserIdentWithIp(qualifiedUser, remoteIP);
-    }
-
     public UserIdentity getCurrentUserIdentity() {
         return currentUserIdentity;
+    }
+
+    // used for select user(), select session_user();
+    // return string similar with user@127.0.0.1
+    public String getUserWithLoginRemoteIpString() {
+        return UserIdentity.createAnalyzedUserIdentWithIp(qualifiedUser, remoteIP).toString();
     }
 
     public void setCurrentUserIdentity(UserIdentity currentUserIdentity) {

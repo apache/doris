@@ -158,7 +158,7 @@ public class HiveTableSink extends BaseExternalTableDataSink {
     }
 
     private String createTempPath(String location) {
-        String user = ConnectContext.get().getUserIdentity().getUser();
+        String user = ConnectContext.get().getCurrentUserIdentity().getUser();
         return LocationPath.getTempWritePath(location, "/tmp/.doris_staging/" + user);
     }
 
