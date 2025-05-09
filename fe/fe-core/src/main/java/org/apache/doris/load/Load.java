@@ -63,6 +63,7 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.LoadJob.JobState;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.trees.plans.commands.ShowLoadCommand;
 import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.task.LoadTaskInfo;
@@ -1224,6 +1225,87 @@ public class Load {
         jobInfo.add(loadJob.getComment());
 
         return jobInfo;
+    }
+
+    public LinkedList<List<Comparable>> getLoadJobInfosByDbV2(long dbId, String dbName, String labelValue,
+                boolean accurateMatch,
+                Set<ShowLoadCommand.JobState> states) throws AnalysisException {
+        LinkedList<List<Comparable>> loadJobInfos = new LinkedList<List<Comparable>>();
+        readLock();
+        try {
+            List<LoadJob> loadJobs = this.dbToLoadJobs.get(dbId);
+            if (loadJobs == null) {
+                return loadJobInfos;
+            }
+
+            long start = System.currentTimeMillis();
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("begin to get load job info, size: {}", loadJobs.size());
+            }
+            PatternMatcher matcher = null;
+            if (labelValue != null && !accurateMatch) {
+                matcher = PatternMatcherWrapper.createMysqlPattern(labelValue,
+                    CaseSensibility.LABEL.getCaseSensibility());
+            }
+
+            for (LoadJob loadJob : loadJobs) {
+                // filter first
+                String label = loadJob.getLabel();
+                JobState state = loadJob.getState();
+
+                if (labelValue != null) {
+                    if (accurateMatch) {
+                        if (!label.equals(labelValue)) {
+                            continue;
+                        }
+                    } else {
+                        if (!matcher.match(label)) {
+                            continue;
+                        }
+                    }
+                }
+
+                if (states != null) {
+                    if (!states.contains(state)) {
+                        continue;
+                    }
+                }
+
+                // check auth
+                Set<String> tableNames = loadJob.getTableNames();
+                if (tableNames.isEmpty()) {
+                    // forward compatibility
+                    if (!Env.getCurrentEnv().getAccessManager()
+                            .checkDbPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbName,
+                            PrivPredicate.LOAD)) {
+                        continue;
+                    }
+                } else {
+                    boolean auth = true;
+                    for (String tblName : tableNames) {
+                        if (!Env.getCurrentEnv().getAccessManager()
+                                .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbName,
+                                tblName, PrivPredicate.LOAD)) {
+                            auth = false;
+                            break;
+                        }
+                    }
+                    if (!auth) {
+                        continue;
+                    }
+                }
+
+                loadJobInfos.add(composeJobInfoByLoadJob(loadJob));
+            } // end for loadJobs
+
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("finished to get load job info, cost: {}", (System.currentTimeMillis() - start));
+            }
+        } finally {
+            readUnlock();
+        }
+
+        return loadJobInfos;
     }
 
     public LinkedList<List<Comparable>> getLoadJobInfosByDb(long dbId, String dbName, String labelValue,
