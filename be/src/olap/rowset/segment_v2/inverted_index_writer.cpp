@@ -72,9 +72,10 @@ const float MAXMBSortInHeap = 512.0 * 8;
 const int DIMS = 1;
 
 template <FieldType field_type>
-InvertedIndexColumnWriter<field_type>::InvertedIndexColumnWriter(
-        const std::string& field_name, XIndexFileWriter* index_file_writer,
-        const TabletIndex* index_meta, const bool single_field)
+InvertedIndexColumnWriter<field_type>::InvertedIndexColumnWriter(const std::string& field_name,
+                                                                 IndexFileWriter* index_file_writer,
+                                                                 const TabletIndex* index_meta,
+                                                                 const bool single_field)
         : _single_field(single_field),
           _index_meta(index_meta),
           _index_file_writer(index_file_writer) {

@@ -249,7 +249,7 @@ TypeInfoPtr get_type_info(const TabletColumn* col) {
         }
         return create_dynamic_type_info_ptr(get_struct_type_info(field_types));
     } else if (UNLIKELY(type == FieldType::OLAP_FIELD_TYPE_ARRAY)) {
-        const auto* child_column = &col->get_sub_column(0);
+        const auto* child_column = &(col->get_sub_column(0));
         TypeInfoPtr item_type = get_type_info(child_column);
         ArrayTypeInfo* array_type_info = new ArrayTypeInfo(std::move(item_type));
         return create_dynamic_type_info_ptr(array_type_info);

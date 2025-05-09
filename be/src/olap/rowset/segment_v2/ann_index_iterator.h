@@ -19,13 +19,19 @@
 
 #include "olap/rowset/segment_v2/ann_index_reader.h"
 #include "olap/rowset/segment_v2/index_iterator.h"
+#include "vec/columns/column.h"
 
 namespace doris::segment_v2 {
 
 struct AnnIndexParam {
-    const std::string& column_name;
+    const float* query_value;
+    const size_t query_value_size;
+    size_t limit;
+    roaring::Roaring* roaring;
+    std::shared_ptr<std::vector<float>> distance;
 };
 
+// IndexIterator 与 IndexReader 的角色似乎有点重复，未来可以重构后删除一层概念
 class AnnIndexIterator : public IndexIterator {
 public:
     AnnIndexIterator(const io::IOContext& io_ctx, OlapReaderStatistics* stats,
@@ -36,7 +42,7 @@ public:
 
     IndexReaderPtr get_reader() override { return _ann_reader; }
 
-    Status read_from_index(const IndexParam& param) override;
+    MOCK_FUNCTION Status read_from_index(const IndexParam& param) override;
 
     Status read_null_bitmap(InvertedIndexQueryCacheHandle* cache_handle) override {
         return Status::OK();

@@ -19,6 +19,7 @@
 
 #include "olap/rowset/segment_v2/index_reader.h"
 #include "olap/tablet_schema.h"
+#include "vector/vector_index.h"
 
 namespace doris::segment_v2 {
 
@@ -33,17 +34,22 @@ public:
                    std::shared_ptr<XIndexFileReader> index_file_reader);
     ~AnnIndexReader() override = default;
 
-    Status query(AnnIndexParam* param) { return Status::OK(); }
+    static void update_result(const SearchResult&, std::vector<float>& distance,
+                              roaring::Roaring& row_id);
+
+    Status query(AnnIndexParam* param);
 
     uint64_t get_index_id() const override { return _index_meta.index_id(); }
 
     Status new_iterator(const io::IOContext& io_ctx, OlapReaderStatistics* stats,
                         RuntimeState* runtime_state,
                         std::unique_ptr<IndexIterator>* iterator) override;
+    Status load_index();
 
 private:
     TabletIndex _index_meta;
     std::shared_ptr<XIndexFileReader> _index_file_reader;
+    std::unique_ptr<VectorIndex> _vector_index;
 };
 
 } // namespace doris::segment_v2

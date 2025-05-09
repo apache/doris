@@ -53,13 +53,14 @@ public class ColumnStatisticsCacheLoader extends BasicAsyncCacheLoader<Statistic
     }
 
     private Optional<ColumnStatistic> loadFromStatsTable(StatisticsCacheKey key) {
-        List<ResultRow> columnResults
-                = StatisticsRepository.loadColStats(key.catalogId, key.dbId, key.tableId, key.idxId, key.colName);
-        ColumnStatistic columnStatistics = StatisticsUtil.deserializeToColumnStatistics(columnResults);
-        if (columnStatistics == null) {
-            return Optional.empty();
-        } else {
-            return Optional.of(columnStatistics);
-        }
+        return Optional.empty();
+        // List<ResultRow> columnResults
+        //         = StatisticsRepository.loadColStats(key.catalogId, key.dbId, key.tableId, key.idxId, key.colName);
+        // ColumnStatistic columnStatistics = StatisticsUtil.deserializeToColumnStatistics(columnResults);
+        // if (columnStatistics == null) {
+        //     return Optional.empty();
+        // } else {
+        //     return Optional.of(columnStatistics);
+        // }
     }
 }

@@ -76,7 +76,6 @@ public:
         return Status::OK();
     }
 
-    Status get_block(RuntimeState* state, Block* block, bool* eos);
     Status get_block_after_projects(RuntimeState* state, vectorized::Block* block, bool* eos);
 
     virtual Status close(RuntimeState* state);
@@ -91,6 +90,8 @@ public:
     virtual std::string get_current_scan_range_name() { return "not implemented"; }
 
 protected:
+    Status _get_block(RuntimeState* state, Block* block, bool* eos);
+
     // Subclass should implement this to return data.
     virtual Status _get_block_impl(RuntimeState* state, Block* block, bool* eof) = 0;
 

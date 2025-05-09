@@ -41,6 +41,7 @@
 #include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
 #include "vec/columns/column.h"
+#include "vec/columns/column_nothing.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/field.h"
 #include "vec/data_types/data_type.h"
@@ -460,9 +461,9 @@ Status VCollectIterator::Level0Iterator::init(bool get_data_by_ref) {
 
     auto st = refresh_current_row();
     if (_get_data_by_ref && !_block_view.empty()) {
-        _ref = _block_view[0];
+        _iter_row_ref = _block_view[0];
     } else {
-        _ref = {_block, 0, false};
+        _iter_row_ref = {_block, 0, false};
     }
     return st;
 }
@@ -480,7 +481,7 @@ void VCollectIterator::Level0Iterator::init_for_union(bool get_data_by_ref) {
 Status VCollectIterator::Level0Iterator::ensure_first_row_ref() {
     DCHECK(!_get_data_by_ref);
     auto s = refresh_current_row();
-    _ref = {_block, 0, false};
+    _iter_row_ref = {_block, 0, false};
 
     return s;
 }
@@ -490,6 +491,7 @@ int64_t VCollectIterator::Level0Iterator::version() const {
 }
 
 Status VCollectIterator::Level0Iterator::refresh_current_row() {
+    LOG_INFO("Level0Iterator refresh current row begin");
     RuntimeState* runtime_state = nullptr;
     if (_reader != nullptr) {
         runtime_state = _reader->_reader_context.runtime_state;
@@ -499,10 +501,42 @@ Status VCollectIterator::Level0Iterator::refresh_current_row() {
         if (_block == nullptr && !_get_data_by_ref) {
             _block = std::make_shared<Block>(_schema.create_block(
                     _reader->_return_columns, _reader->_tablet_columns_convert_to_null_set));
-            _ref.block = _block;
+
+            if (_reader->_reader_context.vir_cid_to_idx_in_block.size() > 0) {
+                std::vector<size_t> vir_col_idx;
+                for (const auto& pair : _reader->_reader_context.vir_cid_to_idx_in_block) {
+                    vir_col_idx.push_back(pair.second);
+                }
+                std::sort(vir_col_idx.begin(), vir_col_idx.end());
+
+                if (vir_col_idx.front() != _reader->_return_columns.size()) {
+                    LOG_ERROR(
+                            "Virtual column must be placed at the end of normal "
+                            "columns, virtual column id {}, return column size: {}",
+                            vir_col_idx.front(), _reader->_return_columns.size());
+
+                    return Status::InternalError(
+                            "Virtual column must be placed at the end of normal columns");
+                }
+
+                const auto idx_to_datatype = _reader->_reader_context.vir_col_idx_to_type;
+
+                for (size_t i = 0; i < vir_col_idx.size(); ++i) {
+                    size_t idx = vir_col_idx[i];
+                    auto type = idx_to_datatype.find(idx)->second;
+                    LOG_INFO("level0 iterator refresh current rowVirtual column idx {}, type {}",
+                             idx, type->get_name());
+
+                    _block->insert({ColumnNothing::create(0), type,
+                                    fmt::format("VIRTUAL_COLUMN_{}", idx)});
+                }
+            }
+
+            _iter_row_ref.block = _block;
         }
 
         if (!_is_empty() && _current_valid()) {
+            LOG_INFO("Level0Iterator refresh current row end");
             return Status::OK();
         } else {
             _reset();
@@ -523,9 +557,10 @@ Status VCollectIterator::Level0Iterator::refresh_current_row() {
             }
         }
     } while (!_is_empty());
-    _ref.row_pos = -1;
+    _iter_row_ref.row_pos = -1;
     _current = -1;
     _rs_reader = nullptr;
+    LOG_INFO("Level0Iterator refresh current row end");
     return Status::Error<END_OF_FILE>("");
 }
 
@@ -533,24 +568,25 @@ Status VCollectIterator::Level0Iterator::next(IteratorRowRef* ref) {
     if (_get_data_by_ref) {
         _current++;
     } else {
-        _ref.row_pos++;
+        _iter_row_ref.row_pos++;
     }
 
     RETURN_IF_ERROR(refresh_current_row());
 
     if (_get_data_by_ref) {
-        _ref = _block_view[_current];
+        _iter_row_ref = _block_view[_current];
     }
 
-    *ref = _ref;
+    *ref = _iter_row_ref;
     return Status::OK();
 }
 
 Status VCollectIterator::Level0Iterator::next(Block* block) {
     CHECK(!_get_data_by_ref);
-    if (_ref.row_pos <= 0 && _ref.block != nullptr && UNLIKELY(_ref.block->rows() > 0)) {
-        block->swap(*_ref.block);
-        _ref.reset();
+    if (_iter_row_ref.row_pos <= 0 && _iter_row_ref.block != nullptr &&
+        UNLIKELY(_iter_row_ref.block->rows() > 0)) {
+        block->swap(*_iter_row_ref.block);
+        _iter_row_ref.reset();
         return Status::OK();
     } else {
         if (_rs_reader == nullptr) {
@@ -571,7 +607,8 @@ Status VCollectIterator::Level0Iterator::next(Block* block) {
 }
 
 RowLocation VCollectIterator::Level0Iterator::current_row_location() {
-    RowLocation& segment_row_id = _block_row_locations[_get_data_by_ref ? _current : _ref.row_pos];
+    RowLocation& segment_row_id =
+            _block_row_locations[_get_data_by_ref ? _current : _iter_row_ref.row_pos];
     return RowLocation(_rs_reader->rowset()->rowset_id(), segment_row_id.segment_id,
                        segment_row_id.row_id);
 }
@@ -596,7 +633,7 @@ VCollectIterator::Level1Iterator::Level1Iterator(
           _merge(merge),
           _is_reverse(is_reverse),
           _skip_same(skip_same) {
-    _ref.reset();
+    _iter_row_ref.reset();
     // !_merge means that data are in order, so we just reverse children to return data in reverse
     if (!_merge && _is_reverse) {
         _children.reverse();
@@ -619,7 +656,7 @@ VCollectIterator::Level1Iterator::~Level1Iterator() {
 //      Others when error happens
 Status VCollectIterator::Level1Iterator::next(IteratorRowRef* ref) {
     if (UNLIKELY(_cur_child == nullptr)) {
-        _ref.reset();
+        _iter_row_ref.reset();
         return Status::Error<END_OF_FILE>("");
     }
     if (_merge) {
@@ -682,7 +719,7 @@ Status VCollectIterator::Level1Iterator::init(bool get_data_by_ref) {
         _cur_child = std::move(*_children.begin());
         _children.pop_front();
     }
-    _ref = *_cur_child->current_row_ref();
+    _iter_row_ref = *_cur_child->current_row_ref();
     return Status::OK();
 }
 
@@ -733,11 +770,11 @@ Status VCollectIterator::Level1Iterator::_merge_next(IteratorRowRef* ref) {
             _cur_child.reset(_heap->top());
             _heap->pop();
         } else {
-            _ref.reset();
+            _iter_row_ref.reset();
             return Status::Error<END_OF_FILE>("");
         }
     } else {
-        _ref.reset();
+        _iter_row_ref.reset();
         LOG(WARNING) << "failed to get next from child, res=" << res;
         return res;
     }
@@ -748,8 +785,8 @@ Status VCollectIterator::Level1Iterator::_merge_next(IteratorRowRef* ref) {
         return _merge_next(ref);
     }
 
-    _ref = *_cur_child->current_row_ref();
-    *ref = _ref;
+    _iter_row_ref = *_cur_child->current_row_ref();
+    *ref = _iter_row_ref;
 
     _cur_child->set_same(false);
 
@@ -759,7 +796,7 @@ Status VCollectIterator::Level1Iterator::_merge_next(IteratorRowRef* ref) {
 Status VCollectIterator::Level1Iterator::_normal_next(IteratorRowRef* ref) {
     auto res = _cur_child->next(ref);
     if (LIKELY(res.ok())) {
-        _ref = *ref;
+        _iter_row_ref = *ref;
         return Status::OK();
     } else if (res.is<END_OF_FILE>()) {
         // current child has been read, to read next
@@ -781,8 +818,8 @@ Status VCollectIterator::Level1Iterator::_merge_next(Block* block) {
     int target_block_row = 0;
     auto target_columns = block->mutate_columns();
     size_t column_count = target_columns.size();
-    IteratorRowRef cur_row = _ref;
-    IteratorRowRef pre_row_ref = _ref;
+    IteratorRowRef cur_row = _iter_row_ref;
+    IteratorRowRef pre_row_ref = _iter_row_ref;
 
     // append extra columns (eg. MATCH pred result column) from src_block to block
     for (size_t i = block->columns(); i < cur_row.block->columns(); ++i) {
@@ -840,7 +877,7 @@ Status VCollectIterator::Level1Iterator::_merge_next(Block* block) {
             return Status::OK();
         }
         if (continuous_row_in_block == 0) {
-            pre_row_ref = _ref;
+            pre_row_ref = _iter_row_ref;
             continue;
         }
         // copy row if meet a new block

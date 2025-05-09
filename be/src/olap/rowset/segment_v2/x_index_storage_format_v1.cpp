@@ -24,7 +24,7 @@
 
 namespace doris::segment_v2 {
 
-XIndexStorageFormatV1::XIndexStorageFormatV1(XIndexFileWriter* file_writer)
+XIndexStorageFormatV1::XIndexStorageFormatV1(IndexFileWriter* file_writer)
         : XIndexStorageFormat(file_writer) {}
 
 Status XIndexStorageFormatV1::write() {

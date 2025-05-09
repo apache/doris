@@ -91,7 +91,7 @@ VerticalSegmentWriter::VerticalSegmentWriter(io::FileWriter* file_writer, uint32
                                              TabletSchemaSPtr tablet_schema, BaseTabletSPtr tablet,
                                              DataDir* data_dir,
                                              const VerticalSegmentWriterOptions& opts,
-                                             XIndexFileWriter* inverted_file_writer)
+                                             IndexFileWriter* inverted_file_writer)
         : _segment_id(segment_id),
           _tablet_schema(std::move(tablet_schema)),
           _tablet(std::move(tablet)),

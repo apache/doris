@@ -344,6 +344,7 @@ Status ColumnReader::new_index_iterator(std::shared_ptr<XIndexFileReader> index_
                                         const TabletIndex* index_meta,
                                         const StorageReadOptions& read_options,
                                         std::unique_ptr<IndexIterator>* iterator) {
+    // 这里实际上没有执行 io，只是创建了一个 IndexReader
     RETURN_IF_ERROR(_ensure_index_loaded(std::move(index_file_reader), index_meta));
     {
         std::shared_lock<std::shared_mutex> rlock(_load_index_lock);

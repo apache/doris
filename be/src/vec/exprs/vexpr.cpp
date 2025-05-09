@@ -40,6 +40,7 @@
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
+#include "vec/exprs/vann_topn_predicate.h"
 #include "vec/exprs/varray_literal.h"
 #include "vec/exprs/vcase_expr.h"
 #include "vec/exprs/vcast_expr.h"
@@ -47,8 +48,10 @@
 #include "vec/exprs/vcompound_pred.h"
 #include "vec/exprs/vectorized_fn_call.h"
 #include "vec/exprs/vexpr_context.h"
+#include "vec/exprs/vexpr_fwd.h"
 #include "vec/exprs/vin_predicate.h"
 #include "vec/exprs/vinfo_func.h"
+#include "vec/exprs/virtual_slot_ref.h"
 #include "vec/exprs/vlambda_function_call_expr.h"
 #include "vec/exprs/vlambda_function_expr.h"
 #include "vec/exprs/vliteral.h"
@@ -223,7 +226,9 @@ Status VExpr::prepare(RuntimeState* state, const RowDescriptor& row_desc, VExprC
         RETURN_IF_ERROR(i->prepare(state, row_desc, context));
     }
     --context->_depth_num;
+#ifndef BE_TEST
     _enable_inverted_index_query = state->query_options().enable_inverted_index_query;
+#endif
     return Status::OK();
 }
 
@@ -275,7 +280,12 @@ Status VExpr::create_expr(const TExprNode& expr_node, VExprSPtr& expr) {
             break;
         }
         case TExprNodeType::SLOT_REF: {
-            expr = VSlotRef::create_shared(expr_node);
+            if (expr_node.slot_ref.__isset.is_virtual_slot && expr_node.slot_ref.is_virtual_slot) {
+                expr = VirtualSlotRef::create_shared(expr_node);
+                expr->_node_type = TExprNodeType::VIRTUAL_SLOT_REF;
+            } else {
+                expr = VSlotRef::create_shared(expr_node);
+            }
             break;
         }
         case TExprNodeType::COLUMN_REF: {
@@ -780,6 +790,13 @@ bool VExpr::fast_execute(doris::vectorized::VExprContext* context, doris::vector
 
 bool VExpr::equals(const VExpr& other) {
     return false;
+}
+
+void VExpr::prepare_virtual_slots(
+        const std::map<SlotId, vectorized::VExprContextSPtr>& _slot_id_to_virtual_column_expr) {
+    for (auto child : _children) {
+        child->prepare_virtual_slots(_slot_id_to_virtual_column_expr);
+    }
 }
 
 #include "common/compile_check_end.h"

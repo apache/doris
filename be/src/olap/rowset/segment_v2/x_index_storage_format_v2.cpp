@@ -33,7 +33,7 @@ FileMetadata::FileMetadata(int64_t id, std::string suffix, std::string file, int
           length(len),
           directory(dir) {}
 
-XIndexStorageFormatV2::XIndexStorageFormatV2(XIndexFileWriter* x_file_writer)
+XIndexStorageFormatV2::XIndexStorageFormatV2(IndexFileWriter* x_file_writer)
         : XIndexStorageFormat(x_file_writer) {}
 
 Status XIndexStorageFormatV2::write() {

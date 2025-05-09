@@ -125,15 +125,15 @@ private:
 
         virtual int64_t version() const = 0;
 
-        virtual const IteratorRowRef* current_row_ref() const { return &_ref; }
+        virtual const IteratorRowRef* current_row_ref() const { return &_iter_row_ref; }
 
         virtual Status next(IteratorRowRef* ref) = 0;
 
         virtual Status next(Block* block) = 0;
 
-        void set_same(bool same) { _ref.is_same = same; }
+        void set_same(bool same) { _iter_row_ref.is_same = same; }
 
-        bool is_same() const { return _ref.is_same; }
+        bool is_same() const { return _iter_row_ref.is_same; }
 
         virtual ~LevelIterator() = default;
 
@@ -151,7 +151,7 @@ private:
 
     protected:
         const TabletSchema& _schema;
-        IteratorRowRef _ref;
+        IteratorRowRef _iter_row_ref;
         std::vector<uint32_t>* _compare_columns = nullptr;
     };
 
@@ -231,18 +231,18 @@ private:
             if (_get_data_by_ref) {
                 return _current < _block_view.size();
             } else {
-                return _ref.row_pos < _block->rows();
+                return _iter_row_ref.row_pos < _block->rows();
             }
         }
 
         void _reset() {
             if (_get_data_by_ref) {
                 _block_view.clear();
-                _ref.reset();
+                _iter_row_ref.reset();
                 _current = 0;
             } else {
-                _ref.is_same = false;
-                _ref.row_pos = 0;
+                _iter_row_ref.is_same = false;
+                _iter_row_ref.row_pos = 0;
                 _block->clear_column_data();
             }
         }

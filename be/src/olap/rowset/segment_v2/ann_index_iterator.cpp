@@ -24,7 +24,7 @@ namespace doris::segment_v2 {
 AnnIndexIterator::AnnIndexIterator(const io::IOContext& io_ctx, OlapReaderStatistics* stats,
                                    RuntimeState* runtime_state, const IndexReaderPtr& reader)
         : IndexIterator(io_ctx, stats, runtime_state) {
-    _ann_reader = std::static_pointer_cast<AnnIndexReader>(reader);
+    _ann_reader = std::dynamic_pointer_cast<AnnIndexReader>(reader);
 }
 
 Status AnnIndexIterator::read_from_index(const IndexParam& param) {
@@ -32,7 +32,6 @@ Status AnnIndexIterator::read_from_index(const IndexParam& param) {
     if (a_param == nullptr) {
         return Status::Error<ErrorCode::INDEX_INVALID_PARAMETERS>("a_param is null");
     }
-    (void)a_param->column_name;
 
     return _ann_reader->query(a_param);
 }

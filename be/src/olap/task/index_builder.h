@@ -30,8 +30,8 @@
 
 namespace doris {
 namespace segment_v2 {
-class IndexColumnWriter;
-class XIndexFileWriter;
+class IndexWriter;
+class IndexFileWriter;
 } // namespace segment_v2
 namespace vectorized {
 class OlapBlockDataConvertor;
@@ -82,9 +82,10 @@ private:
     std::vector<RowsetReaderSharedPtr> _input_rs_readers;
     std::unique_ptr<vectorized::OlapBlockDataConvertor> _olap_data_convertor;
     // "<segment_id, index_id>" -> IndexColumnWriter
-    std::unordered_map<std::pair<int64_t, int64_t>, std::unique_ptr<segment_v2::IndexColumnWriter>>
+    std::unordered_map<std::pair<int64_t, int64_t>, std::unique_ptr<segment_v2::IndexWriter>>
             _inverted_index_builders;
-    std::unordered_map<int64_t, std::unique_ptr<XIndexFileWriter>> _x_index_file_writers;
+    // segmentid -> index_file_writer
+    std::unordered_map<int64_t, std::unique_ptr<IndexFileWriter>> _x_index_file_writers;
     // <rowset_id, segment_id>
     std::unordered_map<std::pair<std::string, int64_t>, std::unique_ptr<XIndexFileReader>>
             _index_file_readers;
