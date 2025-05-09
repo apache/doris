@@ -30,7 +30,7 @@ import time
 LOG = utils.get_logger()
 
 
-def wait_service(is_alive, wait_timeout, cluster, fe_ids, be_ids):
+def wait_service(need_alive, wait_timeout, cluster, fe_ids, be_ids):
     if wait_timeout == 0:
         return
     if wait_timeout == -1:
@@ -43,23 +43,27 @@ def wait_service(is_alive, wait_timeout, cluster, fe_ids, be_ids):
         for id in fe_ids:
             fe = cluster.get_node(CLUSTER.Node.TYPE_FE, id)
             fe_state = db_mgr.get_fe(id)
-            fe_alive = fe_state and fe_state.alive and utils.is_socket_avail(
-                fe.get_ip(), fe.meta["ports"]["query_port"])
-            if fe_alive != is_alive:
+            fe_alive = fe_state and fe_state.alive
+            if fe_alive and need_alive:
+                fe_alive = utils.is_socket_avail(
+                    fe.get_ip(), fe.meta["ports"]["query_port"])
+            if fe_alive != need_alive:
                 failed_frontends.append(id)
         failed_backends = []
         for id in be_ids:
             be = cluster.get_node(CLUSTER.Node.TYPE_BE, id)
             be_state = db_mgr.get_be(id)
-            be_alive = be_state and be_state.alive and utils.is_socket_avail(
-                be.get_ip(), be.meta["ports"]["webserver_port"])
-            if be_alive != is_alive:
+            be_alive = be_state and be_state.alive
+            if be_alive and need_alive:
+                be_alive = utils.is_socket_avail(
+                    be.get_ip(), be.meta["ports"]["webserver_port"])
+            if be_alive != need_alive:
                 failed_backends.append(id)
         if not failed_frontends and not failed_backends:
             break
         if time.time() >= expire_ts:
             err = ""
-            failed_status = "dead" if is_alive else "alive"
+            failed_status = "dead" if need_alive else "alive"
             if failed_frontends:
                 err += failed_status + " fe: " + str(failed_frontends) + ". "
             if failed_backends:
