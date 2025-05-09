@@ -129,7 +129,8 @@ std::string RuntimeFilter::_debug_string() const {
                        _has_remote_target ? "GLOBAL" : "LOCAL");
 }
 
-void RuntimeFilter::_check_wrapper_state(std::vector<RuntimeFilterWrapper::State> assumed_states) {
+void RuntimeFilter::_check_wrapper_state(
+        const std::vector<RuntimeFilterWrapper::State>& assumed_states) {
     // _wrapper is null mean rf is published
     if (!_wrapper) {
         return;
