@@ -31,13 +31,14 @@ struct FunctionCastTest : public testing::Test {
     using CppType = NativeType<typename T::FieldType>::Type;
 
     template <typename ToDataType>
-    void check_function_for_cast(const InputTypeSet& input_types, const DataSet& data_set) {
+    void check_function_for_cast(const InputTypeSet& input_types, const DataSet& data_set,
+                                 TypeIndex t_idx) {
         std::string func_name = "CAST";
 
         using CppType = CppType<ToDataType>;
 
         InputTypeSet add_input_types = input_types;
-        add_input_types.push_back(ConstedNotnull {TypeId<CppType>::value});
+        add_input_types.push_back(ConstedNotnull {t_idx});
 
         for (const auto& row : data_set) {
             auto add_row = row;

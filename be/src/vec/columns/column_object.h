@@ -268,7 +268,9 @@ public:
     void check_consistency() const;
 
     MutableColumnPtr get_root() {
-        if (subcolumns.empty() || is_nothing(subcolumns.get_root()->data.get_least_common_type())) {
+        if (subcolumns.empty() ||
+            subcolumns.get_root()->data.get_least_common_type()->get_primitive_type() ==
+                    INVALID_TYPE) {
             return nullptr;
         }
         return subcolumns.get_mutable_root()->data.get_finalized_column_ptr()->assume_mutable();

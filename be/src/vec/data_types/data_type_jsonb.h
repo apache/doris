@@ -51,7 +51,6 @@ public:
     static constexpr bool is_parametric = false;
 
     const char* get_family_name() const override { return "JSONB"; }
-    TypeIndex get_type_id() const override { return TypeIndex::JSONB; }
     PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_JSONB; }
     doris::FieldType get_storage_field_type() const override {
         return doris::FieldType::OLAP_FIELD_TYPE_JSONB;

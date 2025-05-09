@@ -44,8 +44,6 @@
 namespace doris {
 namespace vectorized {
 template <typename T>
-struct TypeId;
-template <typename T>
 struct TypeName;
 } // namespace vectorized
 struct PackedInt128;

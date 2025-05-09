@@ -86,8 +86,7 @@ Status VExplodeV2TableFunction::process_init(Block* block, RuntimeState* state) 
     for (int i = 0; i < expr_size; i++) {
         RETURN_IF_ERROR(_expr_context->root()->children()[i]->execute(_expr_context.get(), block,
                                                                       &value_column_idx));
-        if (WhichDataType(remove_nullable(block->get_by_position(value_column_idx).type))
-                    .is_variant_type()) {
+        if (block->get_by_position(value_column_idx).type->get_primitive_type() == TYPE_VARIANT) {
             RETURN_IF_ERROR(_process_init_variant(block, value_column_idx, i));
         } else {
             _array_columns[i] = block->get_by_position(value_column_idx)
