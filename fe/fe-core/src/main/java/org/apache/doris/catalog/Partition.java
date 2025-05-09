@@ -166,7 +166,7 @@ public class Partition extends MetaObject {
     /* fromCache is only used in CloudPartition
      * make it overrided here to avoid rewrite all the usages with ugly Config.isCloudConfig() branches
      */
-    public long getVisibleVersion(Boolean fromCache) {
+    public long getCachedVisibleVersion() {
         return visibleVersion;
     }
 

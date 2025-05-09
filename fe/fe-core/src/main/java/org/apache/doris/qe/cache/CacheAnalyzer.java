@@ -714,7 +714,7 @@ public class CacheAnalyzer {
             if (partition.getVisibleVersionTime() >= cacheTable.latestPartitionTime) {
                 cacheTable.latestPartitionId = partition.getId();
                 cacheTable.latestPartitionTime = partition.getVisibleVersionTime();
-                cacheTable.latestPartitionVersion = partition.getVisibleVersion(true);
+                cacheTable.latestPartitionVersion = partition.getCachedVisibleVersion();
             }
         }
         return cacheTable;
