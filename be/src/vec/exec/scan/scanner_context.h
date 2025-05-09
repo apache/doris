@@ -107,7 +107,8 @@ public:
                    const RowDescriptor* output_row_descriptor,
                    const std::list<std::shared_ptr<vectorized::ScannerDelegate>>& scanners,
                    int64_t limit_, std::shared_ptr<pipeline::Dependency> dependency,
-                   bool ignore_data_distribution, bool is_file_scan_operator);
+                   bool ignore_data_distribution, bool is_file_scan_operator,
+                   int num_parallel_instances);
 
     ~ScannerContext() override {
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_thread_context.query_mem_tracker);
@@ -213,6 +214,7 @@ protected:
     std::shared_ptr<pipeline::Dependency> _dependency = nullptr;
     bool _ignore_data_distribution = false;
     bool _is_file_scan_operator = false;
+    int _num_parallel_instances;
 
     // for scaling up the running scanners
     size_t _estimated_block_size = 0;
