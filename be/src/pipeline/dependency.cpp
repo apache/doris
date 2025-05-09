@@ -27,9 +27,11 @@
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime_filter/runtime_filter_consumer.h"
+#include "util/brpc_client_cache.h"
 #include "vec/exprs/vectorized_agg_fn.h"
 #include "vec/exprs/vslot_ref.h"
 #include "vec/spill/spill_stream_manager.h"
+#include "vec/utils/util.hpp"
 
 namespace doris::pipeline {
 #include "common/compile_check_begin.h"
@@ -468,6 +470,197 @@ void AggSharedState::refresh_top_limit(size_t row_id,
 
     limit_heap.pop();
     limit_columns_min = limit_heap.top()._row_id;
+}
+
+Status MaterializationSharedState::merge_multi_response(vectorized::Block* block) {
+    // init the response_blocks
+    if (response_blocks.empty()) {
+        response_blocks = std::vector<vectorized::MutableBlock>(block_order_results.size());
+    }
+
+    std::map<int64_t, std::pair<vectorized::Block, int>> _block_maps;
+    for (int i = 0; i < block_order_results.size(); ++i) {
+        for (auto& [backend_id, rpc_struct] : rpc_struct_map) {
+            vectorized::Block partial_block;
+            RETURN_IF_ERROR(
+                    partial_block.deserialize(rpc_struct.callback->response_->blocks(i).block()));
+
+            if (!partial_block.is_empty_column()) {
+                if (!response_blocks[i].columns()) {
+                    response_blocks[i] = vectorized::MutableBlock(partial_block.clone_empty());
+                }
+                _block_maps[backend_id] = std::make_pair(std::move(partial_block), 0);
+            }
+        }
+
+        for (int j = 0; j < block_order_results[i].size(); ++j) {
+            auto backend_id = block_order_results[i][j];
+            if (backend_id) {
+                auto& source_block_rows = _block_maps[backend_id];
+                DCHECK(source_block_rows.second < source_block_rows.first.rows());
+                for (int k = 0; k < response_blocks[i].columns(); ++k) {
+                    response_blocks[i].get_column_by_position(k)->insert_from(
+                            *source_block_rows.first.get_by_position(k).column,
+                            source_block_rows.second);
+                }
+                source_block_rows.second++;
+            } else {
+                for (int k = 0; k < response_blocks[i].columns(); ++k) {
+                    response_blocks[i].get_column_by_position(k)->insert_default();
+                }
+            }
+        }
+    }
+
+    // clear request/response
+    for (auto& [_, rpc_struct] : rpc_struct_map) {
+        for (int i = 0; i < rpc_struct.request.request_block_descs_size(); ++i) {
+            rpc_struct.request.mutable_request_block_descs(i)->clear_row_id();
+            rpc_struct.request.mutable_request_block_descs(i)->clear_file_id();
+        }
+    }
+
+    for (int i = 0, j = 0, rowid_to_block_loc = rowid_locs[j]; i < origin_block.columns(); i++) {
+        if (i != rowid_to_block_loc) {
+            block->insert(origin_block.get_by_position(i));
+        } else {
+            auto response_block = response_blocks[j].to_block();
+            for (auto& data : response_block) {
+                block->insert(data);
+            }
+            if (++j < rowid_locs.size()) {
+                rowid_to_block_loc = rowid_locs[j];
+            }
+        }
+    }
+    origin_block.clear();
+    response_blocks.clear();
+
+    return Status::OK();
+}
+
+Dependency* MaterializationSharedState::create_source_dependency(int operator_id, int node_id,
+                                                                 const std::string& name) {
+    auto dep =
+            std::make_shared<CountedFinishDependency>(operator_id, node_id, name + "_DEPENDENCY");
+    dep->set_shared_state(this);
+    // just block source wait for add the counter in sink
+    dep->add(0);
+
+    source_deps.push_back(dep);
+    return source_deps.back().get();
+}
+
+Status MaterializationSharedState::create_muiltget_result(const vectorized::Columns& columns,
+                                                          bool eos, bool gc_id_map) {
+    const auto rows = columns.empty() ? 0 : columns[0]->size();
+    block_order_results.resize(columns.size());
+
+    for (int i = 0; i < columns.size(); ++i) {
+        const uint8_t* null_map = nullptr;
+        const vectorized::ColumnString* column_rowid = nullptr;
+        auto& column = columns[i];
+
+        if (auto column_ptr = check_and_get_column<vectorized::ColumnNullable>(*column)) {
+            null_map = column_ptr->get_null_map_data().data();
+            column_rowid = assert_cast<const vectorized::ColumnString*>(
+                    column_ptr->get_nested_column_ptr().get());
+        } else {
+            column_rowid = assert_cast<const vectorized::ColumnString*>(column.get());
+        }
+
+        auto& block_order = block_order_results[i];
+        block_order.resize(rows);
+
+        for (int j = 0; j < rows; ++j) {
+            if (!null_map || !null_map[j]) {
+                DCHECK(column_rowid->get_data_at(j).size == sizeof(GlobalRowLoacationV2));
+                GlobalRowLoacationV2 row_location =
+                        *((GlobalRowLoacationV2*)column_rowid->get_data_at(j).data);
+                auto rpc_struct = rpc_struct_map.find(row_location.backend_id);
+                if (UNLIKELY(rpc_struct == rpc_struct_map.end())) {
+                    return Status::InternalError(
+                            "MaterializationSinkOperatorX failed to find rpc_struct, backend_id={}",
+                            row_location.backend_id);
+                }
+                rpc_struct->second.request.mutable_request_block_descs(i)->add_row_id(
+                        row_location.row_id);
+                rpc_struct->second.request.mutable_request_block_descs(i)->add_file_id(
+                        row_location.file_id);
+                block_order[j] = row_location.backend_id;
+            } else {
+                block_order[j] = 0;
+            }
+        }
+    }
+
+    if (eos && gc_id_map) {
+        for (auto& [_, rpc_struct] : rpc_struct_map) {
+            rpc_struct.request.set_gc_id_map(true);
+        }
+    }
+    last_block = eos;
+    need_merge_block = rows > 0;
+
+    return Status::OK();
+}
+
+Status MaterializationSharedState::init_multi_requests(
+        const TMaterializationNode& materialization_node, RuntimeState* state) {
+    rpc_struct_inited = true;
+    PMultiGetRequestV2 multi_get_request;
+    // Initialize the base struct of PMultiGetRequestV2
+    multi_get_request.set_be_exec_version(state->be_exec_version());
+    multi_get_request.set_wg_id(state->get_query_ctx()->workload_group()->id());
+    auto query_id = multi_get_request.mutable_query_id();
+    query_id->set_hi(state->query_id().hi);
+    query_id->set_lo(state->query_id().lo);
+    DCHECK_EQ(materialization_node.column_descs_lists.size(),
+              materialization_node.slot_locs_lists.size());
+
+    const auto& tuple_desc =
+            state->desc_tbl().get_tuple_descriptor(materialization_node.intermediate_tuple_id);
+    const auto& slots = tuple_desc->slots();
+    for (int i = 0; i < materialization_node.column_descs_lists.size(); ++i) {
+        auto request_block_desc = multi_get_request.add_request_block_descs();
+        request_block_desc->set_fetch_row_store(materialization_node.fetch_row_stores[i]);
+        // Initialize the column_descs and slot_locs
+        auto& column_descs = materialization_node.column_descs_lists[i];
+        for (auto& column_desc_item : column_descs) {
+            TabletColumn(column_desc_item).to_schema_pb(request_block_desc->add_column_descs());
+        }
+
+        auto& slot_locs = materialization_node.slot_locs_lists[i];
+        tuple_desc->to_protobuf(request_block_desc->mutable_desc());
+
+        auto& column_idxs = materialization_node.column_idxs_lists[i];
+        for (auto idx : column_idxs) {
+            request_block_desc->add_column_idxs(idx);
+        }
+
+        for (auto& slot_loc_item : slot_locs) {
+            slots[slot_loc_item]->to_protobuf(request_block_desc->add_slots());
+        }
+    }
+
+    // Initialize the stubs and requests for each BE
+    for (const auto& node_info : materialization_node.nodes_info.nodes) {
+        auto client = ExecEnv::GetInstance()->brpc_internal_client_cache()->get_client(
+                node_info.host, node_info.async_internal_port);
+        if (!client) {
+            LOG(WARNING) << "Get rpc stub failed, host=" << node_info.host
+                         << ", port=" << node_info.async_internal_port;
+            return Status::InternalError("RowIDFetcher failed to init rpc client, host={}, port={}",
+                                         node_info.host, node_info.async_internal_port);
+        }
+        rpc_struct_map.emplace(node_info.id, FetchRpcStruct {.stub = std::move(client),
+                                                             .request = multi_get_request,
+                                                             .callback = nullptr});
+    }
+    // add be_num ad count finish counter for source dependency
+    ((CountedFinishDependency*)source_deps.back().get())->add((int)rpc_struct_map.size());
+
+    return Status::OK();
 }
 
 } // namespace doris::pipeline

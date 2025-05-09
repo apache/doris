@@ -65,6 +65,8 @@
 #include "pipeline/exec/jdbc_scan_operator.h"
 #include "pipeline/exec/jdbc_table_sink_operator.h"
 #include "pipeline/exec/local_merge_sort_source_operator.h"
+#include "pipeline/exec/materialization_sink_operator.h"
+#include "pipeline/exec/materialization_source_operator.h"
 #include "pipeline/exec/memory_scratch_sink_operator.h"
 #include "pipeline/exec/meta_scan_operator.h"
 #include "pipeline/exec/multi_cast_data_stream_sink.h"
@@ -1578,6 +1580,25 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
                 _require_bucket_distribution || sink->require_data_distribution();
         RETURN_IF_ERROR(cur_pipe->set_sink(sink));
         RETURN_IF_ERROR(cur_pipe->sink()->init(tnode, _runtime_state.get()));
+        break;
+    }
+    case TPlanNodeType::MATERIALIZATION_NODE: {
+        op.reset(new MaterializationSourceOperatorX(pool, tnode, next_operator_id(), descs));
+        RETURN_IF_ERROR(cur_pipe->add_operator(
+                op, request.__isset.parallel_instances ? request.parallel_instances : 0));
+
+        const auto downstream_pipeline_id = cur_pipe->id();
+        if (_dag.find(downstream_pipeline_id) == _dag.end()) {
+            _dag.insert({downstream_pipeline_id, {}});
+        }
+        auto new_pipe = add_pipeline(cur_pipe);
+        _dag[downstream_pipeline_id].push_back(new_pipe->id());
+
+        DataSinkOperatorPtr sink(new MaterializationSinkOperatorX(
+                op->operator_id(), next_sink_operator_id(), pool, tnode));
+        RETURN_IF_ERROR(new_pipe->set_sink(sink));
+        RETURN_IF_ERROR(new_pipe->sink()->init(tnode, _runtime_state.get()));
+        cur_pipe = new_pipe;
         break;
     }
     case TPlanNodeType::INTERSECT_NODE: {
