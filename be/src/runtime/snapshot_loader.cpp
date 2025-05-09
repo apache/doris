@@ -472,11 +472,13 @@ Status SnapshotLoader::remote_http_download(
                                        ec.message());
             }
             std::string md5;
-            auto status = io::global_local_filesystem()->md5sum(local_file_path, &md5);
-            if (!status.ok()) {
-                LOG(WARNING) << "download file error, local file " << local_file_path
-                             << " md5sum: " << status.to_string();
-                return status;
+            if (config::enable_download_md5sum_check) {
+                auto status = io::global_local_filesystem()->md5sum(local_file_path, &md5);
+                if (!status.ok()) {
+                    LOG(WARNING) << "download file error, local file " << local_file_path
+                                 << " md5sum: " << status.to_string();
+                    return status;
+                }
             }
             local_files[local_file] = {local_file_size, md5};
         }
@@ -565,7 +567,9 @@ Status SnapshotLoader::remote_http_download(
                 continue;
             }
 
-            if (auto& local_filestat = it->second; local_filestat.md5 != remote_filestat.md5) {
+            if (auto& local_filestat = it->second;
+                !remote_filestat.md5.empty() && // compatible with old version
+                local_filestat.md5 != remote_filestat.md5) {
                 need_download_files.emplace_back(remote_file);
                 continue;
             }
