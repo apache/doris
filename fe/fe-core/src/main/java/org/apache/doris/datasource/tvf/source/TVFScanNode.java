@@ -115,7 +115,7 @@ public class TVFScanNode extends FileQueryScanNode {
 
     @Override
     public Map<String, String> getLocationProperties() {
-        return tableValuedFunction.getLocationProperties();
+        return tableValuedFunction.getBackendConnectProperties();
     }
 
     @Override

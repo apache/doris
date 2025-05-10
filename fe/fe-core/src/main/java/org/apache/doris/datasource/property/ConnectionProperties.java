@@ -18,7 +18,6 @@
 package org.apache.doris.datasource.property;
 
 import org.apache.doris.common.CatalogConfigFileUtils;
-import org.apache.doris.common.UserException;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
@@ -55,7 +54,7 @@ public abstract class ConnectionProperties {
         this.origProps = origProps;
     }
 
-    protected void initNormalizeAndCheckProps() throws UserException {
+    protected void initNormalizeAndCheckProps() {
         List<Field> supportedProps = PropertyUtils.getConnectorProperties(this.getClass());
         for (Field field : supportedProps) {
             field.setAccessible(true);

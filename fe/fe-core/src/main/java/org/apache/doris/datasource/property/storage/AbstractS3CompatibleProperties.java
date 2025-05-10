@@ -145,7 +145,7 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
 
 
     @Override
-    protected void initNormalizeAndCheckProps() throws UserException {
+    protected void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
         setEndpointIfNotSet();
         if (!isValidEndpoint(getEndpoint())) {
@@ -184,7 +184,7 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
         return endpointPattern().matcher(endpoint).matches();
     }
 
-    private void setEndpointIfNotSet() throws UserException {
+    private void setEndpointIfNotSet() {
         if (StringUtils.isNotBlank(getEndpoint())) {
             return;
         }

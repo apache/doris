@@ -28,6 +28,7 @@ import java.lang.reflect.Field;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
@@ -52,6 +53,12 @@ public class S3Properties extends AbstractS3CompatibleProperties {
     @ConnectorProperty(names = {"s3.access_key", "AWS_ACCESS_KEY", "ACCESS_KEY", "access_key"},
             description = "The access key of S3.")
     protected String accessKey = "";
+
+    @Getter
+    @ConnectorProperty(names = {"s3.session_token", "session_token"},
+            required = false,
+            description = "The session token of S3.")
+    protected String sessionToken = "";
 
     @Getter
     @ConnectorProperty(names = {"s3.secret_key", "AWS_SECRET_KEY", "secret_key", "SECRET_KEY"},
@@ -134,14 +141,20 @@ public class S3Properties extends AbstractS3CompatibleProperties {
                 .filter(Objects::nonNull)
                 .findFirst()
                 .orElse(null);
+        /**
+         * Check if the endpoint contains "amazonaws.com" to determine if it's an S3-compatible storage.
+         * Note: This check should not be overly strict, as a malformed or misconfigured endpoint may
+         * cause the type detection to fail, leading to missed recognition of valid S3 properties.
+         * A more robust approach would allow further validation downstream rather than failing early here.
+         */
         if (!Strings.isNullOrEmpty(endpoint)) {
-            return ENDPOINT_PATTERN.matcher(endpoint).matches();
+            return endpoint.contains("amazonaws.com");
         }
-        if (!origProps.containsKey("uri")) {
-            return false;
-        }
-        String uri = origProps.get("uri");
-        return uri.contains("amazonaws.com");
+        Optional<String> uriValue = origProps.entrySet().stream()
+                .filter(e -> e.getKey().equalsIgnoreCase("uri"))
+                .map(Map.Entry::getValue)
+                .findFirst();
+        return uriValue.isPresent() && uriValue.get().contains("amazonaws.com");
     }
 
     @Override

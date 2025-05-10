@@ -102,7 +102,7 @@ suite("test_domain_connection_and_ak_sk_correction",  "load_p0") {
         assertTrue(false. "The endpoint is wrong, so the connection test should fale")
     } catch (Exception e) {
         logger.info("the second sql exception result is {}", e.getMessage())
-        assertTrue(e.getMessage().contains("Failed to access object storage, message="), e.getMessage())
+        assertTrue(e.getMessage().contains("Failed to create storage properties for broker: S3"), e.getMessage())
     }
 
     label = UUID.randomUUID().toString().replace("-", "")
@@ -155,10 +155,14 @@ suite("test_domain_connection_and_ak_sk_correction",  "load_p0") {
             );
         """
         logger.info("the fourth sql result is {}", result)
+        def loadresult = sql = """
+            SHOW LOAD WHERE label="${label}"
+        """
+        logger.info("the fourth sql load result is {}", loadresult)
         assertTrue(false. "in the second DATA INFILE, the first bucket is wrong, so the sql should fail")
     } catch (Exception e) {
         logger.info("the fourth sql exception result is {}", e.getMessage())
-        assertTrue(e.getMessage().contains("Failed to access object storage, message="), e.getMessage())
+        assertTrue(e.getMessage().contains("connectivity test failed"), e.getMessage())
     }
     sql """ DROP TABLE IF EXISTS ${tableName} FORCE"""
     sql """ DROP TABLE IF EXISTS ${tableNameOrders} FORCE"""

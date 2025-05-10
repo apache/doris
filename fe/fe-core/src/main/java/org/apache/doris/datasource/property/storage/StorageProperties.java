@@ -51,6 +51,7 @@ public abstract class StorageProperties extends ConnectionProperties {
         OBS,
         COS,
         AZURE,
+        BROKER,
         UNKNOWN
     }
 
@@ -98,7 +99,7 @@ public abstract class StorageProperties extends ConnectionProperties {
      * @return a StorageProperties instance for the primary storage type
      * @throws RuntimeException if no supported storage type is found
      */
-    public static StorageProperties createPrimary(Map<String, String> origProps) throws UserException {
+    public static StorageProperties createPrimary(Map<String, String> origProps) {
         for (Function<Map<String, String>, StorageProperties> func : PROVIDERS) {
             StorageProperties p = func.apply(origProps);
             if (p != null) {

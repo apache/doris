@@ -81,7 +81,7 @@ public class HdfsPropertiesUtilsTest {
         Exception exception = Assertions.assertThrows(IllegalArgumentException.class, () -> {
             HdfsPropertiesUtils.convertUrlToFilePath(uri);
         });
-        Assertions.assertTrue(exception.getMessage().contains("uri is null"));
+        Assertions.assertTrue(exception.getMessage().contains("Properties 'uri' is required"));
     }
 
     @Test

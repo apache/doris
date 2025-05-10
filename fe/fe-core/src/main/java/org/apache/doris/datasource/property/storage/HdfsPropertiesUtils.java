@@ -103,7 +103,7 @@ public class HdfsPropertiesUtils {
         }
         String schema = uri.getScheme();
         if (StringUtils.isBlank(schema)) {
-            throw new IllegalArgumentException("Invalid uri: " + uriStr + "extract schema is null");
+            throw new IllegalArgumentException("Invalid uri: " + uriStr + ", extract schema is null");
         }
         if (!supportSchema.contains(schema.toLowerCase())) {
             throw new IllegalArgumentException("Invalid export path:"
@@ -126,12 +126,12 @@ public class HdfsPropertiesUtils {
      */
     private static String validateAndNormalizeUri(String uriStr) throws AnalysisException {
         if (StringUtils.isBlank(uriStr)) {
-            throw new IllegalArgumentException("uri is null, pls check your params");
+            throw new IllegalArgumentException("Properties 'uri' is required");
         }
         URI uri = URI.create(uriStr);
         String schema = uri.getScheme();
         if (StringUtils.isBlank(schema)) {
-            throw new IllegalArgumentException("Invalid uri: " + uriStr + "extract schema is null");
+            throw new IllegalArgumentException("Invalid uri: " + uriStr + ", extract schema is null");
         }
         if (!supportSchema.contains(schema.toLowerCase())) {
             throw new IllegalArgumentException("Invalid export path:"
