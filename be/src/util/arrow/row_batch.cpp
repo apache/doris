@@ -39,6 +39,7 @@
 #include "runtime/types.h"
 #include "util/arrow/block_convertor.h"
 #include "vec/core/block.h"
+#include "vec/data_types/data_type_agg_state.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_map.h"
 #include "vec/data_types/data_type_struct.h"
@@ -47,9 +48,13 @@
 
 namespace doris {
 
-Status convert_to_arrow_type(const vectorized::DataTypePtr& type,
+Status convert_to_arrow_type(const vectorized::DataTypePtr& origin_type,
                              std::shared_ptr<arrow::DataType>* result,
                              const std::string& timezone) {
+    auto type = origin_type;
+    if (const auto* typed = typeid_cast<const vectorized::DataTypeAggState*>(type.get()); typed) {
+        type = typed->get_serialized_type();
+    }
     switch (type->get_primitive_type()) {
     case TYPE_NULL:
         *result = arrow::null();

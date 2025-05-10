@@ -25,6 +25,7 @@
 #include "common/cast_set.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/exception.h"
+#include "common/status.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "udf/udf.h"
@@ -57,18 +58,21 @@ VExprContext::~VExprContext() {
 }
 
 Status VExprContext::execute(vectorized::Block* block, int* result_column_id) {
-    Status st;
     RETURN_IF_CATCH_EXCEPTION({
-        st = _root->execute(this, block, result_column_id);
+        RETURN_IF_ERROR(_root->execute(this, block, result_column_id));
         _last_result_column_id = *result_column_id;
         if (_last_result_column_id != -1) {
-            if (const auto* column_str = check_and_get_column<ColumnString>(
-                        block->get_by_position(*result_column_id).column.get())) {
+            auto result_column = block->get_by_position(_last_result_column_id).column;
+            if (!result_column) {
+                return Status::InternalError("result_column is nullptr, expr={}",
+                                             _root->debug_string());
+            }
+            if (const auto* column_str = check_and_get_column<ColumnString>(result_column.get())) {
                 column_str->sanity_check();
             }
         }
     });
-    return st;
+    return Status::OK();
 }
 
 Status VExprContext::prepare(RuntimeState* state, const RowDescriptor& row_desc) {
