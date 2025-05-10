@@ -22,6 +22,7 @@
 #include <gen_cpp/FrontendService.h>
 #include <gen_cpp/FrontendService_types.h>
 #include <gen_cpp/PaloInternalService_types.h>
+#include <glog/logging.h>
 
 #include <cstdint>
 #include <functional>
@@ -129,20 +130,30 @@ public:
     // mv where clause
     // v1 needs index->node->row_ids - tabletids
     // v2 needs index,tablet->rowids
+    // reentry means this block is batched block. so skip some transform.
     Status generate_rows_distribution(vectorized::Block& input_block,
                                       std::shared_ptr<vectorized::Block>& block,
                                       int64_t& filtered_rows, bool& has_filtered_rows,
                                       std::vector<RowPartTabletIds>& row_part_tablet_ids,
-                                      int64_t& rows_stat_val);
+                                      int64_t& rows_stat_val, bool reentry = false);
     bool need_deal_batching() const { return _deal_batched && _batching_rows > 0; }
-    size_t batching_rows() const { return _batching_rows; }
     // create partitions when need for auto-partition table using #_partitions_need_create.
     Status automatic_create_partition();
     void clear_batching_stats();
+    std::vector<bool> get_skipped() { return _skip; } // skipped in last round
 
     // for auto partition
     std::unique_ptr<MutableBlock> _batching_block;
     bool _deal_batched = false; // If true, send batched block before any block's append.
+    void store_reentry_flag() {
+        DCHECK_EQ(_reentry_flag, false);
+        _reentry_flag = true;
+    }
+    bool consume_reentry_flag() {
+        bool flag = _reentry_flag;
+        _reentry_flag = false;
+        return flag;
+    }
 
 private:
     std::pair<vectorized::VExprContextSPtrs, vectorized::VExprSPtrs> _get_partition_function();
@@ -209,6 +220,7 @@ private:
     std::vector<std::vector<TNullableStringLiteral>> _partitions_need_create;
     size_t _batching_rows = 0, _batching_bytes = 0;
     std::unordered_set<std::vector<TNullableStringLiteral>, NullableStringListHash> _deduper;
+    bool _reentry_flag; // for skipping block convert for batching block.
 
     OlapTableBlockConvertor* _block_convertor = nullptr;
     OlapTabletFinder* _tablet_finder = nullptr;
