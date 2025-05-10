@@ -22,6 +22,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.rpc.BackendServiceProxy;
@@ -35,8 +36,10 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
@@ -227,12 +230,18 @@ public class KafkaUtil {
         TNetworkAddress address = null;
         Future<InternalService.PProxyResult> future = null;
         InternalService.PProxyResult result = null;
+        Set<Long> failedBeIds = new HashSet<>();
+        TStatusCode code = null;
+
         try {
             while (retryTimes < 3) {
                 List<Long> backendIds = new ArrayList<>();
                 for (Long beId : Env.getCurrentSystemInfo().getAllBackendIds(true)) {
                     Backend backend = Env.getCurrentSystemInfo().getBackend(beId);
-                    if (backend != null && backend.isLoadAvailable() && !backend.isDecommissioned()) {
+                    if (backend != null && backend.isLoadAvailable()
+                            && !backend.isDecommissioned()
+                            && !failedBeIds.contains(beId)
+                            && !Env.getCurrentEnv().getRoutineLoadManager().isInBlacklist(beId)) {
                         backendIds.add(beId);
                     }
                 }
@@ -243,19 +252,26 @@ public class KafkaUtil {
                 Collections.shuffle(backendIds);
                 Backend be = Env.getCurrentSystemInfo().getBackend(backendIds.get(0));
                 address = new TNetworkAddress(be.getHost(), be.getBrpcPort());
+                long beId = be.getId();
 
                 try {
                     future = BackendServiceProxy.getInstance().getInfo(address, request);
                     result = future.get(Config.max_get_kafka_meta_timeout_second, TimeUnit.SECONDS);
+                    if (DebugPointUtil.isEnable("FE.GET_KAFKA_META_FAIL")) {
+                        LOG.info("debug point FE.GET_KAFKA_META_FAIL, get kafka meta fail");
+                        throw new LoadException("Failed to get info");
+                    }
                 } catch (Exception e) {
                     LOG.warn("failed to get info request to " + address + " err " + e.getMessage());
+                    failedBeIds.add(beId);
                     retryTimes++;
                     continue;
                 }
-                TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
+                code = TStatusCode.findByValue(result.getStatus().getStatusCode());
                 if (code != TStatusCode.OK) {
                     LOG.warn("failed to get info request to "
                             + address + " err " + result.getStatus().getErrorMsgsList());
+                    failedBeIds.add(beId);
                     retryTimes++;
                 } else {
                     return result;
@@ -265,6 +281,11 @@ public class KafkaUtil {
             MetricRepo.COUNTER_ROUTINE_LOAD_GET_META_FAIL_COUNT.increase(1L);
             throw new LoadException("Failed to get info");
         } finally {
+            if (code != null && code == TStatusCode.OK && !failedBeIds.isEmpty()) {
+                for (Long beId : failedBeIds) {
+                    Env.getCurrentEnv().getRoutineLoadManager().addToBlacklist(beId);
+                }
+            }
             long endTime = System.currentTimeMillis();
             MetricRepo.COUNTER_ROUTINE_LOAD_GET_META_LANTENCY.increase(endTime - startTime);
             MetricRepo.COUNTER_ROUTINE_LOAD_GET_META_COUNT.increase(1L);
