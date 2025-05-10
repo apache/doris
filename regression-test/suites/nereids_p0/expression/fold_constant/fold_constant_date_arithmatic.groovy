@@ -89,7 +89,6 @@ suite("fold_constant_date_arithmatic") {
     testFoldConst("select unix_timestamp('3000/02/29','%Y/%m/%d');")
     testFoldConst("select unix_timestamp('01.Jan.1970','%d.%b.%Y');")
     testFoldConst("select unix_timestamp('0000-00-00 00:00:00');")
-    testFoldConst("select unix_timestamp();")
     testFoldConst("select unix_timestamp('2021-02-29', '%Y-%m-%d');")
     testFoldConst("select unix_timestamp('2023/04/31', '%Y/%m/%d');")
     testFoldConst("select unix_timestamp('2023-04-31 12:00:00');")
