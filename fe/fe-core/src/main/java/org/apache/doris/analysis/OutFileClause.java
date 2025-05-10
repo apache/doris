@@ -541,11 +541,6 @@ public class OutFileClause {
         if (fileFormatProperties.getFileFormatType() == TFileFormatType.FORMAT_ORC) {
             getOrcProperties(copiedProps);
         }
-        //fixme really need this?
-        /* if (!copiedProps.isEmpty()) {
-            throw new AnalysisException("Unknown properties: " + copiedProps.keySet());
-        }*/
-
     }
 
     /**

@@ -766,6 +766,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
     }
 
 
+
     public void checkAndFilterRestoreOlapTableExistInSnapshot(Map<String, BackupOlapTableInfo> backupOlapTableInfoMap,
                                                               TableRef tableRef) throws DdlException {
         String tblName = tableRef.getName().getTbl();

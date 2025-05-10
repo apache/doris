@@ -77,7 +77,6 @@ public class BrokerUtil {
 
     /**
      * Parse file status in path with broker, except directory
-     *
      * @param path
      * @param brokerDesc
      * @param fileStatuses: file path, size, isDir, isSplittable
@@ -194,7 +193,6 @@ public class BrokerUtil {
 
     /**
      * Read binary data from path with broker
-     *
      * @param path
      * @param brokerDesc
      * @return byte[]
@@ -303,7 +301,6 @@ public class BrokerUtil {
 
     /**
      * Write binary data to destFilePath with broker
-     *
      * @param data
      * @param destFilePath
      * @param brokerDesc
@@ -322,7 +319,6 @@ public class BrokerUtil {
 
     /**
      * Write srcFilePath file to destFilePath with broker
-     *
      * @param srcFilePath
      * @param destFilePath
      * @param brokerDesc
@@ -370,7 +366,6 @@ public class BrokerUtil {
 
     /**
      * Delete path with broker
-     *
      * @param path
      * @param brokerDesc
      * @throws UserException if broker op failed
