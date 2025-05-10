@@ -85,7 +85,11 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
                 .filter(e -> e.getKey().equalsIgnoreCase("uri"))
                 .map(Map.Entry::getValue)
                 .findFirst();
-        return uriValue.isPresent() && uriValue.get().contains("aliyuncs.com");
+        if (!uriValue.isPresent()) {
+            return false;
+        }
+        String uri = uriValue.get();
+        return uri.contains("aliyuncs.com") && (!uri.contains("oss-dls.aliyuncs.com"));
     }
 
     @Override

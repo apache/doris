@@ -46,8 +46,7 @@ public class OSSPropertiesTest {
         origProps = new HashMap<>();
         origProps.put("oss.endpoint", "https://oss.aliyuncs.com");
         Map<String, String> finalOrigProps2 = origProps;
-        Assertions.assertThrowsExactly(RuntimeException.class, () -> StorageProperties.createPrimary(finalOrigProps2));
-
+        Assertions.assertThrowsExactly(IllegalArgumentException.class, () -> StorageProperties.createPrimary(finalOrigProps2));
     }
 
 
