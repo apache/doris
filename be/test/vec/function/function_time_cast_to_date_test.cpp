@@ -25,8 +25,8 @@
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_runtime_state.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_date_or_datetime_v2.h"
 #include "vec/data_types/data_type_nullable.h"
-#include "vec/data_types/data_type_time_v2.h"
 #include "vec/functions/function_cast.h"
 
 namespace doris::vectorized {

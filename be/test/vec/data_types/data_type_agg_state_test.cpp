@@ -25,6 +25,7 @@
 #include <memory>
 
 #include "agent/be_exec_version_manager.h"
+#include "runtime/define_primitive_type.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_fixed_length_object.h"
 #include "vec/columns/columns_number.h"
@@ -76,7 +77,7 @@ TEST_P(DataTypeAggStateTest, MetaInfoTest) {
     auto col_meta = std::make_shared<PColumnMeta>();
     col_meta->set_type(PGenericType_TypeId_AGG_STATE);
     CommonDataTypeTest::DataTypeMetaInfo agg_state_meta_info_to_assert = {
-            .type_id = TypeIndex::AggState,
+            .type_id = PrimitiveType::TYPE_AGG_STATE,
             .type_as_type_descriptor = agg_state_type_descriptor,
             .family_name = "AggState",
             .has_subtypes = false,

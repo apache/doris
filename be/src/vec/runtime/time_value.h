@@ -41,8 +41,8 @@ public:
     constexpr static uint32_t MICROS_SCALE = 6;
     constexpr static int64_t MAX_TIME = 3020399LL * 1000 * 1000;
 
-    using TimeType = typename PrimitiveTypeTraits<TYPE_TIMEV2>::CppType;
-    using ColumnTime = vectorized::DataTypeTimeV2::ColumnType;
+    using TimeType = typename PrimitiveTypeTraits<TYPE_TIMEV2>::CppType; // double
+    using ColumnTimeV2 = vectorized::DataTypeTimeV2::ColumnType;
 
     static int64_t round_time(TimeType value, uint32_t scale) {
         int64_t time = value;
@@ -110,14 +110,14 @@ public:
     }
 
     template <typename T>
-    static bool try_as_time(char* s, size_t len, T& x) {
-        char* first_char = s;
-        char* end_char = s + len;
+    static bool try_as_time(const char* s, size_t len, T& x) {
+        const char* first_char = s;
+        const char* end_char = s + len;
         int64_t hour = 0, minute = 0, second = 0;
         // For a valid time string, its format is hh:mm:ss
         // Where hh can be negative, mm/ss must be positive
         // For example: -12:13:14 and 12:13:14 are valid, but 12:-30:14 is invalid
-        auto parse_from_str_to_int = [](char* begin, size_t len, auto& num) {
+        auto parse_from_str_to_int = [](const char* begin, size_t len, auto& num) {
             StringParser::ParseResult parse_result = StringParser::PARSE_SUCCESS;
             auto int_value = StringParser::string_to_int<int64_t>(begin, (int)len, &parse_result);
             if (UNLIKELY(parse_result != StringParser::PARSE_SUCCESS)) {
@@ -127,7 +127,7 @@ public:
             return true;
         };
 
-        auto parse_from_str_to_uint = [](char* begin, size_t len, auto& num) {
+        auto parse_from_str_to_uint = [](const char* begin, size_t len, auto& num) {
             StringParser::ParseResult parse_result = StringParser::PARSE_SUCCESS;
             auto int_value =
                     StringParser::string_to_unsigned_int<uint64_t>(begin, (int)len, &parse_result);
@@ -196,7 +196,7 @@ public:
         }
         bool negative = from_other < 0;
         int64_t from = std::abs((int64_t)from_other);
-        int64 seconds = int64(from / 100);
+        auto seconds = int64(from / 100);
         int64 hour = 0, minute = 0, second = 0;
         second = int64(from - 100 * seconds);
         from /= 100;

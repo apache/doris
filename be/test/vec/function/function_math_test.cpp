@@ -34,7 +34,7 @@ using namespace ut_type;
 TEST(MathFunctionTest, acos_test) {
     std::string func_name = "acos"; //[-1,1] -->[0,pi]
 
-    InputTypeSet input_types = {TypeIndex::Float64};
+    InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE};
 
     DataSet data_set = {{{-1.0}, 3.1415926535897931},
                         {{0.0}, M_PI / 2},
@@ -48,7 +48,7 @@ TEST(MathFunctionTest, acos_test) {
 TEST(MathFunctionTest, acosh_test) {
     std::string func_name = "acosh"; // acosh(x) = ln(x + sqrt(x^2 - 1)), x ∈ [1, +∞)
 
-    InputTypeSet input_types = {TypeIndex::Float64};
+    InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE};
 
     DataSet data_set = {{{1.0}, 0.0},
                         {{2.0}, 1.3169578969248166},
@@ -63,7 +63,7 @@ TEST(MathFunctionTest, acosh_test) {
 TEST(MathFunctionTest, asin_test) {
     std::string func_name = "asin"; //[-1,1] -->[-pi_2, pi_2]
 
-    InputTypeSet input_types = {TypeIndex::Float64};
+    InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE};
 
     DataSet data_set = {
             {{-1.0}, -M_PI / 2}, {{0.0}, 0.0}, {{0.5}, 0.52359877559829893}, {{1.0}, M_PI / 2}};
@@ -74,7 +74,7 @@ TEST(MathFunctionTest, asin_test) {
 TEST(MathFunctionTest, asinh_test) {
     std::string func_name = "asinh"; // asinh(x) = ln(x + sqrt(x^2 + 1)), x ∈ (-∞, +∞)
 
-    InputTypeSet input_types = {TypeIndex::Float64};
+    InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE};
 
     DataSet data_set = {{{0.0}, 0.0},
                         {{1.0}, 0.8813735870195430},
@@ -89,7 +89,7 @@ TEST(MathFunctionTest, asinh_test) {
 TEST(MathFunctionTest, atan_test) {
     std::string func_name = "atan"; //[-,+] -->(pi_2,pi_2)
 
-    InputTypeSet input_types = {TypeIndex::Float64};
+    InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE};
 
     DataSet data_set = {{{-1.0}, -0.78539816339744828},
                         {{0.0}, 0.0},
@@ -102,7 +102,7 @@ TEST(MathFunctionTest, atan_test) {
 TEST(MathFunctionTest, atanh_test) {
     std::string func_name = "atanh"; // atanh(x) = 0.5 * ln((1 + x) / (1 - x)), x ∈ (-1, 1)
 
-    InputTypeSet input_types = {TypeIndex::Float64};
+    InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE};
 
     DataSet data_set = {{{0.0}, 0.0},
                         {{0.5}, 0.5493061443340548},
@@ -117,7 +117,7 @@ TEST(MathFunctionTest, atanh_test) {
 TEST(MathFunctionTest, cos_test) {
     std::string func_name = "cos";
 
-    InputTypeSet input_types = {TypeIndex::Float64};
+    InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE};
 
     DataSet data_set = {{{-1.0}, 0.54030230586813977},
                         {{0.0}, 1.0},
@@ -131,7 +131,7 @@ TEST(MathFunctionTest, cos_test) {
 TEST(MathFunctionTest, sin_test) {
     std::string func_name = "sin";
 
-    InputTypeSet input_types = {TypeIndex::Float64};
+    InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE};
 
     DataSet data_set = {{{-1.0}, -0.8414709848078965},
                         {{0.0}, 0.0},
@@ -145,7 +145,7 @@ TEST(MathFunctionTest, sin_test) {
 TEST(MathFunctionTest, sinh_test) {
     std::string func_name = "sinh"; // sinh(x) = (e^x - e^(-x)) / 2, x ∈ (-∞, +∞)
 
-    InputTypeSet input_types = {TypeIndex::Float64};
+    InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE};
 
     DataSet data_set = {{{0.0}, 0.0},
                         {{1.0}, 1.1752011936438014},
@@ -160,7 +160,7 @@ TEST(MathFunctionTest, sinh_test) {
 TEST(MathFunctionTest, sqrt_test) {
     std::string func_name = "sqrt"; //sqrt(x) x>=0
 
-    InputTypeSet input_types = {TypeIndex::Float64};
+    InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE};
 
     DataSet data_set = {{{0.0}, 0.0},
                         {{2.0}, 1.4142135623730951},
@@ -173,7 +173,7 @@ TEST(MathFunctionTest, sqrt_test) {
 TEST(MathFunctionTest, cbrt_test) {
     std::string func_name = "cbrt";
 
-    InputTypeSet input_types = {TypeIndex::Float64};
+    InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE};
 
     DataSet data_set = {
             {{0.0}, 0.0}, {{2.0}, 1.2599210498948734}, {{8.0}, 2.0}, {{-1000.0}, -10.0}};
@@ -184,7 +184,7 @@ TEST(MathFunctionTest, cbrt_test) {
 TEST(MathFunctionTest, tan_test) {
     std::string func_name = "tan"; //tan(x)
 
-    InputTypeSet input_types = {TypeIndex::Float64};
+    InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE};
 
     DataSet data_set = {{{0.0}, 0.0},
                         {{2.0}, -2.1850398632615189},
@@ -197,7 +197,7 @@ TEST(MathFunctionTest, tan_test) {
 TEST(MathFunctionTest, exp_test) {
     std::string func_name = "exp";
 
-    InputTypeSet input_types = {TypeIndex::Float64};
+    InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE};
 
     DataSet data_set = {{{-1.0}, 0.36787944117144233},
                         {{0.0}, 1.0},
@@ -211,7 +211,7 @@ TEST(MathFunctionTest, exp_test) {
 TEST(MathFunctionTest, ln_test) {
     std::string func_name = "ln"; // ln(x) x>0
 
-    InputTypeSet input_types = {TypeIndex::Float64};
+    InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE};
 
     DataSet data_set = {{{1.0}, 0.0},
                         {{0.5}, -0.69314718055994529},
@@ -225,7 +225,7 @@ TEST(MathFunctionTest, ln_test) {
 TEST(MathFunctionTest, log2_test) {
     std::string func_name = "log2"; // log2(x) x>0
 
-    InputTypeSet input_types = {TypeIndex::Float64};
+    InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE};
 
     DataSet data_set = {{{1.0}, 0.0},
                         {{0.5}, -1.0},
@@ -239,7 +239,7 @@ TEST(MathFunctionTest, log2_test) {
 TEST(MathFunctionTest, log10_test) {
     std::string func_name = "log10"; // log10(x) x>0
 
-    InputTypeSet input_types = {TypeIndex::Float64};
+    InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE};
 
     DataSet data_set = {{{1.0}, 0.0},
                         {{0.5}, -0.3010299956639812},
@@ -253,7 +253,7 @@ TEST(MathFunctionTest, log10_test) {
 TEST(MathFunctionTest, log_test) {
     std::string func_name = "log"; // log(x,y) x>0 y>0
 
-    InputTypeSet input_types = {TypeIndex::Float64, TypeIndex::Float64};
+    InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE, PrimitiveType::TYPE_DOUBLE};
 
     DataSet data_set = {
             {{10.0, 1.0}, 0.0},    {{10.0, 100.0}, 2.0},  {{0.1, 5.0}, -0.69897000433601886},
@@ -265,7 +265,7 @@ TEST(MathFunctionTest, log_test) {
 TEST(MathFunctionTest, pow_test) {
     std::string func_name = "pow"; // pow(x,y)
 
-    InputTypeSet input_types = {TypeIndex::Float64, TypeIndex::Float64};
+    InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE, PrimitiveType::TYPE_DOUBLE};
 
     DataSet data_set = {{{10.0, 1.0}, 10.0},
                         {{10.0, 10.0}, 10000000000.0},
@@ -278,7 +278,7 @@ TEST(MathFunctionTest, pow_test) {
 TEST(MathFunctionTest, ceil_test) {
     std::string func_name = "ceil";
 
-    InputTypeSet input_types = {TypeIndex::Float64};
+    InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE};
 
     DataSet data_set = {{{2.3}, 3.0}, {{2.8}, 3.0}, {{-2.3}, -2.0}, {{2.8}, 3.0}};
 
@@ -288,7 +288,7 @@ TEST(MathFunctionTest, ceil_test) {
 TEST(MathFunctionTest, floor_test) {
     std::string func_name = "floor";
 
-    InputTypeSet input_types = {TypeIndex::Float64};
+    InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE};
 
     DataSet data_set = {{{2.3}, 2.0}, {{2.8}, 2.0}, {{-2.3}, -3.0}, {{-2.8}, -3.0}};
 
@@ -298,7 +298,7 @@ TEST(MathFunctionTest, floor_test) {
 TEST(MathFunctionTest, degrees_test) {
     std::string func_name = "degrees"; // degrees(x) rad-->C
 
-    InputTypeSet input_types = {TypeIndex::Float64};
+    InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE};
 
     DataSet data_set = {{{1.0}, 57.295779513082323},
                         {{M_PI / 2}, 90.0},
@@ -311,7 +311,7 @@ TEST(MathFunctionTest, degrees_test) {
 TEST(MathFunctionTest, radians_test) {
     std::string func_name = "radians"; // radians(x) C--->rad
 
-    InputTypeSet input_types = {TypeIndex::Float64};
+    InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE};
 
     DataSet data_set = {{{30.0}, 0.52359877559829882},
                         {{90.0}, M_PI / 2},
@@ -325,7 +325,7 @@ TEST(MathFunctionTest, abs_test) {
     std::string func_name = "abs";
 
     {
-        InputTypeSet input_types = {TypeIndex::Float64};
+        InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE};
 
         DataSet data_set = {{{Null()}, Null()},
                             {{-0.0123}, 0.0123},
@@ -337,7 +337,7 @@ TEST(MathFunctionTest, abs_test) {
     }
 
     {
-        InputTypeSet input_types = {TypeIndex::Int32};
+        InputTypeSet input_types = {PrimitiveType::TYPE_INT};
 
         DataSet data_set = {{{Null()}, Null()},
                             {{INT(3)}, BIGINT(3)},
@@ -355,7 +355,7 @@ TEST(MathFunctionTest, positive_test) {
     std::string func_name = "positive";
 
     {
-        InputTypeSet input_types = {TypeIndex::Float64};
+        InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE};
 
         DataSet data_set = {{{0.0123}, 0.0123}, {{90.45}, 90.45}, {{0.0}, 0.0}, {{-60.0}, -60.0}};
 
@@ -363,7 +363,7 @@ TEST(MathFunctionTest, positive_test) {
     }
 
     {
-        InputTypeSet input_types = {TypeIndex::Int32};
+        InputTypeSet input_types = {PrimitiveType::TYPE_INT};
 
         DataSet data_set = {{{(int32_t)3}, (int32_t)3},
                             {{(int32_t)-3}, (int32_t)-3},
@@ -374,7 +374,7 @@ TEST(MathFunctionTest, positive_test) {
     }
 
     {
-        InputTypeSet input_types = {AnyType {Notnull {TypeIndex::Decimal64}, 5, 11}};
+        InputTypeSet input_types = {AnyType {Notnull {PrimitiveType::TYPE_DECIMAL64}, 5, 11}};
 
         DataSet data_set = {
                 {{DECIMAL64(12345, 123, 5)}, {DECIMAL64(12345, 123, 5)}},
@@ -386,7 +386,7 @@ TEST(MathFunctionTest, positive_test) {
     }
     // negative case
     {
-        InputTypeSet input_types = {AnyType {Notnull {TypeIndex::Decimal64}, 5, 11}};
+        InputTypeSet input_types = {AnyType {Notnull {PrimitiveType::TYPE_DECIMAL64}, 5, 11}};
 
         DataSet data_set = {
                 // column's data should keep all the same scale. will be reinterpreted as the same scale.
@@ -398,7 +398,7 @@ TEST(MathFunctionTest, positive_test) {
     }
     // negative case
     {
-        InputTypeSet input_types = {AnyType {Notnull {TypeIndex::Decimal64}, 5, 11}};
+        InputTypeSet input_types = {AnyType {Notnull {PrimitiveType::TYPE_DECIMAL64}, 5, 11}};
 
         DataSet data_set = {
                 {{DECIMAL64(12345, 12345, 5)}, {DECIMAL64(12345, 12345, 5)}},
@@ -413,7 +413,7 @@ TEST(MathFunctionTest, negative_test) {
     std::string func_name = "negative";
 
     {
-        InputTypeSet input_types = {TypeIndex::Float64};
+        InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE};
 
         DataSet data_set = {{{0.0123}, -0.0123}, {{90.45}, -90.45}, {{0.0}, 0.0}, {{-60.0}, 60.0}};
 
@@ -421,7 +421,7 @@ TEST(MathFunctionTest, negative_test) {
     }
 
     {
-        InputTypeSet input_types = {TypeIndex::Int32};
+        InputTypeSet input_types = {PrimitiveType::TYPE_INT};
 
         DataSet data_set = {{{(int32_t)3}, (int32_t)-3},
                             {{(int32_t)-3}, (int32_t)3},
@@ -436,7 +436,7 @@ TEST(MathFunctionTest, sign_test) {
     std::string func_name = "sign"; // sign(x) // 1 0 -1
 
     {
-        InputTypeSet input_types = {TypeIndex::Int32};
+        InputTypeSet input_types = {PrimitiveType::TYPE_INT};
 
         DataSet data_set = {{{(int32_t)30}, (int8_t)1.0},
                             {{(int32_t)0}, (int8_t)0.0},
@@ -445,7 +445,7 @@ TEST(MathFunctionTest, sign_test) {
         static_cast<void>(check_function<DataTypeInt8, true>(func_name, input_types, data_set));
     }
     {
-        InputTypeSet input_types = {TypeIndex::Float64};
+        InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE};
 
         DataSet data_set = {{{30.7}, (int8_t)1.0}, {{0.0}, (int8_t)0.0}, {{-10.6}, (int8_t)-1.0}};
 
@@ -457,7 +457,7 @@ TEST(MathFunctionTest, round_test) {
     std::string func_name = "round"; // round(double) && round(double, int)
 
     {
-        InputTypeSet input_types = {TypeIndex::Float64};
+        InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE};
 
         DataSet data_set = {{{30.1}, 30.0}, {{90.6}, 91.0}, {{Null()}, Null()},
                             {{0.0}, 0.0},   {{-1.1}, -1.0}, {{-60.7}, -61.0}};
@@ -470,7 +470,7 @@ TEST(MathFunctionTest, round_bankers_test) {
     std::string func_name = "round_bankers";
 
     {
-        InputTypeSet input_types = {TypeIndex::Float64};
+        InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE};
 
         DataSet data_set = {{{0.4}, 0.0}, {{-3.5}, -4.0}, {{4.5}, 4.0}, {{Null()}, Null()}};
 
@@ -481,7 +481,7 @@ TEST(MathFunctionTest, round_bankers_test) {
 TEST(MathFunctionTest, least_test) {
     std::string func_name = "least";
 
-    InputTypeSet input_types = {TypeIndex::Int32, TypeIndex::Int32};
+    InputTypeSet input_types = {PrimitiveType::TYPE_INT, PrimitiveType::TYPE_INT};
 
     DataSet data_set = {
             {{3, 2}, 2}, {{3, 3}, 3}, {{Null(), -2}, Null()}, {{193, -2}, -2}, {{193, -1}, -1}};
@@ -492,7 +492,7 @@ TEST(MathFunctionTest, least_test) {
 TEST(MathFunctionTest, greatest_test) {
     std::string func_name = "greatest";
 
-    InputTypeSet input_types = {TypeIndex::Int32, TypeIndex::Int32};
+    InputTypeSet input_types = {PrimitiveType::TYPE_INT, PrimitiveType::TYPE_INT};
 
     DataSet data_set = {
             {{3, 2}, 3}, {{3, 3}, 3}, {{Null(), -2}, Null()}, {{193, -2}, 193}, {{193, -1}, 193}};
@@ -503,7 +503,7 @@ TEST(MathFunctionTest, greatest_test) {
 TEST(MathFunctionTest, bin_test) {
     std::string func_name = "bin";
 
-    InputTypeSet input_types = {TypeIndex::Int64};
+    InputTypeSet input_types = {PrimitiveType::TYPE_BIGINT};
 
     DataSet data_set = {{{(int64_t)10}, std::string("1010")},
                         {{(int64_t)1}, std::string("1")},
@@ -516,7 +516,7 @@ TEST(MathFunctionTest, bin_test) {
 TEST(MathFunctionTest, hex_test) {
     std::string func_name = "hex"; // hex(int)
 
-    InputTypeSet input_types = {TypeIndex::Int64};
+    InputTypeSet input_types = {PrimitiveType::TYPE_BIGINT};
 
     DataSet data_set = {{{Null()}, Null()},
                         {{(int64_t)-1}, std::string("FFFFFFFFFFFFFFFF")},
@@ -533,7 +533,7 @@ TEST(MathFunctionTest, hex_test) {
 
 TEST(MathFunctionTest, random_test) {
     std::string func_name = "random"; // random(x)
-    InputTypeSet input_types = {Consted {TypeIndex::Int64}};
+    InputTypeSet input_types = {Consted {PrimitiveType::TYPE_BIGINT}};
     DataSet data_set = {{{Null()}, Null()},
                         {{(int64_t)0}, 0.15979336337046085},
                         {{(int64_t)10}, 0.60128310734097479},
@@ -551,7 +551,8 @@ TEST(MathFunctionTest, conv_test) {
     std::string func_name = "conv";
 
     {
-        InputTypeSet input_types = {TypeIndex::Int64, TypeIndex::Int8, TypeIndex::Int8};
+        InputTypeSet input_types = {PrimitiveType::TYPE_BIGINT, PrimitiveType::TYPE_TINYINT,
+                                    PrimitiveType::TYPE_TINYINT};
         DataSet data_set = {{{Null(), Null(), Null()}, Null()},
                             {{BIGINT(230), TINYINT(10), TINYINT(16)}, VARCHAR("E6")},
                             {{BIGINT(15), TINYINT(10), TINYINT(2)}, VARCHAR("1111")}};
@@ -564,7 +565,8 @@ TEST(MathFunctionTest, conv_test) {
     }
 
     {
-        InputTypeSet input_types = {TypeIndex::String, TypeIndex::Int8, TypeIndex::Int8};
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_TINYINT,
+                                    PrimitiveType::TYPE_TINYINT};
         DataSet data_set = {{{Null(), Null(), Null()}, Null()},
                             {{VARCHAR("ff"), TINYINT(16), TINYINT(10)}, VARCHAR("255")}};
 
@@ -580,7 +582,7 @@ TEST(MathFunctionTest, money_format_test) {
     std::string func_name = "money_format";
 
     {
-        InputTypeSet input_types = {TypeIndex::Int64};
+        InputTypeSet input_types = {PrimitiveType::TYPE_BIGINT};
         DataSet data_set = {{{Null()}, Null()},
                             {{BIGINT(17014116)}, VARCHAR("17,014,116.00")},
                             {{BIGINT(-17014116)}, VARCHAR("-17,014,116.00")}};
@@ -588,7 +590,7 @@ TEST(MathFunctionTest, money_format_test) {
         static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
     }
     {
-        InputTypeSet input_types = {TypeIndex::Int128};
+        InputTypeSet input_types = {PrimitiveType::TYPE_LARGEINT};
         DataSet data_set = {{{Null()}, Null()},
                             {{LARGEINT(17014116)}, VARCHAR("17,014,116.00")},
                             {{LARGEINT(-17014116)}, VARCHAR("-17,014,116.00")}};
@@ -596,7 +598,7 @@ TEST(MathFunctionTest, money_format_test) {
         static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
     }
     {
-        InputTypeSet input_types = {TypeIndex::Float64};
+        InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE};
         DataSet data_set = {{{Null()}, Null()},
                             {{DOUBLE(17014116.67)}, VARCHAR("17,014,116.67")},
                             {{DOUBLE(-17014116.67)}, VARCHAR("-17,014,116.67")},
@@ -605,7 +607,7 @@ TEST(MathFunctionTest, money_format_test) {
         static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
     }
     {
-        InputTypeSet input_types = {TypeIndex::Decimal128V2};
+        InputTypeSet input_types = {PrimitiveType::TYPE_DECIMALV2};
         DataSet data_set = {{{Null()}, Null()},
                             {{DECIMALV2(17014116.67)}, VARCHAR("17,014,116.67")},
                             {{DECIMALV2(-17014116.67)}, VARCHAR("-17,014,116.67")}};
@@ -613,7 +615,7 @@ TEST(MathFunctionTest, money_format_test) {
         static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
     }
     {
-        InputTypeSet input_types = {TypeIndex::Decimal64};
+        InputTypeSet input_types = {PrimitiveType::TYPE_DECIMAL64};
         DataSet data_set = {{{Null()}, Null()},
                             {{DECIMAL64(17014116, 670000000, 9)}, VARCHAR("17,014,116.67")},
                             {{DECIMAL64(-17014116, -670000000, 9)}, VARCHAR("-17,014,116.67")}};
@@ -626,7 +628,7 @@ TEST(MathFunctionTest, format_round_test) {
     std::string func_name = "format_round";
 
     {
-        InputTypeSet input_types = {TypeIndex::Int64, TypeIndex::Int32};
+        InputTypeSet input_types = {PrimitiveType::TYPE_BIGINT, PrimitiveType::TYPE_INT};
         DataSet data_set = {{{Null(), INT(2)}, Null()},
                             {{BIGINT(17014116), INT(2)}, VARCHAR("17,014,116.00")},
                             {{BIGINT(-17014116), INT(2)}, VARCHAR("-17,014,116.00")},
@@ -639,7 +641,7 @@ TEST(MathFunctionTest, format_round_test) {
         static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
     }
     {
-        InputTypeSet input_types = {TypeIndex::Int128, TypeIndex::Int32};
+        InputTypeSet input_types = {PrimitiveType::TYPE_LARGEINT, PrimitiveType::TYPE_INT};
         DataSet data_set = {
                 {{Null(), INT(2)}, Null()},
                 {{LARGEINT(17014116), INT(2)}, VARCHAR("17,014,116.00")},
@@ -654,7 +656,7 @@ TEST(MathFunctionTest, format_round_test) {
         static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
     }
     {
-        InputTypeSet input_types = {TypeIndex::Float64, TypeIndex::Int32};
+        InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE, PrimitiveType::TYPE_INT};
         DataSet data_set = {{{Null(), INT(2)}, Null()},
                             {{DOUBLE(17014116.67), INT(2)}, VARCHAR("17,014,116.67")},
                             {{DOUBLE(-17014116.67), INT(2)}, VARCHAR("-17,014,116.67")},
@@ -663,7 +665,7 @@ TEST(MathFunctionTest, format_round_test) {
         static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
     }
     {
-        InputTypeSet input_types = {TypeIndex::Decimal128V2, TypeIndex::Int32};
+        InputTypeSet input_types = {PrimitiveType::TYPE_DECIMALV2, PrimitiveType::TYPE_INT};
         DataSet data_set = {{{Null(), INT(2)}, Null()},
                             {{DECIMALV2(17014116.67), INT(2)}, VARCHAR("17,014,116.67")},
                             {{DECIMALV2(-17014116.67), INT(2)}, VARCHAR("-17,014,116.67")}};
@@ -671,7 +673,8 @@ TEST(MathFunctionTest, format_round_test) {
         static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
     }
     {
-        InputTypeSet input_types = {{TypeIndex::Decimal64, 5, 18}, TypeIndex::Int32};
+        InputTypeSet input_types = {{PrimitiveType::TYPE_DECIMAL64, 5, 18},
+                                    PrimitiveType::TYPE_INT};
         DataSet data_set = {{{Null(), INT(2)}, Null()},
                             {{DECIMAL64(17014116, 67000, 5), INT(2)}, VARCHAR("17,014,116.67")},
                             {{DECIMAL64(-17014116, -67000, 5), INT(2)}, VARCHAR("-17,014,116.67")}};
@@ -680,7 +683,8 @@ TEST(MathFunctionTest, format_round_test) {
     }
     // negative case
     {
-        InputTypeSet input_types = {{TypeIndex::Decimal64, 5, 18}, TypeIndex::Int32};
+        InputTypeSet input_types = {{PrimitiveType::TYPE_DECIMAL64, 5, 18},
+                                    PrimitiveType::TYPE_INT};
         DataSet data_set = {
                 // oob of 9e19(int64)
                 {{DECIMAL64(123456789012345, 67000, 5), INT(2)}, VARCHAR("12,345,678,901,234.67")},

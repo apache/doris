@@ -50,41 +50,44 @@ protected:
         // we need to load data from csv file into column_struct list
         // step1. create data type for struct nested type (const and nullable)
         // struct<tinyint>
-        InputTypeSet struct_tinyint = {TypeIndex::Struct, TypeIndex::Int8};
+        InputTypeSet struct_tinyint = {PrimitiveType::TYPE_STRUCT, PrimitiveType::TYPE_TINYINT};
         // struct<smallint>
-        InputTypeSet struct_smallint = {TypeIndex::Struct, TypeIndex::Int16};
+        InputTypeSet struct_smallint = {PrimitiveType::TYPE_STRUCT, PrimitiveType::TYPE_SMALLINT};
         // struct<int>
-        InputTypeSet struct_int = {TypeIndex::Struct, TypeIndex::Int32};
+        InputTypeSet struct_int = {PrimitiveType::TYPE_STRUCT, PrimitiveType::TYPE_INT};
         // struct<bigint>
-        InputTypeSet struct_bigint = {TypeIndex::Struct, TypeIndex::Int64};
+        InputTypeSet struct_bigint = {PrimitiveType::TYPE_STRUCT, PrimitiveType::TYPE_BIGINT};
         // struct<largeint>
-        InputTypeSet struct_largeint = {TypeIndex::Struct, TypeIndex::Int128};
+        InputTypeSet struct_largeint = {PrimitiveType::TYPE_STRUCT, PrimitiveType::TYPE_LARGEINT};
         // struct<float>
-        InputTypeSet struct_float = {TypeIndex::Struct, TypeIndex::Float32};
+        InputTypeSet struct_float = {PrimitiveType::TYPE_STRUCT, PrimitiveType::TYPE_FLOAT};
         // struct<double>
-        InputTypeSet struct_double = {TypeIndex::Struct, TypeIndex::Float64};
+        InputTypeSet struct_double = {PrimitiveType::TYPE_STRUCT, PrimitiveType::TYPE_DOUBLE};
         // struct<ipv4>
-        InputTypeSet struct_ipv4 = {TypeIndex::Struct, TypeIndex::IPv4};
+        InputTypeSet struct_ipv4 = {PrimitiveType::TYPE_STRUCT, PrimitiveType::TYPE_IPV4};
         // struct<ipv6>
-        InputTypeSet struct_ipv6 = {TypeIndex::Struct, TypeIndex::IPv6};
+        InputTypeSet struct_ipv6 = {PrimitiveType::TYPE_STRUCT, PrimitiveType::TYPE_IPV6};
         // struct<date>
-        InputTypeSet struct_date = {TypeIndex::Struct, TypeIndex::Date};
+        InputTypeSet struct_date = {PrimitiveType::TYPE_STRUCT, PrimitiveType::TYPE_DATE};
         // struct<datetime>
-        InputTypeSet struct_datetime = {TypeIndex::Struct, TypeIndex::DateTime};
+        InputTypeSet struct_datetime = {PrimitiveType::TYPE_STRUCT, PrimitiveType::TYPE_DATETIME};
         // struct<datev2>
-        InputTypeSet struct_datev2 = {TypeIndex::Struct, TypeIndex::DateV2};
+        InputTypeSet struct_datev2 = {PrimitiveType::TYPE_STRUCT, PrimitiveType::TYPE_DATEV2};
         // struct<datetimev2>
-        InputTypeSet struct_datetimev2 = {TypeIndex::Struct, TypeIndex::DateTimeV2};
+        InputTypeSet struct_datetimev2 = {PrimitiveType::TYPE_STRUCT,
+                                          PrimitiveType::TYPE_DATETIMEV2};
         // struct<varchar>
-        InputTypeSet struct_varchar = {TypeIndex::Struct, TypeIndex::String};
+        InputTypeSet struct_varchar = {PrimitiveType::TYPE_STRUCT, PrimitiveType::TYPE_VARCHAR};
         // struct<decimal32(9, 5)>
-        InputTypeSet struct_decimal = {TypeIndex::Struct, TypeIndex::Decimal32};
+        InputTypeSet struct_decimal = {PrimitiveType::TYPE_STRUCT, PrimitiveType::TYPE_DECIMAL32};
         // struct<decimal64(18, 9)>
-        InputTypeSet struct_decimal64 = {TypeIndex::Struct, TypeIndex::Decimal64};
+        InputTypeSet struct_decimal64 = {PrimitiveType::TYPE_STRUCT, PrimitiveType::TYPE_DECIMAL64};
         // struct<decimal128(38, 20)>
-        InputTypeSet struct_decimal128 = {TypeIndex::Struct, TypeIndex::Decimal128V3};
+        InputTypeSet struct_decimal128 = {PrimitiveType::TYPE_STRUCT,
+                                          PrimitiveType::TYPE_DECIMAL128I};
         // struct<decimal256(76, 40)>
-        InputTypeSet struct_decimal256 = {TypeIndex::Struct, TypeIndex::Decimal256};
+        InputTypeSet struct_decimal256 = {PrimitiveType::TYPE_STRUCT,
+                                          PrimitiveType::TYPE_DECIMAL256};
         std::vector<InputTypeSet> struct_typeIndex = {
                 struct_tinyint,    struct_smallint,  struct_int,      struct_bigint,
                 struct_largeint,   struct_float,     struct_double,   struct_ipv4,
@@ -92,68 +95,84 @@ protected:
                 struct_datetimev2, struct_varchar,   struct_decimal,  struct_decimal64,
                 struct_decimal128, struct_decimal256};
         // struct<array<tinyint>>
-        InputTypeSet struct_array_tinyint = {TypeIndex::Struct, TypeIndex::Array, TypeIndex::Int8};
+        InputTypeSet struct_array_tinyint = {PrimitiveType::TYPE_STRUCT, PrimitiveType::TYPE_ARRAY,
+                                             PrimitiveType::TYPE_TINYINT};
         // struct<array<smallint>>
-        InputTypeSet struct_array_smallint = {TypeIndex::Struct, TypeIndex::Array,
-                                              TypeIndex::Int16};
+        InputTypeSet struct_array_smallint = {PrimitiveType::TYPE_STRUCT, PrimitiveType::TYPE_ARRAY,
+                                              PrimitiveType::TYPE_SMALLINT};
         // struct<array<int>>
-        InputTypeSet struct_array_int = {TypeIndex::Struct, TypeIndex::Array, TypeIndex::Int32};
+        InputTypeSet struct_array_int = {PrimitiveType::TYPE_STRUCT, PrimitiveType::TYPE_ARRAY,
+                                         PrimitiveType::TYPE_INT};
         // struct<array<bigint>>
-        InputTypeSet struct_array_bigint = {TypeIndex::Struct, TypeIndex::Array, TypeIndex::Int64};
+        InputTypeSet struct_array_bigint = {PrimitiveType::TYPE_STRUCT, PrimitiveType::TYPE_ARRAY,
+                                            PrimitiveType::TYPE_BIGINT};
         // struct<array<largeint>>
-        InputTypeSet struct_array_largeint = {TypeIndex::Struct, TypeIndex::Array,
-                                              TypeIndex::Int128};
+        InputTypeSet struct_array_largeint = {PrimitiveType::TYPE_STRUCT, PrimitiveType::TYPE_ARRAY,
+                                              PrimitiveType::TYPE_LARGEINT};
         // struct<array<float>>
-        InputTypeSet struct_array_float = {TypeIndex::Struct, TypeIndex::Array, TypeIndex::Float32};
+        InputTypeSet struct_array_float = {PrimitiveType::TYPE_STRUCT, PrimitiveType::TYPE_ARRAY,
+                                           PrimitiveType::TYPE_FLOAT};
         // struct<array<double>>
-        InputTypeSet struct_array_double = {TypeIndex::Struct, TypeIndex::Array,
-                                            TypeIndex::Float64};
+        InputTypeSet struct_array_double = {PrimitiveType::TYPE_STRUCT, PrimitiveType::TYPE_ARRAY,
+                                            PrimitiveType::TYPE_DOUBLE};
         // struct<array<ipv4>>
-        InputTypeSet struct_array_ipv4 = {TypeIndex::Struct, TypeIndex::Array, TypeIndex::IPv4};
+        InputTypeSet struct_array_ipv4 = {PrimitiveType::TYPE_STRUCT, PrimitiveType::TYPE_ARRAY,
+                                          PrimitiveType::TYPE_IPV4};
         // struct<array<ipv6>>
-        InputTypeSet struct_array_ipv6 = {TypeIndex::Struct, TypeIndex::Array, TypeIndex::IPv6};
+        InputTypeSet struct_array_ipv6 = {PrimitiveType::TYPE_STRUCT, PrimitiveType::TYPE_ARRAY,
+                                          PrimitiveType::TYPE_IPV6};
         // struct<array<date>>
-        InputTypeSet struct_array_date = {TypeIndex::Struct, TypeIndex::Array, TypeIndex::Date};
+        InputTypeSet struct_array_date = {PrimitiveType::TYPE_STRUCT, PrimitiveType::TYPE_ARRAY,
+                                          PrimitiveType::TYPE_DATE};
         // struct<array<datetime>>
-        InputTypeSet struct_array_datetime = {TypeIndex::Struct, TypeIndex::Array,
-                                              TypeIndex::DateTime};
+        InputTypeSet struct_array_datetime = {PrimitiveType::TYPE_STRUCT, PrimitiveType::TYPE_ARRAY,
+                                              PrimitiveType::TYPE_DATETIME};
         // struct<array<datev2>>
-        InputTypeSet struct_array_datev2 = {TypeIndex::Struct, TypeIndex::Array, TypeIndex::DateV2};
+        InputTypeSet struct_array_datev2 = {PrimitiveType::TYPE_STRUCT, PrimitiveType::TYPE_ARRAY,
+                                            PrimitiveType::TYPE_DATEV2};
         // struct<array<datetimev2>>
-        InputTypeSet struct_array_datetimev2 = {TypeIndex::Struct, TypeIndex::Array,
-                                                TypeIndex::DateTimeV2};
+        InputTypeSet struct_array_datetimev2 = {PrimitiveType::TYPE_STRUCT,
+                                                PrimitiveType::TYPE_ARRAY,
+                                                PrimitiveType::TYPE_DATETIMEV2};
         // struct<array<varchar>>
-        InputTypeSet struct_array_varchar = {TypeIndex::Struct, TypeIndex::Array,
-                                             TypeIndex::String};
+        InputTypeSet struct_array_varchar = {PrimitiveType::TYPE_STRUCT, PrimitiveType::TYPE_ARRAY,
+                                             PrimitiveType::TYPE_VARCHAR};
         // struct<array<decimal32(9, 5)>>
-        InputTypeSet struct_array_decimal = {TypeIndex::Struct, TypeIndex::Array,
-                                             TypeIndex::Decimal32};
+        InputTypeSet struct_array_decimal = {PrimitiveType::TYPE_STRUCT, PrimitiveType::TYPE_ARRAY,
+                                             PrimitiveType::TYPE_DECIMAL32};
         // struct<array<decimal64(18, 9)>>
-        InputTypeSet struct_array_decimal64 = {TypeIndex::Struct, TypeIndex::Array,
-                                               TypeIndex::Decimal64};
+        InputTypeSet struct_array_decimal64 = {PrimitiveType::TYPE_STRUCT,
+                                               PrimitiveType::TYPE_ARRAY,
+                                               PrimitiveType::TYPE_DECIMAL64};
         // struct<array<decimal128(38, 20)>>
-        InputTypeSet struct_array_decimal128 = {TypeIndex::Struct, TypeIndex::Array,
-                                                TypeIndex::Decimal128V3};
+        InputTypeSet struct_array_decimal128 = {PrimitiveType::TYPE_STRUCT,
+                                                PrimitiveType::TYPE_ARRAY,
+                                                PrimitiveType::TYPE_DECIMAL128I};
         // struct<array<decimal256(76, 40)>>
-        InputTypeSet struct_array_decimal256 = {TypeIndex::Struct, TypeIndex::Array,
-                                                TypeIndex::Decimal256};
+        InputTypeSet struct_array_decimal256 = {PrimitiveType::TYPE_STRUCT,
+                                                PrimitiveType::TYPE_ARRAY,
+                                                PrimitiveType::TYPE_DECIMAL256};
         // struct<map<char,double>>
-        InputTypeSet struct_map_char_double = {TypeIndex::Struct, TypeIndex::Map, TypeIndex::String,
-                                               TypeIndex::Float64};
+        InputTypeSet struct_map_char_double = {PrimitiveType::TYPE_STRUCT, PrimitiveType::TYPE_MAP,
+                                               PrimitiveType::TYPE_VARCHAR,
+                                               PrimitiveType::TYPE_DOUBLE};
         // struct_map<datetime,decimal<76,56>>
-        InputTypeSet struct_map_datetime_decimal = {TypeIndex::Struct, TypeIndex::Map,
-                                                    TypeIndex::DateTimeV2, TypeIndex::Decimal256};
+        InputTypeSet struct_map_datetime_decimal = {
+                PrimitiveType::TYPE_STRUCT, PrimitiveType::TYPE_MAP, PrimitiveType::TYPE_DATETIMEV2,
+                PrimitiveType::TYPE_DECIMAL256};
         // struct_map<ipv4,ipv6>
-        InputTypeSet struct_map_ipv4_ipv6 = {TypeIndex::Struct, TypeIndex::Map, TypeIndex::IPv4,
-                                             TypeIndex::IPv6};
+        InputTypeSet struct_map_ipv4_ipv6 = {PrimitiveType::TYPE_STRUCT, PrimitiveType::TYPE_MAP,
+                                             PrimitiveType::TYPE_IPV4, PrimitiveType::TYPE_IPV6};
         // struct_map<largeInt,string>
-        InputTypeSet struct_map_largeint_string = {TypeIndex::Struct, TypeIndex::Map,
-                                                   TypeIndex::Int128, TypeIndex::String};
+        InputTypeSet struct_map_largeint_string = {
+                PrimitiveType::TYPE_STRUCT, PrimitiveType::TYPE_MAP, PrimitiveType::TYPE_LARGEINT,
+                PrimitiveType::TYPE_VARCHAR};
         // struct<struct<f1:int,f2:date,f3:decimal>, struct<f4:string,f5:double,f6:ipv4,f7:ipv6>>
-        InputTypeSet struct_struct = {TypeIndex::Struct, TypeIndex::Struct,    TypeIndex::Int32,
-                                      TypeIndex::Date,   TypeIndex::Decimal32, TypeIndex::Struct,
-                                      TypeIndex::String, TypeIndex::Float64,   TypeIndex::IPv4,
-                                      TypeIndex::IPv6};
+        InputTypeSet struct_struct = {PrimitiveType::TYPE_STRUCT,    PrimitiveType::TYPE_STRUCT,
+                                      PrimitiveType::TYPE_INT,       PrimitiveType::TYPE_DATE,
+                                      PrimitiveType::TYPE_DECIMAL32, PrimitiveType::TYPE_STRUCT,
+                                      PrimitiveType::TYPE_VARCHAR,   PrimitiveType::TYPE_DOUBLE,
+                                      PrimitiveType::TYPE_IPV4,      PrimitiveType::TYPE_IPV6};
 
         std::vector<InputTypeSet> struct_array_typeIndex = {
                 struct_array_tinyint,    struct_array_smallint,   struct_array_int,
@@ -173,7 +192,7 @@ protected:
             descs_.emplace_back();
             InputTypeSet input_types {};
             input_types.emplace_back(struct_typeIndex[i][0]);
-            input_types.emplace_back(Nullable {any_cast<TypeIndex>(struct_typeIndex[i][1])});
+            input_types.emplace_back(Nullable {any_cast<PrimitiveType>(struct_typeIndex[i][1])});
             EXPECT_EQ(input_types[1].type(), &typeid(Nullable)) << "nested type is not nullable";
             EXPECT_TRUE(parse_ut_data_type(input_types, descs_[i]));
         }
@@ -181,8 +200,10 @@ protected:
             descs_.emplace_back();
             InputTypeSet input_types {};
             input_types.emplace_back(struct_array_typeIndex[i][0]);
-            input_types.emplace_back(Nullable {any_cast<TypeIndex>(struct_array_typeIndex[i][1])});
-            input_types.emplace_back(Nullable {any_cast<TypeIndex>(struct_array_typeIndex[i][2])});
+            input_types.emplace_back(
+                    Nullable {any_cast<PrimitiveType>(struct_array_typeIndex[i][1])});
+            input_types.emplace_back(
+                    Nullable {any_cast<PrimitiveType>(struct_array_typeIndex[i][2])});
             EXPECT_EQ(input_types[1].type(), &typeid(Nullable)) << "nested type is not nullable";
             EXPECT_EQ(input_types[2].type(), &typeid(Nullable)) << "nested type is not nullable";
             EXPECT_TRUE(parse_ut_data_type(input_types, descs_[i + struct_typeIndex.size()]));
@@ -193,11 +214,11 @@ protected:
             InputTypeSet input_types {};
             input_types.emplace_back(struct_map_typeIndex[i][0]); // struct
             input_types.emplace_back(
-                    Nullable {any_cast<TypeIndex>(struct_map_typeIndex[i][1])}); // map
+                    Nullable {any_cast<PrimitiveType>(struct_map_typeIndex[i][1])}); // map
             input_types.emplace_back(
-                    Nullable {any_cast<TypeIndex>(struct_map_typeIndex[i][2])}); // key
+                    Nullable {any_cast<PrimitiveType>(struct_map_typeIndex[i][2])}); // key
             input_types.emplace_back(
-                    Nullable {any_cast<TypeIndex>(struct_map_typeIndex[i][3])}); // val
+                    Nullable {any_cast<PrimitiveType>(struct_map_typeIndex[i][3])}); // val
             EXPECT_EQ(input_types[1].type(), &typeid(Nullable)) << "nested type is not nullable";
             EXPECT_EQ(input_types[2].type(), &typeid(Nullable)) << "nested type is not nullable";
             EXPECT_TRUE(parse_ut_data_type(
@@ -210,21 +231,21 @@ protected:
             InputTypeSet input_types {};
             input_types.emplace_back(struct_struct_typeIndex[i][0]); // struct
             input_types.emplace_back(
-                    Nullable {any_cast<TypeIndex>(struct_struct_typeIndex[i][1])}); // struct
+                    Nullable {any_cast<PrimitiveType>(struct_struct_typeIndex[i][1])}); // struct
             input_types.emplace_back(
-                    Nullable {any_cast<TypeIndex>(struct_struct_typeIndex[i][2])}); // f1
+                    Nullable {any_cast<PrimitiveType>(struct_struct_typeIndex[i][2])}); // f1
             input_types.emplace_back(
-                    Nullable {any_cast<TypeIndex>(struct_struct_typeIndex[i][3])}); // f2
+                    Nullable {any_cast<PrimitiveType>(struct_struct_typeIndex[i][3])}); // f2
             input_types.emplace_back(
-                    Nullable {any_cast<TypeIndex>(struct_struct_typeIndex[i][4])}); // f3
+                    Nullable {any_cast<PrimitiveType>(struct_struct_typeIndex[i][4])}); // f3
             input_types.emplace_back(
-                    Nullable {any_cast<TypeIndex>(struct_struct_typeIndex[i][5])}); // f4
+                    Nullable {any_cast<PrimitiveType>(struct_struct_typeIndex[i][5])}); // f4
             input_types.emplace_back(
-                    Nullable {any_cast<TypeIndex>(struct_struct_typeIndex[i][6])}); // f5
+                    Nullable {any_cast<PrimitiveType>(struct_struct_typeIndex[i][6])}); // f5
             input_types.emplace_back(
-                    Nullable {any_cast<TypeIndex>(struct_struct_typeIndex[i][7])}); // f6
+                    Nullable {any_cast<PrimitiveType>(struct_struct_typeIndex[i][7])}); // f6
             input_types.emplace_back(
-                    Nullable {any_cast<TypeIndex>(struct_struct_typeIndex[i][8])}); // f7
+                    Nullable {any_cast<PrimitiveType>(struct_struct_typeIndex[i][8])}); // f7
 
             EXPECT_EQ(input_types[1].type(), &typeid(Nullable)) << "nested type is not nullable";
             EXPECT_TRUE(parse_ut_data_type(
@@ -257,7 +278,7 @@ protected:
 
     std::string data_file_dir = "regression-test/data/nereids_function_p0/struct/";
 
-    vector<string> data_files = {
+    std::vector<std::string> data_files = {
             // struct-scalar
             data_file_dir + "test_struct_tinyint.csv", data_file_dir + "test_struct_smallint.csv",
             data_file_dir + "test_struct_int.csv", data_file_dir + "test_struct_bigint.csv",
@@ -303,8 +324,8 @@ protected:
             // TODO, json->struct<struct<>> deserialization result is NULL.
             data_file_dir + "test_struct_struct.csv"};
 
-    vector<ut_type::UTDataTypeDescs> descs_; // struct<> descs matrix
-    MutableColumns columns_;                 // column_struct list
+    std::vector<ut_type::UTDataTypeDescs> descs_; // struct<> descs matrix
+    MutableColumns columns_;                      // column_struct list
     DataTypes types_;
     DataTypeSerDeSPtrs serdes_;
 };
