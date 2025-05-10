@@ -1900,7 +1900,7 @@ class Suite implements GroovyInterceptable {
             explain {
                 sql("${query_sql}")
                 check { result ->
-                    boolean isContain = result.contains("${mv_name}")
+                    boolean isContain = result.contains("(${mv_name})")
                     Assert.assertFalse(isContain)
                 }
             }
@@ -1924,7 +1924,7 @@ class Suite implements GroovyInterceptable {
                 check { result ->
                     boolean isContain = false;
                     for (String mv_name : mv_names) {
-                        isContain = isContain || result.contains("${mv_name}")
+                        isContain = isContain || result.contains("(${mv_name})")
                     }
                     Assert.assertFalse(isContain)
                 }
