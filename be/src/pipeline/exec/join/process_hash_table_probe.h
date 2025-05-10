@@ -22,6 +22,7 @@
 #include "vec/columns/column.h"
 #include "vec/columns/columns_number.h"
 #include "vec/common/arena.h"
+#include "vec/common/custom_allocator.h"
 
 namespace doris {
 namespace vectorized {
@@ -65,6 +66,8 @@ struct ProcessHashTableProbe {
     Status do_other_join_conjuncts(vectorized::Block* output_block, DorisVector<uint8_t>& visited);
 
     Status do_mark_join_conjuncts(vectorized::Block* output_block, const uint8_t* null_map);
+
+    Status do_right_half_mark_join_conjuncts(vectorized::Block* output_block);
 
     Status finalize_block_with_filter(vectorized::Block* output_block, size_t filter_column_id,
                                       size_t column_to_keep);
@@ -121,6 +124,11 @@ struct ProcessHashTableProbe {
 
     size_t _right_col_idx;
     size_t _right_col_len;
+
+    // For right semi with mark join conjunct, we need to store the mark join flags
+    // in the hash table.
+    // -1 means null, 0 means false, 1 means true
+    DorisVector<int8_t> mark_join_flags;
 };
 
 } // namespace pipeline
