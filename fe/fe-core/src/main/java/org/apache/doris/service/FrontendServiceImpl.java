@@ -3492,7 +3492,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         StatisticsCacheKey k = GsonUtils.GSON.fromJson(request.key, StatisticsCacheKey.class);
         ColStatsData data = GsonUtils.GSON.fromJson(request.colStatsData, ColStatsData.class);
         ColumnStatistic c = data.toColumnStatistic();
-        if (c == ColumnStatistic.UNKNOWN) {
+        if (!data.isValid() || c == ColumnStatistic.UNKNOWN) {
             Env.getCurrentEnv().getStatisticsCache().invalidateColumnStatsCache(k.catalogId, k.dbId, k.tableId,
                     k.idxId, k.colName);
         } else {
