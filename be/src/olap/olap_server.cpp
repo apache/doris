@@ -1698,9 +1698,8 @@ void StorageEngine::_check_tablet_delete_bitmap_score_callback() {
         }
         uint64_t max_delete_bitmap_score = 0;
         uint64_t max_base_rowset_delete_bitmap_score = 0;
-        std::vector<CloudTabletSPtr> tablets;
-        _tablet_manager.get()->get_topn_tablet_delete_bitmap_score(
-                &max_delete_bitmap_score, &max_base_rowset_delete_bitmap_score);
+        _tablet_manager->get_topn_tablet_delete_bitmap_score(&max_delete_bitmap_score,
+                                                             &max_base_rowset_delete_bitmap_score);
         if (max_delete_bitmap_score > 0) {
             _tablet_max_delete_bitmap_score_metrics->set_value(max_delete_bitmap_score);
         }
