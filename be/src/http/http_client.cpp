@@ -456,6 +456,13 @@ Status HttpClient::download(const std::string& local_path) {
     set_method(GET);
     set_speed_limit();
 
+    // remove the file if it exists, to avoid change the linked files unexpectedly
+    bool exist = false;
+    RETURN_IF_ERROR(io::global_local_filesystem()->exists(local_path, &exist));
+    if (exist) {
+        remove(local_path.c_str());
+    }
+
     auto fp_closer = [](FILE* fp) { fclose(fp); };
     std::unique_ptr<FILE, decltype(fp_closer)> fp(fopen(local_path.c_str(), "w"), fp_closer);
     if (fp == nullptr) {
