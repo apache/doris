@@ -276,6 +276,7 @@ CONF_Bool(enable_loopback_address_for_ms, "false");
 
 // delete_bitmap_lock version config
 CONF_mString(use_delete_bitmap_lock_version, "v1");
+CONF_mInt64(update_delete_bitmap_lock_white_list_interval_seconds, "10");
 // FOR DEBUGGING
 CONF_mBool(use_delete_bitmap_lock_random_version, "false");
 
@@ -292,5 +293,7 @@ CONF_Strings(recycler_storage_vault_white_list, "");
 //    Debug = 5,
 //    Trace = 6
 CONF_Int32(aws_log_level, "2");
+
+CONF_mString(delete_bitmap_lock_version_white_list, "");
 
 } // namespace doris::cloud::config
