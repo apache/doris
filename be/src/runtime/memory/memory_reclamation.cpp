@@ -183,7 +183,7 @@ bool MemoryReclamation::revoke_process_memory(const std::string& revoke_reason) 
     LOG(INFO) << fmt::format(
             "[MemoryGC] start MemoryReclamation::revoke_process_memory, {}, need free size: {}.",
             GlobalMemoryArbitrator::process_mem_log_str(),
-            MemCounter::print_bytes(MemInfo::process_full_gc_size()));
+            PrettyPrinter::print_bytes(MemInfo::process_full_gc_size()));
     Defer defer {[&]() {
         std::stringstream ss;
         profile->pretty_print(&ss);
@@ -191,8 +191,8 @@ bool MemoryReclamation::revoke_process_memory(const std::string& revoke_reason) 
                 "[MemoryGC] end MemoryReclamation::revoke_process_memory, {}, need free size: {}, "
                 "free Memory {}. cost(us): {}, details: {}",
                 GlobalMemoryArbitrator::process_mem_log_str(),
-                MemCounter::print_bytes(MemInfo::process_full_gc_size()),
-                MemCounter::print_bytes(freed_mem), watch.elapsed_time() / 1000, ss.str());
+                PrettyPrinter::print_bytes(MemInfo::process_full_gc_size()),
+                PrettyPrinter::print_bytes(freed_mem), watch.elapsed_time() / 1000, ss.str());
     }};
 
     // step1: start canceling from the query with the largest memory usage until the memory of process_full_gc_size is freed.

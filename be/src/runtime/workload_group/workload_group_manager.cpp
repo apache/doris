@@ -699,14 +699,14 @@ int64_t WorkloadGroupMgr::revoke_memory_from_other_overcommited_groups_(
             "[MemoryGC] start WorkloadGroupMgr::revoke_memory_from_other_overcommited_groups_, {}, "
             "number of overcommited groups: {}, total exceeded memory: {}.",
             revoke_reason, exceeded_memory_heap.size(),
-            MemCounter::print_bytes(total_exceeded_memory));
+            PrettyPrinter::print_bytes(total_exceeded_memory));
     Defer defer {[&]() {
         std::stringstream ss;
         profile->pretty_print(&ss);
         LOG(INFO) << fmt::format(
                 "[MemoryGC] end WorkloadGroupMgr::revoke_memory_from_other_overcommited_groups_, "
                 "{}, number of overcommited groups: {}, free memory {}. cost(us): {}, details: {}",
-                revoke_reason, exceeded_memory_heap.size(), MemCounter::print_bytes(freed_mem),
+                revoke_reason, exceeded_memory_heap.size(), PrettyPrinter::print_bytes(freed_mem),
                 watch.elapsed_time() / 1000, ss.str());
     }};
 
