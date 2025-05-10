@@ -748,7 +748,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
     private void getPartitionInfo(List<OlapTable> tableList,
             List<TabletCommitInfo> tabletCommitInfos,
-            DeleteBitmapUpdateLockContext lockContext) {
+            DeleteBitmapUpdateLockContext lockContext) throws MetaNotFoundException {
         Map<Long, OlapTable> tableMap = Maps.newHashMap();
         for (OlapTable olapTable : tableList) {
             tableMap.put(olapTable.getId(), olapTable);
@@ -793,7 +793,11 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 partitionToTablets.put(partitionId, Sets.newHashSet());
             }
             partitionToTablets.get(partitionId).add(tabletId);
-            lockContext.getPartitions().putIfAbsent(partitionId, tableMap.get(tableId).getPartition(partitionId));
+            Partition partition = tableMap.get(tableId).getPartition(partitionId);
+            if (partition == null) {
+                throw new MetaNotFoundException("partition " + partitionId + " does not exist");
+            }
+            lockContext.getPartitions().putIfAbsent(partitionId, partition);
         }
     }
 
@@ -1312,7 +1316,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             throws UserException {
         for (int i = 0; i < tableList.size(); i++) {
             long tableId = tableList.get(i).getId();
-            LOG.info("start commit txn=" + transactionId + ",table=" + tableId);
+            LOG.info("start commit txn=" + transactionId + ",table=" + tableId + ",timeoutMillis=" + timeoutMillis);
         }
         for (Map.Entry<Long, AtomicInteger> entry : waitToCommitTxnCountMap.entrySet()) {
             if (entry.getValue().get() > 5) {
