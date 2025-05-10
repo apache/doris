@@ -311,6 +311,8 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_
                 _fill_partition_columns(block, *read_rows, _lazy_read_ctx.partition_columns));
         RETURN_IF_ERROR(_fill_missing_columns(block, *read_rows, _lazy_read_ctx.missing_columns));
 
+        RETURN_IF_ERROR(_fill_row_id_columns(block, *read_rows));
+
         Status st = VExprContext::filter_block(_lazy_read_ctx.conjuncts, block, block->columns());
         *read_rows = block->rows();
         return st;
@@ -325,6 +327,7 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_
         RETURN_IF_ERROR(
                 _fill_partition_columns(block, *read_rows, _lazy_read_ctx.partition_columns));
         RETURN_IF_ERROR(_fill_missing_columns(block, *read_rows, _lazy_read_ctx.missing_columns));
+        RETURN_IF_ERROR(_fill_row_id_columns(block, *read_rows));
 
         if (block->rows() == 0) {
             _convert_dict_cols_to_string_cols(block);
@@ -475,6 +478,7 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
                                                 _lazy_read_ctx.predicate_partition_columns));
         RETURN_IF_ERROR(_fill_missing_columns(block, pre_read_rows,
                                               _lazy_read_ctx.predicate_missing_columns));
+        RETURN_IF_ERROR(_fill_row_id_columns(block, pre_read_rows));
 
         RETURN_IF_ERROR(_build_pos_delete_filter(pre_read_rows));
 
@@ -750,6 +754,37 @@ Status RowGroupReader::_read_empty_batch(size_t batch_size, size_t* read_rows, b
             *batch_eof = true;
         }
     }
+    return Status::OK();
+}
+
+Status RowGroupReader::_get_current_batch_row_id(size_t read_rows) {
+    _current_batch_row_ids.clear();
+    _current_batch_row_ids.resize(read_rows);
+    int64_t idx = 0;
+    int64_t read_range_rows = 0;
+    for (auto& range : _read_ranges) {
+        if (idx > read_rows) {
+            break;
+        }
+        if (read_range_rows >= _total_read_rows) {
+            for (auto x = range.first_row; x < range.last_row; x++) {
+                _current_batch_row_ids[idx++] = (rowid_t)(x + _current_row_group_idx.first_row);
+            }
+        }
+        read_range_rows += range.last_row - range.first_row;
+    }
+    return Status::OK();
+}
+
+Status RowGroupReader::_fill_row_id_columns(Block* block, size_t read_rows) {
+    if (_row_id_column_iterator_pair.first != nullptr) {
+        RETURN_IF_ERROR(_get_current_batch_row_id(read_rows));
+        auto col = block->get_by_position(_row_id_column_iterator_pair.second)
+                           .column->assume_mutable();
+        RETURN_IF_ERROR(_row_id_column_iterator_pair.first->read_by_rowids(
+                _current_batch_row_ids.data(), _current_batch_row_ids.size(), col));
+    }
+
     return Status::OK();
 }
 

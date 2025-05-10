@@ -95,6 +95,15 @@ Status ScanLocalState<Derived>::open(RuntimeState* state) {
     }
     RETURN_IF_ERROR(PipelineXLocalState<>::open(state));
     auto& p = _parent->cast<typename Derived::Parent>();
+
+    // init id_file_map() for runtime state
+    std::vector<SlotDescriptor*> slots = p._output_tuple_desc->slots();
+    for (auto slot : slots) {
+        if (slot->col_name().starts_with(BeConsts::GLOBAL_ROWID_COL)) {
+            state->set_id_file_map();
+        }
+    }
+
     _common_expr_ctxs_push_down.resize(p._common_expr_ctxs_push_down.size());
     for (size_t i = 0; i < _common_expr_ctxs_push_down.size(); i++) {
         RETURN_IF_ERROR(
@@ -1009,6 +1018,7 @@ Status ScanLocalState<Derived>::_start_scanners(
     // https://github.com/apache/doris/pull/44635
     const int parallism_of_scan_operator =
             p.is_serial_operator() ? 1 : p.query_parallel_instance_num();
+
     _scanner_ctx = vectorized::ScannerContext::create_shared(
             state(), this, p._output_tuple_desc, p.output_row_descriptor(), scanners, p.limit(),
             _scan_dependency, parallism_of_scan_operator);

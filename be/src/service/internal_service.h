@@ -190,6 +190,10 @@ public:
     void multiget_data(google::protobuf::RpcController* controller, const PMultiGetRequest* request,
                        PMultiGetResponse* response, google::protobuf::Closure* done) override;
 
+    void multiget_data_v2(google::protobuf::RpcController* controller,
+                          const PMultiGetRequestV2* request, PMultiGetResponseV2* response,
+                          google::protobuf::Closure* done) override;
+
     void tablet_fetch_data(google::protobuf::RpcController* controller,
                            const PTabletKeyLookupRequest* request,
                            PTabletKeyLookupResponse* response,
