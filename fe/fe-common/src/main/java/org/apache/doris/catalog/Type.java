@@ -674,6 +674,10 @@ public abstract class Type {
         return isScalarType(PrimitiveType.TIME);
     }
 
+    public boolean isTimeType() {
+        return isTime() || isTimeV2();
+    }
+
     public boolean isComplexType() {
         return isStructType() || isCollectionType();
     }
