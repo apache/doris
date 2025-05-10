@@ -149,7 +149,7 @@ suite("grace_period") {
     """
 
     // force consistency when partition table, and query use the partition changed, should fail
-    mv_rewrite_fail("""
+    mv_not_part_in("""
         select l_shipdate, o_orderdate, l_partkey,
         l_suppkey, sum(o_totalprice) as sum_total
         from lineitem_partition
@@ -310,7 +310,7 @@ suite("grace_period") {
     sql "SET enable_materialized_view_rewrite=true"
     Thread.sleep(15000);
     // after 10s when partition table, and query use the partition changed, should fail
-    mv_rewrite_fail(
+    mv_not_part_in(
         """
         select l_shipdate, o_orderdate, l_partkey,
         l_suppkey, sum(o_totalprice) as sum_total
