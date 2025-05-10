@@ -147,7 +147,6 @@ public:
     Status lookup_row_data(const Slice& encoded_key, const RowLocation& row_location,
                            RowsetSharedPtr rowset, OlapReaderStatistics& stats, std::string& values,
                            bool write_to_cache = false);
-
     // Lookup the row location of `encoded_key`, the function sets `row_location` on success.
     // NOTE: the method only works in unique key model with primary key index, you will got a
     //       not supported error in other data model.

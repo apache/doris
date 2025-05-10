@@ -47,13 +47,17 @@ class Http {
         }
     }
 
-    static Object GET(url, isJson = false) {
+    static Object GET(url, isJson = false, printText = true) {
         def conn = new URL(url).openConnection()
         conn.setRequestMethod('GET')
         conn.setRequestProperty('Authorization', 'Basic cm9vdDo=') //token for root
         def code = conn.responseCode
         def text = conn.content.text
-        logger.info("http get url=${url}, isJson=${isJson}, response code=${code}, text=${text}")
+        if (printText) {
+            logger.info("http get url=${url}, isJson=${isJson}, response code=${code}, text=${text}")
+        } else {
+            logger.info("http get url=${url}, isJson=${isJson}, response code=${code}")
+        }
         Assert.assertEquals(200, code)
         if (isJson) {
             def json = new JsonSlurper()
