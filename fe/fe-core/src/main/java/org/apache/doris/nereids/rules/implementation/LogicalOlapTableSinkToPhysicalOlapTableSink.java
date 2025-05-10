@@ -41,6 +41,7 @@ public class LogicalOlapTableSinkToPhysicalOlapTableSink extends OneImplementati
                     sink.getOutputExprs(),
                     ctx.connectContext.getSessionVariable().isEnableSingleReplicaInsert(),
                     sink.isPartialUpdate(),
+                    sink.getPartialUpdateNewRowPolicy(),
                     sink.getDmlCommandType(),
                     sink.getPartitionExprList(),
                     sink.getSyncMvWhereClauses(),

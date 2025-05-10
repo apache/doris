@@ -500,13 +500,7 @@ Status SegmentWriter::probe_key_for_mow(
                                       specified_rowsets, &loc, _mow_context->max_version,
                                       segment_caches, &rowset);
     if (st.is<KEY_NOT_FOUND>()) {
-        if (_opts.rowset_ctx->partial_update_info->is_strict_mode) {
-            ++stats.num_rows_filtered;
-            // delete the invalid newly inserted row
-            _mow_context->delete_bitmap->add(
-                    {_opts.rowset_ctx->rowset_id, _segment_id, DeleteBitmap::TEMP_VERSION_COMMON},
-                    segment_pos);
-        } else if (!have_delete_sign) {
+        if (!have_delete_sign) {
             RETURN_IF_ERROR(not_found_cb());
         }
         ++stats.num_rows_new_added;
@@ -679,8 +673,10 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
                 (delete_sign_column_data != nullptr && delete_sign_column_data[block_pos] != 0);
 
         auto not_found_cb = [&]() {
-            return _opts.rowset_ctx->partial_update_info->handle_non_strict_mode_not_found_error(
-                    *_tablet_schema);
+            return _opts.rowset_ctx->partial_update_info->handle_new_key(
+                    *_tablet_schema, [&]() -> std::string {
+                        return block->dump_one_line(block_pos, _num_sort_key_columns);
+                    });
         };
         auto update_read_plan = [&](const RowLocation& loc) {
             read_plan.prepare_to_read(loc, segment_pos);

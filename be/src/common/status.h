@@ -292,6 +292,7 @@ namespace ErrorCode {
     E(KEY_NOT_FOUND, -7000, false);                          \
     E(KEY_ALREADY_EXISTS, -7001, false);                     \
     E(ENTRY_NOT_FOUND, -7002, false);                        \
+    E(NEW_ROWS_IN_PARTIAL_UPDATE, -7003, false);             \
     E(INVALID_TABLET_STATE, -7211, false);                   \
     E(ROWSETS_EXPIRED, -7311, false);                        \
     E(CGROUP_ERROR, -7411, false);                           \
