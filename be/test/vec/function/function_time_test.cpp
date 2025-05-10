@@ -241,9 +241,10 @@ TEST(VTimestampFunctionsTest, timediff_test) {
     InputTypeSet input_types = {PrimitiveType::TYPE_DATETIME, PrimitiveType::TYPE_DATETIME};
 
     DataSet data_set = {
-            {{std::string("2019-07-18 12:00:00"), std::string("2019-07-18 12:00:00")}, 0.0},
+            {{std::string("2019-07-18 12:00:00"), std::string("2019-07-18 12:00:00")},
+             std::string {"0.0"}},
             {{std::string("2019-07-18 12:00:00"), std::string("2019-07-18 13:01:02")},
-             (double)-3662.0 * 1e6},
+             std::string {"-01:01:02"}},
             {{std::string("2019-00-18 12:00:00"), std::string("2019-07-18 13:01:02")}, Null()},
             {{std::string("2019-07-18 12:00:00"), std::string("2019-07-00 13:01:02")}, Null()}};
 
@@ -940,10 +941,11 @@ TEST(VTimestampFunctionsTest, timediff_v2_test) {
     {
         InputTypeSet input_types = {PrimitiveType::TYPE_DATEV2, PrimitiveType::TYPE_DATEV2};
 
-        DataSet data_set = {{{std::string("2019-07-18"), std::string("2019-07-18")}, 0.0},
-                            {{std::string("2019-07-18"), std::string("2019-07-18")}, -0.0},
-                            {{std::string("2019-00-18"), std::string("2019-07-18")}, Null()},
-                            {{std::string("2019-07-18"), std::string("2019-07-00")}, Null()}};
+        DataSet data_set = {
+                {{std::string("2019-07-18"), std::string("2019-07-18")}, std::string {"0.0"}},
+                {{std::string("2019-07-18"), std::string("2019-07-18")}, std::string {"-0.0"}},
+                {{std::string("2019-00-18"), std::string("2019-07-18")}, Null()},
+                {{std::string("2019-07-18"), std::string("2019-07-00")}, Null()}};
 
         static_cast<void>(check_function<DataTypeTimeV2, true>(func_name, input_types, data_set));
     }
@@ -952,9 +954,10 @@ TEST(VTimestampFunctionsTest, timediff_v2_test) {
         InputTypeSet input_types = {PrimitiveType::TYPE_DATETIMEV2, PrimitiveType::TYPE_DATETIMEV2};
 
         DataSet data_set = {
-                {{std::string("2019-07-18 00:00:00"), std::string("2019-07-18 00:00:00")}, 0.0},
+                {{std::string("2019-07-18 00:00:00"), std::string("2019-07-18 00:00:00")},
+                 std::string {"0.0"}},
                 {{std::string("2019-07-18 00:00:10"), std::string("2019-07-18 00:00:00")},
-                 10000000.0},
+                 std::string {"00:00:10"}},
                 {{std::string("2019-00-18 00:00:00"), std::string("2019-07-18 00:00:00")}, Null()},
                 {{std::string("2019-07-18 00:00:00"), std::string("2019-07-00 00:00:00")}, Null()}};
 

@@ -222,8 +222,9 @@ qt_sql """ select cast(cast(1000 as decimal(27, 9)) as datetime(6)) """
 qt_sql """ select cast(cast("2012-02-05" as date) as datetime(6)) """
 qt_sql """ select cast(cast("2012-02-05" as date) as datetime(0)) """
 
-qt_sql """ select cast(cast("500:00:00" as time(1)) as datetime(6)) """
-qt_sql """ select cast(cast("23:59:59" as time(3)) as datetime(0)) """
+// related to current date
+sql """ select cast(cast("500:00:00" as time(1)) as datetime(6)) """
+sql """ select cast(cast("23:59:59" as time(3)) as datetime(0)) """
 
 qt_sql """ select cast(cast("2020-12-12 00:00:00.123" as datetime(3)) as datetime(6)) """
 qt_sql """ select cast(cast("2020-12-12 00:00:00.123456" as datetime(6)) as datetime(3)) """

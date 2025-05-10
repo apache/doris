@@ -142,7 +142,7 @@ TEST(function_array_element_test, element_at) {
                             {{empty_arr, Int64(0)}, Null()},
                             {{empty_arr, Int64(1)}, Null()}};
 
-        static_cast<void>(check_function<DataTypeDecimal<Decimal128V2>, true>(
+        static_cast<void>(check_function<DataTypeDecimal<Decimal128V2>, true, 9, 27>(
                 func_name, input_types, data_set));
     }
 

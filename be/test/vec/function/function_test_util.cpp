@@ -139,7 +139,8 @@ static size_t type_index_to_data_type(const std::vector<AnyType>& input_types, s
         desc = type;
         return 1;
     case PrimitiveType::TYPE_DECIMALV2:
-        type = std::make_shared<DataTypeDecimal<Decimal128V2>>();
+        type = std::make_shared<DataTypeDecimal<Decimal128V2>>(input_types[index].precision_or(27),
+                                                               input_types[index].scale_or(9));
         desc = type;
         return 1;
     // for decimals in ut we set the default scale and precision. for more scales, we prefer test them in regression.
