@@ -76,7 +76,7 @@ public class COSProperties extends AbstractS3CompatibleProperties {
                 .findFirst()
                 .orElse(null);
         if (!Strings.isNullOrEmpty(value)) {
-            return ENDPOINT_PATTERN.matcher(value).matches();
+            return value.contains("myqcloud.com");
         }
         Optional<String> uriValue = origProps.entrySet().stream()
                 .filter(e -> e.getKey().equalsIgnoreCase("uri"))

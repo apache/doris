@@ -554,11 +554,16 @@ public class OutFileClause {
      * 2. s3: with s3 pattern path, without broker name
      */
     private void analyzeBrokerDesc(Map<String, String> copiedProps) throws UserException {
-        String brokerName = properties.get(PROP_BROKER_NAME);
+        /**
+         * If the output is intended to be written to the local file system, skip BrokerDesc analysis.
+         * This is because Broker properties are not required when writing files locally,
+         * and the upper layer logic ensures that brokerDesc must be null in this case.
+         */
         if (isLocalOutput) {
             return;
         }
-        brokerDesc = new BrokerDesc(brokerName, properties);
+        String brokerName = copiedProps.get(PROP_BROKER_NAME);
+        brokerDesc = new BrokerDesc(brokerName, copiedProps);
     }
 
     /**

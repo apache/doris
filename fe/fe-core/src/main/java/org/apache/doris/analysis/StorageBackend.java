@@ -25,10 +25,12 @@ import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.thrift.TStorageBackendType;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableSet;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.Map;
+import java.util.Set;
 
 public class StorageBackend implements ParseNode {
     private String location;
@@ -146,6 +148,9 @@ public class StorageBackend implements ParseNode {
                     return TStorageBackendType.BROKER;
             }
         }
+
+        public static final Set<StorageType> REFACTOR_STORAGE_TYPES =
+                ImmutableSet.of(StorageType.S3, StorageType.HDFS, StorageType.OFS, StorageType.JFS, StorageType.AZURE);
 
         public static StorageType convertToStorageType(String storageName) {
             switch (storageName.toLowerCase()) {

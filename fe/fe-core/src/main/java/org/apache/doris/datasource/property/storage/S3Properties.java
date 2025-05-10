@@ -141,8 +141,14 @@ public class S3Properties extends AbstractS3CompatibleProperties {
                 .filter(Objects::nonNull)
                 .findFirst()
                 .orElse(null);
+        /**
+         * Check if the endpoint contains "amazonaws.com" to determine if it's an S3-compatible storage.
+         * Note: This check should not be overly strict, as a malformed or misconfigured endpoint may
+         * cause the type detection to fail, leading to missed recognition of valid S3 properties.
+         * A more robust approach would allow further validation downstream rather than failing early here.
+         */
         if (!Strings.isNullOrEmpty(endpoint)) {
-            return ENDPOINT_PATTERN.matcher(endpoint).matches();
+            return endpoint.contains("amazonaws.com");
         }
         Optional<String> uriValue = origProps.entrySet().stream()
                 .filter(e -> e.getKey().equalsIgnoreCase("uri"))

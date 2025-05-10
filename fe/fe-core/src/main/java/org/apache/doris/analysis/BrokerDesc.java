@@ -77,46 +77,50 @@ public class BrokerDesc extends StorageDesc implements Writable {
         if (properties != null) {
             this.properties.putAll(properties);
         }
+        // Assume the storage type is BROKER by default
+        // If it's a multi-load broker, override the storage type to LOCAL
         if (isMultiLoadBroker()) {
             this.storageType = StorageBackend.StorageType.LOCAL;
         } else {
             this.storageType = StorageBackend.StorageType.BROKER;
         }
+
+        // Try to determine the actual storage type from properties if available
         if (MapUtils.isNotEmpty(properties)) {
             try {
+                // Create primary storage properties from the given configuration
                 this.storageProperties = StorageProperties.createPrimary(properties);
+                // Override the storage type based on property configuration
                 this.storageType = StorageBackend.StorageType.valueOf(storageProperties.getStorageName());
             } catch (RuntimeException e) {
                 // Currently ignored: these properties might be broker-specific.
                 // Support for broker properties will be added in the future.
                 LOG.info("Failed to create storage properties for broker: {}, properties: {}", name, properties, e);
             }
-
         }
         if (StringUtils.isBlank(this.name)) {
             this.name = this.storageType().name();
         }
-
     }
 
     public BrokerDesc(String name, StorageBackend.StorageType storageType, Map<String, String> properties) {
         this.name = name;
         this.properties = Maps.newHashMap();
+        this.storageType = storageType;
         if (properties != null) {
             this.properties.putAll(properties);
         }
         if (MapUtils.isNotEmpty(properties)) {
             try {
-                this.storageProperties = StorageProperties.createPrimary(properties);
-            } catch (RuntimeException e) {
-                // Currently ignored: these properties might be broker-specific.
-                // Support for broker properties will be added in the future.
-                LOG.info("Failed to create storage properties for broker: {}, properties: {}", name, properties, e);
+                if (StorageType.REFACTOR_STORAGE_TYPES.contains(storageType)) {
+                    this.storageProperties = StorageProperties.createPrimary(properties);
+                }
+            } catch (Exception e) {
+                throw new RuntimeException("Failed to create storage properties for broker: "
+                        + name + ", error msg is: " + e.getMessage(), e);
             }
         }
-        this.storageType = storageType;
     }
-
 
     public String getFileLocation(String location) throws UserException {
         return (null != storageProperties) ? storageProperties.validateAndNormalizeUri(location) : location;
