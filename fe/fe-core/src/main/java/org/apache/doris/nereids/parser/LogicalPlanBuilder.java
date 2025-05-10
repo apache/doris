@@ -651,6 +651,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowBackendsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowBackupCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowBrokerCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCatalogCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowCatalogRecycleBinCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCharsetCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowClustersCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCollationCommand;
@@ -7190,5 +7191,16 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
 
         return new RefreshDictionaryCommand(dbName, dictName);
+    }
+
+    @Override
+    public LogicalPlan visitShowCatalogRecycleBin(DorisParser.ShowCatalogRecycleBinContext ctx) {
+        Expression whereClause = null;
+        if (ctx.wildWhere() != null) {
+            if (ctx.wildWhere().WHERE() != null) {
+                whereClause = (Expression) ctx.wildWhere().expression().accept(this);
+            }
+        }
+        return new ShowCatalogRecycleBinCommand(whereClause);
     }
 }
