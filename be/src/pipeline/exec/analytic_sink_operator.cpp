@@ -69,10 +69,9 @@ Status AnalyticSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
         if (!p._has_window_start && !p._has_window_end) {
             _executor.get_next_impl = &AnalyticSinkLocalState::_get_next_for_partition;
         } else {
-            if (!p._has_window_start &&
-                p._window.window_end.type == TAnalyticWindowBoundaryType::CURRENT_ROW) {
+            if (!p._has_window_start) {
                 _executor.get_next_impl = &AnalyticSinkLocalState::_get_next_for_unbounded_rows;
-                _streaming_mode = true;
+                // _streaming_mode = true;
             } else {
                 _executor.get_next_impl = &AnalyticSinkLocalState::_get_next_for_sliding_rows;
             }
@@ -221,16 +220,32 @@ bool AnalyticSinkLocalState::_get_next_for_sliding_rows(int64_t batch_rows,
 
 bool AnalyticSinkLocalState::_get_next_for_unbounded_rows(int64_t batch_rows,
                                                           int64_t current_block_base_pos) {
-    while (_current_row_position < _partition_by_pose.end) {
+    int64_t pos = current_pos_in_block();
+    int64_t remain_size = batch_rows - pos;
+    DCHECK_GE(batch_rows, pos);
+    while (_current_row_position < _partition_by_pose.end && remain_size > 0) {
+        int64_t current_row_end = _current_row_position + _rows_end_offset + 1;
+        const bool is_n_following_frame = _rows_end_offset > 0;
         // [preceding, current_row], [current_row, following] rewrite it's same
         // as could reuse the previous calculate result, so don't call _reset_agg_status function
         // going on calculate, add up data, no need to reset state
-        _execute_for_function(_partition_by_pose.start, _partition_by_pose.end,
-                              _current_row_position, _current_row_position + 1);
-        int64_t pos = current_pos_in_block();
+        if (is_n_following_frame && !_partition_by_pose.is_ended &&
+            current_row_end > _partition_by_pose.end) {
+            return false;
+        }
+        if (is_n_following_frame && _current_row_position == _partition_by_pose.start) {
+            _execute_for_function(_partition_by_pose.start, _partition_by_pose.end,
+                                  _partition_by_pose.start, current_row_end - 1);
+        }
+        _execute_for_function(_partition_by_pose.start, _partition_by_pose.end, current_row_end - 1,
+                              current_row_end);
         _insert_result_info(pos, pos + 1);
         _current_row_position++;
-        if (_current_row_position - current_block_base_pos >= batch_rows) {
+        remain_size--;
+        if (remain_size == 0) {
+            LOG(INFO) << "asd: " << _current_row_position << " " << current_block_base_pos << " "
+                      << batch_rows << " "
+                      << (_current_row_position - current_block_base_pos >= batch_rows);
             return true;
         }
     }
