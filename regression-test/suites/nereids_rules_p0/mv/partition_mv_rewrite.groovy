@@ -170,6 +170,11 @@ suite("partition_mv_rewrite") {
          analyze table orders with sync;
          analyze table mv_10086 with sync;
          """
+
+    sql """alter table orders modify column o_comment set stats ('row_count'='12');"""
+    sql """alter table lineitem modify column l_comment set stats ('row_count'='10');"""
+
+
     sleep(10000)
     mv_rewrite_success(all_partition_sql, "mv_10086", true,
             is_partition_statistics_ready(db, ["lineitem", "orders", "mv_10086"]))
@@ -303,6 +308,12 @@ suite("partition_mv_rewrite") {
     insert into lineitem_static values 
     (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '${today_str}', '${today_str}', '${today_str}', 'a', 'b', 'yyyyyyyyy');
     """
+
+    multi_sql """
+        analyze table lineitem_static with sync;
+        """
+
+    sql """alter table lineitem_static modify column l_comment set stats ('row_count'='4');"""
 
     def ttl_mv_def_sql = """
     select l_shipdate, o_orderdate, l_partkey,
@@ -491,16 +502,6 @@ suite("partition_mv_rewrite") {
     order_qt_query_19_0_before "${roll_up_all_partition_sql}"
     sql "SET enable_materialized_view_rewrite=true"
 
-    
-    multi_sql """
-        analyze table lineitem_static with sync;
-        analyze table lineitem with sync;
-        analyze table orders with sync;
-        """
-
-    sql """alter table orders modify column o_comment set stats ('row_count'='3');"""
-    sql """alter table lineitem modify column l_comment set stats ('row_count'='6');"""
-    sql """alter table lineitem_static modify column l_comment set stats ('row_count'='4');"""
 
     // should rewrite successful when union rewrite enalbe if base table add new partition
     mv_rewrite_success(roll_up_all_partition_sql, "mv_10086", true,
