@@ -93,7 +93,8 @@ public class S3Util {
                 .putAdvancedOption(SdkAdvancedClientOption.SIGNER, AwsS3V4Signer.create())
                 .build();
         return S3Client.builder()
-                .httpClient(UrlConnectionHttpClient.create())
+                .httpClient(UrlConnectionHttpClient.builder().socketTimeout(Duration.ofSeconds(30))
+                        .connectionTimeout(Duration.ofSeconds(30)).build())
                 .endpointOverride(endpoint)
                 .credentialsProvider(getAwsCredencialsProvider(credential))
                 .region(Region.of(region))
@@ -133,11 +134,15 @@ public class S3Util {
             StsClient stsClient = StsClient.builder()
                     .credentialsProvider(InstanceProfileCredentialsProvider.create())
                     .build();
+
             return StsAssumeRoleCredentialsProvider.builder()
                     .stsClient(stsClient)
-                    .refreshRequest(r -> r.roleArn(roleArn).externalId(externalId)
-                            .roleSessionName("aws-sdk-java-v2-fe"))
-                    .build();
+                    .refreshRequest(builder -> {
+                        builder.roleArn(roleArn).roleSessionName("aws-sdk-java-v2-fe");
+                        if (!Strings.isNullOrEmpty(externalId)) {
+                            builder.externalId(externalId);
+                        }
+                    }).build();
         }
         return AwsCredentialsProviderChain.of(SystemPropertyCredentialsProvider.create(),
                     EnvironmentVariableCredentialsProvider.create(),
@@ -167,7 +172,8 @@ public class S3Util {
                 .putAdvancedOption(SdkAdvancedClientOption.SIGNER, AwsS3V4Signer.create())
                 .build();
         return S3Client.builder()
-                .httpClient(UrlConnectionHttpClient.create())
+                .httpClient(UrlConnectionHttpClient.builder().socketTimeout(Duration.ofSeconds(30))
+                        .connectionTimeout(Duration.ofSeconds(30)).build())
                 .endpointOverride(endpoint)
                 .credentialsProvider(getAwsCredencialsProvider(endpoint, region, accessKey, secretKey,
                         sessionToken, roleArn, externalId))
