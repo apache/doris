@@ -381,6 +381,7 @@ supportedShowStatement
         wildWhere? sortClause? limitClause?                                         #showTabletsFromTable
     | SHOW TABLET tabletId=INTEGER_VALUE                                            #showTabletId
     | SHOW DICTIONARIES wildWhere?                                                  #showDictionaries
+    | SHOW REPLICA STATUS FROM baseTableRef wildWhere?                              #showReplicaStatus
     ;
 
 supportedLoadStatement
@@ -468,7 +469,6 @@ unsupportedShowStatement
             | (FROM tableName=multipartIdentifier (ALL VERBOSE?)?))?                #showQueryStats
     | SHOW BUILD INDEX ((FROM | IN) database=multipartIdentifier)?
         wildWhere? sortClause? limitClause?                                         #showBuildIndex
-    | SHOW REPLICA STATUS FROM baseTableRef wildWhere?                              #showReplicaStatus
     | SHOW COPY ((FROM | IN) database=multipartIdentifier)?
         whereClause? sortClause? limitClause?                                       #showCopy
     | SHOW WARM UP JOB wildWhere?                                                   #showWarmUpJob
