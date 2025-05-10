@@ -999,4 +999,9 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
             LOG.warn("remove sub transaction failed. db " + dbId, e);
         }
     }
+
+    @Override
+    public int getQueueLength() {
+        return 0;
+    }
 }
