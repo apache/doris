@@ -498,6 +498,32 @@ TEST(PODArrayTest, PODArrayInsert) {
 //     }
 // }
 
+TEST(PODArrayTest, PODArrayAddNumElement) {
+    static constexpr size_t initial_bytes = 32;
+    using Array = vectorized::PODArray<uint64_t, initial_bytes>;
+    size_t element_size = 8; // sizeof(uint64_t)
+    {
+        Array array;
+
+        array.add_num_element(1, 4);
+        ASSERT_EQ(array.size(), 4);
+        ASSERT_EQ(array.capacity(), 32 / element_size);
+        ASSERT_EQ(array, Array({1, 1, 1, 1}));
+
+        // call reserve
+        array.add_num_element(1, 2);
+        ASSERT_EQ(array.size(), 6);
+        ASSERT_EQ(array.capacity(), 64 / element_size);
+        ASSERT_EQ(array, Array({1, 1, 1, 1, 1, 1}));
+
+        // call reserve
+        array.add_num_element_without_reserve(1, 1);
+        ASSERT_EQ(array.size(), 7);
+        ASSERT_EQ(array.capacity(), 64 / element_size);
+        ASSERT_EQ(array, Array({1, 1, 1, 1, 1, 1, 1}));
+    }
+}
+
 TEST(PODArrayTest, PODArrayAssign) {
     {
         vectorized::PaddedPODArray<uint64_t> array;
