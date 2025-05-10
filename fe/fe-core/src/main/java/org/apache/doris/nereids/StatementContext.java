@@ -44,6 +44,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.PlaceholderId;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.TableId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
@@ -222,6 +223,10 @@ public class StatementContext implements Closeable {
     private boolean partialLoadDictionary = false; // really used partial load.
 
     private boolean prepareStage = false;
+
+    private List<Plan> tmpPlanForLaterMvRewrite = new ArrayList<>();
+
+    private boolean forceCollect = false;
 
     public StatementContext() {
         this(ConnectContext.get(), null, 0);
@@ -816,11 +821,27 @@ public class StatementContext implements Closeable {
         this.partialLoadDictionary = partialLoadDictionary;
     }
 
+    public List<Plan> getTmpPlanForLaterMvRewrite() {
+        return tmpPlanForLaterMvRewrite;
+    }
+
+    public void addTmpPlanForLaterMvRewrite(Plan logicalPlan) {
+        this.tmpPlanForLaterMvRewrite.add(logicalPlan);
+    }
+
     public void setPrepareStage(boolean isPrepare) {
         this.prepareStage = isPrepare;
     }
 
     public boolean isPrepareStage() {
         return prepareStage;
+    }
+
+    public boolean isForceCollect() {
+        return forceCollect;
+    }
+
+    public void setForceCollect(boolean forceCollect) {
+        this.forceCollect = forceCollect;
     }
 }

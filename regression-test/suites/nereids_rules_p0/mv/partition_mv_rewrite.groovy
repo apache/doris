@@ -373,7 +373,7 @@ suite("partition_mv_rewrite") {
     sql "SET enable_materialized_view_rewrite=false"
     order_qt_query_16_0_before "${ttl_partition_sql}"
     sql "SET enable_materialized_view_rewrite=true"
-    // should rewrite fail when union rewrite enalbe and query the partition which is not in mv
+    // should rewrite fail when union rewrite enable and query the partition which is not in mv
     mv_rewrite_fail(ttl_partition_sql, ttl_mv_name)
     order_qt_query_16_0_after "${ttl_partition_sql}"
 
