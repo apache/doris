@@ -15,36 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
-
-#include <iostream>
-#include <memory>
-#include <vector>
-
-#include "AnalyzeContext.h"
-#include "CJKSegmenter.h"
-#include "CN_QuantifierSegmenter.h"
-#include "IKArbitrator.h"
-#include "ISegmenter.h"
-#include "LetterSegmenter.h"
 #include "SurrogatePairSegmenter.h"
-#include "olap/rowset/segment_v2/inverted_index/analyzer/ik/cfg/Configuration.h"
+
 namespace doris::segment_v2 {
 
-class IKSegmenter {
-public:
-    IKSegmenter(std::shared_ptr<Configuration> config);
-    bool next(Lexeme& lexeme);
-    void reset(lucene::util::Reader* newInput);
-    int getLastUselessCharNum();
+void SurrogatePairSegmenter::analyze(AnalyzeContext& context) {
+    const auto& current_char_type = context.getCurrentCharType();
 
-private:
-    std::vector<std::unique_ptr<ISegmenter>> loadSegmenters();
-    IKMemoryPool<Cell> pool_;
-    lucene::util::Reader* input_;
-    std::shared_ptr<Configuration> config_;
-    std::unique_ptr<AnalyzeContext> context_;
-    std::vector<std::unique_ptr<ISegmenter>> segmenters_;
-    IKArbitrator arbitrator_;
-};
+    if (current_char_type == CharacterUtil::CHAR_SURROGATE) {
+        Lexeme newLexeme(context.getBufferOffset(), context.getCurrentCharOffset(),
+                         context.getCurrentCharLen(), Lexeme::Type::CNChar, context.getCursor(),
+                         context.getCursor());
+        context.addLexeme(newLexeme);
+    }
+
+    context.unlockBuffer(SEGMENTER_TYPE);
+}
+
+void SurrogatePairSegmenter::reset() {}
+
 } // namespace doris::segment_v2
