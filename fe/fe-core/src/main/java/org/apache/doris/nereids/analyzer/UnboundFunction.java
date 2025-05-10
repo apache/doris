@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Joiner;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Objects;
@@ -38,6 +39,7 @@ import java.util.stream.Collectors;
 public class UnboundFunction extends Function implements Unbound, PropagateNullable {
     private final String dbName;
     private final boolean isDistinct;
+    private final boolean isSkew;
     // for create view stmt, the start and end position of the function string in original sql
     private final Optional<Pair<Integer, Integer>> indexInSqlString;
     // the start and end position of the function string in original sql
@@ -69,29 +71,31 @@ public class UnboundFunction extends Function implements Unbound, PropagateNulla
     }
 
     public UnboundFunction(String name, List<Expression> arguments) {
-        this(null, name, false, arguments, Optional.empty(), Optional.empty());
+        this(null, name, false, arguments, false, Optional.empty(), Optional.empty());
     }
 
     public UnboundFunction(String dbName, String name, List<Expression> arguments) {
-        this(dbName, name, false, arguments, Optional.empty(), Optional.empty());
+        this(dbName, name, false, arguments, false, Optional.empty(), Optional.empty());
     }
 
     public UnboundFunction(String name, boolean isDistinct, List<Expression> arguments) {
-        this(null, name, isDistinct, arguments, Optional.empty(), Optional.empty());
+        this(null, name, isDistinct, arguments, false, Optional.empty(), Optional.empty());
     }
 
-    public UnboundFunction(String dbName, String name, boolean isDistinct, List<Expression> arguments) {
-        this(dbName, name, isDistinct, arguments, Optional.empty(), Optional.empty());
+    public UnboundFunction(String dbName, String name, boolean isDistinct, List<Expression> arguments, boolean isSkew) {
+        this(dbName, name, isDistinct, arguments, isSkew, Optional.empty(), Optional.empty());
     }
 
+    /**UnboundFunction*/
     public UnboundFunction(String dbName, String name, boolean isDistinct,
-            List<Expression> arguments, Optional<FunctionIndexInSql> functionIndexInSql,
+            List<Expression> arguments, boolean isSkew, Optional<FunctionIndexInSql> functionIndexInSql,
             Optional<Pair<Integer, Integer>> indexInSqlString) {
         super(name, arguments);
         this.dbName = dbName;
         this.isDistinct = isDistinct;
         this.functionIndexInSql = functionIndexInSql;
         this.indexInSqlString = indexInSqlString;
+        this.isSkew = isSkew;
     }
 
     @Override
@@ -108,6 +112,10 @@ public class UnboundFunction extends Function implements Unbound, PropagateNulla
 
     public boolean isDistinct() {
         return isDistinct;
+    }
+
+    public boolean isSkew() {
+        return isSkew;
     }
 
     public List<Expression> getArguments() {
@@ -135,7 +143,8 @@ public class UnboundFunction extends Function implements Unbound, PropagateNulla
 
     @Override
     public UnboundFunction withChildren(List<Expression> children) {
-        return new UnboundFunction(dbName, getName(), isDistinct, children, functionIndexInSql, indexInSqlString);
+        return new UnboundFunction(dbName, getName(), isDistinct, children, isSkew, functionIndexInSql,
+                indexInSqlString);
     }
 
     public Optional<FunctionIndexInSql> getFunctionIndexInSql() {
@@ -143,7 +152,8 @@ public class UnboundFunction extends Function implements Unbound, PropagateNulla
     }
 
     public UnboundFunction withIndexInSqlString(Optional<FunctionIndexInSql> functionIndexInSql) {
-        return new UnboundFunction(dbName, getName(), isDistinct, children, functionIndexInSql, indexInSqlString);
+        return new UnboundFunction(dbName, getName(), isDistinct, children, isSkew, functionIndexInSql,
+                indexInSqlString);
     }
 
     @Override
@@ -167,11 +177,29 @@ public class UnboundFunction extends Function implements Unbound, PropagateNulla
     }
 
     public UnboundFunction withIndexInSql(Pair<Integer, Integer> index) {
-        return new UnboundFunction(dbName, getName(), isDistinct, children, functionIndexInSql,
+        return new UnboundFunction(dbName, getName(), isDistinct, children, isSkew, functionIndexInSql,
                 Optional.ofNullable(index));
     }
 
     public Optional<Pair<Integer, Integer>> getIndexInSqlString() {
         return indexInSqlString;
+    }
+
+    /** used in binding function, get arguments including isDistinct and isSkew*/
+    public List<Object> getArgumentsForBuilder() {
+        if (isDistinct() && isSkew()) {
+            return ImmutableList.builderWithExpectedSize(arity() + 2)
+                    .add(isDistinct())
+                    .add(isSkew())
+                    .addAll(getArguments())
+                    .build();
+        } else if (isDistinct()) {
+            return ImmutableList.builderWithExpectedSize(arity() + 1)
+                    .add(isDistinct())
+                    .addAll(getArguments())
+                    .build();
+        } else {
+            return (List) getArguments();
+        }
     }
 }
