@@ -731,7 +731,7 @@ public class OutFileClause {
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append(" INTO OUTFILE '").append(filePath).append(" FORMAT AS ")
-                .append(fileFormatProperties.getFileFormatType());
+                .append(fileFormatProperties.getFormatName());
         if (properties != null && !properties.isEmpty()) {
             sb.append(" PROPERTIES(");
             sb.append(new PrintableMap<>(properties, " = ", true, false));
