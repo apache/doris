@@ -472,16 +472,6 @@ show_session_variables() {
     fi
 }
 
-create_normal_workload_group() {
-    if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
-    query_port=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf/fe.conf query_port)
-    if mysql -h127.0.0.1 -P"${query_port}" -uroot -e"create workload group normal for cluster_name0 properties('cpu_share'='1024');"; then
-        return
-    else
-        return 1
-    fi
-}
-
 set_session_variable() {
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
     k="$1"
