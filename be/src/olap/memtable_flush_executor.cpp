@@ -149,7 +149,8 @@ Status FlushToken::_try_reserve_memory(const std::shared_ptr<ResourceContext>& r
     int32_t max_waiting_time = config::memtable_wait_for_memory_sleep_time_s;
     do {
         // only try to reserve process memory
-        st = thread_context->thread_mem_tracker_mgr->try_reserve(size, true);
+        st = thread_context->thread_mem_tracker_mgr->try_reserve(
+                size, ThreadMemTrackerMgr::TryReserveChecker::CHECK_PROCESS);
         if (st.ok()) {
             memtable_flush_executor->inc_flushing_task();
             break;
