@@ -4404,6 +4404,7 @@ public class SessionVariable implements Serializable, Writable {
     /**
      * The sessionContext is as follows:
      * "k1:v1;k2:v2;..."
+     * eg: set session_context="trace_id:123456"
      * Here we want to get value with key named "trace_id",
      * Return empty string is not found.
      *
