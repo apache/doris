@@ -57,7 +57,8 @@ ProcessHashTableProbe<JoinOpType, Parent>::ProcessHashTableProbe(Parent* parent,
           _build_side_output_timer(parent->_build_side_output_timer),
           _probe_side_output_timer(parent->_probe_side_output_timer),
           _probe_process_hashtable_timer(parent->_probe_process_hashtable_timer),
-          _right_col_idx((_is_right_semi_anti && !_have_other_join_conjunct)
+          _right_col_idx((_is_right_semi_anti && !_have_other_join_conjunct &&
+                          parent->_mark_join_conjuncts.empty())
                                  ? 0
                                  : _parent->left_table_data_types().size()),
           _right_col_len(_parent->right_table_data_types().size()) {}
@@ -639,7 +640,7 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::process_data_in_hashtable(
         }
 
         // just resize the left table column in case with other conjunct to make block size is not zero
-        if (_is_right_semi_anti && _have_other_join_conjunct) {
+        if (_is_right_semi_anti && _right_col_idx != 0) {
             for (int i = 0; i < _right_col_idx; ++i) {
                 mcol[i]->resize(block_size);
             }
