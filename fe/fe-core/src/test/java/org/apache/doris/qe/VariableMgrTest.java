@@ -292,4 +292,36 @@ public class VariableMgrTest {
         Literal l = VariableMgr.getLiteral(sv, name, setType);
         Assert.assertEquals(BigIntType.INSTANCE, l.getDataType());
     }
+
+    @Test
+    public void testCheckSqlConvertorFeatures() throws DdlException {
+        // set wrong var
+        SetVar setVar = new SetVar(SetType.SESSION, SessionVariable.ENABLE_SQL_CONVERTOR_FEATURES,
+                new StringLiteral("wrong"));
+        SessionVariable var = new SessionVariable();
+        try {
+            VariableMgr.setVar(var, setVar);
+        } catch (DdlException e) {
+            Assert.assertTrue(e.getMessage().contains("Unknown sql convertor feature: wrong"));
+        }
+
+        // set one var
+        Assert.assertEquals(new String[] {""}, var.getSqlConvertorFeatures());
+        setVar = new SetVar(SetType.SESSION, SessionVariable.ENABLE_SQL_CONVERTOR_FEATURES,
+                new StringLiteral("ctas"));
+        VariableMgr.setVar(var, setVar);
+        Assert.assertEquals(new String[] {"ctas"}, var.getSqlConvertorFeatures());
+
+        // set multiple var
+        setVar = new SetVar(SetType.SESSION, SessionVariable.ENABLE_SQL_CONVERTOR_FEATURES,
+                new StringLiteral("ctas,delete_all_comment"));
+        VariableMgr.setVar(var, setVar);
+        Assert.assertEquals(new String[] {"ctas", "delete_all_comment"}, var.getSqlConvertorFeatures());
+
+        // set to empty
+        setVar = new SetVar(SetType.SESSION, SessionVariable.ENABLE_SQL_CONVERTOR_FEATURES,
+                new StringLiteral(""));
+        VariableMgr.setVar(var, setVar);
+        Assert.assertEquals(new String[] {""}, var.getSqlConvertorFeatures());
+    }
 }
