@@ -28,8 +28,10 @@ import java.util.Set;
 public interface CatalogAccessController {
     // ==== Catalog ====
     default boolean checkCtlPriv(boolean hasGlobal, UserIdentity currentUser, String ctl, PrivPredicate wanted) {
-        boolean res = checkCtlPriv(currentUser, ctl, wanted);
-        return hasGlobal || res;
+        if (hasGlobal) {
+            return true;
+        }
+        return checkCtlPriv(currentUser, ctl, wanted);
     }
 
     // ==== Global ====
@@ -40,26 +42,34 @@ public interface CatalogAccessController {
 
     // ==== Database ====
     default boolean checkDbPriv(boolean hasGlobal, UserIdentity currentUser, String ctl, String db,
-            PrivPredicate wanted) {
-        boolean res = checkDbPriv(currentUser, ctl, db, wanted);
-        return hasGlobal || res;
+                                PrivPredicate wanted) {
+        if (hasGlobal) {
+            return true;
+        }
+        return checkDbPriv(currentUser, ctl, db, wanted);
     }
 
     boolean checkDbPriv(UserIdentity currentUser, String ctl, String db, PrivPredicate wanted);
 
     // ==== Table ====
     default boolean checkTblPriv(boolean hasGlobal, UserIdentity currentUser, String ctl, String db, String tbl,
-            PrivPredicate wanted) {
-        boolean res = checkTblPriv(currentUser, ctl, db, tbl, wanted);
-        return hasGlobal || res;
+                                 PrivPredicate wanted) {
+        if (hasGlobal) {
+            return true;
+        }
+        return checkTblPriv(currentUser, ctl, db, tbl, wanted);
     }
 
     boolean checkTblPriv(UserIdentity currentUser, String ctl, String db, String tbl, PrivPredicate wanted);
 
     // ==== Column ====
     default void checkColsPriv(boolean hasGlobal, UserIdentity currentUser, String ctl, String db, String tbl,
-            Set<String> cols, PrivPredicate wanted) throws AuthorizationException {
+                               Set<String> cols, PrivPredicate wanted) throws AuthorizationException {
         try {
+            boolean hasTablePriv = checkTblPriv(hasGlobal, currentUser, ctl, db, tbl, wanted);
+            if (hasTablePriv) {
+                return;
+            }
             checkColsPriv(currentUser, ctl, db, tbl, cols, wanted);
         } catch (AuthorizationException e) {
             if (!hasGlobal) {
