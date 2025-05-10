@@ -297,7 +297,8 @@ public class SchemaTable extends Table {
                                     .column("EXTRA", ScalarType.createVarchar(256)).build()))
             .put("partitions",
                     new SchemaTable(SystemIdGenerator.getNextId(), "partitions", TableType.SCHEMA,
-                            builder().column("TABLE_CATALOG", ScalarType.createVarchar(64))
+                            builder().column("PARTITION_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("TABLE_CATALOG", ScalarType.createVarchar(64))
                                     .column("TABLE_SCHEMA", ScalarType.createVarchar(64))
                                     .column("TABLE_NAME", ScalarType.createVarchar(64))
                                     .column("PARTITION_NAME", ScalarType.createVarchar(64))
@@ -322,7 +323,23 @@ public class SchemaTable extends Table {
                                     .column("CHECKSUM", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("PARTITION_COMMENT", ScalarType.createStringType())
                                     .column("NODEGROUP", ScalarType.createVarchar(256))
-                                    .column("TABLESPACE_NAME", ScalarType.createVarchar(268)).build()))
+                                    .column("TABLESPACE_NAME", ScalarType.createVarchar(268))
+                                    .column("DATA_SIZE", ScalarType.createStringType())
+                                    .column("STATE", ScalarType.createStringType())
+                                    .column("REPLICA_ALLOCATION", ScalarType.createStringType())
+                                    .column("REPLICA_NUM", ScalarType.createType(PrimitiveType.INT))
+                                    .column("STORAGE_POLICY", ScalarType.createStringType())
+                                    .column("STORAGE_MEDIUM", ScalarType.createStringType())
+                                    .column("COOLDOWN_TIME_MS", ScalarType.createStringType())
+                                    .column("IS_IN_MEMORY", ScalarType.createType(PrimitiveType.BOOLEAN))
+                                    .column("LAST_CONSISTENCY_CHECK_TIME", ScalarType.createStringType())
+                                    .column("BUCKET_NUM", ScalarType.createType(PrimitiveType.INT))
+                                    .column("COMMITTED_VERSION", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("VISIBLE_VERSION", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("PARTITION_KEY", ScalarType.createStringType())
+                                    .column("RANGE", ScalarType.createStringType())
+                                    .column("DISTRIBUTION", ScalarType.createStringType())
+                                    .build()))
             // Compatible with Datagrip
             .put("column_privileges",
                     new SchemaTable(SystemIdGenerator.getNextId(), "column_privileges", TableType.SCHEMA,
@@ -419,7 +436,7 @@ public class SchemaTable extends Table {
                             .column("DATA_TYPEDTD_IDENDS", ScalarType.createVarchar(64))
                             .build()))
             .put("metadata_name_ids", new SchemaTable(SystemIdGenerator.getNextId(),
-                        "metadata_name_ids", TableType.SCHEMA,
+                    "metadata_name_ids", TableType.SCHEMA,
                     builder().column("CATALOG_ID", ScalarType.createType(PrimitiveType.BIGINT))
                             .column("CATALOG_NAME", ScalarType.createVarchar(FN_REFLEN))
                             .column("DATABASE_ID", ScalarType.createType(PrimitiveType.BIGINT))
