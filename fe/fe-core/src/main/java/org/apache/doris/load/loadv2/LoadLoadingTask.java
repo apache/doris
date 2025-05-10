@@ -88,7 +88,9 @@ public class LoadLoadingTask extends LoadTask {
 
     private List<TPipelineWorkloadGroup> tWorkloadGroups = null;
 
-    public LoadLoadingTask(Database db, OlapTable table,
+    protected UserIdentity userInfo;
+
+    public LoadLoadingTask(UserIdentity userInfo, Database db, OlapTable table,
             BrokerDesc brokerDesc, List<BrokerFileGroup> fileGroups,
             long jobDeadlineMs, long execMemLimit, boolean strictMode, boolean isPartialUpdate,
             long txnId, LoadTaskCallback callback, String timezone,
@@ -96,6 +98,7 @@ public class LoadLoadingTask extends LoadTask {
             boolean loadZeroTolerance, Profile jobProfile, boolean singleTabletLoadPerSink,
             Priority priority, boolean enableMemTableOnSinkNode, int batchSize) {
         super(callback, TaskType.LOADING, priority);
+        this.userInfo = userInfo;
         this.db = db;
         this.table = table;
         this.brokerDesc = brokerDesc;
@@ -172,6 +175,12 @@ public class LoadLoadingTask extends LoadTask {
         // 1 second is the minimum granularity of actual execution
         int timeoutS = Math.max((int) (leftTimeMs / 1000), 1);
         curCoordinator.setTimeout(timeoutS);
+
+        // NOTE: currently broker load not enter workload group's queue
+        // so we set tWorkloadGroup here directly.
+        if (tWorkloadGroups != null) {
+            curCoordinator.setTWorkloadGroups(tWorkloadGroups);
+        }
 
         try {
             QeProcessorImpl.INSTANCE.registerQuery(loadId, new QeProcessorImpl.QueryInfo(curCoordinator));
