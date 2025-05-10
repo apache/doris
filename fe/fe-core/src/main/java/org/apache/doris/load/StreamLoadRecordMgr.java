@@ -29,6 +29,7 @@ import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.trees.plans.commands.ShowLoadCommand;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.plugin.AuditEvent;
 import org.apache.doris.plugin.AuditEvent.EventType;
@@ -151,6 +152,61 @@ public class StreamLoadRecordMgr extends MasterDaemon {
 
     public List<StreamLoadItem> getStreamLoadRecords() {
         return new ArrayList<>(streamLoadRecordHeap);
+    }
+
+    public List<List<Comparable>> getStreamLoadRecordByDb(
+            long dbId, String label, boolean accurateMatch, ShowLoadCommand.StreamLoadState state) {
+        LinkedList<List<Comparable>> streamLoadRecords = new LinkedList<List<Comparable>>();
+
+        readLock();
+        try {
+            if (!dbIdToLabelToStreamLoadRecord.containsKey(dbId)) {
+                return streamLoadRecords;
+            }
+
+            List<StreamLoadRecord> streamLoadRecordList = Lists.newArrayList();
+            Map<String, StreamLoadRecord> labelToStreamLoadRecord = dbIdToLabelToStreamLoadRecord.get(dbId);
+            if (Strings.isNullOrEmpty(label)) {
+                streamLoadRecordList.addAll(labelToStreamLoadRecord.values().stream().collect(Collectors.toList()));
+            } else {
+                // check label value
+                if (accurateMatch) {
+                    if (!labelToStreamLoadRecord.containsKey(label)) {
+                        return streamLoadRecords;
+                    }
+                    streamLoadRecordList.add(labelToStreamLoadRecord.get(label));
+                } else {
+                    // non-accurate match
+                    for (Map.Entry<String, StreamLoadRecord> entry : labelToStreamLoadRecord.entrySet()) {
+                        if (entry.getKey().contains(label)) {
+                            streamLoadRecordList.add(entry.getValue());
+                        }
+                    }
+                }
+            }
+
+            for (StreamLoadRecord streamLoadRecord : streamLoadRecordList) {
+                try {
+                    if (state != null && !String.valueOf(state).equalsIgnoreCase(streamLoadRecord.getStatus())) {
+                        continue;
+                    }
+                    // check auth
+                    if (!Env.getCurrentEnv().getAccessManager()
+                            .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME,
+                            streamLoadRecord.getDb(), streamLoadRecord.getTable(),
+                            PrivPredicate.LOAD)) {
+                        continue;
+                    }
+                    streamLoadRecords.add(streamLoadRecord.getStreamLoadInfo());
+                } catch (Exception e) {
+                    continue;
+                }
+
+            }
+            return streamLoadRecords;
+        } finally {
+            readUnlock();
+        }
     }
 
     public List<List<Comparable>> getStreamLoadRecordByDb(
