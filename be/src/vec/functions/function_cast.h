@@ -24,19 +24,14 @@
 #include <fmt/format.h>
 #include <gen_cpp/FrontendService_types.h>
 #include <glog/logging.h>
-#include <stddef.h>
-#include <stdint.h>
 
 #include <algorithm>
-#include <atomic>
 #include <boost/iterator/iterator_facade.hpp>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <functional>
-#include <iterator>
-#include <limits>
 #include <memory>
-#include <ostream>
 #include <string>
 #include <type_traits>
 #include <utility>
@@ -59,7 +54,6 @@
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_struct.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_common.h"
 #include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_buffer.hpp"
@@ -75,6 +69,7 @@
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_bitmap.h"
 #include "vec/data_types/data_type_date.h"
+#include "vec/data_types/data_type_date_or_datetime_v2.h"
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_hll.h"
@@ -88,7 +83,6 @@
 #include "vec/data_types/data_type_string.h"
 #include "vec/data_types/data_type_struct.h"
 #include "vec/data_types/data_type_time.h"
-#include "vec/data_types/data_type_time_v2.h"
 #include "vec/data_types/serde/data_type_serde.h"
 #include "vec/functions/function.h"
 #include "vec/functions/function_convert_tz.h"
@@ -169,11 +163,12 @@ struct ConvertImpl {
                                             ColumnDecimal<ToFieldType>, ColumnVector<ToFieldType>>;
 
         if constexpr (IsDataTypeDecimal<FromDataType> || IsDataTypeDecimal<ToDataType>) {
-            if constexpr (!(IsDataTypeDecimalOrNumber<FromDataType> || IsTimeType<FromDataType> ||
-                            IsTimeV2Type<FromDataType>) ||
-                          !IsDataTypeDecimalOrNumber<ToDataType>)
+            if constexpr (!(IsDataTypeDecimalOrNumber<FromDataType> ||
+                            IsDatelikeV1Types<FromDataType> || IsDatelikeV2Types<FromDataType>) ||
+                          !IsDataTypeDecimalOrNumber<ToDataType>) {
                 return Status::RuntimeError("Illegal column {} of first argument of function {}",
                                             named_from.column->get_name(), Name::name);
+            }
         }
 
         if (const ColVecFrom* col_from =
@@ -261,9 +256,9 @@ struct ConvertImpl {
                 block.replace_by_position(result, std::move(col_to));
 
                 return Status::OK();
-            } else if constexpr (IsTimeType<FromDataType>) {
+            } else if constexpr (IsDatelikeV1Types<FromDataType>) {
                 for (size_t i = 0; i < size; ++i) {
-                    if constexpr (IsTimeType<ToDataType>) {
+                    if constexpr (IsDatelikeV1Types<ToDataType>) {
                         vec_to[i] = static_cast<ToFieldType>(vec_from[i]);
                         if constexpr (IsDateTimeType<ToDataType>) {
                             DataTypeDateTime::cast_to_date_time(vec_to[i]);
@@ -280,9 +275,9 @@ struct ConvertImpl {
                                 reinterpret_cast<const VecDateTimeValue&>(vec_from[i]).to_int64());
                     }
                 }
-            } else if constexpr (IsTimeV2Type<FromDataType>) {
+            } else if constexpr (IsDatelikeV2Types<FromDataType>) {
                 for (size_t i = 0; i < size; ++i) {
-                    if constexpr (IsTimeV2Type<ToDataType>) {
+                    if constexpr (IsDatelikeV2Types<ToDataType>) {
                         if constexpr (IsDateTimeV2Type<ToDataType> && IsDateV2Type<FromDataType>) {
                             DataTypeDateV2::cast_to_date_time_v2(vec_from[i], vec_to[i]);
                         } else if constexpr (IsDateTimeV2Type<FromDataType> &&
@@ -292,7 +287,7 @@ struct ConvertImpl {
                             UInt32 scale = additions;
                             vec_to[i] = ToFieldType(vec_from[i] / std::pow(10, 6 - scale));
                         }
-                    } else if constexpr (IsTimeType<ToDataType>) {
+                    } else if constexpr (IsDatelikeV1Types<ToDataType>) {
                         if constexpr (IsDateTimeType<ToDataType> && IsDateV2Type<FromDataType>) {
                             DataTypeDateV2::cast_to_date_time(vec_from[i], vec_to[i]);
                         } else if constexpr (IsDateType<ToDataType> && IsDateV2Type<FromDataType>) {
@@ -384,7 +379,7 @@ struct ConvertImplToTimeType {
                                    ColumnVector<FromFieldType>>;
 
         using DateValueType = std::conditional_t<
-                IsTimeV2Type<ToDataType>,
+                IsDatelikeV2Types<ToDataType>,
                 std::conditional_t<IsDateV2Type<ToDataType>, DateV2Value<DateV2ValueType>,
                                    DateV2Value<DateTimeV2ValueType>>,
                 VecDateTimeValue>;
@@ -422,7 +417,7 @@ struct ConvertImplToTimeType {
                     date_value = current_date_value;
                     int64_t microsecond = TimeValue::round_time(vec_from[i], scale);
                     // Only TimeV2 type needs microseconds
-                    if constexpr (IsTimeV2Type<ToDataType>) {
+                    if constexpr (IsDatelikeV2Types<ToDataType>) {
                         vec_null_map_to[i] = !date_value.template date_add_interval<MICROSECOND>(
                                 TimeInterval {MICROSECOND, microsecond, false});
                     } else {
@@ -1489,7 +1484,7 @@ private:
             /// that will not throw an exception but return NULL in case of malformed input.
             function = FunctionConvertFromString<DataType, NameCast>::create();
         } else if (requested_result_is_nullable &&
-                   (IsTimeType<DataType> || IsTimeV2Type<DataType>)&&!(
+                   (IsDatelikeV1Types<DataType> || IsDatelikeV2Types<DataType>)&&!(
                            check_and_get_data_type<DataTypeDateTime>(from_type.get()) ||
                            check_and_get_data_type<DataTypeDate>(from_type.get()) ||
                            check_and_get_data_type<DataTypeDateV2>(from_type.get()) ||
@@ -2051,8 +2046,8 @@ private:
             using Types = std::decay_t<decltype(types)>;
             using ToDataType = typename Types::LeftType;
 
-            if constexpr (!(IsDataTypeDecimalOrNumber<ToDataType> || IsTimeType<ToDataType> ||
-                            IsTimeV2Type<ToDataType> ||
+            if constexpr (!(IsDataTypeDecimalOrNumber<ToDataType> ||
+                            IsDatelikeV1Types<ToDataType> || IsDatelikeV2Types<ToDataType> ||
                             std::is_same_v<ToDataType, DataTypeTimeV2>)) {
                 return false;
             }
@@ -2061,7 +2056,8 @@ private:
                 using Types2 = std::decay_t<decltype(types2)>;
                 using FromDataType = typename Types2::LeftType;
                 if constexpr (!(IsDataTypeDecimalOrNumber<FromDataType> ||
-                                IsTimeType<FromDataType> || IsTimeV2Type<FromDataType> ||
+                                IsDatelikeV1Types<FromDataType> ||
+                                IsDatelikeV2Types<FromDataType> ||
                                 std::is_same_v<FromDataType, DataTypeTimeV2>)) {
                     return false;
                 }
