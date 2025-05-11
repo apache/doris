@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/data_types/data_type_time_v2.h"
+#include "vec/data_types/data_type_date_or_datetime_v2.h"
 
 #include <gen_cpp/data.pb.h>
 

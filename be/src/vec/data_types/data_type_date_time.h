@@ -21,10 +21,9 @@
 #pragma once
 
 #include <gen_cpp/Types_types.h>
-#include <stddef.h>
 
-#include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
+#include <cstddef>
 #include <string>
 
 #include "common/status.h"
@@ -34,17 +33,13 @@
 #include "vec/data_types/data_type_number_base.h"
 #include "vec/data_types/serde/data_type_date64_serde.h"
 
-namespace doris {
-namespace vectorized {
+namespace doris::vectorized {
 class BufferWritable;
 class ReadBuffer;
 class IColumn;
 class DataTypeDate;
 class DataTypeDateV2;
-} // namespace vectorized
-} // namespace doris
 
-namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
 /** DateTime stores time as unix timestamp.
@@ -136,10 +131,10 @@ template <>
 inline constexpr bool IsDateTimeV2Type<DataTypeDateTimeV2> = true;
 
 template <typename DataType>
-constexpr bool IsTimeType = IsDateTimeType<DataType> || IsDateType<DataType>;
+constexpr bool IsDatelikeV1Types = IsDateTimeType<DataType> || IsDateType<DataType>;
 
 template <typename DataType>
-constexpr bool IsTimeV2Type = IsDateTimeV2Type<DataType> || IsDateV2Type<DataType>;
+constexpr bool IsDatelikeV2Types = IsDateTimeV2Type<DataType> || IsDateV2Type<DataType>;
 
 #include "common/compile_check_end.h"
 } // namespace doris::vectorized

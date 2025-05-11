@@ -20,10 +20,9 @@
 #include <fmt/format.h>
 #include <gen_cpp/Types_types.h>
 #include <glog/logging.h>
-#include <stddef.h>
 
-#include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -36,7 +35,6 @@
 #include "vec/data_types/data_type_number_base.h"
 #include "vec/data_types/serde/data_type_datetimev2_serde.h"
 #include "vec/data_types/serde/data_type_datev2_serde.h"
-#include "vec/data_types/serde/data_type_number_serde.h"
 #include "vec/data_types/serde/data_type_serde.h"
 
 namespace doris {

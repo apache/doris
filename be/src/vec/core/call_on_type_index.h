@@ -86,7 +86,7 @@ bool call_on_basic_type(PrimitiveType number, F&& f) {
     return false;
 }
 
-/// Unroll template using TypeIndex
+/// Unroll template using PrimitiveType
 template <bool _int, bool _float, bool _decimal, bool _datetime, typename F>
 bool call_on_basic_types(PrimitiveType type_num1, PrimitiveType type_num2, F&& f) {
     if constexpr (_int) {

@@ -22,6 +22,7 @@
 #include <iostream>
 
 #include "agent/be_exec_version_manager.h"
+#include "runtime/define_primitive_type.h"
 #include "vec/columns/column.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
@@ -68,7 +69,7 @@ TEST_P(DataTypeQuantileStateTest, MetaInfoTest) {
     auto col_meta = std::make_shared<PColumnMeta>();
     col_meta->set_type(PGenericType_TypeId_QUANTILE_STATE);
     CommonDataTypeTest::DataTypeMetaInfo quantile_state_meta_info_to_assert = {
-            .type_id = TypeIndex::QuantileState,
+            .type_id = PrimitiveType::TYPE_QUANTILE_STATE,
             .type_as_type_descriptor = quantile_state_type_descriptor,
             .family_name = "QuantileState",
             .has_subtypes = false,

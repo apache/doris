@@ -19,7 +19,7 @@
 
 #include <gtest/gtest.h>
 
-#include "vec/data_types/data_type_time_v2.h"
+#include "vec/data_types/data_type_date_or_datetime_v2.h"
 
 namespace doris::vectorized {
 

@@ -69,7 +69,7 @@ TEST_P(DataTypeHLLTest, MetaInfoTest) {
     auto col_meta = std::make_shared<PColumnMeta>();
     col_meta->set_type(PGenericType_TypeId_HLL);
     CommonDataTypeTest::DataTypeMetaInfo hll_meta_info_to_assert = {
-            .type_id = TypeIndex::HLL,
+            .type_id = PrimitiveType::TYPE_HLL,
             .type_as_type_descriptor = hll_type_descriptor,
             .family_name = "HLL",
             .has_subtypes = false,
