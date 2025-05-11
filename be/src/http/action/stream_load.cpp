@@ -156,7 +156,6 @@ void StreamLoadAction::handle(HttpRequest* req) {
     if(!ctx->data_saved_path.empty()){
         _exec_env->load_path_mgr()->clean_tmp_files(ctx->data_saved_path);
     }
-    _exec_env->load_path_mgr()->clean_tmp_files(ctx->data_saved_path);
 }
 
 Status StreamLoadAction::_handle(std::shared_ptr<StreamLoadContext> ctx) {

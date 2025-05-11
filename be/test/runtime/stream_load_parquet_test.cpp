@@ -31,9 +31,14 @@ namespace doris {
             // 创建临时测试目录
             _test_dir = "/tmp/test_clean_file";
             _test_dir1 = "/tmp/test_clean_file/mini_download";
+            _test_dir2 = "/tmp/test_clean_file/test.parquet";
 
             auto result =  io::global_local_filesystem()->delete_directory_or_file(_test_dir1);
             result = io::global_local_filesystem()->create_directory(_test_dir1);
+            EXPECT_TRUE(result.ok());
+
+            result =  io::global_local_filesystem()->delete_directory_or_file(_test_dir2);
+            result = io::global_local_filesystem()->create_directory(_test_dir2);
             EXPECT_TRUE(result.ok());
 
             const_cast<std::vector<StorePath>&>(_exec_env->store_paths()).emplace_back(_test_dir, 1024);
@@ -51,6 +56,7 @@ namespace doris {
         std::unique_ptr<LoadPathMgr> _load_path_mgr;
         std::string _test_dir;
         std::string _test_dir1;
+        std::string _test_dir2;
     };
 
     TEST_F(LoadPathMgrTest, CheckDiskSpaceTest) {
@@ -82,6 +88,14 @@ namespace doris {
         EXPECT_TRUE(!status.ok());
         std::cout << "UnNormalAllocation: " << prefix.size() << std::endl;
         EXPECT_TRUE(prefix.empty());
+
+        std::cout << "clean_tmp_files" << std::endl;
+        bool exists = false;
+        status = io::global_local_filesystem()->exists(_test_dir2, &exists);
+        EXPECT_TRUE(exists);
+        _load_path_mgr->clean_tmp_files(_test_dir2);
+        status = io::global_local_filesystem()->exists(_test_dir2, &exists);
+        EXPECT_FALSE(exists);
 
     }
 
