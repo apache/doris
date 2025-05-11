@@ -165,8 +165,8 @@ static void read_parquet_lines(std::vector<std::string> numeric_types,
                 ColumnWithTypeAndName(std::move(data_column), data_type, slot_desc->col_name()));
     }
 
-    auto data_type =
-            vectorized::DataTypeFactory::instance().create_data_type(TypeIndex::String, false);
+    auto data_type = vectorized::DataTypeFactory::instance().create_data_type(
+            PrimitiveType::TYPE_VARCHAR, false);
     block->insert(ColumnWithTypeAndName(data_type->create_column()->assume_mutable(), data_type,
                                         "row_id"));
 
