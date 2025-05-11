@@ -321,7 +321,7 @@ void ColumnVector<T>::insert_indices_from(const IColumn& src, const uint32_t* in
 }
 
 template <typename T>
-ColumnPtr ColumnVector<T>::filter(const IColumn::Filter& filt, ssize_t result_size_hint) const {
+ColumnPtr ColumnVector<T>::filter(const IColumn::Filter& filt, size_t result_size_hint) const {
     size_t size = data.size();
     column_match_filter_size(size, filt.size());
 
@@ -330,8 +330,8 @@ ColumnPtr ColumnVector<T>::filter(const IColumn::Filter& filt, ssize_t result_si
         res->copy_date_types(*this);
     }
     Container& res_data = res->get_data();
-
-    res_data.reserve(result_size_hint > 0 ? result_size_hint : size);
+    DCHECK_GE(result_size_hint, 0);
+    res_data.reserve(result_size_hint);
 
     const UInt8* filt_pos = filt.data();
     const UInt8* filt_end = filt_pos + size;

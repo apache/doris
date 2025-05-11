@@ -88,7 +88,7 @@ public:
         s += (indices_end - indices_begin);
     }
 
-    ColumnPtr filter(const Filter& filt, ssize_t /*result_size_hint*/) const override {
+    ColumnPtr filter(const Filter& filt, size_t /*result_size_hint*/) const override {
         return clone_dummy(count_bytes_in_filter(filt));
     }
 

@@ -206,7 +206,7 @@ TEST(ColumnFixedLenghtObjectTest, GetDataAtTest) {
 
     vectorized::IColumn::Filter filter {0, 1, 0};
     ASSERT_EQ(column_fixed5->clone()->filter(filter), 1);
-    auto column_filter_res = column_fixed6->filter(filter, 0);
+    auto column_filter_res = column_fixed6->filter(filter, column_fixed6->size());
     ASSERT_EQ(column_filter_res->size(), 1);
     ASSERT_EQ(*reinterpret_cast<const int64_t*>(column_filter_res->get_data_at(0).data), 22);
     std::cout << "11. test filter data success" << std::endl;
