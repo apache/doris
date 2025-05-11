@@ -104,6 +104,7 @@ Status LoadPathMgr::allocate_dir(const std::string& db, const std::string& label
         RETURN_IF_ERROR(io::global_local_filesystem()->get_space_info(_path_vec[_idx], &disk_capacity_bytes, &available_bytes));
         check_disk_space(disk_capacity_bytes, available_bytes, file_bytes, &is_available);
         if (!is_available) {
+            ++path_vec_num;
             continue;
         }
         // add SHARD_PREFIX for compatible purpose
@@ -116,7 +117,6 @@ Status LoadPathMgr::allocate_dir(const std::string& db, const std::string& label
             *prefix = path;
             return Status::OK();
         }
-        ++path_vec_num;
     }
     if (path_vec_num == size) {
        return Status::Error<DISK_REACH_CAPACITY_LIMIT, false>("exceed capacity limit.");

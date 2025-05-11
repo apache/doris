@@ -25,22 +25,32 @@ namespace doris {
     protected:
         void SetUp() override {
             _exec_env = ExecEnv::GetInstance();
+
             _load_path_mgr = std::make_unique<LoadPathMgr>(_exec_env);
 
             // 创建临时测试目录
             _test_dir = "/tmp/test_clean_file";
-            io::global_local_filesystem()->delete_directory_or_file(_test_dir);
-            io::global_local_filesystem()->create_directory(_test_dir);
+            _test_dir1 = "/tmp/test_clean_file/mini_download";
+
+            auto result =  io::global_local_filesystem()->delete_directory_or_file(_test_dir1);
+            result = io::global_local_filesystem()->create_directory(_test_dir1);
+            EXPECT_TRUE(result.ok());
+
+            const_cast<std::vector<StorePath>&>(_exec_env->store_paths()).emplace_back(_test_dir, 1024);
+
         }
 
         void TearDown() override {
+            const_cast<std::vector<StorePath>&>(_exec_env->store_paths()).clear();
             _load_path_mgr->stop();
             _exec_env->destroy();
+
         }
 
         ExecEnv* _exec_env;
         std::unique_ptr<LoadPathMgr> _load_path_mgr;
         std::string _test_dir;
+        std::string _test_dir1;
     };
 
     TEST_F(LoadPathMgrTest, CheckDiskSpaceTest) {
@@ -61,13 +71,18 @@ namespace doris {
         _load_path_mgr->check_disk_space(disk_capacity_bytes, available_bytes, file_bytes, &is_available);
         ASSERT_FALSE(is_available);
 
-        SUCCEED();
+        std::string prefix;
+        Status status = _load_path_mgr->allocate_dir("tmp", "test_label1", &prefix, 1);
+        EXPECT_TRUE(status.ok());
+        std::cout << "NormalAllocation: " << prefix.size() << std::endl;
+        EXPECT_FALSE(prefix.empty());
+
+        prefix.clear();
+        status = _load_path_mgr->allocate_dir("tmp", "test_label2", &prefix, 999999999999999999);
+        EXPECT_TRUE(!status.ok());
+        std::cout << "UnNormalAllocation: " << prefix.size() << std::endl;
+        EXPECT_TRUE(prefix.empty());
+
     }
 
-    TEST_F(LoadPathMgrTest, NormalAllocation) {
-        std::string prefix;
-        Status status = _load_path_mgr->allocate_dir("tmp", "test_label", &prefix, 1024);
-        EXPECT_TRUE(status.ok());
-        EXPECT_FALSE(prefix.empty());
-    }
 } // namespace doris
