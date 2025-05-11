@@ -71,7 +71,7 @@ Status AnalyticSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
         } else {
             if (!p._has_window_start) {
                 _executor.get_next_impl = &AnalyticSinkLocalState::_get_next_for_unbounded_rows;
-                // _streaming_mode = true;
+                _streaming_mode = true;
             } else {
                 _executor.get_next_impl = &AnalyticSinkLocalState::_get_next_for_sliding_rows;
             }
@@ -231,7 +231,8 @@ bool AnalyticSinkLocalState::_get_next_for_unbounded_rows(int64_t batch_rows,
         // going on calculate, add up data, no need to reset state
         if (is_n_following_frame && !_partition_by_pose.is_ended &&
             current_row_end > _partition_by_pose.end) {
-            return _current_row_position - current_block_base_pos >= batch_rows;
+            _need_more_data = true;
+            return false;
         }
         if (is_n_following_frame && _current_row_position == _partition_by_pose.start) {
             _execute_for_function(_partition_by_pose.start, _partition_by_pose.end,
@@ -333,7 +334,7 @@ Status AnalyticSinkLocalState::_execute_impl() {
         {
             _get_partition_by_end();
             // streaming_mode means no need get all parition data, could calculate data when it's arrived
-            if (!_partition_by_pose.is_ended && !_streaming_mode) {
+            if (!_partition_by_pose.is_ended && (!_streaming_mode || _need_more_data)) {
                 break;
             }
             _init_result_columns();
