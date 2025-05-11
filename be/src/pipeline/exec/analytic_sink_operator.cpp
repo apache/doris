@@ -220,9 +220,7 @@ bool AnalyticSinkLocalState::_get_next_for_sliding_rows(int64_t batch_rows,
 
 bool AnalyticSinkLocalState::_get_next_for_unbounded_rows(int64_t batch_rows,
                                                           int64_t current_block_base_pos) {
-    int64_t pos = current_pos_in_block();
-    int64_t remain_size = batch_rows - pos;
-    DCHECK_GE(batch_rows, pos);
+    int64_t remain_size = batch_rows - current_pos_in_block();
     while (_current_row_position < _partition_by_pose.end && remain_size > 0) {
         int64_t current_row_end = _current_row_position + _rows_end_offset + 1;
         const bool is_n_following_frame = _rows_end_offset > 0;
@@ -240,6 +238,7 @@ bool AnalyticSinkLocalState::_get_next_for_unbounded_rows(int64_t batch_rows,
         }
         _execute_for_function(_partition_by_pose.start, _partition_by_pose.end, current_row_end - 1,
                               current_row_end);
+        int64_t pos = current_pos_in_block();
         _insert_result_info(pos, pos + 1);
         _current_row_position++;
         remain_size--;
