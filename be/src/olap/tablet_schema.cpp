@@ -740,10 +740,9 @@ void TabletIndex::init_from_thrift(const TOlapTableIndex& index,
             col_unique_ids[i] = tablet_schema.column(column_idx).unique_id();
         } else {
             // if column unique id not found by column name, find by column unique id
-            // column unique id can not bigger than tablet schema column size, if bigger than column size means
-            // this column is a new column added by light schema change
-            if (index.__isset.column_unique_ids &&
-                index.column_unique_ids[i] < tablet_schema.num_columns()) {
+            // column unique id can not found means this column is a new column added by light schema change
+            if (index.__isset.column_unique_ids && !index.column_unique_ids.empty() &&
+                tablet_schema.has_column_unique_id(index.column_unique_ids[i])) {
                 col_unique_ids[i] = index.column_unique_ids[i];
             } else {
                 col_unique_ids[i] = -1;
@@ -1328,6 +1327,10 @@ void TabletSchema::update_indexes_from_thrift(const std::vector<doris::TOlapTabl
         indexes.emplace_back(std::move(index));
     }
     _indexes = std::move(indexes);
+}
+
+bool TabletSchema::has_column_unique_id(int32_t col_unique_id) const {
+    return _field_id_to_index.contains(col_unique_id);
 }
 
 Status TabletSchema::have_column(const std::string& field_name) const {

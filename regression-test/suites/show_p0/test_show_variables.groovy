@@ -34,5 +34,12 @@ suite("test_show_variables", "p0") {
     result = sql """show variables like "enable_cooldown_replica_affinity%";"""
     assertTrue(result[0][1]=="false")
     result = sql """set GLOBAL enable_cooldown_replica_affinity=true;"""
-    
+
+    sql "set enable_nereids_planner=true"
+    result = sql "show variables like '%enable_nereids_planner%'"
+    assertTrue(result[0][1]=="true")
+
+    sql "set enable_nereids_planner=false"
+    result = sql "show variables like '%enable_nereids_planner%'"
+    assertTrue(result[0][1]=="false")
 }
