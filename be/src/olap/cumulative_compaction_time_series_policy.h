@@ -67,7 +67,7 @@ public:
 
     std::string_view name() override { return CUMULATIVE_TIME_SERIES_POLICY; }
 
-    static int32_t pick_input_rowsets(BaseTablet* tablet, int64_t last_cumu,
+    static int32_t pick_input_rowsets(BaseTablet* tablet,
                                       const std::vector<RowsetSharedPtr>& candidate_rowsets,
                                       const int64_t max_compaction_score,
                                       const int64_t min_compaction_score,
