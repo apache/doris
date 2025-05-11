@@ -647,6 +647,96 @@ TEST_F(TestTimeSeriesCumulativeCompactionPolicy, pick_empty_rowsets) {
     EXPECT_EQ(-1, last_delete_version.second);
 }
 
+TEST_F(TestTimeSeriesCumulativeCompactionPolicy, goal_size_compaction_level2) {
+    std::vector<RowsetMetaSharedPtr> rs_metas;
+    for (int32_t i = 0; i < 12; i++) {
+        auto ptr = std::make_shared<RowsetMeta>();
+        {
+            RowsetMetaPB rowset_meta_pb;
+            json2pb::JsonToProtoMessage(_json_rowset_meta, &rowset_meta_pb);
+            rowset_meta_pb.set_start_version(i * 10);
+            rowset_meta_pb.set_end_version(i * 10 + 9);
+            rowset_meta_pb.set_creation_time(time(nullptr));
+            ptr->init_from_pb(rowset_meta_pb);
+            ptr->set_segments_overlap(NONOVERLAPPING);
+            ptr->set_tablet_schema(_tablet_meta->tablet_schema());
+        }
+        ptr->set_total_disk_size(100 * 1024 * 1024);
+        rs_metas.push_back(ptr);
+    }
+
+    for (auto& rowset : rs_metas) {
+        (void)_tablet_meta->add_rs_meta(rowset);
+    }
+    _tablet_meta->set_time_series_compaction_level_threshold(2);
+
+    auto tablet =
+            std::make_unique<Tablet>(_engine, _tablet_meta, nullptr, CUMULATIVE_TIME_SERIES_POLICY);
+    (void)tablet->init();
+
+    auto score =
+            tablet->_cumulative_compaction_policy->calc_cumulative_compaction_score(tablet.get());
+    EXPECT_EQ(score, 10);
+
+    tablet->set_cumulative_layer_point(0);
+    auto candidate_rowsets = tablet->pick_candidate_rowsets_to_cumulative_compaction();
+
+    std::vector<RowsetSharedPtr> input_rowsets;
+    Version last_delete_version {-1, -1};
+    size_t compaction_score = 0;
+
+    tablet->_cumulative_compaction_policy->pick_input_rowsets(
+            tablet.get(), candidate_rowsets, 0, 0, &input_rowsets, &last_delete_version,
+            &compaction_score, config::enable_delete_when_cumu_compaction);
+    EXPECT_EQ(input_rowsets.size(), 10);
+}
+
+TEST_F(TestTimeSeriesCumulativeCompactionPolicy, time_compaction_level2) {
+    getchar();
+
+    std::vector<RowsetMetaSharedPtr> rs_metas;
+    for (int32_t i = 0; i < 12; i++) {
+        auto ptr = std::make_shared<RowsetMeta>();
+        {
+            RowsetMetaPB rowset_meta_pb;
+            json2pb::JsonToProtoMessage(_json_rowset_meta, &rowset_meta_pb);
+            rowset_meta_pb.set_start_version(i * 10);
+            rowset_meta_pb.set_end_version(i * 10 + 9);
+            rowset_meta_pb.set_creation_time(10);
+            ptr->init_from_pb(rowset_meta_pb);
+            ptr->set_segments_overlap(NONOVERLAPPING);
+            ptr->set_tablet_schema(_tablet_meta->tablet_schema());
+        }
+        ptr->set_total_disk_size(0);
+        rs_metas.push_back(ptr);
+    }
+
+    for (auto& rowset : rs_metas) {
+        (void)_tablet_meta->add_rs_meta(rowset);
+    }
+    _tablet_meta->set_time_series_compaction_level_threshold(2);
+
+    auto tablet =
+            std::make_unique<Tablet>(_engine, _tablet_meta, nullptr, CUMULATIVE_TIME_SERIES_POLICY);
+    (void)tablet->init();
+
+    auto score =
+            tablet->_cumulative_compaction_policy->calc_cumulative_compaction_score(tablet.get());
+    EXPECT_EQ(score, 11);
+
+    tablet->set_cumulative_layer_point(0);
+    auto candidate_rowsets = tablet->pick_candidate_rowsets_to_cumulative_compaction();
+
+    std::vector<RowsetSharedPtr> input_rowsets;
+    Version last_delete_version {-1, -1};
+    size_t compaction_score = 0;
+
+    tablet->_cumulative_compaction_policy->pick_input_rowsets(
+            tablet.get(), candidate_rowsets, 0, 0, &input_rowsets, &last_delete_version,
+            &compaction_score, config::enable_delete_when_cumu_compaction);
+    EXPECT_EQ(input_rowsets.size(), 11);
+}
+
 } // namespace doris
 
 // @brief Test Stub

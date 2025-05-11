@@ -242,10 +242,9 @@ int64_t CloudTimeSeriesCumulativeCompactionPolicy::pick_input_rowsets(
         const int64_t max_compaction_score, const int64_t min_compaction_score,
         std::vector<RowsetSharedPtr>* input_rowsets, Version* last_delete_version,
         size_t* compaction_score, bool allow_delete) {
-    int64_t last_cumu = tablet->last_cumu_compaction_success_time();
     return TimeSeriesCumulativeCompactionPolicy::pick_input_rowsets(
-            tablet, last_cumu, candidate_rowsets, max_compaction_score, min_compaction_score,
-            input_rowsets, last_delete_version, compaction_score, allow_delete);
+            (BaseTablet*)tablet, candidate_rowsets, max_compaction_score, min_compaction_score,
+            input_rowsets, last_delete_version, compaction_score, true, allow_delete);
 }
 
 int64_t CloudTimeSeriesCumulativeCompactionPolicy::get_compaction_level(
