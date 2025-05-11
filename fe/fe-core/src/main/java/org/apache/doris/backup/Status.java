@@ -55,8 +55,8 @@ public class Status {
 
     @Override
     public boolean equals(Object other) {
-        if (other instanceof Status) {
-            return errCode == ((Status) other).getErrCode();
+        if (other instanceof Status s) {
+            return errCode == s.getErrCode();
         } else {
             return this == other;
         }
