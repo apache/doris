@@ -155,7 +155,7 @@ suite("test_domain_connection_and_ak_sk_correction",  "load_p0") {
             );
         """
         logger.info("the fourth sql result is {}", result)
-        def loadresult = sql = """
+        def loadresult = sql  """
             SHOW LOAD WHERE label="${label}"
         """
         logger.info("the fourth sql load result is {}", loadresult)
