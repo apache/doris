@@ -146,6 +146,7 @@ private:
 
     bool _current_window_empty = false;
     bool _streaming_mode = false;
+    bool _need_more_data = false;
     int64_t _current_row_position = 0;
     int64_t _output_block_index = 0;
     std::vector<vectorized::MutableColumnPtr> _result_window_columns;
