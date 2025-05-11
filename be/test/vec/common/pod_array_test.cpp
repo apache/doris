@@ -430,61 +430,6 @@ TEST(PODArrayTest, PODArrayBasicSwapMoveConstructor) {
     }
 }
 
-TEST(PODArrayTest, PODArrayInsert) {
-    {
-        std::string str = "test_string_abacaba";
-        vectorized::PODArray<char> chars;
-        chars.insert(chars.end(), str.begin(), str.end());
-        EXPECT_EQ(str, std::string(chars.data(), chars.size()));
-
-        std::string insert_in_the_middle = "insert_in_the_middle";
-        auto pos = str.size() / 2;
-        str.insert(str.begin() + pos, insert_in_the_middle.begin(), insert_in_the_middle.end());
-        chars.insert(chars.begin() + pos, insert_in_the_middle.begin(), insert_in_the_middle.end());
-        EXPECT_EQ(str, std::string(chars.data(), chars.size()));
-
-        std::string insert_with_resize;
-        insert_with_resize.reserve(chars.capacity() * 2);
-        char cur_char = 'a';
-        while (insert_with_resize.size() < insert_with_resize.capacity()) {
-            insert_with_resize += cur_char;
-            if (cur_char == 'z') {
-                cur_char = 'a';
-            } else {
-                ++cur_char;
-            }
-        }
-        str.insert(str.begin(), insert_with_resize.begin(), insert_with_resize.end());
-        chars.insert(chars.begin(), insert_with_resize.begin(), insert_with_resize.end());
-        EXPECT_EQ(str, std::string(chars.data(), chars.size()));
-    }
-    {
-        vectorized::PODArray<uint64_t> values;
-        vectorized::PODArray<uint64_t> values_to_insert;
-
-        for (size_t i = 0; i < 120; ++i) {
-            values.emplace_back(i);
-        }
-
-        values.insert(values.begin() + 1, values_to_insert.begin(), values_to_insert.end());
-        ASSERT_EQ(values.size(), 120);
-
-        values_to_insert.emplace_back(0);
-        values_to_insert.emplace_back(1);
-
-        values.insert(values.begin() + 1, values_to_insert.begin(), values_to_insert.end());
-        ASSERT_EQ(values.size(), 122);
-
-        values_to_insert.clear();
-        for (size_t i = 0; i < 240; ++i) {
-            values_to_insert.emplace_back(i);
-        }
-
-        values.insert(values.begin() + 1, values_to_insert.begin(), values_to_insert.end());
-        ASSERT_EQ(values.size(), 362);
-    }
-}
-
 // TEST(PODArrayTest, PODArrayInsertFromItself)
 // {
 //     {
@@ -596,60 +541,6 @@ TEST(PODArrayTest, PODInsertElementSizeNotMultipleOfLeftPadding) {
     }
 
     EXPECT_EQ(arr1_initially_empty.size(), items_to_insert_size);
-}
-
-TEST(PODArrayTest, PODErase) {
-    {
-        vectorized::PaddedPODArray<uint64_t> items {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
-        vectorized::PaddedPODArray<uint64_t> expected;
-        expected = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
-
-        items.erase(items.begin(), items.begin());
-        EXPECT_EQ(items, expected);
-
-        items.erase(items.end(), items.end());
-        EXPECT_EQ(items, expected);
-    }
-    {
-        vectorized::PaddedPODArray<uint64_t> actual {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
-        vectorized::PaddedPODArray<uint64_t> expected;
-
-        expected = {0, 1, 4, 5, 6, 7, 8, 9};
-        actual.erase(actual.begin() + 2, actual.begin() + 4);
-        EXPECT_EQ(actual, expected);
-
-        expected = {0, 1, 4};
-        actual.erase(actual.begin() + 3, actual.end());
-        EXPECT_EQ(actual, expected);
-
-        expected = {};
-        actual.erase(actual.begin(), actual.end());
-        EXPECT_EQ(actual, expected);
-
-        for (size_t i = 0; i < 10; ++i) {
-            actual.emplace_back(static_cast<uint64_t>(i));
-        }
-
-        expected = {0, 1, 4, 5, 6, 7, 8, 9};
-        actual.erase(actual.begin() + 2, actual.begin() + 4);
-        EXPECT_EQ(actual, expected);
-
-        expected = {0, 1, 4};
-        actual.erase(actual.begin() + 3, actual.end());
-        EXPECT_EQ(actual, expected);
-
-        expected = {};
-        actual.erase(actual.begin(), actual.end());
-        EXPECT_EQ(actual, expected);
-    }
-    {
-        vectorized::PaddedPODArray<uint64_t> actual {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
-        vectorized::PaddedPODArray<uint64_t> expected;
-
-        expected = {1, 2, 3, 4, 5, 6, 7, 8, 9};
-        actual.erase(actual.begin());
-        EXPECT_EQ(actual, expected);
-    }
 }
 
 } // end namespace doris

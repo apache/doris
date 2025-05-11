@@ -420,7 +420,9 @@ public:
       */
     template <typename... Args>
     void emplace_back(Args&&... args) {
-        if (UNLIKELY(this->c_end == this->c_end_of_storage)) this->reserve_for_next_size();
+        if (UNLIKELY(this->c_end + sizeof(T) > this->c_end_of_storage)) {
+            this->reserve_for_next_size();
+        }
 
         new (t_end()) T(std::forward<Args>(args)...);
         this->c_end += this->byte_size(1);
@@ -454,22 +456,6 @@ public:
         size_t bytes_to_copy = this->byte_size(from_end - from_begin);
         memcpy_small_allow_read_write_overflow15(
                 this->c_end, reinterpret_cast<const void*>(&*from_begin), bytes_to_copy);
-        this->c_end += bytes_to_copy;
-    }
-
-    template <typename It1, typename It2>
-    void insert(iterator it, It1 from_begin, It2 from_end) {
-        insert_prepare(from_begin, from_end);
-
-        size_t bytes_to_copy = this->byte_size(from_end - from_begin);
-        size_t bytes_to_move = (end() - it) * sizeof(T);
-
-        if (UNLIKELY(bytes_to_move))
-            memcpy(this->c_end + bytes_to_copy - bytes_to_move, this->c_end - bytes_to_move,
-                   bytes_to_move);
-
-        memcpy(this->c_end - bytes_to_move, reinterpret_cast<const void*>(&*from_begin),
-               bytes_to_copy);
         this->c_end += bytes_to_copy;
     }
 
