@@ -125,6 +125,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowAuthorsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowBackendsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowBackupCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowBrokerCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowBuildIndexCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCharsetCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowClustersCommand;
@@ -1083,5 +1084,9 @@ public interface CommandVisitor<R, C> {
 
     default R visitDropStageCommand(DropStageCommand dropStageCommand, C context) {
         return visitCommand(dropStageCommand, context);
+    }
+
+    default R visitShowBuildIndexCommand(ShowBuildIndexCommand showBuildIndexCommand, C context) {
+        return visitCommand(showBuildIndexCommand, context);
     }
 }
