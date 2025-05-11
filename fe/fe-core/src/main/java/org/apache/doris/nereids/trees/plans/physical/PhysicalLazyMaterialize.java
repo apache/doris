@@ -38,9 +38,11 @@ import com.google.common.collect.BiMap;
 import com.google.common.collect.ImmutableList;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
     lazy materialize node
@@ -205,14 +207,22 @@ public class PhysicalLazyMaterialize<CHILD_TYPE extends Plan> extends PhysicalUn
     @Override
     public String shapeInfo() {
         StringBuilder shapeBuilder = new StringBuilder();
+        List<Slot> lazySlots = new ArrayList<>();
+        for (List<Slot> slots : relationToLazySlotMap.values()) {
+            lazySlots.addAll(slots);
+        }
+        lazySlots = lazySlots.stream().sorted(new Comparator<Slot>() {
+            @Override
+            public int compare(Slot slot, Slot t1) {
+                return slot.shapeInfo().compareTo(t1.shapeInfo());
+            }
+        }).collect(Collectors.toList());
         shapeBuilder.append(this.getClass().getSimpleName())
                 .append("[").append("materializedSlots:")
                 .append(ExpressionUtils.slotListShapeInfo(materializedSlots))
-                .append("lazySlots: (");
-        for (Map.Entry<CatalogRelation, List<Slot>> entry : relationToLazySlotMap.entrySet()) {
-            shapeBuilder.append(entry.getValue());
-        }
-        shapeBuilder.append(")]");
+                .append(" lazySlots:")
+                .append(ExpressionUtils.slotListShapeInfo(lazySlots));
+        shapeBuilder.append("]");
         return shapeBuilder.toString();
     }
 

@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.rules.rewrite.OperativeColumnDerive.DeriveContext;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -24,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
@@ -116,6 +119,25 @@ public class OperativeColumnDerive extends DefaultPlanRewriter<DeriveContext> im
             }
         }
         return plan;
+    }
+
+    @Override
+    public Plan visitLogicalOlapScan(LogicalOlapScan olapScan, DeriveContext context) {
+        Set<Slot> intersectSlots = new HashSet<>(olapScan.getOutput());
+        intersectSlots.retainAll(context.operativeSlots);
+        OlapTable table = olapScan.getTable();
+        if (KeysType.UNIQUE_KEYS.equals(table.getKeysType())
+                && !table.getTableProperty().getEnableUniqueKeyMergeOnWrite()
+                || KeysType.AGG_KEYS.equals(table.getKeysType())
+                || KeysType.PRIMARY_KEYS.equals(table.getKeysType())) {
+            for (Slot slot : olapScan.getOutput()) {
+                SlotReference slotReference = (SlotReference) slot;
+                if (slotReference.getColumn().isPresent() && slotReference.getColumn().get().isKey()) {
+                    intersectSlots.add(slotReference);
+                }
+            }
+        }
+        return (Plan) olapScan.withOperativeSlots(intersectSlots);
     }
 
     @Override

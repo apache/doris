@@ -167,8 +167,9 @@ public:
 
     uint32 get_file_mapping_id(const std::shared_ptr<FileMapping>& mapping) {
         DCHECK(mapping.get() != nullptr);
-        std::unique_lock lock(_mtx);
         auto value = mapping->file_mapping_info_to_string();
+
+        std::unique_lock lock(_mtx);
         auto it = _mapping_to_id.find(value);
         if (it != _mapping_to_id.end()) {
             return it->second;
