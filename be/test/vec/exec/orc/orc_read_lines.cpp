@@ -68,39 +68,39 @@ static void read_orc_line(int64_t line, std::string block_dump) {
     DescriptorTblBuilder builder(&object_pool);
     builder.declare_tuple() << std::make_tuple<vectorized::DataTypePtr, std::string>(
                                        vectorized::DataTypeFactory::instance().create_data_type(
-                                               TypeIndex::Int64, true),
+                                               PrimitiveType::TYPE_BIGINT, true),
                                        "col1")
                             << std::make_tuple<vectorized::DataTypePtr, std::string>(
                                        vectorized::DataTypeFactory::instance().create_data_type(
-                                               TypeIndex::UInt8, true),
+                                               PrimitiveType::TYPE_BOOLEAN, true),
                                        "col2")
                             << std::make_tuple<vectorized::DataTypePtr, std::string>(
                                        vectorized::DataTypeFactory::instance().create_data_type(
-                                               TypeIndex::String, true),
+                                               PrimitiveType::TYPE_VARCHAR, true),
                                        "col3")
                             << std::make_tuple<vectorized::DataTypePtr, std::string>(
                                        vectorized::DataTypeFactory::instance().create_data_type(
-                                               TypeIndex::DateV2, true),
+                                               PrimitiveType::TYPE_DATEV2, true),
                                        "col4")
                             << std::make_tuple<vectorized::DataTypePtr, std::string>(
                                        vectorized::DataTypeFactory::instance().create_data_type(
-                                               TypeIndex::Float64, true),
+                                               PrimitiveType::TYPE_DOUBLE, true),
                                        "col5")
                             << std::make_tuple<vectorized::DataTypePtr, std::string>(
                                        vectorized::DataTypeFactory::instance().create_data_type(
-                                               TypeIndex::Float32, true),
+                                               PrimitiveType::TYPE_FLOAT, true),
                                        "col6")
                             << std::make_tuple<vectorized::DataTypePtr, std::string>(
                                        vectorized::DataTypeFactory::instance().create_data_type(
-                                               TypeIndex::Int32, true),
+                                               PrimitiveType::TYPE_INT, true),
                                        "col7")
                             << std::make_tuple<vectorized::DataTypePtr, std::string>(
                                        vectorized::DataTypeFactory::instance().create_data_type(
-                                               TypeIndex::Int16, true),
+                                               PrimitiveType::TYPE_SMALLINT, true),
                                        "col8")
                             << std::make_tuple<vectorized::DataTypePtr, std::string>(
                                        vectorized::DataTypeFactory::instance().create_data_type(
-                                               TypeIndex::String, true),
+                                               PrimitiveType::TYPE_VARCHAR, true),
                                        "col9");
     DescriptorTbl* desc_tbl = builder.build();
     auto* tuple_desc = const_cast<TupleDescriptor*>(desc_tbl->get_tuple_descriptor(0));
@@ -145,8 +145,8 @@ static void read_orc_line(int64_t line, std::string block_dump) {
         block->insert(
                 ColumnWithTypeAndName(std::move(data_column), data_type, slot_desc->col_name()));
     }
-    auto data_type =
-            vectorized::DataTypeFactory::instance().create_data_type(TypeIndex::String, false);
+    auto data_type = vectorized::DataTypeFactory::instance().create_data_type(
+            PrimitiveType::TYPE_VARCHAR, false);
     block->insert(ColumnWithTypeAndName(data_type->create_column()->assume_mutable(), data_type,
                                         "row_id"));
 
