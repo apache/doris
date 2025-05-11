@@ -231,7 +231,7 @@ bool AnalyticSinkLocalState::_get_next_for_unbounded_rows(int64_t batch_rows,
         // going on calculate, add up data, no need to reset state
         if (is_n_following_frame && !_partition_by_pose.is_ended &&
             current_row_end > _partition_by_pose.end) {
-            return false;
+            return _current_row_position - current_block_base_pos >= batch_rows;
         }
         if (is_n_following_frame && _current_row_position == _partition_by_pose.start) {
             _execute_for_function(_partition_by_pose.start, _partition_by_pose.end,
@@ -243,9 +243,6 @@ bool AnalyticSinkLocalState::_get_next_for_unbounded_rows(int64_t batch_rows,
         _current_row_position++;
         remain_size--;
         if (remain_size == 0) {
-            LOG(INFO) << "asd: " << _current_row_position << " " << current_block_base_pos << " "
-                      << batch_rows << " "
-                      << (_current_row_position - current_block_base_pos >= batch_rows);
             return true;
         }
     }
