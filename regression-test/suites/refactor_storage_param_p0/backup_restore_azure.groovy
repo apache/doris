@@ -18,7 +18,7 @@ import org.awaitility.Awaitility;
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static groovy.test.GroovyAssert.shouldFail
 
-suite("refactor_storage_backup_restore_azure") {
+suite("refactor_storage_backup_restore_azure", "p0,external") {
     
     String enabled = context.config.otherConfigs.get("enableAzureBackupRestoreTest")
     if (enabled == null || enabled.equalsIgnoreCase("false")) {

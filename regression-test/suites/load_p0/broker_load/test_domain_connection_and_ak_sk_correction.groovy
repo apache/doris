@@ -1,3 +1,6 @@
+import static java.util.concurrent.TimeUnit.SECONDS
+import static java.util.concurrent.TimeUnit.SECONDS
+
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -132,7 +135,7 @@ suite("test_domain_connection_and_ak_sk_correction",  "load_p0") {
     }
 
     label = UUID.randomUUID().toString().replace("-", "")
-    try {
+
         result = sql """
             LOAD LABEL ${label}
             (
@@ -155,15 +158,17 @@ suite("test_domain_connection_and_ak_sk_correction",  "load_p0") {
             );
         """
         logger.info("the fourth sql result is {}", result)
-        def loadresult = sql  """
-            SHOW LOAD WHERE label="${label}"
-        """
-        logger.info("the fourth sql load result is {}", loadresult)
-        assertTrue(false. "in the second DATA INFILE, the first bucket is wrong, so the sql should fail")
-    } catch (Exception e) {
-        logger.info("the fourth sql exception result is {}", e.getMessage())
-        assertTrue(e.getMessage().contains("Failed to access object storage, message="), e.getMessage())
-    }
+        Awaitility.await().atMost(80, SECONDS).pollInterval(5, SECONDS).until({
+            def loadResult = sql """
+           SHOW LOAD WHERE label="${label}"
+           """
+            if (loadResult.get(0).get(2) == 'CANCELLED' || loadResult.get(0).get(2) == 'FAILED') {
+               return true;
+            }
+            if(loadResult.get(0).get(2) == 'FINISHED'){
+                throw new RuntimeException("load success,but the first bucket is wrong, so the sql should fail")
+            }
+        })
     sql """ DROP TABLE IF EXISTS ${tableName} FORCE"""
     sql """ DROP TABLE IF EXISTS ${tableNameOrders} FORCE"""
 }

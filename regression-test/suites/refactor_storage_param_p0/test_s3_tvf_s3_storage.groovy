@@ -16,7 +16,7 @@
 // under the License.
 import static groovy.test.GroovyAssert.shouldFail
 
-suite("test_s3_tvf_s3_storage", "p0") {
+suite("test_s3_tvf_s3_storage", "p0,external") {
     String enabled = context.config.otherConfigs.get("enableRefactorParamsTest")
     if (enabled == null || enabled.equalsIgnoreCase("false")) {
         return
