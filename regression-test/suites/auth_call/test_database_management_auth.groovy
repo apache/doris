@@ -87,7 +87,7 @@ suite("test_database_management_auth","p0,auth_call") {
         }
         test {
             sql """ADMIN REPAIR TABLE tbl;"""
-            exception "denied"
+            exception "Unsupported operation"
         }
         test {
             sql """ADMIN CANCEL REPAIR TABLE tbl PARTITION(p1);"""
