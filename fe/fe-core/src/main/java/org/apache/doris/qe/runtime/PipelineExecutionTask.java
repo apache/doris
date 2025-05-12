@@ -154,7 +154,8 @@ public class PipelineExecutionTask extends AbstractRuntimeTask<Long, MultiFragme
             long currentTimeMillis = System.currentTimeMillis();
             long elapsed = (currentTimeMillis - timeoutDeadline) / 1000 + queryOptions.getExecutionTimeout();
             String msg = String.format(
-                    "timeout before waiting %s rpc, query timeout:%d seconds, already elapsed:%d seconds, left for this:%d ms",
+                    "timeout before waiting %s rpc, query timeout:%d sec, already elapsed:%d sec, "
+                    + "left for this:%d ms",
                     operation, queryOptions.getExecutionTimeout(), elapsed, leftTimeMs);
             LOG.warn("Query {} {}", DebugUtil.printId(queryId), msg);
             if (!queryOptions.isSetExecutionTimeout() || !queryOptions.isSetQueryTimeout()) {
