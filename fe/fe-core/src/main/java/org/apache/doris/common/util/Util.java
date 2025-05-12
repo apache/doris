@@ -566,10 +566,10 @@ public class Util {
             // csv/csv_with_name/csv_with_names_and_types treat as csv format
         } else if (lowerFileFormat.equals(FileFormatConstants.FORMAT_CSV)
                 || lowerFileFormat.equals(FileFormatConstants.FORMAT_CSV_WITH_NAMES)
-                || lowerFileFormat.equals(FileFormatConstants.FORMAT_CSV_WITH_NAMES_AND_TYPES)
-                // TODO: Add TEXTFILE to TFileFormatType to Support hive text file format.
-                || lowerFileFormat.equals(FileFormatConstants.FORMAT_HIVE_TEXT)) {
+                || lowerFileFormat.equals(FileFormatConstants.FORMAT_CSV_WITH_NAMES_AND_TYPES)) {
             return TFileFormatType.FORMAT_CSV_PLAIN;
+        } else if (lowerFileFormat.equals(FileFormatConstants.FORMAT_HIVE_TEXT)) {
+            return TFileFormatType.FORMAT_TEXT;
         } else if (lowerFileFormat.equals(FileFormatConstants.FORMAT_WAL)) {
             return TFileFormatType.FORMAT_WAL;
         } else if (lowerFileFormat.equals(FileFormatConstants.FORMAT_ARROW)) {

@@ -374,6 +374,9 @@ public class NereidsDataDescription {
                     case FORMAT_JSON:
                         this.fileFormat = "json";
                         break;
+                    case FORMAT_TEXT:
+                        this.fileFormat = "hive_text";
+                        break;
                     case FORMAT_WAL:
                         this.fileFormat = "wal";
                         break;
