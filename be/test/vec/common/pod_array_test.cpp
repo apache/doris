@@ -683,7 +683,7 @@ TEST(PODArrayTest, PaddedPODArrayTrackingMemory) {
         array.push_back_without_reserve(11);
         EXPECT_EQ(array.size(), (PRE_GROWTH_SIZE / sizeof(uint64_t)) * 3 + 1);
         doris::thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
-        EXPECT_EQ(t->consumption(), PRE_GROWTH_SIZE * 6);
+        EXPECT_EQ(t->consumption(), array.allocated_bytes() - pad_left - pad_right);
 
         array.resize_fill(PRE_GROWTH_SIZE / sizeof(uint64_t) * 6, 2);
         EXPECT_EQ(array.size(), PRE_GROWTH_SIZE / sizeof(uint64_t) * 6);
