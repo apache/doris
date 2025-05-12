@@ -1777,7 +1777,7 @@ private:
             auto& data_type_to = block.get_by_position(result).type;
             const auto& col_with_type_and_name = block.get_by_position(arguments[0]);
             auto& col_from = col_with_type_and_name.column;
-            auto& variant = assert_cast<const ColumnObject&>(*col_from);
+            auto& variant = assert_cast<const ColumnVariant&>(*col_from);
             ColumnPtr col_to = data_type_to->create_column();
             if (!variant.is_finalized()) {
                 // ColumnObject should be finalized before parsing, finalize maybe modify original column structure
@@ -1861,7 +1861,7 @@ private:
             auto& from_type = col_with_type_and_name.type;
             auto& col_from = col_with_type_and_name.column;
             // set variant root column/type to from column/type
-            auto variant = ColumnObject::create(true /*always nullable*/);
+            auto variant = ColumnVariant::create(true /*always nullable*/);
             variant->create_root(from_type, col_from->assume_mutable());
             block.replace_by_position(result, std::move(variant));
             return Status::OK();
@@ -1870,12 +1870,12 @@ private:
 
     // create cresponding variant value to wrap from_type
     WrapperType create_variant_wrapper(const DataTypePtr& from_type,
-                                       const DataTypeObject& to_type) const {
+                                       const DataTypeVariant& to_type) const {
         return &ConvertImplGenericToVariant::execute;
     }
 
     // create cresponding type convert from variant
-    WrapperType create_variant_wrapper(const DataTypeObject& from_type,
+    WrapperType create_variant_wrapper(const DataTypeVariant& from_type,
                                        const DataTypePtr& to_type) const {
         return [this](FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                       const uint32_t result, size_t input_rows_count) -> Status {
@@ -2176,10 +2176,10 @@ private:
 
         // variant needs to be judged first
         if (to_type->get_primitive_type() == PrimitiveType::TYPE_VARIANT) {
-            return create_variant_wrapper(from_type, static_cast<const DataTypeObject&>(*to_type));
+            return create_variant_wrapper(from_type, static_cast<const DataTypeVariant&>(*to_type));
         }
         if (from_type->get_primitive_type() == PrimitiveType::TYPE_VARIANT) {
-            return create_variant_wrapper(static_cast<const DataTypeObject&>(*from_type), to_type);
+            return create_variant_wrapper(static_cast<const DataTypeVariant&>(*from_type), to_type);
         }
 
         switch (from_type->get_primitive_type()) {
