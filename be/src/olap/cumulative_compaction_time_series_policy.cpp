@@ -142,9 +142,11 @@ uint32_t TimeSeriesCumulativeCompactionPolicy::calc_cumulative_compaction_score(
         }
 
         // Condition 5: level1 achieve compaction_time_threshold_seconds
-        int64_t cumu_interval = now - earliest_level1_rowset_creation_time;
-        if (cumu_interval > compaction_time_threshold_seconds * 2 && level1_rowsets.size() > 1) {
-            return level1_rowsets.size();
+        if (level1_rowsets.size() > 1) {
+            int64_t cumu_interval = now - earliest_level1_rowset_creation_time;
+            if (cumu_interval > compaction_time_threshold_seconds * 10) {
+                return level1_rowsets.size();
+            }
         }
     }
 
@@ -387,18 +389,20 @@ int32_t TimeSeriesCumulativeCompactionPolicy::pick_input_rowsets(
             }
         })
 
-        LOG(ERROR) << "--- 4 ---: " << tablet->tablet_id() << ", " << level1_rowsets.size() << ", "
-                   << continuous_size << ", "
-                   << (now - level1_rowsets.front()->rowset_meta()->creation_time()) << ", "
-                   << (compaction_time_threshold_seconds * 2);
+        if (level1_rowsets.size() > 1) {
+            LOG(ERROR) << "--- 4 ---: " << tablet->tablet_id() << ", " << level1_rowsets.size()
+                       << ", " << continuous_size << ", "
+                       << (now - level1_rowsets.front()->rowset_meta()->creation_time()) << ", "
+                       << (compaction_time_threshold_seconds * 10);
 
-        // Condition 5: level1 achieve compaction_time_threshold_seconds
-        int64_t cumu_interval = now - level1_rowsets.front()->rowset_meta()->creation_time();
-        if (cumu_interval > compaction_time_threshold_seconds * 2 && level1_rowsets.size() > 1) {
-            LOG(ERROR) << "--- 5 ---: " << tablet->tablet_id() << ", " << cumu_interval << ", "
-                       << compaction_time_threshold_seconds * 2;
-            input_rowsets->swap(level1_rowsets);
-            return input_rowsets->size();
+            // Condition 5: level1 achieve compaction_time_threshold_seconds
+            int64_t cumu_interval = now - level1_rowsets.front()->rowset_meta()->creation_time();
+            if (cumu_interval > compaction_time_threshold_seconds * 10) {
+                LOG(ERROR) << "--- 5 ---: " << tablet->tablet_id() << ", " << cumu_interval << ", "
+                           << compaction_time_threshold_seconds * 10;
+                input_rowsets->swap(level1_rowsets);
+                return input_rowsets->size();
+            }
         }
     }
 
