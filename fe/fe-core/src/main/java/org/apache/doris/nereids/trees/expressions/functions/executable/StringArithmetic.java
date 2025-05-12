@@ -354,22 +354,23 @@ public class StringArithmetic {
      */
     @ExecFunction(name = "locate")
     public static Expression locate(StringLikeLiteral first, StringLikeLiteral second, IntegerLiteral third) {
-        String mainStr = second.getValue();
-        String subStr = first.getValue();
+        String searchStr = second.getValue();
+        String targetStr = first.getValue();
         int startPos = third.getValue();
-        if (subStr.isEmpty()) {
-            return (startPos >= 1 && startPos <= mainStr.length())
+        if (searchStr.isEmpty()) {
+            int byteLength = targetStr.getBytes(StandardCharsets.UTF_8).length;
+            return (startPos >= 1 && startPos <= byteLength)
                     ? new IntegerLiteral(startPos)
                     : new IntegerLiteral(startPos == 1 ? 1 : 0);
         }
 
-        int mainStrCodePointLength = mainStr.codePointCount(0, mainStr.length());
-        if (startPos < 1 || startPos > mainStrCodePointLength) {
+        int strLength = targetStr.codePointCount(0, targetStr.length());
+        if (startPos < 1 || startPos > strLength) {
             return new IntegerLiteral(0);
         }
-        int offset = mainStr.offsetByCodePoints(0, startPos - 1);
-        int loc = mainStr.indexOf(subStr, offset);
-        return loc == -1 ? new IntegerLiteral(0) : new IntegerLiteral(mainStr.codePointCount(0, loc) + 1);
+        int offset = targetStr.offsetByCodePoints(0, startPos - 1);
+        int loc = targetStr.indexOf(searchStr, offset);
+        return loc == -1 ? new IntegerLiteral(0) : new IntegerLiteral(searchStr.codePointCount(0, loc) + 1);
     }
 
     /**
