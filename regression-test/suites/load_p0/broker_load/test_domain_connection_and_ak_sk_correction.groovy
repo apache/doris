@@ -14,8 +14,6 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-import org.awaitility.Awaitility.*
-import static java.util.concurrent.TimeUnit.SECONDS
 
 suite("test_domain_connection_and_ak_sk_correction",  "load_p0") {
     // create table
@@ -157,6 +155,9 @@ suite("test_domain_connection_and_ak_sk_correction",  "load_p0") {
             );
         """
         logger.info("the fourth sql result is {}", result)
+    int totalWaitTime = 0
+    int pollInterval = 5
+    int timeout = 80
     while (totalWaitTime < timeout) {
         def loadResult = sql """
         SHOW LOAD WHERE label="${label}"
