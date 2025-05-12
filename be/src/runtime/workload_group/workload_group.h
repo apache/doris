@@ -188,7 +188,7 @@ public:
         return _resource_ctxs;
     }
 
-    void upsert_task_scheduler(WorkloadGroupInfo* tg_info);
+    Status upsert_task_scheduler(WorkloadGroupInfo* tg_info);
 
     virtual void get_query_scheduler(doris::pipeline::TaskScheduler** exec_sched,
                                      vectorized::SimplifiedScanScheduler** scan_sched,
@@ -230,13 +230,11 @@ public:
     int64_t revoke_memory(int64_t need_free_mem, const std::string& revoke_reason,
                           RuntimeProfile* profile);
 
-    friend class DummyWorkloadGroupTest;
-
 protected:
     void create_cgroup_cpu_ctl_no_lock();
     void upsert_cgroup_cpu_ctl_no_lock(WorkloadGroupInfo* wg_info);
-    void upsert_thread_pool_no_lock(WorkloadGroupInfo* wg_info,
-                                    std::shared_ptr<CgroupCpuCtl> cg_cpu_ctl_ptr);
+    Status upsert_thread_pool_no_lock(WorkloadGroupInfo* wg_info,
+                                      std::shared_ptr<CgroupCpuCtl> cg_cpu_ctl_ptr);
 
     std::string _memory_debug_string() const;
 

@@ -748,7 +748,7 @@ Status FragmentMgr::_get_or_create_query_ctx(const TPipelineFragmentParams& para
                                     query_id, query_ctx->resource_ctx()));
                             query_ctx->set_workload_group(workload_group_ptr);
                         } else {
-                            auto dummy_wg = _exec_env->workload_group_mgr()->dummy_workload_group();
+                            auto dummy_wg = _exec_env->dummy_workload_group();
                             query_ctx->set_workload_group(dummy_wg);
                         }
 
