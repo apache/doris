@@ -53,6 +53,10 @@ suite("test_cast_datetime") {
     qt_3 "select a, '' = mydate, '' = mydatev2, '' = mydatetime, '' = mydatetimev2 from casttbl"
 
     def wrong_date_strs = [
+        "date '2020-01'",
+        "datev1 '2020-01'",
+        "datev2 '2020-01'",
+        "timestamp '2020-01'",
         "'' > date '2019-06-01'",
         "'' > date_sub('2019-06-01', -10)",
         "'' > cast('2019-06-01 00:00:00' as datetime)",
