@@ -589,7 +589,7 @@ class SuiteCluster {
     }
 
     // if not specific fe indices, then drop all frontends
-    void dropFrontends(boolean clean=false, int... indices) {
+    void dropFrontends(boolean clean, int... indices) {
         def cmd = 'down'
         if (clean) {
             cmd += ' --clean'
@@ -598,7 +598,7 @@ class SuiteCluster {
     }
 
     // if not specific be indices, then decommission all backends
-    void decommissionBackends(boolean clean=false, int... indices) {
+    void decommissionBackends(boolean clean, int... indices) {
         def cmd = 'down'
         if (clean) {
             cmd += ' --clean'
@@ -607,7 +607,7 @@ class SuiteCluster {
     }
 
     // if not specific be indices, then drop force all backends
-    void dropForceBackends(boolean clean=false, int... indices) {
+    void dropForceBackends(boolean clean, int... indices) {
         def cmd = 'down --drop-force'
         if (clean) {
             cmd += ' --clean'
