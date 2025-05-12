@@ -21,9 +21,9 @@
 #pragma once
 
 #include <gen_cpp/Types_types.h>
-#include <stddef.h>
 
 #include <boost/iterator/iterator_facade.hpp>
+#include <cstddef>
 #include <memory>
 #include <string>
 
@@ -34,14 +34,9 @@
 #include "vec/data_types/serde/data_type_serde.h"
 #include "vec/data_types/serde/data_type_time_serde.h"
 
-namespace doris {
-namespace vectorized {
+namespace doris::vectorized {
 class BufferWritable;
 class IColumn;
-} // namespace vectorized
-} // namespace doris
-
-namespace doris::vectorized {
 
 class DataTypeTimeV2 final : public DataTypeNumberBase<Float64> {
 public:
@@ -72,7 +67,6 @@ public:
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
         return std::make_shared<DataTypeTimeV2SerDe>(_scale, nesting_level);
     };
-    TypeIndex get_type_id() const override { return TypeIndex::TimeV2; }
     PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_TIMEV2; }
     const char* get_family_name() const override { return "timev2"; }
     UInt32 get_scale() const override { return _scale; }

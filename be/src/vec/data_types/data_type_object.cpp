@@ -65,7 +65,7 @@ int64_t DataTypeObject::get_uncompressed_serialized_bytes(const IColumn& column,
     size += sizeof(uint32_t);
     for (const auto& entry : subcolumns) {
         auto type = entry->data.get_least_common_type();
-        if (is_nothing(type)) {
+        if (type->get_primitive_type() == INVALID_TYPE) {
             continue;
         }
         PColumnMeta column_meta_pb;
@@ -107,7 +107,7 @@ char* DataTypeObject::serialize(const IColumn& column, char* buf, int be_exec_ve
     for (const auto& entry : subcolumns) {
         // 2.1 serialize subcolumn column meta pb (path and type)
         auto type = entry->data.get_least_common_type();
-        if (is_nothing(type)) {
+        if (type->get_primitive_type() == INVALID_TYPE) {
             continue;
         }
         ++num_of_columns;

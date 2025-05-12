@@ -209,6 +209,7 @@ import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.AnalyzeCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand.IdType;
+import org.apache.doris.nereids.trees.plans.commands.TruncateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVPropertyInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVRefreshInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
@@ -6088,6 +6089,23 @@ public class Env {
         CatalogIf<?> catalogIf = catalogMgr.getCatalogOrException(stmt.getTblRef().getName().getCtl(),
                 catalog -> new DdlException(("Unknown catalog " + catalog)));
         catalogIf.truncateTable(stmt);
+    }
+
+    /*
+     * Truncate specified table or partitions.
+     * The main idea is:
+     *
+     * 1. using the same schema to create new table(partitions)
+     * 2. use the new created table(partitions) to replace the old ones.
+     *
+     * if no partition specified, it will truncate all partitions of this table, including all temp partitions,
+     * otherwise, it will only truncate those specified partitions.
+     *
+     */
+    public void truncateTable(TruncateTableCommand command) throws DdlException {
+        CatalogIf<?> catalogIf = catalogMgr.getCatalogOrException(command.getTableNameInfo().getCtl(),
+                catalog -> new DdlException(("Unknown catalog " + catalog)));
+        catalogIf.truncateTable(command);
     }
 
     public void replayTruncateTable(TruncateTableInfo info) throws MetaNotFoundException {

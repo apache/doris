@@ -96,6 +96,16 @@ void GlobalMemoryArbitrator::refresh_memory_bvar() {
                        memory_arbitrator_refresh_interval_growth_bytes.get_value();
 }
 
+bool GlobalMemoryArbitrator::reserve_process_memory(int64_t bytes) {
+    int64_t old_reserved_mem = _process_reserved_memory.load(std::memory_order_relaxed);
+    int64_t new_reserved_mem = 0;
+    do {
+        new_reserved_mem = old_reserved_mem + bytes;
+    } while (!_process_reserved_memory.compare_exchange_weak(old_reserved_mem, new_reserved_mem,
+                                                             std::memory_order_relaxed));
+    return true;
+}
+
 bool GlobalMemoryArbitrator::try_reserve_process_memory(int64_t bytes) {
     if (sys_mem_available() - bytes < MemInfo::sys_mem_available_warning_water_mark()) {
         doris::ProcessProfile::instance()->memory_profile()->print_log_process_usage();

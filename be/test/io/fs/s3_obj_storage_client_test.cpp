@@ -48,6 +48,8 @@ protected:
                 .bucket = bucket,
                 .provider = io::ObjStorageType::AWS,
                 .use_virtual_addressing = false,
+                .role_arn = "",
+                .external_id = "",
         });
 
         ASSERT_TRUE(S3ObjStorageClientTest::obj_storage_client != nullptr);

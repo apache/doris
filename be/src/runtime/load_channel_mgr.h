@@ -29,7 +29,6 @@
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
-#include "gutil/ref_counted.h"
 #include "olap/lru_cache.h"
 #include "olap/memtable_memory_limiter.h"
 #include "runtime/load_channel.h"
