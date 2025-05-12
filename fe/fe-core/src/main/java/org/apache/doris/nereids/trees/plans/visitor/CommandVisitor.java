@@ -191,7 +191,11 @@ import org.apache.doris.nereids.trees.plans.commands.ShowIndexStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLastInsertCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLoadProfileCommand;
+<<<<<<< HEAD
 import org.apache.doris.nereids.trees.plans.commands.ShowOpenTablesCommand;
+=======
+import org.apache.doris.nereids.trees.plans.commands.ShowLoadWarningsCommand;
+>>>>>>> 118cab4631 ([Enhancement] (nereids)implement showLoadWaringsCommand in nereids)
 import org.apache.doris.nereids.trees.plans.commands.ShowPartitionIdCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPartitionsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPluginsCommand;
@@ -468,6 +472,17 @@ public interface CommandVisitor<R, C> {
         return visitCommand(showWarnErrorCountCommand, context);
     }
 
+<<<<<<< HEAD
+=======
+    default R visitShowLoadWarningsCommand(ShowLoadWarningsCommand showLoadWarningsCommand, C context) {
+        return visitCommand(showLoadWarningsCommand, context);
+    }
+
+    default R visitShowSyncJobCommand(ShowSyncJobCommand showSyncJobCommand, C context) {
+        return visitCommand(showSyncJobCommand, context);
+    }
+
+>>>>>>> 50d8c417b6 ([Enhancement] (nereids)implement showLoadWaringsCommand in nereids)
     default R visitCreateProcedureCommand(CreateProcedureCommand createProcedureCommand, C context) {
         return visitCommand(createProcedureCommand, context);
     }

@@ -375,6 +375,8 @@ supportedShowStatement
     | SHOW CREATE MATERIALIZED VIEW mvName=identifier
         ON tableName=multipartIdentifier                                            #showCreateMaterializedView
     | SHOW (WARNINGS | ERRORS) limitClause?                                         #showWarningErrors
+    | SHOW LOAD WARNINGS ((((FROM | IN) database=multipartIdentifier)?
+        wildWhere? limitClause?) | (ON url=STRING_LITERAL))                         #showLoadWarnings
     | SHOW COUNT LEFT_PAREN ASTERISK RIGHT_PAREN (WARNINGS | ERRORS)                #showWarningErrorCount
     | SHOW BACKENDS                                                                 #showBackends
     | SHOW STAGES                                                                   #showStages
@@ -475,8 +477,6 @@ lockTable
 
 unsupportedShowStatement
     : SHOW CREATE MATERIALIZED VIEW name=multipartIdentifier                        #showMaterializedView
-    | SHOW LOAD WARNINGS ((((FROM | IN) database=multipartIdentifier)?
-        wildWhere? limitClause?) | (ON url=STRING_LITERAL))                         #showLoadWarings
     | SHOW CACHE HOTSPOT tablePath=STRING_LITERAL                                   #showCacheHotSpot
     ;
 
