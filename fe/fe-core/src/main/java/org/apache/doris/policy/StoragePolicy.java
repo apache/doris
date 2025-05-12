@@ -304,7 +304,6 @@ public class StoragePolicy extends Policy {
             LOG.error("cooldownTtl can't be less than 0");
             throw new AnalysisException("cooldownTtl can't be less than 0");
         }
-
         return cooldownTtlSeconds;
     }
 
