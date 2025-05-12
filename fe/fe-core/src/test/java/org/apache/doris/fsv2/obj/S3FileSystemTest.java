@@ -15,13 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.fs.obj;
+package org.apache.doris.fsv2.obj;
 
 import org.apache.doris.backup.Repository;
 import org.apache.doris.backup.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.S3URI;
 import org.apache.doris.datasource.property.PropertyConverter;
+import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
+import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.fs.obj.MockedS3Client;
 import org.apache.doris.fsv2.FileSystemFactory;
 import org.apache.doris.fsv2.remote.RemoteFile;
 import org.apache.doris.fsv2.remote.S3FileSystem;
@@ -102,7 +105,7 @@ public class S3FileSystemTest {
                     return mockedClient;
                 }
             };
-            S3ObjStorage mockedStorage = new S3ObjStorage(properties);
+            S3ObjStorage mockedStorage = new S3ObjStorage((AbstractS3CompatibleProperties) StorageProperties.createPrimary(properties));
             Assertions.assertTrue(mockedStorage.getClient() instanceof MockedS3Client);
             // inject storage to file system.
             fileSystem = (S3FileSystem) FileSystemFactory.get(properties);
