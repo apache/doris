@@ -2090,7 +2090,9 @@ void PInternalService::multiget_data_v2(google::protobuf::RpcController* control
                                         const PMultiGetRequestV2* request,
                                         PMultiGetResponseV2* response,
                                         google::protobuf::Closure* done) {
-    auto wg = ExecEnv::GetInstance()->workload_group_mgr()->get_group(request->wg_id());
+    std::vector<uint64_t> id_set;
+    id_set.push_back(request->wg_id());
+    auto wg = ExecEnv::GetInstance()->workload_group_mgr()->get_group(id_set);
     Status st = Status::OK();
 
     if (!wg) [[unlikely]] {
