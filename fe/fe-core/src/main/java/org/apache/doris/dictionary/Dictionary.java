@@ -104,6 +104,8 @@ public class Dictionary extends Table {
 
     // not record this. whenever restart FE or switch Master, it will be reset. then lead to reload dictionary.
     private long srcVersion = 0;
+    // if srcVersion same with this, we could skip automatically update.
+    private long latestInvalidVersion = 0;
 
     private List<DictionaryDistribution> dataDistributions; // every time update, reset with a new list
     private String lastUpdateResult;
@@ -264,7 +266,7 @@ public class Dictionary extends Table {
     /**
      * @return true if source table's version is newer than this dictionary's version(need update dictionary).
      */
-    public Boolean hasNewerSourceVersion() {
+    public boolean hasNewerSourceVersion() {
         TableIf tableIf = RelationUtil.getTable(getSourceQualifiedName(), Env.getCurrentEnv());
         if (tableIf == null) {
             throw new RuntimeException(getName() + "'s source table not found");
@@ -278,7 +280,8 @@ public class Dictionary extends Table {
                 // maybe drop and recreate. but if so, this dictionary should be dropped as well.
                 // so should not happen.
                 throw new RuntimeException("source table's version is smaller than dictionary's");
-            } else if (tableVersionNow > srcVersion) {
+            } else if (tableVersionNow > srcVersion && tableVersionNow != latestInvalidVersion) {
+                // if src is a illegal version, we can skip it.
                 return true;
             } else {
                 return false;
@@ -295,6 +298,29 @@ public class Dictionary extends Table {
 
     public long getSrcVersion() {
         return srcVersion;
+    }
+
+    public void updateLatestInvalidVersion(long value) {
+        latestInvalidVersion = Math.max(latestInvalidVersion, value);
+    }
+
+    /**
+     * if has latestInvalidVersion and the base table's data not changed, we can skip update.
+     */
+    public boolean baseDataMaybeValid() {
+        TableIf tableIf = RelationUtil.getTable(getSourceQualifiedName(), Env.getCurrentEnv());
+        if (tableIf == null) {
+            throw new RuntimeException(getName() + "'s source table not found");
+        }
+        if (tableIf instanceof MTMVRelatedTableIf) { // include OlapTable and some External tables
+            long tableVersionNow = ((MTMVRelatedTableIf) tableIf).getNewestUpdateVersionOrTime();
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("src's now version is " + tableVersionNow + ", old is " + srcVersion);
+            }
+            // if not the known invalid version, maybe valid. so return true. otherwise we skip it.
+            return tableVersionNow != latestInvalidVersion;
+        }
+        return true;
     }
 
     public DictionaryStatus getStatus() {

@@ -17,11 +17,58 @@
 
 package org.apache.doris.common;
 
+import org.apache.doris.thrift.TStatusCode;
+
 import java.util.MissingFormatArgumentException;
 
 // Error code used to indicate what error happened.
 public enum ErrorCode {
-    // Try our best to compatible with MySQL's
+    // Try our best to compatible with MySQL's. see https://en.wikipedia.org/wiki/SQLSTATE
+    // TStatusCode. must be in sync with gensrc/thrift/Status.thrift
+    OK(0, new byte[]{'0', '0', '0', '0', '0'}, "OK"),
+    CANCELLED(1, new byte[]{'H', 'Y', '0', '0', '8'}, "CANCELLED"),
+    ANALYSIS_ERROR(2, new byte[]{'4', '2', '0', '0', '0'}, "ANALYSIS_ERROR"),
+    NOT_IMPLEMENTED_ERROR(3, new byte[]{'4', '2', '0', '0', '0'}, "NOT_IMPLEMENTED_ERROR"),
+    RUNTIME_ERROR(4, new byte[]{'0', '0', '0', '0', '0'}, "RUNTIME_ERROR"),
+    MEM_LIMIT_EXCEEDED(5, new byte[]{'H', 'Y', '0', '0', '1'}, "MEM_LIMIT_EXCEEDED"),
+    INTERNAL_ERROR(6, new byte[]{'0', '0', '0', '0', '0'}, "INTERNAL_ERROR"),
+    THRIFT_RPC_ERROR(7, new byte[]{'0', '0', '0', '0', '0'}, "THRIFT_RPC_ERROR"),
+    TIMEOUT(8, new byte[]{'0', '0', '0', '0', '0'}, "TIMEOUT"),
+    LIMIT_REACH(9, new byte[]{'0', '0', '0', '0', '0'}, "LIMIT_REACH"),
+    MEM_ALLOC_FAILED(11, new byte[]{'0', '0', '0', '0', '0'}, "MEM_ALLOC_FAILED"),
+    BUFFER_ALLOCATION_FAILED(12, new byte[]{'0', '0', '0', '0', '0'}, "BUFFER_ALLOCATION_FAILED"),
+    MINIMUM_RESERVATION_UNAVAILABLE(13, new byte[]{'0', '0', '0', '0', '0'}, "MINIMUM_RESERVATION_UNAVAILABLE"),
+    PUBLISH_TIMEOUT(14, new byte[]{'0', '0', '0', '0', '0'}, "PUBLISH_TIMEOUT"),
+    LABEL_ALREADY_EXISTS(15, new byte[]{'0', '0', '0', '0', '0'}, "LABEL_ALREADY_EXISTS"),
+    TOO_MANY_TASKS(16, new byte[]{'0', '0', '0', '0', '0'}, "TOO_MANY_TASKS"),
+    END_OF_FILE(30, new byte[]{'0', '0', '0', '0', '0'}, "END_OF_FILE"),
+    NOT_FOUND(31, new byte[]{'0', '0', '0', '0', '0'}, "NOT_FOUND"),
+    CORRUPTION(32, new byte[]{'0', '0', '0', '0', '0'}, "CORRUPTION"),
+    INVALID_ARGUMENT(33, new byte[]{'2', '2', '0', '0', '0'}, "INVALID_ARGUMENT"),
+    IO_ERROR(34, new byte[]{'0', '0', '0', '0', '0'}, "IO_ERROR"),
+    ALREADY_EXIST(35, new byte[]{'0', '0', '0', '0', '0'}, "ALREADY_EXIST"),
+    NETWORK_ERROR(36, new byte[]{'0', '0', '0', '0', '0'}, "NETWORK_ERROR"),
+    ILLEGAL_STATE(37, new byte[]{'0', '0', '0', '0', '0'}, "ILLEGAL_STATE"),
+    NOT_AUTHORIZED(38, new byte[]{'0', '0', '0', '0', '0'}, "NOT_AUTHORIZED"),
+    ABORTED(39, new byte[]{'0', '0', '0', '0', '0'}, "ABORTED"),
+    UNINITIALIZED(42, new byte[]{'0', '0', '0', '0', '0'}, "UNINITIALIZED"),
+    INCOMPLETE(44, new byte[]{'0', '0', '0', '0', '0'}, "INCOMPLETE"),
+    OLAP_ERR_VERSION_ALREADY_MERGED(45, new byte[]{'0', '0', '0', '0', '0'}, "OLAP_ERR_VERSION_ALREADY_MERGED"),
+    DATA_QUALITY_ERROR(46, new byte[]{'0', '0', '0', '0', '0'}, "DATA_QUALITY_ERROR"),
+    INVALID_JSON_PATH(47, new byte[]{'0', '0', '0', '0', '0'}, "INVALID_JSON_PATH"),
+    BINLOG_DISABLE(60, new byte[]{'0', '0', '0', '0', '0'}, "BINLOG_DISABLE"),
+    BINLOG_TOO_OLD_COMMIT_SEQ(61, new byte[]{'0', '0', '0', '0', '0'}, "BINLOG_TOO_OLD_COMMIT_SEQ"),
+    BINLOG_TOO_NEW_COMMIT_SEQ(62, new byte[]{'0', '0', '0', '0', '0'}, "BINLOG_TOO_NEW_COMMIT_SEQ"),
+    BINLOG_NOT_FOUND_DB(63, new byte[]{'0', '0', '0', '0', '0'}, "BINLOG_NOT_FOUND_DB"),
+    BINLOG_NOT_FOUND_TABLE(64, new byte[]{'0', '0', '0', '0', '0'}, "BINLOG_NOT_FOUND_TABLE"),
+    SNAPSHOT_NOT_EXIST(70, new byte[]{'0', '0', '0', '0', '0'}, "SNAPSHOT_NOT_EXIST"),
+    HTTP_ERROR(71, new byte[]{'0', '0', '0', '0', '0'}, "HTTP_ERROR"),
+    TABLET_MISSING(72, new byte[]{'0', '0', '0', '0', '0'}, "TABLET_MISSING"),
+    NOT_MASTER(73, new byte[]{'0', '0', '0', '0', '0'}, "NOT_MASTER"),
+    OBTAIN_LOCK_FAILED(74, new byte[]{'0', '0', '0', '0', '0'}, "OBTAIN_LOCK_FAILED"),
+    SNAPSHOT_EXPIRED(75, new byte[]{'0', '0', '0', '0', '0'}, "SNAPSHOT_EXPIRED"),
+    DELETE_BITMAP_LOCK_ERROR(100, new byte[]{'0', '0', '0', '0', '0'}, "DELETE_BITMAP_LOCK_ERROR"),
+    // TStatusCode end
     ERR_HASHCHK(1000, new byte[]{'H', 'Y', '0', '0', '0'}, "hashchk"),
     ERR_CANT_CREATE_TABLE(1005, new byte[]{'H', 'Y', '0', '0', '0'}, "Can't create table '%s' (errno: %d - %s)"),
     ERR_DB_CREATE_EXISTS(1007, new byte[]{'H', 'Y', '0', '0', '0'}, "Can't create database '%s'; database exists"),
@@ -1246,6 +1293,15 @@ public enum ErrorCode {
         this.code = code;
         this.sqlState = sqlState;
         this.errorMsg = errorMsg;
+    }
+
+    public static ErrorCode fromTStatusCode(TStatusCode code) {
+        for (ErrorCode errorCode : ErrorCode.values()) {
+            if (errorCode.getCode() == code.getValue()) {
+                return errorCode;
+            }
+        }
+        return null;
     }
 
     public int getCode() {

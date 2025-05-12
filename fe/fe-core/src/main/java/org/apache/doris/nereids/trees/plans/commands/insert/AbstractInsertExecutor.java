@@ -64,6 +64,7 @@ public abstract class AbstractInsertExecutor {
     protected int filteredRows = 0;
 
     protected String errMsg = "";
+    protected TStatusCode errCode = TStatusCode.OK;
     protected Optional<InsertCommandContext> insertCtx;
     protected final boolean emptyInsert;
     protected long txnId = INVALID_TXN_ID;
@@ -160,8 +161,9 @@ public abstract class AbstractInsertExecutor {
         }
         if (!coordinator.getExecStatus().ok()) {
             errMsg = coordinator.getExecStatus().getErrorMsg();
+            errCode = coordinator.getExecStatus().getErrorCode();
             LOG.warn("insert [{}] with query id {} failed, {}", labelName, queryId, errMsg);
-            ErrorReport.reportDdlException(errMsg, ErrorCode.ERR_FAILED_WHEN_INSERT);
+            ErrorReport.reportDdlException(errMsg, ErrorCode.fromTStatusCode(errCode));
         }
         if (LOG.isDebugEnabled()) {
             LOG.debug("insert [{}] with query id {} delta files is {}",

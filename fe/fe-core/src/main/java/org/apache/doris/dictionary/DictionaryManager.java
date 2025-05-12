@@ -24,6 +24,7 @@ import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.CustomThreadFactory;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -347,7 +348,7 @@ public class DictionaryManager extends MasterDaemon implements Writable {
                     Dictionary dictionary = idToDictionary.get(id);
                     /// for all dictionaries:
                     // 1. if it's OUT_OF_DATE(maybe update failed or something), try to refresh it.
-                    if (dictionary.getStatus() == DictionaryStatus.OUT_OF_DATE) {
+                    if (dictionary.getStatus() == DictionaryStatus.OUT_OF_DATE && dictionary.baseDataMaybeValid()) {
                         submitDataLoad(dictionary, false);
                         continue;
                     }
@@ -438,6 +439,10 @@ public class DictionaryManager extends MasterDaemon implements Writable {
         if (ctx.getState().getErrorCode() != null && ctx.getState().getErrorMessage() != null) {
             dictionary.trySetStatus(oldStatus);
             dictionary.setLastUpdateResult(ctx.getState().getErrorMessage());
+            // for must failed refresh, we can skip it at next time.
+            if (ctx.getState().getErrorCode() == ErrorCode.INVALID_ARGUMENT) {
+                dictionary.updateLatestInvalidVersion(ctx.getStatementContext().getDictionaryUsedSrcVersion());
+            }
             throw new RuntimeException(ctx.getState().getErrorMessage());
         }
 
