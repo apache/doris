@@ -232,11 +232,6 @@ public:
 
     friend class DummyWorkloadGroupTest;
 
-    vectorized::SimplifiedScanScheduler* get_remote_scan_task_scheduler() {
-        std::shared_lock<std::shared_mutex> r_lock(_mutex);
-        return _remote_scan_task_sched.get();
-    }
-
 private:
     void create_cgroup_cpu_ctl_no_lock();
     void upsert_cgroup_cpu_ctl_no_lock(WorkloadGroupInfo* wg_info);

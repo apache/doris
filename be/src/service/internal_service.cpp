@@ -2101,36 +2101,31 @@ void PInternalService::multiget_data_v2(google::protobuf::RpcController* control
         return;
     }
 
-    //    st = wg->get_remote_scan_task_scheduler()->submit_scan_task(vectorized::SimplifiedScanTask(
-    //            [request, response, done]() {
-    //                signal::set_signal_task_id(request->query_id());
-    //                // multi get data by rowid
-    //                MonotonicStopWatch watch;
-    //                watch.start();
-    //                brpc::ClosureGuard closure_guard(done);
-    //                response->mutable_status()->set_status_code(0);
-    //                SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->rowid_storage_reader_tracker());
-    //                Status st = RowIdStorageReader::read_by_rowids(*request, response);
-    //                st.to_protobuf(response->mutable_status());
-    //                LOG(INFO) << "multiget_data finished, cost(us):" << watch.elapsed_time() / 1000;
-    //            },
-    //            nullptr));
+    doris::pipeline::TaskScheduler* exec_sched = nullptr;
+    vectorized::SimplifiedScanScheduler* scan_sched = nullptr;
+    vectorized::SimplifiedScanScheduler* remote_scan_sched = nullptr;
+    wg->get_query_scheduler(&exec_sched, &scan_sched, &remote_scan_sched);
+    DCHECK(remote_scan_sched);
 
-    signal::set_signal_task_id(request->query_id());
-    // multi get data by rowid
-    MonotonicStopWatch watch;
-    watch.start();
-    brpc::ClosureGuard closure_guard(done);
-    response->mutable_status()->set_status_code(0);
-    SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->rowid_storage_reader_tracker());
-    st = RowIdStorageReader::read_by_rowids(*request, response);
-    st.to_protobuf(response->mutable_status());
-    LOG(INFO) << "multiget_data finished, cost(us):" << watch.elapsed_time() / 1000;
+    st = remote_scan_sched->submit_scan_task(vectorized::SimplifiedScanTask(
+            [request, response, done]() {
+                signal::set_signal_task_id(request->query_id());
+                // multi get data by rowid
+                MonotonicStopWatch watch;
+                watch.start();
+                brpc::ClosureGuard closure_guard(done);
+                response->mutable_status()->set_status_code(0);
+                SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->rowid_storage_reader_tracker());
+                Status st = RowIdStorageReader::read_by_rowids(*request, response);
+                st.to_protobuf(response->mutable_status());
+                LOG(INFO) << "multiget_data finished, cost(us):" << watch.elapsed_time() / 1000;
+            },
+            nullptr));
 
-    //    if (!st.ok()) {
-    //        brpc::ClosureGuard closure_guard(done);
-    //        st.to_protobuf(response->mutable_status());
-    //    }
+    if (!st.ok()) {
+        brpc::ClosureGuard closure_guard(done);
+        st.to_protobuf(response->mutable_status());
+    }
 }
 
 void PInternalServiceImpl::get_tablet_rowset_versions(google::protobuf::RpcController* cntl_base,
