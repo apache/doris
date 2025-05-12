@@ -576,5 +576,15 @@ suite("test_cast_datetime") {
             sql "select date_add('2023-11-05 01:30:00 America/New_York', INTERVAL 1 DAY)"
             result([[LocalDateTime.parse('2023-11-06T01:30:00')]])
         }
+
+        test {
+            sql "select date '2025年1月20日'"
+            result([[Date.valueOf('2025-01-20')]])
+        }
+
+        test {
+            sql "select timestamp '2025年1月20日10时20分5秒'"
+            result([[LocalDateTime.parse('2025-01-20T10:20:05')]])
+        }
     }
 }
