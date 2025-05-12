@@ -213,6 +213,9 @@ Status DataTypeStructSerDe::deserialize_one_cell_from_json(IColumn& column, Slic
 
     // check stuff:
     if (field_pos < elem_size) {
+        for (size_t j = 0; j < field_pos; j++) {
+            struct_column.get_column(j).pop_back(1);
+        }
         return Status::InvalidArgument(
                 "Actual struct field number {} is less than schema field number {}.", field_pos,
                 elem_size);
