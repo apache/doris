@@ -63,7 +63,7 @@ suite("test_database_management_auth","p0,auth_call") {
         }
         test {
             sql """ADMIN SET REPLICA STATUS PROPERTIES("tablet_id" = "000", "backend_id" = "000", "status" = "ok");"""
-            exception "denied"
+            exception "Unsupported operation"
         }
         test {
             sql """ADMIN SET REPLICA VERSION PROPERTIES("tablet_id" = "0", "backend_id" = "0", "version" = "0");"""
