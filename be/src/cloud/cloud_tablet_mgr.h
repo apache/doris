@@ -87,6 +87,8 @@ public:
     void get_topn_tablet_delete_bitmap_score(uint64_t* max_delete_bitmap_score,
                                              uint64_t* max_base_rowset_delete_bitmap_score);
 
+    void put(std::shared_ptr<CloudTablet> tablet);
+
 private:
     CloudStorageEngine& _engine;
 
