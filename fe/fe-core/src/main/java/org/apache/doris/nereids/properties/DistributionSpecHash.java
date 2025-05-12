@@ -53,8 +53,7 @@ public class DistributionSpecHash extends DistributionSpec {
     private final long tableId;
     private final Set<Long> partitionIds;
     private final long selectedIndexId;
-
-    private boolean isSkew;
+    private final boolean isSkew;
 
     /**
      * Use for no need set table related attributes.
@@ -151,10 +150,9 @@ public class DistributionSpecHash extends DistributionSpec {
                 left.getExprIdToEquivalenceSet().size() + right.getExprIdToEquivalenceSet().size());
         exprIdToEquivalenceSet.putAll(left.getExprIdToEquivalenceSet());
         exprIdToEquivalenceSet.putAll(right.getExprIdToEquivalenceSet());
-        // left.isSkew这个改动还需要再看一下
         return new DistributionSpecHash(orderedShuffledColumns, shuffleType,
                 left.getTableId(), left.getSelectedIndexId(), left.getPartitionIds(), equivalenceExprIds.build(),
-                exprIdToEquivalenceSet.buildKeepingLast(), left.isSkew);
+                exprIdToEquivalenceSet.buildKeepingLast(), left.isSkew || right.isSkew);
     }
 
     static DistributionSpecHash merge(DistributionSpecHash left, DistributionSpecHash right) {

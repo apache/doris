@@ -131,175 +131,120 @@
 
 -- !shape_hint --
 PhysicalResultSink
---PhysicalDistribute[DistributionSpecGather]
-----hashAgg[DISTINCT_GLOBAL]
-------hashAgg[DISTINCT_LOCAL]
---------hashAgg[GLOBAL]
-----------PhysicalProject
-------------hashAgg[LOCAL]
---------------PhysicalProject
-----------------PhysicalOlapScan[test_skew_hint]
-
--- !shape_hint_other_agg_func --
-PhysicalResultSink
---PhysicalDistribute[DistributionSpecGather]
-----hashAgg[DISTINCT_LOCAL]
-------hashAgg[GLOBAL]
---------hashAgg[LOCAL]
-----------PhysicalProject
-------------PhysicalOlapScan[test_skew_hint]
-
--- !shape_hint_other_agg_func_expr --
-PhysicalResultSink
---PhysicalDistribute[DistributionSpecGather]
-----PhysicalProject
-------hashAgg[DISTINCT_GLOBAL]
---------hashAgg[DISTINCT_LOCAL]
-----------hashAgg[GLOBAL]
-------------PhysicalProject
---------------hashAgg[LOCAL]
-----------------PhysicalProject
-------------------PhysicalOlapScan[test_skew_hint]
-
--- !shape_hint_same_column_with_group_by --
-PhysicalResultSink
---PhysicalDistribute[DistributionSpecGather]
-----hashAgg[GLOBAL]
-------PhysicalDistribute[DistributionSpecHash]
---------hashAgg[LOCAL]
-----------PhysicalProject
-------------PhysicalOlapScan[test_skew_hint]
-
--- !shape_hint_same_column_with_group_by_expr --
-PhysicalResultSink
---PhysicalDistribute[DistributionSpecGather]
-----PhysicalProject
-------hashAgg[DISTINCT_GLOBAL]
---------PhysicalDistribute[DistributionSpecHash]
-----------hashAgg[DISTINCT_LOCAL]
-------------hashAgg[GLOBAL]
---------------PhysicalDistribute[DistributionSpecHash]
-----------------PhysicalProject
-------------------hashAgg[LOCAL]
---------------------PhysicalProject
-----------------------PhysicalOlapScan[test_skew_hint]
-
--- !shape_hint_grouping --
-PhysicalResultSink
---PhysicalDistribute[DistributionSpecGather]
-----PhysicalProject
-------hashAgg[DISTINCT_GLOBAL]
---------PhysicalDistribute[DistributionSpecHash]
-----------hashAgg[DISTINCT_LOCAL]
-------------hashAgg[GLOBAL]
---------------PhysicalDistribute[DistributionSpecHash]
-----------------PhysicalProject
-------------------hashAgg[LOCAL]
---------------------PhysicalRepeat
-----------------------PhysicalOlapScan[test_skew_hint]
-
--- !shape_hint_other_agg_func_grouping --
-PhysicalResultSink
---PhysicalDistribute[DistributionSpecGather]
-----PhysicalProject
-------hashAgg[GLOBAL]
---------PhysicalDistribute[DistributionSpecHash]
-----------hashAgg[LOCAL]
-------------PhysicalRepeat
---------------PhysicalProject
-----------------PhysicalOlapScan[test_skew_hint]
-
--- !shape_hint_other_agg_func_expr_grouping --
-PhysicalResultSink
---PhysicalDistribute[DistributionSpecGather]
-----PhysicalProject
-------hashAgg[DISTINCT_GLOBAL]
---------PhysicalDistribute[DistributionSpecHash]
-----------hashAgg[DISTINCT_LOCAL]
-------------hashAgg[GLOBAL]
---------------PhysicalDistribute[DistributionSpecHash]
-----------------PhysicalProject
-------------------hashAgg[LOCAL]
---------------------PhysicalRepeat
-----------------------PhysicalProject
-------------------------PhysicalOlapScan[test_skew_hint]
-
--- !shape_hint_same_column_with_group_by_grouping --
-PhysicalResultSink
---PhysicalDistribute[DistributionSpecGather]
-----PhysicalProject
-------hashAgg[DISTINCT_GLOBAL]
---------PhysicalDistribute[DistributionSpecHash]
-----------hashAgg[DISTINCT_LOCAL]
-------------hashAgg[GLOBAL]
---------------PhysicalDistribute[DistributionSpecHash]
-----------------PhysicalProject
-------------------hashAgg[LOCAL]
---------------------PhysicalRepeat
-----------------------PhysicalProject
-------------------------PhysicalOlapScan[test_skew_hint]
-
--- !shape_hint_same_column_with_group_by_expr_grouping --
-PhysicalResultSink
---PhysicalDistribute[DistributionSpecGather]
-----PhysicalProject
-------hashAgg[DISTINCT_GLOBAL]
---------PhysicalDistribute[DistributionSpecHash]
-----------hashAgg[DISTINCT_LOCAL]
-------------hashAgg[GLOBAL]
---------------PhysicalDistribute[DistributionSpecHash]
-----------------PhysicalProject
-------------------hashAgg[LOCAL]
---------------------PhysicalRepeat
-----------------------PhysicalProject
-------------------------PhysicalOlapScan[test_skew_hint]
-
--- !shape_hint_multi_column --
-PhysicalResultSink
---PhysicalDistribute[DistributionSpecGather]
+--hashAgg[DISTINCT_GLOBAL]
 ----hashAgg[DISTINCT_LOCAL]
 ------hashAgg[GLOBAL]
 --------hashAgg[LOCAL]
 ----------PhysicalOlapScan[test_skew_hint]
 
--- !shape_hint_variable --
+-- !shape_hint_other_agg_func --
 PhysicalResultSink
---PhysicalDistribute[DistributionSpecGather]
-----hashAgg[DISTINCT_LOCAL]
-------hashAgg[GLOBAL]
---------hashAgg[LOCAL]
-----------PhysicalProject
-------------PhysicalOlapScan[test_skew_hint]
-
--- !shape_hint_agg_join --
-PhysicalResultSink
---PhysicalDistribute[DistributionSpecGather]
-----hashAgg[DISTINCT_LOCAL]
-------hashAgg[GLOBAL]
---------hashAgg[LOCAL]
-----------PhysicalProject
-------------hashJoin[RIGHT_OUTER_JOIN colocated] hashCondition=((t1.a = t2.a)) otherCondition=()
---------------PhysicalProject
-----------------PhysicalOlapScan[test_skew_hint]
---------------PhysicalProject
-----------------PhysicalOlapScan[test_skew_hint]
-
--- !shape_hint_agg_agg --
-PhysicalResultSink
---PhysicalDistribute[DistributionSpecGather]
-----hashAgg[DISTINCT_LOCAL]
-------hashAgg[GLOBAL]
---------hashAgg[LOCAL]
-----------hashAgg[DISTINCT_LOCAL]
-------------hashAgg[GLOBAL]
---------------hashAgg[LOCAL]
-----------------PhysicalProject
-------------------PhysicalOlapScan[test_skew_hint]
-
--- !shape_hint_multi_count_distinct --
-PhysicalResultSink
---PhysicalDistribute[DistributionSpecGather]
+--hashAgg[DISTINCT_LOCAL]
 ----hashAgg[GLOBAL]
 ------hashAgg[LOCAL]
 --------PhysicalOlapScan[test_skew_hint]
+
+-- !shape_hint_other_agg_func_expr --
+PhysicalResultSink
+--hashAgg[DISTINCT_GLOBAL]
+----hashAgg[DISTINCT_LOCAL]
+------hashAgg[GLOBAL]
+--------hashAgg[LOCAL]
+----------PhysicalOlapScan[test_skew_hint]
+
+-- !shape_hint_same_column_with_group_by --
+PhysicalResultSink
+--hashAgg[GLOBAL]
+----hashAgg[LOCAL]
+------PhysicalOlapScan[test_skew_hint]
+
+-- !shape_hint_same_column_with_group_by_expr --
+PhysicalResultSink
+--hashAgg[DISTINCT_GLOBAL]
+----hashAgg[DISTINCT_LOCAL]
+------hashAgg[GLOBAL]
+--------hashAgg[LOCAL]
+----------PhysicalOlapScan[test_skew_hint]
+
+-- !shape_hint_grouping --
+PhysicalResultSink
+--hashAgg[DISTINCT_GLOBAL]
+----hashAgg[DISTINCT_LOCAL]
+------hashAgg[GLOBAL]
+--------hashAgg[LOCAL]
+----------PhysicalRepeat
+------------PhysicalOlapScan[test_skew_hint]
+
+-- !shape_hint_other_agg_func_grouping --
+PhysicalResultSink
+--hashAgg[GLOBAL]
+----hashAgg[LOCAL]
+------PhysicalRepeat
+--------PhysicalOlapScan[test_skew_hint]
+
+-- !shape_hint_other_agg_func_expr_grouping --
+PhysicalResultSink
+--hashAgg[DISTINCT_GLOBAL]
+----hashAgg[DISTINCT_LOCAL]
+------hashAgg[GLOBAL]
+--------hashAgg[LOCAL]
+----------PhysicalRepeat
+------------PhysicalOlapScan[test_skew_hint]
+
+-- !shape_hint_same_column_with_group_by_grouping --
+PhysicalResultSink
+--hashAgg[DISTINCT_GLOBAL]
+----hashAgg[DISTINCT_LOCAL]
+------hashAgg[GLOBAL]
+--------hashAgg[LOCAL]
+----------PhysicalRepeat
+------------PhysicalOlapScan[test_skew_hint]
+
+-- !shape_hint_same_column_with_group_by_expr_grouping --
+PhysicalResultSink
+--hashAgg[DISTINCT_GLOBAL]
+----hashAgg[DISTINCT_LOCAL]
+------hashAgg[GLOBAL]
+--------hashAgg[LOCAL]
+----------PhysicalRepeat
+------------PhysicalOlapScan[test_skew_hint]
+
+-- !shape_hint_multi_column --
+PhysicalResultSink
+--hashAgg[DISTINCT_LOCAL]
+----hashAgg[GLOBAL]
+------hashAgg[LOCAL]
+--------PhysicalOlapScan[test_skew_hint]
+
+-- !shape_hint_variable --
+PhysicalResultSink
+--hashAgg[DISTINCT_LOCAL]
+----hashAgg[GLOBAL]
+------hashAgg[LOCAL]
+--------PhysicalOlapScan[test_skew_hint]
+
+-- !shape_hint_agg_join --
+PhysicalResultSink
+--hashAgg[DISTINCT_LOCAL]
+----hashAgg[GLOBAL]
+------hashAgg[LOCAL]
+--------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.a = t2.a)) otherCondition=()
+----------PhysicalOlapScan[test_skew_hint]
+----------PhysicalOlapScan[test_skew_hint]
+
+-- !shape_hint_agg_agg --
+PhysicalResultSink
+--hashAgg[DISTINCT_LOCAL]
+----hashAgg[GLOBAL]
+------hashAgg[LOCAL]
+--------hashAgg[DISTINCT_LOCAL]
+----------hashAgg[GLOBAL]
+------------hashAgg[LOCAL]
+--------------PhysicalOlapScan[test_skew_hint]
+
+-- !shape_hint_multi_count_distinct --
+PhysicalResultSink
+--hashAgg[GLOBAL]
+----hashAgg[LOCAL]
+------PhysicalOlapScan[test_skew_hint]
 

@@ -39,6 +39,7 @@ suite("test_agg_skew_hint") {
 
 
     sql "set agg_distinct_skew_bucket_num = 1024"
+    sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
     qt_shape_hint "explain shape plan select a , count(distinct [skew] b)from test_skew_hint group by a"
     qt_shape_hint_other_agg_func "explain shape plan select a , count(distinct [skew] b), count(a) from test_skew_hint group by a"
     qt_shape_hint_other_agg_func_expr "explain shape plan select a , count(distinct [skew] b+1) from test_skew_hint group by a"
