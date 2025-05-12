@@ -115,7 +115,7 @@ public class RecordPlanAndTryToMvRewrite extends DefaultPlanRewriter<Void> imple
             return plan;
         }
         List<Plan> plansWhichContainMvOptimized = new ArrayList<>();
-        // plan which contain mv optimize by mv
+        // plan which contain mv optimize by all rules
         plansWhichContainMv.forEach(planToOptimize -> plansWhichContainMvOptimized.add(
                 MaterializedViewUtils.rewriteByRules(cascadesContext,
                         childContext -> {
@@ -123,7 +123,7 @@ public class RecordPlanAndTryToMvRewrite extends DefaultPlanRewriter<Void> imple
                             return childContext.getRewritePlan();
                         }, planToOptimize, planToOptimize, false, false)
         ));
-        // clear the rewritten plans by plan pre normalize
+        // clear the rewritten plans which are tmp optimized, should full optimize later
         statementContext.getRewrittenPlansByMv().clear();
         plansWhichContainMvOptimized.forEach(statementContext::addRewrittenPlanByMv);
         return plan;

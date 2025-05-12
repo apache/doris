@@ -224,27 +224,20 @@ public class CascadesContext implements ScheduleContext {
      * Init memo with plan
      */
     public void toMemo() {
-        List<Plan> tmpPlanForLaterMvRewrite = this.getStatementContext().getRewrittenPlansByMv();
+        this.memo = new Memo(getConnectContext(), plan);
+        List<Plan> rewrittenPlansByMv = this.getStatementContext().getRewrittenPlansByMv();
         // only consider result sink to avoid Insert a plan into targetGroup but differ in logical properties
         boolean initMultiPlanMemo = Memo.needInitMultiPlanMemo(this, plan);
         if (initMultiPlanMemo) {
             // copy tmp plan for mv rewrite firstly
-            for (Plan tmpPlan : tmpPlanForLaterMvRewrite) {
+            for (Plan rewrittenPlan : rewrittenPlansByMv) {
                 // aggregate_without_roll_up query_13_0 cause error into targetGroup but differ in logical properties
                 // tmp rewritten plan output is different from final rewritten plan output
-                if (!tmpPlan.getLogicalProperties().equals(plan.getLogicalProperties())) {
+                if (!rewrittenPlan.getLogicalProperties().equals(plan.getLogicalProperties())) {
                     continue;
                 }
-                if (this.memo == null) {
-                    this.memo = new Memo(getConnectContext(), tmpPlan);
-                } else {
-                    this.memo.copyIn(tmpPlan, this.memo.getRoot(), false);
-                }
+                this.memo.copyIn(rewrittenPlan, this.memo.getRoot(), false);
             }
-            // copy the rbo final rbo plan into memo
-            this.memo.copyIn(plan, this.memo.getRoot(), false);
-        } else {
-            this.memo = new Memo(getConnectContext(), plan);
         }
     }
 

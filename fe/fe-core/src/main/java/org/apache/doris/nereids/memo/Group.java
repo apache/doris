@@ -163,10 +163,10 @@ public class Group {
         return logicalExpressions.get(0);
     }
 
-    public GroupExpression getLastLogicalExpression() {
+    public GroupExpression getFirstLogicalExpression() {
         Preconditions.checkArgument(!logicalExpressions.isEmpty(),
                 "There should be more than one Logical Expression in Group");
-        return logicalExpressions.get(logicalExpressions.size() - 1);
+        return logicalExpressions.get(0);
     }
 
     public List<GroupExpression> getPhysicalExpressions() {
@@ -432,7 +432,7 @@ public class Group {
     }
 
     public boolean isProjectGroup() {
-        return getLastLogicalExpression().getPlan() instanceof LogicalProject;
+        return getFirstLogicalExpression().getPlan() instanceof LogicalProject;
     }
 
     @Override
