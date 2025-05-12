@@ -382,7 +382,8 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
         }
     }
 
-    private synchronized void initializeClassLoader(JdbcDataSourceConfig config) {
+    private synchronized void initializeClassLoader(JdbcDataSourceConfig config)
+            throws MalformedURLException, FileNotFoundException {
         try {
             URL[] urls = {new URL(config.getJdbcDriverUrl())};
             if (classLoaderMap.containsKey(urls[0]) && classLoaderMap.get(urls[0]) != null) {
