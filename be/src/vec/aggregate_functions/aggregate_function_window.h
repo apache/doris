@@ -557,7 +557,11 @@ struct WindowFunctionLastImpl : Data {
         DCHECK_LE(frame_start, frame_end);
         if ((frame_end <= partition_start) ||
             (frame_start >= partition_end)) { //beyond or under partition, set null
-            this->set_is_null();
+            if ((this->has_set_value()) &&
+                (!arg_ignore_null || (arg_ignore_null && !this->is_null()))) {
+            } else {
+                this->set_is_null();
+            }
             return;
         }
         frame_end = std::min<int64_t>(frame_end, partition_end);
