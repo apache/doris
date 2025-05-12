@@ -165,6 +165,7 @@ public class JobExecutionConfiguration {
 
         long firstTriggerTime = windowStartTimeMs + (intervalMs - ((windowStartTimeMs - startTimeMs)
                 % intervalMs)) % intervalMs;
+        // should filter result which smaller than start time
         if (firstTriggerTime < startTimeMs) {
             firstTriggerTime = startTimeMs;
         }
