@@ -346,7 +346,7 @@ public class StringArithmetic {
      */
     @ExecFunction(name = "locate")
     public static Expression locate(StringLikeLiteral first, StringLikeLiteral second) {
-        return new IntegerLiteral(second.getValue().indexOf(first.getValue()) + 1);
+        return locate(first, second, new IntegerLiteral(1));
     }
 
     /**
@@ -354,12 +354,22 @@ public class StringArithmetic {
      */
     @ExecFunction(name = "locate")
     public static Expression locate(StringLikeLiteral first, StringLikeLiteral second, IntegerLiteral third) {
-        int result = second.getValue().indexOf(first.getValue()) + 1;
-        if (third.getValue() <= 0 || !substringImpl(second.getValue(), third.getValue(),
-                second.getValue().codePointCount(0, second.getValue().length())).contains(first.getValue())) {
-            result = 0;
+        String mainStr = second.getValue();
+        String subStr = first.getValue();
+        int startPos = third.getValue();
+        if (subStr.isEmpty()) {
+            return (startPos >= 1 && startPos <= mainStr.length())
+                    ? new IntegerLiteral(startPos)
+                    : new IntegerLiteral(startPos == 1 ? 1 : 0);
         }
-        return new IntegerLiteral(result);
+
+        int mainStrCodePointLength = mainStr.codePointCount(0, mainStr.length());
+        if (startPos < 1 || startPos > mainStrCodePointLength) {
+            return new IntegerLiteral(0);
+        }
+        int offset = mainStr.offsetByCodePoints(0, startPos - 1);
+        int loc = mainStr.indexOf(subStr, offset);
+        return loc == -1 ? new IntegerLiteral(0) : new IntegerLiteral(mainStr.codePointCount(0, loc) + 1);
     }
 
     /**
