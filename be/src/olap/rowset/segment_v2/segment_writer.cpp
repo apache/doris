@@ -370,7 +370,7 @@ Status SegmentWriter::append_block_with_variant_subcolumns(vectorized::Block& da
             _flush_schema->copy_from(*_tablet_schema);
         }
         auto column_ref = data.get_by_position(i).column;
-        const vectorized::ColumnObject& object_column = assert_cast<vectorized::ColumnObject&>(
+        const vectorized::ColumnVariant& object_column = assert_cast<vectorized::ColumnVariant&>(
                 remove_nullable(column_ref)->assume_mutable_ref());
         const TabletColumnPtr& parent_column = _tablet_schema->columns()[i];
 
