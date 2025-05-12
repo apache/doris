@@ -125,7 +125,7 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
         Plan newPlan = plan.accept(this, new Stack<>());
-        return newPlan.accept(new SetOlapScanPreAgg(), olapScanPreAggContexts);
+        return newPlan.accept(SetOlapScanPreAgg.INSTANCE, olapScanPreAggContexts);
     }
 
     @Override
@@ -211,6 +211,8 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
     }
 
     private static class SetOlapScanPreAgg extends DefaultPlanRewriter<Map<RelationId, PreAggInfoContext>> {
+        private static SetOlapScanPreAgg INSTANCE = new SetOlapScanPreAgg();
+
         @Override
         public Plan visitLogicalOlapScan(LogicalOlapScan olapScan, Map<RelationId, PreAggInfoContext> context) {
             if (olapScan.isPreAggStatusUnSet()) {
@@ -231,7 +233,7 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
             Set<AggregateFunction> aggregateFuncs = context.aggregateFunctions;
             List<Expression> groupingExprs = context.groupByExpresssions;
             Set<Slot> outputSlots = logicalOlapScan.getOutputSet();
-            Pair<Set<SlotReference>, Set<SlotReference>> splittedSlots = splitSlots(outputSlots);
+            Pair<Set<SlotReference>, Set<SlotReference>> splittedSlots = splitKeyValueSlots(outputSlots);
             Set<SlotReference> keySlots = splittedSlots.first;
             Set<SlotReference> valueSlots = splittedSlots.second;
             Preconditions.checkState(outputSlots.size() == keySlots.size() + valueSlots.size(),
@@ -282,9 +284,10 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
 
         private PreAggStatus checkAggregateFunctions(Set<AggregateFunction> aggregateFuncs,
                 Set<Slot> groupingExprsInputSlots) {
-            PreAggStatus preAggStatus = aggregateFuncs.isEmpty() && groupingExprsInputSlots.isEmpty()
-                    ? PreAggStatus.off("No aggregate on scan.")
-                    : PreAggStatus.on();
+            if (aggregateFuncs.isEmpty() && groupingExprsInputSlots.isEmpty()) {
+                return PreAggStatus.off("No aggregate on scan.");
+            }
+            PreAggStatus preAggStatus = PreAggStatus.on();
             for (AggregateFunction aggFunc : aggregateFuncs) {
                 if (aggFunc.children().isEmpty()) {
                     preAggStatus = PreAggStatus.off(
@@ -306,7 +309,7 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
                     }
                 } else {
                     Set<Slot> aggSlots = aggFunc.getInputSlots();
-                    Pair<Set<SlotReference>, Set<SlotReference>> splitSlots = splitSlots(aggSlots);
+                    Pair<Set<SlotReference>, Set<SlotReference>> splitSlots = splitKeyValueSlots(aggSlots);
                     preAggStatus = checkAggWithKeyAndValueSlots(aggFunc, splitSlots.first, splitSlots.second);
                 }
                 if (preAggStatus.isOff()) {
@@ -316,7 +319,7 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
             return preAggStatus;
         }
 
-        private Pair<Set<SlotReference>, Set<SlotReference>> splitSlots(Set<Slot> slots) {
+        private Pair<Set<SlotReference>, Set<SlotReference>> splitKeyValueSlots(Set<Slot> slots) {
             Set<SlotReference> keySlots = com.google.common.collect.Sets.newHashSetWithExpectedSize(slots.size());
             Set<SlotReference> valueSlots = com.google.common.collect.Sets.newHashSetWithExpectedSize(slots.size());
             for (Slot slot : slots) {
