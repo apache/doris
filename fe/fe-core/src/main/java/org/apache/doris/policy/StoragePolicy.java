@@ -304,6 +304,7 @@ public class StoragePolicy extends Policy {
             LOG.error("cooldownTtl can't be less than 0");
             throw new AnalysisException("cooldownTtl can't be less than 0");
         }
+
         return cooldownTtlSeconds;
     }
 
@@ -346,10 +347,10 @@ public class StoragePolicy extends Policy {
             }
         }
 
-        if (cooldownTtlMs > 0 && cooldownTimestampMs > 0) {
+        if (cooldownTtlMs >= 0 && cooldownTimestampMs >= 0) {
             throw new AnalysisException(COOLDOWN_DATETIME + " and " + COOLDOWN_TTL + " can't be set together.");
         }
-        if (cooldownTtlMs <= 0 && cooldownTimestampMs <= 0) {
+        if (cooldownTtlMs < 0 && cooldownTimestampMs < 0) {
             throw new AnalysisException(COOLDOWN_DATETIME + " or " + COOLDOWN_TTL + " must be set");
         }
 
