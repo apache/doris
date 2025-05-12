@@ -14,8 +14,8 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-import org.awaitility.Awaitility;
-import static java.util.concurrent.TimeUnit.SECONDS;
+import org.awaitility.Awaitility.*
+import static java.util.concurrent.TimeUnit.SECONDS
 
 suite("test_domain_connection_and_ak_sk_correction",  "load_p0") {
     // create table
@@ -167,6 +167,7 @@ suite("test_domain_connection_and_ak_sk_correction",  "load_p0") {
             if(loadResult.get(0).get(2) == 'FINISHED'){
                 throw new RuntimeException("load success,but the first bucket is wrong, so the sql should fail")
             }
+            return false
         })
     sql """ DROP TABLE IF EXISTS ${tableName} FORCE"""
     sql """ DROP TABLE IF EXISTS ${tableNameOrders} FORCE"""
