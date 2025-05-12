@@ -99,7 +99,7 @@ public:
 
 SimpleObjectPool<JsonParser> parsers_pool;
 
-using Node = typename ColumnObject::Subcolumns::Node;
+using Node = typename ColumnVariant::Subcolumns::Node;
 /// Visitor that keeps @num_dimensions_to_keep dimensions in arrays
 /// and replaces all scalars or nested arrays to @replacement at that level.
 class FieldVisitorReplaceScalars : public StaticVisitor<Field> {
@@ -132,7 +132,7 @@ private:
 template <typename ParserImpl>
 void parse_json_to_variant(IColumn& column, const char* src, size_t length,
                            JSONDataParser<ParserImpl>* parser, const ParseConfig& config) {
-    auto& column_object = assert_cast<ColumnObject&>(column);
+    auto& column_object = assert_cast<ColumnVariant&>(column);
     std::optional<ParseResult> result;
     /// Treat empty string as an empty object
     /// for better CAST from String to Object.
