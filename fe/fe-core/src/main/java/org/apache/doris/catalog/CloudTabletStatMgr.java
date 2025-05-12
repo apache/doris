@@ -41,6 +41,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /*
  * CloudTabletStatMgr is for collecting tablet(replica) statistics from backends.
@@ -48,6 +49,10 @@ import java.util.concurrent.Future;
  */
 public class CloudTabletStatMgr extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(CloudTabletStatMgr.class);
+
+    // in cloud, this flag indicates whether the FE has been restarted
+    // and whether the stat information has been synchronized
+    private static AtomicBoolean hasBeenSyncOnce = new AtomicBoolean(false);
 
     // <(dbId, tableId) -> OlapTable.Statistics>
     private volatile Map<Pair<Long, Long>, OlapTable.Statistics> cloudTableStatsMap = new HashMap<>();
@@ -313,6 +318,11 @@ public class CloudTabletStatMgr extends MasterDaemon {
                 + ", max table byte size=" + maxTableSize.second + "(table_id=" + maxTableSize.first + ")"
                 + ", min table byte size=" + minTableSizeTmp + "(table_id=" + minTableSize.first + ")"
                 + ", avg table byte size=" + avgTableSize);
+        // hasBeenSyncOnce just need set once
+        if (!hasBeenSyncOnce.get()) {
+            LOG.debug("set hasBeenSyncOnce to true");
+            hasBeenSyncOnce.set(true);
+        }
     }
 
     private void updateTabletStat(GetTabletStatsResponse response) {
@@ -348,5 +358,9 @@ public class CloudTabletStatMgr extends MasterDaemon {
 
     public Map<Pair<Long, Long>, OlapTable.Statistics> getCloudTableStatsMap() {
         return this.cloudTableStatsMap;
+    }
+
+    public boolean getBeenSyncOnce() {
+        return hasBeenSyncOnce.get();
     }
 }

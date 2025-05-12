@@ -3504,7 +3504,11 @@ public class Config extends ConfigBase {
             "In cloud mode, the retry number when the FE requests the meta service times out is 1 by default"})
     public static int meta_service_rpc_timeout_retry_times = 1;
 
-    // ATTN: DONOT add any config not related to cloud mode here
+    @ConfField(description = {"存算分离模式下FE启动后，fe是否等待CloudTabletStatMgr从ms同步完成一次tablet stat信息，默认为true",
+        "After FE starts in cloud mode, does FE wait for CloudTabletStatMgr to synchronize the tablet stat information "
+            + "from MS once? The default value is true"})
+    public static boolean cloud_enable_wait_tablet_stat_sync = true;
+
     // ATTN: DONOT add any config not related to cloud mode here
     // ATTN: DONOT add any config not related to cloud mode here
     //==========================================================================

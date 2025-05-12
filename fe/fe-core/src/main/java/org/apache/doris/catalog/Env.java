@@ -426,7 +426,7 @@ public class Env {
     protected boolean isElectable;
     // set to true after finished replay all meta and ready to serve
     // set to false when catalog is not ready.
-    private AtomicBoolean isReady = new AtomicBoolean(false);
+    protected AtomicBoolean isReady = new AtomicBoolean(false);
     // set to true after http server start
     private AtomicBoolean httpReady = new AtomicBoolean(false);
     // set to true if FE can offer READ service.
@@ -446,7 +446,7 @@ public class Env {
 
     private MetaIdGenerator idGenerator = new MetaIdGenerator(NEXT_ID_INIT_VALUE);
 
-    private EditLog editLog;
+    protected EditLog editLog;
     protected int clusterId;
     protected String token;
     // For checkpoint and observer memory replayed marker

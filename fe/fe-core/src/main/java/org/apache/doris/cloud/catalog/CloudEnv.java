@@ -21,6 +21,7 @@ import org.apache.doris.analysis.CancelCloudWarmUpStmt;
 import org.apache.doris.analysis.CreateStageStmt;
 import org.apache.doris.analysis.DropStageStmt;
 import org.apache.doris.analysis.ResourceTypeEnum;
+import org.apache.doris.catalog.CloudTabletStatMgr;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.cloud.CacheHotspotManager;
@@ -456,5 +457,31 @@ public class CloudEnv extends Env {
     @Override
     public void modifyFrontendHostName(String srcHost, int srcPort, String destHost) throws DdlException {
         throw new DdlException("Modifying frontend hostname is not supported in cloud mode");
+    }
+
+    // wait until FE is ready.
+    public void waitForReady() throws InterruptedException {
+        long counter = 0;
+        CloudTabletStatMgr tabletStatMgr = (CloudTabletStatMgr) Env.getCurrentEnv().getTabletStatMgr();
+        while (true) {
+            if (isReady()) {
+                LOG.info("catalog is ready. FE type: {}", feType);
+                if (!Config.cloud_enable_wait_tablet_stat_sync) {
+                    break;
+                }
+                if (tabletStatMgr.getBeenSyncOnce()) {
+                    LOG.info("tabletStatMgr has been sync once from ms");
+                    break;
+                }
+            }
+
+            Thread.sleep(100);
+            if (counter++ % 100 == 0) {
+                String reason = editLog == null ? "editlog is null" : editLog.getNotReadyReason();
+                reason += " cloud tablet stat sync status " + tabletStatMgr.getBeenSyncOnce();
+                LOG.info("wait catalog to be ready. feType:{} isReady:{}, counter:{} reason: {}",
+                        feType, isReady.get(), counter, reason);
+            }
+        }
     }
 }
