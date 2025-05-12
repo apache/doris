@@ -658,6 +658,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowColumnHistogramStatsCom
 import org.apache.doris.nereids.trees.plans.commands.ShowConfigCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConstraintsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConvertLSCCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowCopyCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateMTMVCommand;
@@ -7243,5 +7244,50 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
         boolean isStreamLoad = ctx.STREAM() != null;
         return new ShowLoadCommand(ctlName, dbName, orderKeys, wildWhere, likePattern, limit, offset, isStreamLoad);
+    }
+
+    @Override
+    public LogicalPlan visitShowCopy(DorisParser.ShowCopyContext ctx) {
+        String ctlName = null;
+        String dbName = null;
+        if (ctx.database != null) {
+            List<String> nameParts = visitMultipartIdentifier(ctx.database);
+            if (nameParts.size() == 1) {
+                dbName = nameParts.get(0);
+            } else if (nameParts.size() == 2) {
+                ctlName = nameParts.get(0);
+                dbName = nameParts.get(1);
+            } else {
+                throw new AnalysisException("nameParts in analyze database should be [ctl.]db");
+            }
+        }
+
+        Expression whereClause = null;
+        if (ctx.whereClause() != null) {
+            whereClause = getExpression(ctx.whereClause().booleanExpression());
+        }
+
+        List<OrderKey> orderKeys = new ArrayList<>();
+        if (ctx.sortClause() != null) {
+            orderKeys = visit(ctx.sortClause().sortItem(), OrderKey.class);
+        }
+
+        long limit = -1L;
+        long offset = 0L;
+        if (ctx.limitClause() != null) {
+            limit = ctx.limitClause().limit != null
+                ? Long.parseLong(ctx.limitClause().limit.getText())
+                : 0;
+            if (limit < 0) {
+                throw new ParseException("Limit requires non-negative number", ctx.limitClause());
+            }
+            offset = ctx.limitClause().offset != null
+                ? Long.parseLong(ctx.limitClause().offset.getText())
+                : 0;
+            if (offset < 0) {
+                throw new ParseException("Offset requires non-negative number", ctx.limitClause());
+            }
+        }
+        return new ShowCopyCommand(ctlName, dbName, orderKeys, whereClause, null, limit, offset);
     }
 }

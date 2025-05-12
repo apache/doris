@@ -383,6 +383,8 @@ supportedShowStatement
     | SHOW DICTIONARIES wildWhere?                                                  #showDictionaries
     | SHOW STREAM? LOAD ((FROM | IN) database=multipartIdentifier)? wildWhere?
         sortClause? limitClause?                                                    #showLoad
+    | SHOW COPY ((FROM | IN) database=multipartIdentifier)?
+        whereClause? sortClause? limitClause?                                       #showCopy
     ;
 
 supportedLoadStatement
@@ -469,8 +471,6 @@ unsupportedShowStatement
     | SHOW BUILD INDEX ((FROM | IN) database=multipartIdentifier)?
         wildWhere? sortClause? limitClause?                                         #showBuildIndex
     | SHOW REPLICA STATUS FROM baseTableRef wildWhere?                              #showReplicaStatus
-    | SHOW COPY ((FROM | IN) database=multipartIdentifier)?
-        whereClause? sortClause? limitClause?                                       #showCopy
     | SHOW WARM UP JOB wildWhere?                                                   #showWarmUpJob
     ;
 

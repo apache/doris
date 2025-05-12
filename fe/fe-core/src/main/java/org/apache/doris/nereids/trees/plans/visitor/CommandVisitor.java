@@ -133,6 +133,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowColumnHistogramStatsCom
 import org.apache.doris.nereids.trees.plans.commands.ShowConfigCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConstraintsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConvertLSCCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowCopyCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateMTMVCommand;
@@ -1088,5 +1089,9 @@ public interface CommandVisitor<R, C> {
 
     default R visitShowLoadCommand(ShowLoadCommand showLoadCommand, C context) {
         return visitCommand(showLoadCommand, context);
+    }
+
+    default R visitShowCopyCommand(ShowCopyCommand showCopyCommand, C context) {
+        return visitCommand(showCopyCommand, context);
     }
 }

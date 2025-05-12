@@ -35,7 +35,6 @@ import org.apache.doris.job.manager.JobManager;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.Load;
 import org.apache.doris.load.LoadJob;
-import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
@@ -104,6 +103,16 @@ public class ShowLoadCommand extends ShowCommand {
         FAIL
     }
 
+    protected boolean isAccurateMatch;
+    protected String labelValue;
+    protected String stateValue;
+    protected String copyIdValue;
+    protected String tableNameValue;
+    protected String fileValue;
+    protected boolean isCopyIdAccurateMatch;
+    protected boolean isTableNameAccurateMatch;
+    protected boolean isFilesAccurateMatch;
+
     private String catalog;
     private String dbName;
     private final List<OrderKey> orderByElements;
@@ -113,9 +122,6 @@ public class ShowLoadCommand extends ShowCommand {
     private final long limit;
     private final long offset;
     private final boolean isStreamLoad;
-    private boolean isAccurateMatch;
-    private String labelValue;
-    private String stateValue;
 
     /**
      * ShowLoadCommand
@@ -203,7 +209,7 @@ public class ShowLoadCommand extends ShowCommand {
         }
     }
 
-    private void analyzeSubExpr(Expression expression) throws AnalysisException {
+    protected void analyzeSubExpr(Expression expression) throws AnalysisException {
         boolean isValid = isWhereClauseValid(expression);
         if (!isValid) {
             if (isStreamLoad) {
@@ -226,11 +232,15 @@ public class ShowLoadCommand extends ShowCommand {
         boolean hasLabel = false;
         boolean hasState = false;
 
-        if (!(expr instanceof EqualTo) || !(expr.child(1) instanceof Like)) {
+        if (!((expr instanceof EqualTo) || (expr instanceof Like))) {
             return false;
         }
 
-        String leftKey = ((UnboundSlot) expr.child(0)).getName();
+        if (!(expr.child(0) instanceof Slot)) {
+            return false;
+        }
+
+        String leftKey = ((Slot) expr.child(0)).getName();
         if (leftKey.equalsIgnoreCase("label")) {
             hasLabel = true;
         } else if (!isStreamLoad && leftKey.equalsIgnoreCase("state")) {
@@ -321,9 +331,9 @@ public class ShowLoadCommand extends ShowCommand {
         } else {
             loadInfos.addAll(((CloudLoadManager) env.getLoadManager())
                     .getLoadJobInfosByDb(dbId, labelValue,
-                    isAccurateMatch, statesValue, jobTypes, null,
-                    false, null, false,
-                    null, false));
+                    isAccurateMatch, statesValue, jobTypes, copyIdValue,
+                    isCopyIdAccurateMatch, tableNameValue, isTableNameAccurateMatch,
+                    fileValue, isFilesAccurateMatch));
         }
         // add the nerieds load info
         JobManager loadMgr = env.getJobManager();
