@@ -2648,6 +2648,11 @@ int InstanceRecycler::recycle_expired_txn_label() {
     };
 
     auto loop_done = [&]() -> int {
+        std::unique_ptr<int, std::function<void(int*)>> defer(
+                (int*)0x01, [&](int*) { recycle_txn_info_keys.clear(); });
+        TEST_SYNC_POINT_CALLBACK(
+                "InstanceRecycler::recycle_expired_txn_label.check_recycle_txn_info_keys",
+                &recycle_txn_info_keys);
         for (const auto& k : recycle_txn_info_keys) {
             concurrent_delete_executor.add([&]() {
                 if (delete_recycle_txn_kv(k) != 0) {
@@ -2669,6 +2674,8 @@ int InstanceRecycler::recycle_expired_txn_label() {
 
         ret = finished ? ret : -1;
 
+        TEST_SYNC_POINT_CALLBACK("InstanceRecycler::recycle_expired_txn_label.failure", &ret);
+
         if (ret != 0) {
             LOG_WARNING("recycle txn kv ret!=0")
                     .tag("finished", finished)
@@ -2676,7 +2683,6 @@ int InstanceRecycler::recycle_expired_txn_label() {
                     .tag("instance_id", instance_id_);
             return ret;
         }
-        recycle_txn_info_keys.clear();
         return ret;
     };
 
