@@ -2239,7 +2239,7 @@ public class Config extends ConfigBase {
      * For external schema cache and hive meta cache.
      */
     @ConfField(mutable = false, masterOnly = false)
-    public static long external_cache_expire_time_minutes_after_access = 86400L; // 8 hours
+    public static long external_cache_expire_time_seconds_after_access = 86400L; // 24 hours
 
     /**
      * The expiration time of a cache object after last access of it.

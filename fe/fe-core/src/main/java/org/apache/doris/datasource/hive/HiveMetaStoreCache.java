@@ -148,7 +148,7 @@ public class HiveMetaStoreCache {
                 refreshExecutor);
 
         CacheFactory partitionCacheFactory = new CacheFactory(
-                OptionalLong.of(28800L),
+                OptionalLong.of(Config.external_cache_expire_time_seconds_after_access),
                 OptionalLong.empty(),
                 Config.max_hive_partition_cache_num,
                 true,

@@ -348,7 +348,8 @@ public class ExternalMetaCacheMgr {
             CacheLoader<String, List<Pair<String, String>>> namesCacheLoader,
             CacheLoader<String, Optional<T>> metaObjCacheLoader,
             RemovalListener<String, Optional<T>> removalListener) {
-        MetaCache<T> metaCache = new MetaCache<>(name, commonRefreshExecutor, expireAfterAccessSec, refreshAfterWriteSec,
+        MetaCache<T> metaCache = new MetaCache<>(
+                name, commonRefreshExecutor, expireAfterAccessSec, refreshAfterWriteSec,
                 maxSize, namesCacheLoader, metaObjCacheLoader, removalListener);
         return metaCache;
     }
