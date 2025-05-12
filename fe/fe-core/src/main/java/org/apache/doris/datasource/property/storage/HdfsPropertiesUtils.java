@@ -25,6 +25,7 @@ import org.apache.commons.lang3.StringUtils;
 
 import java.util.HashSet;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 public class HdfsPropertiesUtils {
@@ -52,11 +53,41 @@ public class HdfsPropertiesUtils {
         if (props.isEmpty()) {
             throw new UserException("props is empty");
         }
-        if (!props.containsKey(URI_KEY)) {
+        String uriStr = getUri(props);
+        if (StringUtils.isBlank(uriStr)) {
             throw new UserException("props must contain uri");
         }
-        String uriStr = props.get(URI_KEY);
         return validateAndNormalizeUri(uriStr);
+    }
+
+    public static boolean validateUriIsHdfsUri(Map<String, String> props) {
+        String uriStr = getUri(props);
+        if (StringUtils.isBlank(uriStr)) {
+            return false;
+        }
+        URI uri;
+        try {
+            uri = URI.create(uriStr);
+        } catch (AnalysisException e) {
+            throw new IllegalArgumentException("Invalid uri: " + uriStr, e);
+        }
+        String schema = uri.getScheme();
+        if (StringUtils.isBlank(schema)) {
+            throw new IllegalArgumentException("Invalid uri: " + uriStr + ", extract schema is null");
+        }
+        return supportSchema.contains(schema.toLowerCase());
+    }
+
+    private static String getUri(Map<String, String> props) {
+        Optional<String> uriValue = props.entrySet().stream()
+                .filter(e -> e.getKey().equalsIgnoreCase(URI_KEY))
+                .map(Map.Entry::getValue)
+                .findFirst();
+        if (!uriValue.isPresent()
+                || StringUtils.isBlank(uriValue.get())) {
+            return null;
+        }
+        return uriValue.get();
     }
 
     /**
@@ -91,7 +122,7 @@ public class HdfsPropertiesUtils {
         if (!props.containsKey(URI_KEY)) {
             return null;
         }
-        String uriStr = props.get(URI_KEY);
+        String uriStr = getUri(props);
         if (StringUtils.isBlank(uriStr)) {
             return null;
         }

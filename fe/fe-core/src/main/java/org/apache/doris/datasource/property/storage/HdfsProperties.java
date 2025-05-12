@@ -81,6 +81,9 @@ public class HdfsProperties extends HdfsCompatibleProperties {
         if (MapUtils.isEmpty(props)) {
             return false;
         }
+        if (HdfsPropertiesUtils.validateUriIsHdfsUri(props)) {
+            return true;
+        }
         if (HDFS_PROPERTIES_KEYS.stream().anyMatch(props::containsKey)) {
             return true;
         }
