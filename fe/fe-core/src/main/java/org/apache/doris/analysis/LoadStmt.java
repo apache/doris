@@ -605,6 +605,7 @@ public class LoadStmt extends DdlStmt implements NotFallbackInParser {
 
             ObjectStorageProperties storageProperties = (ObjectStorageProperties) brokerDesc.getStorageProperties();
             String endpoint = storageProperties.getEndpoint();
+            checkEndpoint(endpoint);
             checkWhiteList(endpoint);
             //should add connectivity test
             boolean connectivityTest = FileSystemFactory.get(brokerDesc.getStorageProperties()).connectivityTest();
