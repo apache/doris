@@ -73,7 +73,6 @@ statementBase
 
 unsupportedStatement
     : unsupportedUseStatement
-    | unsupportedDmlStatement
     | unsupportedCreateStatement
     | unsupportedDropStatement
     | unsupportedStatsStatement
@@ -165,6 +164,7 @@ supportedDmlStatement
             (stageAndPattern | (LEFT_PAREN SELECT selectColumnClause
                 FROM stageAndPattern whereClause? RIGHT_PAREN))
             properties=propertyClause?                                 #copyInto
+    | TRUNCATE TABLE multipartIdentifier specifiedPartition?  FORCE?   #truncateTable
     ;
 
 supportedCreateStatement
@@ -905,10 +905,6 @@ supportedUseStatement
 
 unsupportedUseStatement
     : USE ((catalog=identifier DOT)? database=identifier)? ATSIGN cluster=identifier #useCloudCluster
-    ;
-
-unsupportedDmlStatement
-    : TRUNCATE TABLE multipartIdentifier specifiedPartition?  FORCE?                 #truncateTable
     ;
 
 stageAndPattern
