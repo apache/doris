@@ -59,6 +59,27 @@ void LoadUtil::parse_format(const std::string& format_str, const std::string& co
             *format_type = TFileFormatType::FORMAT_CSV_DEFLATE;
             *compress_type = TFileCompressType::DEFLATE;
         }
+    } else if (iequal(format_str, "HIVE_TEXT")) {
+        *format_type = TFileFormatType::FORMAT_TEXT;
+        if (compress_type_str.empty()) {
+            *compress_type = TFileCompressType::PLAIN;
+        } else if (iequal(compress_type_str, "GZ")) {
+            *compress_type = TFileCompressType::GZ;
+        } else if (iequal(compress_type_str, "LZO")) {
+            *compress_type = TFileCompressType::LZO;
+        } else if (iequal(compress_type_str, "BZ2")) {
+            *compress_type = TFileCompressType::BZ2;
+        } else if (iequal(compress_type_str, "LZ4")) {
+            *compress_type = TFileCompressType::LZ4FRAME;
+        } else if (iequal(compress_type_str, "LZ4_BLOCK")) {
+            *compress_type = TFileCompressType::LZ4BLOCK;
+        } else if (iequal(compress_type_str, "LZOP")) {
+            *compress_type = TFileCompressType::LZO;
+        } else if (iequal(compress_type_str, "SNAPPY_BLOCK")) {
+            *compress_type = TFileCompressType::SNAPPYBLOCK;
+        } else if (iequal(compress_type_str, "DEFLATE")) {
+            *compress_type = TFileCompressType::DEFLATE;
+        }
     } else if (iequal(format_str, "JSON")) {
         if (compress_type_str.empty()) {
             *format_type = TFileFormatType::FORMAT_JSON;
@@ -96,7 +117,6 @@ void LoadUtil::parse_format(const std::string& format_str, const std::string& co
     } else if (iequal(format_str, "ARROW")) {
         *format_type = TFileFormatType::FORMAT_ARROW;
     }
-    return;
 }
 
 bool LoadUtil::is_format_support_streaming(TFileFormatType::type format) {
@@ -110,6 +130,7 @@ bool LoadUtil::is_format_support_streaming(TFileFormatType::type format) {
     case TFileFormatType::FORMAT_CSV_LZO:
     case TFileFormatType::FORMAT_CSV_LZOP:
     case TFileFormatType::FORMAT_JSON:
+    case TFileFormatType::FORMAT_TEXT:
     case TFileFormatType::FORMAT_WAL:
     case TFileFormatType::FORMAT_ARROW:
         return true;
