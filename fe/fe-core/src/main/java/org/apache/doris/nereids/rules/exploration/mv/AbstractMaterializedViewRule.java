@@ -27,7 +27,6 @@ import org.apache.doris.common.Id;
 import org.apache.doris.common.Pair;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
-import org.apache.doris.mtmv.MTMVRewriteUtil;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.executor.Rewriter;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -473,8 +472,8 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
         }
         Set<String> queryUsedBaseTablePartitionNameSet = queryUsedBaseTablePartitions.get(relatedPartitionTable);
 
-        Collection<Partition> mvValidPartitions = MTMVRewriteUtil.getMTMVCanRewritePartitions(mtmv,
-                cascadesContext.getConnectContext(), System.currentTimeMillis(), false);
+        Collection<Partition> mvValidPartitions = cascadesContext.getStatementContext()
+                .getMvCanRewritePartitionsMap().get(new BaseTableInfo(mtmv));
         Set<String> mvValidPartitionNameSet = new HashSet<>();
         Set<String> mvValidBaseTablePartitionNameSet = new HashSet<>();
         Set<String> mvValidHasDataRelatedBaseTableNameSet = new HashSet<>();

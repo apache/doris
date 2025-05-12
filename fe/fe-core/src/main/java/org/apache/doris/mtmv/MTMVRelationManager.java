@@ -19,6 +19,7 @@ package org.apache.doris.mtmv;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
@@ -43,6 +44,7 @@ import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -88,6 +90,13 @@ public class MTMVRelationManager implements MTMVHookService {
                 if (predicate.test(ctx, mtmv)) {
                     continue;
                 }
+                // If mv property use_for_rewrite is set false, should not partition in
+                // query rewrite by materialized view
+                if (!mtmv.isUseForRewrite()) {
+                    LOG.debug("mv doesn't part in query rewrite process because "
+                            + "use_for_rewrite is false, mv is {}", mtmv.getName());
+                    continue;
+                }
                 if (isMVPartitionValid(mtmv, ctx, forceConsistent)) {
                     res.add(mtmv);
                 }
@@ -119,8 +128,12 @@ public class MTMVRelationManager implements MTMVHookService {
     @VisibleForTesting
     public boolean isMVPartitionValid(MTMV mtmv, ConnectContext ctx, boolean forceConsistent) {
         long currentTimeMillis = System.currentTimeMillis();
-        return !CollectionUtils
-                .isEmpty(MTMVRewriteUtil.getMTMVCanRewritePartitions(mtmv, ctx, currentTimeMillis, forceConsistent));
+        Collection<Partition> mtmvCanRewritePartitions = MTMVRewriteUtil.getMTMVCanRewritePartitions(
+                mtmv, ctx, currentTimeMillis, forceConsistent);
+        // MTMVRewriteUtil.getMTMVCanRewritePartitions is time-consuming behavior, So record for used later
+        ctx.getStatementContext().getMvCanRewritePartitionsMap().putIfAbsent(
+                new BaseTableInfo(mtmv), mtmvCanRewritePartitions);
+        return !CollectionUtils.isEmpty(mtmvCanRewritePartitions);
     }
 
     private Set<BaseTableInfo> getMTMVInfos(List<BaseTableInfo> tableInfos) {

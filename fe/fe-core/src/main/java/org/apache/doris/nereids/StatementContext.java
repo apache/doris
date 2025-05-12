@@ -20,6 +20,7 @@ package org.apache.doris.nereids;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
 import org.apache.doris.catalog.constraint.TableIdentifier;
@@ -30,6 +31,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.datasource.mvcc.MvccTableInfo;
+import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.hint.UseMvHint;
@@ -197,6 +199,9 @@ public class StatementContext implements Closeable {
     // Maybe return null, which means the id according statistics should calc normally rather than getting
     // form this map
     private final Map<RelationId, Statistics> relationIdToStatisticsMap = new LinkedHashMap<>();
+
+    // Record mtmv and valid partitions map because this is time-consuming behavior
+    private final Map<BaseTableInfo, Collection<Partition>> mvCanRewritePartitionsMap = new HashMap<>();
 
     // Indicates the query is short-circuited in both plan and execution phase, typically
     // for high speed/concurrency point queries
@@ -580,6 +585,10 @@ public class StatementContext implements Closeable {
     @VisibleForTesting
     public Map<RelationId, Statistics> getRelationIdToStatisticsMap() {
         return relationIdToStatisticsMap;
+    }
+
+    public Map<BaseTableInfo, Collection<Partition>> getMvCanRewritePartitionsMap() {
+        return mvCanRewritePartitionsMap;
     }
 
     /**
