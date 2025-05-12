@@ -354,8 +354,8 @@ public class StringArithmetic {
      */
     @ExecFunction(name = "locate")
     public static Expression locate(StringLikeLiteral first, StringLikeLiteral second, IntegerLiteral third) {
-        String searchStr = second.getValue();
-        String targetStr = first.getValue();
+        String searchStr = first.getValue();
+        String targetStr = second.getValue();
         int startPos = third.getValue();
         if (searchStr.isEmpty()) {
             int byteLength = targetStr.getBytes(StandardCharsets.UTF_8).length;
@@ -370,7 +370,7 @@ public class StringArithmetic {
         }
         int offset = targetStr.offsetByCodePoints(0, startPos - 1);
         int loc = targetStr.indexOf(searchStr, offset);
-        return loc == -1 ? new IntegerLiteral(0) : new IntegerLiteral(searchStr.codePointCount(0, loc) + 1);
+        return loc == -1 ? new IntegerLiteral(0) : new IntegerLiteral(targetStr.codePointCount(0, loc) + 1);
     }
 
     /**
