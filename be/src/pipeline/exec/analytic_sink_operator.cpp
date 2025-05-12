@@ -26,6 +26,7 @@
 
 #include "pipeline/exec/operator.h"
 #include "runtime/runtime_state.h"
+#include "util/uid_util.h"
 #include "vec/exprs/vectorized_agg_fn.h"
 
 namespace doris::pipeline {
@@ -368,6 +369,10 @@ void AnalyticSinkLocalState::_execute_for_function(int64_t partition_start, int6
     _current_window_empty =
             std::min(frame_end, partition_end) <= std::max(frame_start, partition_start);
 
+    if (_current_window_empty) {
+        LOG(INFO) << "asd " << print_id(state()->query_id());
+    }
+    _current_window_empty = false;
     for (size_t i = 0; i < _agg_functions_size; ++i) {
         if (_result_column_nullable_flags[i] && _current_window_empty) {
             continue;
