@@ -376,7 +376,7 @@ AggregateFunctionPtr create_function_single_value(const String& name,
     }
     case PrimitiveType::TYPE_VARIANT: {
         return std::make_shared<ReaderFunctionData<
-                FunctionData<ColumnObject, result_is_nullable, arg_is_nullable, is_copy>>>(
+                FunctionData<ColumnVariant, result_is_nullable, arg_is_nullable, is_copy>>>(
                 argument_types);
     }
     case PrimitiveType::TYPE_OBJECT: {

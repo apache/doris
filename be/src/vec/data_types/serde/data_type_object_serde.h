@@ -34,9 +34,9 @@ namespace vectorized {
 class IColumn;
 class Arena;
 
-class DataTypeObjectSerDe : public DataTypeSerDe {
+class DataTypeVariantSerDe : public DataTypeSerDe {
 public:
-    DataTypeObjectSerDe(int nesting_level = 1) : DataTypeSerDe(nesting_level) {};
+    DataTypeVariantSerDe(int nesting_level = 1) : DataTypeSerDe(nesting_level) {};
 
     Status serialize_one_cell_to_json(const IColumn& column, int64_t row_num, BufferWritable& bw,
                                       FormatOptions& options) const override;

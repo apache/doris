@@ -248,7 +248,7 @@ void register_function_fake(SimpleFunctionFactory& factory) {
     register_table_function_with_impl<FunctionPoseExplode<false>>(factory, "posexplode");
     register_table_function_with_impl<FunctionPoseExplode<true>>(factory, "posexplode",
                                                                  COMBINATOR_SUFFIX_OUTER);
-    register_table_alternative_function_expand_outer_default<DataTypeObject, false>(
+    register_table_alternative_function_expand_outer_default<DataTypeVariant, false>(
             factory, "explode_variant_array");
     register_table_function_with_impl<FunctionExplodeV2>(factory, "explode_variant_array");
 }

@@ -86,7 +86,7 @@ TabletColumn get_column_by_type(const vectorized::DataTypePtr& data_type, const 
 // 3. encode sparse sub columns
 Status parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
                              const ParseConfig& config);
-Status encode_variant_sparse_subcolumns(ColumnObject& column);
+Status encode_variant_sparse_subcolumns(ColumnVariant& column);
 
 // Pick the tablet schema with the highest schema version as the reference.
 // Then update all variant columns to there least common types.
@@ -115,8 +115,8 @@ void inherit_column_attributes(const TabletColumn& source, TabletColumn& target,
                                TabletSchemaSPtr& target_schema);
 
 // get sorted subcolumns of variant
-vectorized::ColumnObject::Subcolumns get_sorted_subcolumns(
-        const vectorized::ColumnObject::Subcolumns& subcolumns);
+vectorized::ColumnVariant::Subcolumns get_sorted_subcolumns(
+        const vectorized::ColumnVariant::Subcolumns& subcolumns);
 
 // Extract json data from source with path
 Status extract(ColumnPtr source, const PathInData& path, MutableColumnPtr& dst);
