@@ -28,6 +28,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
+import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.fs.remote.RemoteFile;
 import org.apache.doris.fs.remote.RemoteFileSystem;
@@ -85,9 +86,10 @@ public class BrokerUtil {
     public static void parseFile(String path, BrokerDesc brokerDesc, List<TBrokerFileStatus> fileStatuses)
             throws UserException {
         List<RemoteFile> rfiles = new ArrayList<>();
+        PropertyConverter.s3BrokerConvertToHadoopProperties(brokerDesc.getProperties(), path);
         try (RemoteFileSystem fileSystem = FileSystemFactory.get(
                     brokerDesc.getName(), brokerDesc.getStorageType(), brokerDesc.getProperties())) {
-            Status st = fileSystem.globList(path, rfiles, false);
+            Status st = fileSystem.globList(brokerDesc.getProperties().get("convertPath"), rfiles, false);
             if (!st.ok()) {
                 throw new UserException(st.getErrMsg());
             }

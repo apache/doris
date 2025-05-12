@@ -190,6 +190,26 @@ public class PropertyConverter {
         return obsProperties;
     }
 
+    public static void s3BrokerConvertToHadoopProperties(Map<String, String> props, String path) {
+        String provider = props.get(S3Properties.PROVIDER);
+        props.put("convertPath", path);
+        if ("OBS".equals(provider)) {
+            s3BrokerConvertToOBSProperties(props);
+        }
+    }
+
+    private static void s3BrokerConvertToOBSProperties(Map<String, String> props) {
+        props.put(OBSConstants.ENDPOINT, props.get(S3Properties.Env.ENDPOINT));
+        props.put("fs.obs.impl", getHadoopFSImplByScheme("obs"));
+        props.put(OBSConstants.ACCESS_KEY, props.get(S3Properties.Env.ACCESS_KEY));
+        props.put(OBSConstants.SECRET_KEY, props.get(S3Properties.Env.SECRET_KEY));
+        String path = props.get("convertPath");
+        if (path.startsWith("s3://")) {
+            props.put("convertPath", path.replace("s3://", "obs://"));
+        }
+
+    }
+
     public static String getHadoopFSImplByScheme(String fsScheme) {
         if (fsScheme.equalsIgnoreCase("obs")) {
             return OBSFileSystem.class.getName();
