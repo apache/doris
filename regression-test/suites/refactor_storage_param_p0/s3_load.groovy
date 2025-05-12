@@ -19,7 +19,7 @@ import org.awaitility.Awaitility
 import static groovy.test.GroovyAssert.shouldFail;
 import static java.util.concurrent.TimeUnit.SECONDS;
 
-suite("refactor_storage_param_load", "p0,external") {
+suite("refactor_storage_param_s3_load", "p0,external") {
     String enabled = context.config.otherConfigs.get("enableRefactorParamsTest")
     if (enabled == null || enabled.equalsIgnoreCase("false")) {
         return

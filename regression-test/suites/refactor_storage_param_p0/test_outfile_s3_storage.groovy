@@ -71,11 +71,11 @@ suite("test_outfile_s3_storage", "p0,external") {
      *****************************      TEST AWS      *****************************************************
      *******************************************************************************************************/
     try {
-        ak = getS3AK()
-        sk = getS3SK()
-        s3_endpoint = getS3Endpoint()
-        region = getS3Region()
-        bucket = context.config.otherConfigs.get("s3BucketName");
+        ak = context.config.otherConfigs.get("AWSAK")
+        sk = context.config.otherConfigs.get("AWSSK")
+        s3_endpoint = "s3.ap-northeast-1.amazonaws.com"
+        region = "ap-northeast-1"
+        bucket = "selectdb-qa-datalake-test"
 
         // 1. test s3 schema
         def outFilePath = "${bucket}/test_outfile_s3_storage/exp_"

@@ -157,18 +157,27 @@ suite("test_domain_connection_and_ak_sk_correction",  "load_p0") {
             );
         """
         logger.info("the fourth sql result is {}", result)
-        Awaitility.await().atMost(80, SECONDS).pollInterval(5, SECONDS).until({
-            def loadResult = sql """
-           SHOW LOAD WHERE label="${label}"
-           """
-            if (loadResult.get(0).get(2) == 'CANCELLED' || loadResult.get(0).get(2) == 'FAILED') {
-               return true;
-            }
-            if(loadResult.get(0).get(2) == 'FINISHED'){
-                throw new RuntimeException("load success,but the first bucket is wrong, so the sql should fail")
-            }
-            return false
-        })
+    while (totalWaitTime < timeout) {
+        def loadResult = sql """
+        SHOW LOAD WHERE label="${label}"
+    """
+
+        if (loadResult == null || loadResult.isEmpty()) {
+        } else if (loadResult.get(0).get(2) in ['CANCELLED', 'FAILED']) {
+            break 
+        } else if (loadResult.get(0).get(2) == 'FINISHED') {
+            throw new RuntimeException("load success, but the first bucket is wrong, so the sql should fail")
+        } else {
+            Thread.sleep(pollInterval * 1000L)
+            totalWaitTime += pollInterval
+        }
+
+       
+    }
+
+    if (totalWaitTime >= timeout) {
+        throw new RuntimeException("Timeout waiting for load to complete")
+    }
     sql """ DROP TABLE IF EXISTS ${tableName} FORCE"""
     sql """ DROP TABLE IF EXISTS ${tableNameOrders} FORCE"""
 }
