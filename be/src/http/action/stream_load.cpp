@@ -153,7 +153,7 @@ void StreamLoadAction::handle(HttpRequest* req) {
     // update statistics
     streaming_load_requests_total->increment(1);
     streaming_load_duration_ms->increment(ctx->load_cost_millis);
-    if(!ctx->data_saved_path.empty()){
+    if (!ctx->data_saved_path.empty()) {
         _exec_env->load_path_mgr()->clean_tmp_files(ctx->data_saved_path);
     }
 }
@@ -798,9 +798,11 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
     return _exec_env->stream_load_executor()->execute_plan_fragment(ctx, mocked);
 }
 
-Status StreamLoadAction::_data_saved_path(HttpRequest* req, std::string* file_path, int64_t file_bytes) {
+Status StreamLoadAction::_data_saved_path(HttpRequest* req, std::string* file_path,
+                                          int64_t file_bytes) {
     std::string prefix;
-    RETURN_IF_ERROR(_exec_env->load_path_mgr()->allocate_dir(req->param(HTTP_DB_KEY), "", &prefix, file_bytes));
+    RETURN_IF_ERROR(_exec_env->load_path_mgr()->allocate_dir(req->param(HTTP_DB_KEY), "", &prefix,
+                                                             file_bytes));
     timeval tv;
     gettimeofday(&tv, nullptr);
     struct tm tm;

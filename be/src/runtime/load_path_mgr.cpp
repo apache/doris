@@ -101,7 +101,8 @@ Status LoadPathMgr::allocate_dir(const std::string& db, const std::string& label
     size_t disk_capacity_bytes = 0;
     size_t available_bytes = 0;
     while (retry--) {
-        RETURN_IF_ERROR(io::global_local_filesystem()->get_space_info(_path_vec[_idx], &disk_capacity_bytes, &available_bytes));
+        RETURN_IF_ERROR(io::global_local_filesystem()->get_space_info(
+                _path_vec[_idx], &disk_capacity_bytes, &available_bytes));
         check_disk_space(disk_capacity_bytes, available_bytes, file_bytes, &is_available);
         if (!is_available) {
             ++path_vec_num;
@@ -119,22 +120,23 @@ Status LoadPathMgr::allocate_dir(const std::string& db, const std::string& label
         }
     }
     if (path_vec_num == size) {
-       return Status::Error<DISK_REACH_CAPACITY_LIMIT, false>("exceed capacity limit.");
+        return Status::Error<DISK_REACH_CAPACITY_LIMIT, false>("exceed capacity limit.");
     }
     return status;
 }
 
-bool LoadPathMgr::check_disk_space( size_t disk_capacity_bytes, size_t available_bytes, int64_t file_bytes, bool* is_available) {
-        int64_t remaining_bytes = available_bytes - file_bytes;
-        double used_ratio = 1.0 - static_cast<double>(remaining_bytes) / disk_capacity_bytes;
-        *is_available = !(used_ratio >= config::storage_flood_stage_usage_percent / 100.0 &&
-                          remaining_bytes <= config::storage_flood_stage_left_capacity_bytes);
-        if (!*is_available) {
-            LOG(WARNING) << "Exceed capacity limit. disk_capacity: " << disk_capacity_bytes
-                         << ", available: " << available_bytes << ", file_bytes: " << file_bytes;
-        }
-        return is_available;
+bool LoadPathMgr::check_disk_space(size_t disk_capacity_bytes, size_t available_bytes,
+                                   int64_t file_bytes, bool* is_available) {
+    int64_t remaining_bytes = available_bytes - file_bytes;
+    double used_ratio = 1.0 - static_cast<double>(remaining_bytes) / disk_capacity_bytes;
+    *is_available = !(used_ratio >= config::storage_flood_stage_usage_percent / 100.0 &&
+                      remaining_bytes <= config::storage_flood_stage_left_capacity_bytes);
+    if (!*is_available) {
+        LOG(WARNING) << "Exceed capacity limit. disk_capacity: " << disk_capacity_bytes
+                     << ", available: " << available_bytes << ", file_bytes: " << file_bytes;
     }
+    return is_available;
+}
 
 bool LoadPathMgr::is_too_old(time_t cur_time, const std::string& label_dir, int64_t reserve_hours) {
     struct stat dir_stat;
@@ -200,7 +202,7 @@ void LoadPathMgr::process_path(time_t now, const std::string& path, int64_t rese
     }
 }
 
-void LoadPathMgr::clean_files_in_path_vec(const std::string& path){
+void LoadPathMgr::clean_files_in_path_vec(const std::string& path) {
     bool exists = false;
     // Check if the path exists
     Status status = io::global_local_filesystem()->exists(path, &exists);

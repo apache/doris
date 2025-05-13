@@ -45,9 +45,11 @@ public:
     Status init();
     void stop();
 
-    Status allocate_dir(const std::string& db, const std::string& label, std::string* prefix, int64_t file_bytes);
+    Status allocate_dir(const std::string& db, const std::string& label, std::string* prefix,
+                        int64_t file_bytes);
 
-    bool check_disk_space(size_t disk_capacity_bytes, size_t available_bytes, int64_t file_bytes, bool* is_available);
+    bool check_disk_space(size_t disk_capacity_bytes, size_t available_bytes, int64_t file_bytes,
+                          bool* is_available);
 
     void get_load_data_path(std::vector<std::string>* data_paths);
 
@@ -56,9 +58,7 @@ public:
     std::string get_load_error_absolute_path(const std::string& file_path);
     const std::string& get_load_error_file_dir() const { return _error_log_dir; }
 
-    void clean_tmp_files(const std::string& file_path) {
-        clean_files_in_path_vec(file_path);
-    }
+    void clean_tmp_files(const std::string& file_path) { clean_files_in_path_vec(file_path); }
 
 private:
     bool is_too_old(time_t cur_time, const std::string& label_dir, int64_t reserve_hours);
