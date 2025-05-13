@@ -25,6 +25,7 @@
 #include <cstddef>
 #include <sstream>
 
+#include "common/bvars.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/util.h"
@@ -1553,18 +1554,29 @@ void MetaServiceImpl::finish_tablet_job(::google::protobuf::RpcController* contr
     recorded_job.ParseFromString(job_val);
     VLOG_DEBUG << "get tablet job, tablet_id=" << tablet_id
                << " job=" << proto_to_json(recorded_job);
+    FinishTabletJobRequest_Action action = request->action();
 
-    std::unique_ptr<int, std::function<void(int*)>> defer_commit(
-            (int*)0x01, [&ss, &txn, &code, &msg, &need_commit](int*) {
-                if (!need_commit) return;
-                TxnErrorCode err = txn->commit();
-                if (err != TxnErrorCode::TXN_OK) {
-                    code = cast_as<ErrCategory::COMMIT>(err);
-                    ss << "failed to commit job kv, err=" << err;
-                    msg = ss.str();
-                    return;
+    std::unique_ptr<int, std::function<void(int*)>> defer_commit((int*)0x01, [&ss, &txn, &code,
+                                                                              &msg, &need_commit,
+                                                                              &action](int*) {
+        if (!need_commit) return;
+        TxnErrorCode err = txn->commit();
+        if (err != TxnErrorCode::TXN_OK) {
+            if (err == TxnErrorCode::TXN_CONFLICT) {
+                if (action == FinishTabletJobRequest::COMMIT) {
+                    g_bvar_delete_bitmap_lock_txn_remove_conflict_by_compaction_commit_counter << 1;
+                } else if (action == FinishTabletJobRequest::LEASE) {
+                    g_bvar_delete_bitmap_lock_txn_remove_conflict_by_compaction_lease_counter << 1;
+                } else if (action == FinishTabletJobRequest::ABORT) {
+                    g_bvar_delete_bitmap_lock_txn_remove_conflict_by_compaction_abort_counter << 1;
                 }
-            });
+            }
+            code = cast_as<ErrCategory::COMMIT>(err);
+            ss << "failed to commit job kv, err=" << err;
+            msg = ss.str();
+            return;
+        }
+    });
 
     // Process compaction commit
     if (!request->job().compaction().empty()) {
