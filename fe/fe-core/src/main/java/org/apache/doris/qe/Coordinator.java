@@ -411,8 +411,8 @@ public class Coordinator implements CoordInterface {
 
     private void initQueryOptions(ConnectContext context) {
         this.queryOptions = context.getSessionVariable().toThrift();
-        this.queryOptions.setQueryTimeout(context.getExecTimeout());
-        this.queryOptions.setExecutionTimeout(context.getExecTimeout());
+        this.queryOptions.setQueryTimeout(context.getExecTimeoutS());
+        this.queryOptions.setExecutionTimeout(context.getExecTimeoutS());
         if (this.queryOptions.getExecutionTimeout() < 1) {
             LOG.info("try set timeout less than 1", new RuntimeException(""));
         }
@@ -948,7 +948,7 @@ public class Coordinator implements CoordInterface {
             long currentTimeMillis = System.currentTimeMillis();
             long elapsed = (currentTimeMillis - timeoutDeadline) / 1000 + queryOptions.getExecutionTimeout();
             String msg = String.format(
-                    "timeout before waiting %s rpc, query timeout:%d, already elapsed:%d, left for this:%d",
+                    "timeout before waiting %s rpc, query timeout:%d seconds, already elapsed:%d seconds, left for this:%d ms",
                     operation, queryOptions.getExecutionTimeout(), elapsed, leftTimeMs);
             LOG.warn("Query {} {}", DebugUtil.printId(queryId), msg);
             if (!queryOptions.isSetExecutionTimeout() || !queryOptions.isSetQueryTimeout()) {
