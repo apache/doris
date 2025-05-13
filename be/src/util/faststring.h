@@ -18,6 +18,7 @@
 #pragma once
 
 #include <butil/macros.h>
+#include <sanitizer/asan_interface.h>
 
 #include <cstdint>
 #include <cstring>
