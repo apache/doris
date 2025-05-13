@@ -2962,7 +2962,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     return Config.enable_date_conversion ? new DateTimeV2Literal(value) : new DateTimeLiteral(value);
                 } catch (Exception e) {
                     return new Cast(Literal.of(value),
-                            Config.enable_date_conversion ? DateTimeV2Type.MAX: DateTimeType.INSTANCE);
+                            Config.enable_date_conversion ? DateTimeV2Type.MAX : DateTimeType.INSTANCE);
                 }
             case "DATEV2":
                 try {
