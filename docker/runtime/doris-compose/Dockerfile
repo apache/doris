@@ -34,7 +34,7 @@ ARG JDK_IMAGE=openjdk:17-jdk-slim
 # tar xvf apache-doris-3.0.5-bin-x64.tar.gz  # after extract, there will be a directory ./apache-doris-3.0.5-bin-x64/{fe, be, ms}
 #
 # docker build \
-#     --build-arg OUTPUT_PATH=./apache-doris-3.0.5-bin-x64
+#     --build-arg OUTPUT_PATH=./apache-doris-3.0.5-bin-x64 \
 #     -f ~/workspace/doris/docker/runtime/doris-compose/Dockerfile \
 #     -t my-doris:v3.0.5 \
 #     .
