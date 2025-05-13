@@ -399,22 +399,6 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
         return st;
     }
 
-    public static String getLongestPrefix(String globPattern) {
-        int length = globPattern.length();
-        int earliestSpecialCharIndex = length;
-
-        char[] specialChars = {'*', '?', '[', '{', '\\'};
-
-        for (char specialChar : specialChars) {
-            int index = globPattern.indexOf(specialChar);
-            if (index != -1 && index < earliestSpecialCharIndex) {
-                earliestSpecialCharIndex = index;
-            }
-        }
-
-        return globPattern.substring(0, earliestSpecialCharIndex);
-    }
-
     ListObjectsV2Response listObjectsV2(ListObjectsV2Request request) throws UserException {
         return getClient().listObjectsV2(request);
     }
@@ -442,7 +426,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
             PathMatcher matcher = FileSystems.getDefault().getPathMatcher("glob:" + pathPattern);
             HashSet<String> directorySet = new HashSet<>();
 
-            String listPrefix = getLongestPrefix(globPath); // similar to Azure
+            String listPrefix = S3Util.getLongestPrefix(globPath); // similar to Azure
             LOG.info("globList listPrefix: {}", listPrefix);
 
             ListObjectsV2Request request = ListObjectsV2Request.builder()

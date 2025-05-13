@@ -186,4 +186,20 @@ public class S3Util {
                         .build())
                 .build();
     }
+
+    public static String getLongestPrefix(String globPattern) {
+        int length = globPattern.length();
+        int earliestSpecialCharIndex = length;
+
+        char[] specialChars = {'*', '?', '[', '{', '\\'};
+
+        for (char specialChar : specialChars) {
+            int index = globPattern.indexOf(specialChar);
+            if (index != -1 && index < earliestSpecialCharIndex) {
+                earliestSpecialCharIndex = index;
+            }
+        }
+
+        return globPattern.substring(0, earliestSpecialCharIndex);
+    }
 }
