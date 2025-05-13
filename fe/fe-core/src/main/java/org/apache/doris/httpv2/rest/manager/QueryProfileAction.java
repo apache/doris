@@ -38,6 +38,7 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
+import org.apache.doris.thrift.TQueryStatistics;
 import org.apache.doris.thrift.TStatusCode;
 
 import com.google.common.base.Strings;
@@ -47,6 +48,8 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.JsonParser;
 import com.google.gson.reflect.TypeToken;
+import lombok.Getter;
+import lombok.Setter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.NotNull;
@@ -63,6 +66,7 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import javax.servlet.http.HttpServletRequest;
@@ -504,5 +508,61 @@ public class QueryProfileAction extends RestBaseController {
         ExecuteEnv env = ExecuteEnv.getInstance();
         env.getScheduler().cancelQuery(queryId, new Status(TStatusCode.CANCELLED, "cancel query by rest api"));
         return ResponseEntityBuilder.ok();
+    }
+
+    @RequestMapping(path = "/progres/query/{trace_id}", method = RequestMethod.GET)
+    public Object queryProgress(HttpServletRequest request, HttpServletResponse response,
+            @PathVariable("trace_id") String traceId) {
+        executeCheckPassword(request, response);
+
+        ExecuteEnv env = ExecuteEnv.getInstance();
+        String queryId = env.getScheduler().getQueryIdByTraceId(traceId);
+        if (Strings.isNullOrEmpty(queryId)) {
+            return ResponseEntityBuilder.badRequest("Not found");
+        }
+
+        try {
+            checkAuthByUserAndQueryId(queryId);
+        } catch (AuthenticationException e) {
+            return ResponseEntityBuilder.badRequest(e.getMessage());
+        }
+
+        Optional<TQueryStatistics> statistic = ProfileManager.getInstance().getQueryStatistic(queryId);
+        if (!statistic.isPresent()) {
+            return ResponseEntityBuilder.badRequest("Failed to get query statistic");
+        }
+        return ResponseEntityBuilder.ok(new QueryProgress(statistic.get()));
+    }
+
+    @Getter
+    @Setter
+    public static class QueryProgress {
+        public long scanRows;
+        public long scanBytes;
+        public long returnedRows;
+        public long cpuMs;
+        public long maxPeakMemoryBytes;
+        public long currentUsedMemoryBytes;
+        public long shuffleSendBytes;
+        public long shuffleSendRows;
+        public long scanBytesFromLocalStorage;
+        public long scanBytesFromRemoteStorage;
+        public long spillWriteBytesToLocalStorage;
+        public long spillReadBytesFromLocalStorage;
+
+        public QueryProgress(TQueryStatistics queryStatistics) {
+            this.scanRows = queryStatistics.getScanRows();
+            this.scanBytes = queryStatistics.getScanBytes();
+            this.returnedRows = queryStatistics.getReturnedRows();
+            this.cpuMs = queryStatistics.getCpuMs();
+            this.maxPeakMemoryBytes = queryStatistics.getMaxPeakMemoryBytes();
+            this.currentUsedMemoryBytes = queryStatistics.getCurrentUsedMemoryBytes();
+            this.shuffleSendBytes = queryStatistics.getShuffleSendBytes();
+            this.shuffleSendRows = queryStatistics.getShuffleSendRows();
+            this.scanBytesFromLocalStorage = queryStatistics.getScanBytesFromLocalStorage();
+            this.scanBytesFromRemoteStorage = queryStatistics.getScanBytesFromRemoteStorage();
+            this.spillWriteBytesToLocalStorage = queryStatistics.getSpillWriteBytesToLocalStorage();
+            this.spillReadBytesFromLocalStorage = queryStatistics.getSpillReadBytesFromLocalStorage();
+        }
     }
 }
