@@ -17,9 +17,21 @@
 
 suite("window_skew_rewrite") {
     sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
+    sql "drop table if exists test_skew_window"
     sql """create table test_skew_window(a int, c varchar(100), b int, d varchar(20)) distributed by hash(a) buckets 32 properties("replication_num"="1");"""
-    sql """insert into test_skew_window select random(1,100),'abc', 1, cast(seconds_add('0000-01-01', number) as varchar(20)) from numbers("number" = "80");"""
-    sql """insert into test_skew_window select random(1,100),'abc',number,cast(seconds_add('5000-01-01', number) as varchar(20)) from numbers("number" = "20");"""
+    sql """
+    INSERT INTO test_skew_window VALUES
+    (1, 'value1', 100, 'd001'),
+    (2, 'value2', 200, 'd002'),
+    (3, 'value3', 300, 'd003'),
+    (4, 'value4', 400, 'd004'),
+    (5, 'value5', 500, 'd005'),
+    (6, 'value6', 600, 'd006'),
+    (7, 'value7', 700, 'd007'),
+    (8, 'value8', 800, 'd008'),
+    (9, 'value9', 900, 'd009'),
+    (10, 'value10', 1000, 'd010');
+    """
 
     // 1.只有一个window expression
     qt_one_window_expr """select sum(w) from (select sum(a) over(partition by [skew] b order by d rows between unbounded PRECEDING and current row) w from  test_skew_window ) t;"""
