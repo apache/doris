@@ -170,6 +170,7 @@ suite("test_domain_connection_and_ak_sk_correction",  "load_p0") {
         } else if (loadResult.get(0).get(2) == 'FINISHED') {
             throw new RuntimeException("load success, but the first bucket is wrong, so the sql should fail")
         } else {
+            println("load status is ${loadResult.get(0).get(2)}")
             Thread.sleep(pollInterval * 1000L)
             totalWaitTime += pollInterval
         }
