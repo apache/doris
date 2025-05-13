@@ -46,22 +46,29 @@ public class Count extends NotNullableAggregateFunction
     );
 
     private final boolean isStar;
+    private final boolean isSkew;
 
     public Count() {
         super("count");
         this.isStar = true;
+        this.isSkew = false;
     }
 
     /**
      * this constructor use for COUNT(c1, c2) to get correct error msg.
      */
     public Count(Expression child, Expression... varArgs) {
-        this(false, child, varArgs);
+        this(false, false, child, varArgs);
     }
 
     public Count(boolean distinct, Expression arg0, Expression... varArgs) {
+        this(distinct, false, arg0, varArgs);
+    }
+
+    public Count(boolean distinct, boolean isSkew, Expression arg0, Expression... varArgs) {
         super("count", distinct, ExpressionUtils.mergeArguments(arg0, varArgs));
         this.isStar = false;
+        this.isSkew = isSkew;
     }
 
     public boolean isCountStar() {
@@ -93,6 +100,10 @@ public class Count extends NotNullableAggregateFunction
         return isStar;
     }
 
+    public boolean isSkew() {
+        return isSkew;
+    }
+
     @Override
     public boolean isConstant() {
         return false;
@@ -111,9 +122,9 @@ public class Count extends NotNullableAggregateFunction
             }
             return new Count();
         } else if (children.size() == 1) {
-            return new Count(distinct, children.get(0));
+            return new Count(distinct, isSkew, children.get(0));
         } else {
-            return new Count(distinct, children.get(0),
+            return new Count(distinct, isSkew, children.get(0),
                     children.subList(1, children.size()).toArray(new Expression[0]));
         }
     }

@@ -25,6 +25,7 @@ import org.apache.doris.nereids.rules.implementation.AggregateStrategies;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -451,4 +452,50 @@ public class AggregateStrategiesTest implements MemoPatternMatchSupported {
         }
         return true;
     }
+
+    @Test
+    public void skewCountDistinctRewrite() {
+        Slot id = rStudent.getOutput().get(0).toSlot();
+        Slot age = rStudent.getOutput().get(3).toSlot();
+        List<Expression> groupExpressionList = Lists.newArrayList();
+        groupExpressionList.add(age);
+        List<NamedExpression> outputExpressionList = Lists.newArrayList(
+                age, new Alias(new Count(true, true, id), "count_id"));
+        Plan root = new LogicalAggregate<>(groupExpressionList, outputExpressionList,
+                true, Optional.empty(), rStudent);
+
+        // select count(distinct id) group by age;
+        PlanChecker.from(MemoTestUtils.createConnectContext(), root)
+                .applyImplementation(skewRewriteRule())
+                .matches(
+                        physicalHashAggregate(
+                                physicalHashAggregate(
+                                        physicalHashAggregate(
+                                                physicalProject(
+                                                    physicalHashAggregate()
+                                                        .when(agg -> agg.getAggPhase().equals(AggPhase.LOCAL))
+                                                        .when(agg -> agg.getGroupByExpressions().get(0).equals(age)
+                                                                && agg.getGroupByExpressions().get(1).equals(id))
+                                                )
+                                                .when(proj -> proj.getProjects().get(2).child(0) instanceof Cast)
+                                        )
+                                        .when(agg -> agg.getAggPhase().equals(AggPhase.GLOBAL))
+                                        .when(agg -> agg.getGroupByExpressions().get(0).equals(age) && agg.getGroupByExpressions().size() == 2)
+                                )
+                                .when(agg -> agg.getAggPhase().equals(AggPhase.DISTINCT_LOCAL))
+                                .when(agg -> agg.getGroupByExpressions().get(0).equals(age))
+                        )
+                        .when(agg -> agg.getAggPhase().equals(AggPhase.DISTINCT_GLOBAL))
+                        .when(agg -> agg.getGroupByExpressions().get(0).equals(age))
+                );
+    }
+
+    private Rule skewRewriteRule() {
+        return new AggregateStrategies().buildRules()
+                .stream()
+                .filter(rule -> rule.getRuleType() == RuleType.COUNT_DISTINCT_AGG_SKEW_REWRITE)
+                .findFirst()
+                .get();
+    }
+
 }
