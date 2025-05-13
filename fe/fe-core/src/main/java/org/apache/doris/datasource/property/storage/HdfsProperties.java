@@ -140,11 +140,7 @@ public class HdfsProperties extends HdfsCompatibleProperties {
         // fsDefaultFS is not strictly required here.
         // This is a best-effort fallback to populate fsDefaultFS when possible.
         if (StringUtils.isBlank(fsDefaultFS)) {
-            try {
-                this.fsDefaultFS = HdfsPropertiesUtils.validateAndGetUri(origProps);
-            } catch (UserException e) {
-                //ignore
-            }
+            this.fsDefaultFS = HdfsPropertiesUtils.extractDefaultFsFromUri(origProps);
         }
     }
 

@@ -51,7 +51,6 @@ public class HdfsTableValuedFunction extends ExternalFileTableValuedFunction {
             backendConnectProperties.putAll(storageProperties.getBackendConfigProperties());
             String uri = storageProperties.validateAndGetUri(props);
             filePath = storageProperties.validateAndNormalizeUri(uri);
-            backendConnectProperties.put(URI_KEY, filePath);
         } catch (UserException e) {
             throw new AnalysisException("Failed check storage props, " + e.getMessage(), e);
         }

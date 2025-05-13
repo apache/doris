@@ -179,7 +179,12 @@ suite("test_domain_connection_and_ak_sk_correction",  "load_p0") {
     }
 
     if (totalWaitTime >= timeout) {
-        throw new RuntimeException("Timeout waiting for load to complete")
+        def queryLoadResult = sql """
+        SHOW LOAD WHERE label="${label}"
+        """
+        if (queryLoadResult != null && queryLoadResult.get(0).get(2) == 'FINISHED') {
+            throw new RuntimeException("load success, but the first bucket is wrong, so the sql should fail")
+        }
     }
     sql """ DROP TABLE IF EXISTS ${tableName} FORCE"""
     sql """ DROP TABLE IF EXISTS ${tableNameOrders} FORCE"""

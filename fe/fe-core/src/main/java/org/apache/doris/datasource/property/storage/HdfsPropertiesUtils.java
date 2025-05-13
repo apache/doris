@@ -60,6 +60,20 @@ public class HdfsPropertiesUtils {
         return validateAndNormalizeUri(uriStr);
     }
 
+    public static String extractDefaultFsFromUri(Map<String, String> props) {
+        if (!validateUriIsHdfsUri(props)) {
+            return null;
+        }
+        String uriStr = getUri(props);
+        URI uri = null;
+        try {
+            uri = URI.create(uriStr);
+            return uri.getScheme() + "://" + uri.getAuthority();
+        } catch (AnalysisException e) {
+            throw new IllegalArgumentException("Invalid uri: " + uriStr, e);
+        }
+    }
+
     public static boolean validateUriIsHdfsUri(Map<String, String> props) {
         String uriStr = getUri(props);
         if (StringUtils.isBlank(uriStr)) {
