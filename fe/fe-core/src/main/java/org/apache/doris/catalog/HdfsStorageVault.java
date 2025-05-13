@@ -199,11 +199,21 @@ public class HdfsStorageVault extends StorageVault {
             } else {
                 // Get rid of copy and paste from create s3 vault stmt
                 Preconditions.checkArgument(
+                        !property.getKey().toLowerCase().contains(S3StorageVault.PropertyKey.REGION),
+                        "Invalid argument %s", property.getKey());
+                Preconditions.checkArgument(
+                        !property.getKey().toLowerCase().contains(S3StorageVault.PropertyKey.ENDPOINT),
+                        "Invalid argument %s", property.getKey());
+                Preconditions.checkArgument(
                         !property.getKey().toLowerCase().contains(S3StorageVault.PropertyKey.ROOT_PATH),
                         "Invalid argument %s", property.getKey());
                 Preconditions.checkArgument(
                         !property.getKey().toLowerCase().contains(S3StorageVault.PropertyKey.PROVIDER),
                         "Invalid argument %s", property.getKey());
+                Preconditions.checkArgument(
+                        !property.getKey().toLowerCase().contains(S3StorageVault.PropertyKey.BUCKET),
+                        "Invalid argument %s", property.getKey());
+
                 if (!NON_HDFS_CONF_PROPERTY_KEYS.contains(property.getKey().toLowerCase())) {
                     Cloud.HdfsBuildConf.HdfsConfKVPair.Builder conf = Cloud.HdfsBuildConf.HdfsConfKVPair.newBuilder();
                     conf.setKey(property.getKey());

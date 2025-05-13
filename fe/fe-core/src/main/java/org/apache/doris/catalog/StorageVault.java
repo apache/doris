@@ -185,10 +185,15 @@ public abstract class StorageVault {
      * @throws UserException
      */
     public void checkCreationProperties(Map<String, String> properties) throws UserException {
-        Preconditions.checkArgument(
-                properties.get(PropertyKey.TYPE) != null, "Missing property " + PropertyKey.TYPE);
-        Preconditions.checkArgument(
-                !properties.get(PropertyKey.TYPE).isEmpty(), "Property " + PropertyKey.TYPE + " cannot be empty");
+        String type = null;
+        for (Map.Entry<String, String> property : properties.entrySet()) {
+            if (property.getKey().equalsIgnoreCase(StorageVault.PropertyKey.TYPE)) {
+                type = property.getValue();
+            }
+        }
+
+        Preconditions.checkArgument(type != null, "Missing property " + PropertyKey.TYPE);
+        Preconditions.checkArgument(!type.isEmpty(), "Property " + PropertyKey.TYPE + " cannot be empty");
     }
 
     protected void replaceIfEffectiveValue(Map<String, String> properties, String key, String value) {
