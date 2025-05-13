@@ -25,10 +25,8 @@ set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/gutil")
 
 SET(SOURCE_FILES
         bits.cc
-        dynamic_annotations.c
         hash/city.cc
         ref_counted.cc
-        stringprintf.cc
         strings/ascii_ctype.cc
         strings/numbers.cc
         strtoint.cc

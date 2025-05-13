@@ -275,6 +275,7 @@ add_compile_options(-g
                     -Wall
                     -Wextra
                     -Werror
+                    -Wundef
                     -pthread
                     -fstrict-aliasing
                     -fno-omit-frame-pointer
