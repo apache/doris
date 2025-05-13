@@ -60,7 +60,7 @@
 4	doris4	\N
 5	doris5	{"m_info":{"a":null, "b":333, "c":399, "d":399999999999999}}
 6	doris6	{"m_info":{"null":100, "b":null}}
-7	\N	{"m_info":{"null":null, "null":null}}
+7	\N	{"m_info":{"null":null}}
 8	\N	\N
 
 -- !select_load4 --
@@ -70,7 +70,7 @@
 4	doris4	\N
 5	doris5	{"m_info":{"a":null, "b":"333", "c":"399", "d":"399999999999999"}}
 6	doris6	{"m_info":{"null":"100", "b":null}}
-7	\N	{"m_info":{"null":null, "null":null}}
+7	\N	{"m_info":{"null":null}}
 8	\N	\N
 
 -- !select_base5 --
@@ -163,7 +163,7 @@
 3	doris3	{"dd":{"s_info":null, "l_info":null}}
 4	doris4	\N
 5	doris5	{"doris-nereids":{"s_info":"nereids", "l_info":null}, "yyzz":{"s_info":null, "l_info":999999}}
-7	\N	{"null":null, "null":null}
+7	\N	{"null":null}
 8	\N	\N
 
 -- !select_load9 --
@@ -172,7 +172,7 @@
 3	doris3	{"dd":{"s_info":null, "l_info":null}}
 4	doris4	\N
 5	doris5	{"doris-nereids":{"s_info":"nereids", "l_info":null}, "yyzz":{"s_info":null, "l_info":"999999"}}
-7	\N	{"null":null, "null":null}
+7	\N	{"null":null}
 8	\N	\N
 
 -- !select_base10 --
@@ -180,14 +180,14 @@
 2	doris2	{"xx":null, "a":{"s_info":"doris", "l_info":18}}
 3	doris3	{"dd":{"s_info":null, "l_info":null}}
 5	doris5	{"doris-nereids":{"s_info":"nereids", "l_info":null}, "yyzz":{"s_info":null, "l_info":999999}}
-7	\N	{"null":null, "null":null}
+7	\N	{"null":null}
 
 -- !select_load10 --
 1	doris1	{"a":{"s_info":"doris", "l_info":"18"}, "b":{"s_info":"nereids", "l_info":"20"}, "c":{"s_info":"nereids", "l_info":"21"}}
 2	doris2	{"xx":null, "a":{"s_info":"doris", "l_info":"18"}}
 3	doris3	{"dd":{"s_info":null, "l_info":null}}
 5	doris5	{"doris-nereids":{"s_info":"nereids", "l_info":null}, "yyzz":{"s_info":null, "l_info":"999999"}}
-7	\N	{"null":null, "null":null}
+7	\N	{"null":null}
 
 -- !select_base11 --
 1	doris1	{"a":{"a":100, "b":111}, "b":{"a":200, "b":222, "c":333}, "c":{"nereids":99}}
@@ -195,7 +195,7 @@
 3	doris3	{"dd":null, "qq":null, "ww":{"null":100, "b":null}}
 4	doris4	\N
 5	doris5	{"doris-nereids":{"nereids":null}, "yyzz":{"xx":null, "doris":999999}}
-7	\N	{"doris":{"null":null, "null":null}, "nereids":{"a":200, "b":222, "c":333}}
+7	\N	{"doris":{"null":null}, "nereids":{"a":200, "b":222, "c":333}}
 8	\N	\N
 
 -- !select_load11 --
@@ -204,7 +204,7 @@
 3	doris3	{"dd":null, "qq":null, "ww":{"null":"100", "b":null}}
 4	doris4	\N
 5	doris5	{"doris-nereids":{"nereids":null}, "yyzz":{"xx":null, "doris":"999999"}}
-7	\N	{"doris":{"null":null, "null":null}, "nereids":{"a":"200", "b":"222", "c":"333"}}
+7	\N	{"doris":{"null":null}, "nereids":{"a":"200", "b":"222", "c":"333"}}
 8	\N	\N
 
 -- !select_base12 --
