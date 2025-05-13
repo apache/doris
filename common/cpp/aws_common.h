@@ -19,9 +19,14 @@
 
 #include <gen_cpp/cloud.pb.h>
 
+#include <filesystem>
+
 namespace doris {
     //AWS Credentials Provider Type
     enum class CredProviderType { Default = 0, Simple = 1, InstanceProfile = 2 };
 
     CredProviderType cred_provider_type_from_pb(cloud::CredProviderTypePB cred_provider_type);
-}
+
+    std::string get_valid_ca_cert_path(const std::vector<std::string>& ca_cert_file_paths);
+
+    } // namespace doris

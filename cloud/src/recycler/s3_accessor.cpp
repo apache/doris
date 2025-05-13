@@ -260,8 +260,18 @@ std::shared_ptr<Aws::Auth::AWSCredentialsProvider> S3Accessor::get_aws_credentia
             return std::make_shared<Aws::Auth::InstanceProfileCredentialsProvider>();
         }
 
+        Aws::Client::ClientConfiguration clientConfiguration;
+        if (_ca_cert_file_path.empty()) {
+            _ca_cert_file_path =
+                    get_valid_ca_cert_path(doris::cloud::split(config::ca_cert_file_paths, ';'));
+        }
+        if (!_ca_cert_file_path.empty()) {
+            clientConfiguration.caFile = _ca_cert_file_path;
+        }
+
         auto stsClient = std::make_shared<Aws::STS::STSClient>(
-                std::make_shared<Aws::Auth::InstanceProfileCredentialsProvider>());
+                std::make_shared<Aws::Auth::InstanceProfileCredentialsProvider>(),
+                clientConfiguration);
 
         return std::make_shared<Aws::Auth::STSAssumeRoleCredentialsProvider>(
                 s3_conf.role_arn, Aws::String(), s3_conf.external_id,
@@ -334,6 +344,14 @@ int S3Accessor::init() {
         }
         aws_config.retryStrategy = std::make_shared<S3CustomRetryStrategy>(
                 config::max_s3_client_retry /*scaleFactor = 25*/);
+
+        if (_ca_cert_file_path.empty()) {
+            _ca_cert_file_path =
+                    get_valid_ca_cert_path(doris::cloud::split(config::ca_cert_file_paths, ';'));
+        }
+        if (!_ca_cert_file_path.empty()) {
+            aws_config.caFile = _ca_cert_file_path;
+        }
         auto s3_client = std::make_shared<Aws::S3::S3Client>(
                 get_aws_credentials_provider(conf_), std::move(aws_config),
                 Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,

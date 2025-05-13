@@ -139,6 +139,7 @@ protected:
 
     S3Conf conf_;
     std::shared_ptr<ObjStorageClient> obj_client_;
+    std::string _ca_cert_file_path;
 };
 
 class GcsAccessor final : public S3Accessor {
