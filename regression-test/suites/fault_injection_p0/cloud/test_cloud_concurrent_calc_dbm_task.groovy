@@ -145,13 +145,14 @@ suite("test_cloud_concurrent_calc_dbm_task", "multi_cluster,docker") {
             t2.join()
 
             sql """use @${cluster1.cluster}"""
-            Exception e1 = null
-            try {
-                sql "select * from ${table1} order by k1;"
-            } catch (Exception e) {
-                e1 = e
-            }
-            assert e1 != null && e1.getMessage().contains("failed to read")
+            qt_upadte2_cluster1 "select * from ${table1} order by k1;"
+            // Exception e1 = null
+            // try {
+            //     sql "select * from ${table1} order by k1;"
+            // } catch (Exception e) {
+            //     e1 = e
+            // }
+            // assert e1 != null && e1.getMessage().contains("failed to read")
 
         } catch(Exception e) {
             logger.info(e.getMessage())

@@ -333,7 +333,6 @@ Status CloudFullCompaction::_cloud_full_compaction_update_delete_bitmap(int64_t 
     RETURN_IF_ERROR(
             _engine.meta_mgr().get_delete_bitmap_update_lock(*cloud_tablet(), -1, initiator));
     RETURN_IF_ERROR(_engine.meta_mgr().sync_tablet_rowsets(cloud_tablet()));
-    std::lock_guard rowset_update_lock(cloud_tablet()->get_rowset_update_lock());
     std::lock_guard header_lock(_tablet->get_header_lock());
     for (const auto& it : cloud_tablet()->rowset_map()) {
         int64_t cur_version = it.first.first;
