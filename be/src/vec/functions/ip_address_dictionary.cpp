@@ -61,13 +61,13 @@ ColumnPtr IPAddressDictionary::get_column(const std::string& attribute_name,
                                           const DataTypePtr& key_type) const {
     if (have_nullable({attribute_type}) || have_nullable({key_type})) {
         throw doris::Exception(
-                ErrorCode::INVALID_ARGUMENT,
+                ErrorCode::INTERNAL_ERROR,
                 "IPAddressDictionary get_column attribute_type or key_type must not nullable type");
     }
     if (key_type->get_primitive_type() != TYPE_IPV4 &&
         key_type->get_primitive_type() != TYPE_IPV6) {
         throw doris::Exception(
-                ErrorCode::INVALID_ARGUMENT,
+                ErrorCode::INTERNAL_ERROR,
                 "IPAddressDictionary only support ip type key , input key type is {} ",
                 key_type->get_name());
     }
@@ -238,8 +238,9 @@ void IPAddressDictionary::load_data(const ColumnPtr& key_column,
     ip_records.erase(new_end, ip_records.end());
 
     if (ip_records.size() < key_column->size()) {
-        throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-                               "The CIDR has duplicate data in IpAddressDictionary");
+        throw doris::Exception(
+                ErrorCode::INVALID_ARGUMENT,
+                "[INVALID_DICT_MARK]The CIDR has duplicate data in IpAddressDictionary");
     }
 
     // Step 3: Process the data needed for the Trie.
@@ -327,5 +328,4 @@ IPAddressDictionary::RowIdxConstIter IPAddressDictionary::look_up_IP(const IPv6&
 
     return ip_not_found();
 }
-
 } // namespace doris::vectorized
