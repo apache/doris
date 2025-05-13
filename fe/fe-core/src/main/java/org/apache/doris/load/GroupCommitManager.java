@@ -328,7 +328,9 @@ public class GroupCommitManager {
     private Long getCachedBackend(String cluster, long tableId) {
         OlapTable table = (OlapTable) Env.getCurrentEnv().getInternalCatalog().getTableByTableId(tableId);
         if (tableToBeMap.containsKey(encode(cluster, tableId))) {
-            if (tableToPressureMap.get(tableId).get() < table.getGroupCommitDataBytes()) {
+            if (tableToPressureMap.get(tableId) == null) {
+                return null;
+            } else if (tableToPressureMap.get(tableId).get() < table.getGroupCommitDataBytes()) {
                 // There are multiple threads getting cached backends for the same table.
                 // Maybe one thread removes the tableId from the tableToBeMap.
                 // Another thread gets the same tableId but can not find this tableId.
