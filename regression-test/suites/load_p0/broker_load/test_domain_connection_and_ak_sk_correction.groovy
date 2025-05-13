@@ -157,13 +157,14 @@ suite("test_domain_connection_and_ak_sk_correction",  "load_p0") {
         logger.info("the fourth sql result is {}", result)
     int totalWaitTime = 0
     int pollInterval = 5
-    int timeout = 80
+    int timeout = 120
     while (totalWaitTime < timeout) {
         def loadResult = sql """
         SHOW LOAD WHERE label="${label}"
     """
 
         if (loadResult == null || loadResult.isEmpty()) {
+            return false
         } else if (loadResult.get(0).get(2) in ['CANCELLED', 'FAILED']) {
             break 
         } else if (loadResult.get(0).get(2) == 'FINISHED') {

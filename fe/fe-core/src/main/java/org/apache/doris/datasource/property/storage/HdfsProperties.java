@@ -58,6 +58,11 @@ public class HdfsProperties extends HdfsCompatibleProperties {
             description = "Whether to enable the impersonation of HDFS.")
     private boolean hdfsImpersonationEnabled = false;
 
+    @ConnectorProperty(names = {"ipc.client.fallback-to-simple-auth-allowed"},
+            required = false,
+            description = "Whether to allow fallback to simple authentication.")
+    private String allowFallbackToSimpleAuth = "";
+
     private Map<String, String> backendConfigProperties;
 
     /**
@@ -152,6 +157,9 @@ public class HdfsProperties extends HdfsCompatibleProperties {
         }
         if (StringUtils.isNotBlank(fsDefaultFS)) {
             conf.set("fs.defaultFS", fsDefaultFS);
+        }
+        if (StringUtils.isNotBlank(allowFallbackToSimpleAuth)) {
+            conf.set("ipc.client.fallback-to-simple-auth-allowed", allowFallbackToSimpleAuth);
         }
         conf.set("hdfs.security.authentication", hdfsAuthenticationType);
         if ("kerberos".equalsIgnoreCase(hdfsAuthenticationType)) {
