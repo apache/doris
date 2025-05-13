@@ -1077,9 +1077,9 @@ public class ConnectContext {
                 timeoutTag = "insert";
             }
             // to ms
-            long timeout = getExecTimeout() * 1000L;
+            long timeout = getExecTimeoutS() * 1000L;
             if (delta > timeout) {
-                LOG.warn("kill {} timeout, remote: {}, query timeout: {}, query id: {}",
+                LOG.warn("kill {} timeout, remote: {}, query timeout: {}ms, query id: {}",
                         timeoutTag, getRemoteHostPortString(), timeout, DebugUtil.printId(queryId));
                 killFlag = true;
             }
@@ -1121,7 +1121,7 @@ public class ConnectContext {
      *
      * @return exact execution timeout
      */
-    public int getExecTimeout() {
+    public int getExecTimeoutS() {
         if (executor != null && executor.isSyncLoadKindStmt()) {
             // particular for insert stmt, we can expand other type of timeout in the same way
             return Math.max(getInsertTimeoutS(), getQueryTimeoutS());

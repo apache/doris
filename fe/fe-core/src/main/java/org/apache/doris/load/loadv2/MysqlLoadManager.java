@@ -167,7 +167,7 @@ public class MysqlLoadManager {
         List<String> filePaths = dataDesc.getFilePaths();
         String database = ClusterNamespace.getNameFromFullName(dataDesc.getDbName());
         String table = dataDesc.getTableName();
-        int oldTimeout = context.getExecTimeout();
+        int oldTimeout = context.getExecTimeoutS();
         int newTimeOut = extractTimeOut(dataDesc);
         if (newTimeOut > oldTimeout) {
             // set query timeout avoid by killed TimeoutChecker

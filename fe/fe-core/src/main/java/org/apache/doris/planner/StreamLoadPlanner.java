@@ -324,7 +324,7 @@ public class StreamLoadPlanner {
         } else {
             olapTableSink = new OlapTableSink(destTable, tupleDesc, partitionIds, enableSingleReplicaLoad);
         }
-        int txnTimeout = timeout == 0 ? ConnectContext.get().getExecTimeout() : timeout;
+        int txnTimeout = timeout == 0 ? ConnectContext.get().getExecTimeoutS() : timeout;
         olapTableSink.init(loadId, taskInfo.getTxnId(), db.getId(), timeout, taskInfo.getSendBatchParallelism(),
                 taskInfo.isLoadToSingleTablet(), taskInfo.isStrictMode(), txnTimeout);
         olapTableSink.setPartialUpdateInfo(uniquekeyUpdateMode, partialUpdateInputColumns);
