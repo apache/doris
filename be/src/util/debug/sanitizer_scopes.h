@@ -21,7 +21,6 @@
 #pragma once
 
 #include "gutil/dynamic_annotations.h"
-#include "gutil/macros.h"
 
 namespace doris {
 namespace debug {

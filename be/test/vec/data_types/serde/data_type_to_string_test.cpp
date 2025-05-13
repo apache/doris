@@ -42,10 +42,10 @@ TEST(ToStringMethodTest, DataTypeToStringTest) {
     std::vector<PrimitiveType> type_ids = {PrimitiveType::TYPE_SMALLINT, PrimitiveType::TYPE_STRING,
                                            PrimitiveType::TYPE_DECIMAL32};
     Array a1, a2;
-    a1.push_back(UInt64(123));
+    a1.push_back(Int64(123));
     a1.push_back(Null());
-    a1.push_back(UInt64(12345678));
-    a1.push_back(UInt64(0));
+    a1.push_back(Int64(12345678));
+    a1.push_back(Int64(0));
     a2.push_back(Field(String("hello amory")));
     a2.push_back(Field("NULL"));
     a2.push_back(Field(String("cute amory")));
@@ -57,9 +57,9 @@ TEST(ToStringMethodTest, DataTypeToStringTest) {
     Tuple t;
     t.push_back(Int128(12345454342));
     t.push_back(Field(String("amory cute")));
-    t.push_back(UInt64(0));
+    t.push_back(Int64(0));
 
-    cases.field_values = {UInt64(12),
+    cases.field_values = {Int64(12),
                           Field(String(" hello amory , cute amory ")),
                           DecimalField<Decimal32>(-12345678, 0),
                           a1,
@@ -84,7 +84,7 @@ TEST(ToStringMethodTest, DataTypeToStringTest) {
     DataTypePtr n1 = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>());
     DataTypePtr n3 = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt128>());
     DataTypePtr s1 = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
-    DataTypePtr u1 = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeUInt64>());
+    DataTypePtr u1 = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt64>());
 
     DataTypePtr a = std::make_shared<DataTypeArray>(u1);
     data_types.push_back(a);

@@ -311,7 +311,7 @@ inline Status MemTrackerLimiter::check_limit(int64_t bytes) {
     // it will not take effect.
     if (consumption() + bytes > _limit) {
         return Status::MemoryLimitExceeded(fmt::format("failed alloc size {}, {}",
-                                                       MemCounter::print_bytes(bytes),
+                                                       PrettyPrinter::print_bytes(bytes),
                                                        tracker_limit_exceeded_str()));
     }
     return Status::OK();

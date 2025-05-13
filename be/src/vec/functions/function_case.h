@@ -252,7 +252,7 @@ public:
                       std::is_same_v<ColumnType, ColumnArray> ||
                       std::is_same_v<ColumnType, ColumnMap> ||
                       std::is_same_v<ColumnType, ColumnStruct> ||
-                      std::is_same_v<ColumnType, ColumnObject> ||
+                      std::is_same_v<ColumnType, ColumnVariant> ||
                       std::is_same_v<ColumnType, ColumnHLL> ||
                       std::is_same_v<ColumnType, ColumnQuantileState> ||
                       std::is_same_v<ColumnType, ColumnIPv4> ||
@@ -471,8 +471,8 @@ public:
             return execute_get_when_null<ColumnStruct>(data_type, block, arguments, result,
                                                        input_rows_count);
         case PrimitiveType::TYPE_VARIANT:
-            return execute_get_when_null<ColumnObject>(data_type, block, arguments, result,
-                                                       input_rows_count);
+            return execute_get_when_null<ColumnVariant>(data_type, block, arguments, result,
+                                                        input_rows_count);
         case PrimitiveType::TYPE_OBJECT:
             return execute_get_when_null<ColumnBitmap>(data_type, block, arguments, result,
                                                        input_rows_count);

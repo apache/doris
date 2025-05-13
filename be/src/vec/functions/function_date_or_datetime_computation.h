@@ -50,11 +50,11 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_date.h"
+#include "vec/data_types/data_type_date_or_datetime_v2.h"
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_time.h"
-#include "vec/data_types/data_type_time_v2.h"
 #include "vec/functions/function.h"
 #include "vec/functions/function_helpers.h"
 #include "vec/runtime/time_value.h"
@@ -656,10 +656,10 @@ struct CurrentDateTimeImpl {
 
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           uint32_t result, size_t input_rows_count) {
-        WhichDataType which(remove_nullable(block.get_by_position(result).type));
         if constexpr (WithPrecision) {
-            DCHECK(which.is_date_time_v2() || which.is_date_v2());
-            if (which.is_date_time_v2()) {
+            DCHECK(block.get_by_position(result).type->get_primitive_type() == TYPE_DATETIMEV2 ||
+                   block.get_by_position(result).type->get_primitive_type() == TYPE_DATEV2);
+            if (block.get_by_position(result).type->get_primitive_type() == TYPE_DATETIMEV2) {
                 return executeImpl<DateV2Value<DateTimeV2ValueType>, UInt64>(
                         context, block, arguments, result, input_rows_count);
             } else {
@@ -667,10 +667,10 @@ struct CurrentDateTimeImpl {
                                                                          result, input_rows_count);
             }
         } else {
-            if (which.is_date_time_v2()) {
+            if (block.get_by_position(result).type->get_primitive_type() == TYPE_DATETIMEV2) {
                 return executeImpl<DateV2Value<DateTimeV2ValueType>, UInt64>(
                         context, block, arguments, result, input_rows_count);
-            } else if (which.is_date_v2()) {
+            } else if (block.get_by_position(result).type->get_primitive_type() == TYPE_DATEV2) {
                 return executeImpl<DateV2Value<DateV2ValueType>, UInt32>(context, block, arguments,
                                                                          result, input_rows_count);
             } else {
@@ -921,11 +921,10 @@ struct UtcTimestampImpl {
     static constexpr auto name = "utc_timestamp";
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           uint32_t result, size_t input_rows_count) {
-        WhichDataType which(remove_nullable(block.get_by_position(result).type));
-        if (which.is_date_time_v2()) {
+        if (block.get_by_position(result).type->get_primitive_type() == TYPE_DATETIMEV2) {
             return executeImpl<DateV2Value<DateTimeV2ValueType>, UInt64>(context, block, result,
                                                                          input_rows_count);
-        } else if (which.is_date_v2()) {
+        } else if (block.get_by_position(result).type->get_primitive_type() == TYPE_DATEV2) {
             return executeImpl<DateV2Value<DateV2ValueType>, UInt32>(context, block, result,
                                                                      input_rows_count);
         } else {
@@ -984,11 +983,11 @@ protected:
         for (size_t i = 0; i < arguments.size(); ++i) {
             data_types[i] = arguments[i].type;
         }
-        if (is_date_v2(return_type)) {
+        if (return_type->get_primitive_type() == TYPE_DATEV2) {
             auto function = FunctionCurrentDateOrDateTime<
                     CurrentDateImpl<FunctionName, DataTypeDateV2, UInt32>>::create();
             return std::make_shared<DefaultFunction>(function, data_types, return_type);
-        } else if (is_date_time_v2(return_type)) {
+        } else if (return_type->get_primitive_type() == TYPE_DATETIMEV2) {
             auto function = FunctionCurrentDateOrDateTime<
                     CurrentDateImpl<FunctionName, DataTypeDateTimeV2, UInt64>>::create();
             return std::make_shared<DefaultFunction>(function, data_types, return_type);

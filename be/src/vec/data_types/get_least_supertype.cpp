@@ -33,6 +33,7 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_date_or_datetime_v2.h"
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_factory.hpp"
@@ -42,7 +43,6 @@
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_object.h"
 #include "vec/data_types/data_type_string.h"
-#include "vec/data_types/data_type_time_v2.h"
 
 namespace doris::vectorized {
 
@@ -175,7 +175,7 @@ void get_least_supertype_jsonb(const DataTypes& types, DataTypePtr* type) {
         non_nothing_types.reserve(types.size());
 
         for (const auto& type : types) {
-            if (!WhichDataType(type).is_nothing()) {
+            if (type->get_primitive_type() != PrimitiveType::INVALID_TYPE) {
                 non_nothing_types.emplace_back(type);
             }
         }
