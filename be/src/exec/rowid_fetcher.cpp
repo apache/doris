@@ -515,25 +515,28 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
                 }
                 file_type_counts[first_file_mapping->type] += request_block_desc.row_id_size();
 
+                // prepare slots to build block
+                std::vector<SlotDescriptor> slots;
+                slots.reserve(request_block_desc.slots_size());
+                for (const auto& pslot : request_block_desc.slots()) {
+                    slots.push_back(SlotDescriptor(pslot));
+                }
                 // prepare block char vector shrink for char type
                 std::vector<size_t> char_type_idx;
-                for (size_t j = 0; j < request_block_desc.column_descs_size(); j++) {
-                    auto column_type = request_block_desc.column_descs(j).type();
-                    std::transform(column_type.begin(), column_type.end(), column_type.begin(),
-                                   [](unsigned char c) { return std::toupper(c); });
-                    if (column_type == "CHAR") {
-                        char_type_idx.push_back(j);
+                for (const auto& slot : slots) {
+                    if (_has_char_type(slot.type())) {
+                        char_type_idx.push_back(i);
                     }
                 }
 
                 if (first_file_mapping->type == FileMappingType::INTERNAL) {
                     RETURN_IF_ERROR(read_batch_doris_format_row(
-                            request_block_desc, id_file_map, tquery_id, result_blocks[i], stats,
-                            &acquire_tablet_ms, &acquire_rowsets_ms, &acquire_segments_ms,
+                            request_block_desc, id_file_map, slots, tquery_id, result_blocks[i],
+                            stats, &acquire_tablet_ms, &acquire_rowsets_ms, &acquire_segments_ms,
                             &lookup_row_data_ms));
                 } else {
                     RETURN_IF_ERROR(read_batch_external_row(
-                            request_block_desc, id_file_map, first_file_mapping, tquery_id,
+                            request_block_desc, id_file_map, slots, first_file_mapping, tquery_id,
                             result_blocks[i], &external_init_reader_ms, &external_get_block_ms));
                 }
 
@@ -582,14 +585,9 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
 
 Status RowIdStorageReader::read_batch_doris_format_row(
         const PRequestBlockDesc& request_block_desc, std::shared_ptr<IdFileMap> id_file_map,
-        const TUniqueId& query_id, vectorized::Block& result_block, OlapReaderStatistics& stats,
-        int64_t* acquire_tablet_ms, int64_t* acquire_rowsets_ms, int64_t* acquire_segments_ms,
-        int64_t* lookup_row_data_ms) {
-    std::vector<SlotDescriptor> slots;
-    slots.reserve(request_block_desc.slots_size());
-    for (const auto& pslot : request_block_desc.slots()) {
-        slots.push_back(SlotDescriptor(pslot));
-    }
+        std::vector<SlotDescriptor>& slots, const TUniqueId& query_id,
+        vectorized::Block& result_block, OlapReaderStatistics& stats, int64_t* acquire_tablet_ms,
+        int64_t* acquire_rowsets_ms, int64_t* acquire_segments_ms, int64_t* lookup_row_data_ms) {
     if (result_block.is_empty_column()) [[likely]] {
         result_block = vectorized::Block(slots, request_block_desc.row_id_size());
     }
@@ -628,11 +626,11 @@ Status RowIdStorageReader::read_batch_doris_format_row(
 
 Status RowIdStorageReader::read_batch_external_row(const PRequestBlockDesc& request_block_desc,
                                                    std::shared_ptr<IdFileMap> id_file_map,
+                                                   std::vector<SlotDescriptor>& slots,
                                                    std::shared_ptr<FileMapping> first_file_mapping,
                                                    const TUniqueId& query_id,
                                                    vectorized::Block& result_block,
                                                    int64_t* init_reader_ms, int64_t* get_block_ms) {
-    std::vector<SlotDescriptor> slots;
     TFileScanRangeParams rpc_scan_params;
     TupleDescriptor tuple_desc(request_block_desc.desc(), false);
     std::unordered_map<std::string, int> colname_to_slot_id;
@@ -657,13 +655,8 @@ Status RowIdStorageReader::read_batch_external_row(const PRequestBlockDesc& requ
 
         std::set partition_name_set(first_scan_range_desc.columns_from_path_keys.begin(),
                                     first_scan_range_desc.columns_from_path_keys.end());
-        slots.reserve(request_block_desc.slots().size());
-        for (auto slot_idx = 0; slot_idx < request_block_desc.slots().size(); ++slot_idx) {
-            const auto& pslot = request_block_desc.slots().at(slot_idx);
-
-            slots.emplace_back(SlotDescriptor {pslot});
-            auto& slot = slots.back();
-
+        for (auto slot_idx = 0; slot_idx < slots.size(); ++slot_idx) {
+            auto& slot = slots[slot_idx];
             tuple_desc.add_slot(&slot);
             colname_to_slot_id.emplace(slot.col_name(), slot.id());
             TFileScanSlotInfo slot_info;
