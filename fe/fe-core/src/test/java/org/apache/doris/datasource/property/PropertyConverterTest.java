@@ -575,8 +575,7 @@ public class PropertyConverterTest extends TestWithFeService {
         String path = "s3://abc/aaa";
         PropertyConverter.s3BrokerConvertToHadoopProperties(origProp, path);
         Assertions.assertEquals("obs://abc/aaa", origProp.get("convertPath"));
-        Assertions.assertEquals("org.apache.hadoop.fs.obs.OBSFileSystem",
-            origProp.get("fs.obs.impl"));
+        Assertions.assertEquals("org.apache.hadoop.fs.obs.OBSFileSystem", origProp.get("fs.obs.impl"));
         Assertions.assertEquals("ak", origProp.get(OBSConstants.ACCESS_KEY));
         Assertions.assertEquals("sk", origProp.get(OBSConstants.SECRET_KEY));
     }
