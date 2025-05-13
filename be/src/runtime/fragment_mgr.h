@@ -180,6 +180,8 @@ public:
 
     Status get_realtime_exec_status(const TUniqueId& query_id,
                                     TReportExecStatusParams* exec_status);
+    Status get_query_progress(const TUniqueId& query_id,
+                              TQueryStatistics* query_stats);
 
     std::shared_ptr<QueryContext> get_query_ctx(const TUniqueId& query_id);
 

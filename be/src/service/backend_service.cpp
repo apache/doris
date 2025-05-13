@@ -1321,19 +1321,27 @@ void BaseBackendService::get_realtime_exec_status(TGetRealtimeExecStatusResponse
 
     std::unique_ptr<TReportExecStatusParams> report_exec_status_params =
             std::make_unique<TReportExecStatusParams>();
-    Status st = ExecEnv::GetInstance()->fragment_mgr()->get_realtime_exec_status(
-            request.id, report_exec_status_params.get());
+    std::unique_ptr<TQueryStatistics> query_stats = std::make_unique<TQueryStatistics>();
 
-    if (!st.ok()) {
-        response.__set_status(st.to_thrift());
-        return;
+    std::string req_type = request.__isset.req_type ? request.req_type : "profile";
+    Status st;
+    if (req_type == "progress") {
+        st = ExecEnv::GetInstance()->fragment_mgr()->get_query_progress(
+                request.id, query_stats.get());
+        if (st.ok()) {
+            response.__set_query_stats(*query_stats);
+        }
+    } else {
+        st = ExecEnv::GetInstance()->fragment_mgr()->get_realtime_exec_status(
+                request.id, report_exec_status_params.get());
+        if (st.ok()) {
+            response.__set_report_exec_status_params(*report_exec_status_params);
+        }
     }
 
     report_exec_status_params->__set_query_id(TUniqueId());
     report_exec_status_params->__set_done(false);
-
-    response.__set_status(Status::OK().to_thrift());
-    response.__set_report_exec_status_params(*report_exec_status_params);
+    response.__set_status(st.to_thrift());
 }
 
 void BaseBackendService::get_dictionary_status(TDictionaryStatusList& result,

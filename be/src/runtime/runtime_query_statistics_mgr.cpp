@@ -521,6 +521,18 @@ void RuntimeQueryStatisticsMgr::get_active_be_tasks_block(vectorized::Block* blo
     }
 }
 
+Status RuntimeQueryStatisticsMgr::get_query_statistics(const std::string& query_id, TQueryStatistics* query_stats) {
+    std::shared_lock<std::shared_mutex> read_lock(_resource_contexts_map_lock);
+    
+    auto resource_ctx = _resource_contexts_map.find(query_id);
+    if (resource_ctx == _resource_contexts_map.end()) {
+        return Status::InternalError("failed to find query with id {}", query_id);
+    }
+
+    resource_ctx->second->to_thrift_query_statistics(query_stats);
+    return Status::OK();
+}
+
 void RuntimeQueryStatisticsMgr::get_tasks_resource_context(
         std::vector<std::shared_ptr<ResourceContext>>& resource_ctxs) {
     std::shared_lock<std::shared_mutex> read_lock(_resource_contexts_map_lock);
