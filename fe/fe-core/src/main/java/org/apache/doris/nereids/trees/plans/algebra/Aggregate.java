@@ -30,7 +30,7 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableSet;
 
-import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -123,7 +123,7 @@ public interface Aggregate<CHILD_TYPE extends Plan> extends UnaryPlan<CHILD_TYPE
                 && getAggregateFunctions().iterator().next() instanceof Count
                 && getAggregateFunctions().iterator().next().arity() == 1
                 && ((Count) getAggregateFunctions().iterator().next()).isSkew()
-                && !getGroupByExpressions().equals(new ArrayList<>(distinctArguments))) {
+                && !(new HashSet<>(getGroupByExpressions()).containsAll(distinctArguments))) {
             return true;
         }
         return false;

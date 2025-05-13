@@ -37,6 +37,9 @@ suite("test_agg_skew_hint") {
     qt_hint_agg_agg "select a , count(distinct [skew] b)from (select a, count(distinct [skew] b) as b from test_skew_hint group by a) t group by a order by 1,2"
     qt_hint_multi_count_distinct "select a, count(distinct [skew] b), count(distinct [skew] c) as b from test_skew_hint group by a order by 1,2"
 
+    qt_test_min_hint "select b , min(distinct [skew] a)from test_skew_hint group by b order by 1,2;"
+    qt_test_wrong_hint "select b , count(distinct [skew2] a)from test_skew_hint group by b order by 1,2;"
+    qt_not_rewrite "select b , count(distinct [skew] a)from test_skew_hint group by b,a order by 1,2;"
 
     sql "set agg_distinct_skew_bucket_num = 1024"
     sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
@@ -57,4 +60,8 @@ suite("test_agg_skew_hint") {
     qt_shape_hint_agg_join "explain shape plan select t1.a , count(distinct [skew] t2.b) from test_skew_hint t1 left join test_skew_hint t2 on t1.a=t2.a group by t1.a"
     qt_shape_hint_agg_agg "explain shape plan select a , count(distinct [skew] b)from (select a, count(distinct [skew] b) as b from test_skew_hint group by a) t group by a"
     qt_shape_hint_multi_count_distinct "explain shape plan select a, count(distinct [skew] b), count(distinct [skew] c) as b from test_skew_hint group by a"
+
+    qt_shape_test_min_hint "explain shape plan select b , min(distinct [skew] a)from test_skew_hint group by b;"
+    qt_shape_test_wrong_hint "explain shape plan select b , count(distinct [skew2] a)from test_skew_hint group by b;"
+    qt_shape_not_rewrite "explain shape plan select b , count(distinct [skew] a)from test_skew_hint group by b,a;"
 }

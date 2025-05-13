@@ -129,6 +129,38 @@
 2	2	1
 3	6	6
 
+-- !test_min_hint --
+2	1
+3	1
+4	2
+5	3
+6	3
+7	3
+8	3
+10	3
+
+-- !test_wrong_hint --
+2	1
+3	2
+4	2
+5	1
+6	1
+7	1
+8	1
+10	1
+
+-- !not_rewrite --
+2	1
+3	1
+3	1
+4	1
+4	1
+5	1
+6	1
+7	1
+8	1
+10	1
+
 -- !shape_hint --
 PhysicalResultSink
 --hashAgg[DISTINCT_GLOBAL]
@@ -247,4 +279,23 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------PhysicalOlapScan[test_skew_hint]
+
+-- !shape_test_min_hint --
+PhysicalResultSink
+--hashAgg[GLOBAL]
+----hashAgg[LOCAL]
+------PhysicalOlapScan[test_skew_hint]
+
+-- !shape_test_wrong_hint --
+PhysicalResultSink
+--hashAgg[GLOBAL]
+----hashAgg[LOCAL]
+------PhysicalOlapScan[test_skew_hint]
+
+-- !shape_not_rewrite --
+PhysicalResultSink
+--hashAgg[DISTINCT_LOCAL]
+----hashAgg[GLOBAL]
+------hashAgg[LOCAL]
+--------PhysicalOlapScan[test_skew_hint]
 
