@@ -104,9 +104,11 @@ DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(base_compaction_task_running_total, MetricU
 DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(base_compaction_task_pending_total, MetricUnit::ROWSETS, "",
                                      compaction_task_state_total, Labels({{"type", "base"}}));
 DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(cumulative_compaction_task_running_total, MetricUnit::ROWSETS,
-                                     "", compaction_task_state_total, Labels({{"type", "cumulative"}}));
+                                     "", compaction_task_state_total,
+                                     Labels({{"type", "cumulative"}}));
 DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(cumulative_compaction_task_pending_total, MetricUnit::ROWSETS,
-                                     "", compaction_task_state_total, Labels({{"type", "cumulative"}}));
+                                     "", compaction_task_state_total,
+                                     Labels({{"type", "cumulative"}}));
 
 DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(segment_read_total, MetricUnit::OPERATIONS,
                                      "(segment_v2) total number of segments read", segment_read,
