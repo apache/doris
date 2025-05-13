@@ -82,7 +82,7 @@ public:
     void _test_encode_decode_page_template(EncodingTypePB& encoding_type,
                                            CompressionTypePB& compress_type,
                                            std::vector<typename TypeTraits<FType>::CppType>& src,
-                                           size_t count,size_t origin_size,
+                                           size_t count, size_t origin_size,
                                            std::string random = "random") {
         // size_t origin_count = count;
         const EncodingInfo* encoding_info;
@@ -223,8 +223,8 @@ public:
     }
 
     template <FieldType FType>
-    void test_encode_decode_page_template(std::vector<typename TypeTraits<FType>::CppType>& src, size_t count,
-                                          size_t origin_size,
+    void test_encode_decode_page_template(std::vector<typename TypeTraits<FType>::CppType>& src,
+                                          size_t count, size_t origin_size,
                                           std::vector<EncodingTypePB> encoding_types,
                                           std::string random = "random") {
         static CompressionTypePB compressions[6] = {LZ4, LZ4F, SNAPPY, ZSTD, ZLIB, LZ4HC};
