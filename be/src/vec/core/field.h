@@ -44,8 +44,6 @@
 namespace doris {
 namespace vectorized {
 template <typename T>
-struct TypeId;
-template <typename T>
 struct TypeName;
 } // namespace vectorized
 struct PackedInt128;
@@ -158,52 +156,60 @@ using FieldMap = std::map<String, Field>;
 DEFINE_FIELD_MAP(VariantMap);
 #undef DEFINE_FIELD_MAP
 
+//TODO: rethink if we really need this? it only save one pointer from std::string
+// not POD type so could only use read/write_json_binary instead of read/write_binary
 class JsonbField {
 public:
     JsonbField() = default;
+    ~JsonbField() = default; // unique_ptr will handle cleanup automatically
 
     JsonbField(const char* ptr, size_t len) : size(len) {
-        data = new char[size];
+        data = std::make_unique<char[]>(size);
         if (!data) {
             throw Exception(Status::FatalError("new data buffer failed, size: {}", size));
         }
-        memcpy(data, ptr, size);
+        if (size > 0) {
+            memcpy(data.get(), ptr, size);
+        }
     }
 
     JsonbField(const JsonbField& x) : size(x.size) {
-        data = new char[size];
+        data = std::make_unique<char[]>(size);
         if (!data) {
             throw Exception(Status::FatalError("new data buffer failed, size: {}", size));
         }
-        memcpy(data, x.data, size);
+        if (size > 0) {
+            memcpy(data.get(), x.data.get(), size);
+        }
     }
 
-    JsonbField(JsonbField&& x) : data(x.data), size(x.size) {
-        x.data = nullptr;
-        x.size = 0;
-    }
+    JsonbField(JsonbField&& x) noexcept : data(std::move(x.data)), size(x.size) { x.size = 0; }
 
+    // dispatch for all type of storage. so need this. but not really used now.
     JsonbField& operator=(const JsonbField& x) {
-        data = new char[size];
-        if (!data) {
-            throw Exception(Status::FatalError("new data buffer failed, size: {}", size));
+        if (this != &x) {
+            data = std::make_unique<char[]>(x.size);
+            if (!data) {
+                throw Exception(Status::FatalError("new data buffer failed, size: {}", x.size));
+            }
+            if (x.size > 0) {
+                memcpy(data.get(), x.data.get(), x.size);
+            }
+            size = x.size;
         }
-        memcpy(data, x.data, size);
         return *this;
     }
 
-    JsonbField& operator=(JsonbField&& x) {
-        delete[] data;
-        data = x.data;
-        size = x.size;
-        x.data = nullptr;
-        x.size = 0;
+    JsonbField& operator=(JsonbField&& x) noexcept {
+        if (this != &x) {
+            data = std::move(x.data);
+            size = x.size;
+            x.size = 0;
+        }
         return *this;
     }
 
-    ~JsonbField() { delete[] data; }
-
-    const char* get_value() const { return data; }
+    const char* get_value() const { return data.get(); }
     size_t get_size() const { return size; }
 
     bool operator<(const JsonbField& r) const {
@@ -234,7 +240,7 @@ public:
     }
 
 private:
-    char* data = nullptr;
+    std::unique_ptr<char[]> data = nullptr;
     size_t size = 0;
 };
 

@@ -49,22 +49,22 @@ public:
 
     DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
         if (arguments.size() == 1) {
-            if (!is_date_or_datetime(remove_nullable(arguments[0].type)) &&
-                !is_date_v2_or_datetime_v2(remove_nullable(arguments[0].type))) {
+            if (!is_date_or_datetime(arguments[0].type->get_primitive_type()) &&
+                !is_date_v2_or_datetime_v2(arguments[0].type->get_primitive_type())) {
                 throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
                                        "Illegal type {} of argument of function {}. Should be a "
                                        "date or a date with time",
                                        arguments[0].type->get_name(), get_name());
             }
         } else if (arguments.size() == 2) {
-            if (!is_date_or_datetime(remove_nullable(arguments[0].type)) &&
-                !is_date_v2_or_datetime_v2(remove_nullable(arguments[0].type))) {
+            if (!is_date_or_datetime(arguments[0].type->get_primitive_type()) &&
+                !is_date_v2_or_datetime_v2(arguments[0].type->get_primitive_type())) {
                 throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
                                        "Illegal type {} of argument of function {}. Should be a "
                                        "date or a date with time",
                                        arguments[0].type->get_name(), get_name());
             }
-            if (!is_string(remove_nullable(arguments[1].type))) {
+            if (!is_string_type(arguments[1].type->get_primitive_type())) {
                 throw doris::Exception(
                         ErrorCode::INVALID_ARGUMENT,
                         "Function {} supports 1 or 2 arguments. The 1st argument must be of type "
@@ -72,7 +72,7 @@ public:
                         "with timezone name",
                         get_name());
             }
-            if (is_date(remove_nullable(arguments[0].type)) &&
+            if (arguments[0].type->get_primitive_type() == TYPE_DATE &&
                 std::is_same_v<ToDataType, DataTypeDate>) {
                 throw doris::Exception(
                         ErrorCode::INVALID_ARGUMENT,

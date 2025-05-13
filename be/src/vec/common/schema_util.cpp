@@ -143,14 +143,14 @@ Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, Co
     // nullable to Variant instead of the root of Variant
     // correct output: Nullable(Array(int)) -> Nullable(Variant(Nullable(Array(int))))
     // incorrect output: Nullable(Array(int)) -> Nullable(Variant(Array(int)))
-    if (WhichDataType(remove_nullable(type)).is_variant_type()) {
+    if (type->get_primitive_type() == TYPE_VARIANT) {
         // If source column is variant, so the nullable info is different from dst column
-        if (WhichDataType(remove_nullable(arg.type)).is_variant_type()) {
+        if (arg.type->get_primitive_type() == TYPE_VARIANT) {
             *result = type->is_nullable() ? make_nullable(arg.column) : remove_nullable(arg.column);
             return Status::OK();
         }
         // set variant root column/type to from column/type
-        auto variant = ColumnObject::create(true /*always nullable*/);
+        auto variant = ColumnVariant::create(true /*always nullable*/);
         CHECK(arg.column->is_nullable());
         variant->create_root(arg.type, arg.column->assume_mutable());
         ColumnPtr nullable = ColumnNullable::create(
@@ -169,7 +169,7 @@ Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, Co
     uint32_t result_column = cast_set<uint32_t>(tmp_block.columns());
     auto ctx = FunctionContext::create_context(nullptr, {}, {});
 
-    if (WhichDataType(arg.type).is_nothing()) {
+    if (arg.type->get_primitive_type() == INVALID_TYPE) {
         // cast from nothing to any type should result in nulls
         *result = type->create_column_const_with_default_value(arg.column->size())
                           ->convert_to_full_column_if_const();
@@ -217,11 +217,14 @@ void get_column_by_type(const vectorized::DataTypePtr& data_type, const std::str
         return;
     }
     // size is not fixed when type is string or json
-    if (WhichDataType(*data_type).is_string() || WhichDataType(*data_type).is_json()) {
+    if (is_string_type(data_type->get_primitive_type()) ||
+        data_type->get_primitive_type() == TYPE_JSONB) {
         column.set_length(INT_MAX);
         return;
     }
-    if (WhichDataType(*data_type).is_simple()) {
+    if (is_int_or_bool(data_type->get_primitive_type()) ||
+        is_string_type(data_type->get_primitive_type()) ||
+        is_float_or_double(data_type->get_primitive_type())) {
         column.set_length(data_type->get_size_of_value_in_memory());
         return;
     }
@@ -246,7 +249,7 @@ void update_least_schema_internal(const std::map<PathInData, DataTypes>& subcolu
     // Get the least common type for all paths.
     for (const auto& [key, subtypes] : subcolumns_types) {
         assert(!subtypes.empty());
-        if (key.get_path() == ColumnObject::COLUMN_NAME_DUMMY) {
+        if (key.get_path() == ColumnVariant::COLUMN_NAME_DUMMY) {
             continue;
         }
         size_t first_dim = get_number_of_dimensions(*subtypes[0]);
@@ -472,7 +475,7 @@ Status _parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
         auto column_ref = block.get_by_position(variant_pos[i]).column;
         bool is_nullable = column_ref->is_nullable();
         const auto& column = remove_nullable(column_ref);
-        const auto& var = assert_cast<const ColumnObject&>(*column.get());
+        const auto& var = assert_cast<const ColumnVariant&>(*column.get());
         var.assume_mutable_ref().finalize();
 
         MutableColumnPtr variant_column;
@@ -482,7 +485,7 @@ Status _parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
             continue;
         }
         ColumnPtr scalar_root_column;
-        if (WhichDataType(remove_nullable(var.get_root_type())).is_json()) {
+        if (var.get_root_type()->get_primitive_type() == TYPE_JSONB) {
             // TODO more efficient way to parse jsonb type, currently we just convert jsonb to
             // json str and parse them into variant
             RETURN_IF_ERROR(cast_column({var.get_root(), var.get_root_type(), ""},
@@ -503,15 +506,15 @@ Status _parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
         }
 
         if (scalar_root_column->is_column_string()) {
-            variant_column = ColumnObject::create(true);
+            variant_column = ColumnVariant::create(true);
             parse_json_to_variant(*variant_column.get(),
                                   assert_cast<const ColumnString&>(*scalar_root_column), config);
         } else {
             // Root maybe other types rather than string like ColumnObject(Int32).
             // In this case, we should finlize the root and cast to JSON type
             auto expected_root_type =
-                    make_nullable(std::make_shared<ColumnObject::MostCommonType>());
-            const_cast<ColumnObject&>(var).ensure_root_node_type(expected_root_type);
+                    make_nullable(std::make_shared<ColumnVariant::MostCommonType>());
+            const_cast<ColumnVariant&>(var).ensure_root_node_type(expected_root_type);
             variant_column = var.assume_mutable();
         }
 
@@ -535,19 +538,19 @@ Status parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
     });
 }
 
-Status encode_variant_sparse_subcolumns(ColumnObject& column) {
+Status encode_variant_sparse_subcolumns(ColumnVariant& column) {
     // Make sure the root node is jsonb storage type
-    auto expected_root_type = make_nullable(std::make_shared<ColumnObject::MostCommonType>());
+    auto expected_root_type = make_nullable(std::make_shared<ColumnVariant::MostCommonType>());
     column.ensure_root_node_type(expected_root_type);
     RETURN_IF_ERROR(column.merge_sparse_to_root_column());
     return Status::OK();
 }
 
 // sort by paths in lexicographical order
-vectorized::ColumnObject::Subcolumns get_sorted_subcolumns(
-        const vectorized::ColumnObject::Subcolumns& subcolumns) {
+vectorized::ColumnVariant::Subcolumns get_sorted_subcolumns(
+        const vectorized::ColumnVariant::Subcolumns& subcolumns) {
     // sort by paths in lexicographical order
-    vectorized::ColumnObject::Subcolumns sorted = subcolumns;
+    vectorized::ColumnVariant::Subcolumns sorted = subcolumns;
     std::sort(sorted.begin(), sorted.end(), [](const auto& lhsItem, const auto& rhsItem) {
         return lhsItem->path < rhsItem->path;
     });
