@@ -160,3 +160,11 @@ true
 false	\N
 true	\N
 
+-- !sql --
+123
+
+-- !sql --
+\N
+
+-- !sql --
+\N
