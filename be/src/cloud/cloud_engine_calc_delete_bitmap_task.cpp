@@ -100,7 +100,7 @@ Status CloudEngineCalcDeleteBitmapTask::execute() {
             return partition.tablet_ids[x] < partition.tablet_ids[y];
         });
         for (const auto idx2 : tablet_idx) {
-            auto tablet_id = partition.tablet_ids[tablet_idx[idx]];
+            auto tablet_id = partition.tablet_ids[tablet_idx[idx2]];
             auto tablet_calc_delete_bitmap_ptr = std::make_shared<CloudTabletCalcDeleteBitmapTask>(
                     _engine, tablet_id, transaction_id, version, partition.sub_txn_ids);
             if (has_compaction_stats) {
