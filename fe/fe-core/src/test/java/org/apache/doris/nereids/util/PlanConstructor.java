@@ -23,6 +23,8 @@ import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionInfo;
+import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.nereids.trees.plans.RelationId;
@@ -86,7 +88,12 @@ public class PlanConstructor {
     public static OlapTable newOlapTable(long tableId, String tableName, int hashColumn, KeysType keysType) {
         List<Column> columns = ImmutableList.of(
                 new Column("id", Type.INT, true, AggregateType.NONE, "0", ""),
-                new Column("name", Type.STRING, true, AggregateType.NONE, "", ""));
+                new Column("name", Type.STRING, true, AggregateType.NONE, "", ""),
+                new Column("salary",
+                        ScalarType.createDecimalType(PrimitiveType.DECIMAL128,
+                                ScalarType.MAX_DECIMAL128_PRECISION, 2),
+                        false, AggregateType.NONE, "", ""),
+                new Column("age", Type.BIGINT, false, AggregateType.NONE, "", ""));
 
         HashDistributionInfo hashDistributionInfo = new HashDistributionInfo(3,
                 ImmutableList.of(columns.get(hashColumn)));
