@@ -339,7 +339,7 @@ TEST_F(DataTypeStringTest, get_field) {
     EXPECT_EQ(dt_str.get_field(expr_node), Field::create_field<TYPE_STRING>("a"));
 }
 
-TEST(DataTypeStringTest, escape_string) {
+TEST_F(DataTypeStringTest, escape_string) {
     {
         char test_str[] = "hello\\world";
         size_t len = strlen(test_str);
@@ -353,25 +353,25 @@ TEST(DataTypeStringTest, escape_string) {
         EXPECT_EQ(std::string(test_str, len), "helloworld");
     }
     {
-        char test_str[] = R"(hello\\\\world)";
+        char test_str[] = R"(hello\\world)";
         size_t len = strlen(test_str);
         escape_string(test_str, &len, '\\');
-        EXPECT_EQ(std::string(test_str, len), "helloworld");
+        EXPECT_EQ(std::string(test_str, len), R"(hello\world)");
     }
     {
         char test_str[] = R"(\\hello\\)";
         size_t len = strlen(test_str);
         escape_string(test_str, &len, '\\');
-        EXPECT_EQ(std::string(test_str, len), "hello");
+        EXPECT_EQ(std::string(test_str, len), R"(\hello\)");
     }
 }
 
-TEST(DataTypeStringTest, escape_string_for_csv) {
+TEST_F(DataTypeStringTest, escape_string_for_csv) {
     {
-        char test_str[] = "hello\"\"world";
+        char test_str[] = R"(hello""world)";
         size_t len = strlen(test_str);
         escape_string_for_csv(test_str, &len, '\\', '"');
-        EXPECT_EQ(std::string(test_str, len), "hello\"world");
+        EXPECT_EQ(std::string(test_str, len), R"(hello"world)");
     }
     {
         char test_str[] = "helloworld";
@@ -389,7 +389,7 @@ TEST(DataTypeStringTest, escape_string_for_csv) {
         char test_str[] = R"(\\"hello\\""world\\)";
         size_t len = strlen(test_str);
         escape_string_for_csv(test_str, &len, '\\', '"');
-        EXPECT_EQ(std::string(test_str, len), R"("hello"world")");
+        EXPECT_EQ(std::string(test_str, len), R"(\"hello\"world\)");
     }
     {
         char test_str[] = "";
