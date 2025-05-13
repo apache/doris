@@ -219,7 +219,7 @@ public:
                   << compress_size
                   //<< decompress_time << ", " << decode_time << ", "
                   << ", " << double(origin_size) / double(compress_size) << ", "
-                  << double(origin_size) / double(encoded_size) << ", " << std::endl;
+                  << double(origin_size) / double(encoded_size) << std::endl;
     }
 
     template <FieldType FType>
@@ -376,13 +376,12 @@ public:
         using CHAR_TYPE = typename TypeTraits<FType>::CppType;
         auto char_count = DATA_SIZE / sizeof(CHAR_TYPE);
         // random
-        std::vector<CHAR_TYPE> strings;
+        std::vector<std::string> strings;
         size_t real_count = 0;
         size_t real_size = 0;
         while (true) {
-            std::string str = rand_rng_by_type(FType);
-            strings.emplace_back(str);
-            real_size += str.size();
+            strings.emplace_back(rand_rng_by_type(FType));
+            real_size += strings.back().size();
             ++real_count;
             if (real_size > DATA_SIZE) {
                 break;
