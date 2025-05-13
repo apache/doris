@@ -81,9 +81,10 @@ public:
     template <FieldType FType>
     void _test_encode_decode_page_template(EncodingTypePB& encoding_type,
                                            CompressionTypePB& compress_type,
-                                           typename TypeTraits<FType>::CppType* src, size_t count,
-                                           size_t origin_size, std::string random = "random") {
-        size_t origin_count = count;
+                                           std::vector<typename TypeTraits<FType>::CppType>& src,
+                                           size_t count,size_t origin_size,
+                                           std::string random = "random") {
+        // size_t origin_count = count;
         const EncodingInfo* encoding_info;
         auto status = EncodingInfo::get(FType, encoding_type, &encoding_info);
         if (!status.ok()) {
@@ -107,7 +108,7 @@ public:
         int64_t encode_time = 0;
         {
             SCOPED_RAW_TIMER(&encode_time);
-            status = page_builder_p->add(reinterpret_cast<const uint8_t*>(src), &count);
+            status = page_builder_p->add(reinterpret_cast<const uint8_t*>(src.data()), &count);
             if (!status.ok()) {
                 std::cerr << "type=" << TabletColumn::get_string_by_field_type(FType)
                           << " encoding_type=" << get_string_by_encoding(encoding_type)
@@ -222,7 +223,7 @@ public:
     }
 
     template <FieldType FType>
-    void test_encode_decode_page_template(typename TypeTraits<FType>::CppType* src, size_t count,
+    void test_encode_decode_page_template(std::vector<typename TypeTraits<FType>::CppType>& src, size_t count,
                                           size_t origin_size,
                                           std::vector<EncodingTypePB> encoding_types,
                                           std::string random = "random") {
@@ -245,7 +246,7 @@ public:
         using INT_TYPE = typename TypeTraits<FType>::CppType;
         auto int_count = DATA_SIZE / sizeof(INT_TYPE);
         // random
-        INT_TYPE ints[int_count];
+        std::vector<INT_TYPE> ints(int_count);
         std::srand(static_cast<unsigned int>(std::time(nullptr)));
         for (int i = 0; i < int_count; ++i) {
             ints[i] = std::rand() % 10000 + 10000;
@@ -277,7 +278,7 @@ public:
         std::random_device rd;
         std::mt19937 gen(rd());
         std::uniform_real_distribution<> dis(100.0, 10000.0);
-        DOUBLE_TYPE doubles[double_count];
+        std::vector<DOUBLE_TYPE> doubles(double_count);
 
         // random
         for (int i = 0; i < double_count; ++i) {
@@ -308,7 +309,7 @@ public:
         using DECIMAL_TYPE = typename TypeTraits<FType>::CppType;
         auto int_count = DATA_SIZE / sizeof(DECIMAL_TYPE);
         // random
-        DECIMAL_TYPE decimals[int_count];
+        std::vector<DECIMAL_TYPE> decimals(int_count);
         std::srand(static_cast<unsigned int>(std::time(nullptr)));
         for (int i = 0; i < int_count; ++i) {
             decimal12_t decimal;
@@ -343,7 +344,7 @@ public:
         using DECIMAL_TYPE = typename TypeTraits<FType>::CppType;
         auto int_count = DATA_SIZE / sizeof(DECIMAL_TYPE);
         // random
-        DECIMAL_TYPE decimals[int_count];
+        std::vector<DECIMAL_TYPE> decimals(int_count);
         std::srand(static_cast<unsigned int>(std::time(nullptr)));
         for (int i = 0; i < int_count; ++i) {
             int128_t high = std::rand();
@@ -387,7 +388,7 @@ public:
                 break;
             }
         }
-        CHAR_TYPE slices[real_count];
+        std::vector<CHAR_TYPE> slices(real_count);
         for (int i = 0; i < real_count; ++i) {
             slices[i] = strings[i];
         }
@@ -411,7 +412,7 @@ public:
                 break;
             }
         }
-        CHAR_TYPE new_slices[real_count];
+        std::vector<CHAR_TYPE> new_slices(real_count);
         for (int i = 0; i < real_count; ++i) {
             new_slices[i] = strings[i];
         }
