@@ -127,6 +127,8 @@ public:
             offset += num_element / 2;
             result_col_map_offsets[row] = offset;
         }
+
+        RETURN_IF_ERROR(map_column->deduplicate_keys());
         block.replace_by_position(result, std::move(result_col));
         return Status::OK();
     }
@@ -389,9 +391,13 @@ private:
             result_col_map_offsets->insert_value(result_col_map_keys_data->size());
         }
 
-        return ColumnMap::create(std::move(result_col_map_keys_data),
-                                 std::move(result_col_map_vals_data),
-                                 std::move(result_col_map_offsets));
+        auto map_column = ColumnMap::create(std::move(result_col_map_keys_data),
+                                            std::move(result_col_map_vals_data),
+                                            std::move(result_col_map_offsets));
+
+        // `deduplicate_keys` always return ok
+        static_cast<void>(map_column->deduplicate_keys());
+        return map_column;
     }
 
     static std::vector<std::string_view> split_pair_by_delim(const std::string_view& str,
