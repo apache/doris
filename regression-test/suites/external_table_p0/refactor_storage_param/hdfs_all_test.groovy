@@ -19,18 +19,20 @@ import static java.util.concurrent.TimeUnit.SECONDS;
 import static groovy.test.GroovyAssert.shouldFail
 
 suite("refactor_params_hdfs_all_test", "p0,external,kerberos,external_docker,external_docker_kerberos") {
-    String enabled = context.config.otherConfigs.get("enableRefactorParamsTest")
+    String enabled = context.config.otherConfigs.get("refactor_params_hdfs_kerberos_test")
     if (enabled == null || enabled.equalsIgnoreCase("false")) {
         return
     }
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+    def keytab_root_dir = "/keytabs"
+    def keytab_dir = "${keytab_root_dir}/hive-presto-master.keytab"
     def table = "hdfs_all_test";
 
     def databaseQueryResult = sql """
        select database();
     """
     println databaseQueryResult
-    def currentDBName = databaseQueryResult.get(0).get(0)
+    def currentDBName = 'refactor_params_hdfs_all_test'
     println currentDBName
     // cos
 
@@ -76,7 +78,7 @@ suite("refactor_params_hdfs_all_test", "p0,external,kerberos,external_docker,ext
             "\"hadoop.kerberos.min.seconds.before.relogin\" = \"5\",\n" +
             "\"hadoop.security.authentication\" = \"kerberos\",\n" +
             "\"hadoop.kerberos.principal\"=\"hive/presto-master.docker.cluster@LABS.TERADATA.COM\",\n" +
-            "\"hadoop.kerberos.keytab\" = \"/mnt/disk1/gq/keytabs/keytabs/hive-presto-master.keytab\",\n" +
+            "\"hadoop.kerberos.keytab\" = \"${keytab_dir}\",\n" +
             "\"hive.metastore.sasl.enabled \" = \"true\",\n" +
             "\"hadoop.security.auth_to_local\" = \"RULE:[2:\\\$1@\\\$0](.*@LABS.TERADATA.COM)s/@.*//\n" +
             "                                   RULE:[2:\\\$1@\\\$0](.*@OTHERLABS.TERADATA.COM)s/@.*//\n" +
@@ -283,10 +285,9 @@ suite("refactor_params_hdfs_all_test", "p0,external,kerberos,external_docker,ext
         })
 
     }
-    def defaultFs = 'hdfs://172.20.32.136:8520'
-    def repoName = 'hdfs_non_xml_repo';
+    def repoName = 'hdfs_repo';
     // create repo
-    createRepository(repoName,"${defaultFs}/test_repo",hdfsNonXmlParams);
+    createRepository(repoName,"hdfs://${externalEnvIp}:8520/test_repo",hdfsNonXmlParams);
     def dbName1 = currentDBName + "${repoName}_1"
     createDBAndTbl(dbName1)
     def backupLabel=repoName+System.currentTimeMillis()
@@ -303,7 +304,7 @@ suite("refactor_params_hdfs_all_test", "p0,external,kerberos,external_docker,ext
     //outfile 
     dbName1 = currentDBName + 'outfile_test_1'
     createDBAndTbl(dbName1)
-    def outfile = outfile_to_hdfs(defaultFs, hdfsNonXmlParams);
+    def outfile = outfile_to_hdfs("hdfs://${externalEnvIp}:8520", hdfsNonXmlParams);
     println outfile
     //hdfs tvf
     def hdfsTvfResult = hdfs_tvf(outfile, hdfsNonXmlParams)
@@ -312,7 +313,7 @@ suite("refactor_params_hdfs_all_test", "p0,external,kerberos,external_docker,ext
     //hdfsLoad(outfile,hdfsNonXmlParams)
 
     //export 
-    export_hdfs(defaultFs, hdfsNonXmlParams)
+    export_hdfs("hdfs://${externalEnvIp}:8520", hdfsNonXmlParams)
 
 
 }

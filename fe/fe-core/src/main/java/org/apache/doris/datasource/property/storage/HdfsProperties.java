@@ -119,7 +119,7 @@ public class HdfsProperties extends HdfsCompatibleProperties {
         }
         userOverriddenHdfsConfig = new HashMap<>();
         origProps.forEach((key, value) -> {
-            if (key.startsWith("hadoop.") || key.startsWith("dfs.") || key.equals("fs.defaultFS")) {
+            if (key.startsWith("hadoop.") || key.startsWith("dfs.") || key.startsWith("fs.")) {
                 userOverriddenHdfsConfig.put(key, value);
             }
         });
@@ -156,6 +156,8 @@ public class HdfsProperties extends HdfsCompatibleProperties {
         }
         if (StringUtils.isNotBlank(allowFallbackToSimpleAuth)) {
             conf.set("ipc.client.fallback-to-simple-auth-allowed", allowFallbackToSimpleAuth);
+        } else {
+            conf.set("ipc.client.fallback-to-simple-auth-allowed", "true");
         }
         conf.set("hdfs.security.authentication", hdfsAuthenticationType);
         if ("kerberos".equalsIgnoreCase(hdfsAuthenticationType)) {

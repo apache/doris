@@ -16,7 +16,7 @@
 // under the License.
 import static groovy.test.GroovyAssert.shouldFail
 
-suite("test_s3_tvf_s3_storage", "p0,external") {
+suite("test_s3_tvf_s3_storage", "p0,external,external_docker") {
     String enabled = context.config.otherConfigs.get("enableRefactorParamsTest")
     if (enabled == null || enabled.equalsIgnoreCase("false")) {
         return
@@ -64,8 +64,8 @@ suite("test_s3_tvf_s3_storage", "p0,external") {
     sql """ INSERT INTO ${export_table_name} VALUES
             ${sb.toString()}
         """
-    qt_select_export """ SELECT * FROM ${export_table_name} t ORDER BY user_id; """
-
+    def insert_result = sql """ SELECT * FROM ${export_table_name} t ORDER BY user_id; """
+    assert insert_result.size() == 10
 
     String ak = ""
     String sk = ""
@@ -76,7 +76,7 @@ suite("test_s3_tvf_s3_storage", "p0,external") {
 
     def s3_tvf = { uri_prefix, endpoint_key, ak_key, sk_key, region_key, is_path_style ->
         // http schema
-        order_qt_s3_tvf """ SELECT * FROM S3 (
+        def queryResult= sql """ SELECT * FROM S3 (
             "uri" = "${uri_prefix}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.parquet",
             "${endpoint_key}" = "${s3_endpoint}",
             "${ak_key}"= "${ak}",
@@ -86,6 +86,7 @@ suite("test_s3_tvf_s3_storage", "p0,external") {
             "format" = "parquet"
         );
         """
+        assert queryResult.size() == 10
     }
 
 

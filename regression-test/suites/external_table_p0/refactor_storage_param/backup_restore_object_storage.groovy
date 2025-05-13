@@ -18,7 +18,7 @@ import org.awaitility.Awaitility;
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static groovy.test.GroovyAssert.shouldFail
 
-suite("refactor_storage_backup_restore_object_storage", "p0,external") {
+suite("refactor_storage_backup_restore_object_storage", "p0,external,external_docker") {
     String enabled = context.config.otherConfigs.get("enableRefactorParamsTest")
     if (enabled == null || enabled.equalsIgnoreCase("false")) {
         return
@@ -29,7 +29,7 @@ suite("refactor_storage_backup_restore_object_storage", "p0,external") {
        select database();
     """
     println databaseQueryResult
-    def currentDBName = databaseQueryResult.get(0).get(0)
+    def currentDBName = 'refactor_repo'
     println currentDBName
     // cos
 
@@ -215,7 +215,7 @@ suite("refactor_storage_backup_restore_object_storage", "p0,external") {
     String region = "ap-northeast-1"
     String bucket = "selectdb-qa-datalake-test"
     String objPrefix="s3"
-    //test_backup_restore(ak,sk,s3_endpoint,region,bucket,objPrefix)
+    test_backup_restore(ak,sk,s3_endpoint,region,bucket,objPrefix)
     /*-----------------Tencent COS----------------*/
     ak = context.config.otherConfigs.get("txYunAk")
     sk = context.config.otherConfigs.get("txYunSk")

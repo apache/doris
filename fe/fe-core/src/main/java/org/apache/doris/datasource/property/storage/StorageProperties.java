@@ -35,6 +35,7 @@ public abstract class StorageProperties extends ConnectionProperties {
     public static final String FS_HDFS_SUPPORT = "fs.hdfs.support";
     public static final String FS_S3_SUPPORT = "fs.s3.support";
     public static final String FS_GCS_SUPPORT = "fs.gcs.support";
+    public static final String FS_MINIO_SUPPORT = "fs.minio.support";
     public static final String FS_AZURE_SUPPORT = "fs.azure.support";
     public static final String FS_OSS_SUPPORT = "fs.oss.support";
     public static final String FS_OBS_SUPPORT = "fs.obs.support";
@@ -50,6 +51,7 @@ public abstract class StorageProperties extends ConnectionProperties {
         OSS,
         OBS,
         COS,
+        MINIO,
         AZURE,
         BROKER,
         UNKNOWN
@@ -126,7 +128,9 @@ public abstract class StorageProperties extends ConnectionProperties {
                     props -> (isFsSupport(props, FS_COS_SUPPORT)
                             || COSProperties.guessIsMe(props)) ? new COSProperties(props) : null,
                     props -> (isFsSupport(props, FS_AZURE_SUPPORT)
-                            || AzureProperties.guessIsMe(props)) ? new AzureProperties(props) : null
+                            || AzureProperties.guessIsMe(props)) ? new AzureProperties(props) : null,
+                    props -> (isFsSupport(props, FS_MINIO_SUPPORT)
+                            || MinioProperties.guessIsMe(props)) ? new MinioProperties(props) : null
             );
 
     protected StorageProperties(Type type, Map<String, String> origProps) {
