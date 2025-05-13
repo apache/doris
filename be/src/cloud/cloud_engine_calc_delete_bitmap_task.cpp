@@ -19,10 +19,8 @@
 
 #include <fmt/format.h>
 
-#include <algorithm>
 #include <memory>
 #include <random>
-#include <ranges>
 #include <thread>
 #include <type_traits>
 
@@ -78,39 +76,23 @@ Status CloudEngineCalcDeleteBitmapTask::execute() {
                 "CloudEngineCalcDeleteBitmapTask.execute.enable_wait", "sleep_time", 3);
         sleep(sleep_time);
     });
-
-    // process dbm calc tasks in partition id ascending, tablet id ascending order to avoid deadlock
-    std::vector<size_t> partition_idx(_cal_delete_bitmap_req.partitions.size());
-    std::iota(partition_idx.begin(), partition_idx.end(), 0);
-    std::ranges::sort(partition_idx, [&](size_t x, size_t y) {
-        return _cal_delete_bitmap_req.partitions[x].partition_id <
-               _cal_delete_bitmap_req.partitions[y].partition_id;
-    });
-    for (const auto idx : partition_idx) {
-        const auto& partition = _cal_delete_bitmap_req.partitions[idx];
+    for (const auto& partition : _cal_delete_bitmap_req.partitions) {
         int64_t version = partition.version;
         bool has_compaction_stats = partition.__isset.base_compaction_cnts &&
                                     partition.__isset.cumulative_compaction_cnts &&
                                     partition.__isset.cumulative_points;
         bool has_tablet_states = partition.__isset.tablet_states;
-
-        std::vector<size_t> tablet_idx(partition.tablet_ids.size());
-        std::iota(tablet_idx.begin(), tablet_idx.end(), 0);
-        std::ranges::sort(tablet_idx, [&](size_t x, size_t y) {
-            return partition.tablet_ids[x] < partition.tablet_ids[y];
-        });
-        for (const auto idx2 : tablet_idx) {
-            auto tablet_id = partition.tablet_ids[tablet_idx[idx2]];
+        for (size_t i = 0; i < partition.tablet_ids.size(); i++) {
+            auto tablet_id = partition.tablet_ids[i];
             auto tablet_calc_delete_bitmap_ptr = std::make_shared<CloudTabletCalcDeleteBitmapTask>(
                     _engine, tablet_id, transaction_id, version, partition.sub_txn_ids);
             if (has_compaction_stats) {
                 tablet_calc_delete_bitmap_ptr->set_compaction_stats(
-                        partition.base_compaction_cnts[idx2],
-                        partition.cumulative_compaction_cnts[idx2],
-                        partition.cumulative_points[idx2]);
+                        partition.base_compaction_cnts[i], partition.cumulative_compaction_cnts[i],
+                        partition.cumulative_points[i]);
             }
             if (has_tablet_states) {
-                tablet_calc_delete_bitmap_ptr->set_tablet_state(partition.tablet_states[idx2]);
+                tablet_calc_delete_bitmap_ptr->set_tablet_state(partition.tablet_states[i]);
             }
             auto submit_st = token->submit_func([tablet_id, tablet_calc_delete_bitmap_ptr, this]() {
                 auto st = tablet_calc_delete_bitmap_ptr->handle();
