@@ -190,17 +190,17 @@ suite("test_hive_write_partitions", "p0,external,hive,external_docker,external_d
     }
 
     def test_doris_write_hive_partition_table = { String catalog_name ->
-        // Fix bug: when writing to a Hive partitioned table via Doris and adding a new partition caused Hive to fail when writing to the same partition again,
-        // with the error: "Partition column xxx conflicts with table columns."
+        // After writing to a Hive partitioned table and adding a new partition using Doris,
+        // writing data to the same partition using Hive results in an error: "Partition column xxx conflicts with table columns."
         String tableName = "test_doris_write_hive_partition_table"
         String originalTableName = "test_doris_write_hive_partition_table_original"
         hive_docker """ drop table if exists ${tableName}; """
         hive_docker """ create table ${tableName} like ${originalTableName}; """
         sql """ refresh catalog ${catalog_name};"""
-        // insert data and add new partitions by doris
+        // Insert data and add new partitions by doris
         sql """ insert into ${tableName} select * from ${originalTableName} where test_date between '2025-05-01' and '2025-05-02'; """
         order_qt_test_doris_write_hive_partition_table1 """ select * from ${tableName}; """
-        // overwrite the partition by hive, this will cause before fix pr
+        // Overwrite the partition by hive, this will cause error before fix pr
         hive_docker """ insert overwrite table ${tableName} partition(test_date='2025-05-01',v3='project1') values(7, 'test7');"""
         sql """ refresh catalog ${catalog_name};"""
         order_qt_test_doris_write_hive_partition_table2 """ select * from ${tableName}; """
