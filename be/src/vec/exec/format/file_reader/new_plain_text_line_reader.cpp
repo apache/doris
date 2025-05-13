@@ -148,6 +148,7 @@ void EncloseCsvLineReaderCtx::_on_pre_match_enclose(const uint8_t* start, size_t
             } else if (_should_escape) [[unlikely]] {
                 _should_escape = false;
             } else if (_quote_escape) {
+                // the last char is quote, so we need to check if the current char is quote to determine if it is escaped by quote
                 if (start[_idx] == _enclose) {
                     // double quote, escaped by quote
                     _quote_escape = false;
