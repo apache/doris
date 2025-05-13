@@ -4732,11 +4732,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         } else {
             functionArgTypesInfo = new FunctionArgTypesInfo(new ArrayList<>(), false);
         }
-        DataType returnType = typedVisit(ctx.returnType);
+        TypeAndEncoding returnTypeAndEncoding = typedVisit(ctx.returnType);
+        DataType returnType = returnTypeAndEncoding.getDataType();
         returnType = returnType.conversion();
-        DataType intermediateType = ctx.intermediateType != null ? typedVisit(ctx.intermediateType) : null;
-        if (intermediateType != null) {
-            intermediateType = intermediateType.conversion();
+        DataType intermediateType = null;
+        if (ctx.intermediateType != null) {
+            TypeAndEncoding intermediateTypeAndEncoding = typedVisit(ctx.intermediateType);
+            intermediateType = intermediateTypeAndEncoding.getDataType().conversion();
         }
         Map<String, String> properties = ctx.propertyClause() != null
                 ? Maps.newHashMap(visitPropertyClause(ctx.propertyClause()))
