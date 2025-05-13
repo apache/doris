@@ -102,7 +102,7 @@ public class AdminRepairTableCommand extends Command implements ForwardWithSync 
     @Override
     protected void checkSupportedInCloudMode(ConnectContext ctx) throws DdlException {
         LOG.info("AdminRepairTableCommand not supported in cloud mode");
-        throw new DdlException("Unsupported operation");
+        throw new DdlException("denied");
     }
 
     @Override

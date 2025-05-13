@@ -63,7 +63,7 @@ suite("test_database_management_auth","p0,auth_call") {
         }
         test {
             sql """ADMIN SET REPLICA STATUS PROPERTIES("tablet_id" = "000", "backend_id" = "000", "status" = "ok");"""
-            exception "Unsupported operation"
+            exception "denied"
         }
         test {
             sql """ADMIN SET REPLICA VERSION PROPERTIES("tablet_id" = "0", "backend_id" = "0", "version" = "0");"""
@@ -87,7 +87,7 @@ suite("test_database_management_auth","p0,auth_call") {
         }
         test {
             sql """ADMIN REPAIR TABLE tbl;"""
-            exception "Unsupported operation"
+            exception "denied"
         }
         test {
             sql """ADMIN CANCEL REPAIR TABLE tbl PARTITION(p1);"""

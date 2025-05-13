@@ -122,7 +122,7 @@ public class AdminSetReplicaStatusCommand extends Command implements ForwardWith
     @Override
     protected void checkSupportedInCloudMode(ConnectContext ctx) throws DdlException {
         LOG.info("AdminSetReplicaStatusCommand not supported in cloud mode");
-        throw new DdlException("Unsupported operation");
+        throw new DdlException("denied");
     }
 
     @Override

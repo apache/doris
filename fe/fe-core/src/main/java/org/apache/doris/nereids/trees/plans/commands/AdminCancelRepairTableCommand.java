@@ -97,7 +97,7 @@ public class AdminCancelRepairTableCommand extends Command implements ForwardWit
     @Override
     protected void checkSupportedInCloudMode(ConnectContext ctx) throws DdlException {
         LOG.info("AdminCancelRepairTableCommand not supported in cloud mode");
-        throw new DdlException("Unsupported operation");
+        throw new DdlException("denied");
     }
 
     @Override
