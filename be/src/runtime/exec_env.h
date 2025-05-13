@@ -375,9 +375,6 @@ private:
     Status _init_mem_env();
     Status _check_deploy_mode();
 
-    void _register_metrics();
-    void _deregister_metrics();
-
     inline static std::atomic_bool _s_ready {false};
     inline static std::atomic_bool _s_tracking_memory {false};
     std::vector<StorePath> _store_paths;
