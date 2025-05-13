@@ -282,7 +282,6 @@ add_compile_options(-g
                     $<$<COMPILE_LANGUAGE:CXX>:-Wnon-virtual-dtor>)
 
 add_compile_options(-Wno-unused-parameter
-                    $<$<COMPILE_LANGUAGE:CXX>:-Wno-incompatible-pointer-types>
                     -Wno-deprecated-declarations
                     -Wno-sign-compare)
 

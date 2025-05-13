@@ -94,7 +94,8 @@ static Status unescape_path(const std::string& escaped, std::string* unescaped) 
     return Status::OK();
 }
 
-Status CGroupUtil::find_cgroupv1_mounts(const std::string& subsystem, pair<std::string, std::string>* result) {
+Status CGroupUtil::find_cgroupv1_mounts(const std::string& subsystem,
+                                        pair<std::string, std::string>* result) {
     std::ifstream mountinfo("/proc/self/mountinfo", std::ios::in);
     std::string line;
     while (true) {
