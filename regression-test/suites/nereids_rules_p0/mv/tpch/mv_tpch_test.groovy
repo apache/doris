@@ -659,18 +659,6 @@ suite("mv_tpch_test") {
               o_year DESC             
     """
 
-    logger.info("start profile")
-    int randomInt = Math.random() * 2000000000
-    profile("test_profile1_time_${randomInt}") {
-        run {
-            sql "/* test_profile1_time_${randomInt} */ ${query9}"
-        }
-
-        check { profileString, exception ->
-            log.info(profileString)
-        }
-    }
-
     order_qt_query9_before "${query9}"
     async_mv_rewrite_success(db, mv9, query9, "mv9")
     order_qt_query9_after "${query9}"
