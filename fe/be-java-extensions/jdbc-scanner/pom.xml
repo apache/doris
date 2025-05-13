@@ -49,6 +49,22 @@ under the License.
             <groupId>org.semver4j</groupId>
             <artifactId>semver4j</artifactId>
         </dependency>
+
+        <dependency>
+            <groupId>org.apache.arrow</groupId>
+            <artifactId>flight-core</artifactId>
+            <version>${arrow.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.arrow</groupId>
+            <artifactId>flight-sql</artifactId>
+            <version>${arrow.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.arrow</groupId>
+            <artifactId>flight-sql-jdbc-driver</artifactId>
+            <version>${arrow.version}</version>
+        </dependency>
     </dependencies>
 
     <build>

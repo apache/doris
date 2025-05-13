@@ -382,6 +382,14 @@ struct TLakeSoulTable {
   3: optional map<string, string> properties
 }
 
+struct TDorisTable {
+  1: optional list<string> fe_nodes
+  2: optional list<string> fe_arrow_nodes
+  3: optional string user_name
+  4: optional string passwd
+  5: optional string table_name
+}
+
 // "Union" of all table types.
 struct TTableDescriptor {
   1: required Types.TTableId id
@@ -407,6 +415,7 @@ struct TTableDescriptor {
   21: optional TMCTable mcTable
   22: optional TTrinoConnectorTable trinoConnectorTable
   23: optional TLakeSoulTable lakesoulTable
+  24: optional TDorisTable dorisTable
 }
 
 struct TDescriptorTable {

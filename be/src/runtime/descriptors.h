@@ -336,6 +336,27 @@ private:
     bool _connection_pool_keep_alive;
 };
 
+class DorisTableDescriptor : public TableDescriptor {
+public:
+    DorisTableDescriptor(const TTableDescriptor& tdesc);
+    std::string debug_string() const override;
+    int64_t catalog_id() const { return _catalog_id; }
+    const std::vector<std::string>& fe_nodes() const { return _fe_nodes; };
+    const std::vector<std::string>& fe_arrow_nodes() const { return _fe_arrow_nodes; };
+    const std::string& user_name() const { return _user_name; }
+    const std::string& passwd() const { return _passwd; }
+    const std::string& table_name() const { return _table_name; }
+
+private:
+    int64_t _catalog_id;
+    std::vector<std::string> _fe_nodes;
+    std::vector<std::string> _fe_arrow_nodes;
+    std::string _user_name;
+    std::string _passwd;
+    std::string _table_name;
+    std::string print_vector(const std::vector<std::string>& vec) const;
+};
+
 class TupleDescriptor {
 public:
     TupleDescriptor(TupleDescriptor&&) = delete;
