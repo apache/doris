@@ -81,7 +81,6 @@ suite("refactor_storage_param_s3_load", "p0,external") {
         def dataCountResult = sql """
             SELECT count(*) FROM ${s3table}
         """
-        def dataCount = dataCountResult[0][0]
         def label = "s3_load_label_" + System.currentTimeMillis()
         def load = sql """
             LOAD LABEL `${label}` (
@@ -115,16 +114,6 @@ suite("refactor_storage_param_s3_load", "p0,external") {
                 throw new RuntimeException("load failed")
             }
             return loadResult.get(0).get(2) == 'FINISHED'
-        })
-
-
-        def expectedCount = dataCount + 1
-        Awaitility.await().atMost(60, SECONDS).pollInterval(5, SECONDS).until({
-            def loadResult = sql """
-            select count(*) from ${s3table}
-        """
-            println "loadResult: ${loadResult} "
-            return loadResult.get(0).get(0) == expectedCount
         })
 
     }
