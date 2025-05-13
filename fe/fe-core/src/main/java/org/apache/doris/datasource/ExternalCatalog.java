@@ -1228,6 +1228,7 @@ public abstract class ExternalCatalog
     }
 
     public PreExecutionAuthenticator getPreExecutionAuthenticator() {
+        makeSureInitialized();
         return preExecutionAuthenticator;
     }
 
