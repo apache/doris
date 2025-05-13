@@ -169,7 +169,7 @@ public:
         ExecEnv::GetInstance()->_file_cache_open_fd_cache = std::make_unique<io::FDCache>();
     }
     static void TearDownTestSuite() {
-        config::file_cache_enter_disk_resource_limit_mode_percent = 90;
+        config::file_cache_enter_disk_resource_limit_mode_percent = 99;
         ExecEnv::GetInstance()->_file_cache_open_fd_cache.reset(nullptr);
     }
 
@@ -3265,6 +3265,7 @@ TEST_F(BlockFileCacheTest, test_factory_1) {
     }
     FileCacheFactory::instance()->clear_file_caches(true);
     EXPECT_EQ(cache->_cur_cache_size, 0);
+    std::this_thread::sleep_for(std::chrono::seconds(1));
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
     }
@@ -3864,6 +3865,7 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader) {
     }
     EXPECT_TRUE(reader.close().ok());
     EXPECT_TRUE(reader.closed());
+    std::this_thread::sleep_for(std::chrono::seconds(1));
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
     }
@@ -3925,6 +3927,7 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_tail) {
         assert_range(2, blocks[1], io::FileBlock::Range(10_mb, 10_mb),
                      io::FileBlock::State::DOWNLOADED);
     }
+    std::this_thread::sleep_for(std::chrono::seconds(1));
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
     }
@@ -4036,6 +4039,13 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_init) {
     context.stats = &rstats;
     context.query_id = query_id;
     ASSERT_TRUE(FileCacheFactory::instance()->create_file_cache(cache_base_path, settings).ok());
+    auto cache = FileCacheFactory::instance()->_caches[0].get();
+    for (int i = 0; i < 100; i++) {
+        if (cache->get_async_open_success()) {
+            break;
+        };
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
     FileReaderSPtr local_reader;
     ASSERT_TRUE(global_local_filesystem()->open_file(tmp_file, &local_reader));
     io::FileReaderOptions opts;
@@ -4133,6 +4143,7 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_concurrent) {
     }
     EXPECT_TRUE(reader->close().ok());
     EXPECT_TRUE(reader->closed());
+    std::this_thread::sleep_for(std::chrono::seconds(1));
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
     }
@@ -4207,6 +4218,7 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_concurrent_2) {
     }
     EXPECT_TRUE(reader->close().ok());
     EXPECT_TRUE(reader->closed());
+    std::this_thread::sleep_for(std::chrono::seconds(1));
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
     }
@@ -4753,6 +4765,7 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_opt_lock) {
         EXPECT_EQ(buffer, std::string(10086, '0'));
         EXPECT_EQ(reader._cache_file_readers.size(), 8);
     }
+    std::this_thread::sleep_for(std::chrono::seconds(1));
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
     }
@@ -7342,6 +7355,7 @@ TEST_F(BlockFileCacheTest, reader_dryrun_when_download_file_cache) {
 
     EXPECT_TRUE(reader.close().ok());
     EXPECT_TRUE(reader.closed());
+    std::this_thread::sleep_for(std::chrono::seconds(1));
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
     }
