@@ -20,7 +20,6 @@ package org.apache.doris.catalog;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableLikeStmt;
 import org.apache.doris.analysis.CreateTableStmt;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
@@ -54,7 +53,6 @@ public class CreateTableLikeTest {
 
         // create connect context
         connectContext = UtFrameUtils.createDefaultCtx();
-        Config.enable_odbc_mysql_broker_table = true;
         // create database
         String createDbStmtStr = "create database test;";
         CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, connectContext);
@@ -135,8 +133,8 @@ public class CreateTableLikeTest {
                 Env.getCurrentInternalCatalog().getDbOrDdlException("" + newDbName);
         Database existedDb = Env.getCurrentInternalCatalog()
                 .getDbOrDdlException("" + existedDbName);
-        MysqlTable newTbl = (MysqlTable) newDb.getTableOrDdlException(newTblName);
-        MysqlTable existedTbl = (MysqlTable) existedDb.getTableOrDdlException(existedTblName);
+        OlapTable newTbl = (OlapTable) newDb.getTableOrDdlException(newTblName);
+        OlapTable existedTbl = (OlapTable) existedDb.getTableOrDdlException(existedTblName);
         checkTableEqual(newTbl, existedTbl, 0);
     }
 
@@ -251,9 +249,8 @@ public class CreateTableLikeTest {
         // 8. creat non-OLAP table
         String createNonOlapTableSql =
                 "create table test.testMysqlTbl\n" + "(k1 DATE, k2 INT, k3 SMALLINT, k4 VARCHAR(2048), k5 DATETIME)\n"
-                        + "ENGINE=mysql\nPROPERTIES(\n" + "\"host\" = \"127.0.0.1\",\n" + "\"port\" = \"8239\",\n"
-                        + "\"user\" = \"mysql_passwd\",\n" + "\"password\" = \"mysql_passwd\",\n"
-                        + "\"database\" = \"mysql_db_test\",\n" + "\"table\" = \"mysql_table_test\");";
+                        + "ENGINE=OLAP\n" + "DUPLICATE KEY(k1, k2, k3)\n" + " DISTRIBUTED BY HASH(k1) BUCKETS 32\n" + "PROPERTIES (\n"
+                        + "\"replication_num\" = \"1\"\n" + ");";
         String createTableLikeSql8 = "create table test.testMysqlTbl_like like test.testMysqlTbl";
         String newDbName8 = "test";
         String existedDbName8 = "test";
