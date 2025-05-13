@@ -24,7 +24,6 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThriftUtils;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.TAgentTaskRequest;
@@ -198,8 +197,6 @@ public class AgentBoundedBatchTask extends AgentBatchTask {
                         req.getTaskType(), backend.getId(), req.getSignature());
             }
         }
-
-        MetricRepo.COUNTER_AGENT_TASK_REQUEST_TOTAL.increase(1L);
 
         BackendService.Client client = null;
         TNetworkAddress address = null;
