@@ -1197,6 +1197,7 @@ struct TGetBinlogRequest {
     8: optional string token
     9: optional i64 prev_commit_seq
     10: optional i64 num_acquired // the max num of binlogs in a batch
+    11: optional bool allow_follower_read
 }
 
 enum TBinlogType {
