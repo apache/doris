@@ -16,39 +16,37 @@
 // under the License.
 
 #pragma once
-#include "common/status.h"
-#include "testutil/any_type.h"
-#include "vec/core/types.h"
+
+#include <string>
+
 #include "vec/function/function_test_util.h"
 
 namespace doris::vectorized {
 using namespace ut_type;
 struct FunctionCastTest : public testing::Test {
-    void SetUp() override {}
+    void SetUp() override { TimezoneUtils::load_timezones_to_cache(); }
     void TearDown() override {}
 
-    template <typename T>
-    using CppType = NativeType<typename T::FieldType>::Type;
-
-    template <typename ToDataType>
-    void check_function_for_cast(const InputTypeSet& input_types, const DataSet& data_set) {
+    // we always need return nullable=true for cast function because of its' get_return_type weird
+    template <typename ResultDataType, int ResultScale = -1, int ResultPrecision = -1>
+    void check_function_for_cast(InputTypeSet input_types, DataSet data_set,
+                                 bool expect_execute_fail = false, bool expect_result_ne = false) {
         std::string func_name = "CAST";
 
-        using CppType = CppType<ToDataType>;
-
         InputTypeSet add_input_types = input_types;
-        add_input_types.push_back(ConstedNotnull {TypeId<CppType>::value});
+        add_input_types.emplace_back(ConstedNotnull {ResultDataType {}.get_primitive_type()});
 
+        // the column-1(target type placeholder) must be const. so we must split the data_set into const_datasets with
+        // only 1 row.
         for (const auto& row : data_set) {
             auto add_row = row;
-            add_row.first.push_back(CppType {});
+            add_row.first.push_back(ut_type::ut_input_type_default_v<ResultDataType>);
             DataSet const_dataset = {add_row};
 
-            auto st = check_function<ToDataType, true>(func_name, add_input_types, const_dataset);
-
-            EXPECT_TRUE(st.ok()) << "check_function failed: " << st.msg();
+            static_cast<void>(check_function<ResultDataType, true, ResultScale, ResultPrecision>(
+                    func_name, add_input_types, const_dataset, expect_execute_fail,
+                    expect_result_ne));
         }
     }
 };
-
 } // namespace doris::vectorized

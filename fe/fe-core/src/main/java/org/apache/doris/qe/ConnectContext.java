@@ -133,6 +133,8 @@ public class ConnectContext {
     protected volatile LoadTaskInfo streamLoadInfo;
 
     protected volatile TUniqueId queryId = null;
+    // only be active one time. tell Coordinator to regenerate instance ids for certain query(when retry).
+    protected volatile TUniqueId needRegenerateInstanceId = null;
     protected volatile AtomicInteger instanceIdGenerator = new AtomicInteger();
     protected volatile String traceId;
     protected volatile TUniqueId lastQueryId = null;
@@ -653,13 +655,14 @@ public class ConnectContext {
         this.isTempUser = isTempUser;
     }
 
-    // for USER() function
-    public UserIdentity getUserIdentity() {
-        return UserIdentity.createAnalyzedUserIdentWithIp(qualifiedUser, remoteIP);
-    }
-
     public UserIdentity getCurrentUserIdentity() {
         return currentUserIdentity;
+    }
+
+    // used for select user(), select session_user();
+    // return string similar with user@127.0.0.1
+    public String getUserWithLoginRemoteIpString() {
+        return UserIdentity.createAnalyzedUserIdentWithIp(qualifiedUser, remoteIP).toString();
     }
 
     public void setCurrentUserIdentity(UserIdentity currentUserIdentity) {
@@ -941,6 +944,10 @@ public class ConnectContext {
         }
     }
 
+    public void setNeedRegenerateInstanceId(TUniqueId needRegenerateInstanceId) {
+        this.needRegenerateInstanceId = needRegenerateInstanceId;
+    }
+
     public void setTraceId(String traceId) {
         this.traceId = traceId;
     }
@@ -963,6 +970,14 @@ public class ConnectContext {
         } else {
             return new TUniqueId(queryId.hi, queryId.lo + instanceIdGenerator.incrementAndGet());
         }
+    }
+
+    public boolean consumeNeedRegenerateQueryId() {
+        if (needRegenerateInstanceId == queryId) {
+            needRegenerateInstanceId = null; // consume it
+            return true;
+        }
+        return false;
     }
 
     public String getSqlHash() {

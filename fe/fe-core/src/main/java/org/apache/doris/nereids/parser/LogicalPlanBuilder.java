@@ -541,6 +541,7 @@ import org.apache.doris.nereids.trees.plans.commands.AdminCancelRebalanceDiskCom
 import org.apache.doris.nereids.trees.plans.commands.AdminCheckTabletsCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminCleanTrashCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminCompactTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.AdminCopyTabletCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminRebalanceDiskCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetTableStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminShowReplicaStatusCommand;
@@ -727,6 +728,7 @@ import org.apache.doris.nereids.trees.plans.commands.SyncCommand;
 import org.apache.doris.nereids.trees.plans.commands.TransactionBeginCommand;
 import org.apache.doris.nereids.trees.plans.commands.TransactionCommitCommand;
 import org.apache.doris.nereids.trees.plans.commands.TransactionRollbackCommand;
+import org.apache.doris.nereids.trees.plans.commands.TruncateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnlockTablesCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsetDefaultStorageVaultCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsetVariableCommand;
@@ -5023,8 +5025,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             Pair<Boolean, List<String>> partitionSpec = visitPartitionSpec(ctx.partitionSpec());
             partitionNamesInfo = new PartitionNamesInfo(partitionSpec.first, partitionSpec.second);
         }
-        IndexDefinition indexDefinition = new IndexDefinition(name, partitionNamesInfo);
-        List<AlterTableOp> alterTableOps = Lists.newArrayList(new BuildIndexOp(tableName, indexDefinition, false));
+        List<AlterTableOp> alterTableOps = Lists.newArrayList(new BuildIndexOp(tableName, name, partitionNamesInfo,
+                false));
         return new AlterTableCommand(tableName, alterTableOps);
     }
 
@@ -6101,6 +6103,19 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
+    public LogicalPlan visitTruncateTable(DorisParser.TruncateTableContext ctx) {
+        TableNameInfo tableName = new TableNameInfo(visitMultipartIdentifier(ctx.multipartIdentifier()));
+        Optional<PartitionNamesInfo> partitionNamesInfo = ctx.specifiedPartition() == null
+                ? Optional.empty() : Optional.of(visitSpecifiedPartitionContext(ctx.specifiedPartition()));
+
+        return new TruncateTableCommand(
+            tableName,
+            partitionNamesInfo,
+            ctx.FORCE() != null
+        );
+    }
+
+    @Override
     public LogicalPlan visitShowConvertLsc(ShowConvertLscContext ctx) {
         if (ctx.database == null) {
             return new ShowConvertLSCCommand(null);
@@ -6713,6 +6728,17 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             jobIs.add(Long.parseLong(token.getText()));
         }
         return new CancelAlterTableCommand(tableNameInfo, alterOpType, jobIs);
+    }
+
+    public LogicalPlan visitAdminCopyTablet(DorisParser.AdminCopyTabletContext ctx) {
+        long tabletId = Long.parseLong(ctx.tabletId.getText());
+        Map<String, String> properties;
+        if (ctx.propertyClause() != null) {
+            properties = visitPropertyClause(ctx.propertyClause());
+        } else {
+            properties = ImmutableMap.of();
+        }
+        return new AdminCopyTabletCommand(tabletId, properties);
     }
 
     @Override

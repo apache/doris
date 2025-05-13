@@ -39,7 +39,9 @@ void url_encode(const std::string_view& in, std::string* out) {
         } else if (c == ' ') {
             os << '+';
         } else {
-            os << '%' << to_hex(c >> 4) << to_hex(c % 16);
+            ///TODO: In the past, there was an error here involving the modulus operation on a char (signed number).
+            // When the char data exceeds 128 (UTF-8 byte), it leads to incorrect results. It is actually better to use some third-party libraries here.
+            os << '%' << to_hex((unsigned char)c >> 4) << to_hex((unsigned char)c % 16);
         }
     }
 

@@ -291,8 +291,10 @@ public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPost
         }
         if (!Env.getCurrentEnv().getAccessManager().checkWorkloadGroupPriv(context, groupName, PrivPredicate.USAGE)) {
             ErrorReport.reportAnalysisException(
-                    "Access denied; you need (at least one of) the %s privilege(s) to use workload group '%s'.",
-                    ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "USAGE/ADMIN", groupName);
+                    "Access denied; you need (at least one of) the %s privilege(s) to use workload group '%s'. "
+                            + "User: %s",
+                    ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "USAGE/ADMIN", groupName,
+                    context.getCurrentUserIdentity());
         }
         return groupName;
     }
@@ -618,14 +620,12 @@ public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPost
         return oldWgList;
     }
 
-    public void tryCreateNormalWorkloadGroup() {
+    public void tryCreateNormalWorkloadGroup(String defaultCgName) {
         writeLock();
         try {
             LOG.info("[init_wg] before create normal wg, id map: {}, name map: {}", idToWorkloadGroup,
                     keyToWorkloadGroup);
             if (idToWorkloadGroup.isEmpty()) {
-                String defaultCgName = Config.isCloudMode() ? Tag.VALUE_DEFAULT_COMPUTE_GROUP_NAME
-                        : Tag.VALUE_DEFAULT_TAG;
                 Map<String, String> properties = Maps.newHashMap();
                 properties.put(WorkloadGroup.ENABLE_MEMORY_OVERCOMMIT, "true");
                 properties.put(WorkloadGroup.COMPUTE_GROUP, defaultCgName);

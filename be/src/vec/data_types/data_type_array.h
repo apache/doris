@@ -58,7 +58,6 @@ public:
 
     DataTypeArray(const DataTypePtr& nested_);
 
-    TypeIndex get_type_id() const override { return TypeIndex::Array; }
     PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_ARRAY; }
 
     doris::FieldType get_storage_field_type() const override {

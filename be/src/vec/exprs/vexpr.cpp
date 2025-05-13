@@ -656,8 +656,9 @@ Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBase
                 auto target_type = remove_nullable(cast_expr->get_target_type());
                 auto origin_primitive_type = storage_type->get_primitive_type();
                 auto target_primitive_type = target_type->get_primitive_type();
-                if (is_complex_type(storage_type)) {
-                    if (is_array(storage_type) && is_array(target_type)) {
+                if (is_complex_type(storage_type->get_primitive_type())) {
+                    if (storage_type->get_primitive_type() == TYPE_ARRAY &&
+                        target_type->get_primitive_type() == TYPE_ARRAY) {
                         auto nested_storage_type =
                                 (assert_cast<const DataTypeArray*>(storage_type.get()))
                                         ->get_nested_type();
