@@ -128,6 +128,7 @@ public class PartitionExprUtil {
         return null;
     }
 
+    // should be same with formatters in DynamicPartitionUtil
     private static String getSimpleRangePartitionName(DateLiteral beginTime, FunctionIntervalInfo intervalInfo)
             throws AnalysisException {
         String timeUnit = intervalInfo.timeUnit;
@@ -164,9 +165,8 @@ public class PartitionExprUtil {
         ArrayList<Expr> partitionExprs = partitionInfo.getPartitionExprs();
         PartitionType partitionType = partitionInfo.getType();
         List<Column> partitionColumn = partitionInfo.getPartitionColumns();
-        boolean hasStringType = partitionColumn.stream().anyMatch(column -> column.getType().isStringType());
         FunctionIntervalInfo intervalInfo = getFunctionIntervalInfo(partitionExprs, partitionType);
-        Set<String> filterPartitionValues = new HashSet<String>();
+        Set<ArrayList<String>> deduper = new HashSet<>();
 
         for (List<TNullableStringLiteral> partitionValueList : partitionValues) {
             PartitionKeyDesc partitionKeyDesc = null;
@@ -182,14 +182,13 @@ public class PartitionExprUtil {
                     curPartitionValues.add(tStringLiteral.value);
                 }
             }
-            // Concatenate each string with its length. X means null
-            String filterStr = curPartitionValues.stream()
-                    .map(s -> (s == null) ? "X" : (s + s.length()))
-                    .reduce("", (s1, s2) -> s1 + s2);
-            if (filterPartitionValues.contains(filterStr)) {
+
+            if (deduper.contains(curPartitionValues)) {
                 continue;
             }
-            filterPartitionValues.add(filterStr);
+            deduper.add(curPartitionValues);
+
+            // rule of partition name see FeNameFormat.java#checkPartitionName
             if (partitionType == PartitionType.RANGE) {
                 String beginTime = curPartitionValues.get(0); // have check range type size must be 1
                 Type partitionColumnType = partitionColumn.get(0).getType();
@@ -217,11 +216,9 @@ public class PartitionExprUtil {
                 }
                 listValues.add(inValues);
                 partitionKeyDesc = PartitionKeyDesc.createIn(listValues);
-                partitionName += getFormatPartitionValue(filterStr);
-                if (hasStringType) {
-                    if (partitionName.length() > 50) {
-                        throw new AnalysisException("Partition name's length is over limit of 50. abort to create.");
-                    }
+                partitionName += getFormatPartitionValues(curPartitionValues); // no simple name for list partition
+                if (partitionName.length() > 50) {
+                    throw new AnalysisException("Partition name's length is over limit of 50. abort to create.");
                 }
             } else {
                 throw new AnalysisException("now only support range and list partition");
@@ -281,21 +278,29 @@ public class PartitionExprUtil {
         return new PartitionValue(timeString);
     }
 
-    private static String getFormatPartitionValue(String value) {
+    private static String getFormatPartitionValues(ArrayList<String> value) {
         StringBuilder sb = new StringBuilder();
-        // When the value is negative
-        if (value.length() > 0 && value.charAt(0) == '-') {
-            sb.append("_");
-        }
-        for (int i = 0; i < value.length(); i++) {
-            char ch = value.charAt(i);
-            if ((ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9')) {
-                sb.append(ch);
-            } else {
-                int unicodeValue = value.codePointAt(i);
-                String unicodeString = Integer.toHexString(unicodeValue);
-                sb.append(unicodeString);
+        for (int i = 0; i < value.size(); i++) {
+            String str = value.get(i);
+            if (str == null) {
+                sb.append("X");
+                continue;
             }
+            // when start with '-'. maybe we actually dont need this deal but it has been here.
+            if (str.length() > 0 && str.charAt(0) == '-') {
+                sb.append("_");
+            }
+            for (int j = 0; j < str.length(); j++) {
+                char ch = str.charAt(j);
+                if ((ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9')) {
+                    sb.append(ch);
+                } else {
+                    int unicodeValue = str.codePointAt(j);
+                    String unicodeString = Integer.toHexString(unicodeValue);
+                    sb.append(unicodeString);
+                }
+            }
+            sb.append(str.length()); // origin str's length.
         }
         return sb.toString();
     }

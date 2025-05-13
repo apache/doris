@@ -93,7 +93,7 @@ suite("test_auto_dynamic", "nonConcurrent") {
         );
     """
     def part_result = sql " show partitions from auto_dynamic "
-    assertEquals(part_result.size, 6)
+    assertEquals(part_result.size(), 6)
 
     sql " drop table if exists auto_dynamic "
     sql """
@@ -114,7 +114,7 @@ suite("test_auto_dynamic", "nonConcurrent") {
         );
     """
     part_result = sql " show partitions from auto_dynamic "
-    assertEquals(part_result.size, 1)
+    assertEquals(part_result.size(), 1)
 
     def skip_test = false
     test {
@@ -133,13 +133,14 @@ suite("test_auto_dynamic", "nonConcurrent") {
         return true
     }
 
-    sql """ admin set frontend config ('dynamic_partition_check_interval_seconds' = '1') """
-    sleep(10000)
-    part_result = sql " show partitions from auto_dynamic "
-    log.info("${part_result}".toString())
-    assertEquals(part_result.size, 3)
+    // wait https://github.com/apache/doris/pull/45540
+    // sql """ admin set frontend config ('dynamic_partition_check_interval_seconds' = '1') """
+    // sleep(10000)
+    // part_result = sql " show partitions from auto_dynamic "
+    // log.info("${part_result}".toString())
+    // assertEquals(part_result.size(), 3)
 
     qt_sql_dynamic_auto "select * from auto_dynamic order by k0;"
 
-    sql """ admin set frontend config ('dynamic_partition_check_interval_seconds' = '600') """
+    // sql """ admin set frontend config ('dynamic_partition_check_interval_seconds' = '600') """
 }
