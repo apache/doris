@@ -2820,7 +2820,7 @@ public class Config extends ConfigBase {
             + "If the configuration is less than 0, the code will have an adaptive non-cloud mode with a default of 1G,"
             + " and in cloud mode with a default of 5G."
     })
-    public static int autobucket_partition_size_per_bucket_gb = 1;
+    public static int autobucket_partition_size_per_bucket_gb = -1;
 
     @ConfField(description = {"Arrow Flight Server中所有用户token的缓存上限，超过后LRU淘汰，默认值为512, "
             + "并强制限制小于 qe_max_connection/2, 避免`Reach limit of connections`, "
