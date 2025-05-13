@@ -344,11 +344,13 @@ struct TPublishTopicResult {
 struct TGetRealtimeExecStatusRequest {
     // maybe query id or other unique id
     1: optional Types.TUniqueId id
+    2: optional string req_type
 }
 
 struct TGetRealtimeExecStatusResponse {
     1: optional Status.TStatus status
     2: optional FrontendService.TReportExecStatusParams report_exec_status_params
+    3: optional FrontendService.TQueryStatistics query_stats
 }
 
 struct TDictionaryStatus {
