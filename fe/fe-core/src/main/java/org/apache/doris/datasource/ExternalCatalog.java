@@ -59,6 +59,7 @@ import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.datasource.test.TestExternalDatabase;
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalDatabase;
 import org.apache.doris.fs.remote.dfs.DFSFileSystem;
+import org.apache.doris.nereids.trees.plans.commands.TruncateTableCommand;
 import org.apache.doris.persist.CreateDbInfo;
 import org.apache.doris.persist.CreateTableInfo;
 import org.apache.doris.persist.DropDbInfo;
@@ -1181,6 +1182,32 @@ public abstract class ExternalCatalog
         } catch (Exception e) {
             LOG.warn("Failed to truncate table {}.{} in catalog {}", stmt.getTblRef().getName().getDb(),
                     stmt.getTblRef().getName().getTbl(), getName(), e);
+            throw e;
+        }
+    }
+
+    @Override
+    public void truncateTable(TruncateTableCommand command) throws DdlException {
+        makeSureInitialized();
+        if (metadataOps == null) {
+            throw new UnsupportedOperationException("Truncate table not supported in " + getName());
+        }
+        try {
+            String db = command.getTableNameInfo().getDb();
+            String tbl = command.getTableNameInfo().getTbl();
+
+            // delete all table data if null
+            List<String> partitions = null;
+            if (command.getPartitionNamesInfo().isPresent()) {
+                partitions = command.getPartitionNamesInfo().get().getPartitionNames();
+            }
+
+            metadataOps.truncateTable(db, tbl, partitions);
+            TruncateTableInfo info = new TruncateTableInfo(getName(), db, tbl, partitions);
+            Env.getCurrentEnv().getEditLog().logTruncateTable(info);
+        } catch (Exception e) {
+            LOG.warn("Failed to truncate table {}.{} in catalog {}", command.getTableNameInfo().getDb(),
+                    command.getTableNameInfo().getTbl(), getName(), e);
             throw e;
         }
     }
