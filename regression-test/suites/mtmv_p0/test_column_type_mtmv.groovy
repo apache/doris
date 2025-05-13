@@ -18,6 +18,7 @@
 import org.junit.Assert;
 
 suite("test_column_type_mtmv","mtmv") {
+    String dbName = context.config.getDbNameByFile(context.file)
     String suiteName = "test_column_type_mtmv"
     String tableName = "${suiteName}_table"
     String mvName = "${suiteName}_mv"
@@ -47,15 +48,38 @@ suite("test_column_type_mtmv","mtmv") {
         """
 
     waitingMTMVTaskFinishedByMvName(mvName)
-    order_qt_normal "select Name,State,RefreshState  from mv_infos('database'='regression_test_mtmv_p0') where Name='${mvName}'"
+
+    run_on_follower_and_master({ jdbc_url ->
+        connect("root", "", jdbc_url) {
+            sql "sync"
+            sql """set enable_materialized_view_nest_rewrite = true;"""
+            sql "use ${dbName}"
+            order_qt_normal "select Name,State,RefreshState  from mv_infos('database'='regression_test_mtmv_p0') where Name='${mvName}'"
+        }
+    })
     sql """alter table ${tableName} modify column class_id bigint;"""
     assertEquals("FINISHED", getAlterColumnFinalState("${tableName}"))
-    order_qt_after_schema_change "select Name,State,RefreshState  from mv_infos('database'='regression_test_mtmv_p0') where Name='${mvName}'"
+
+    run_on_follower_and_master({ jdbc_url ->
+        connect("root", "", jdbc_url) {
+            sql "sync"
+            sql """set enable_materialized_view_nest_rewrite = true;"""
+            sql "use ${dbName}"
+            order_qt_after_schema_change "select Name,State,RefreshState  from mv_infos('database'='regression_test_mtmv_p0') where Name='${mvName}'"
+        }
+    })
     sql """
          REFRESH MATERIALIZED VIEW ${mvName} auto;
      """
     def jobName = getJobName("regression_test_mtmv_p0", mvName);
     waitingMTMVTaskFinishedNotNeedSuccess(jobName)
     // can not be rewrite
-    order_qt_after_refresh "select Name,State,RefreshState  from mv_infos('database'='regression_test_mtmv_p0') where Name='${mvName}'"
+    run_on_follower_and_master({ jdbc_url ->
+        connect("root", "", jdbc_url) {
+            sql "sync"
+            sql """set enable_materialized_view_nest_rewrite = true;"""
+            sql "use ${dbName}"
+            order_qt_after_refresh "select Name,State,RefreshState  from mv_infos('database'='regression_test_mtmv_p0') where Name='${mvName}'"
+        }
+    })
 }
