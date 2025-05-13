@@ -48,24 +48,33 @@ FROM ${JDK_IMAGE}
 # set environment variables
 ENV JACOCO_VERSION=0.8.8
 
-RUN mkdir -p /opt/apache-doris/coverage
-
-RUN sed -i s@/deb.debian.org/@/mirrors.aliyun.com/@g /etc/apt/sources.list
-RUN apt-get clean
-
-RUN apt-get update \
-    && apt-get install -y default-mysql-client python lsof tzdata curl unzip patchelf jq procps util-linux gosu \
+RUN sed -i s@/deb.debian.org/@/mirrors.aliyun.com/@g /etc/apt/sources.list \
+    && apt-get clean \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+        default-mysql-client \
+        python \
+        lsof \
+        tzdata \
+        curl \
+        unzip \
+        patchelf \
+        jq \
+        procps \
+        util-linux \
+        gosu \
     && ln -fs /usr/share/zoneinfo/Asia/Shanghai /etc/localtime \
     && dpkg-reconfigure -f noninteractive tzdata \
     && apt-get clean
+
+RUN mkdir -p /opt/apache-doris/{fdb,coverage}
 
 RUN curl -f https://repo1.maven.org/maven2/org/jacoco/jacoco/${JACOCO_VERSION}/jacoco-${JACOCO_VERSION}.zip -o jacoco.zip \
     && mkdir /jacoco \
     && unzip jacoco.zip -d /jacoco
 
-RUN mkdir /opt/apache-doris/fdb
-
-# fe and be
+# COPY need refine ARG after FROM
+ARG OUTPUT_PATH
 COPY --chmod=777 ${OUTPUT_PATH} /opt/apache-doris/
 # in docker, run 'chmod 755 doris_be' first time cost 1min, remove it.
 RUN sed -i 's/\<chmod\>/echo/g' /opt/apache-doris/be/bin/start_be.sh
