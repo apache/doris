@@ -2984,7 +2984,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public DataType visitCastDataType(CastDataTypeContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> {
             if (ctx.dataType() != null) {
-                return ((DataType) typedVisit(ctx.dataType())).conversion();
+                return ((TypeAndEncoding) typedVisit(ctx.dataType())).getDataType().conversion();
             } else if (ctx.UNSIGNED() != null) {
                 return LargeIntType.UNSIGNED;
             } else {
@@ -4801,7 +4801,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public List<DataType> visitDataTypeList(DataTypeListContext ctx) {
         List<DataType> dataTypeList = new ArrayList<>(ctx.getChildCount());
         for (DorisParser.DataTypeContext dataTypeContext : ctx.dataType()) {
-            DataType dataType = typedVisit(dataTypeContext);
+            TypeAndEncoding typeAndEncoding = typedVisit(dataTypeContext);
+            DataType dataType = typeAndEncoding.getDataType();
             dataTypeList.add(dataType.conversion());
         }
         return dataTypeList;
