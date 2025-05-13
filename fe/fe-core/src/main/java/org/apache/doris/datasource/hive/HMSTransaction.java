@@ -1282,7 +1282,7 @@ public class HMSTransaction implements Transaction {
                     Maps.newHashMap(),
                     sd.getOutputFormat(),
                     sd.getSerdeInfo().getSerializationLib(),
-                    getTableColumns(tableInfo)
+                    sd.getCols()
             );
 
             HivePartitionWithStatistics partitionWithStats =
