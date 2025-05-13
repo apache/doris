@@ -25,13 +25,11 @@
 
 #include <cstddef>
 #include <iostream>
-#include <limits>
 #include <type_traits>
 
 #include "agent/be_exec_version_manager.h"
 #include "olap/olap_common.h"
 #include "runtime/define_primitive_type.h"
-#include "runtime/types.h"
 #include "testutil/test_util.h"
 #include "vec/columns/column.h"
 #include "vec/common/assert_cast.h"
@@ -42,6 +40,7 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_nullable.h"
+#include "vec/data_types/serde/data_type_string_serde.h"
 #include "vec/io/reader_buffer.h"
 
 namespace doris::vectorized {
@@ -337,5 +336,65 @@ TEST_F(DataTypeStringTest, get_field) {
     expr_node.__isset.string_literal = true;
     expr_node.string_literal.value = "a";
     EXPECT_EQ(dt_str.get_field(expr_node), Field("a"));
+}
+
+TEST(DataTypeStringTest, escape_string) {
+    {
+        char test_str[] = "hello\\world";
+        size_t len = strlen(test_str);
+        escape_string(test_str, &len, '\\');
+        EXPECT_EQ(std::string(test_str, len), "helloworld");
+    }
+    {
+        char test_str[] = "helloworld";
+        size_t len = strlen(test_str);
+        escape_string(test_str, &len, '\\');
+        EXPECT_EQ(std::string(test_str, len), "helloworld");
+    }
+    {
+        char test_str[] = R"(hello\\\\world)";
+        size_t len = strlen(test_str);
+        escape_string(test_str, &len, '\\');
+        EXPECT_EQ(std::string(test_str, len), "helloworld");
+    }
+    {
+        char test_str[] = R"(\\hello\\)";
+        size_t len = strlen(test_str);
+        escape_string(test_str, &len, '\\');
+        EXPECT_EQ(std::string(test_str, len), "hello");
+    }
+}
+
+TEST(DataTypeStringTest, escape_string_for_csv) {
+    {
+        char test_str[] = "hello\"\"world";
+        size_t len = strlen(test_str);
+        escape_string_for_csv(test_str, &len, '\\', '"');
+        EXPECT_EQ(std::string(test_str, len), "hello\"world");
+    }
+    {
+        char test_str[] = "helloworld";
+        size_t len = strlen(test_str);
+        escape_string_for_csv(test_str, &len, '\\', '"');
+        EXPECT_EQ(std::string(test_str, len), "helloworld");
+    }
+    {
+        char test_str[] = R"("hello""world")";
+        size_t len = strlen(test_str);
+        escape_string_for_csv(test_str, &len, '\\', '"');
+        EXPECT_EQ(std::string(test_str, len), R"("hello"world")");
+    }
+    {
+        char test_str[] = R"(\\"hello\\""world\\)";
+        size_t len = strlen(test_str);
+        escape_string_for_csv(test_str, &len, '\\', '"');
+        EXPECT_EQ(std::string(test_str, len), R"("hello"world")");
+    }
+    {
+        char test_str[] = "";
+        size_t len = strlen(test_str);
+        escape_string_for_csv(test_str, &len, '\\', '"');
+        EXPECT_EQ(std::string(test_str, len), "");
+    }
 }
 } // namespace doris::vectorized
