@@ -43,30 +43,45 @@ ARG OUTPUT_PATH=./output
 
 #### END ARG ####
 
-FROM ${JDK_IMAGE}
+# user can speedup with these env:
+# export DOCKER_BUILDKIT=1
+# export BUILDKIT_PROGRESS=plain
 
-# set environment variables
-ENV JACOCO_VERSION=0.8.8
+# 第一阶段：安装依赖
+FROM ${JDK_IMAGE} as base
+# 安装依赖，这部分不会因为 OUTPUT_PATH 变化而重建
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    mkdir -p /opt/apache-doris/{coverage,fdb} /jacoco && \
+    sed -i s@/deb.debian.org/@/mirrors.aliyun.com/@g /etc/apt/sources.list && \
+    apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        default-mysql-client \
+        python \
+        lsof \
+        tzdata \
+        curl \
+        unzip \
+        patchelf \
+        jq \
+        procps \
+        util-linux \
+        gosu && \
+    ln -fs /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && \
+    dpkg-reconfigure -f noninteractive tzdata && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
-RUN mkdir -p /opt/apache-doris/coverage
+# 第二阶段：下载 JaCoCo
+FROM base as jacoco
+RUN --mount=type=cache,target=/root/.cache \
+    curl -fsSL https://repo1.maven.org/maven2/org/jacoco/jacoco/0.8.8/jacoco-0.8.8.zip | unzip -qd /jacoco -
 
-RUN sed -i s@/deb.debian.org/@/mirrors.aliyun.com/@g /etc/apt/sources.list
-RUN apt-get clean
-
-RUN apt-get update \
-    && apt-get install -y default-mysql-client python lsof tzdata curl unzip patchelf jq procps util-linux gosu \
-    && ln -fs /usr/share/zoneinfo/Asia/Shanghai /etc/localtime \
-    && dpkg-reconfigure -f noninteractive tzdata \
-    && apt-get clean
-
-RUN curl -f https://repo1.maven.org/maven2/org/jacoco/jacoco/${JACOCO_VERSION}/jacoco-${JACOCO_VERSION}.zip -o jacoco.zip \
-    && mkdir /jacoco \
-    && unzip jacoco.zip -d /jacoco
-
-RUN mkdir /opt/apache-doris/fdb
-
-# fe and be
+# 最终阶段：组装文件
+FROM base as final
+COPY --from=jacoco /jacoco /jacoco
 COPY --chmod=777 ${OUTPUT_PATH} /opt/apache-doris/
+
 # in docker, run 'chmod 755 doris_be' first time cost 1min, remove it.
 RUN sed -i 's/\<chmod\>/echo/g' /opt/apache-doris/be/bin/start_be.sh
 RUN if [ -d /opt/apache-doris/ms/bin ]; then                            \
