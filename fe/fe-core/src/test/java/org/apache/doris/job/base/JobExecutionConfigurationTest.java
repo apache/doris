@@ -53,12 +53,19 @@ public class JobExecutionConfigurationTest {
         configuration.setExecuteType(JobExecuteType.RECURRING);
 
         TimerDefinition timerDefinition = new TimerDefinition();
-        timerDefinition.setStartTimeMs(100000L); // Start time set to 1 second in the future
-        timerDefinition.setInterval(10L); // Interval set to 10 milliseconds
+        timerDefinition.setStartTimeMs(700000L); // Start time set to 700 second in the future
+        timerDefinition.setInterval(10L); // Interval set to 10 minute
         timerDefinition.setIntervalUnit(IntervalUnit.MINUTE);
         configuration.setTimerDefinition(timerDefinition);
 
         List<Long> delayTimes = configuration.getTriggerDelayTimes(
+                0L, 0L, 1100000L);
+        // test should filter result which smaller than start time
+        Assertions.assertEquals(1, delayTimes.size());
+        Assertions.assertArrayEquals(new Long[]{700L}, delayTimes.toArray());
+
+        timerDefinition.setStartTimeMs(100000L); // Start time set to 100 second in the future
+        delayTimes = configuration.getTriggerDelayTimes(
                 0L, 0L, 1100000L);
 
         Assertions.assertEquals(2, delayTimes.size());
