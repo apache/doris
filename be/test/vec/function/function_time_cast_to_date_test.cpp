@@ -27,7 +27,7 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_date_or_datetime_v2.h"
 #include "vec/data_types/data_type_nullable.h"
-#include "vec/functions/function_cast.h"
+#include "vec/functions/cast/function_cast.h"
 
 namespace doris::vectorized {
 

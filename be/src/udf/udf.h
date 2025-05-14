@@ -88,8 +88,14 @@ public:
     std::optional<TDictFunction>& dict_function() { return _dict_function; };
     bool check_overflow_for_decimal() const { return _check_overflow_for_decimal; }
 
+    bool enable_strict_mode() const { return _enable_strict_mode; }
+
     bool set_check_overflow_for_decimal(bool check_overflow_for_decimal) {
         return _check_overflow_for_decimal = check_overflow_for_decimal;
+    }
+
+    bool set_enable_strict_mode(bool enable_strict_mode) {
+        return _enable_strict_mode = enable_strict_mode;
     }
 
     void set_string_as_jsonb_string(bool string_as_jsonb_string) {
@@ -197,6 +203,7 @@ private:
     //udf execute timer
     RuntimeProfile::Counter* _udf_execute_timer = nullptr;
     bool _check_overflow_for_decimal = false;
+    bool _enable_strict_mode = false;
 
     bool _string_as_jsonb_string = false;
     bool _jsonb_string_as_string = false;
