@@ -2106,7 +2106,9 @@ public class SchemaChangeHandler extends AlterHandler {
                     BuildIndexClause buildIndexClause = (BuildIndexClause) alterClause;
                     IndexDef indexDef = buildIndexClause.getIndexDef();
                     Index index = buildIndexClause.getIndex();
-                    if (Config.isCloudMode() && index.getIndexType() == IndexDef.IndexType.INVERTED) {
+                    if (Config.isCloudMode()
+                            && index.getIndexType() == IndexDef.IndexType.INVERTED
+                            && !index.isNonTokenizedInvertedIndex()) {
                         throw new DdlException("BUILD INDEX operation failed: No need to do it in cloud mode.");
                     }
 
@@ -2168,13 +2170,21 @@ public class SchemaChangeHandler extends AlterHandler {
                 if (alterIndexes.isEmpty()) {
                     throw new DdlException("Altered index is empty. please check your alter stmt.");
                 }
-                IndexDef.IndexType indexType = alterIndexes.get(0).getIndexType();
+                Index index = alterIndexes.get(0);
                 if (Config.enable_light_index_change) {
-                    if (indexType == IndexDef.IndexType.INVERTED) {
-                        buildOrDeleteTableInvertedIndices(db, olapTable, indexSchemaMap,
-                                alterIndexes, indexOnPartitions, false);
+                    // in cloud mode, we only support building index for ngram and inverted index without parser.
+                    // here we do not check index type because it has been checked in BuildIndexClause process.
+                    if (Config.isCloudMode()) {
+                        createJob(rawSql, db.getId(), olapTable, indexSchemaMap, propertyMap, alterIndexes, true);
                     } else {
-                        createJob(rawSql, db.getId(), olapTable, indexSchemaMap, propertyMap, newIndexes, true);
+                        // in local mode, we do light index build for inverted index
+                        // and we do direct schema change for ngram bf index.
+                        if (index.getIndexType() == IndexDef.IndexType.INVERTED) {
+                            buildOrDeleteTableInvertedIndices(db, olapTable, indexSchemaMap,
+                                    alterIndexes, indexOnPartitions, false);
+                        } else {
+                            createJob(rawSql, db.getId(), olapTable, indexSchemaMap, propertyMap, alterIndexes, true);
+                        }
                     }
                 }
             } else {
@@ -2746,7 +2756,8 @@ public class SchemaChangeHandler extends AlterHandler {
 
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
 
-        List<IndexChangeJob> jobList = new ArrayList<>();
+        List<IndexChangeJob> indexJobList = new ArrayList<>();
+        AlterJobV2 schemaChangeJobV2 = null;
 
         Table olapTable = db.getTableOrDdlException(tableName, Table.TableType.OLAP);
         olapTable.writeLock();
@@ -2756,37 +2767,57 @@ public class SchemaChangeHandler extends AlterHandler {
                     && cancelAlterTableStmt.getAlterJobIdList().size() > 0) {
                 for (Long jobId : cancelAlterTableStmt.getAlterJobIdList()) {
                     IndexChangeJob job = indexChangeJobs.get(jobId);
-                    if (job == null) {
-                        continue;
+                    if (job != null && job.getTableId() == olapTable.getId() && !job.isDone()) {
+                        indexJobList.add(job);
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("add build index job {} on table {} for specific id", jobId, tableName);
+                        }
                     }
-                    jobList.add(job);
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("add build index job {} on table {} for specific id", jobId, tableName);
+                    if (job == null) {
+                        // check schemaChangeJobV2
+                        AlterJobV2 alterJob = alterJobsV2.get(jobId);
+                        if (alterJob != null && alterJob instanceof SchemaChangeJobV2
+                                && !alterJob.isDone() && alterJob.getTableId() == olapTable.getId()) {
+                            SchemaChangeJobV2 jobV2 = (SchemaChangeJobV2) alterJob;
+                            if (jobV2.hasIndexChange()) {
+                                // only one schema change job can be cancelled
+                                schemaChangeJobV2 = jobV2;
+                                if (LOG.isDebugEnabled()) {
+                                    LOG.debug("add schema change job {} on table {} for specific id", jobId, tableName);
+                                }
+                            }
+                        }
+                        continue;
                     }
                 }
             } else {
                 for (IndexChangeJob job : indexChangeJobs.values()) {
                     if (!job.isDone() && job.getTableId() == olapTable.getId()) {
-                        jobList.add(job);
+                        indexJobList.add(job);
                         if (LOG.isDebugEnabled()) {
                             LOG.debug("add build index job {} on table {} for all", job.getJobId(), tableName);
                         }
                     }
                 }
+                List<AlterJobV2> alterJobV2List = getUnfinishedAlterJobV2ByTableId(olapTable.getId());
+                List<SchemaChangeJobV2> schemaChangeJobV2List = new ArrayList<>();
+                for (AlterJobV2 job : alterJobV2List) {
+                    if (job instanceof SchemaChangeJobV2 && ((SchemaChangeJobV2) job).hasIndexChange()) {
+                        schemaChangeJobV2List.add((SchemaChangeJobV2) job);
+                    }
+                }
+                // current schemaChangeJob job doesn't support batch operation,so just need to get one job
+                schemaChangeJobV2 = schemaChangeJobV2List.size() == 0 ? null
+                        : Iterables.getOnlyElement(schemaChangeJobV2List);
             }
         } finally {
             olapTable.writeUnlock();
         }
-
-        // if this table has ngram_bf index, we must run cancel for schema change job
-        boolean hasNGramBFIndex = ((OlapTable) olapTable).hasIndexOfType(IndexDef.IndexType.NGRAM_BF);
         // alter job v2's cancel must be called outside the table lock
-        if (jobList.size() > 0) {
-            for (IndexChangeJob job : jobList) {
+        if (indexJobList.size() > 0) {
+            for (IndexChangeJob job : indexJobList) {
                 long jobId = job.getJobId();
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("cancel build index job {} on table {}", jobId, tableName);
-                }
+                LOG.debug("cancel build index job {} on table {}", jobId, tableName);
                 if (!job.cancel("user cancelled")) {
                     LOG.warn("cancel build index job {} on table {} failed", jobId, tableName);
                     throw new DdlException("Job can not be cancelled. State: " + job.getJobState());
@@ -2794,8 +2825,11 @@ public class SchemaChangeHandler extends AlterHandler {
                     LOG.info("cancel build index job {} on table {} success", jobId, tableName);
                 }
             }
-        } else if (hasNGramBFIndex) {
-            cancelColumnJob(cancelAlterTableStmt);
+        } else if (schemaChangeJobV2 != null) {
+            if (!schemaChangeJobV2.cancel("user cancelled")) {
+                throw new DdlException("Job can not be cancelled. State: " + schemaChangeJobV2.getJobState());
+            }
+            return;
         } else {
             throw new DdlException("No job to cancel for Table[" + tableName + "]");
         }

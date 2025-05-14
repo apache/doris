@@ -19,6 +19,7 @@ package org.apache.doris.alter;
 
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.IndexDef.IndexType;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
@@ -156,6 +157,12 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
     public SchemaChangeJobV2(String rawSql, long jobId, long dbId, long tableId, String tableName,
             long timeoutMs) {
         super(rawSql, jobId, JobType.SCHEMA_CHANGE, dbId, tableId, tableName, timeoutMs);
+    }
+
+    public boolean hasIndexChange() {
+        return indexChange && indexes.size() == 1
+            && (indexes.get(0).getIndexType() == IndexType.NGRAM_BF
+            || indexes.get(0).getIndexType() == IndexType.INVERTED);
     }
 
     public void addTabletIdMap(long partitionId, long shadowIdxId, long shadowTabletId, long originTabletId) {
