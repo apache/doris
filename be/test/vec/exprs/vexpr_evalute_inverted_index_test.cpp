@@ -113,9 +113,6 @@ TEST(TExprInvertedIndexTest, test_expr_evaluate_inverted_index) {
     function.__set_signature("casttoipv4(varchar(65533))");
     function.__set_id(0);
     function.__set_vectorized(true);
-    function.__set_is_udtf_function(false);
-    function.__set_is_static_load(false);
-    function.__set_expiration_time(360);
     cast_ipv4_node.__set_fn(function);
     cast_ipv4_node.__set_is_nullable(true);
 
