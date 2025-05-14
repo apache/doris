@@ -504,4 +504,15 @@ bool try_read_datetime_v2_text(T& x, ReadBuffer& in, const cctz::time_zone& loca
                                UInt32 scale) {
     return read_datetime_v2_text_impl<T>(x, in, local_time_zone, scale);
 }
+
+#include "common/compile_check_begin.h"
+
+bool inline try_read_bool_text(UInt8& x, StringRef& buf) {
+    StringParser::ParseResult result;
+    x = StringParser::string_to_bool(buf.data, buf.size, &result);
+    return result == StringParser::PARSE_SUCCESS;
+}
+
+#include "common/compile_check_end.h"
+
 } // namespace doris::vectorized
