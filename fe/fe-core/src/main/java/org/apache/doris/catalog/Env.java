@@ -20,7 +20,6 @@ package org.apache.doris.catalog;
 import org.apache.doris.alter.Alter;
 import org.apache.doris.alter.AlterJobV2;
 import org.apache.doris.alter.AlterJobV2.JobType;
-import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.alter.MaterializedViewHandler;
 import org.apache.doris.alter.QuotaType;
 import org.apache.doris.alter.SchemaChangeHandler;
