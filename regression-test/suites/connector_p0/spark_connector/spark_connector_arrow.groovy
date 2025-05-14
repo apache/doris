@@ -131,7 +131,7 @@ suite("spark_connector_for_arrow", "connector") {
     logger.info("start delete local spark doris demo jar...")
     def delete_local_spark_jar = "rm -rf ${jar_name}".execute()
     logger.info("start download spark doris demo ...")
-    logger.info("getS3Url ==== ${getS3Url()}")
+    logger.info("getS3Url ==== ${getS3Url()}/regression/${jar_name}")
     def download_spark_jar = "/usr/bin/curl ${getS3Url()}/regression/${jar_name} --output ${jar_name}".execute().getText()
     logger.info("finish download spark doris demo ...")
     def run_cmd = "java -cp ${jar_name} org.apache.doris.spark.testcase.TestStreamLoadForArrowType $context.config.feHttpAddress $context.config.feHttpUser regression_test_connector_p0_spark_connector"
