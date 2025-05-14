@@ -86,8 +86,8 @@ public class S3Properties extends BaseProperties {
             SimpleAWSCredentialsProvider.class.getName(),
             EnvironmentVariableCredentialsProvider.class.getName(),
             SystemPropertiesCredentialsProvider.class.getName(),
-            ProfileCredentialsProvider.class.getName(),
             InstanceProfileCredentialsProvider.class.getName(),
+            ProfileCredentialsProvider.class.getName(),
             WebIdentityTokenCredentialsProvider.class.getName(),
             IAMInstanceCredentialsProvider.class.getName());
 
