@@ -123,7 +123,7 @@ public class PhysicalLazyMaterialize<CHILD_TYPE extends Plan> extends PhysicalUn
             lazySlotLocations.add(lazySlotLocationForRel);
             for (Slot lazySlot : relationToLazySlotMap.get(rel)) {
                 outputBuilder.add(lazySlot);
-                lazyColumnForRel.add(((SlotReference) lazySlot).getColumn().get());
+                lazyColumnForRel.add(materializeMap.get(lazySlot).baseSlot.getColumn().get());
                 lazyIdxForRel.add(relationTable.getBaseColumnIdxByName(lazySlot.getName()));
                 lazySlotLocationForRel.add(loc);
                 loc++;
