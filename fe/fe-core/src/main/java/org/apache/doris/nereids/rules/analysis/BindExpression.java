@@ -54,6 +54,7 @@ import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
@@ -61,6 +62,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.StructElement
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitors;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -96,9 +98,11 @@ import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PlanUtils;
+import org.apache.doris.nereids.util.PlanUtils.CollectNonWindowedAggFuncs;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SqlModeHelper;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Suppliers;
@@ -107,6 +111,7 @@ import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -387,7 +392,41 @@ public class BindExpression implements AnalysisRuleFactory {
         Supplier<Scope> childChildrenOutput = Suppliers.memoize(() ->
                 toScope(cascadesContext, PlanUtils.fastGetChildrenOutputs(childPlan.children()))
         );
-        return bindHavingByScopes(having, cascadesContext, childOutput, childChildrenOutput);
+        LogicalHaving<Plan> boundHaving = bindHavingByScopes(having, having.child(),
+                cascadesContext, childOutput, childChildrenOutput);
+        if (!SqlModeHelper.hasOnlyFullGroupBy() && childPlan instanceof LogicalProject) {
+            // ATTN: process having(project) that have aggregate function in having
+            LogicalProject<?> project = (LogicalProject<?>) childPlan;
+            List<AggregateFunction> aggFuncs = CollectNonWindowedAggFuncs.collect(boundHaving.getConjuncts());
+            if (!aggFuncs.isEmpty()) {
+                Map<Expression, Expression> replaceMap = Maps.newHashMap();
+                for (AggregateFunction aggFunc : aggFuncs) {
+                    // ATTN: this is a little trick here. since replace check replace successful with equal operator
+                    //  see: org.apache.doris.nereids.trees.TreeNode.rewriteDownShortCircuit
+                    //  here, we generate a new aggFunc to replace to avoid rewrite its child.
+                    //  because we do not want to replace agg func agg(child) to agg(any_value(child))
+                    replaceMap.put(aggFunc, aggFunc.withChildren(aggFunc.children()));
+                }
+                Builder<NamedExpression> boundProjectionsBuilder
+                        = ImmutableList.builderWithExpectedSize(project.getProjects().size());
+                for (NamedExpression expr : project.getProjects()) {
+                    if (expr instanceof SlotReference) {
+                        Alias alias = new Alias(new AnyValue(expr), expr.getName());
+                        boundProjectionsBuilder.add(alias);
+                        replaceMap.put(expr, alias);
+                    } else {
+                        boundProjectionsBuilder.add(expr);
+                    }
+                }
+                Plan newChildPlan = project.withProjects(boundProjectionsBuilder.build());
+                ImmutableSet.Builder<Expression> newConjunctsBuilder = ImmutableSet.builder();
+                for (Expression conjunct : boundHaving.getConjuncts()) {
+                    newConjunctsBuilder.add(ExpressionUtils.replace(conjunct, replaceMap));
+                }
+                boundHaving = boundHaving.withConjunctsAndChild(newConjunctsBuilder.build(), newChildPlan);
+            }
+        }
+        return boundHaving;
     }
 
     private LogicalHaving<Plan> bindHavingAggregate(
@@ -486,9 +525,8 @@ public class BindExpression implements AnalysisRuleFactory {
     }
 
     private LogicalHaving<Plan> bindHavingByScopes(
-            LogicalHaving<? extends Plan> having,
+            LogicalHaving<? extends Plan> having, Plan child,
             CascadesContext cascadesContext, Scope defaultScope, Supplier<Scope> backupScope) {
-        Plan child = having.child();
 
         SimpleExprAnalyzer analyzer = buildCustomSlotBinderAnalyzer(
                 having, cascadesContext, defaultScope, false, true,
@@ -508,7 +546,7 @@ public class BindExpression implements AnalysisRuleFactory {
         }
         checkIfOutputAliasNameDuplicatedForGroupBy(boundConjuncts.build(),
                 child instanceof LogicalProject ? ((LogicalProject<?>) child).getOutputs() : child.getOutput());
-        return new LogicalHaving<>(boundConjuncts.build(), having.child());
+        return new LogicalHaving<>(boundConjuncts.build(), child);
     }
 
     private LogicalSort<LogicalSetOperation> bindSortWithSetOperation(
@@ -635,12 +673,13 @@ public class BindExpression implements AnalysisRuleFactory {
         SimpleExprAnalyzer analyzer = buildSimpleExprAnalyzer(
                 project, cascadesContext, project.children(), true, true);
 
-        Builder<NamedExpression> boundProjections = ImmutableList.builderWithExpectedSize(project.getProjects().size());
+        Builder<NamedExpression> boundProjectionsBuilder
+                = ImmutableList.builderWithExpectedSize(project.getProjects().size());
         StatementContext statementContext = ctx.statementContext;
         for (Expression expression : project.getProjects()) {
             Expression expr = analyzer.analyze(expression);
             if (!(expr instanceof BoundStar)) {
-                boundProjections.add((NamedExpression) expr);
+                boundProjectionsBuilder.add((NamedExpression) expr);
             } else {
                 UnboundStar unboundStar = (UnboundStar) expression;
                 List<NamedExpression> excepts = unboundStar.getExceptedSlots();
@@ -675,7 +714,7 @@ public class BindExpression implements AnalysisRuleFactory {
                         if (s != e) {
                             replaced.add(s);
                         }
-                        boundProjections.add((NamedExpression) e);
+                        boundProjectionsBuilder.add((NamedExpression) e);
                     }
 
                     if (replaced.size() != replaceMap.size()) {
@@ -683,7 +722,7 @@ public class BindExpression implements AnalysisRuleFactory {
                         throw new AnalysisException("Invalid replace column name: " + replaceMap.keySet());
                     }
                 } else {
-                    boundProjections.addAll(slots);
+                    boundProjectionsBuilder.addAll(slots);
                 }
 
                 // for create view stmt expand star
@@ -693,7 +732,24 @@ public class BindExpression implements AnalysisRuleFactory {
                 });
             }
         }
-        return project.withProjects(boundProjections.build());
+        List<NamedExpression> boundProjections = boundProjectionsBuilder.build();
+        if (!SqlModeHelper.hasOnlyFullGroupBy()) {
+            boolean hasAggregation = boundProjections
+                    .stream()
+                    .anyMatch(e -> e.accept(ExpressionVisitors.CONTAINS_AGGREGATE_CHECKER, null));
+            if (hasAggregation) {
+                boundProjectionsBuilder
+                        = ImmutableList.builderWithExpectedSize(project.getProjects().size());
+                for (NamedExpression expr : boundProjections) {
+                    if (expr instanceof SlotReference) {
+                        expr = new Alias(expr, expr.getName());
+                    }
+                    boundProjectionsBuilder.add(expr);
+                }
+                boundProjections = boundProjectionsBuilder.build();
+            }
+        }
+        return project.withProjects(boundProjections);
     }
 
     private Plan bindLoadProject(MatchingContext<LogicalLoadProject<Plan>> ctx) {
@@ -1027,7 +1083,7 @@ public class BindExpression implements AnalysisRuleFactory {
                 buildAggOutputScopeWithoutAggFun(boundProjections, cascadesContext);
         List<Expression> boundGroupBy = bindGroupBy(
                 agg, agg.getGroupByExpressions(), boundProjections, aggOutputScopeWithoutAggFun, cascadesContext);
-        return agg.withGroupByAndOutput(boundGroupBy, boundProjections);
+        return agg.withGroupByAndOutput(boundGroupBy, processNonStandardAggregate(boundProjections, boundGroupBy));
     }
 
     private Plan bindRepeat(MatchingContext<LogicalRepeat<Plan>> ctx) {
@@ -1042,10 +1098,12 @@ public class BindExpression implements AnalysisRuleFactory {
 
         Builder<List<Expression>> boundGroupingSetsBuilder =
                 ImmutableList.builderWithExpectedSize(repeat.getGroupingSets().size());
+        Set<Expression> flatBoundGroupingSet = Sets.newHashSet();
         for (List<Expression> groupingSet : repeat.getGroupingSets()) {
             List<Expression> boundGroupingSet = bindGroupBy(
                     repeat, groupingSet, boundRepeatOutput, aggOutputScopeWithoutAggFun, cascadesContext);
             boundGroupingSetsBuilder.add(boundGroupingSet);
+            flatBoundGroupingSet.addAll(boundGroupingSet);
         }
         List<List<Expression>> boundGroupingSets = boundGroupingSetsBuilder.build();
         List<NamedExpression> nullableOutput = PlanUtils.adjustNullableForRepeat(boundGroupingSets, boundRepeatOutput);
@@ -1055,7 +1113,7 @@ public class BindExpression implements AnalysisRuleFactory {
 
         // check all GroupingScalarFunction inputSlots must be from groupingExprs
         Set<Slot> groupingExprs = boundGroupingSets.stream()
-                .flatMap(Collection::stream).map(expr -> expr.getInputSlots())
+                .flatMap(Collection::stream).map(Expression::getInputSlots)
                 .flatMap(Collection::stream).collect(Collectors.toSet());
         Set<GroupingScalarFunction> groupingScalarFunctions = ExpressionUtils
                 .collect(nullableOutput, GroupingScalarFunction.class::isInstance);
@@ -1065,7 +1123,44 @@ public class BindExpression implements AnalysisRuleFactory {
                         + " does not exist in GROUP BY clause.");
             }
         }
-        return repeat.withGroupSetsAndOutput(boundGroupingSets, nullableOutput);
+
+        return repeat.withGroupSetsAndOutput(boundGroupingSets,
+                processNonStandardAggregate(nullableOutput, flatBoundGroupingSet));
+    }
+
+    /**
+     * for support non-standard aggregate, such as SELECT c1, c2 FROM t GROUP BY c1.
+     * we around an extra Alias on SlotReference in output expression list
+     * to avoid ExprId conflict. Because we will do a transform later like:
+     * <p>
+     * Repeat([c1#1, c2#2 as c2#3], [[c1#1], [c3#4]])
+     * ---
+     * Project(c1#1, c2#3)
+     * +-- Aggregate([c1#1, any_value(c2#2) as c2#3], [c1#1])
+     *     +-- Project(c1#1, c2#2)
+     *
+     * @param originalProjections original projections in aggregation
+     * @param groupingExprs all expressions for group by key
+     *
+     * @return output with wrapped scalar slots
+     */
+    private List<NamedExpression> processNonStandardAggregate(
+            List<NamedExpression> originalProjections, Collection<Expression> groupingExprs) {
+        if (SqlModeHelper.hasOnlyFullGroupBy()) {
+            return originalProjections;
+        } else {
+
+            ImmutableList.Builder<NamedExpression> finalProjectionsBuilder = ImmutableList.builder();
+            for (NamedExpression projection : originalProjections) {
+                // we do a trick here
+                if (projection instanceof SlotReference && !groupingExprs.contains(projection)) {
+                    finalProjectionsBuilder.add(new Alias(projection, projection.getName()));
+                } else {
+                    finalProjectionsBuilder.add(projection);
+                }
+            }
+            return finalProjectionsBuilder.build();
+        }
     }
 
     private List<Expression> bindGroupBy(
