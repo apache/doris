@@ -51,8 +51,8 @@ public class AlterJobRecord {
     private long rollupIndexId;
     @SerializedName(value = "rollUpIndexName")
     private String rollUpIndexName;
-    @SerializedName(value = "baseIndexid")
-    private long baseIndexid;
+    @SerializedName(value = "baseIndexId")
+    private long baseIndexId;
     @SerializedName(value = "baseIndexName")
     private String baseIndexName;
 
@@ -70,7 +70,7 @@ public class AlterJobRecord {
             RollupJobV2 rollupJob = (RollupJobV2) job;
             this.rollupIndexId = rollupJob.getRollupIndexId();
             this.rollUpIndexName = rollupJob.getRollupIndexName();
-            this.baseIndexid = rollupJob.getBaseIndexId();
+            this.baseIndexId = rollupJob.getBaseIndexId();
             this.baseIndexName = rollupJob.getBaseIndexName();
         }
     }
