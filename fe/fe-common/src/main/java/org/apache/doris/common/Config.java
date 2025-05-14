@@ -3333,4 +3333,8 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true, description = {"是否允许 variant 类型的列使用倒排索引格式 v1",
             "Whether to allow the use of inverted index v1 for variant"})
     public static boolean enable_inverted_index_v1_for_variant = false;
+
+    @ConfField(mutable = true, description = {"Prometheus 输出表维度指标的个数限制",
+            "Prometheus output table dimension metric count limit"})
+    public static int prom_output_table_metrics_limit = 10000;
 }
