@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+
 suite("view_p0") {
     sql """DROP VIEW IF EXISTS test_view"""
     sql """ 
