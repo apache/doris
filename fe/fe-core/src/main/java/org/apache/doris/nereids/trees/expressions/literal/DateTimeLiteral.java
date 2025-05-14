@@ -22,14 +22,17 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.coercion.DateLikeType;
 import org.apache.doris.nereids.util.DateUtils;
+import org.apache.doris.qe.ConnectContext;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.math.BigInteger;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -225,20 +228,20 @@ public class DateTimeLiteral extends DateLiteral {
             }
         }
 
-        microSecond = DateUtils.getOrDefault(temporal, ChronoField.NANO_OF_SECOND) / 100L;
+        microSecond = DateUtils.getOrDefault(temporal, ChronoField.NANO_OF_SECOND) / 1000L;
         // Microseconds have 7 digits.
-        long sevenDigit = microSecond % 10;
-        microSecond = microSecond / 10;
-        if (sevenDigit >= 5 && this instanceof DateTimeV2Literal) {
-            DateTimeV2Literal result = (DateTimeV2Literal) ((DateTimeV2Literal) this).plusMicroSeconds(1);
-            this.second = result.second;
-            this.minute = result.minute;
-            this.hour = result.hour;
-            this.day = result.day;
-            this.month = result.month;
-            this.year = result.year;
-            this.microSecond = result.microSecond;
-        }
+        // long sevenDigit = microSecond % 10;
+        // microSecond = microSecond / 10;
+        // if (sevenDigit >= 5 && this instanceof DateTimeV2Literal) {
+        //     DateTimeV2Literal result = (DateTimeV2Literal) ((DateTimeV2Literal) this).plusMicroSeconds(1);
+        //     this.second = result.second;
+        //     this.minute = result.minute;
+        //     this.hour = result.hour;
+        //     this.day = result.day;
+        //     this.month = result.month;
+        //     this.year = result.year;
+        //     this.microSecond = result.microSecond;
+        // }
 
         if (checkRange(year, month, day) || checkDate(year, month, day)) {
             throw new AnalysisException("datetime literal [" + s + "] is out of range");
@@ -325,6 +328,39 @@ public class DateTimeLiteral extends DateLiteral {
             return String.valueOf(format);
         }
         return String.format("%04d-%02d-%02d %02d:%02d:%02d", year, month, day, hour, minute, second);
+    }
+
+    @Override
+    protected Expression uncheckedCastTo(DataType targetType) throws AnalysisException {
+        if (this.dataType.equals(targetType)) {
+            return this;
+        }
+        boolean strictCast = ConnectContext.get().getSessionVariable().enableStrictCast();
+        if (targetType.isIntegralType()) {
+            if (targetType.isTinyIntType() || targetType.isSmallIntType() || targetType.isIntegerType()) {
+                throw new AnalysisException("DateTime can't cast to TinyInt, SmallInt or Integer.");
+            }
+            if (targetType.isBigIntType()) {
+                return new BigIntLiteral(getValue());
+            } else if (targetType.isLargeIntType()) {
+                return new LargeIntLiteral(new BigInteger(String.valueOf(getValue())));
+            }
+        } else if (targetType.isDateV2Type()) {
+            return new DateV2Literal(year, month, day);
+        } else if (targetType.isDateType()) {
+            return new DateLiteral(year, month, day);
+        } else if (targetType.isFloatType()) {
+            if (strictCast) {
+                throw new AnalysisException("DateTimeType can't cast to FloatType in strict mode.");
+            }
+            return new FloatLiteral(getValue());
+        } else if (targetType.isDoubleType()) {
+            if (strictCast) {
+                throw new AnalysisException("DateTimeType can't cast to DoubleType in strict mode.");
+            }
+            return new DoubleLiteral(getValue());
+        }
+        return super.uncheckedCastTo(targetType);
     }
 
     @Override

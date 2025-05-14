@@ -51,6 +51,7 @@ Usage: $0 <options>
      --run              build and run all ut
      --run --filter=xx  build and run specified ut
      --run --gen_out    generate expected check data for test
+     --run --gen_regression_case    generate regression test cases corrresponding to ut cases for ut cases that support it
      --coverage         coverage after run ut
      -j                 build parallel
      -h                 print this help message
@@ -71,7 +72,7 @@ Usage: $0 <options>
     exit 1
 }
 
-if ! OPTS="$(getopt -n "$0" -o vhj:f: -l gen_out,coverage,benchmark,run,clean,filter: -- "$@")"; then
+if ! OPTS="$(getopt -n "$0" -o vhj:f: -l gen_out,gen_regression_case,coverage,benchmark,run,clean,filter: -- "$@")"; then
     usage
 fi
 
@@ -83,6 +84,7 @@ DENABLE_CLANG_COVERAGE='OFF'
 BUILD_AZURE='ON'
 FILTER=""
 GEN_OUT=""
+GEN_REGRESSION_CASE=""
 if [[ "$#" != 1 ]]; then
     while true; do
         case "$1" in
@@ -100,6 +102,10 @@ if [[ "$#" != 1 ]]; then
             ;;
         --gen_out)
             GEN_OUT='--gen_out'
+            shift
+            ;;
+        --gen_regression_case)
+            GEN_REGRESSION_CASE='--gen_regression_case'
             shift
             ;;
         -f | --filter)
@@ -460,7 +466,7 @@ profdata=${DORIS_TEST_BINARY_DIR}/doris_be_test.profdata
 file_name="${test##*/}"
 if [[ -f "${test}" ]]; then
     if [[ "_${DENABLE_CLANG_COVERAGE}" == "_ON" ]]; then
-        LLVM_PROFILE_FILE="${profraw}" "${test}" --gtest_output="xml:${GTEST_OUTPUT_DIR}/${file_name}.xml" --gtest_print_time=true "${FILTER}" "${GEN_OUT}"
+        LLVM_PROFILE_FILE="${profraw}" "${test}" --gtest_output="xml:${GTEST_OUTPUT_DIR}/${file_name}.xml" --gtest_print_time=true "${FILTER}" "${GEN_OUT}" "${GEN_REGRESSION_CASE}"
         if [[ -d "${DORIS_TEST_BINARY_DIR}"/report ]]; then
             rm -rf "${DORIS_TEST_BINARY_DIR}"/report
         fi
@@ -474,7 +480,7 @@ if [[ -f "${test}" ]]; then
         echo "${cmd2}"
         eval "${cmd2}"
     else
-        "${test}" --gtest_output="xml:${GTEST_OUTPUT_DIR}/${file_name}.xml" --gtest_print_time=true "${FILTER}" "${GEN_OUT}"
+        "${test}" --gtest_output="xml:${GTEST_OUTPUT_DIR}/${file_name}.xml" --gtest_print_time=true "${FILTER}" "${GEN_OUT}" "${GEN_REGRESSION_CASE}"
     fi
     echo "=== Finished. Gtest output: ${GTEST_OUTPUT_DIR}"
 else
