@@ -322,6 +322,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String DECIMAL_OVERFLOW_SCALE = "decimal_overflow_scale";
 
+    public static final String ENABLE_STRICT_MODE = "enable_strict_mode";
+
     public static final String TRIM_TAILING_SPACES_FOR_EXTERNAL_TABLE_QUERY
             = "trim_tailing_spaces_for_external_table_query";
 
@@ -1451,6 +1453,9 @@ public class SessionVariable implements Serializable, Writable {
             + "the maximum number of decimal scale that the result can be retained"
     })
     public int decimalOverflowScale = 6;
+
+    @VariableMgr.VarAttr(name = ENABLE_STRICT_MODE)
+    private boolean enableStrictMode = false;
 
     @VariableMgr.VarAttr(name = ENABLE_DPHYP_OPTIMIZER)
     public boolean enableDPHypOptimizer = false;
@@ -4082,6 +4087,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableFunctionPushdown(enableFunctionPushdown);
         tResult.setEnableCommonExprPushdown(enableCommonExprPushdown);
         tResult.setCheckOverflowForDecimal(checkOverflowForDecimal);
+        tResult.setEnableStrictMode(enableStrictMode);
         tResult.setFragmentTransmissionCompressionCodec(fragmentTransmissionCompressionCodec.trim().toLowerCase());
         tResult.setEnableLocalExchange(enableLocalExchange);
 
