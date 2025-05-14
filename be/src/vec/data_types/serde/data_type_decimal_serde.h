@@ -53,6 +53,12 @@ public:
               scale(scale_),
               scale_multiplier(decimal_scale_multiplier<typename FieldType::NativeType>(scale)) {}
 
+    Status from_string_batch(const ColumnString& str, ColumnNullable& column,
+                             const FormatOptions& options) const override;
+
+    Status from_string_strict_mode_batch(const ColumnString& str, IColumn& column,
+                                         const FormatOptions& options) const override;
+
     Status serialize_one_cell_to_json(const IColumn& column, int64_t row_num, BufferWritable& bw,
                                       FormatOptions& options) const override;
 

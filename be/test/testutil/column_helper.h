@@ -21,6 +21,7 @@
 #include <type_traits>
 #include <vector>
 
+#include "runtime/define_primitive_type.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/core/block.h"
 #include "vec/data_types/data_type_string.h"
@@ -39,6 +40,16 @@ public:
             for (const auto& datum : data) {
                 column->insert_value(datum);
             }
+        }
+        return std::move(column);
+    }
+
+    template <PrimitiveType Offset>
+    static ColumnPtr create_column_offsets(
+            const std::vector<typename PrimitiveTypeTraits<Offset>::CppType>& data) {
+        auto column = ColumnVector<Offset>::create();
+        for (const auto& datum : data) {
+            column->insert_value(datum);
         }
         return std::move(column);
     }

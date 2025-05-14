@@ -100,17 +100,11 @@ public:
     }
 
     // This is considerably faster than glibc's implementation (25x).
-    // In the case of overflow, the max/min value for the data type will be returned.
     // Assumes s represents a decimal number.
-    template <typename T>
+    template <typename T, bool enable_strict_mode = false>
     static inline T string_to_int(const char* __restrict s, size_t len, ParseResult* result) {
-        T ans = string_to_int_internal<T>(s, len, result);
-        if (LIKELY(*result == PARSE_SUCCESS)) {
-            return ans;
-        }
-
-        int i = skip_leading_whitespace(s, len);
-        return string_to_int_internal<T>(s + i, len - i, result);
+        s = skip_ascii_whitespaces(s, len);
+        return string_to_int_internal<T, enable_strict_mode>(s, len, result);
     }
 
     // This is considerably faster than glibc's implementation.
@@ -118,46 +112,32 @@ public:
     // Assumes s represents a decimal number.
     template <typename T>
     static inline T string_to_unsigned_int(const char* __restrict s, int len, ParseResult* result) {
-        T ans = string_to_unsigned_int_internal<T>(s, len, result);
-        if (LIKELY(*result == PARSE_SUCCESS)) {
-            return ans;
-        }
-
-        int i = skip_leading_whitespace(s, len);
-        return string_to_unsigned_int_internal<T>(s + i, len - i, result);
+        s = skip_ascii_whitespaces(s, len);
+        return string_to_unsigned_int_internal<T>(s, len, result);
     }
 
     // Convert a string s representing a number in given base into a decimal number.
     template <typename T>
     static inline T string_to_int(const char* __restrict s, int64_t len, int base,
                                   ParseResult* result) {
-        T ans = string_to_int_internal<T>(s, len, base, result);
-        if (LIKELY(*result == PARSE_SUCCESS)) {
-            return ans;
-        }
-
-        int i = skip_leading_whitespace(s, len);
-        return string_to_int_internal<T>(s + i, len - i, base, result);
+        s = skip_ascii_whitespaces(s, len);
+        return string_to_int_internal<T>(s, len, base, result);
     }
 
     template <typename T>
     static inline T string_to_float(const char* __restrict s, size_t len, ParseResult* result) {
+        s = skip_ascii_whitespaces(s, len);
         return string_to_float_internal<T>(s, len, result);
     }
 
     // Parses a string for 'true' or 'false', case insensitive.
-    static inline bool string_to_bool(const char* __restrict s, int len, ParseResult* result) {
-        bool ans = string_to_bool_internal(s, len, result);
-        if (LIKELY(*result == PARSE_SUCCESS)) {
-            return ans;
-        }
-
-        int i = skip_leading_whitespace(s, len);
-        return string_to_bool_internal(s + i, len - i, result);
+    static inline bool string_to_bool(const char* __restrict s, size_t len, ParseResult* result) {
+        s = skip_ascii_whitespaces(s, len);
+        return string_to_bool_internal(s, len, result);
     }
 
     template <PrimitiveType P>
-    static inline typename PrimitiveTypeTraits<P>::CppType::NativeType string_to_decimal(
+    static typename PrimitiveTypeTraits<P>::CppType::NativeType string_to_decimal(
             const char* __restrict s, int len, int type_precision, int type_scale,
             ParseResult* result);
 
@@ -194,7 +174,7 @@ private:
     // In the case of overflow, the max/min value for the data type will be returned.
     // Assumes s represents a decimal number.
     // Return PARSE_FAILURE on leading whitespace. Trailing whitespace is allowed.
-    template <typename T>
+    template <typename T, bool enable_strict_mode = false>
     static inline T string_to_int_internal(const char* __restrict s, int len, ParseResult* result);
 
     // This is considerably faster than glibc's implementation.
@@ -214,7 +194,7 @@ private:
     // Converts an ascii string to an integer of type T assuming it cannot overflow
     // and the number is positive.
     // Leading whitespace is not allowed. Trailing whitespace will be skipped.
-    template <typename T>
+    template <typename T, bool enable_strict_mode = false>
     static inline T string_to_int_no_overflow(const char* __restrict s, int len,
                                               ParseResult* result);
 
@@ -237,7 +217,7 @@ private:
     // Returns true if s only contains whitespace.
     static inline bool is_all_whitespace(const char* __restrict s, int len) {
         for (int i = 0; i < len; ++i) {
-            if (!LIKELY(is_whitespace(s[i]))) {
+            if (!LIKELY(is_whitespace_ascii(s[i]))) {
                 return false;
             }
         }
@@ -257,25 +237,9 @@ private:
         }
         return true;
     }
-
-    // Returns the position of the first non-whitespace character in s.
-    static inline int skip_leading_whitespace(const char* __restrict s, int len) {
-        int i = 0;
-        while (i < len && is_whitespace(s[i])) {
-            ++i;
-        }
-        return i;
-    }
-
-    // Our own definition of "isspace" that optimize on the ' ' branch.
-    static inline bool is_whitespace(const char& c) {
-        return LIKELY(c == ' ') ||
-               UNLIKELY(c == '\t' || c == '\n' || c == '\v' || c == '\f' || c == '\r');
-    }
-
 }; // end of class StringParser
 
-template <typename T>
+template <typename T, bool enable_strict_mode>
 T StringParser::string_to_int_internal(const char* __restrict s, int len, ParseResult* result) {
     if (UNLIKELY(len <= 0)) {
         *result = PARSE_FAILURE;
@@ -303,7 +267,7 @@ T StringParser::string_to_int_internal(const char* __restrict s, int len, ParseR
 
     // This is the fast path where the string cannot overflow.
     if (LIKELY(len - i < vectorized::NumberTraits::max_ascii_len<T>())) {
-        val = string_to_int_no_overflow<UnsignedT>(s + i, len - i, result);
+        val = string_to_int_no_overflow<UnsignedT, enable_strict_mode>(s + i, len - i, result);
         return static_cast<T>(negative ? -val : val);
     }
 
@@ -321,12 +285,20 @@ T StringParser::string_to_int_internal(const char* __restrict s, int len, ParseR
             }
             val = val * 10 + digit;
         } else {
-            if ((UNLIKELY(i == first || (!is_all_whitespace(s + i, len - i) &&
-                                         !is_float_suffix(s + i, len - i))))) {
-                // Reject the string because either the first char was not a digit,
-                // or the remaining chars are not all whitespace
-                *result = PARSE_FAILURE;
-                return 0;
+            if constexpr (enable_strict_mode) {
+                if ((UNLIKELY(i == first || !is_all_whitespace(s + i, len - i)))) {
+                    // Reject the string because the remaining chars are not all whitespace
+                    *result = PARSE_FAILURE;
+                    return 0;
+                }
+            } else {
+                if ((UNLIKELY(i == first || (!is_all_whitespace(s + i, len - i) &&
+                                             !is_float_suffix(s + i, len - i))))) {
+                    // Reject the string because either the first char was not a digit,
+                    // or the remaining chars are not all whitespace
+                    *result = PARSE_FAILURE;
+                    return 0;
+                }
             }
             // Returning here is slightly faster than breaking the loop.
             *result = PARSE_SUCCESS;
@@ -445,7 +417,7 @@ T StringParser::string_to_int_internal(const char* __restrict s, int64_t len, in
     return static_cast<T>(negative ? -val : val);
 }
 
-template <typename T>
+template <typename T, bool enable_strict_mode>
 T StringParser::string_to_int_no_overflow(const char* __restrict s, int len, ParseResult* result) {
     T val = 0;
     if (UNLIKELY(len == 0)) {
@@ -464,10 +436,17 @@ T StringParser::string_to_int_no_overflow(const char* __restrict s, int len, Par
             T digit = s[i] - '0';
             val = val * 10 + digit;
         } else {
-            if ((UNLIKELY(!is_all_whitespace(s + i, len - i) &&
-                          !is_float_suffix(s + i, len - i)))) {
-                *result = PARSE_FAILURE;
-                return 0;
+            if constexpr (enable_strict_mode) {
+                if (UNLIKELY(!is_all_whitespace(s + i, len - i))) {
+                    *result = PARSE_FAILURE;
+                    return 0;
+                }
+            } else {
+                if ((UNLIKELY(!is_all_whitespace(s + i, len - i) &&
+                              !is_float_suffix(s + i, len - i)))) {
+                    *result = PARSE_FAILURE;
+                    return 0;
+                }
             }
             *result = PARSE_SUCCESS;
             return val;
@@ -482,7 +461,7 @@ T StringParser::string_to_float_internal(const char* __restrict s, int len, Pars
     int i = 0;
     // skip leading spaces
     for (; i < len; ++i) {
-        if (!is_whitespace(s[i])) {
+        if (!is_whitespace_ascii(s[i])) {
             break;
         }
     }
@@ -490,7 +469,7 @@ T StringParser::string_to_float_internal(const char* __restrict s, int len, Pars
     // skip back spaces
     int j = len - 1;
     for (; j >= i; j--) {
-        if (!is_whitespace(s[j])) {
+        if (!is_whitespace_ascii(s[j])) {
             break;
         }
     }
@@ -498,6 +477,19 @@ T StringParser::string_to_float_internal(const char* __restrict s, int len, Pars
     // skip leading '+', from_chars can handle '-'
     if (i < len && s[i] == '+') {
         i++;
+        // ++ or +- are not valid, but the first + is already skipped,
+        // if don't check here, from_chars will succeed.
+        //
+        // New version of fast_float supports a new flag called 'chars_format::allow_leading_plus'
+        // which may avoid this extra check here.
+        // e.g.:
+        // fast_float::chars_format format =
+        //         fast_float::chars_format::general | fast_float::chars_format::allow_leading_plus;
+        // auto res = fast_float::from_chars(s + i, s + j + 1, val, format);
+        if (i < len && (s[i] == '+' || s[i] == '-')) {
+            *result = PARSE_FAILURE;
+            return 0;
+        }
     }
     if (UNLIKELY(i > j)) {
         *result = PARSE_FAILURE;
@@ -508,20 +500,8 @@ T StringParser::string_to_float_internal(const char* __restrict s, int len, Pars
     double val = 0;
     auto res = fast_float::from_chars(s + i, s + j + 1, val);
 
-    if (res.ec == std::errc() && res.ptr == s + j + 1) {
-        if (abs(val) == std::numeric_limits<T>::infinity()) {
-            auto contain_inf = false;
-            for (int k = i; k < j + 1; k++) {
-                if (s[k] == 'i' || s[k] == 'I') {
-                    contain_inf = true;
-                    break;
-                }
-            }
-
-            *result = contain_inf ? PARSE_SUCCESS : PARSE_OVERFLOW;
-        } else {
-            *result = PARSE_SUCCESS;
-        }
+    if (res.ptr == s + j + 1) {
+        *result = PARSE_SUCCESS;
         return val;
     } else {
         *result = PARSE_FAILURE;
@@ -533,29 +513,57 @@ inline bool StringParser::string_to_bool_internal(const char* __restrict s, int 
                                                   ParseResult* result) {
     *result = PARSE_SUCCESS;
 
-    if (len >= 4 && (s[0] == 't' || s[0] == 'T')) {
-        bool match = (s[1] == 'r' || s[1] == 'R') && (s[2] == 'u' || s[2] == 'U') &&
-                     (s[3] == 'e' || s[3] == 'E');
-        if (match && LIKELY(is_all_whitespace(s + 4, len - 4))) {
+    if (len == 1) {
+        if (s[0] == '1' || s[0] == 't' || s[0] == 'T') {
             return true;
         }
-    } else if (len >= 5 && (s[0] == 'f' || s[0] == 'F')) {
-        bool match = (s[1] == 'a' || s[1] == 'A') && (s[2] == 'l' || s[2] == 'L') &&
-                     (s[3] == 's' || s[3] == 'S') && (s[4] == 'e' || s[4] == 'E');
-        if (match && LIKELY(is_all_whitespace(s + 5, len - 5))) {
+        if (s[0] == '0' || s[0] == 'f' || s[0] == 'F') {
+            return false;
+        }
+        *result = PARSE_FAILURE;
+        return false;
+    }
+
+    if (len == 2) {
+        if ((s[0] == 'o' || s[0] == 'O') && (s[1] == 'n' || s[1] == 'N')) {
+            return true;
+        }
+        if ((s[0] == 'n' || s[0] == 'N') && (s[1] == 'o' || s[1] == 'O')) {
             return false;
         }
     }
 
+    if (len == 3) {
+        if ((s[0] == 'y' || s[0] == 'Y') && (s[1] == 'e' || s[1] == 'E') &&
+            (s[2] == 's' || s[2] == 'S')) {
+            return true;
+        }
+        if ((s[0] == 'o' || s[0] == 'O') && (s[1] == 'f' || s[1] == 'F') &&
+            (s[2] == 'f' || s[2] == 'F')) {
+            return false;
+        }
+    }
+
+    if (len == 4 && (s[0] == 't' || s[0] == 'T') && (s[1] == 'r' || s[1] == 'R') &&
+        (s[2] == 'u' || s[2] == 'U') && (s[3] == 'e' || s[3] == 'E')) {
+        return true;
+    }
+
+    if (len == 5 && (s[0] == 'f' || s[0] == 'F') && (s[1] == 'a' || s[1] == 'A') &&
+        (s[2] == 'l' || s[2] == 'L') && (s[3] == 's' || s[3] == 'S') &&
+        (s[4] == 'e' || s[4] == 'E')) {
+        return false;
+    }
+
+    // No valid boolean value found
     *result = PARSE_FAILURE;
     return false;
 }
 
-template <PrimitiveType P>
-typename PrimitiveTypeTraits<P>::CppType::NativeType StringParser::string_to_decimal(
-        const char* __restrict s, int len, int type_precision, int type_scale,
-        ParseResult* result) {
-    using T = typename PrimitiveTypeTraits<P>::CppType::NativeType;
+/*
+template <PrimitiveType P, typename T, typename DecimalType>
+T StringParser::string_to_decimal(const char* __restrict s, int len, int type_precision,
+                                  int type_scale, ParseResult* result) {
     static_assert(std::is_same_v<T, int32_t> || std::is_same_v<T, int64_t> ||
                           std::is_same_v<T, __int128> || std::is_same_v<T, wide::Int256>,
                   "Cast string to decimal only support target type int32_t, int64_t, __int128 or "
@@ -742,5 +750,6 @@ typename PrimitiveTypeTraits<P>::CppType::NativeType StringParser::string_to_dec
 
     return is_negative ? T(-value) : T(value);
 }
+*/
 
 } // end namespace doris
