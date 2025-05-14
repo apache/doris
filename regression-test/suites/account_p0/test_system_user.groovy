@@ -62,4 +62,42 @@ suite("test_system_user","p0,auth") {
         revoke select_priv on *.*.* from  `admin`;
     """
 
+     sql """
+          create user `root`@'8.8.8.8';
+      """
+     sql """
+         grant select_priv on *.*.* to  `root`@'8.8.8.8';
+     """
+     sql """
+         revoke select_priv on *.*.* from  `root`@'8.8.8.8';
+     """
+     test {
+               sql """
+                   grant 'operator' to `root`@'8.8.8.8';
+               """
+               exception "Can not grant role: operator"
+         }
+    sql """
+            drop user `root`@'8.8.8.8';
+        """
+
+    sql """
+          create user `admin`@'8.8.8.8';
+      """
+     sql """
+         grant select_priv on *.*.* to  `admin`@'8.8.8.8';
+     """
+     sql """
+         revoke select_priv on *.*.* from  `admin`@'8.8.8.8';
+     """
+
+   sql """
+       grant 'admin' to `admin`@'8.8.8.8';
+   """
+    sql """
+           revoke 'admin' from `admin`@'8.8.8.8';
+       """
+    sql """
+            drop user `admin`@'8.8.8.8';
+        """
 }
