@@ -473,11 +473,6 @@ void AggSharedState::refresh_top_limit(size_t row_id,
 }
 
 Status MaterializationSharedState::merge_multi_response(vectorized::Block* block) {
-    // init the response_blocks
-    if (response_blocks.empty()) {
-        response_blocks = std::vector<vectorized::MutableBlock>(block_order_results.size());
-    }
-
     std::map<int64_t, std::pair<vectorized::Block, int>> _block_maps;
     for (int i = 0; i < block_order_results.size(); ++i) {
         for (auto& [backend_id, rpc_struct] : rpc_struct_map) {
@@ -486,9 +481,6 @@ Status MaterializationSharedState::merge_multi_response(vectorized::Block* block
                     partial_block.deserialize(rpc_struct.callback->response_->blocks(i).block()));
 
             if (!partial_block.is_empty_column()) {
-                if (!response_blocks[i].columns()) {
-                    response_blocks[i] = vectorized::MutableBlock(partial_block.clone_empty());
-                }
                 _block_maps[backend_id] = std::make_pair(std::move(partial_block), 0);
             }
         }
@@ -525,7 +517,9 @@ Status MaterializationSharedState::merge_multi_response(vectorized::Block* block
             block->insert(origin_block.get_by_position(i));
         } else {
             auto response_block = response_blocks[j].to_block();
-            for (auto& data : response_block) {
+            for (int k = 0; k < response_block.columns(); k++) {
+                auto& data = response_block.get_by_position(k);
+                response_blocks[j].mutable_columns()[k] = data.column->clone_empty();
                 block->insert(data);
             }
             if (++j < rowid_locs.size()) {
@@ -534,7 +528,6 @@ Status MaterializationSharedState::merge_multi_response(vectorized::Block* block
         }
     }
     origin_block.clear();
-    response_blocks.clear();
 
     return Status::OK();
 }
@@ -621,6 +614,9 @@ Status MaterializationSharedState::init_multi_requests(
     const auto& tuple_desc =
             state->desc_tbl().get_tuple_descriptor(materialization_node.intermediate_tuple_id);
     const auto& slots = tuple_desc->slots();
+    response_blocks =
+            std::vector<vectorized::MutableBlock>(materialization_node.column_descs_lists.size());
+
     for (int i = 0; i < materialization_node.column_descs_lists.size(); ++i) {
         auto request_block_desc = multi_get_request.add_request_block_descs();
         request_block_desc->set_fetch_row_store(materialization_node.fetch_row_stores[i]);
@@ -638,9 +634,12 @@ Status MaterializationSharedState::init_multi_requests(
             request_block_desc->add_column_idxs(idx);
         }
 
+        std::vector<SlotDescriptor*> slots_res;
         for (auto& slot_loc_item : slot_locs) {
             slots[slot_loc_item]->to_protobuf(request_block_desc->add_slots());
+            slots_res.emplace_back(slots[slot_loc_item]);
         }
+        response_blocks[i] = vectorized::MutableBlock(vectorized::Block(slots_res, 10));
     }
 
     // Initialize the stubs and requests for each BE
