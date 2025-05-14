@@ -34,6 +34,8 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 
 import com.google.common.collect.ImmutableSet;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.Optional;
 import java.util.Set;
@@ -42,6 +44,7 @@ import java.util.Set;
  * visitor to probe the slots which can perform lazy materialization
  */
 public class MaterializeProbeVisitor extends DefaultPlanVisitor<Optional<MaterializeSource>, ProbeContext> {
+    protected static final Logger LOG = LogManager.getLogger(MaterializeProbeVisitor.class);
 
     private static Set<Class> SUPPORT_RELATION_TYPES = ImmutableSet.of(
             OlapTable.class,
@@ -104,7 +107,11 @@ public class MaterializeProbeVisitor extends DefaultPlanVisitor<Optional<Materia
                     && relation.getOutput().contains(context.slot)
                     && !relation.getOperativeSlots().contains(context.slot)) {
             // lazy materialize slot must be a passive slot
-            return Optional.of(new MaterializeSource(relation, context.slot));
+            if (context.slot.getColumn().isPresent()) {
+                return Optional.of(new MaterializeSource(relation, context.slot));
+            } else {
+                LOG.info("lazy materialize {} failed, because its column is empty", context.slot);
+            }
         }
         return Optional.empty();
     }
