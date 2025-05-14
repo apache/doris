@@ -118,6 +118,7 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponse) {
 
     // Set rowid column location
     _shared_state->rowid_locs = {0};
+    _shared_state->response_blocks = std::vector<vectorized::MutableBlock>(1);
 
     // 2. Setup response blocks from multiple backends
     // Backend 1's response
@@ -141,6 +142,8 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponse) {
         EXPECT_TRUE(s.ok());
 
         _shared_state->rpc_struct_map[_backend_id1].callback = callback1;
+        // init the response blocks
+        _shared_state->response_blocks[0] = resp_block1.clone_empty();
     }
 
     // Backend 2's response
@@ -221,6 +224,7 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponseMultiBlocks) {
 
     // Set multiple rowid column locations
     _shared_state->rowid_locs = {0, 1};
+    _shared_state->response_blocks = std::vector<vectorized::MutableBlock>(2);
 
     // 2. Setup response blocks from multiple backends for first rowid
     {
@@ -242,6 +246,7 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponseMultiBlocks) {
         EXPECT_TRUE(s.ok());
 
         _shared_state->rpc_struct_map[_backend_id1].callback = callback1;
+        _shared_state->response_blocks[0] = resp_block1.clone_empty();
     }
 
     // Backend 2's response for first rowid
@@ -284,6 +289,7 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponseMultiBlocks) {
         auto s = resp_block1.serialize(0, serialized_block, &uncompressed_size, &compressed_size,
                                        CompressionTypePB::LZ4);
         EXPECT_TRUE(s.ok());
+        _shared_state->response_blocks[1] = resp_block1.clone_empty();
     }
 
     {
