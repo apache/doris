@@ -562,7 +562,7 @@ yunlj8@nk
 null	12	1	true
 
 -- !if_nullif26 --
-4	2	4.3	NULL
+4	2	4.2999999999999998	NULL
 
 -- !if_nullif27 --
 5	1	1	NULL

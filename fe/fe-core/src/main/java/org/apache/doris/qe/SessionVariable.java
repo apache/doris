@@ -754,6 +754,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String SKEW_REWRITE_AGG_BUCKET_NUM = "skew_rewrite_agg_bucket_num";
 
+    public static final String ENABLE_STRICT_CAST = "enable_strict_cast";
+
     /**
      * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
      */
@@ -2347,6 +2349,10 @@ public class SessionVariable implements Serializable, Writable {
     public void setSkewRewriteAggBucketNum(int num) {
         this.skewRewriteAggBucketNum = num;
     }
+
+    @VariableMgr.VarAttr(name = ENABLE_STRICT_CAST,
+            description = {"cast使用严格模式", "Use strict mode for cast"})
+    public boolean enableStrictCast = false;
 
     public Set<Integer> getIgnoredRuntimeFilterIds() {
         Set<Integer> ids = Sets.newLinkedHashSet();
@@ -4317,6 +4323,7 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setMinimumOperatorMemoryRequiredKb(minimumOperatorMemoryRequiredKB);
         tResult.setExchangeMultiBlocksByteSize(exchangeMultiBlocksByteSize);
+        tResult.setEnableStrictCast(enableStrictCast);
         return tResult;
     }
 
@@ -5003,5 +5010,9 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setEnableAddIndexForNewData(boolean enableAddIndexForNewData) {
         this.enableAddIndexForNewData = enableAddIndexForNewData;
+    }
+
+    public boolean enableStrictCast() {
+        return enableStrictCast;
     }
 }

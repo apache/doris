@@ -347,20 +347,4 @@ bool BatchedBitReader::GetUleb128(UINT_T* v) {
     return true;
 }
 
-template <typename INT_T>
-bool BatchedBitReader::GetZigZagInteger(INT_T* v) {
-    static_assert(std::is_integral<INT_T>::value, "Integral type required.");
-    static_assert(std::is_signed<INT_T>::value, "Signed type required.");
-
-    using UINT_T = std::make_unsigned_t<INT_T>;
-
-    UINT_T v_unsigned;
-    if (UNLIKELY(!GetUleb128<UINT_T>(&v_unsigned))) return false;
-
-    /// Here we rely on implementation defined behaviour in converting UINT_T to INT_T.
-    *v = (v_unsigned >> 1) ^ -(v_unsigned & 1u);
-
-    return true;
-}
-
 } // namespace doris

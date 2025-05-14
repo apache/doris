@@ -183,9 +183,9 @@ struct SignImpl {
     static inline UInt8 apply(A a) {
         if constexpr (IsDecimalNumber<A> || std::is_floating_point_v<A>)
             return static_cast<UInt8>(a < A(0) ? -1 : a == A(0) ? 0 : 1);
-        else if constexpr (std::is_signed_v<A>)
+        else if constexpr (IsSignedV<A>)
             return static_cast<UInt8>(a < 0 ? -1 : a == 0 ? 0 : 1);
-        else if constexpr (std::is_unsigned_v<A>)
+        else if constexpr (IsUnsignedV<A>)
             return static_cast<UInt8>(a == 0 ? 0 : 1);
     }
 };
@@ -202,12 +202,12 @@ struct AbsImpl {
     static inline typename PrimitiveTypeTraits<ResultType>::ColumnItemType apply(A a) {
         if constexpr (IsDecimalNumber<A>)
             return a < A(0) ? A(-a) : a;
-        else if constexpr (std::is_integral_v<A> && std::is_signed_v<A>)
+        else if constexpr (IsIntegralV<A> && IsSignedV<A>)
             return a < A(0) ? static_cast<typename PrimitiveTypeTraits<ResultType>::ColumnItemType>(
                                       ~a) +
                                       1
                             : a;
-        else if constexpr (std::is_integral_v<A> && std::is_unsigned_v<A>)
+        else if constexpr (IsIntegralV<A> && IsUnsignedV<A>)
             return static_cast<typename PrimitiveTypeTraits<ResultType>::ColumnItemType>(a);
         else if constexpr (std::is_floating_point_v<A>)
             return static_cast<typename PrimitiveTypeTraits<ResultType>::ColumnItemType>(

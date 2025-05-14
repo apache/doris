@@ -94,8 +94,9 @@ public:
 
     static void deserialize_as_stream(HyperLogLog& value, BufferReadable& buf);
 
+    using SerDeType = DataTypeHLLSerDe;
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
-        return std::make_shared<DataTypeHLLSerDe>(nesting_level);
+        return std::make_shared<SerDeType>(nesting_level);
     };
 };
 

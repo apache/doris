@@ -1,9 +1,0 @@
-// this is data case file for array<map<ipv4:ipv6>> type, contains normal, corner, exceptional data cases
-[]
-[null]
-NULL
-// single element
-[{}]
-[{'0.0.0.0': "::"}, {'255.255.255.255': "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"}, {'127.0.0.1': "::1"}]
-// all data in array
-[{}, null, {'0.0.0.0': "::"}, {'255.255.255.255': "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"}, {'127.0.0.1': "::1"}]

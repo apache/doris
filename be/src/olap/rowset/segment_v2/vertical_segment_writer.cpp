@@ -69,12 +69,12 @@
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"
+#include "vec/data_types/data_type_number.h" // IWYU pragma: keep
 #include "vec/io/reader_buffer.h"
 #include "vec/jsonb/serialize.h"
 #include "vec/olap/olap_data_convertor.h"
 
-namespace doris {
-namespace segment_v2 {
+namespace doris::segment_v2 {
 
 using namespace ErrorCode;
 
@@ -1627,5 +1627,4 @@ inline bool VerticalSegmentWriter::_is_mow() {
 inline bool VerticalSegmentWriter::_is_mow_with_cluster_key() {
     return _is_mow() && !_tablet_schema->cluster_key_uids().empty();
 }
-} // namespace segment_v2
-} // namespace doris
+} // namespace doris::segment_v2

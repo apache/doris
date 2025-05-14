@@ -77,6 +77,8 @@ suite("test_cast") {
         result([[101]])
     }
 
+    /*
+    behaviour changed: not supported anymore from bool to datetime/date
     test {
         sql "select cast(false as datetime);"
         result([[null]])
@@ -96,6 +98,7 @@ suite("test_cast") {
         sql "select cast(true as date);"
         result([[null]])
     }
+    */
 
     testFoldConst("select cast('12:00:00' as time);")
     testFoldConst("select cast('111111' as time);")
@@ -126,8 +129,6 @@ suite("test_cast") {
     qt_sql15 "select cast('839:00:00' as time);"
 
     qt_sql16 "select cast('-010000' as time);"
-    // 17, 18 actal result is -00:01:00 and -00:00:01 but out file is 00:...
-    // It should be due to the fact that hour is -0 but the regression is saved as 0
     qt_sql17 "select cast('-000100' as time);"
     qt_sql18 "select cast('-000001' as time);"
     qt_sql19 "select cast('000000' as time);"
@@ -168,6 +169,7 @@ suite("test_cast") {
     qt_sql50 "select cast(cast(1111.1 as double) as time);"
     qt_sql51 "select cast(cast(111111 as json) as time);"
     qt_sql52 "select cast(cast(111111 as jsonb) as time);"
+    // invalid formats
     qt_sql53 "select cast('11-11-11' as time);"
     qt_sql54 "select cast('11@11@11' as time);"
     qt_sql55 "select cast('11.11.11' as time);"
@@ -192,24 +194,15 @@ suite("test_cast") {
 
     test {
         sql "select cast(true as time);"
-        exception "cannot cast"
+        exception "not supported"
     }
-    test {
-        sql "select cast(cast('2025-01-25 11:11:11' as datetime) as time);"
-        exception "cannot cast"
-    }
+    qt_sql "select cast(cast('2025-01-25 11:11:11' as datetime) as time);"
     test {
         sql "select cast(cast('2025-01-25' as date) as time);"
         exception "cannot cast"
     }
-    test {
-        sql "select cast(cast(1111 as decimalv2) as time);"
-        exception "cannot cast"
-    }
-    test {
-        sql "select cast(cast(1111 as decimalv3) as time);"
-        exception "cannot cast"
-    }
+    qt_sql "select cast(cast(1111 as decimalv2) as time);"
+    qt_sql "select cast(cast(1111 as decimalv3) as time);"
     test {
         sql "select cast(cast(1111 as ipv4) as time);"
         exception "cannot cast"
@@ -218,10 +211,7 @@ suite("test_cast") {
         sql "select cast(cast(1111 as ipv6) as time);"
         exception "cannot cast"
     }
-    test {
-        sql "select cast(cast('2025-01-25 11:11:11' as datetimev2) as time);"
-        exception "cannot cast"
-    }
+    qt_sql "select cast(cast('2025-01-25 11:11:11' as datetimev2) as time);"
     test {
         sql "select cast(cast('2025-01-25' as datev2) as time);"
         exception "cannot cast"

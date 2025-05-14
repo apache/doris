@@ -1,7 +1,0 @@
-// this is data case file for array<bigint> type, contains normal, corner, exceptional data cases
-[]
-[null]
-NULL
-// single element
-[0]
-[12345.1234567890, 12345.1234567890, 12345.1234567890]
