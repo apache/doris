@@ -75,7 +75,7 @@ public class KillQueryCommandTest extends TestWithFeService {
         runBefore();
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, "select 1");
         stmtExecutor.execute();
-        String connectionId = DebugUtil.printId(stmtExecutor.getContext().getConnectionId());
+        String connectionId = String.valueOf(stmtExecutor.getContext().getConnectionId());
         KillQueryCommand command = new KillQueryCommand(connectionId);
         Assertions.assertDoesNotThrow(() -> command.doRun(connectContext, stmtExecutor));
         Assertions.assertEquals(connectContext.getState().getStateType(), QueryState.MysqlStateType.OK);
