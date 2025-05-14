@@ -40,12 +40,14 @@ public abstract class FileFormatProperties {
     public static final String FORMAT_ARROW = "arrow";
     public static final String PROP_COMPRESS_TYPE = "compress_type";
 
+    protected String formatName;
     protected TFileFormatType fileFormatType;
 
     protected TFileCompressType compressionType;
 
-    public FileFormatProperties(TFileFormatType fileFormatType) {
+    public FileFormatProperties(TFileFormatType fileFormatType, String formatName) {
         this.fileFormatType = fileFormatType;
+        this.formatName = formatName;
     }
 
     /**
@@ -73,16 +75,14 @@ public abstract class FileFormatProperties {
     public static FileFormatProperties createFileFormatProperties(String formatString) {
         switch (formatString) {
             case FORMAT_CSV:
-                return new CsvFileFormatProperties();
+                return new CsvFileFormatProperties(formatString);
             case FORMAT_HIVE_TEXT:
                 return new CsvFileFormatProperties(CsvFileFormatProperties.DEFAULT_HIVE_TEXT_COLUMN_SEPARATOR,
-                        TTextSerdeType.HIVE_TEXT_SERDE);
+                        TTextSerdeType.HIVE_TEXT_SERDE, formatString);
             case FORMAT_CSV_WITH_NAMES:
-                return new CsvFileFormatProperties(
-                        FORMAT_CSV_WITH_NAMES);
+                return new CsvFileFormatProperties(FORMAT_CSV_WITH_NAMES, formatString);
             case FORMAT_CSV_WITH_NAMES_AND_TYPES:
-                return new CsvFileFormatProperties(
-                        FORMAT_CSV_WITH_NAMES_AND_TYPES);
+                return new CsvFileFormatProperties(FORMAT_CSV_WITH_NAMES_AND_TYPES, formatString);
             case FORMAT_PARQUET:
                 return new ParquetFileFormatProperties();
             case FORMAT_ORC:
@@ -120,5 +120,9 @@ public abstract class FileFormatProperties {
 
     public TFileCompressType getCompressionType() {
         return compressionType;
+    }
+
+    public String getFormatName() {
+        return formatName;
     }
 }
