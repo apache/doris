@@ -464,7 +464,6 @@ import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Like;
-import org.apache.doris.nereids.trees.expressions.ListQuery;
 import org.apache.doris.nereids.trees.expressions.MatchAll;
 import org.apache.doris.nereids.trees.expressions.MatchAny;
 import org.apache.doris.nereids.trees.expressions.MatchPhrase;
@@ -4076,7 +4075,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     } else {
                         outExpression = new InSubquery(
                                 valueExpression,
-                                new ListQuery(typedVisit(ctx.query())),
+                                typedVisit(ctx.query()),
                                 ctx.NOT() != null
                         );
                     }
