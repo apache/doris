@@ -26,4 +26,27 @@ suite("create_view_nereids_fix_null") {
     def res2 = sql "desc test_null_array"
     mustContain(res2[0][1], "array<tinyint>")
     mustContain(res2[0][2], "No")
+
+    String s3_endpoint = getS3Endpoint()
+    logger.info("s3_endpoint: " + s3_endpoint)
+    String bucket = getS3BucketName()
+    logger.info("bucket: " + bucket)
+    String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-java-8.0.25.jar"
+    String dbname = context.config.getDbNameByFile(context.file)
+    String jdbcUrl = context.config.jdbcUrl
+    sql "drop catalog if exists jdbc_catalog"
+    sql """
+        CREATE CATALOG jdbc_catalog PROPERTIES (
+         "type"="jdbc",
+         "user"="root",
+         "password"="123456",
+         "jdbc_url"="${jdbcUrl}",
+         "driver_url"="${driver_url}",
+         "driver_class"="com.mysql.cj.jdbc.Driver"
+        );
+    """
+    sql "switch jdbc_catalog"
+    sql "use ${dbname}"
+    qt_test_null "select * from test_null"
+    qt_test_null_array "select * from test_null_array"
 }
