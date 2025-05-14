@@ -39,6 +39,7 @@
 #include <vector>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/exception.h"
 #include "common/status.h"
 #include "exprs/json_functions.h"
 #include "vec/io/io_helper.h"
@@ -236,16 +237,20 @@ rapidjson::Value* get_json_object(std::string_view json_string, std::string_view
         return document;
     }
 
+    try {
 #ifdef USE_LIBCPP
-    std::string s(path_string);
-    auto tok = get_json_token(s);
+        std::string s(path_string);
+        auto tok = get_json_token(s);
 #else
-    auto tok = get_json_token(path_string);
+        auto tok = get_json_token(path_string);
 #endif
-
-    std::vector<std::string> paths(tok.begin(), tok.end());
-    get_parsed_paths(paths, &tmp_parsed_paths);
-    if (tmp_parsed_paths.empty()) {
+        std::vector<std::string> paths(tok.begin(), tok.end());
+        get_parsed_paths(paths, &tmp_parsed_paths);
+        if (tmp_parsed_paths.empty()) {
+            return document;
+        }
+    } catch (boost::escaped_list_error&) {
+        // meet unknown escape sequence, example '$.name\k'
         return document;
     }
 
