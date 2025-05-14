@@ -2954,27 +2954,27 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 try {
                     return Config.enable_date_conversion ? new DateV2Literal(value) : new DateLiteral(value);
                 } catch (Exception e) {
-                    return new Cast(Literal.of(value),
+                    return new Cast(new StringLiteral(value),
                             Config.enable_date_conversion ? DateV2Type.INSTANCE : DateType.INSTANCE);
                 }
             case "TIMESTAMP":
                 try {
                     return Config.enable_date_conversion ? new DateTimeV2Literal(value) : new DateTimeLiteral(value);
                 } catch (Exception e) {
-                    return new Cast(Literal.of(value),
+                    return new Cast(new StringLiteral(value),
                             Config.enable_date_conversion ? DateTimeV2Type.MAX : DateTimeType.INSTANCE);
                 }
             case "DATEV2":
                 try {
                     return new DateV2Literal(value);
                 } catch (Exception e) {
-                    return new Cast(Literal.of(value), DateV2Type.INSTANCE);
+                    return new Cast(new StringLiteral(value), DateV2Type.INSTANCE);
                 }
             case "DATEV1":
                 try {
                     return new DateLiteral(value);
                 } catch (Exception e) {
-                    return new Cast(Literal.of(value), DateType.INSTANCE);
+                    return new Cast(new StringLiteral(value), DateType.INSTANCE);
                 }
             default:
                 throw new ParseException("Unsupported data type : " + type, ctx);
