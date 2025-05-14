@@ -523,9 +523,10 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
                 }
                 // prepare block char vector shrink for char type
                 std::vector<size_t> char_type_idx;
-                for (const auto& slot : slots) {
+                for (int j = 0; j < slots.size(); ++j) {
+                    auto slot = slots[j];
                     if (_has_char_type(slot.type())) {
-                        char_type_idx.push_back(i);
+                        char_type_idx.push_back(j);
                     }
                 }
 
