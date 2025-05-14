@@ -3161,9 +3161,9 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             List<TPrimitiveType> keyColumnTypes, Set<String> materializedColumnNames) {
         if (selectedIndexId != -1) {
             for (Column col : this.getSchemaByIndexId(selectedIndexId, true)) {
-                if (!materializedColumnNames.contains(col.getName())) {
-                    continue;
-                }
+                // if (!materializedColumnNames.contains(col.getName())) {
+                //     continue;
+                // }
                 TColumn tColumn = col.toThrift();
                 col.setIndexFlag(tColumn, this);
                 if (columnsDesc != null) {
