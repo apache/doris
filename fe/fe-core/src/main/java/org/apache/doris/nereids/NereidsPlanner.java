@@ -382,7 +382,7 @@ public class NereidsPlanner extends Planner {
         }
         if (statementContext.getConnectContext().getExecutor() != null) {
             statementContext.getConnectContext().getExecutor().getSummaryProfile()
-                    .setNereidsCollectTablePartitionTime();
+                    .setNereidsCollectTablePartitionFinishTime();
         }
     }
 

@@ -434,13 +434,14 @@ public abstract class MaterializationContext {
      * materialized view rewrite duration is exceeded
      * */
     public static void makeFailWithDurationExceeded(Plan queryPlan,
-            List<MaterializationContext> materializationContexts) {
+            List<MaterializationContext> materializationContexts, long duration) {
         for (MaterializationContext context : materializationContexts) {
             if (context.isSuccess()) {
                 continue;
             }
-            context.recordFailReason(queryPlan, "materialized view rewrite duration is exceeded",
-                    () -> "materialized view rewrite duration is exceeded");
+            context.recordFailReason(queryPlan,
+                    "materialized view rewrite duration is exceeded, the duration is " + duration,
+                    () -> "materialized view rewrite duration is exceeded, the duration is " + duration);
         }
     }
 

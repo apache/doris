@@ -60,6 +60,7 @@ public class MTMVRewriteUtil {
         if (mtmvStatus.getState() != MTMVState.NORMAL || mtmvStatus.getRefreshState() == MTMVRefreshState.INIT) {
             return res;
         }
+        // if relatedPartitions is empty but not null, which means query no partitions
         if (relatedPartitions != null && relatedPartitions.size() == 0) {
             return res;
         }
@@ -86,6 +87,7 @@ public class MTMVRewriteUtil {
                 mtmvNeedComparePartitions = getMtmvPartitionsByRelatedPartitions(mtmv, refreshContext,
                         relatedPartitions);
             }
+            // if the partition which query not used, should not compare partition version
             if (!mtmvNeedComparePartitions.contains(partition.getName())) {
                 continue;
             }
@@ -105,6 +107,8 @@ public class MTMVRewriteUtil {
 
     private static Set<String> getMtmvPartitionsByRelatedPartitions(MTMV mtmv, MTMVRefreshContext refreshContext,
             Set<String> relatedPartitions) {
+        // if relatedPartitions is null, which means QueryPartitionCollector visitLogicalCatalogRelation can not
+        // get query used partitions, should get all mtmv partitions
         if (relatedPartitions == null) {
             return mtmv.getPartitionNames();
         }

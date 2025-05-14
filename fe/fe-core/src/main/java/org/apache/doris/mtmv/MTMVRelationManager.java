@@ -49,6 +49,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.BiPredicate;
 
@@ -90,6 +91,9 @@ public class MTMVRelationManager implements MTMVHookService {
             try {
                 MTMV mtmv = (MTMV) MTMVUtil.getTable(tableInfo);
                 if (predicate.test(ctx, mtmv)) {
+                    continue;
+                }
+                if (!mtmv.isUseForRewrite()) {
                     continue;
                 }
                 BaseTableInfo relatedTableInfo = mtmv.getMvPartitionInfo().getRelatedTableInfo();
@@ -225,7 +229,7 @@ public class MTMVRelationManager implements MTMVHookService {
      * @param mtmv
      */
     @Override
-    public void deregisterMTMV(MTMV mtmv) {
+    public void unregisterMTMV(MTMV mtmv) {
         removeMTMV(new BaseTableInfo(mtmv));
     }
 
@@ -267,17 +271,15 @@ public class MTMVRelationManager implements MTMVHookService {
     /**
      * update mtmv status to `SCHEMA_CHANGE`
      *
-     * @param table
+     * @param isReplace
      */
     @Override
-    public void alterTable(Table table, String oldTableName) {
-        BaseTableInfo baseTableInfo = new BaseTableInfo(table);
-        baseTableInfo.setTableName(oldTableName);
-        if (table instanceof MTMV) {
-            removeMTMV(baseTableInfo);
-            refreshMTMVCache(((MTMV) table).getRelation(), new BaseTableInfo(table));
+    public void alterTable(BaseTableInfo oldTableInfo, Optional<BaseTableInfo> newTableInfo, boolean isReplace) {
+        // when replace, need deal two table
+        if (isReplace) {
+            processBaseTableChange(newTableInfo.get(), "The base table has been updated:");
         }
-        processBaseTableChange(baseTableInfo, "The base table has been updated:");
+        processBaseTableChange(oldTableInfo, "The base table has been updated:");
     }
 
     @Override

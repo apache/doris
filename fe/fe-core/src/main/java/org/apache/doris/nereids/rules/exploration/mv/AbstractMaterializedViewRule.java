@@ -114,11 +114,11 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             return rewrittenPlans;
         }
         if (statementContext.getMaterializedViewRewriteDuration()
-                > sessionVariable.materializedViewRewriteDurationThreshold) {
-            LOG.warn("materialized view rewrite duration is exceeded, the query sql hash is {}",
-                    cascadesContext.getConnectContext().getSqlHash());
-            MaterializationContext.makeFailWithDurationExceeded(queryPlan,
-                    cascadesContext.getMaterializationContexts());
+                > sessionVariable.materializedViewRewriteDurationThresholdMs) {
+            LOG.warn("materialized view rewrite duration is exceeded, the query queryId is {}",
+                    cascadesContext.getConnectContext().getQueryIdentifier());
+            MaterializationContext.makeFailWithDurationExceeded(queryPlan, cascadesContext.getMaterializationContexts(),
+                    statementContext.getMaterializedViewRewriteDuration());
             return rewrittenPlans;
         }
         for (MaterializationContext context : cascadesContext.getMaterializationContexts()) {
@@ -141,12 +141,13 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             for (StructInfo queryStructInfo : queryStructInfos) {
                 statementContext.getMaterializedViewStopwatch().reset().start();
                 if (statementContext.getMaterializedViewRewriteDuration()
-                        > sessionVariable.materializedViewRewriteDurationThreshold) {
+                        > sessionVariable.materializedViewRewriteDurationThresholdMs) {
                     statementContext.getMaterializedViewStopwatch().stop();
-                    LOG.warn("materialized view rewrite duration is exceeded, the query sql hash is {}",
-                            cascadesContext.getConnectContext().getSqlHash());
+                    LOG.warn("materialized view rewrite duration is exceeded, the queryId is {}",
+                            cascadesContext.getConnectContext().getQueryIdentifier());
                     MaterializationContext.makeFailWithDurationExceeded(queryStructInfo.getOriginalPlan(),
-                            cascadesContext.getMaterializationContexts());
+                            cascadesContext.getMaterializationContexts(),
+                            statementContext.getMaterializedViewRewriteDuration());
                     return rewrittenPlans;
                 }
                 try {
@@ -300,12 +301,14 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                             relatedTableInfo.toList(), queryStructInfo, cascadesContext.getStatementContext());
                     if (queryUsedPartition.isEmpty()) {
                         materializationContext.recordFailReason(queryStructInfo,
-                                String.format("queryUsedPartition is empty, table is %s, sql hash is %s",
-                                        relatedTableInfo.toList(), cascadesContext.getConnectContext().getSqlHash()),
-                                () -> String.format("queryUsedPartition is empty, table is %s, sql hash is %s",
-                                        relatedTableInfo.toList(), cascadesContext.getConnectContext().getSqlHash()));
-                        LOG.warn(String.format("queryUsedPartition is empty, table is %s, sql hash is %s",
-                                relatedTableInfo.toList(), cascadesContext.getConnectContext().getSqlHash()));
+                                String.format("queryUsedPartition is empty, table is %s, queryId is %s",
+                                        relatedTableInfo.toList(),
+                                        cascadesContext.getConnectContext().getQueryIdentifier()),
+                                () -> String.format("queryUsedPartition is empty, table is %s, queryId is %s",
+                                        relatedTableInfo.toList(),
+                                        cascadesContext.getConnectContext().getQueryIdentifier()));
+                        LOG.debug(String.format("queryUsedPartition is empty, table is %s, queryId is %s",
+                                relatedTableInfo.toList(), cascadesContext.getConnectContext().getQueryIdentifier()));
                         break;
                     }
                     invalidPartitions = calcInvalidPartitions(queryUsedPartition, rewrittenPlan,

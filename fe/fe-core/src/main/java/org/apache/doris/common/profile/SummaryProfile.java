@@ -239,8 +239,8 @@ public class SummaryProfile {
     @SerializedName(value = "nereidsLockTableFinishTime")
     private long nereidsLockTableFinishTime = -1;
 
-    @SerializedName(value = "nereidsCollectTablePartitionTime")
-    private long nereidsCollectTablePartitionTime = -1;
+    @SerializedName(value = "nereidsCollectTablePartitionFinishTime")
+    private long nereidsCollectTablePartitionFinishTime = -1;
     @SerializedName(value = "nereidsAnalysisFinishTime")
     private long nereidsAnalysisFinishTime = -1;
     @SerializedName(value = "nereidsRewriteFinishTime")
@@ -550,8 +550,8 @@ public class SummaryProfile {
         this.nereidsLockTableFinishTime = TimeUtils.getStartTimeMs();
     }
 
-    public void setNereidsCollectTablePartitionTime() {
-        this.nereidsCollectTablePartitionTime = TimeUtils.getStartTimeMs();
+    public void setNereidsCollectTablePartitionFinishTime() {
+        this.nereidsCollectTablePartitionFinishTime = TimeUtils.getStartTimeMs();
     }
 
     public void setNereidsAnalysisTime() {
@@ -830,11 +830,11 @@ public class SummaryProfile {
 
 
     public String getPrettyNereidsCollectTablePartitionTime() {
-        return getPrettyTime(nereidsCollectTablePartitionTime, nereidsRewriteFinishTime, TUnit.TIME_MS);
+        return getPrettyTime(nereidsCollectTablePartitionFinishTime, nereidsRewriteFinishTime, TUnit.TIME_MS);
     }
 
     public String getPrettyNereidsOptimizeTime() {
-        return getPrettyTime(nereidsOptimizeFinishTime, nereidsCollectTablePartitionTime, TUnit.TIME_MS);
+        return getPrettyTime(nereidsOptimizeFinishTime, nereidsCollectTablePartitionFinishTime, TUnit.TIME_MS);
     }
 
     public String getPrettyNereidsTranslateTime() {

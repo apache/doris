@@ -56,10 +56,12 @@ public class PartitionCompensator {
 
     public static final Logger LOG = LogManager.getLogger(PartitionCompensator.class);
     public static final Pair<RelationId, Set<String>> ALL_PARTITIONS = Pair.of(null, null);
+    public static final Collection<Pair<RelationId, Set<String>>> ALL_PARTITIONS_LIST =
+            ImmutableList.of(ALL_PARTITIONS);
 
     /**
      * Get table used partitions by the table full qualifiers
-     * */
+     */
     public static Set<String> getQueryTableUsedPartition(
             List<String> targetTableFullQualifiers,
             StructInfo queryStructInfo,
@@ -179,8 +181,8 @@ public class PartitionCompensator {
         return !PartitionType.UNPARTITIONED.equals(type) && relatedTableInfo != null;
     }
 
-    public static boolean isAllPartition(Pair<RelationId, Set<String>> usedPartition) {
-        return ALL_PARTITIONS.equals(usedPartition);
+    public static boolean isAllPartition(Collection<Pair<RelationId, Set<String>>> usedPartition) {
+        return ALL_PARTITIONS_LIST.equals(usedPartition);
     }
 
     /**
@@ -196,19 +198,24 @@ public class PartitionCompensator {
         // if value is null, means query all partitions
         // if value is not empty, means query some partitions
         Map<List<String>, Set<String>> queryUsedRelatedTablePartitionsMap = new HashMap<>();
-        for (Map.Entry<List<String>, TableIf> tableIfEntry : ctx.getStatementContext().getTables().entrySet()) {
+        for (Map.Entry<List<String>, TableIf> queryUsedTableEntry : ctx.getStatementContext().getTables().entrySet()) {
             Set<String> usedPartitionSet = new HashSet<>();
-            if (!tableUsedPartitionNameMap.get(tableIfEntry.getKey()).isEmpty()) {
-                for (Pair<RelationId, Set<String>> partitionPair
-                        : tableUsedPartitionNameMap.get(tableIfEntry.getKey())) {
-                    if (PartitionCompensator.isAllPartition(partitionPair)) {
-                        queryUsedRelatedTablePartitionsMap.put(tableIfEntry.getKey(), null);
+            Collection<Pair<RelationId, Set<String>>> tableUsedPartitions =
+                    tableUsedPartitionNameMap.get(queryUsedTableEntry.getKey());
+            if (!tableUsedPartitions.isEmpty()) {
+                if (PartitionCompensator.isAllPartition(tableUsedPartitions)) {
+                    queryUsedRelatedTablePartitionsMap.put(queryUsedTableEntry.getKey(), null);
+                    break;
+                }
+                for (Pair<RelationId, Set<String>> partitionPair : tableUsedPartitions) {
+                    if (ALL_PARTITIONS.equals(partitionPair)) {
+                        queryUsedRelatedTablePartitionsMap.put(queryUsedTableEntry.getKey(), null);
                         break;
                     }
                     usedPartitionSet.addAll(partitionPair.value());
                 }
             }
-            queryUsedRelatedTablePartitionsMap.put(tableIfEntry.getKey(), usedPartitionSet);
+            queryUsedRelatedTablePartitionsMap.put(queryUsedTableEntry.getKey(), usedPartitionSet);
         }
         return queryUsedRelatedTablePartitionsMap;
     }

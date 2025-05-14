@@ -209,9 +209,6 @@ public class StatementContext implements Closeable {
     // form this map
     private final Map<RelationId, Statistics> relationIdToStatisticsMap = new LinkedHashMap<>();
 
-    // Record mtmv and valid partitions map because this is time-consuming behavior
-    private final Map<BaseTableInfo, Collection<Partition>> mvCanRewritePartitionsMap = new HashMap<>();
-
     // Indicates the query is short-circuited in both plan and execution phase, typically
     // for high speed/concurrency point queries
     private boolean isShortCircuitQuery;
@@ -394,7 +391,7 @@ public class StatementContext implements Closeable {
     }
 
     public void addMaterializedViewRewriteDuration(long millisecond) {
-        materializedViewRewriteDuration = materializedViewRewriteDuration + millisecond;
+        materializedViewRewriteDuration += millisecond;
     }
 
     public void setMaxNAryInnerJoin(int maxNAryInnerJoin) {
@@ -616,10 +613,6 @@ public class StatementContext implements Closeable {
     @VisibleForTesting
     public Map<RelationId, Statistics> getRelationIdToStatisticsMap() {
         return relationIdToStatisticsMap;
-    }
-
-    public Map<BaseTableInfo, Collection<Partition>> getMvCanRewritePartitionsMap() {
-        return mvCanRewritePartitionsMap;
     }
 
     /**

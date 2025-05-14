@@ -71,20 +71,19 @@ public class QueryPartitionCollector extends DefaultPlanRewriter<ConnectContext>
             for (Long partitionId : logicalOlapScan.getSelectedPartitionIds()) {
                 tablePartitions.add(logicalOlapScan.getTable().getPartition(partitionId).getName());
             }
+            tableUsedPartitionNameMap.put(table.getFullQualifiers(),
+                    Pair.of(catalogRelation.getRelationId(), tablePartitions));
         } else if (catalogRelation instanceof LogicalFileScan
                 && catalogRelation.getTable() != null
                 && ((ExternalTable) catalogRelation.getTable()).supportInternalPartitionPruned()) {
             LogicalFileScan logicalFileScan = (LogicalFileScan) catalogRelation;
             SelectedPartitions selectedPartitions = logicalFileScan.getSelectedPartitions();
             tablePartitions.addAll(selectedPartitions.selectedPartitions.keySet());
+            tableUsedPartitionNameMap.put(table.getFullQualifiers(),
+                    Pair.of(catalogRelation.getRelationId(), tablePartitions));
         } else {
-            // todo when supported get query used partitions, should put actual used partitions but not ALL_PARTITIONS
-            tableUsedPartitionNameMap.put(table.getFullQualifiers(), PartitionCompensator.ALL_PARTITIONS);
+            tableUsedPartitionNameMap.putAll(table.getFullQualifiers(), PartitionCompensator.ALL_PARTITIONS_LIST);
         }
-        // only collect once and maybe query more than once, we collect all of them to make sure query data is
-        // correct
-        tableUsedPartitionNameMap.put(table.getFullQualifiers(),
-                Pair.of(catalogRelation.getRelationId(), tablePartitions));
         return catalogRelation;
     }
 }
