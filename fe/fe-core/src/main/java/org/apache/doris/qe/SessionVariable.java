@@ -732,6 +732,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_TEXT_VALIDATE_UTF8 = "enable_text_validate_utf8";
 
+    public static final String ENABLE_STRICT_CAST = "enable_strict_cast";
+
     /**
      * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
      */
@@ -2273,6 +2275,10 @@ public class SessionVariable implements Serializable, Writable {
             description = {"使能外表的batch mode功能", "Enable the batch mode function of the external table."},
             needForward = true)
     public boolean enableExternalTableBatchMode = true;
+
+    @VariableMgr.VarAttr(name = ENABLE_STRICT_CAST,
+            description = {"cast使用严格模式", "Use strict mode for cast"})
+    public boolean enableStrictCast = true;
 
     public Set<Integer> getIgnoredRuntimeFilterIds() {
         Set<Integer> ids = Sets.newLinkedHashSet();
@@ -4182,6 +4188,7 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setMinimumOperatorMemoryRequiredKb(minimumOperatorMemoryRequiredKB);
         tResult.setExchangeMultiBlocksByteSize(exchangeMultiBlocksByteSize);
+        tResult.setEnableStrictCast(enableStrictCast);
         return tResult;
     }
 
@@ -4804,5 +4811,9 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean showSplitProfileInfo() {
         return enableProfile() && getProfileLevel() > 1;
+    }
+
+    public boolean enableStrictCast() {
+        return enableStrictCast;
     }
 }
