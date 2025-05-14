@@ -22,6 +22,7 @@
 
 #include <fmt/format.h>
 #include <gen_cpp/data.pb.h>
+#include <glog/logging.h>
 #include <snappy.h>
 #include <streamvbyte.h>
 #include <sys/types.h>
@@ -383,19 +384,6 @@ size_t Block::rows() const {
     return 0;
 }
 
-std::string Block::each_col_size() const {
-    std::string ss;
-    for (const auto& elem : data) {
-        if (elem.column) {
-            ss += elem.column->size();
-            ss += " | ";
-        } else {
-            ss += "-1 | ";
-        }
-    }
-    return ss;
-}
-
 void Block::set_num_rows(size_t length) {
     if (rows() > length) {
         for (auto& elem : data) {
@@ -629,6 +617,7 @@ MutableColumns Block::mutate_columns() {
     size_t num_columns = data.size();
     MutableColumns columns(num_columns);
     for (size_t i = 0; i < num_columns; ++i) {
+        DCHECK(data[i].type);
         columns[i] = data[i].column ? (*std::move(data[i].column)).mutate()
                                     : data[i].type->create_column();
     }
@@ -645,16 +634,6 @@ void Block::set_columns(MutableColumns&& columns) {
     }
 }
 
-void Block::set_columns(const Columns& columns) {
-    DCHECK_GE(columns.size(), data.size())
-            << fmt::format("Invalid size of columns, columns size: {}, data size: {}",
-                           columns.size(), data.size());
-    size_t num_columns = data.size();
-    for (size_t i = 0; i < num_columns; ++i) {
-        data[i].column = columns[i];
-    }
-}
-
 Block Block::clone_with_columns(MutableColumns&& columns) const {
     Block res;
 
@@ -663,24 +642,6 @@ Block Block::clone_with_columns(MutableColumns&& columns) const {
         res.insert({std::move(columns[i]), data[i].type, data[i].name});
     }
 
-    return res;
-}
-
-Block Block::clone_with_columns(const Columns& columns) const {
-    Block res;
-
-    size_t num_columns = data.size();
-
-    if (num_columns != columns.size()) {
-        throw Exception(Status::FatalError(
-                "Cannot clone block with columns because block has {} columns, but {} columns "
-                "given.",
-                num_columns, columns.size()));
-    }
-
-    for (size_t i = 0; i < num_columns; ++i) {
-        res.insert({columns[i], data[i].type, data[i].name});
-    }
     return res;
 }
 
@@ -699,16 +660,6 @@ Block Block::clone_without_columns(const std::vector<int>* column_offset) const 
         }
     }
     return res;
-}
-
-Block Block::sort_columns() const {
-    Block sorted_block;
-
-    for (const auto& name : index_by_name) {
-        sorted_block.insert(data[name.second]);
-    }
-
-    return sorted_block;
 }
 
 const ColumnsWithTypeAndName& Block::get_columns_with_type_and_name() const {
@@ -743,14 +694,6 @@ void Block::clear() {
     row_same_bit.clear();
 }
 
-std::string Block::print_use_count() {
-    std::stringstream ss;
-    for (auto& d : data) {
-        ss << ", [" << d.name << ", " << d.column->use_count() << "]";
-    }
-    return ss.str();
-}
-
 void Block::clear_column_data(int64_t column_size) noexcept {
     SCOPED_SKIP_MEMORY_CHECK();
     // data.size() greater than column_size, means here have some
@@ -764,7 +707,6 @@ void Block::clear_column_data(int64_t column_size) noexcept {
         if (d.column) {
             // Temporarily disable reference count check because a column might be referenced multiple times within a block.
             // Queries like this: `select c, c from t1;`
-            // DCHECK_EQ(d.column->use_count(), 1) << " " << print_use_count();
             (*std::move(d.column)).assume_mutable()->clear();
         }
     }
@@ -876,15 +818,6 @@ void Block::filter_block_internal(Block* block, const IColumn::Filter& filter) {
             column = column->filter(filter, count);
         }
     }
-}
-
-Block Block::copy_block(const std::vector<int>& column_offset) const {
-    ColumnsWithTypeAndName columns_with_type_and_name;
-    for (auto offset : column_offset) {
-        DCHECK(offset < data.size());
-        columns_with_type_and_name.emplace_back(data[offset]);
-    }
-    return columns_with_type_and_name;
 }
 
 Status Block::append_to_block_by_selector(MutableBlock* dst,
@@ -1057,15 +990,6 @@ void MutableBlock::swap(MutableBlock& another) noexcept {
     _data_types.swap(another._data_types);
     _names.swap(another._names);
     index_by_name.swap(another.index_by_name);
-}
-
-void MutableBlock::swap(MutableBlock&& another) noexcept {
-    SCOPED_SKIP_MEMORY_CHECK();
-    clear();
-    _columns = std::move(another._columns);
-    _data_types = std::move(another._data_types);
-    _names = std::move(another._names);
-    index_by_name = std::move(another.index_by_name);
 }
 
 void MutableBlock::add_row(const Block* block, int row) {
@@ -1263,15 +1187,6 @@ void MutableBlock::clear_column_data() noexcept {
         if (col) {
             col->clear();
         }
-    }
-}
-
-void MutableBlock::reset_column_data() noexcept {
-    SCOPED_SKIP_MEMORY_CHECK();
-    _columns.clear();
-    for (int i = 0; i < _names.size(); i++) {
-        _columns.emplace_back(_data_types[i]->create_column());
-        index_by_name[_names[i]] = i;
     }
 }
 

@@ -274,6 +274,9 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
     private boolean isEffectiveRuntimeFilter(EqualTo equalTo, PhysicalHashJoin join) {
         Statistics leftStats = ((AbstractPlan) join.child(0)).getStats();
         Statistics rightStats = ((AbstractPlan) join.child(1)).getStats();
+        if (leftStats == null || rightStats == null) {
+            return true;
+        }
         Set<Slot> leftSlots = equalTo.child(0).getInputSlots();
         if (leftSlots.size() > 1) {
             return false;

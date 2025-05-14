@@ -625,7 +625,7 @@ public class MetadataGenerator {
             trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(13))));
             trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(14))); // spill low watermark
             trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(15))); // spill high watermark
-            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(16))); // tag
+            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(16))); // compute group
             trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(17)))); // read bytes per second
             trow.addToColumnValue(
                     new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(18)))); // remote read bytes per second
@@ -786,7 +786,7 @@ public class MetadataGenerator {
         List<Pair<String, Integer>> frontends = FrontendsProcNode.getFrontendWithRpcPort(Env.getCurrentEnv(), false);
 
         FrontendService.Client client = null;
-        int waitTimeOut = ConnectContext.get() == null ? 300 : ConnectContext.get().getExecTimeout();
+        int waitTimeOut = ConnectContext.get() == null ? 300 : ConnectContext.get().getExecTimeoutS();
         for (Pair<String, Integer> fe : frontends) {
             TNetworkAddress thriftAddress = new TNetworkAddress(fe.key(), fe.value());
             try {

@@ -25,9 +25,9 @@ namespace doris {
 std::string MemoryContext::debug_string() {
     return fmt::format("TaskId={}, Memory(Used={}, Limit={}, Peak={})",
                        print_id(resource_ctx_->task_controller()->task_id()),
-                       MemCounter::print_bytes(current_memory_bytes()),
-                       MemCounter::print_bytes(mem_limit()),
-                       MemCounter::print_bytes(peak_memory_bytes()));
+                       PrettyPrinter::print_bytes(current_memory_bytes()),
+                       PrettyPrinter::print_bytes(mem_limit()),
+                       PrettyPrinter::print_bytes(peak_memory_bytes()));
 }
 
 #include "common/compile_check_end.h"

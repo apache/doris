@@ -493,14 +493,14 @@ public class StmtExecutor {
         if (masterOpExecutor == null) {
             return MysqlStateType.UNKNOWN.ordinal();
         }
-        return masterOpExecutor.getProxyStatusCode();
+        return masterOpExecutor.getStatusCode();
     }
 
     public String getProxyErrMsg() {
         if (masterOpExecutor == null) {
             return MysqlStateType.UNKNOWN.name();
         }
-        return masterOpExecutor.getProxyErrMsg();
+        return masterOpExecutor.getErrMsg();
     }
 
     public boolean isSyncLoadKindStmt() {
@@ -709,7 +709,8 @@ public class StmtExecutor {
                 throw new UserException("Forward master command is not supported for prepare statement");
             }
             if (logicalPlan instanceof UnsupportedCommand || logicalPlan instanceof CreatePolicyCommand) {
-                throw new MustFallbackException("cannot prepare command " + logicalPlan.getClass().getSimpleName());
+                throw new NereidsException(
+                        new MustFallbackException("cannot prepare command " + logicalPlan.getClass().getSimpleName()));
             }
             long stmtId = Config.prepared_stmt_start_id > 0
                     ? Config.prepared_stmt_start_id : context.getPreparedStmtId();
@@ -908,6 +909,7 @@ public class StmtExecutor {
                     AuditLog.getQueryAudit().log("Query {} {} times with new query id: {}",
                             DebugUtil.printId(queryId), i, DebugUtil.printId(newQueryId));
                     context.setQueryId(newQueryId);
+                    context.setNeedRegenerateInstanceId(newQueryId);
                     if (Config.isCloudMode()) {
                         // sleep random millis [1000, 1500] ms
                         // in the begining of retryTime/2
@@ -939,11 +941,12 @@ public class StmtExecutor {
                 if (this.coord != null && (this.coord.isQueryCancelled() || this.coord.isTimeout())) {
                     throw e;
                 }
-                // cloud mode retry
-                LOG.debug("due to exception {} retry {} rpc {} user {}",
+                LOG.warn("due to exception {} retry {} rpc {} user {}",
                         e.getMessage(), i, e instanceof RpcException, e instanceof UserException);
+
                 boolean isNeedRetry = false;
                 if (Config.isCloudMode()) {
+                    // cloud mode retry
                     isNeedRetry = false;
                     // errCode = 2, detailMessage = No backend available as scan node,
                     // please check the status of your backends. [10003: not alive]
@@ -1199,8 +1202,6 @@ public class StmtExecutor {
 
     /**
      * get variables in stmt.
-     *
-     * @throws DdlException
      */
     private void analyzeVariablesInStmt() throws DdlException {
         analyzeVariablesInStmt(parsedStmt);
@@ -2321,7 +2322,7 @@ public class StmtExecutor {
         TransactionEntry txnEntry = context.getTxnEntry();
         TTxnParams txnConf = txnEntry.getTxnConf();
         SessionVariable sessionVariable = context.getSessionVariable();
-        long timeoutSecond = context.getExecTimeout();
+        long timeoutSecond = context.getExecTimeoutS();
 
         TransactionState.LoadJobSourceType sourceType = TransactionState.LoadJobSourceType.INSERT_STREAMING;
         Database dbObj = Env.getCurrentInternalCatalog()
@@ -2499,9 +2500,9 @@ public class StmtExecutor {
                     coord.getQueryOptions().setEnableMemtableOnSinkNode(isEnableMemtableOnSinkNode);
                 }
                 coord.exec();
-                int execTimeout = context.getExecTimeout();
+                int execTimeout = context.getExecTimeoutS();
                 if (LOG.isDebugEnabled()) {
-                    LOG.debug("Insert {} execution timeout:{}", DebugUtil.printId(context.queryId()), execTimeout);
+                    LOG.debug("Insert {} execution timeout:{}ms", DebugUtil.printId(context.queryId()), execTimeout);
                 }
                 boolean notTimeout = coord.join(execTimeout);
                 if (!coord.isDone()) {

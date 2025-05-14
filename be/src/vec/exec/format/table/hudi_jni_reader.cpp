@@ -71,22 +71,15 @@ HudiJniReader::HudiJniReader(const TFileScanRangeParams& scan_params,
         }
     }
 
-    if (_hudi_params.hudi_jni_scanner == "spark") {
-        _jni_connector = std::make_unique<JniConnector>("org/apache/doris/hudi/HudiJniScanner",
-                                                        params, required_fields);
-    } else {
-        // _hudi_params.hudi_jni_scanner == "hadoop"
-        // and default use hadoop hudi jni scanner
-        _jni_connector = std::make_unique<JniConnector>(
-                "org/apache/doris/hudi/HadoopHudiJniScanner", params, required_fields);
-    }
+    _jni_connector = std::make_unique<JniConnector>("org/apache/doris/hudi/HadoopHudiJniScanner",
+                                                    params, required_fields);
 }
 
 Status HudiJniReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
     return _jni_connector->get_next_block(block, read_rows, eof);
 }
 
-Status HudiJniReader::get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
+Status HudiJniReader::get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
                                   std::unordered_set<std::string>* missing_cols) {
     for (const auto& desc : _file_slot_descs) {
         name_to_type->emplace(desc->col_name(), desc->type());

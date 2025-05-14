@@ -44,8 +44,6 @@ namespace doris::vectorized {
 class BufferWritable;
 class IColumn;
 class ReadBuffer;
-template <typename T>
-struct TypeId;
 
 /** Implements part of the IDataType interface, common to all numbers and for Date and DateTime.
   */
@@ -59,64 +57,59 @@ public:
     using FieldType = T;
 
     const char* get_family_name() const override { return TypeName<T>::get(); }
-    TypeIndex get_type_id() const override { return TypeId<T>::value; }
-    TypeDescriptor get_type_as_type_descriptor() const override {
+    PrimitiveType get_primitive_type() const override {
         // Doris does not support uint8 at present, use uint8 as boolean type
-        if constexpr (std::is_same_v<TypeId<T>, TypeId<UInt8>>) {
-            return {TYPE_BOOLEAN};
+        if constexpr (std::is_same_v<T, UInt8>) {
+            return TYPE_BOOLEAN;
         }
-        if constexpr (std::is_same_v<TypeId<T>, TypeId<Int8>>) {
-            return {TYPE_TINYINT};
+        if constexpr (std::is_same_v<T, Int8>) {
+            return TYPE_TINYINT;
         }
-        if constexpr (std::is_same_v<TypeId<T>, TypeId<Int16>> ||
-                      std::is_same_v<TypeId<T>, TypeId<UInt16>>) {
-            return {TYPE_SMALLINT};
+        if constexpr (std::is_same_v<T, Int16>) {
+            return TYPE_SMALLINT;
         }
-        if constexpr (std::is_same_v<TypeId<T>, TypeId<Int32>> ||
-                      std::is_same_v<TypeId<T>, TypeId<UInt32>>) {
-            return {TYPE_INT};
+        if constexpr (std::is_same_v<T, Int32>) {
+            return TYPE_INT;
         }
-        if constexpr (std::is_same_v<TypeId<T>, TypeId<Int64>> ||
-                      std::is_same_v<TypeId<T>, TypeId<UInt64>>) {
-            return {TYPE_BIGINT};
+        if constexpr (std::is_same_v<T, Int64>) {
+            return TYPE_BIGINT;
         }
-        if constexpr (std::is_same_v<TypeId<T>, TypeId<Int128>> ||
-                      std::is_same_v<TypeId<T>, TypeId<Int128>>) {
-            return {TYPE_LARGEINT};
+        if constexpr (std::is_same_v<T, Int128>) {
+            return TYPE_LARGEINT;
         }
-        if constexpr (std::is_same_v<TypeId<T>, TypeId<Float32>>) {
-            return {TYPE_FLOAT};
+        if constexpr (std::is_same_v<T, Float32>) {
+            return TYPE_FLOAT;
         }
-        if constexpr (std::is_same_v<TypeId<T>, TypeId<Float64>>) {
-            return {TYPE_DOUBLE};
+        if constexpr (std::is_same_v<T, Float64>) {
+            return TYPE_DOUBLE;
         }
-        return {INVALID_TYPE};
+        throw Exception(Status::FatalError("__builtin_unreachable"));
     }
 
     doris::FieldType get_storage_field_type() const override {
         // Doris does not support uint8 at present, use uint8 as boolean type
-        if constexpr (std::is_same_v<TypeId<T>, TypeId<UInt8>>) {
+        if constexpr (std::is_same_v<T, UInt8>) {
             return doris::FieldType::OLAP_FIELD_TYPE_BOOL;
         }
-        if constexpr (std::is_same_v<TypeId<T>, TypeId<Int8>>) {
+        if constexpr (std::is_same_v<T, Int8>) {
             return doris::FieldType::OLAP_FIELD_TYPE_TINYINT;
         }
-        if constexpr (std::is_same_v<TypeId<T>, TypeId<Int16>>) {
+        if constexpr (std::is_same_v<T, Int16>) {
             return doris::FieldType::OLAP_FIELD_TYPE_SMALLINT;
         }
-        if constexpr (std::is_same_v<TypeId<T>, TypeId<Int32>>) {
+        if constexpr (std::is_same_v<T, Int32>) {
             return doris::FieldType::OLAP_FIELD_TYPE_INT;
         }
-        if constexpr (std::is_same_v<TypeId<T>, TypeId<Int64>>) {
+        if constexpr (std::is_same_v<T, Int64>) {
             return doris::FieldType::OLAP_FIELD_TYPE_BIGINT;
         }
-        if constexpr (std::is_same_v<TypeId<T>, TypeId<Int128>>) {
+        if constexpr (std::is_same_v<T, Int128>) {
             return doris::FieldType::OLAP_FIELD_TYPE_LARGEINT;
         }
-        if constexpr (std::is_same_v<TypeId<T>, TypeId<Float32>>) {
+        if constexpr (std::is_same_v<T, Float32>) {
             return doris::FieldType::OLAP_FIELD_TYPE_FLOAT;
         }
-        if constexpr (std::is_same_v<TypeId<T>, TypeId<Float64>>) {
+        if constexpr (std::is_same_v<T, Float64>) {
             return doris::FieldType::OLAP_FIELD_TYPE_DOUBLE;
         }
         throw Exception(Status::FatalError("__builtin_unreachable"));

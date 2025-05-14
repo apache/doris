@@ -34,7 +34,6 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "exec/tablet_info.h"
-#include "gutil/strings/numbers.h"
 #include "io/fs/file_writer.h" // IWYU pragma: keep
 #include "olap/memtable_flush_executor.h"
 #include "olap/olap_define.h"
@@ -48,6 +47,7 @@
 #include "olap/tablet_manager.h"
 #include "olap/txn_manager.h"
 #include "runtime/exec_env.h"
+#include "runtime/thread_context.h"
 #include "service/backend_options.h"
 #include "util/brpc_client_cache.h"
 #include "util/brpc_closure.h"
@@ -104,10 +104,9 @@ Status BaseDeltaWriter::init() {
     if (_is_init) {
         return Status::OK();
     }
-    auto* t_ctx = doris::thread_context(true);
     std::shared_ptr<WorkloadGroup> wg_sptr = nullptr;
-    if (t_ctx && t_ctx->is_attach_task()) {
-        wg_sptr = t_ctx->resource_ctx()->workload_group();
+    if (doris::thread_context()->is_attach_task()) {
+        wg_sptr = doris::thread_context()->resource_ctx()->workload_group();
     }
     RETURN_IF_ERROR(_rowset_builder->init());
     RETURN_IF_ERROR(_memtable_writer->init(

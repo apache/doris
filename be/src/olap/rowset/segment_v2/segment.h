@@ -204,14 +204,12 @@ public:
             // Default column iterator
             return true;
         }
-        if (vectorized::WhichDataType(vectorized::remove_nullable(storage_column_type))
-                    .is_variant_type()) {
+        if (storage_column_type->get_primitive_type() == TYPE_VARIANT) {
             // Predicate should nerver apply on variant type
             return false;
         }
-        bool safe =
-                pred->can_do_apply_safely(storage_column_type->get_type_as_type_descriptor().type,
-                                          storage_column_type->is_nullable());
+        bool safe = pred->can_do_apply_safely(storage_column_type->get_primitive_type(),
+                                              storage_column_type->is_nullable());
         // Currently only variant column can lead to unsafe
         CHECK(safe || col->type() == FieldType::OLAP_FIELD_TYPE_VARIANT);
         return safe;

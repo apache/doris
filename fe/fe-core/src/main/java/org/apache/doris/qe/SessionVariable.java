@@ -658,8 +658,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String FORCE_JNI_SCANNER = "force_jni_scanner";
 
-    public static final String HUDI_JNI_SCANNER = "hudi_jni_scanner";
-
     public static final String ENABLE_COUNT_PUSH_DOWN_FOR_EXTERNAL_TABLE = "enable_count_push_down_for_external_table";
 
     public static final String SHOW_ALL_FE_CONNECTION = "show_all_fe_connection";
@@ -675,6 +673,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String USE_MAX_LENGTH_OF_VARCHAR_IN_CTAS = "use_max_length_of_varchar_in_ctas";
 
     public static final String ENABLE_ES_PARALLEL_SCROLL = "enable_es_parallel_scroll";
+
+    public static final String EXCHANGE_MULTI_BLOCKS_BYTE_SIZE = "exchange_multi_blocks_byte_size";
 
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
@@ -697,6 +697,8 @@ public class SessionVariable implements Serializable, Writable {
     // CLOUD_VARIABLES_BEGIN
     public static final String CLOUD_CLUSTER = "cloud_cluster";
     public static final String DISABLE_EMPTY_PARTITION_PRUNE = "disable_empty_partition_prune";
+    public static final String CLOUD_PARTITION_VERSION_CACHE_TTL_MS =
+            "cloud_partition_version_cache_ttl_ms";
     // CLOUD_VARIABLES_BEGIN
 
     public static final String ENABLE_MATCH_WITHOUT_INVERTED_INDEX = "enable_match_without_inverted_index";
@@ -729,6 +731,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_AUTO_CREATE_WHEN_OVERWRITE = "enable_auto_create_when_overwrite";
 
     public static final String ENABLE_TEXT_VALIDATE_UTF8 = "enable_text_validate_utf8";
+
+    public static final String ENABLE_SQL_CONVERTOR_FEATURES = "enable_sql_convertor_features";
 
     /**
      * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
@@ -2245,14 +2249,14 @@ public class SessionVariable implements Serializable, Writable {
                     "When processing both \\n and \\r\\n as CSV line separators, should \\r be retained?"})
     public boolean keepCarriageReturn = false;
 
+    @VariableMgr.VarAttr(name = EXCHANGE_MULTI_BLOCKS_BYTE_SIZE,
+            description = {"Enable exchange to send multiple blocks in one RPC. Default is 256KB. A negative"
+                    + " value disables multi-block exchange."})
+    public int exchangeMultiBlocksByteSize = 256 * 1024;
 
     @VariableMgr.VarAttr(name = FORCE_JNI_SCANNER,
             description = {"强制使用jni方式读取外表", "Force the use of jni mode to read external table"})
     private boolean forceJniScanner = false;
-
-    @VariableMgr.VarAttr(name = HUDI_JNI_SCANNER, description = { "使用那种hudi jni scanner, 'hadoop' 或 'spark'",
-            "Which hudi jni scanner to use, 'hadoop' or 'spark'" })
-    private String hudiJniScanner = "hadoop";
 
     @VariableMgr.VarAttr(name = ENABLE_COUNT_PUSH_DOWN_FOR_EXTERNAL_TABLE,
             description = {"对外表启用 count(*) 下推优化", "enable count(*) pushdown optimization for external table"})
@@ -2374,6 +2378,8 @@ public class SessionVariable implements Serializable, Writable {
     public String cloudCluster = "";
     @VariableMgr.VarAttr(name = DISABLE_EMPTY_PARTITION_PRUNE)
     public boolean disableEmptyPartitionPrune = false;
+    @VariableMgr.VarAttr(name = CLOUD_PARTITION_VERSION_CACHE_TTL_MS)
+    public static long cloudPartitionVersionCacheTtlMs = 0;
     // CLOUD_VARIABLES_END
 
     // fetch remote schema rpc timeout
@@ -2571,6 +2577,14 @@ public class SessionVariable implements Serializable, Writable {
     })
     public boolean skipCheckingAcidVersionFile = false;
 
+    @VariableMgr.VarAttr(name = ENABLE_SQL_CONVERTOR_FEATURES, needForward = true,
+            checker = "checkSqlConvertorFeatures",
+            description = {
+                    "开启 SQL 转换器的指定功能。多个功能使用逗号分隔",
+                    "enable SQL convertor features. Multiple features are separated by commas"
+            })
+    public String enableSqlConvertorFeatures = "";
+
     public void setEnableEsParallelScroll(boolean enableESParallelScroll) {
         this.enableESParallelScroll = enableESParallelScroll;
     }
@@ -2597,6 +2611,12 @@ public class SessionVariable implements Serializable, Writable {
         this.disableStreamPreaggregations = random.nextBoolean();
         this.enableShareHashTableForBroadcastJoin = random.nextBoolean();
         this.enableParallelResultSink = random.nextBoolean();
+
+        // 4KB = 4 * 1024 bytes
+        int minBytes = 4 * 1024;
+        // 10MB = 10 * 1024 * 1024 bytes
+        int maxBytes = 10 * 1024 * 1024;
+        this.exchangeMultiBlocksByteSize = minBytes + (int) (random.nextDouble() * (maxBytes - minBytes));
         int randomInt = random.nextInt(4);
         if (randomInt % 2 == 0) {
             this.rewriteOrToInPredicateThreshold = 100000;
@@ -3510,6 +3530,10 @@ public class SessionVariable implements Serializable, Writable {
         return sqlDialect;
     }
 
+    public String[] getSqlConvertorFeatures() {
+        return enableSqlConvertorFeatures.split(",");
+    }
+
     public Dialect getSqlParseDialect() {
         return Dialect.getByName(sqlDialect);
     }
@@ -4171,6 +4195,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableRuntimeFilterPartitionPrune(enableRuntimeFilterPartitionPrune);
 
         tResult.setMinimumOperatorMemoryRequiredKb(minimumOperatorMemoryRequiredKB);
+        tResult.setExchangeMultiBlocksByteSize(exchangeMultiBlocksByteSize);
         return tResult;
     }
 
@@ -4688,10 +4713,6 @@ public class SessionVariable implements Serializable, Writable {
         return forceJniScanner;
     }
 
-    public String getHudiJniScanner() {
-        return hudiJniScanner;
-    }
-
     public String getIgnoreSplitType() {
         return ignoreSplitType;
     }
@@ -4710,10 +4731,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setForceJniScanner(boolean force) {
         forceJniScanner = force;
-    }
-
-    public void setHudiJniScanner(String hudiJniScanner) {
-        this.hudiJniScanner = hudiJniScanner;
     }
 
     public boolean isEnableCountPushDownForExternalTable() {
@@ -4791,6 +4808,20 @@ public class SessionVariable implements Serializable, Writable {
         }
     }
 
+    public void checkSqlConvertorFeatures(String features) {
+        if (Strings.isNullOrEmpty(features)) {
+            return;
+        }
+        String[] featureArray = features.split(",");
+        for (String feature : featureArray) {
+            if (!feature.equalsIgnoreCase("ctas")
+                    && !feature.equalsIgnoreCase("delete_all_comment")) {
+                throw new UnsupportedOperationException("Unknown sql convertor feature: " + feature
+                        + ", current support: ctas, delete_all_comment");
+            }
+        }
+    }
+
     public boolean getEnableLocalMergeSort() {
         return enableLocalMergeSort;
     }
@@ -4802,4 +4833,5 @@ public class SessionVariable implements Serializable, Writable {
     public boolean showSplitProfileInfo() {
         return enableProfile() && getProfileLevel() > 1;
     }
+
 }

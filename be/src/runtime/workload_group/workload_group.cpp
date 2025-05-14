@@ -112,7 +112,12 @@ bool WorkloadGroup::try_add_wg_refresh_interval_memory_growth(int64_t size) {
         // If a group is enable memory overcommit, then not need check the limit
         // It is always true, and it will only fail when process memory is not
         // enough.
-        return _enable_memory_overcommit;
+        if (_enable_memory_overcommit) {
+            _wg_refresh_interval_memory_growth.fetch_add(size);
+            return true;
+        } else {
+            return false;
+        }
     } else {
         _wg_refresh_interval_memory_growth.fetch_add(size);
         return true;
@@ -252,18 +257,18 @@ int64_t WorkloadGroup::revoke_memory(int64_t need_free_mem, const std::string& r
 
     auto group_revoke_reason = fmt::format(
             "{}, revoke group id:{}, name:{}, used:{}, limit:{}", revoke_reason, _id, _name,
-            MemCounter::print_bytes(used_memory), MemCounter::print_bytes(_memory_limit));
+            PrettyPrinter::print_bytes(used_memory), PrettyPrinter::print_bytes(_memory_limit));
     LOG(INFO) << fmt::format(
             "[MemoryGC] start WorkloadGroup::revoke_memory, {}, need free size: {}.",
-            group_revoke_reason, MemCounter::print_bytes(need_free_mem));
+            group_revoke_reason, PrettyPrinter::print_bytes(need_free_mem));
     Defer defer {[&]() {
         std::stringstream ss;
         group_revoke_profile->pretty_print(&ss);
         LOG(INFO) << fmt::format(
                 "[MemoryGC] end WorkloadGroup::revoke_memory, {}, need free size: {}, free Memory "
                 "{}. cost(us): {}, details: {}",
-                group_revoke_reason, MemCounter::print_bytes(need_free_mem),
-                MemCounter::print_bytes(freed_mem), watch.elapsed_time() / 1000, ss.str());
+                group_revoke_reason, PrettyPrinter::print_bytes(need_free_mem),
+                PrettyPrinter::print_bytes(freed_mem), watch.elapsed_time() / 1000, ss.str());
     }};
 
     // step 1. free top overcommit query

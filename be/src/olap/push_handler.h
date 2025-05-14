@@ -114,7 +114,7 @@ private:
     vectorized::Block* _src_block_ptr = nullptr;
     vectorized::Block _src_block;
     const TDescriptorTable& _t_desc_tbl;
-    std::unordered_map<std::string, TypeDescriptor> _name_to_col_type;
+    std::unordered_map<std::string, vectorized::DataTypePtr> _name_to_col_type;
     std::unordered_set<std::string> _missing_cols;
     std::unordered_map<std::string, uint32_t> _src_block_name_to_idx;
     vectorized::VExprContextSPtrs _dest_expr_ctxs;

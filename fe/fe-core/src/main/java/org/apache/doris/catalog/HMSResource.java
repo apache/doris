@@ -22,6 +22,7 @@ import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.constants.HMSProperties;
 
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
@@ -63,7 +64,7 @@ public class HMSResource extends Resource {
     }
 
     @Override
-    protected void setProperties(Map<String, String> properties) throws DdlException {
+    protected void setProperties(ImmutableMap<String, String> properties) throws DdlException {
         for (String field : HMSProperties.REQUIRED_FIELDS) {
             if (!properties.containsKey(field)) {
                 throw new DdlException("Missing [" + field + "] in properties.");

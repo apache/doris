@@ -8983,4 +8983,268 @@ TEST(MetaServiceTest, UpdateTmpRowsetTest) {
     }
 }
 
+TEST(MetaServiceTest, CreateS3VaultWithIamRole) {
+    auto sp = SyncPoint::get_instance();
+    sp->enable_processing();
+    sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](auto&& args) {
+        auto* ret = try_any_cast<int*>(args[0]);
+        *ret = 0;
+        auto* key = try_any_cast<std::string*>(args[1]);
+        *key = "selectdbselectdbselectdbselectdb";
+        auto* key_id = try_any_cast<int64_t*>(args[2]);
+        *key_id = 1;
+    });
+    std::pair<std::string, std::string> pair;
+    sp->set_call_back("extract_object_storage_info:get_aksk_pair", [&](auto&& args) {
+        auto* ret = try_any_cast<std::pair<std::string, std::string>*>(args[0]);
+        pair = *ret;
+    });
+
+    auto meta_service = get_meta_service();
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string key;
+    std::string val;
+    InstanceKeyInfo key_info {"test_instance"};
+    instance_key(key_info, &key);
+
+    ObjectStoreInfoPB obj_info;
+    obj_info.set_id("1");
+    obj_info.set_ak("ak");
+    obj_info.set_sk("sk");
+    StorageVaultPB vault;
+    constexpr char vault_name[] = "test_alter_s3_vault";
+    vault.mutable_obj_info()->MergeFrom(obj_info);
+    vault.set_name(vault_name);
+    vault.set_id("2");
+    InstanceInfoPB instance;
+    instance.add_storage_vault_names(vault.name());
+    instance.add_resource_ids(vault.id());
+    instance.set_instance_id("GetObjStoreInfoTestInstance");
+    instance.set_enable_storage_vault(true);
+    val = instance.SerializeAsString();
+    txn->put(key, val);
+    txn->put(storage_vault_key({instance.instance_id(), "2"}), vault.SerializeAsString());
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    txn = nullptr;
+
+    auto get_test_instance = [&](InstanceInfoPB& i) {
+        std::string key;
+        std::string val;
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        InstanceKeyInfo key_info {"test_instance"};
+        instance_key(key_info, &key);
+        ASSERT_EQ(txn->get(key, &val), TxnErrorCode::TXN_OK);
+        i.ParseFromString(val);
+    };
+
+    {
+        AlterObjStoreInfoRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_op(AlterObjStoreInfoRequest::ADD_S3_VAULT);
+        StorageVaultPB vault;
+        vault.mutable_obj_info()->set_endpoint("s3.us-east-1.amazonaws.com");
+        vault.mutable_obj_info()->set_region("us-east-1");
+        vault.mutable_obj_info()->set_bucket("test_bucket");
+        vault.mutable_obj_info()->set_prefix("test_prefix");
+        vault.mutable_obj_info()->set_ak("new_ak");
+        vault.mutable_obj_info()->set_sk("new_sk");
+        vault.mutable_obj_info()->set_provider(
+                ObjectStoreInfoPB::Provider::ObjectStoreInfoPB_Provider_S3);
+
+        vault.set_name("ak_sk_s3_vault");
+        req.mutable_vault()->CopyFrom(vault);
+
+        brpc::Controller cntl;
+        AlterObjStoreInfoResponse res;
+        meta_service->alter_storage_vault(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+
+        {
+            InstanceInfoPB instance;
+            get_test_instance(instance);
+            std::unique_ptr<Transaction> txn;
+            ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+            std::string val;
+            ASSERT_EQ(txn->get(storage_vault_key({instance.instance_id(), "2"}), &val),
+                      TxnErrorCode::TXN_OK);
+            StorageVaultPB get_obj;
+            get_obj.ParseFromString(val);
+            ASSERT_EQ(get_obj.obj_info().ak(), "ak") << get_obj.obj_info().ak();
+        }
+
+        {
+            InstanceInfoPB instance;
+            get_test_instance(instance);
+            std::unique_ptr<Transaction> txn;
+            ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+            std::string val;
+            ASSERT_EQ(txn->get(storage_vault_key({instance.instance_id(), "3"}), &val),
+                      TxnErrorCode::TXN_OK);
+            StorageVaultPB get_obj;
+            get_obj.ParseFromString(val);
+            ASSERT_EQ(get_obj.obj_info().ak(), "new_ak") << get_obj.obj_info().ak();
+            ASSERT_NE(get_obj.obj_info().sk(), "new_sk") << get_obj.obj_info().sk();
+        }
+    }
+
+    {
+        AlterObjStoreInfoRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_op(AlterObjStoreInfoRequest::ADD_S3_VAULT);
+        StorageVaultPB vault;
+        vault.mutable_obj_info()->set_endpoint("s3.us-east-1.amazonaws.com");
+        vault.mutable_obj_info()->set_region("us-east-1");
+        vault.mutable_obj_info()->set_bucket("test_bucket");
+        vault.mutable_obj_info()->set_prefix("test_prefix");
+        vault.mutable_obj_info()->set_role_arn("arn:aws:iam::123456789012:role/test-role");
+        vault.mutable_obj_info()->set_external_id("external_id");
+        vault.mutable_obj_info()->set_provider(
+                ObjectStoreInfoPB::Provider::ObjectStoreInfoPB_Provider_S3);
+        vault.mutable_obj_info()->set_cred_provider_type(CredProviderTypePB::INSTANCE_PROFILE);
+
+        vault.set_name("ak_sk_s3_vault_with_role");
+        req.mutable_vault()->CopyFrom(vault);
+
+        brpc::Controller cntl;
+        AlterObjStoreInfoResponse res;
+        meta_service->alter_storage_vault(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+
+        {
+            InstanceInfoPB instance;
+            get_test_instance(instance);
+            std::unique_ptr<Transaction> txn;
+            ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+            std::string val;
+            ASSERT_EQ(txn->get(storage_vault_key({instance.instance_id(), "4"}), &val),
+                      TxnErrorCode::TXN_OK);
+            StorageVaultPB get_obj;
+            get_obj.ParseFromString(val);
+            ASSERT_EQ(get_obj.obj_info().ak().empty(), true) << get_obj.obj_info().ak();
+            ASSERT_EQ(get_obj.obj_info().sk().empty(), true) << get_obj.obj_info().sk();
+
+            ASSERT_EQ(get_obj.obj_info().role_arn(), "arn:aws:iam::123456789012:role/test-role")
+                    << get_obj.obj_info().role_arn();
+            ASSERT_EQ(get_obj.obj_info().external_id(), "external_id")
+                    << get_obj.obj_info().external_id();
+
+            ASSERT_EQ(get_obj.obj_info().endpoint(), "s3.us-east-1.amazonaws.com")
+                    << get_obj.obj_info().endpoint();
+            ASSERT_EQ(get_obj.obj_info().region(), "us-east-1") << get_obj.obj_info().region();
+            ASSERT_EQ(get_obj.obj_info().bucket(), "test_bucket") << get_obj.obj_info().bucket();
+            ASSERT_EQ(get_obj.obj_info().prefix(), "test_prefix") << get_obj.obj_info().prefix();
+            ASSERT_EQ(get_obj.obj_info().provider(),
+                      ObjectStoreInfoPB::Provider::ObjectStoreInfoPB_Provider_S3)
+                    << get_obj.obj_info().provider();
+            ASSERT_EQ(get_obj.name(), "ak_sk_s3_vault_with_role") << get_obj.name();
+            ASSERT_EQ(get_obj.id(), "4") << get_obj.id();
+            ASSERT_EQ(get_obj.obj_info().cred_provider_type(), CredProviderTypePB::INSTANCE_PROFILE)
+                    << get_obj.obj_info().cred_provider_type();
+        }
+    }
+
+    LOG(INFO) << "instance:" << instance.ShortDebugString();
+    SyncPoint::get_instance()->disable_processing();
+    SyncPoint::get_instance()->clear_all_call_backs();
+}
+
+TEST(MetaServiceTest, AddObjInfoWithRole) {
+    auto meta_service = get_meta_service();
+
+    auto sp = SyncPoint::get_instance();
+    sp->enable_processing();
+
+    sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](auto&& args) {
+        auto* ret = try_any_cast<int*>(args[0]);
+        *ret = 0;
+        auto* key = try_any_cast<std::string*>(args[1]);
+        *key = "selectdbselectdbselectdbselectdb";
+        auto* key_id = try_any_cast<int64_t*>(args[2]);
+        *key_id = 1;
+    });
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string key;
+    std::string val;
+    InstanceKeyInfo key_info {"test_instance"};
+    instance_key(key_info, &key);
+
+    InstanceInfoPB instance;
+    val = instance.SerializeAsString();
+    txn->put(key, val);
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    auto get_test_instance = [&](InstanceInfoPB& i) {
+        std::string key;
+        std::string val;
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        InstanceKeyInfo key_info {"test_instance"};
+        instance_key(key_info, &key);
+        ASSERT_EQ(txn->get(key, &val), TxnErrorCode::TXN_OK);
+        i.ParseFromString(val);
+    };
+
+    {
+        AlterObjStoreInfoRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_op(AlterObjStoreInfoRequest::ADD_OBJ_INFO);
+        auto sp = SyncPoint::get_instance();
+        sp->set_call_back("create_object_info_with_encrypt", [](auto&& args) {
+            auto* ret = try_any_cast<int*>(args[0]);
+            *ret = 0;
+        });
+        sp->enable_processing();
+
+        ObjectStoreInfoPB obj_info;
+        obj_info.set_endpoint("s3.us-east-1.amazonaws.com");
+        obj_info.set_region("us-east-1");
+        obj_info.set_bucket("test_bucket");
+        obj_info.set_prefix("test_prefix");
+        obj_info.set_role_arn("arn:aws:iam::123456789012:role/test-role");
+        obj_info.set_external_id("external_id");
+        obj_info.set_provider(ObjectStoreInfoPB::Provider::ObjectStoreInfoPB_Provider_S3);
+        obj_info.set_cred_provider_type(CredProviderTypePB::INSTANCE_PROFILE);
+
+        req.mutable_obj()->MergeFrom(obj_info);
+
+        brpc::Controller cntl;
+        AlterObjStoreInfoResponse res;
+        meta_service->alter_obj_store_info(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+
+        InstanceInfoPB instance;
+        get_test_instance(instance);
+        const auto& obj = instance.obj_info().at(0);
+        ASSERT_EQ(obj.id(), "1");
+        ASSERT_EQ(obj.ak().empty(), true) << obj.ak();
+        ASSERT_EQ(obj.sk().empty(), true) << obj.sk();
+
+        ASSERT_EQ(obj.role_arn(), "arn:aws:iam::123456789012:role/test-role") << obj.role_arn();
+        ASSERT_EQ(obj.external_id(), "external_id") << obj.external_id();
+
+        ASSERT_EQ(obj.endpoint(), "s3.us-east-1.amazonaws.com") << obj.endpoint();
+        ASSERT_EQ(obj.region(), "us-east-1") << obj.region();
+        ASSERT_EQ(obj.bucket(), "test_bucket") << obj.bucket();
+        ASSERT_EQ(obj.prefix(), "test_prefix") << obj.prefix();
+        ASSERT_EQ(obj.provider(), ObjectStoreInfoPB::Provider::ObjectStoreInfoPB_Provider_S3)
+                << obj.provider();
+        ASSERT_EQ(obj.cred_provider_type(), CredProviderTypePB::INSTANCE_PROFILE)
+                << obj.cred_provider_type();
+
+        sp->clear_all_call_backs();
+        sp->clear_trace();
+        sp->disable_processing();
+    }
+
+    SyncPoint::get_instance()->disable_processing();
+    SyncPoint::get_instance()->clear_all_call_backs();
+}
 } // namespace doris::cloud

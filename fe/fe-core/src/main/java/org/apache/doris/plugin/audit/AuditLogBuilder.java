@@ -93,9 +93,7 @@ public class AuditLogBuilder extends Plugin implements AuditPlugin {
                     break;
             }
         } catch (Exception e) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("failed to process audit event", e);
-            }
+            LOG.warn("failed to process audit event: {}", event.queryId, e);
         }
     }
 

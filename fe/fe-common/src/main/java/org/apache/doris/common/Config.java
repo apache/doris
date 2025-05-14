@@ -1967,8 +1967,10 @@ public class Config extends ConfigBase {
             "Maximum number of persistence allowed per task in a job,exceeding which old tasks will be discarded，"
                    + "If the value is less than 1, it will not be persisted." })
     public static int max_persistence_task_count = 100;
-    @ConfField(masterOnly = true, description = {"MV task 的等待队列大小，如果是负数，则会使用 1024，如果不是 2 的幂，则会自动选择一个最接近的"
-            + " 2 的幂次方数", "The size of the MV task's waiting queue If the size is negative, 1024 will be used. If "
+
+    @ConfField(masterOnly = true, description = { "MTMV task 的等待队列大小，如果是负数，则会使用 1024，如果不是 2 的幂，则会自动选择一个最接近的"
+                    + " 2 的幂次方数",
+            "The size of the MTMV task's waiting queue If the size is negative, 1024 will be used. If "
             + "the size is not a power of two, the nearest power of the size will be"
             + " automatically selected."})
     public static int mtmv_task_queue_size = 1024;
@@ -1977,6 +1979,13 @@ public class Config extends ConfigBase {
             + " If the size is not a power of two, the nearest power of the size will "
             + "be automatically selected."})
     public static int insert_task_queue_size = 1024;
+    @ConfField(masterOnly = true, description = { "字典导入 task 的等待队列大小，如果是负数，则会使用 1024，如果不是 2 的幂，则会自动选择一个最接近"
+            + " 的 2 的幂次方数",
+            "The size of the Dictionary loading task's waiting queue If the size is negative, 1024 will be used."
+            + " If the size is not a power of two, the nearest power of the size will "
+            + "be automatically selected." })
+    public static int dictionary_task_queue_size = 1024;
+
     @ConfField(masterOnly = true, description = {"finished 状态的 job 最长保存时间，超过这个时间将会被删除, 单位：小时",
             "The longest time to save the job in finished status, it will be deleted after this time. Unit: hour"})
     public static int finished_job_cleanup_threshold_time_hour = 24;
@@ -1987,9 +1996,14 @@ public class Config extends ConfigBase {
     public static int job_insert_task_consumer_thread_num = 10;
 
     @ConfField(masterOnly = true, description = {"用于执行 MTMV 任务的线程数,值应该大于0，否则默认为10",
-            "The number of threads used to consume mtmv tasks, "
+            "The number of threads used to consume MTMV tasks, "
                     + "the value should be greater than 0, if it is <=0, default is 10."})
     public static int job_mtmv_task_consumer_thread_num = 10;
+
+    @ConfField(masterOnly = true, description = { "用于执行字典导入和删除任务的线程数,值应该大于0，否则默认为3",
+            "The number of threads used to perform the dictionary import and delete tasks, which should be"
+                    + " greater than 0, otherwise it defaults to 3." })
+    public static int job_dictionary_task_consumer_thread_num = 3;
 
     /* job test config */
     /**
@@ -2028,10 +2042,6 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true)
     public static boolean enable_query_queue = true;
-
-    // used for regression test
-    @ConfField(mutable = true)
-    public static boolean enable_alter_queue_prop_sync = false;
 
     @ConfField(mutable = true)
     public static long query_queue_update_interval_ms = 5000;
@@ -2234,10 +2244,6 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = false)
     public static int blacklist_duration_second = 120;
 
-    @ConfField(mutable = true, masterOnly = false, description = {
-            "禁止创建odbc, mysql, broker类型的外表", "Disallow the creation of odbc, mysql, broker type external tables"})
-    public static boolean enable_odbc_mysql_broker_table = false;
-
     /**
      * The default connection timeout for hive metastore.
      * hive.metastore.client.socket.timeout
@@ -2266,7 +2272,7 @@ public class Config extends ConfigBase {
             "Max cache number of partition at table level in Hive Metastore."})
     public static long max_hive_partition_cache_num = 10000;
 
-    @ConfField(description = {"Hudi/Iceberg 表级别缓存的最大数量。",
+    @ConfField(description = {"Hudi/Iceberg/Paimon 表级别缓存的最大数量。",
             "Max cache number of hudi/iceberg table."})
     public static long max_external_table_cache_num = 1000;
 
@@ -2883,6 +2889,19 @@ public class Config extends ConfigBase {
     })
     public static int sync_image_timeout_second = 300;
 
+    @ConfField(mutable = true, description = {
+        "FE启动时加载image文件某个模块的二进制内容到字节数组，并将字节数组反序列化为utf8编码字符串时单批次（单位：byte, 至少500MB）"
+            + "的大小。等于-1的值表示一次性读取完整的字节数组后反序列化反序列化为utf8编码字符串；"
+            + "不等于-1的值（至少16MB）表示分批每次读取多大的字节数组后反序列化为utf8编码字符串，最后合并成完成的字符串。默认值为-1",
+        "The size of a single batch (in bytes) when loading the binary content of a module of the "
+            + "image file into a byte array and deserializing the byte array into a utf8 encoded string when FE starts."
+            + " A value equal to -1 means reading the entire byte array at once and "
+            + "then deserializing it into a utf8 encoded string; a value not equal to -1 means reading "
+            + "a certain size (at least 16MB) of byte array in batches and then deserializing it into a "
+            + "utf8 encoded string, and finally merging it into a completed string. The default value is -1"
+    })
+    public static int metadata_text_read_max_batch_bytes = -1;
+
     @ConfField(mutable = true, masterOnly = true)
     public static int publish_topic_info_interval_ms = 30000; // 30s
 
@@ -2978,6 +2997,15 @@ public class Config extends ConfigBase {
             + "the default value is 10000."
     })
     public static int backup_restore_batch_task_num_per_rpc = 10000;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "一个 BE 同时执行的恢复任务的并发数",
+            "The number of concurrent restore tasks per be"})
+    public static int restore_task_concurrency_per_be = 5000;
+
+    @ConfField(mutable = true, description = {"执行 agent task 时，BE心跳超过多长时间，认为BE不可用",
+            "The time after which BE is considered unavailable if the heartbeat is not received"})
+    public static int agent_task_be_unavailable_heartbeat_timeout_second = 300;
 
     @ConfField(description = {"是否开启通过http接口获取log文件的功能",
             "Whether to enable the function of getting log files through http interface"})
@@ -3148,9 +3176,17 @@ public class Config extends ConfigBase {
     public static boolean enable_feature_data_sync_job = false;
 
     @ConfField(description = {
-            "存放 hadoop conf 配置文件的默认目录。",
-            "The default directory for storing hadoop conf configuration files."})
+        "存放 hadoop conf 配置文件的默认目录。",
+        "The default directory for storing hadoop conf configuration files."})
     public static String hadoop_config_dir = EnvUtils.getDorisHome() + "/plugins/hadoop_conf/";
+
+    @ConfField(mutable = true, masterOnly = true, description = {"字典相关的 RPC 的超时时间",
+            "Timeout of dictionary related RPC"})
+    public static int dictionary_rpc_timeout_seconds = 5;
+
+    @ConfField(mutable = true, masterOnly = true, description = { "字典触发数据过期检查的时间间隔，单位为秒",
+            "Interval at which the dictionary triggers a data expiration check, in seconds" })
+    public static int dictionary_auto_refresh_interval_seconds = 5;
 
     //==========================================================================
     //                    begin of cloud config

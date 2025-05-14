@@ -24,6 +24,7 @@ import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.DataSortInfo;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.IndexDef;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.backup.Status;
@@ -364,6 +365,19 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             return Lists.newArrayList();
         }
         return indexes.getIndexIds();
+    }
+
+    /**
+     * Checks if the table contains at least one index of the specified type.
+     * @param indexType The index type to check for
+     * @return true if the table has at least one index of the specified type, false otherwise
+     */
+    public boolean hasIndexOfType(IndexDef.IndexType indexType) {
+        if (indexes == null) {
+            return false;
+        }
+        return indexes.getIndexes().stream()
+                .anyMatch(index -> index.getIndexType() == indexType);
     }
 
     @Override
@@ -1472,12 +1486,18 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return Sets.newHashSet(nameToPartition.keySet());
     }
 
-    // for those elements equal in partiton ids, get their names.
-    public List<String> getEqualPartitionNames(List<Long> partitionIds1, List<Long> partitionIds2) {
+    // for those elements equal in partiton ids, get their names. if tables partition changed(drop or something) make
+    // finding failed, throw exception.
+    public List<String> getEqualPartitionNames(List<Long> originPartitionIds, List<Long> targetPartitionIds) throws
+            RuntimeException {
         List<String> names = new ArrayList<String>();
-        for (int i = 0; i < partitionIds1.size(); i++) {
-            if (partitionIds1.get(i).equals(partitionIds2.get(i))) {
-                names.add(getPartition(partitionIds1.get(i)).getName());
+        for (int i = 0; i < originPartitionIds.size(); i++) {
+            if (originPartitionIds.get(i).equals(targetPartitionIds.get(i))) {
+                Partition originPartition = getPartition(originPartitionIds.get(i));
+                if (originPartition == null) {
+                    throw new RuntimeException("origin partition missed: " + originPartitionIds.get(i));
+                }
+                names.add(originPartition.getName());
             }
         }
         return names;
@@ -3419,6 +3439,14 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     }
 
     @Override
+    public long getNewestUpdateVersionOrTime() {
+        // return version rather than time because:
+        //  1. they are all incremental
+        //  2. more reasonable for UnassignedAllBEJob to compare version this time we plan and last succeed refresh.
+        return tableAttributes.getVisibleVersion();
+    }
+
+    @Override
     public PartitionType getPartitionType(Optional<MvccSnapshot> snapshot) {
         return getPartitionType();
     }
@@ -3471,8 +3499,16 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     @Override
     public MTMVSnapshotIf getTableSnapshot(MTMVRefreshContext context, Optional<MvccSnapshot> snapshot) {
         Map<Long, Long> tableVersions = context.getBaseVersions().getTableVersions();
-        long visibleVersion = tableVersions.containsKey(id) ? tableVersions.get(id) : getVisibleVersion();
-        return new MTMVVersionSnapshot(visibleVersion, id);
+        if (tableVersions.containsKey(id)) { // hits cache
+            return new MTMVVersionSnapshot(tableVersions.get(id), id);
+        } else {
+            return getTableSnapshot(snapshot);
+        }
+    }
+
+    @Override
+    public MTMVSnapshotIf getTableSnapshot(Optional<MvccSnapshot> snapshot) {
+        return new MTMVVersionSnapshot(getVisibleVersion(), id);
     }
 
     @Override

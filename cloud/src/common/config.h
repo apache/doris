@@ -54,9 +54,16 @@ CONF_Int32(log_verbose_level, "5");
 // Only works when starting Cloud with --console.
 CONF_Bool(enable_file_logger, "true");
 
-// Custom conf path is default the same as conf path, and configs will be append to it.
-// Otherwise, will a new custom conf file will be created.
-CONF_String(custom_conf_path, "./conf/doris_cloud.conf");
+// Custom conf path is default empty.
+// All mutable configs' modification needed to be persisted will be appended to conf path
+// specified when started.
+//
+// If it is set to equivalent value of conf path specified when started,
+// mutable configs' modification behavior will be the same as the description above.
+//
+// Otherwise, a new custom conf file will be created when mutable configs are modified
+// and persisted, with all modification written to it.
+CONF_String(custom_conf_path, "");
 
 // recycler config
 CONF_mInt64(recycle_interval_seconds, "3600");
@@ -96,6 +103,9 @@ CONF_mInt64(recycle_task_threshold_seconds, "10800"); // 3h
 // force recycler to recycle all useless object.
 // **just for TEST**
 CONF_Bool(force_immediate_recycle, "false");
+
+CONF_mBool(enable_mow_compaction_key_check, "false");
+CONF_mInt64(compaction_key_check_expiration_diff_seconds, "600"); // 10min
 
 CONF_String(test_s3_ak, "");
 CONF_String(test_s3_sk, "");
@@ -254,6 +264,8 @@ CONF_Int32(txn_lazy_max_rowsets_per_batch, "1000");
 // max TabletIndexPB num for batch get
 CONF_Int32(max_tablet_index_num_per_batch, "1000");
 
+CONF_Bool(enable_cloud_txn_lazy_commit_fuzzy_test, "false");
+
 // Max aborted txn num for the same label name
 CONF_mInt64(max_num_aborted_txn, "100");
 
@@ -280,5 +292,11 @@ CONF_Strings(recycler_storage_vault_white_list, "");
 //    Debug = 5,
 //    Trace = 6
 CONF_Int32(aws_log_level, "2");
+
+// ca_cert_file is in this path by default, Normally no modification is required
+// ca cert default path is different from different OS
+CONF_mString(ca_cert_file_paths,
+             "/etc/pki/tls/certs/ca-bundle.crt;/etc/ssl/certs/ca-certificates.crt;"
+             "/etc/ssl/ca-bundle.pem");
 
 } // namespace doris::cloud::config

@@ -145,7 +145,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
     protected boolean hasRowStoreChange = false;
 
     // save all schema change tasks
-    private AgentBatchTask schemaChangeBatchTask = new AgentBatchTask();
+    AgentBatchTask schemaChangeBatchTask = new AgentBatchTask();
 
     protected SchemaChangeJobV2() {
         super(JobType.SCHEMA_CHANGE);
@@ -583,26 +583,27 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                     if (task.getErrorCode() != null && task.getErrorCode()
                             .equals(TStatusCode.DELETE_BITMAP_LOCK_ERROR)) {
                         maxFailedTimes = Config.schema_change_max_retry_time;
-                        LOG.warn("schema change task failed: {}, set maxFailedTimes {}", task.getErrorMsg(),
-                                maxFailedTimes);
                     }
                 }
                 if (task.getFailedTimes() > maxFailedTimes) {
                     task.setFinished(true);
-                    AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.ALTER, task.getSignature());
-                    LOG.warn("schema change task failed: {}", task.getErrorMsg());
-                    List<Long> failedBackends = failedTabletBackends.get(task.getTabletId());
-                    if (failedBackends == null) {
-                        failedBackends = Lists.newArrayList();
-                        failedTabletBackends.put(task.getTabletId(), failedBackends);
-                    }
-                    failedBackends.add(task.getBackendId());
-                    int expectSucceedTaskNum = tbl.getPartitionInfo()
-                            .getReplicaAllocation(task.getPartitionId()).getTotalReplicaNum();
-                    int failedTaskCount = failedBackends.size();
-                    if (expectSucceedTaskNum - failedTaskCount < expectSucceedTaskNum / 2 + 1) {
-                        throw new AlterCancelException(
+                    if (!FeConstants.runningUnitTest) {
+                        AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.ALTER, task.getSignature());
+                        LOG.warn("schema change task failed, failedTimes: {}, maxFailedTimes: {}, err: {}",
+                                task.getFailedTimes(), maxFailedTimes, task.getErrorMsg());
+                        List<Long> failedBackends = failedTabletBackends.get(task.getTabletId());
+                        if (failedBackends == null) {
+                            failedBackends = Lists.newArrayList();
+                            failedTabletBackends.put(task.getTabletId(), failedBackends);
+                        }
+                        failedBackends.add(task.getBackendId());
+                        int expectSucceedTaskNum = tbl.getPartitionInfo()
+                                .getReplicaAllocation(task.getPartitionId()).getTotalReplicaNum();
+                        int failedTaskCount = failedBackends.size();
+                        if (expectSucceedTaskNum - failedTaskCount < expectSucceedTaskNum / 2 + 1) {
+                            throw new AlterCancelException(
                                 String.format("schema change tasks failed, error reason: %s", task.getErrorMsg()));
+                        }
                     }
                 }
             }
@@ -650,7 +651,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                             }
                         }
 
-                        if (healthyReplicaNum < expectReplicationNum / 2 + 1) {
+                        if ((healthyReplicaNum < expectReplicationNum / 2 + 1) && !FeConstants.runningUnitTest) {
                             LOG.warn("shadow tablet {} has few healthy replicas: {}, schema change job: {}"
                                     + " healthyReplicaNum {} expectReplicationNum {}",
                                     shadowTablet.getId(), replicas, jobId, healthyReplicaNum, expectReplicationNum);

@@ -62,8 +62,6 @@
 #include "common/logging.h"
 #include "common/signal_handler.h"
 #include "common/status.h"
-#include "gutil/ref_counted.h"
-#include "gutil/strings/substitute.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/file_system.h"
@@ -1500,7 +1498,6 @@ bool Tablet::do_tablet_meta_checkpoint() {
         _newly_created_rowset_num < config::tablet_meta_checkpoint_min_new_rowsets_num) {
         return false;
     }
-
     // hold read-lock other than write-lock, because it will not modify meta structure
     std::shared_lock rdlock(_meta_lock);
     if (tablet_state() != TABLET_RUNNING) {
@@ -2032,6 +2029,12 @@ Status Tablet::cooldown(RowsetSharedPtr rowset) {
     if (_cooldown_conf.cooldown_replica_id <= 0) { // wait for FE to push cooldown conf
         return Status::InternalError("invalid cooldown_replica_id");
     }
+
+    auto mem_tracker = MemTrackerLimiter::create_shared(
+            MemTrackerLimiter::Type::OTHER,
+            fmt::format("Tablet::cooldown#tableId={}:replicaId={}", std::to_string(tablet_id()),
+                        std::to_string(replica_id())));
+    SCOPED_ATTACH_TASK(mem_tracker);
 
     if (_cooldown_conf.cooldown_replica_id == replica_id()) {
         // this replica is cooldown replica

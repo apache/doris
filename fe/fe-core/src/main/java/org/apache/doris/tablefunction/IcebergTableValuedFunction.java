@@ -47,8 +47,8 @@ import java.util.Map;
 public class IcebergTableValuedFunction extends MetadataTableValuedFunction {
 
     public static final String NAME = "iceberg_meta";
-    private static final String TABLE = "table";
-    private static final String QUERY_TYPE = "query_type";
+    public static final String TABLE = "table";
+    public static final String QUERY_TYPE = "query_type";
 
     private static final ImmutableSet<String> PROPERTIES_SET = ImmutableSet.of(TABLE, QUERY_TYPE);
 
