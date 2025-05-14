@@ -196,7 +196,7 @@ suite("salt_join") {
     sql """create table t4 (c4 int, c44 int) distributed by hash(c4) buckets 3 properties('replication_num' = '1');"""
     qt_shape_leading_inner_subquery """
     explain shape plan 
-    select count(*) from (select /*+leading(alias2 shuffle(skew(t1.c1(1,2))) t1) */ c1, c11 from t1 join (select c2, c22 from t2 join t4 on c2 = c4) as alias2 on c1 = alias2.c2) as alias1 join t3 on alias1.c1 = t3.c3;
+    select count(*) from (select /*+leading(alias2 shuffle(skew(alias2.c2(1,2))) t1) */ c1, c11 from t1 join (select c2, c22 from t2 join t4 on c2 = c4) as alias2 on c1 = alias2.c2) as alias1 join t3 on alias1.c1 = t3.c3;
     """
     qt_shape_leading_inner_subquery_switch """
     explain shape plan 
@@ -219,4 +219,65 @@ suite("salt_join") {
     qt_right_skew_value "select * from test_null_safe1 t1 right join[shuffle(skew(t1.b(1,2)))] test_null_safe2 t2 on t1.b<=>t2.b;"
     qt_right_skew_value_only_null "select * from test_null_safe1 t1 right join[shuffle(skew(t1.b(null)))] test_null_safe2 t2 on t1.b<=>t2.b;"
     qt_right_skew_value_null_and_value "select * from test_null_safe1 t1 right join[shuffle(skew(t1.b(null,1,2)))] test_null_safe2 t2 on t1.b<=>t2.b;"
+
+    // test by Mind Map
+    sql "drop table if exists test_null_safe3"
+    sql "drop table if exists test_null_safe4"
+    sql """create table test_null_safe3(a int, b int) distributed by hash(a)  properties("replication_num"="1");"""
+    sql """create table test_null_safe4(a int, b int) distributed by hash(a)  properties("replication_num"="1");"""
+    sql "insert into test_null_safe3 values(1,null),(2,3),(2,4),(2,1),(3,1),(4,2),(3,2),(4,22),(4,25);"
+    sql "insert into test_null_safe4 values(1,null),(2,3),(2,4),(2,1),(3,1),(4,2),(2,2),(3,5),(4,24);"
+
+    //1.equal
+    //1.1 inner join null, no need to rewrite
+    qt_equal_inner_only_null """select t1.a,t1.b,t2.a,t2.b from test_null_safe3 t1 inner join[shuffle(skew(t1.b(null)))] test_null_safe4 t2 on t1.b=t2.b order by 1,2,3,4;"""
+    //1.2 left join null, no need to expand
+    qt_equal_left_only_null "select t1.a,t1.b,t2.a,t2.b from test_null_safe3 t1 left join[shuffle(skew(t1.b(null)))] test_null_safe4 t2 on t1.b=t2.b order by 1,2,3,4;"
+    //1.3 right join null, no need to expand
+    qt_equal_right_only_null "select t1.a,t1.b,t2.a,t2.b from test_null_safe3 t1 right join[shuffle(skew(t2.b(null)))] test_null_safe4 t2 on t1.b=t2.b order by 1,2,3,4;"
+    //1.4 no null in skew values
+    qt_equal_inner_no_null "select t1.a,t1.b,t2.a,t2.b from test_null_safe3 t1 inner join[shuffle(skew(t1.b(1,2)))] test_null_safe4 t2 on t1.b=t2.b  order by 1,2,3,4;"
+    qt_equal_left_no_null "select t1.a,t1.b,t2.a,t2.b from test_null_safe3 t1 left join[shuffle(skew(t1.b(1,2)))] test_null_safe4 t2 on t1.b=t2.b  order by 1,2,3,4;"
+    qt_equal_right_no_null "select t1.a,t1.b,t2.a,t2.b from test_null_safe3 t1 right join[shuffle(skew(t2.b(1,2)))] test_null_safe4 t2 on t1.b=t2.b  order by 1,2,3,4;"
+    //1.5 have null in skew values
+    qt_equal_inner_other_and_null "select t1.a,t1.b,t2.a,t2.b from test_null_safe3 t1 inner join[shuffle(skew(t1.b(1,2,null)))] test_null_safe4 t2 on t1.b=t2.b  order by 1,2,3,4;"
+    qt_equal_left_other_and_null "select t1.a,t1.b,t2.a,t2.b from test_null_safe3 t1 left join[shuffle(skew(t1.b(1,2,null)))] test_null_safe4 t2 on t1.b=t2.b order by 1,2,3,4;"
+    qt_equal_right_other_and_null "select t1.a,t1.b,t2.a,t2.b from test_null_safe3 t1 right join[shuffle(skew(t2.b(1,2,null)))] test_null_safe4 t2 on t1.b=t2.b order by 1,2,3,4;"
+
+    //2.null safe equal
+    //2.1 inner join only null, need rewrite
+    qt_null_safe_equal_inner_only_null "select t1.a,t1.b,t2.a,t2.b from test_null_safe3 t1 inner join[shuffle(skew(t1.b(null)))] test_null_safe4 t2 on t1.b<=>t2.b order by 1,2,3,4;"
+    //2.2 left join null only, need expand
+    qt_null_safe_equal_left_only_null "select t1.a,t1.b,t2.a,t2.b from test_null_safe3 t1 left join[shuffle(skew(t1.b(null)))] test_null_safe4 t2 on t1.b<=>t2.b order by 1,2,3,4;"
+    //2.3 right join null only, need expand
+    qt_null_safe_equal_right_only_null "select t1.a,t1.b,t2.a,t2.b from test_null_safe3 t1 right join[shuffle(skew(t2.b(null)))] test_null_safe4 t2 on t1.b<=>t2.b order by 1,2,3,4;"
+    //2.4 no null
+    qt_null_safe_equal_inner_no_null "select t1.a,t1.b,t2.a,t2.b from test_null_safe3 t1 inner join[shuffle(skew(t1.b(1,2)))] test_null_safe4 t2 on t1.b<=>t2.b order by 1,2,3,4;"
+    qt_null_safe_equal_left_no_null "select t1.a,t1.b,t2.a,t2.b from test_null_safe3 t1 left join[shuffle(skew(t1.b(1,2)))] test_null_safe4 t2 on t1.b<=>t2.b order by 1,2,3,4;"
+    qt_null_safe_equal_right_no_null "select t1.a,t1.b,t2.a,t2.b from test_null_safe3 t1 right join[shuffle(skew(t2.b(1,2)))] test_null_safe4 t2 on t1.b<=>t2.b order by 1,2,3,4;"
+    //2.5 have null in skew values
+    qt_null_safe_equal_inner_other_and_null "select t1.a,t1.b,t2.a,t2.b from test_null_safe3 t1 inner join[shuffle(skew(t1.b(1,2,null)))] test_null_safe4 t2 on t1.b<=>t2.b order by 1,2,3,4;"
+    qt_null_safe_equal_left_other_and_null "select t1.a,t1.b,t2.a,t2.b from test_null_safe3 t1 left join[shuffle(skew(t1.b(1,2,null)))] test_null_safe4 t2 on t1.b<=>t2.b order by 1,2,3,4;"
+    qt_null_safe_equal_right_other_and_null "select t1.a,t1.b,t2.a,t2.b from test_null_safe3 t1 right join[shuffle(skew(t2.b(1,2,null)))] test_null_safe4 t2 on t1.b<=>t2.b order by 1,2,3,4;"
+
+    // test by Mind Map shape
+    qt_equal_inner_only_null_shape """explain shape plan select t1.a,t1.b,t2.a,t2.b from test_null_safe3 t1 inner join[shuffle(skew(t1.b(null)))] test_null_safe4 t2 on t1.b=t2.b;"""
+    qt_equal_left_only_null_shape "explain shape plan select t1.a,t1.b,t2.a,t2.b from test_null_safe3 t1 left join[shuffle(skew(t1.b(null)))] test_null_safe4 t2 on t1.b=t2.b;"
+    qt_equal_right_only_null_shape "explain shape plan select t1.a,t1.b,t2.a,t2.b from test_null_safe3 t1 right join[shuffle(skew(t2.b(null)))] test_null_safe4 t2 on t1.b=t2.b;"
+    qt_equal_inner_no_null_shape "explain shape plan select t1.a,t1.b,t2.a,t2.b from test_null_safe3 t1 inner join[shuffle(skew(t1.b(1,2)))] test_null_safe4 t2 on t1.b=t2.b;"
+    qt_equal_left_no_null_shape "explain shape plan select t1.a,t1.b,t2.a,t2.b from test_null_safe3 t1 left join[shuffle(skew(t1.b(1,2)))] test_null_safe4 t2 on t1.b=t2.b;"
+    qt_equal_right_no_null_shape "explain shape plan select t1.a,t1.b,t2.a,t2.b from test_null_safe3 t1 right join[shuffle(skew(t2.b(1,2)))] test_null_safe4 t2 on t1.b=t2.b;"
+    qt_equal_inner_other_and_null_shape "explain shape plan select t1.a,t1.b,t2.a,t2.b from test_null_safe3 t1 inner join[shuffle(skew(t1.b(1,2,null)))] test_null_safe4 t2 on t1.b=t2.b;"
+    qt_equal_left_other_and_null_shape "explain shape plan select t1.a,t1.b,t2.a,t2.b from test_null_safe3 t1 left join[shuffle(skew(t1.b(1,2,null)))] test_null_safe4 t2 on t1.b=t2.b;"
+    qt_equal_right_other_and_null_shape "explain shape plan select t1.a,t1.b,t2.a,t2.b from test_null_safe3 t1 right join[shuffle(skew(t2.b(1,2,null)))] test_null_safe4 t2 on t1.b=t2.b;"
+    qt_null_safe_equal_inner_only_null_shape "explain shape plan select t1.a,t1.b,t2.a,t2.b from test_null_safe3 t1 inner join[shuffle(skew(t1.b(null)))] test_null_safe4 t2 on t1.b<=>t2.b;"
+    qt_null_safe_equal_left_only_null_shape "explain shape plan select t1.a,t1.b,t2.a,t2.b from test_null_safe3 t1 left join[shuffle(skew(t1.b(null)))] test_null_safe4 t2 on t1.b<=>t2.b;"
+    qt_null_safe_equal_right_only_null_shape "explain shape plan select t1.a,t1.b,t2.a,t2.b from test_null_safe3 t1 right join[shuffle(skew(t2.b(null)))] test_null_safe4 t2 on t1.b<=>t2.b;"
+    qt_null_safe_equal_inner_no_null_shape "explain shape plan select t1.a,t1.b,t2.a,t2.b from test_null_safe3 t1 inner join[shuffle(skew(t1.b(1,2)))] test_null_safe4 t2 on t1.b<=>t2.b"
+    qt_null_safe_equal_left_no_null_shape "explain shape plan select t1.a,t1.b,t2.a,t2.b from test_null_safe3 t1 left join[shuffle(skew(t1.b(1,2)))] test_null_safe4 t2 on t1.b<=>t2.b;"
+    qt_null_safe_equal_right_no_null_shape "explain shape plan select t1.a,t1.b,t2.a,t2.b from test_null_safe3 t1 right join[shuffle(skew(t2.b(1,2)))] test_null_safe4 t2 on t1.b<=>t2.b;"
+    qt_null_safe_equal_inner_other_and_null_shape "explain shape plan select t1.a,t1.b,t2.a,t2.b from test_null_safe3 t1 inner join[shuffle(skew(t1.b(1,2,null)))] test_null_safe4 t2 on t1.b<=>t2.b;"
+    qt_null_safe_equal_left_other_and_null_shape "explain shape plan select t1.a,t1.b,t2.a,t2.b from test_null_safe3 t1 left join[shuffle(skew(t1.b(1,2,null)))] test_null_safe4 t2 on t1.b<=>t2.b;"
+    qt_null_safe_equal_right_other_and_null_shape "explain shape plan select t1.a,t1.b,t2.a,t2.b from test_null_safe3 t1 right join[shuffle(skew(t2.b(1,2,null)))] test_null_safe4 t2 on t1.b<=>t2.b;"
+
 }

@@ -25,6 +25,7 @@ import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
+import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
@@ -81,9 +82,9 @@ import java.util.stream.Collectors;
  *   +--LogicalOlapScan(t2)
  * ->
  * LogicalJoin (type:inner, t1.a=t2.a and r1=r2)
- *   |--LogicalProject (t1.a, if (t1.a IN (1, 2), random(0, 999), 0) AS r1))
+ *   |--LogicalProject (t1.a, if (t1.a IN (1, 2), random(0, 999), DEFAULT_SALT_VALUE) AS r1))
  *   | +--LogicalOlapScan(t1)
- *   +--LogicalProject (projections: t2.a, if(explodeNumber IS NULL, 0, explodeNumber) as r2)
+ *   +--LogicalProject (projections: t2.a, if(explodeNumber IS NULL, DEFAULT_SALT_VALUE, explodeNumber) as r2)
  *     +--LogicalJoin (type=right_outer_join, t2.a <=> skewValue)
  *       |--LogicalGenerate(generators=[explode_numbers(1000)], generatorOutput=[explodeNumber])
  *       |  +--LogicalUnion(outputs=[skewValue], constantExprsList(1,2))
@@ -95,9 +96,9 @@ import java.util.stream.Collectors;
  *   +--LogicalOlapScan(t2)
  * ->
  * LogicalJoin (type:inner, t1.a=t2.a and r1=r2)
- *   |--LogicalProject (t1.a, if (t1.a IN (1, 2), random(0, 999), 0) AS r1))
+ *   |--LogicalProject (t1.a, if (t1.a IN (1, 2), random(0, 999), DEFAULT_SALT_VALUE) AS r1))
  *   | +--LogicalOlapScan(t1)
- *   +--LogicalProject (projections: t2.a, if(explodeNumber IS NULL, 0, explodeNumber) as r2)
+ *   +--LogicalProject (projections: t2.a, if(explodeNumber IS NULL, DEFAULT_SALT_VALUE, explodeNumber) as r2)
  *     +--LogicalJoin (type=right_outer_join, t2.a <=> skewValue)
  *       |--LogicalGenerate(generators=[explode_numbers(1000)], generatorOutput=[explodeNumber])
  *       |  +--LogicalUnion(outputs=[skewValue], constantExprsList(1,2))
@@ -168,8 +169,11 @@ public class SaltJoin extends OneRewriteRuleFactory {
         if (leftSkewExpr == null || rightSkewExpr == null) {
             return null;
         }
-        List<Expression> saltedSkewValues = getSaltedSkewValues(join, skewConjunct);
-        if (saltedSkewValues.isEmpty()) {
+        List<Expression> skewValues = join.getDistributeHint().getSkewValues();
+        Set<Expression> skewValuesSet = new HashSet<>(skewValues);
+        List<Expression> expandSideValues = getSaltedSkewValuesForExpandSide(skewConjunct, skewValuesSet);
+        List<Expression> skewSideValues = getSaltedSkewValuesForSkewSide(skewConjunct, skewValuesSet, join);
+        if (skewSideValues.isEmpty()) {
             return null;
         }
         int factor = getSaltFactor(ctx);
@@ -182,11 +186,11 @@ public class SaltJoin extends OneRewriteRuleFactory {
         LogicalProject<Plan> rightProject;
         LogicalProject<Plan> leftProject;
         if (join.getJoinType() == JoinType.INNER_JOIN || join.getJoinType() == JoinType.LEFT_OUTER_JOIN) {
-            leftProject = addRandomSlot(leftSkewExpr, saltedSkewValues, join.left(), factor, type);
-            rightProject = expandSkewValueRows(rightSkewExpr, saltedSkewValues, join.right(), factor, type);
+            leftProject = addRandomSlot(leftSkewExpr, skewSideValues, join.left(), factor, type);
+            rightProject = expandSkewValueRows(rightSkewExpr, expandSideValues, join.right(), factor, type);
         } else {
-            leftProject = expandSkewValueRows(leftSkewExpr, saltedSkewValues, join.left(), factor, type);
-            rightProject = addRandomSlot(rightSkewExpr, saltedSkewValues, join.right(), factor, type);
+            leftProject = expandSkewValueRows(leftSkewExpr, expandSideValues, join.left(), factor, type);
+            rightProject = addRandomSlot(rightSkewExpr, skewSideValues, join.right(), factor, type);
         }
         EqualTo saltEqual = new EqualTo(leftProject.getProjects().get(leftProject.getProjects().size() - 1).toSlot(),
                 rightProject.getProjects().get(rightProject.getProjects().size() - 1).toSlot());
@@ -242,6 +246,14 @@ public class SaltJoin extends OneRewriteRuleFactory {
 
     private static LogicalProject<Plan> expandSkewValueRows(Expression skewExpr, List<Expression> saltedSkewValues,
             Plan originPlan, int factor, DataType type) {
+        if (saltedSkewValues.isEmpty()) {
+            ImmutableList.Builder<NamedExpression> namedExpressionsBuilder = ImmutableList.builderWithExpectedSize(
+                    originPlan.getOutput().size() + 1);
+            namedExpressionsBuilder.addAll(originPlan.getOutput());
+            namedExpressionsBuilder.add(new Alias(DataType.promoteLiteral(DEFAULT_SALT_VALUE, type),
+                    RANDOM_COLUMN_NAME_RIGHT));
+            return new LogicalProject<>(namedExpressionsBuilder.build(), originPlan);
+        }
         // construct LogicalUnion and LogicalGenerate
         // if skew values are: 1 and null, the equal sql is:
         // select skewValue, explodeColumn from (select 1 as skewValue union all select null) as t11
@@ -250,8 +262,12 @@ public class SaltJoin extends OneRewriteRuleFactory {
                 saltedSkewValues.size());
         List<NamedExpression> outputs = ImmutableList.of(new SlotReference(SKEW_VALUE_COLUMN_NAME,
                 skewExpr.getDataType(), false));
+        boolean saltedSkewValuesHasNull = false;
         for (Expression skewValue : saltedSkewValues) {
             constantExprsList.add(ImmutableList.of(new Alias(skewValue, SKEW_VALUE_COLUMN_NAME)));
+            if (skewValue instanceof NullLiteral) {
+                saltedSkewValuesHasNull = true;
+            }
         }
         LogicalUnion union = new LogicalUnion(Qualifier.ALL, outputs, ImmutableList.of(), constantExprsList.build(),
                 false, ImmutableList.of());
@@ -265,8 +281,13 @@ public class SaltJoin extends OneRewriteRuleFactory {
         List<NamedExpression> projects = projectsBuilder.build();
         LogicalProject<Plan> project = new LogicalProject<>(projects, generate);
         // construct right join
-        NullSafeEqual equalTo = new NullSafeEqual(outputs.get(0), skewExpr);
-        equalTo = (NullSafeEqual) TypeCoercionUtils.processComparisonPredicate(equalTo);
+        EqualPredicate equalTo;
+        if (saltedSkewValuesHasNull) {
+            equalTo = new NullSafeEqual(outputs.get(0), skewExpr);
+        } else {
+            equalTo = new EqualTo(outputs.get(0), skewExpr);
+        }
+        equalTo = (EqualPredicate) TypeCoercionUtils.processComparisonPredicate(equalTo);
         JoinReorderContext joinReorderContext = new JoinReorderContext();
         joinReorderContext.setLeadingJoin(true);
         LogicalJoin<Plan, Plan> rightJoin = new LogicalJoin<>(JoinType.RIGHT_OUTER_JOIN, ImmutableList.of(equalTo),
@@ -293,10 +314,6 @@ public class SaltJoin extends OneRewriteRuleFactory {
         return factor;
     }
 
-    // when the join type is outer join or the join conjunct is null safe equal,
-    // null values need be salted
-    // when the join type is inner join, and the join conjunct is not null safe equal,
-    // null values need not be salted
     private static List<Expression> getSaltedSkewValues(LogicalJoin<Plan, Plan> join, Expression skewConjunct) {
         List<Expression> skewValues = join.getDistributeHint().getSkewValues();
         Set<Expression> skewValuesSet = new HashSet<>(skewValues);
@@ -307,5 +324,31 @@ public class SaltJoin extends OneRewriteRuleFactory {
                     .collect(Collectors.toList());
         }
         return skewValues;
+    }
+
+    private static List<Expression> getSaltedSkewValuesForExpandSide(Expression skewConjunct,
+            Set<Expression> skewValuesSet) {
+        if (skewConjunct instanceof NullSafeEqual) {
+            return Utils.fastToImmutableList(skewValuesSet);
+        } else if (skewConjunct instanceof EqualTo) {
+            return skewValuesSet.stream().filter(value -> !(value instanceof NullLiteral))
+                    .collect(ImmutableList.toImmutableList());
+        }
+        return ImmutableList.of();
+    }
+
+    private static List<Expression> getSaltedSkewValuesForSkewSide(Expression skewConjunct,
+            Set<Expression> skewValuesSet, LogicalJoin<Plan, Plan> join) {
+        if (skewConjunct instanceof NullSafeEqual) {
+            return Utils.fastToImmutableList(skewValuesSet);
+        } else if (skewConjunct instanceof EqualTo) {
+            if (join.getJoinType().isInnerJoin()) {
+                return skewValuesSet.stream().filter(value -> !(value instanceof NullLiteral))
+                        .collect(ImmutableList.toImmutableList());
+            } else {
+                return Utils.fastToImmutableList(skewValuesSet);
+            }
+        }
+        return ImmutableList.of();
     }
 }
