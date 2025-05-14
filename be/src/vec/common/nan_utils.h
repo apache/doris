@@ -39,18 +39,6 @@ bool is_nan(T) {
 
 template <typename T>
     requires std::is_floating_point_v<T>
-bool is_finite(T x) {
-    return std::isfinite(x);
-}
-
-template <typename T>
-    requires(!std::is_floating_point_v<T>)
-bool is_finite(T) {
-    return true;
-}
-
-template <typename T>
-    requires std::is_floating_point_v<T>
 T nan_or_zero() {
     return std::numeric_limits<T>::quiet_NaN();
 }

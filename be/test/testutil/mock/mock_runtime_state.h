@@ -40,6 +40,7 @@ public:
         set_task_execution_context(_mock_context);
         _query_ctx = _query_ctx_uptr.get();
     }
+    MockRuntimeState(const TQueryGlobals& query_globals) : RuntimeState(query_globals) {}
     MockRuntimeState(const TUniqueId& query_id, int32_t fragment_id,
                      const TQueryOptions& query_options, const TQueryGlobals& query_globals,
                      ExecEnv* exec_env, QueryContext* ctx)
@@ -56,6 +57,8 @@ public:
     }
 
     void set_enable_spill(bool enable) { _query_options.__set_enable_spill(enable); }
+
+    void set_enable_strict_cast(bool enable) { _query_options.__set_enable_strict_cast(enable); }
 
     bool enable_local_exchange() const override { return true; }
     WorkloadGroupPtr workload_group() override { return _workload_group; }
