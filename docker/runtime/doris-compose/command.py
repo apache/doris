@@ -45,6 +45,8 @@ def wait_service(need_alive, wait_timeout, cluster, fe_ids, be_ids):
             fe_state = db_mgr.get_fe(id)
             fe_alive = fe_state and fe_state.alive
             if fe_alive and need_alive:
+                # if need alive, check port available,
+                # if need dead, don't check port available because it take some time for the disconnect socket
                 fe_alive = utils.is_socket_avail(
                     fe.get_ip(), fe.meta["ports"]["query_port"])
             if fe_alive != need_alive:
@@ -880,6 +882,7 @@ class DownCommand(Command):
     def run(self, args):
         cluster_name = args.NAME
         cluster = None
+        stop_grace = False
 
         try:
             cluster = CLUSTER.Cluster.load(cluster_name)
@@ -891,6 +894,7 @@ class DownCommand(Command):
                 args.recycle_id,
                 args.fdb_id,
                 ignore_not_exists=True)
+            stop_grace = cluster.coverage_dir
         except Exception as e:
             for_all = not args.fe_id and not args.be_id and not args.ms_id and not args.recycle_id
             related_nodes = []
@@ -905,8 +909,12 @@ class DownCommand(Command):
             compose_file = CLUSTER.get_compose_file(cluster_name)
             if os.path.exists(compose_file):
                 try:
-                    utils.exec_docker_compose_command(
-                        compose_file, "down", ["-v", "--remove-orphans"])
+                    options = ["-v", "--remove-orphans"]
+                    if not stop_grace:
+                        options.extend(["-t", "1"])
+                    utils.exec_docker_compose_command(compose_file,
+                                                      "down",
+                                                      options=options)
                 except Exception as e:
                     LOG.warn("down cluster has exception: " + str(e))
             try:
