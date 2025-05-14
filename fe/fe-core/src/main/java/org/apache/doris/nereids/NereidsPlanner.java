@@ -283,7 +283,7 @@ public class NereidsPlanner extends Planner {
             }
         }
 
-        optimize();
+        optimize(showPlanProcess);
         // print memo before choose plan.
         // if chooseNthPlan failed, we could get memo to debug
         if (cascadesContext.getConnectContext().getSessionVariable().dumpNereidsMemo) {
@@ -450,7 +450,7 @@ public class NereidsPlanner extends Planner {
     }
 
     // DependsRules: EnsureProjectOnTopJoin.class
-    protected void optimize() {
+    protected void optimize(boolean showPlanProcess) {
         // if we cannot get table row count, skip join reorder
         // except:
         //   1. user set leading hint
@@ -473,7 +473,9 @@ public class NereidsPlanner extends Planner {
             Plan physicalPlan = logicalPlan.accept(new SimpleOptimizer(), null);
             this.physicalPlan = (PhysicalPlan) physicalPlan;
         } else {
-            new Optimizer(cascadesContext).execute();
+            keepOrShowPlanProcess(showPlanProcess, () -> {
+                new Optimizer(cascadesContext).execute();
+            });
         }
         NereidsTracer.logImportantTime("EndOptimizePlan");
         if (LOG.isDebugEnabled()) {
