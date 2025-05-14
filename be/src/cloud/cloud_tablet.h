@@ -206,7 +206,8 @@ public:
                                              ReaderType compaction_type, int64_t merged_rows,
                                              int64_t filtered_rows, int64_t initiator,
                                              DeleteBitmapPtr& output_rowset_delete_bitmap,
-                                             bool allow_delete_in_cumu_compaction);
+                                             bool allow_delete_in_cumu_compaction,
+                                             int64_t& get_delete_bitmap_lock_start_time);
 
     // Find the missed versions until the spec_version.
     //
