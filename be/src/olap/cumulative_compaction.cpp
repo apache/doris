@@ -17,6 +17,8 @@
 
 #include "olap/cumulative_compaction.h"
 
+#include <cpp/sync_point.h>
+
 #include <memory>
 #include <mutex>
 #include <ostream>
@@ -123,6 +125,10 @@ Status CumulativeCompaction::execute_compact() {
     SCOPED_ATTACH_TASK(_mem_tracker);
 
     RETURN_IF_ERROR(CompactionMixin::execute_compact());
+
+    TEST_SYNC_POINT_RETURN_WITH_VALUE(
+            "cumulative_compaction::CumulativeCompaction::execute_compact", Status::OK());
+
     DCHECK_EQ(_state, CompactionState::SUCCESS);
 
     tablet()->cumulative_compaction_policy()->update_cumulative_point(

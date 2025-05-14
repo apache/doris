@@ -660,8 +660,20 @@ void StorageEngine::_compaction_tasks_producer_callback() {
     int64_t last_base_score_update_time = 0;
     static const int64_t check_score_interval_ms = 5000; // 5 secs
 
+    // for average_compaction_producer_callback_time metric
+    int64_t last_producer_callback_time = 0;
+    int64_t total_callback_rounds = 0;
+    int64_t total_producer_callback_time = 0;
+
     int64_t interval = config::generate_compaction_tasks_interval_ms;
     do {
+        int64_t cur_time = UnixMillis();
+        if (total_callback_rounds > 0) {
+            total_producer_callback_time += cur_time - last_producer_callback_time;
+            DorisMetrics::instance()->average_compaction_producer_callback_time->set_value(
+                    total_producer_callback_time / total_callback_rounds);
+        }
+        last_producer_callback_time = cur_time;
         if (!config::disable_auto_compaction &&
             (!config::enable_compaction_pause_on_high_memory ||
              !GlobalMemoryArbitrator::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE))) {
@@ -711,6 +723,7 @@ void StorageEngine::_compaction_tasks_producer_callback() {
         } else {
             interval = 5000; // 5s to check disable_auto_compaction
         }
+        total_callback_rounds++;
     } while (!_stop_background_threads_latch.wait_for(std::chrono::milliseconds(interval)));
 }
 

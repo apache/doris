@@ -130,6 +130,26 @@ DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(stream_receive_bytes_total, MetricUnit::BYT
 DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(stream_load_rows_total, MetricUnit::ROWS, "", stream_load,
                                      Labels({{"type", "load_rows"}}));
 
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(average_compaction_producer_callback_time,
+                                     MetricUnit::ROWSETS);
+
+DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(local_compaction_read_rows_total, MetricUnit::ROWS, "",
+                                     compaction_rows_total, Labels({{"type", "read"}}));
+DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(local_compaction_read_bytes_total, MetricUnit::BYTES, "",
+                                     compaction_bytes_total, Labels({{"type", "read"}}));
+DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(local_compaction_write_rows_total, MetricUnit::ROWS, "",
+                                     compaction_rows_total, Labels({{"type", "write"}}));
+DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(local_compaction_write_bytes_total, MetricUnit::BYTES, "",
+                                     compaction_bytes_total, Labels({{"type", "write"}}));
+DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(remote_compaction_read_rows_total, MetricUnit::ROWS, "",
+                                     compaction_rows_total, Labels({{"type", "read"}}));
+DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(remote_compaction_read_bytes_total, MetricUnit::BYTES, "",
+                                     compaction_bytes_total, Labels({{"type", "read"}}));
+DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(remote_compaction_write_rows_total, MetricUnit::ROWS, "",
+                                     compaction_rows_total, Labels({{"type", "write"}}));
+DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(remote_compaction_write_bytes_total, MetricUnit::BYTES, "",
+                                     compaction_bytes_total, Labels({{"type", "write"}}));
+
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(load_rows, MetricUnit::ROWS);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(load_bytes, MetricUnit::BYTES);
 
@@ -231,6 +251,8 @@ DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, push_request_write_bytes);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, push_request_write_rows);
 
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, average_compaction_producer_callback_time);
+
     // engine_requests_total
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, create_tablet_requests_total);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, create_tablet_requests_failed);
@@ -260,6 +282,15 @@ DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, publish_task_failed_total);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, alter_inverted_index_requests_total);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, alter_inverted_index_requests_failed);
+
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, local_compaction_read_rows_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, local_compaction_read_bytes_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, local_compaction_write_rows_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, local_compaction_write_bytes_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, remote_compaction_read_rows_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, remote_compaction_read_bytes_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, remote_compaction_write_rows_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, remote_compaction_write_bytes_total);
 
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, base_compaction_deltas_total);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, base_compaction_bytes_total);
