@@ -34,12 +34,16 @@ suite("create_view_nereids_fix_null") {
     String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-java-8.0.25.jar"
     String dbname = context.config.getDbNameByFile(context.file)
     String jdbcUrl = context.config.jdbcUrl
+    String jdbcUser = context.config.jdbcUser
+    logger.info("jdbcUser: " + jdbcUser)
+    String jdbcPassword = context.config.jdbcPassword
+    logger.info("jdbcPassword: " + jdbcPassword)
     sql "drop catalog if exists jdbc_catalog"
     sql """
         CREATE CATALOG jdbc_catalog PROPERTIES (
          "type"="jdbc",
-         "user"="root",
-         "password"="123456",
+         "user"="${jdbcUser}",
+         "password"="${jdbcPassword}",
          "jdbc_url"="${jdbcUrl}",
          "driver_url"="${driver_url}",
          "driver_class"="com.mysql.cj.jdbc.Driver"
