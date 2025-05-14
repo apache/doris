@@ -275,7 +275,7 @@ void RuntimeQueryStatisticsMgr::register_fragment_profile(
         _load_channel_profile_map[std::make_pair(query_id, fragment_id)] = load_channel_profile_x;
     }
 
-    LOG_INFO("register x profile done {}, fragment {}, profiles {}", print_id(query_id),
+    LOG_INFO("register profile done {}, fragment {}, profiles {}", print_id(query_id),
              fragment_id, p_profiles.size());
 }
 

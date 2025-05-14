@@ -40,31 +40,40 @@ import org.apache.logging.log4j.Logger;
 import java.util.Collection;
 /**
  * kill query command
+ * follow https://dev.mysql.com/doc/refman/8.4/en/kill.html
  */
 
 public class KillQueryCommand extends KillCommand {
     private static final Logger LOG = LogManager.getLogger(KillQueryCommand.class);
-    private final String queryId;
+    private final String processId;
 
-    public KillQueryCommand(String queryId) {
+    public KillQueryCommand(String processId) {
         super(PlanType.KILL_QUERY_COMMAND);
-        this.queryId = queryId;
+        this.processId = processId;
     }
 
     @Override
     public void doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        ConnectContext killCtx = ctx.getConnectScheduler().getContextWithQueryId(queryId);
+        ConnectContext killCtx = ctx.getConnectScheduler().getContextWithQueryId(processId);
+        if (killCtx == null) {
+            try {
+                Integer connectionId = Integer.valueOf(processId);
+                killCtx = ctx.getConnectScheduler().getContext(connectionId);
+            } catch (NumberFormatException e) {
+                // processId is query id
+            }
+        }
         // when killCtx == null, this means the query not in FE,
         // then we just send kill signal to BE
         if (killCtx == null) {
             TUniqueId tQueryId = null;
             try {
-                tQueryId = DebugUtil.parseTUniqueIdFromString(queryId);
+                tQueryId = DebugUtil.parseTUniqueIdFromString(processId);
             } catch (NumberFormatException e) {
                 throw new UserException(e.getMessage());
             }
 
-            LOG.info("kill query {}", queryId);
+            LOG.info("kill query {}", processId);
             Collection<Backend> nodesToPublish = Env.getCurrentSystemInfo()
                     .getAllBackendsByAllCluster().values();
             for (Backend be : nodesToPublish) {
@@ -75,7 +84,7 @@ public class KillQueryCommand extends KillCommand {
                                 .cancelPipelineXPlanFragmentAsync(be.getBrpcAddress(), tQueryId,
                                     cancelReason);
                     } catch (Throwable t) {
-                        LOG.info("send kill query {} rpc to be {} failed", queryId, be);
+                        LOG.info("send kill query {} rpc to be {} failed", processId, be);
                     }
                 }
             }
