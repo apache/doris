@@ -675,6 +675,8 @@ Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBase
                       is_string_type(origin_primitive_type)))) {
                     children_exprs.emplace_back(expr_without_cast(child));
                 }
+            } else {
+                return Status::OK(); // for example: cast("abc") as ipv4 case
             }
         } else {
             children_exprs.emplace_back(child);
@@ -714,6 +716,8 @@ Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBase
             auto* column_literal = assert_cast<VLiteral*>(child.get());
             arguments.emplace_back(column_literal->get_column_ptr(),
                                    column_literal->get_data_type(), column_literal->expr_name());
+        } else {
+            return Status::OK(); // others cases
         }
     }
 
