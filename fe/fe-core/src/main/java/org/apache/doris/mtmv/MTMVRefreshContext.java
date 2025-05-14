@@ -32,7 +32,7 @@ public class MTMVRefreshContext {
     // Within the same context, repeated fetches of the same table's snapshot must return consistent values.
     // Hence, the results are cached at this stage.
     // The value is loaded/cached on the first fetch
-    private Map<BaseTableInfo,MTMVSnapshotIf> baseTableSnapshotCache = Maps.newHashMap();
+    private Map<BaseTableInfo, MTMVSnapshotIf> baseTableSnapshotCache = Maps.newHashMap();
 
     public MTMVRefreshContext(MTMV mtmv) {
         this.mtmv = mtmv;

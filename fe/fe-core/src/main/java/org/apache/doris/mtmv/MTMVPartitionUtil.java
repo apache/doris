@@ -497,7 +497,8 @@ public class MTMVPartitionUtil {
      * Try context first, then load via getTableSnapshot and cache
      *
      * @param mtmvRelatedTableIf Base table of materialized views
-     * @param context The context data persists for the duration of either a refresh task or a transparent rewrite operation
+     * @param context The context data persists for the duration of either a refresh task
+     *         or a transparent rewrite operation
      * @return The snapshot information of the MTMV
      * @throws AnalysisException
      */
