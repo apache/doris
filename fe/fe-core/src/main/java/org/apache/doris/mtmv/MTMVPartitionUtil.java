@@ -501,7 +501,7 @@ public class MTMVPartitionUtil {
      * @return The snapshot information of the MTMV
      * @throws AnalysisException
      */
-    private static MTMVSnapshotIf getTableSnapshotFromContext(MTMVRelatedTableIf mtmvRelatedTableIf,
+    public static MTMVSnapshotIf getTableSnapshotFromContext(MTMVRelatedTableIf mtmvRelatedTableIf,
             MTMVRefreshContext context)
             throws AnalysisException {
         BaseTableInfo baseTableInfo = new BaseTableInfo(mtmvRelatedTableIf);
