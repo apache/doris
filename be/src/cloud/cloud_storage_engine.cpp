@@ -686,6 +686,7 @@ Status CloudStorageEngine::_submit_base_compaction_task(const CloudTabletSPtr& t
         signal::tablet_id = tablet->tablet_id();
         Defer defer {[&]() {
             g_base_compaction_running_task_count << -1;
+            std::lock_guard lock(_compaction_mtx);
             _submitted_base_compactions.erase(tablet->tablet_id());
         }};
         auto st = _request_tablet_global_compaction_lock(ReaderType::READER_BASE_COMPACTION, tablet,
@@ -885,6 +886,7 @@ Status CloudStorageEngine::_submit_full_compaction_task(const CloudTabletSPtr& t
         signal::tablet_id = tablet->tablet_id();
         Defer defer {[&]() {
             g_full_compaction_running_task_count << -1;
+            std::lock_guard lock(_compaction_mtx);
             _submitted_full_compactions.erase(tablet->tablet_id());
         }};
         auto st = _request_tablet_global_compaction_lock(ReaderType::READER_FULL_COMPACTION, tablet,
