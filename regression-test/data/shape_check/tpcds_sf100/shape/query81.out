@@ -18,24 +18,26 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------------PhysicalProject
 ------------------PhysicalOlapScan[customer_address]
 --PhysicalResultSink
-----PhysicalTopN[MERGE_SORT]
-------PhysicalDistribute[DistributionSpecGather]
---------PhysicalTopN[LOCAL_SORT]
-----------PhysicalProject
-------------hashJoin[INNER_JOIN broadcast] hashCondition=((ctr1.ctr_state = ctr2.ctr_state)) otherCondition=((cast(ctr_total_return as DOUBLE) > cast((avg(cast(ctr_total_return as DECIMALV3(38, 4))) * 1.2) as DOUBLE))) build RFs:RF4 ctr_state->[ctr_state]
+----PhysicalProject
+------PhysicalLazyMaterialize[materializedSlots:(customer.c_customer_id,decode_as_varchar(encode_as_largeint(c_salutation)),decode_as_varchar(encode_as_largeint(ca_street_number)),customer_address.ca_street_name,customer_address.ca_street_type,decode_as_varchar(encode_as_largeint(ca_suite_number)),customer_address.ca_city,customer_address.ca_county,customer_address.ca_state,decode_as_varchar(encode_as_largeint(ca_zip)),customer_address.ca_country,customer_address.ca_gmt_offset,customer_address.ca_location_type,ctr1.ctr_total_return,encode_as_largeint(ca_street_number),encode_as_largeint(ca_suite_number),encode_as_largeint(ca_zip)) lazySlots:(customer.c_first_name,customer.c_last_name)]
+--------PhysicalTopN[MERGE_SORT]
+----------PhysicalDistribute[DistributionSpecGather]
+------------PhysicalTopN[LOCAL_SORT]
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN broadcast] hashCondition=((customer_address.ca_address_sk = customer.c_current_addr_sk)) otherCondition=() build RFs:RF3 ca_address_sk->[c_current_addr_sk]
+----------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((ctr1.ctr_state = ctr2.ctr_state)) otherCondition=((cast(ctr_total_return as DOUBLE) > cast((avg(cast(ctr_total_return as DECIMALV3(38, 4))) * 1.2) as DOUBLE))) build RFs:RF4 ctr_state->[ctr_state]
+------------------hashAgg[GLOBAL]
+--------------------PhysicalDistribute[DistributionSpecHash]
+----------------------hashAgg[LOCAL]
+------------------------PhysicalDistribute[DistributionSpecExecutionAny]
+--------------------------PhysicalCteConsumer ( cteId=CTEId#0 ) apply RFs: RF4
 ------------------PhysicalProject
---------------------hashJoin[INNER_JOIN shuffle] hashCondition=((ctr1.ctr_customer_sk = customer.c_customer_sk)) otherCondition=() build RFs:RF2 c_customer_sk->[ctr_customer_sk]
-----------------------PhysicalCteConsumer ( cteId=CTEId#0 ) apply RFs: RF2 RF4
+--------------------hashJoin[INNER_JOIN broadcast] hashCondition=((customer_address.ca_address_sk = customer.c_current_addr_sk)) otherCondition=() build RFs:RF3 ca_address_sk->[c_current_addr_sk]
 ----------------------PhysicalProject
-------------------------PhysicalOlapScan[customer] apply RFs: RF3
-------------------PhysicalProject
---------------------filter((customer_address.ca_state = 'CA'))
-----------------------PhysicalOlapScan[customer_address]
---------------hashAgg[GLOBAL]
-----------------PhysicalDistribute[DistributionSpecHash]
-------------------hashAgg[LOCAL]
---------------------PhysicalDistribute[DistributionSpecExecutionAny]
-----------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((ctr1.ctr_customer_sk = customer.c_customer_sk)) otherCondition=() build RFs:RF2 ctr_customer_sk->[c_customer_sk]
+--------------------------PhysicalProject
+----------------------------PhysicalLazyMaterializeOlapScan[customer lazySlots:(customer.c_first_name,customer.c_last_name)] apply RFs: RF2 RF3
+--------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+----------------------PhysicalProject
+------------------------filter((customer_address.ca_state = 'CA'))
+--------------------------PhysicalOlapScan[customer_address]
 
