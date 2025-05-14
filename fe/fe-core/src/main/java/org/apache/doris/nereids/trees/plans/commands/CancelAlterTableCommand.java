@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
@@ -40,26 +39,33 @@ import java.util.Objects;
  */
 public class CancelAlterTableCommand extends CancelCommand {
     private final TableNameInfo tableNameInfo;
-    private final AlterOpType alterOpType;
+    private final AlterType alterType;
     private final List<Long> alterJobIdList;
+
+    /**
+     * AlterType
+     */
+    public enum AlterType {
+        COLUMN, ROLLUP, MV
+    }
 
     /**
      * CancelAlterTableCommand
      */
     public CancelAlterTableCommand(TableNameInfo tableNameInfo,
-                                   AlterOpType alterOpType,
+                                   AlterType alterType,
                                    List<Long> alterJobIdList) {
         super(PlanType.CANCEL_ALTER_TABLE_COMMAND);
         Objects.requireNonNull(tableNameInfo, "tableNameInfo is null");
-        Objects.requireNonNull(alterOpType, "alterOpType is null");
+        Objects.requireNonNull(alterType, "alterType is null");
         Objects.requireNonNull(alterJobIdList, "alterJobIdList is null");
         this.tableNameInfo = tableNameInfo;
-        this.alterOpType = alterOpType;
+        this.alterType = alterType;
         this.alterJobIdList = alterJobIdList;
     }
 
-    public AlterOpType getAlterOpType() {
-        return alterOpType;
+    public AlterType getAlterType() {
+        return alterType;
     }
 
     public String getDbName() {

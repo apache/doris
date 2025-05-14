@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.parser;
 
-import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.alter.QuotaType;
 import org.apache.doris.analysis.AnalyzeProperties;
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
@@ -6711,13 +6710,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public LogicalPlan visitCancelAlterTable(DorisParser.CancelAlterTableContext ctx) {
         TableNameInfo tableNameInfo = new TableNameInfo(visitMultipartIdentifier(ctx.tableName));
 
-        AlterOpType alterOpType;
+        CancelAlterTableCommand.AlterType alterType;
         if (ctx.ROLLUP() != null) {
-            alterOpType = AlterOpType.CANCEL_ROLLUP;
+            alterType = CancelAlterTableCommand.AlterType.ROLLUP;
         } else if (ctx.MATERIALIZED() != null && ctx.VIEW() != null) {
-            alterOpType = AlterOpType.CANCEL_MV;
+            alterType = CancelAlterTableCommand.AlterType.MV;
         } else if (ctx.COLUMN() != null) {
-            alterOpType = AlterOpType.CANCEL_COLUMN;
+            alterType = CancelAlterTableCommand.AlterType.COLUMN;
         } else {
             throw new AnalysisException("invalid AlterOpType, it must be one of 'ROLLUP',"
                     + "'MATERIALIZED VIEW' or 'COLUMN'");
@@ -6727,9 +6726,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         for (Token token : ctx.jobIds) {
             jobIs.add(Long.parseLong(token.getText()));
         }
-        return new CancelAlterTableCommand(tableNameInfo, alterOpType, jobIs);
+        return new CancelAlterTableCommand(tableNameInfo, alterType, jobIs);
     }
 
+    @Override
     public LogicalPlan visitAdminCopyTablet(DorisParser.AdminCopyTabletContext ctx) {
         long tabletId = Long.parseLong(ctx.tabletId.getText());
         Map<String, String> properties;

@@ -4975,13 +4975,13 @@ public class Env {
      * command). including SchemaChangeHandler and RollupHandler
      */
     public void cancelAlter(CancelAlterTableCommand command) throws DdlException {
-        if (command.getAlterOpType() == AlterOpType.CANCEL_ROLLUP
-                || command.getAlterOpType() == AlterOpType.CANCEL_MV) {
+        if (command.getAlterType() == CancelAlterTableCommand.AlterType.ROLLUP
+                || command.getAlterType() == CancelAlterTableCommand.AlterType.MV) {
             this.getMaterializedViewHandler().cancel(command);
-        } else if (command.getAlterOpType() == AlterOpType.CANCEL_COLUMN) {
+        } else if (command.getAlterType() == CancelAlterTableCommand.AlterType.COLUMN) {
             this.getSchemaChangeHandler().cancel(command);
         } else {
-            throw new DdlException(command.getAlterOpType() + " does not implement yet");
+            throw new DdlException("Cancel " + command.getAlterType() + " does not implement yet");
         }
     }
 

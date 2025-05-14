@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.InternalCatalog;
@@ -76,15 +75,14 @@ public class CancelAlterTableCommandTest {
     public void testValidateNormal() throws Exception {
         runBefore();
         TableNameInfo tableNameInfo = new TableNameInfo(dbName, tblName);
-        AlterOpType alterOpType = AlterOpType.ALTER_OTHER;
+        CancelAlterTableCommand.AlterType alterType = CancelAlterTableCommand.AlterType.COLUMN;
         List<Long> alterJobIdList = new ArrayList<>();
-        CancelAlterTableCommand command = new CancelAlterTableCommand(tableNameInfo, alterOpType, alterJobIdList);
+        CancelAlterTableCommand command = new CancelAlterTableCommand(tableNameInfo, alterType, alterJobIdList);
         Assertions.assertDoesNotThrow(() -> command.validate(connectContext));
 
         TableNameInfo tableNameInfo02 = new TableNameInfo("hive", dbName, tblName);
-        CancelAlterTableCommand command02 = new CancelAlterTableCommand(tableNameInfo02, alterOpType, alterJobIdList);
+        CancelAlterTableCommand command02 = new CancelAlterTableCommand(tableNameInfo02, alterType, alterJobIdList);
         Assertions.assertThrows(AnalysisException.class, () -> command02.validate(connectContext),
                 "External catalog 'hive' is not allowed in 'CancelAlterTableCommand'");
     }
-
 }
