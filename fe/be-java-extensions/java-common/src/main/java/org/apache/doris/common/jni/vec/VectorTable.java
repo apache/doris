@@ -131,6 +131,16 @@ public class VectorTable {
         }
     }
 
+    public void appendData(int fieldId, Object[] batch, ColumnValueConverter converter, boolean isNullable,
+            int startRow, int endRow) {
+        assert (!onlyReadable);
+        if (converter != null) {
+            columns[fieldId].appendObjectColumn(converter.convert(batch), isNullable, startRow, endRow);
+        } else {
+            columns[fieldId].appendObjectColumn(batch, isNullable, startRow, endRow);
+        }
+    }
+
     public void appendData(int fieldId, Object[] batch, boolean isNullable) {
         appendData(fieldId, batch, null, isNullable);
     }
