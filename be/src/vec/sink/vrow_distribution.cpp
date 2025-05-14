@@ -499,7 +499,7 @@ Status VRowDistribution::generate_rows_distribution(
 
         // batching block rows which need new partitions. deal together at finish.
         if (!_batching_block) [[unlikely]] {
-            std::unique_ptr<Block> tmp_block = input_block.create_same_struct_block(0);
+            std::unique_ptr<Block> tmp_block = block->create_same_struct_block(0);
             _batching_block = MutableBlock::create_unique(std::move(*tmp_block));
         }
     }

@@ -220,7 +220,7 @@ private:
     std::vector<std::vector<TNullableStringLiteral>> _partitions_need_create;
     size_t _batching_rows = 0, _batching_bytes = 0;
     std::unordered_set<std::vector<TNullableStringLiteral>, NullableStringListHash> _deduper;
-    bool _reentry_flag; // for skipping block convert for batching block.
+    bool _reentry_flag = false; // for skipping block convert for batching block.
 
     OlapTableBlockConvertor* _block_convertor = nullptr;
     OlapTabletFinder* _tablet_finder = nullptr;

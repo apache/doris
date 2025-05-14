@@ -475,6 +475,7 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
                _part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED ||
                _part_type == TPartitionType::OLAP_TABLE_SINK_HASH_PARTITIONED ||
                _part_type == TPartitionType::HIVE_TABLE_SINK_HASH_PARTITIONED) {
+        //TODO: think split auto partition
         RETURN_IF_ERROR(local_state._writer->write(&local_state, state, block, eos));
     } else if (_part_type == TPartitionType::HIVE_TABLE_SINK_UNPARTITIONED) {
         // Control the number of channels according to the flow, thereby controlling the number of table sink writers.
