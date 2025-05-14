@@ -71,7 +71,7 @@ public:
             : ColumnPredicate(column_id, is_opposite),
               _min_value(type_limit<T>::max()),
               _max_value(type_limit<T>::min()) {
-        _values = std::make_shared<HybridSetType>();
+        _values = std::make_shared<HybridSetType>(false);
         for (const auto& condition : conditions) {
             T tmp;
             if constexpr (Type == TYPE_STRING || Type == TYPE_CHAR) {
@@ -95,7 +95,7 @@ public:
         CHECK(hybrid_set != nullptr);
 
         if constexpr (is_string_type(Type) || Type == TYPE_DECIMALV2 || is_date_type(Type)) {
-            _values = std::make_shared<HybridSetType>();
+            _values = std::make_shared<HybridSetType>(false);
             if constexpr (is_string_type(Type)) {
                 HybridSetBase::IteratorBase* iter = hybrid_set->begin();
                 while (iter->has_next()) {
@@ -223,8 +223,6 @@ public:
         }
         return Status::OK();
     }
-
-    int get_filter_id() const override { return _values->get_filter_id(); }
 
     template <bool is_and>
     void _evaluate_bit(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
@@ -363,8 +361,6 @@ public:
     }
 
 private:
-    bool _can_ignore() const override { return _values->is_runtime_filter(); }
-
     uint16_t _evaluate_inner(const vectorized::IColumn& column, uint16_t* sel,
                              uint16_t size) const override {
         int64_t new_size = 0;
@@ -551,10 +547,7 @@ private:
     }
 
     std::string _debug_string() const override {
-        std::string info = "InListPredicateBase(" + type_to_string(Type) + ", " +
-                           type_to_string(PT) +
-                           ", filter_id=" + std::to_string(_values->get_filter_id()) + ")";
-        return info;
+        return "InListPredicate(" + type_to_string(Type) + ", " + type_to_string(PT) + ")";
     }
 
     void _update_min_max(const T& value) {

@@ -110,6 +110,7 @@ Status SchemaPartitionsScanner::get_onedb_info_from_fe(int64_t dbId) {
     schema_table_request_params.__set_current_user_ident(*_param->common_param->current_user_ident);
     schema_table_request_params.__set_catalog(*_param->common_param->catalog);
     schema_table_request_params.__set_dbId(dbId);
+    schema_table_request_params.__set_time_zone(_timezone_obj.name());
 
     TFetchSchemaTableDataRequest request;
     request.__set_schema_table_name(TSchemaTableName::PARTITIONS);
@@ -133,8 +134,8 @@ Status SchemaPartitionsScanner::get_onedb_info_from_fe(int64_t dbId) {
 
     _partitions_block = vectorized::Block::create_unique();
     for (int i = 0; i < _s_tbls_columns.size(); ++i) {
-        TypeDescriptor descriptor(_s_tbls_columns[i].type);
-        auto data_type = vectorized::DataTypeFactory::instance().create_data_type(descriptor, true);
+        auto data_type = vectorized::DataTypeFactory::instance().create_data_type(
+                _s_tbls_columns[i].type, true);
         _partitions_block->insert(vectorized::ColumnWithTypeAndName(
                 data_type->create_column(), data_type, _s_tbls_columns[i].name));
     }

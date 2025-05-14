@@ -225,6 +225,11 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
 
     @Override
     public synchronized long write(short op, Writable writable) throws IOException {
+        // The operation before may set the current thread as interrupted.
+        // MUST reset the interrupted flag of current thread to false,
+        // otherwise edit log writing may fail because it will call lock.tryLock(),
+        // which will check the interrupted flag.
+        Thread.interrupted();
         JournalEntity entity = new JournalEntity();
         entity.setOpCode(op);
         entity.setData(writable);

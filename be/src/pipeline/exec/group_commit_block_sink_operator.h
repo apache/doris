@@ -20,6 +20,7 @@
 #include "exec/tablet_info.h"
 #include "operator.h"
 #include "runtime/group_commit_mgr.h"
+#include "util/bitmap.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
@@ -100,7 +101,7 @@ public:
 
     Status init(const TDataSink& sink) override;
 
-    Status open(RuntimeState* state) override;
+    Status prepare(RuntimeState* state) override;
 
     Status sink(RuntimeState* state, vectorized::Block* block, bool eos) override;
 

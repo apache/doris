@@ -54,6 +54,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
@@ -539,6 +540,23 @@ public class ExportMgr {
                         labelJobs.remove(job.getLabel());
                         if (labelJobs.isEmpty()) {
                             dbTolabelToExportJobId.remove(job.getDbId());
+                        }
+                    }
+                }
+            }
+
+            if (exportIdToJob.size() > Config.max_export_history_job_num) {
+                List<Map.Entry<Long, ExportJob>> jobList = new ArrayList<>(exportIdToJob.entrySet());
+                jobList.sort(Comparator.comparingLong(entry -> entry.getValue().getCreateTimeMs()));
+                while (exportIdToJob.size() > Config.max_export_history_job_num) {
+                    // Remove the oldest job
+                    Map.Entry<Long, ExportJob> oldestEntry = jobList.remove(0);
+                    exportIdToJob.remove(oldestEntry.getKey());
+                    Map<String, Long> labelJobs = dbTolabelToExportJobId.get(oldestEntry.getValue().getDbId());
+                    if (labelJobs != null) {
+                        labelJobs.remove(oldestEntry.getValue().getLabel());
+                        if (labelJobs.isEmpty()) {
+                            dbTolabelToExportJobId.remove(oldestEntry.getValue().getDbId());
                         }
                     }
                 }

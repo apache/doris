@@ -36,13 +36,7 @@ services:
       - ./init:/root/boot/init.d
     networks:
       - doris--oceanbase
-  doris--oceanbase-hello-world:
-    image: hello-world
-    depends_on:
-      doris--oceanbase:
-        condition: service_healthy
-    networks:
-      - doris--oceanbase
+
 networks:
   doris--oceanbase:
     ipam:

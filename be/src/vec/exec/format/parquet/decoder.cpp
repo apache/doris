@@ -30,7 +30,7 @@
 #include "vec/exec/format/parquet/fix_length_plain_decoder.h"
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 Status Decoder::get_decoder(tparquet::Type::type type, tparquet::Encoding::type encoding,
                             std::unique_ptr<Decoder>& decoder) {
     switch (encoding) {
@@ -139,5 +139,6 @@ Status Decoder::get_decoder(tparquet::Type::type type, tparquet::Encoding::type 
     }
     return Status::OK();
 }
+#include "common/compile_check_end.h"
 
 } // namespace doris::vectorized

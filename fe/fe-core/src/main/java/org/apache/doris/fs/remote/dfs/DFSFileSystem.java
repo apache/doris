@@ -484,7 +484,7 @@ public class DFSFileSystem extends RemoteFileSystem {
                 return new Status(Status.ErrCode.COMMON_ERROR, "failed to make dir for " + remotePath);
             }
         } catch (Exception e) {
-            LOG.warn("failed to make dir for " + remotePath);
+            LOG.warn("failed to make dir for {}, exception:", remotePath, e);
             return new Status(Status.ErrCode.COMMON_ERROR, e.getMessage());
         }
         return Status.OK;

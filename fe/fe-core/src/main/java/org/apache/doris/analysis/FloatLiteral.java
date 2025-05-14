@@ -126,6 +126,9 @@ public class FloatLiteral extends NumericLiteralExpr {
         if (expr instanceof NullLiteral) {
             return 1;
         }
+        if (expr == MaxLiteral.MAX_VALUE) {
+            return -1;
+        }
         return Double.compare(value, expr.getDoubleValue());
     }
 
@@ -152,7 +155,7 @@ public class FloatLiteral extends NumericLiteralExpr {
     }
 
     @Override
-    public String getStringValueInFe(FormatOptions options) {
+    public String getStringValueForQuery(FormatOptions options) {
         if (type == Type.TIME || type == Type.TIMEV2) {
             // FloatLiteral used to represent TIME type, here we need to remove apostrophe from timeStr
             // for example '11:22:33' -> 11:22:33
@@ -167,13 +170,12 @@ public class FloatLiteral extends NumericLiteralExpr {
     }
 
     @Override
-    public String getStringValueForArray(FormatOptions options) {
-        String ret = getStringValue();
+    protected String getStringValueInComplexTypeForQuery(FormatOptions options) {
+        String ret = this.getStringValueForQuery(options);
         if (type == Type.TIME || type == Type.TIMEV2) {
-            // here already wrapped in ''
-            ret = ret.substring(1, ret.length() - 1);
+            ret = options.getNestedStringWrapper() + ret + options.getNestedStringWrapper();
         }
-        return options.getNestedStringWrapper() + ret + options.getNestedStringWrapper();
+        return ret;
     }
 
     public static Type getDefaultTimeType(Type type) throws AnalysisException {

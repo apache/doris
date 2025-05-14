@@ -46,7 +46,8 @@ suite("test_group_commit_insert_into_lineitem_normal") {
         }
     }
     def insert_table = "test_insert_into_lineitem_normal"
-    def batch = 100;
+    // Set batch to 90 to avoid JDBC driver bug. Larger batch size may trigger JDBC send COM_STMT_FETCH command.
+    def batch = 90;
     def count = 0;
     def total = 0;
 
@@ -109,6 +110,7 @@ PROPERTIES (
                 break
             } catch (Exception e) {
                 logger.info("got exception:" + e)
+                logger.info("sql: " + exp_str)
                 Thread.sleep(5000)
                 context.reconnectFe()
                 sql """ set group_commit = async_mode; """

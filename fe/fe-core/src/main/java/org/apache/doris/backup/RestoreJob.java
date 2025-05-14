@@ -62,6 +62,7 @@ import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.common.util.DbUtil;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
@@ -73,6 +74,7 @@ import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.task.AgentBatchTask;
+import org.apache.doris.task.AgentBoundedBatchTask;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
@@ -125,6 +127,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
     private static final String PROP_CLEAN_TABLES = RestoreStmt.PROP_CLEAN_TABLES;
     private static final String PROP_CLEAN_PARTITIONS = RestoreStmt.PROP_CLEAN_PARTITIONS;
     private static final String PROP_ATOMIC_RESTORE = RestoreStmt.PROP_ATOMIC_RESTORE;
+    private static final String PROP_FORCE_REPLACE = RestoreStmt.PROP_FORCE_REPLACE;
     private static final String ATOMIC_RESTORE_TABLE_PREFIX = "__doris_atomic_restore_prefix__";
 
     private static final Logger LOG = LogManager.getLogger(RestoreJob.class);
@@ -176,7 +179,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
     private boolean reserveReplica = false;
     private boolean reserveColocate = false;
     private boolean reserveDynamicPartitionEnable = false;
-
+    private long createReplicasTimeStamp = -1;
     // this 2 members is to save all newly restored objs
     // tbl name -> part
     @SerializedName("rp")
@@ -215,6 +218,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
     private boolean isCleanPartitions = false;
     // Whether to restore the data into a temp table, and then replace the origin one.
     private boolean isAtomicRestore = false;
+    // Whether to restore the table by replacing the exists but conflicted table.
+    private boolean isForceReplace = false;
 
     // restore properties
     @SerializedName("prop")
@@ -233,7 +238,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
     public RestoreJob(String label, String backupTs, long dbId, String dbName, BackupJobInfo jobInfo, boolean allowLoad,
             ReplicaAllocation replicaAlloc, long timeoutMs, int metaVersion, boolean reserveReplica,
             boolean reserveColocate, boolean reserveDynamicPartitionEnable, boolean isBeingSynced,
-            boolean isCleanTables, boolean isCleanPartitions, boolean isAtomicRestore, Env env, long repoId) {
+            boolean isCleanTables, boolean isCleanPartitions, boolean isAtomicRestore, boolean isForceReplace, Env env,
+            long repoId) {
         super(JobType.RESTORE, label, dbId, dbName, timeoutMs, env, repoId);
         this.backupTimestamp = backupTs;
         this.jobInfo = jobInfo;
@@ -252,6 +258,9 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         this.isCleanTables = isCleanTables;
         this.isCleanPartitions = isCleanPartitions;
         this.isAtomicRestore = isAtomicRestore;
+        if (this.isAtomicRestore) {
+            this.isForceReplace = isForceReplace;
+        }
         properties.put(PROP_RESERVE_REPLICA, String.valueOf(reserveReplica));
         properties.put(PROP_RESERVE_COLOCATE, String.valueOf(reserveColocate));
         properties.put(PROP_RESERVE_DYNAMIC_PARTITION_ENABLE, String.valueOf(reserveDynamicPartitionEnable));
@@ -259,16 +268,18 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         properties.put(PROP_CLEAN_TABLES, String.valueOf(isCleanTables));
         properties.put(PROP_CLEAN_PARTITIONS, String.valueOf(isCleanPartitions));
         properties.put(PROP_ATOMIC_RESTORE, String.valueOf(isAtomicRestore));
+        properties.put(PROP_FORCE_REPLACE, String.valueOf(isForceReplace));
     }
 
     public RestoreJob(String label, String backupTs, long dbId, String dbName, BackupJobInfo jobInfo, boolean allowLoad,
             ReplicaAllocation replicaAlloc, long timeoutMs, int metaVersion, boolean reserveReplica,
             boolean reserveColocate, boolean reserveDynamicPartitionEnable, boolean isBeingSynced,
-            boolean isCleanTables, boolean isCleanPartitions, boolean isAtomicRestore, Env env, long repoId,
+            boolean isCleanTables, boolean isCleanPartitions, boolean isAtomicRestore, boolean isForeReplace, Env env,
+            long repoId,
             BackupMeta backupMeta) {
         this(label, backupTs, dbId, dbName, jobInfo, allowLoad, replicaAlloc, timeoutMs, metaVersion, reserveReplica,
                 reserveColocate, reserveDynamicPartitionEnable, isBeingSynced, isCleanTables, isCleanPartitions,
-                isAtomicRestore, env, repoId);
+                isAtomicRestore, isForeReplace, env, repoId);
 
         this.backupMeta = backupMeta;
     }
@@ -682,7 +693,10 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         Map<Long, TabletRef> tabletBases = new HashMap<>();
 
         // Check and prepare meta objects.
-        Map<Long, AgentBatchTask> batchTaskPerTable = new HashMap<>();
+        Map<Long, AgentBoundedBatchTask> batchTaskPerTable = new HashMap<>();
+
+        // The tables that are restored but not committed, because the table name may be changed.
+        List<Table> stagingRestoreTables = Lists.newArrayList();
         db.readLock();
         try {
             for (Map.Entry<String, BackupOlapTableInfo> olapTableEntry : jobInfo.backupOlapTableObjects.entrySet()) {
@@ -691,6 +705,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                 Table remoteTbl = backupMeta.getTable(tableName);
                 Preconditions.checkNotNull(remoteTbl);
                 Table localTbl = db.getTableNullable(jobInfo.getAliasByOriginNameIfSet(tableName));
+                boolean isSchemaChanged = false;
                 if (localTbl != null && localTbl.getType() != TableType.OLAP) {
                     // table already exist, but is not OLAP
                     status = new Status(ErrCode.COMMON_ERROR,
@@ -714,8 +729,14 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                         List<String> intersectPartNames = Lists.newArrayList();
                         Status st = localOlapTbl.getIntersectPartNamesWith(remoteOlapTbl, intersectPartNames);
                         if (!st.ok()) {
-                            status = st;
-                            return;
+                            if (isForceReplace) {
+                                LOG.info("{}, will force replace, job: {}",
+                                        st.getErrMsg(), this);
+                                isSchemaChanged = true;
+                            } else {
+                                status = st;
+                                return;
+                            }
                         }
                         if (LOG.isDebugEnabled()) {
                             LOG.debug("get intersect part names: {}, job: {}", intersectPartNames, this);
@@ -725,13 +746,20 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                         String remoteTblSignature = remoteOlapTbl.getSignature(
                                 BackupHandler.SIGNATURE_VERSION, intersectPartNames);
                         if (!localTblSignature.equals(remoteTblSignature)) {
-                            String alias = jobInfo.getAliasByOriginNameIfSet(tableName);
-                            LOG.warn("Table {} already exists but with different schema, "
-                                    + "local table: {}, remote table: {}",
-                                    alias, localTblSignature, remoteTblSignature);
-                            status = new Status(ErrCode.COMMON_ERROR, "Table "
-                                    + alias + " already exist but with different schema");
-                            return;
+                            if (isForceReplace) {
+                                LOG.info("Table {} already exists but with different schema, will force replace, "
+                                        + "local table: {}, remote table: {}",
+                                        tableName, localTblSignature, remoteTblSignature);
+                                isSchemaChanged = true;
+                            } else {
+                                String alias = jobInfo.getAliasByOriginNameIfSet(tableName);
+                                LOG.warn("Table {} already exists but with different schema, "
+                                        + "local table: {}, remote table: {}",
+                                        alias, localTblSignature, remoteTblSignature);
+                                status = new Status(ErrCode.COMMON_ERROR, "Table "
+                                        + alias + " already exist but with different schema");
+                                return;
+                            }
                         }
 
                         // Table with same name and has same schema. Check partition
@@ -753,10 +781,14 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                                             .getPartitionInfo().getItem(backupPartInfo.id);
                                     if (!localItem.equals(remoteItem)) {
                                         // Same partition name, different range
-                                        status = new Status(ErrCode.COMMON_ERROR, "Partition " + partitionName
-                                                + " in table " + localTbl.getName()
-                                                + " has different partition item with partition in repository");
-                                        return;
+                                        if (isForceReplace) {
+                                            isSchemaChanged = true;
+                                        } else {
+                                            status = new Status(ErrCode.COMMON_ERROR, "Partition " + partitionName
+                                            + " in table " + localTbl.getName()
+                                            + " has different partition item with partition in repository");
+                                            return;
+                                        }
                                     }
                                 }
 
@@ -843,7 +875,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                     // remoteOlapTbl.setName(jobInfo.getAliasByOriginNameIfSet(tblInfo.name));
                     remoteOlapTbl.setState(allowLoad ? OlapTableState.RESTORE_WITH_LOAD : OlapTableState.RESTORE);
 
-                    if (isAtomicRestore && localTbl != null) {
+                    if (isAtomicRestore && localTbl != null && !isSchemaChanged) {
                         // bind the backends and base tablets from local tbl.
                         status = bindLocalAndRemoteOlapTableReplicas((OlapTable) localTbl, remoteOlapTbl, tabletBases);
                         if (!status.ok()) {
@@ -854,7 +886,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                     if (LOG.isDebugEnabled()) {
                         LOG.debug("put remote table {} to restoredTbls", remoteOlapTbl.getName());
                     }
-                    restoredTbls.add(remoteOlapTbl);
+                    stagingRestoreTables.add(remoteOlapTbl);
                 }
             } // end of all restore olap tables
 
@@ -873,17 +905,29 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                         String srcDbName = jobInfo.dbName;
                         remoteView.resetViewDefForRestore(srcDbName, db.getName());
                         if (!localViewSignature.equals(remoteView.getSignature(BackupHandler.SIGNATURE_VERSION))) {
-                            status = new Status(ErrCode.COMMON_ERROR, "View "
-                                    + jobInfo.getAliasByOriginNameIfSet(backupViewName)
-                                    + " already exist but with different schema");
-                            return;
+                            if (isForceReplace) {
+                                LOG.info("View {} already exist but with different schema, will force replace, "
+                                        + "local view: {}, remote view: {}",
+                                        backupViewName, localViewSignature,
+                                        remoteView.getSignature(BackupHandler.SIGNATURE_VERSION));
+                            } else {
+                                LOG.warn("View {} already exist but with different schema, will force replace, "
+                                        + "local view: {}, remote view: {}",
+                                        backupViewName, localViewSignature,
+                                        remoteView.getSignature(BackupHandler.SIGNATURE_VERSION));
+                                status = new Status(ErrCode.COMMON_ERROR, "View "
+                                        + jobInfo.getAliasByOriginNameIfSet(backupViewName)
+                                        + " already exist but with different schema");
+                                return;
+                            }
                         }
                     }
-                } else {
+                }
+                if (localTbl == null || isAtomicRestore) {
                     String srcDbName = jobInfo.dbName;
                     remoteView.resetViewDefForRestore(srcDbName, db.getName());
                     remoteView.resetIdsForRestore(env);
-                    restoredTbls.add(remoteView);
+                    stagingRestoreTables.add(remoteView);
                 }
             }
 
@@ -904,7 +948,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                     }
                 } else {
                     remoteOdbcTable.resetIdsForRestore(env);
-                    restoredTbls.add(remoteOdbcTable);
+                    stagingRestoreTables.add(remoteOdbcTable);
                 }
             }
 
@@ -925,9 +969,10 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                 BackupPartitionInfo backupPartitionInfo
                         = jobInfo.getOlapTableInfo(entry.first).getPartInfo(restorePart.getName());
 
-                AgentBatchTask batchTask = batchTaskPerTable.get(localTbl.getId());
+                AgentBoundedBatchTask batchTask = batchTaskPerTable.get(localTbl.getId());
                 if (batchTask == null) {
-                    batchTask = new AgentBatchTask(Config.backup_restore_batch_task_num_per_rpc);
+                    batchTask = new AgentBoundedBatchTask(
+                            Config.backup_restore_batch_task_num_per_rpc, Config.restore_task_concurrency_per_be);
                     batchTaskPerTable.put(localTbl.getId(), batchTask);
                 }
                 createReplicas(db, batchTask, localTbl, restorePart);
@@ -937,13 +982,14 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             }
 
             // generate create replica task for all restored tables
-            for (Table restoreTbl : restoredTbls) {
+            for (Table restoreTbl : stagingRestoreTables) {
                 if (restoreTbl.getType() == TableType.OLAP) {
                     OlapTable restoreOlapTable = (OlapTable) restoreTbl;
                     for (Partition restorePart : restoreOlapTable.getPartitions()) {
-                        AgentBatchTask batchTask = batchTaskPerTable.get(restoreTbl.getId());
+                        AgentBoundedBatchTask batchTask = batchTaskPerTable.get(restoreTbl.getId());
                         if (batchTask == null) {
-                            batchTask = new AgentBatchTask(Config.backup_restore_batch_task_num_per_rpc);
+                            batchTask = new AgentBoundedBatchTask(Config.backup_restore_batch_task_num_per_rpc,
+                                    Config.restore_task_concurrency_per_be);
                             batchTaskPerTable.put(restoreTbl.getId(), batchTask);
                         }
                         createReplicas(db, batchTask, restoreOlapTable, restorePart, tabletBases);
@@ -959,10 +1005,12 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                 if (Env.isStoredTableNamesLowerCase()) {
                     tableName = tableName.toLowerCase();
                 }
-                if (restoreTbl.getType() == TableType.OLAP && isAtomicRestore) {
+                if ((restoreTbl.getType() == TableType.OLAP || restoreTbl
+                        .getType() == TableType.VIEW) && isAtomicRestore) {
                     tableName = tableAliasWithAtomicRestore(tableName);
                 }
                 restoreTbl.setName(tableName);
+                restoredTbls.add(restoreTbl);
             }
 
             if (LOG.isDebugEnabled()) {
@@ -993,7 +1041,6 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                 for (AgentTask task : batchTask.getAllTasks()) {
                     createReplicaTasksLatch.addMark(task.getBackendId(), task.getTabletId());
                     ((CreateReplicaTask) task).setLatch(createReplicaTasksLatch);
-                    AgentTaskQueue.addTask(task);
                 }
                 AgentTaskExecutor.submit(batchTask);
             }
@@ -1001,6 +1048,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
         // No log here, PENDING state restore job will redo this method
         state = RestoreJobState.CREATING;
+        createReplicasTimeStamp = System.currentTimeMillis();
     }
 
     private void waitingAllReplicasCreated() {
@@ -1009,6 +1057,14 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             if (!createReplicaTasksLatch.await(0, TimeUnit.SECONDS)) {
                 LOG.info("waiting {} create replica tasks for restore to finish. {}",
                         createReplicaTasksLatch.getCount(), this);
+                long createReplicasTimeOut = DbUtil.getCreateReplicasTimeoutMs(createReplicaTasksLatch.getMarkCount());
+                long tryCreateTime = System.currentTimeMillis() - createReplicasTimeStamp;
+                if (tryCreateTime > createReplicasTimeOut) {
+                    status = new Status(ErrCode.TIMEOUT,
+                            "restore job with create replicas timeout: " + tryCreateTime + " with label: " + label);
+                    cancelInternal(false);
+                    LOG.warn("restore job {} create replicas timeout, cancel {}", jobId, this);
+                }
                 return;
             }
         } catch (InterruptedException e) {
@@ -1182,8 +1238,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                                         localOlapTbl.getName());
                             }
                         }
-                        tabletBases.put(remoteTablet.getId(),
-                                new TabletRef(localTablet.getId(), schemaHash, storageMedium));
+                        tabletBases.put(remoteTablet.getId(), new TabletRef(localTablet.getId(), schemaHash));
                     }
                 }
             }
@@ -1201,7 +1256,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         taskProgress.clear();
         taskErrMsg.clear();
         Multimap<Long, Long> bePathsMap = HashMultimap.create();
-        AgentBatchTask batchTask = new AgentBatchTask(Config.backup_restore_batch_task_num_per_rpc);
+        AgentBoundedBatchTask batchTask = new AgentBoundedBatchTask(
+                Config.backup_restore_batch_task_num_per_rpc, Config.restore_task_concurrency_per_be);
         db.readLock();
         try {
             for (Map.Entry<IdChain, IdChain> entry : fileMapping.getMapping().entrySet()) {
@@ -1217,7 +1273,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                     boolean isRestoreTask = true;
                     // We don't care the visible version in restore job, the end version is used.
                     long visibleVersion = -1L;
-                    SnapshotTask task = new SnapshotTask(null, replica.getBackendIdWithoutException(),
+                    long beId = replica.getBackendIdWithoutException();
+                    SnapshotTask task = new SnapshotTask(null, beId,
                             signature, jobId, db.getId(),
                             tbl.getId(), part.getId(), index.getId(), tablet.getId(), visibleVersion,
                             tbl.getSchemaHashByIndexId(index.getId()), timeoutMs, isRestoreTask);
@@ -1226,7 +1283,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                     }
                     batchTask.addTask(task);
                     unfinishedSignatureToId.put(signature, tablet.getId());
-                    bePathsMap.put(replica.getBackendIdWithoutException(), replica.getPathHash());
+                    bePathsMap.put(beId, replica.getPathHash());
                 } finally {
                     tbl.readUnlock();
                 }
@@ -1242,10 +1299,6 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             return;
         }
 
-        // send tasks
-        for (AgentTask task : batchTask.getAllTasks()) {
-            AgentTaskQueue.addTask(task);
-        }
         AgentTaskExecutor.submit(batchTask);
         LOG.info("finished to send snapshot tasks, num: {}. {}", batchTask.getTaskNum(), this);
     }
@@ -1339,8 +1392,11 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             for (Tablet restoreTablet : restoredIdx.getTablets()) {
                 TabletRef baseTabletRef = tabletBases == null ? null : tabletBases.get(restoreTablet.getId());
                 // All restored replicas will be saved to HDD by default.
-                TStorageMedium storageMedium = baseTabletRef == null
-                        ? TStorageMedium.HDD : baseTabletRef.storageMedium;
+                TStorageMedium storageMedium = TStorageMedium.HDD;
+                if (tabletBases != null) {
+                    // ensure this tablet is bound to the same backend disk as the origin table's tablet.
+                    storageMedium = localTbl.getPartitionInfo().getDataProperty(restorePart.getId()).getStorageMedium();
+                }
                 TabletMeta tabletMeta = new TabletMeta(db.getId(), localTbl.getId(), restorePart.getId(),
                         restoredIdx.getId(), indexMeta.getSchemaHash(), storageMedium);
                 Env.getCurrentInvertedIndex().addTablet(restoreTablet.getId(), tabletMeta);
@@ -1689,7 +1745,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         unfinishedSignatureToId.clear();
         taskProgress.clear();
         taskErrMsg.clear();
-        AgentBatchTask batchTask = new AgentBatchTask(Config.backup_restore_batch_task_num_per_rpc);
+        AgentBoundedBatchTask batchTask = new AgentBoundedBatchTask(
+                Config.backup_restore_batch_task_num_per_rpc, Config.restore_task_concurrency_per_be);
         for (long dbId : dbToSnapshotInfos.keySet()) {
             List<SnapshotInfo> infos = dbToSnapshotInfos.get(dbId);
 
@@ -1818,10 +1875,6 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             }
         }
 
-        // send task
-        for (AgentTask task : batchTask.getAllTasks()) {
-            AgentTaskQueue.addTask(task);
-        }
         AgentTaskExecutor.submit(batchTask);
 
         state = RestoreJobState.DOWNLOADING;
@@ -1841,7 +1894,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         unfinishedSignatureToId.clear();
         taskProgress.clear();
         taskErrMsg.clear();
-        AgentBatchTask batchTask = new AgentBatchTask(Config.backup_restore_batch_task_num_per_rpc);
+        AgentBoundedBatchTask batchTask = new AgentBoundedBatchTask(
+                Config.backup_restore_batch_task_num_per_rpc, Config.restore_task_concurrency_per_be);
         for (long dbId : dbToSnapshotInfos.keySet()) {
             List<SnapshotInfo> infos = dbToSnapshotInfos.get(dbId);
 
@@ -1984,10 +2038,6 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             }
         }
 
-        // send task
-        for (AgentTask task : batchTask.getAllTasks()) {
-            AgentTaskQueue.addTask(task);
-        }
         AgentTaskExecutor.submit(batchTask);
 
         state = RestoreJobState.DOWNLOADING;
@@ -2016,7 +2066,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         unfinishedSignatureToId.clear();
         taskProgress.clear();
         taskErrMsg.clear();
-        AgentBatchTask batchTask = new AgentBatchTask(Config.backup_restore_batch_task_num_per_rpc);
+        AgentBoundedBatchTask batchTask = new AgentBoundedBatchTask(
+                Config.backup_restore_batch_task_num_per_rpc, Config.restore_task_concurrency_per_be);
         // tablet id->(be id -> download info)
         for (Cell<Long, Long, SnapshotInfo> cell : snapshotInfos.cellSet()) {
             SnapshotInfo info = cell.getValue();
@@ -2028,10 +2079,6 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             unfinishedSignatureToId.put(signature, info.getTabletId());
         }
 
-        // send task
-        for (AgentTask task : batchTask.getAllTasks()) {
-            AgentTaskQueue.addTask(task);
-        }
         AgentTaskExecutor.submit(batchTask);
 
         state = RestoreJobState.COMMITTING;
@@ -2337,7 +2384,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
             // remove restored tbls
             for (Table restoreTbl : restoredTbls) {
-                if (isAtomicRestore && restoreTbl.getType() == TableType.OLAP
+                if (isAtomicRestore
+                        && (restoreTbl.getType() == TableType.OLAP || restoreTbl.getType() == TableType.VIEW)
                         && !restoreTbl.getName().startsWith(ATOMIC_RESTORE_TABLE_PREFIX)) {
                     // In atomic restore, a table registered to db must have a name with the prefix,
                     // otherwise, it has not been registered and can be ignored here.
@@ -2357,6 +2405,13 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                                         }
                                     }
                                 }
+                                db.unregisterTable(restoreTbl.getName());
+                            } finally {
+                                restoreTbl.writeUnlock();
+                            }
+                        } else if (restoreTbl.getType() == TableType.VIEW) {
+                            restoreTbl.writeLock();
+                            try {
                                 db.unregisterTable(restoreTbl.getName());
                             } finally {
                                 restoreTbl.writeUnlock();
@@ -2403,6 +2458,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             snapshotInfos = HashBasedTable.create();
             fileMapping.clear();
             jobInfo.releaseSnapshotInfo();
+            createReplicasTimeStamp = -1;
 
             RestoreJobState curState = state;
             finishedTime = System.currentTimeMillis();
@@ -2428,7 +2484,6 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
     }
 
     private Status atomicReplaceOlapTables(Database db, boolean isReplay) {
-        assert isAtomicRestore;
         for (String tableName : jobInfo.backupOlapTableObjects.keySet()) {
             String originName = jobInfo.getAliasByOriginNameIfSet(tableName);
             if (Env.isStoredTableNamesLowerCase()) {
@@ -2442,13 +2497,16 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             try {
                 Table newTbl = db.getTableNullable(aliasName);
                 if (newTbl == null) {
-                    LOG.warn("replace table from {} to {}, but the temp table is not found", aliasName, originName);
+                    LOG.warn("replace table from {} to {}, but the temp table is not found" + " isAtomicRestore: {}",
+                            aliasName, originName, isAtomicRestore);
                     return new Status(ErrCode.COMMON_ERROR, "replace table failed, the temp table "
                             + aliasName + " is not found");
                 }
                 if (newTbl.getType() != TableType.OLAP) {
-                    LOG.warn("replace table from {} to {}, but the temp table is not OLAP, it type is {}",
-                            aliasName, originName, newTbl.getType());
+                    LOG.warn(
+                            "replace table from {} to {}, but the temp table is not OLAP, it type is {}"
+                                    + " isAtomicRestore: {}",
+                            aliasName, originName, newTbl.getType(), isAtomicRestore);
                     return new Status(ErrCode.COMMON_ERROR, "replace table failed, the temp table " + aliasName
                             + " is not OLAP table, it is " + newTbl.getType());
                 }
@@ -2457,12 +2515,14 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                 Table originTbl = db.getTableNullable(originName);
                 if (originTbl != null) {
                     if (originTbl.getType() != TableType.OLAP) {
-                        LOG.warn("replace table from {} to {}, but the origin table is not OLAP, it type is {}",
-                                aliasName, originName, originTbl.getType());
+                        LOG.warn(
+                                "replace table from {} to {}, but the origin table is not OLAP, it type is {}"
+                                        + " isAtomicRestore: {}",
+                                aliasName, originName, originTbl.getType(), isAtomicRestore);
                         return new Status(ErrCode.COMMON_ERROR, "replace table failed, the origin table "
                                 + originName + " is not OLAP table, it is " + originTbl.getType());
                     }
-                    originOlapTbl = (OlapTable) originTbl;  // save the origin olap table, then drop it.
+                    originOlapTbl = (OlapTable) originTbl; // save the origin olap table, then drop it.
                 }
 
                 // replace the table.
@@ -2477,11 +2537,14 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
                     // set the olap table state to normal immediately for querying
                     newOlapTbl.setState(OlapTableState.NORMAL);
-                    LOG.info("atomic restore replace table {} name to {}, and set state to normal, origin table={}",
-                            newOlapTbl.getId(), originName, originOlapTbl == null ? -1L : originOlapTbl.getId());
+                    LOG.info(
+                            "restore with replace table {} name to {}, and set state to normal, origin table={}"
+                                    + " isAtomicRestore: {}",
+                            newOlapTbl.getId(), originName, originOlapTbl == null ? -1L : originOlapTbl.getId(),
+                            isAtomicRestore);
                 } catch (DdlException e) {
-                    LOG.warn("atomic restore replace table {} name from {} to {}",
-                            newOlapTbl.getId(), aliasName, originName, e);
+                    LOG.warn("restore with replace table {} name from {} to {}, isAtomicRestore: {}",
+                            newOlapTbl.getId(), aliasName, originName, isAtomicRestore, e);
                     return new Status(ErrCode.COMMON_ERROR, "replace table from " + aliasName + " to " + originName
                             + " failed, reason=" + e.getMessage());
                 } finally {
@@ -2492,12 +2555,76 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                     // The origin table is not used anymore, need to drop all its tablets.
                     originOlapTbl.writeLock();
                     try {
-                        LOG.info("drop the origin olap table {} by atomic restore. table={}",
-                                originOlapTbl.getName(), originOlapTbl.getId());
+                        LOG.info("drop the origin olap table {}. table={}" + " isAtomicRestore: {}",
+                                originOlapTbl.getName(), originOlapTbl.getId(), isAtomicRestore);
                         Env.getCurrentEnv().onEraseOlapTable(originOlapTbl, isReplay);
                     } finally {
                         originOlapTbl.writeUnlock();
                     }
+                }
+            } finally {
+                db.writeUnlock();
+            }
+        }
+        for (BackupJobInfo.BackupViewInfo backupViewInfo : jobInfo.newBackupObjects.views) {
+            String originName = jobInfo.getAliasByOriginNameIfSet(backupViewInfo.name);
+            if (Env.isStoredTableNamesLowerCase()) {
+                originName = originName.toLowerCase();
+            }
+            String aliasName = tableAliasWithAtomicRestore(originName);
+
+            if (!db.writeLockIfExist()) {
+                return Status.OK;
+            }
+            try {
+                Table newTbl = db.getTableNullable(aliasName);
+                if (newTbl == null) {
+                    LOG.warn("replace view from {} to {}, but the temp view is not found" + " isAtomicRestore: {}",
+                            aliasName, originName, isAtomicRestore);
+                    return new Status(ErrCode.COMMON_ERROR, "replace view failed, the temp view "
+                            + aliasName + " is not found");
+                }
+                if (newTbl.getType() != TableType.VIEW) {
+                    LOG.warn(
+                            "replace view from {} to {}, but the temp view is not VIEW, it type is {}"
+                                    + " isAtomicRestore: {}",
+                            aliasName, originName, newTbl.getType(), isAtomicRestore);
+                    return new Status(ErrCode.COMMON_ERROR, "replace view failed, the temp view " + aliasName
+                            + " is not OLAP, it is " + newTbl.getType());
+                }
+
+                View originViewTbl = null;
+                Table originTbl = db.getTableNullable(originName);
+                if (originTbl != null) {
+                    if (originTbl.getType() != TableType.VIEW) {
+                        LOG.warn(
+                                "replace view from {} to {}, but the origin view is not VIEW, it type is {}"
+                                        + " isAtomicRestore: {}",
+                                aliasName, originName, originTbl.getType(), isAtomicRestore);
+                        return new Status(ErrCode.COMMON_ERROR, "replace view failed, the origin view "
+                                + originName + " is not VIEW, it is " + originTbl.getType());
+                    }
+                    originViewTbl = (View) originTbl; // save the origin view, then drop it.
+                }
+
+                // replace the view.
+                View newViewTbl = (View) newTbl;
+                newViewTbl.writeLock();
+                try {
+                    // rename new view name to origin view name and add the new view to database.
+                    db.unregisterTable(aliasName);
+                    db.unregisterTable(originName);
+                    newViewTbl.setName(originName);
+                    db.registerTable(newViewTbl);
+
+                    LOG.info(
+                            "restore with replace view {} name to {}, origin view={}"
+                                    + " isAtomicRestore: {}",
+                            newViewTbl.getId(), originName,
+                            originViewTbl == null ? -1L : originViewTbl.getId(),
+                            isAtomicRestore);
+                } finally {
+                    newViewTbl.writeUnlock();
                 }
             } finally {
                 db.writeUnlock();
@@ -2681,6 +2808,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         isCleanTables = Boolean.parseBoolean(properties.get(PROP_CLEAN_TABLES));
         isCleanPartitions = Boolean.parseBoolean(properties.get(PROP_CLEAN_PARTITIONS));
         isAtomicRestore = Boolean.parseBoolean(properties.get(PROP_ATOMIC_RESTORE));
+        isForceReplace = Boolean.parseBoolean(properties.get(PROP_FORCE_REPLACE));
     }
 
     @Override
@@ -2691,6 +2819,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         isCleanTables = Boolean.parseBoolean(properties.get(PROP_CLEAN_TABLES));
         isCleanPartitions = Boolean.parseBoolean(properties.get(PROP_CLEAN_PARTITIONS));
         isAtomicRestore = Boolean.parseBoolean(properties.get(PROP_ATOMIC_RESTORE));
+        isForceReplace = Boolean.parseBoolean(properties.get(PROP_FORCE_REPLACE));
     }
 
     @Override
@@ -2708,12 +2837,10 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
     private static class TabletRef {
         public long tabletId;
         public int schemaHash;
-        public TStorageMedium storageMedium;
 
-        TabletRef(long tabletId, int schemaHash, TStorageMedium storageMedium) {
+        TabletRef(long tabletId, int schemaHash) {
             this.tabletId = tabletId;
             this.schemaHash = schemaHash;
-            this.storageMedium = storageMedium;
         }
     }
 }

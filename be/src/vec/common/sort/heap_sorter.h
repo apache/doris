@@ -33,6 +33,7 @@
 #include "vec/core/sort_cursor.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class ObjectPool;
 class RowDescriptor;
 class RuntimeState;
@@ -76,7 +77,7 @@ class HeapSorter final : public Sorter {
     ENABLE_FACTORY_CREATOR(HeapSorter);
 
 public:
-    HeapSorter(VSortExecExprs& vsort_exec_exprs, int limit, int64_t offset, ObjectPool* pool,
+    HeapSorter(VSortExecExprs& vsort_exec_exprs, int64_t limit, int64_t offset, ObjectPool* pool,
                std::vector<bool>& is_asc_order, std::vector<bool>& nulls_first,
                const RowDescriptor& row_desc);
 
@@ -117,4 +118,5 @@ private:
     RuntimeProfile::Counter* _materialize_timer = nullptr;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

@@ -72,6 +72,7 @@ public class DorisStreamLoader extends BaseStep implements StepInterface {
         return false;
       }
       if ( first ) {
+        logDebug("First process row with meta : " + meta.toString());
         first = false;
         // Cache field indexes.
         data.keynrs = new int[meta.getFieldStream().length];
@@ -84,11 +85,15 @@ public class DorisStreamLoader extends BaseStep implements StepInterface {
           data.formatMeta[i] = sourceMeta.clone();
         }
 
+        // use field table name to serializer data
+        String[] fieldNames = new String[meta.getFieldTable().length];
+        System.arraycopy(meta.getFieldTable(), 0, fieldNames, 0, meta.getFieldTable().length);
+
         Properties loadProperties = options.getStreamLoadProp();
         //builder serializer
         data.serializer = DorisRecordSerializer.builder()
                 .setType(loadProperties.getProperty(FORMAT_KEY, CSV))
-                .setFieldNames(getInputRowMeta().getFieldNames())
+                .setFieldNames(fieldNames)
                 .setFormatMeta(data.formatMeta)
                 .setFieldDelimiter(loadProperties.getProperty(FIELD_DELIMITER_KEY, FIELD_DELIMITER_DEFAULT))
                 .setLogChannelInterface(log)
@@ -136,17 +141,18 @@ public class DorisStreamLoader extends BaseStep implements StepInterface {
           }
         }
       }
+
       options = DorisOptions.builder()
-              .withFenodes(meta.getFenodes())
-              .withDatabase(meta.getDatabase())
-              .withTable(meta.getTable())
-              .withUsername(meta.getUsername())
-              .withPassword(meta.getPassword())
-              .withBufferFlushMaxBytes(meta.getBufferFlushMaxBytes())
-              .withBufferFlushMaxRows(meta.getBufferFlushMaxRows())
-              .withMaxRetries(meta.getMaxRetries())
-              .withStreamLoadProp(streamHeaders)
-              .withDeletable(meta.isDeletable()).build();
+          .withFenodes(meta.getFenodes())
+          .withDatabase(meta.getDatabase())
+          .withTable(meta.getTable())
+          .withUsername(meta.getUsername())
+          .withPassword(meta.getPassword())
+          .withBufferFlushMaxBytes(meta.getBufferFlushMaxBytes())
+          .withBufferFlushMaxRows(meta.getBufferFlushMaxRows())
+          .withMaxRetries(meta.getMaxRetries())
+          .withStreamLoadProp(streamHeaders)
+          .withDeletable(meta.isDeletable()).build();
 
       logDetailed("Initializing step with options: " + options.toString());
       streamLoad = new DorisBatchStreamLoad(options, log);

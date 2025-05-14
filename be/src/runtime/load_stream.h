@@ -20,7 +20,6 @@
 #include <bthread/mutex.h>
 #include <gen_cpp/olap_common.pb.h>
 
-#include <condition_variable>
 #include <memory>
 #include <mutex>
 #include <unordered_map>
@@ -31,6 +30,7 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "runtime/load_stream_writer.h"
+#include "runtime/workload_management/resource_context.h"
 #include "util/runtime_profile.h"
 
 namespace doris {
@@ -176,7 +176,7 @@ private:
     RuntimeProfile::Counter* _append_data_timer = nullptr;
     RuntimeProfile::Counter* _close_wait_timer = nullptr;
     LoadStreamMgr* _load_stream_mgr = nullptr;
-    QueryThreadContext _query_thread_context;
+    std::shared_ptr<ResourceContext> _resource_ctx;
     bool _is_incremental = false;
 };
 

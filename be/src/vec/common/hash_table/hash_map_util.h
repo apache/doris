@@ -18,6 +18,8 @@
 #pragma once
 
 #include "vec/common/hash_table/hash_key_type.h"
+#include "vec/exprs/vexpr.h"
+#include "vec/exprs/vexpr_context.h"
 
 namespace doris {
 

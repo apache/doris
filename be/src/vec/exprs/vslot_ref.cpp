@@ -45,10 +45,7 @@ VSlotRef::VSlotRef(const doris::TExprNode& node)
           _column_label(node.label) {}
 
 VSlotRef::VSlotRef(const SlotDescriptor* desc)
-        : VExpr(desc->type(), true, desc->is_nullable()),
-          _slot_id(desc->id()),
-          _column_id(-1),
-          _column_name(nullptr) {}
+        : VExpr(desc->type(), true), _slot_id(desc->id()), _column_id(-1), _column_name(nullptr) {}
 
 Status VSlotRef::prepare(doris::RuntimeState* state, const doris::RowDescriptor& desc,
                          VExprContext* context) {
@@ -65,7 +62,7 @@ Status VSlotRef::prepare(doris::RuntimeState* state, const doris::RowDescriptor&
                 state->desc_tbl().debug_string());
     }
     _column_name = &slot_desc->col_name();
-    if (!context->force_materialize_slot() && !slot_desc->need_materialize()) {
+    if (!context->force_materialize_slot() && !slot_desc->is_materialized()) {
         // slot should be ignored manually
         _column_id = -1;
         _prepare_finished = true;

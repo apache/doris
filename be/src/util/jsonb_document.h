@@ -177,7 +177,7 @@ public:
     static JsonbDocument* makeDocument(char* pb, uint32_t size, const JsonbValue* rval);
 
     // create an JsonbDocument object from JSONB packed bytes
-    static JsonbDocument* createDocument(const char* pb, size_t size);
+    static JsonbDocument* checkAndCreateDocument(const char* pb, size_t size);
 
     // create an JsonbValue from JSONB packed bytes
     static JsonbValue* createValue(const char* pb, size_t size);
@@ -1138,7 +1138,7 @@ inline JsonbDocument* JsonbDocument::makeDocument(char* pb, uint32_t size, const
     return doc;
 }
 
-inline JsonbDocument* JsonbDocument::createDocument(const char* pb, size_t size) {
+inline JsonbDocument* JsonbDocument::checkAndCreateDocument(const char* pb, size_t size) {
     if (!pb || size < sizeof(JsonbHeader) + sizeof(JsonbValue)) {
         return nullptr;
     }
@@ -1490,10 +1490,23 @@ inline JsonbValue* JsonbValue::findValue(JsonbPath& path, hDictFind handler) {
 }
 
 inline bool JsonbPath::parsePath(Stream* stream, JsonbPath* path) {
+    // $[0]
     if (stream->peek() == BEGIN_ARRAY) {
         return parse_array(stream, path);
-    } else if (stream->peek() == BEGIN_MEMBER) {
-        return parse_member(stream, path);
+    }
+    // $.a or $.[0]
+    else if (stream->peek() == BEGIN_MEMBER) {
+        // advance past the .
+        stream->skip(1);
+
+        // $.[0]
+        if (stream->peek() == BEGIN_ARRAY) {
+            return parse_array(stream, path);
+        }
+        // $.a
+        else {
+            return parse_member(stream, path);
+        }
     } else {
         return false; //invalid json path
     }
@@ -1575,9 +1588,6 @@ inline bool JsonbPath::parse_array(Stream* stream, JsonbPath* path) {
 }
 
 inline bool JsonbPath::parse_member(Stream* stream, JsonbPath* path) {
-    // advance past the .
-    assert(stream->peek() == BEGIN_MEMBER);
-    stream->skip(1);
     if (stream->exhausted()) {
         return false;
     }

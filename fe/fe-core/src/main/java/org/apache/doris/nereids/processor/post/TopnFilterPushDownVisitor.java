@@ -221,7 +221,7 @@ public class TopnFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownCont
             // in ut, relation.getStats() may return null
             if (relation.getStats() == null || ConnectContext.get() == null
                     || ConnectContext.get().getSessionVariable() == null
-                    || relation.getStats().getRowCount()
+                    || Math.max(relation.getStats().getRowCount(), 1)
                             * ConnectContext.get().getSessionVariable().topnFilterRatio > ctx.topn.getLimit()
                                     + ctx.topn.getOffset()) {
                 topnFilterContext.addTopnFilter(ctx.topn, relation, ctx.probeExpr);

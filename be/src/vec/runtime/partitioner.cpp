@@ -27,7 +27,8 @@ namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
 template <typename ChannelIds>
-Status Crc32HashPartitioner<ChannelIds>::do_partitioning(RuntimeState* state, Block* block) const {
+Status Crc32HashPartitioner<ChannelIds>::do_partitioning(RuntimeState* state, Block* block,
+                                                         bool eos, bool* already_sent) const {
     size_t rows = block->rows();
 
     if (rows > 0) {
@@ -60,14 +61,16 @@ Status Crc32HashPartitioner<ChannelIds>::do_partitioning(RuntimeState* state, Bl
 template <typename ChannelIds>
 void Crc32HashPartitioner<ChannelIds>::_do_hash(const ColumnPtr& column,
                                                 uint32_t* __restrict result, int idx) const {
-    column->update_crcs_with_value(result, _partition_expr_ctxs[idx]->root()->type().type,
-                                   cast_set<uint32_t>(column->size()));
+    column->update_crcs_with_value(
+            result, _partition_expr_ctxs[idx]->root()->data_type()->get_primitive_type(),
+            cast_set<uint32_t>(column->size()));
 }
 
 template <typename ChannelIds>
 Status Crc32HashPartitioner<ChannelIds>::clone(RuntimeState* state,
                                                std::unique_ptr<PartitionerBase>& partitioner) {
     auto* new_partitioner = new Crc32HashPartitioner<ChannelIds>(cast_set<int>(_partition_count));
+
     partitioner.reset(new_partitioner);
     new_partitioner->_partition_expr_ctxs.resize(_partition_expr_ctxs.size());
     for (size_t i = 0; i < _partition_expr_ctxs.size(); i++) {

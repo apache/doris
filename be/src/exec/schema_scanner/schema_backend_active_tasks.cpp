@@ -31,6 +31,7 @@ std::vector<SchemaScanner::ColumnDesc> SchemaBackendActiveTasksScanner::_s_tbls_
         //   name,       type,          size
         {"BE_ID", TYPE_BIGINT, sizeof(int64_t), false},
         {"FE_HOST", TYPE_VARCHAR, sizeof(StringRef), false},
+        {"WORKLOAD_GROUP_ID", TYPE_BIGINT, sizeof(int64_t), false},
         {"QUERY_ID", TYPE_VARCHAR, sizeof(StringRef), false},
         {"TASK_TIME_MS", TYPE_BIGINT, sizeof(int64_t), false},
         {"TASK_CPU_TIME_MS", TYPE_BIGINT, sizeof(int64_t), false},
@@ -41,6 +42,8 @@ std::vector<SchemaScanner::ColumnDesc> SchemaBackendActiveTasksScanner::_s_tbls_
         {"SHUFFLE_SEND_BYTES", TYPE_BIGINT, sizeof(int64_t), false},
         {"SHUFFLE_SEND_ROWS", TYPE_BIGINT, sizeof(int64_t), false},
         {"QUERY_TYPE", TYPE_VARCHAR, sizeof(StringRef), false},
+        {"SPILL_WRITE_BYTES_TO_LOCAL_STORAGE", TYPE_BIGINT, sizeof(int64_t), false},
+        {"SPILL_READ_BYTES_FROM_LOCAL_STORAGE", TYPE_BIGINT, sizeof(int64_t), false},
 };
 
 SchemaBackendActiveTasksScanner::SchemaBackendActiveTasksScanner()
@@ -67,9 +70,8 @@ Status SchemaBackendActiveTasksScanner::get_next_block_internal(vectorized::Bloc
         _task_stats_block = vectorized::Block::create_unique();
 
         for (int i = 0; i < _s_tbls_columns.size(); ++i) {
-            TypeDescriptor descriptor(_s_tbls_columns[i].type);
-            auto data_type =
-                    vectorized::DataTypeFactory::instance().create_data_type(descriptor, true);
+            auto data_type = vectorized::DataTypeFactory::instance().create_data_type(
+                    _s_tbls_columns[i].type, true);
             _task_stats_block->insert(vectorized::ColumnWithTypeAndName(
                     data_type->create_column(), data_type, _s_tbls_columns[i].name));
         }

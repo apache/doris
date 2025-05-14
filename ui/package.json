@@ -46,7 +46,8 @@
     "react-router-dom": "^5.2.0",
     "react-syntax-highlighter": "^12.2.1",
     "rxjs": "^7.0.0-beta.0",
-    "sql-formatter": "^2.3.3"
+    "sql-formatter": "^2.3.3",
+    "json-bigint": "^1.0.0"
   },
   "devDependencies": {
     "@typescript-eslint/eslint-plugin": "^2.24.0",

@@ -116,7 +116,7 @@ public:
     Version version;
     int64_t tablet_id = 0;
     // slots that cast may be eliminated in storage layer
-    std::map<std::string, TypeDescriptor> target_cast_type_for_variants;
+    std::map<std::string, PrimitiveType> target_cast_type_for_variants;
     RowRanges row_ranges;
     size_t topn_limit = 0;
 };
@@ -182,7 +182,7 @@ public:
     // merge sort in priority queue
     virtual uint64_t data_id() const { return 0; }
 
-    virtual bool update_profile(RuntimeProfile* profile) { return false; }
+    virtual void update_profile(RuntimeProfile* profile) {}
     // return rows merged count by iterator
     virtual uint64_t merged_rows() const { return 0; }
 

@@ -40,9 +40,9 @@ struct FieldSchema;
 } // namespace doris
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 Status PageIndex::create_skipped_row_range(tparquet::OffsetIndex& offset_index,
-                                           int total_rows_of_group, int page_idx,
+                                           int64_t total_rows_of_group, int page_idx,
                                            RowRange* row_range) {
     const auto& page_locations = offset_index.page_locations;
     DCHECK_LT(page_idx, page_locations.size());
@@ -57,7 +57,7 @@ Status PageIndex::create_skipped_row_range(tparquet::OffsetIndex& offset_index,
 }
 
 Status PageIndex::collect_skipped_page_range(tparquet::ColumnIndex* column_index,
-                                             ColumnValueRangeType& col_val_range,
+                                             const ColumnValueRangeType& col_val_range,
                                              const FieldSchema* col_schema,
                                              std::vector<int>& skipped_ranges,
                                              const cctz::time_zone& ctz) {
@@ -65,7 +65,7 @@ Status PageIndex::collect_skipped_page_range(tparquet::ColumnIndex* column_index
     const std::vector<std::string>& encoded_max_vals = column_index->max_values;
     DCHECK_EQ(encoded_min_vals.size(), encoded_max_vals.size());
 
-    const int num_of_pages = column_index->null_pages.size();
+    const auto num_of_pages = column_index->null_pages.size();
     for (int page_id = 0; page_id < num_of_pages; page_id++) {
         bool is_all_null = column_index->null_pages[page_id];
         if (ParquetPredicate::filter_by_stats(col_val_range, col_schema, false,
@@ -124,5 +124,6 @@ Status PageIndex::parse_offset_index(const tparquet::ColumnChunk& chunk, const u
     RETURN_IF_ERROR(deserialize_thrift_msg(buff + buffer_offset, &length, true, offset_index));
     return Status::OK();
 }
+#include "common/compile_check_end.h"
 
 } // namespace doris::vectorized

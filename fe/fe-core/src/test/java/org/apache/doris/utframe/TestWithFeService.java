@@ -129,7 +129,7 @@ import java.util.UUID;
  * an example.
  * This class use {@link TestInstance} in JUnit5 to do initialization and cleanup stuff. Unlike
  * deprecated legacy combination-based implementation {@link UtFrameUtils}, we use an inherit-manner,
- * thus we could wrap common logic in this base class. It's more easy to use.
+ * thus we could wrap common logic in this base class. It's easier to use.
  * Note:
  * Unit-test method in derived classes must use the JUnit5 {@link org.junit.jupiter.api.Test}
  * annotation, rather than the old JUnit4 {@link org.junit.Test} or others.
@@ -158,12 +158,13 @@ public abstract class TestWithFeService {
         // this.enableAdvanceNextId may be reset by children classes
         Config.enable_advance_next_id = this.enableAdvanceNextId;
         FeConstants.enableInternalSchemaDb = false;
-        FeConstants.shouldCreateInternalWorkloadGroup = false;
+        FeConstants.bindWgToComputeGroup = false;
         beforeCreatingConnectContext();
         connectContext = createDefaultCtx();
         beforeCluster();
         createDorisCluster();
         runBeforeAll();
+        Env.getCurrentEnv().getWorkloadGroupMgr().tryCreateNormalWorkloadGroup("default");
     }
 
     protected void beforeCluster() {
@@ -616,6 +617,16 @@ public abstract class TestWithFeService {
         }
     }
 
+    public void executeSql(String queryStr) throws Exception {
+        connectContext.getState().reset();
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, queryStr);
+        stmtExecutor.execute();
+        if (connectContext.getState().getStateType() == QueryState.MysqlStateType.ERR
+                || connectContext.getState().getErrorCode() != null) {
+            throw new IllegalStateException(connectContext.getState().getErrorMessage());
+        }
+    }
+
     public void createDatabase(String db) throws Exception {
         String createDbStmtStr = "CREATE DATABASE " + db;
         CreateDbStmt createDbStmt = (CreateDbStmt) parseAndAnalyzeStmt(createDbStmtStr);
@@ -677,7 +688,6 @@ public abstract class TestWithFeService {
 
     public void createTable(String sql, boolean enableNerieds) throws Exception {
         try {
-            Config.enable_odbc_mysql_broker_table = true;
             createTables(enableNerieds, sql);
         } catch (Exception e) {
             e.printStackTrace();

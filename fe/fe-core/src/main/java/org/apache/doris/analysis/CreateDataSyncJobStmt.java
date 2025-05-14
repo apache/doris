@@ -101,6 +101,9 @@ public class CreateDataSyncJobStmt extends DdlStmt implements NotFallbackInParse
                 throw new AnalysisException("Table: " + tableName
                         + " don't support batch delete. Please upgrade it to support, see `help alter table`.");
             }
+            if (olapTable.isTemporary()) {
+                throw new AnalysisException("Do not support sync to temporary table");
+            }
         }
     }
 

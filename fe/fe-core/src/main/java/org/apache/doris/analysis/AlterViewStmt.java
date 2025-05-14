@@ -36,12 +36,27 @@ import java.util.List;
 @Deprecated
 public class AlterViewStmt extends BaseViewStmt implements NotFallbackInParser {
 
+    private final String comment;
+
+    public AlterViewStmt(TableName tbl, String comment) {
+        this(tbl, null, null, comment);
+    }
+
     public AlterViewStmt(TableName tbl, List<ColWithComment> cols, QueryStmt queryStmt) {
+        this(tbl, cols, queryStmt, null);
+    }
+
+    public AlterViewStmt(TableName tbl, List<ColWithComment> cols, QueryStmt queryStmt, String comment) {
         super(tbl, cols, queryStmt);
+        this.comment = comment;
     }
 
     public TableName getTbl() {
         return tableName;
+    }
+
+    public String getComment() {
+        return comment;
     }
 
     @Override

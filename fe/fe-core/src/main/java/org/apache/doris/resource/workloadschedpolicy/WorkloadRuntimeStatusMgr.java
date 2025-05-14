@@ -86,8 +86,10 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
                     auditEvent.cpuTimeMs = queryStats.cpu_ms;
                     auditEvent.shuffleSendBytes = queryStats.shuffle_send_bytes;
                     auditEvent.shuffleSendRows = queryStats.shuffle_send_rows;
+                    auditEvent.spillWriteBytesToLocalStorage = queryStats.spill_write_bytes_to_local_storage;
+                    auditEvent.spillReadBytesFromLocalStorage = queryStats.spill_read_bytes_from_local_storage;
                 }
-                boolean ret = Env.getCurrentAuditEventProcessor().handleAuditEvent(auditEvent, true);
+                boolean ret = Env.getCurrentAuditEventProcessor().handleAuditEvent(auditEvent);
                 if (!ret) {
                     missedLogCount++;
                 } else {
@@ -109,20 +111,26 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
     public void submitFinishQueryToAudit(AuditEvent event) {
         queryAuditEventLogWriteLock();
         try {
-            if (queryAuditEventList.size() >= Config.audit_event_log_queue_size) {
-                LOG.warn("audit log event queue size {} is full, this may cause audit log missed."
-                                + "you can check whether qps is too high or reset audit_event_log_queue_size",
-                        queryAuditEventList.size());
-                return;
+            if (queryAuditEventList.size() > Config.audit_event_log_queue_size) {
+                // if queryAuditEventList is full, we don't put the event to queryAuditEventList.
+                // so that the statistic info of this audit event will be ignored, and event will be logged directly.
+                LOG.warn("audit log event queue size {} is full, this may cause audit log missing statistics."
+                                + "you can check whether qps is too high or "
+                                + "set audit_event_log_queue_size to a larger value in fe.conf. query id: {}",
+                        queryAuditEventList.size(), event.queryId);
+                Env.getCurrentAuditEventProcessor().handleAuditEvent(event);
+            } else {
+                // put the event to queryAuditEventList and let the worker thread to handle it.
+                // the worker thread will try best to wait for the statistic info before logging this event.
+                event.pushToAuditLogQueueTime = System.currentTimeMillis();
+                queryAuditEventList.add(event);
             }
-            event.pushToAuditLogQueueTime = System.currentTimeMillis();
-            queryAuditEventList.add(event);
         } finally {
             queryAuditEventLogWriteUnlock();
         }
     }
 
-    public List<AuditEvent> getQueryNeedAudit() {
+    private List<AuditEvent> getQueryNeedAudit() {
         List<AuditEvent> ret = new ArrayList<>();
         long currentTime = System.currentTimeMillis();
         queryAuditEventLogWriteLock();
@@ -226,6 +234,8 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
         if (dst.max_peak_memory_bytes < src.max_peak_memory_bytes) {
             dst.max_peak_memory_bytes = src.max_peak_memory_bytes;
         }
+        dst.spill_write_bytes_to_local_storage += src.spill_write_bytes_to_local_storage;
+        dst.spill_read_bytes_from_local_storage += src.spill_read_bytes_from_local_storage;
     }
 
     private void queryAuditEventLogWriteLock() {

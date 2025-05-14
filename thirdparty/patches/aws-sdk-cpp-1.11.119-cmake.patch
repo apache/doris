@@ -1,0 +1,11 @@
+--- a/crt/aws-crt-cpp/crt/aws-c-cal/CMakeLists.txt	2025-01-06 21:23:51.057566544 +0800
++++ b/crt/aws-crt-cpp/crt/aws-c-cal/CMakeLists.txt	2025-01-06 16:50:56.480567259 +0800
+@@ -8,7 +8,7 @@
+     cmake_policy(SET CMP0069 NEW) # Enable LTO/IPO if available in the compiler, see AwsCFlags
+ endif()
+ 
+-set(CMAKE_FIND_PACKAGE_PREFER_CONFIG TRUE)
++# set(CMAKE_FIND_PACKAGE_PREFER_CONFIG TRUE)
+ 
+ option(BYO_CRYPTO "Set this if you want to provide your own cryptography implementation. This will cause the defaults to not be compiled." OFF)
+ option(USE_OPENSSL "Set this if you want to use your system's OpenSSL 1.0.2/1.1.1 compatible libcrypto" OFF)

@@ -62,6 +62,9 @@ using namespace ErrorCode;
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(routine_load_task_count, MetricUnit::NOUNIT);
 
+bvar::LatencyRecorder g_routine_load_commit_and_publish_latency_ms("routine_load",
+                                                                   "commit_and_publish_ms");
+
 RoutineLoadTaskExecutor::RoutineLoadTaskExecutor(ExecEnv* exec_env) : _exec_env(exec_env) {
     REGISTER_HOOK_METRIC(routine_load_task_count, [this]() {
         // std::lock_guard<std::mutex> l(_lock);
@@ -396,7 +399,8 @@ void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,
         // only for normal load, single-stream-multi-table load will be planned during consuming
 #ifndef BE_TEST
         // execute plan fragment, async
-        HANDLE_ERROR(_exec_env->stream_load_executor()->execute_plan_fragment(ctx),
+        TPipelineFragmentParamsList mocked;
+        HANDLE_ERROR(_exec_env->stream_load_executor()->execute_plan_fragment(ctx, mocked),
                      "failed to execute plan fragment");
 #else
         // only for test
@@ -440,7 +444,10 @@ void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,
     consumer_pool->return_consumers(consumer_grp.get());
 
     // commit txn
+    int64_t commit_and_publish_start_time = MonotonicNanos();
     HANDLE_ERROR(_exec_env->stream_load_executor()->commit_txn(ctx.get()), "commit failed");
+    g_routine_load_commit_and_publish_latency_ms
+            << (MonotonicNanos() - commit_and_publish_start_time) / 1000000;
     // commit kafka offset
     switch (ctx->load_src_type) {
     case TLoadSourceType::KAFKA: {

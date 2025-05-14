@@ -45,6 +45,8 @@ public:
 
     std::string metric_name() { return _metric_name; }
 
+    friend class DummyWorkloadGroupTest;
+
 private:
     std::mutex _mutex;
     std::condition_variable wait_condition;

@@ -82,7 +82,6 @@ public:
     }
 
     std::string get_name() const override;
-    bool is_column_struct() const override { return true; }
     MutableColumnPtr clone_empty() const override;
     MutableColumnPtr clone_resized(size_t size) const override;
     size_t size() const override { return columns.at(0)->size(); }
@@ -101,16 +100,6 @@ public:
     Field operator[](size_t n) const override;
     void get(size_t n, Field& res) const override;
 
-    [[noreturn]] StringRef get_data_at(size_t n) const override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "Method get_data_at is not supported for " + get_name());
-        __builtin_unreachable();
-    }
-    [[noreturn]] void insert_data(const char* pos, size_t length) override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "Method insert_data is not supported for " + get_name());
-        __builtin_unreachable();
-    }
     void insert(const Field& x) override;
     void insert_from(const IColumn& src_, size_t n) override;
     void insert_default() override;
@@ -157,6 +146,7 @@ public:
     void resize(size_t n) override;
     size_t byte_size() const override;
     size_t allocated_bytes() const override;
+    bool has_enough_capacity(const IColumn& src) const override;
     void for_each_subcolumn(ColumnCallback callback) override;
     bool structure_equals(const IColumn& rhs) const override;
 
@@ -182,6 +172,12 @@ public:
             col = col->convert_column_if_overflow();
         }
         return IColumn::convert_column_if_overflow();
+    }
+
+    void erase(size_t start, size_t length) override {
+        for (auto& col : columns) {
+            col->erase(start, length);
+        }
     }
 };
 

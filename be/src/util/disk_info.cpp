@@ -18,6 +18,7 @@
 #include "util/disk_info.h"
 
 // IWYU pragma: no_include <bthread/errno.h>
+#include <absl/strings/str_split.h>
 #include <errno.h> // IWYU pragma: keep
 #include <stdio.h>
 #include <stdlib.h>
@@ -35,7 +36,6 @@
 #include <memory>
 #include <utility>
 
-#include "gutil/strings/split.h"
 #include "io/fs/local_file_system.h"
 
 namespace doris {
@@ -61,7 +61,7 @@ void DiskInfo::get_device_names() {
         getline(partitions, line);
         boost::trim(line);
 
-        std::vector<std::string> fields = strings::Split(line, " ", strings::SkipWhitespace());
+        std::vector<std::string> fields = absl::StrSplit(line, " ", absl::SkipWhitespace());
 
         if (fields.size() != 4) {
             continue;

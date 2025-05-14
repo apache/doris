@@ -39,6 +39,7 @@ import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.TreeSet;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -114,10 +115,10 @@ public class TableBinlog {
         }
     }
 
-    public Pair<TStatus, TBinlog> getBinlog(long prevCommitSeq) {
+    public Pair<TStatus, List<TBinlog>> getBinlog(long prevCommitSeq, long numAcquired) {
         lock.readLock().lock();
         try {
-            return BinlogUtils.getBinlog(binlogs, prevCommitSeq);
+            return BinlogUtils.getBinlog(binlogs, prevCommitSeq, numAcquired);
         } finally {
             lock.readLock().unlock();
         }
@@ -171,6 +172,15 @@ public class TableBinlog {
         return Pair.of(new TStatus(TStatusCode.OK), lockCommitSeq);
     }
 
+    public Optional<Long> getMinLockedCommitSeq() {
+        lock.readLock().lock();
+        try {
+            return lockedBinlogs.values().stream().min(Long::compareTo);
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
     private Pair<TBinlog, Long> getLastUpsertAndLargestCommitSeq(BinlogComparator checker) {
         if (binlogs.size() <= 1) {
             return null;
@@ -199,14 +209,16 @@ public class TableBinlog {
             return null;
         }
 
-        long expiredCommitSeq = lastExpiredBinlog.getCommitSeq();
+        final long expiredCommitSeq = lastExpiredBinlog.getCommitSeq();
         dummyBinlog.setCommitSeq(expiredCommitSeq);
+        dummyBinlog.setTimestamp(lastExpiredBinlog.getTimestamp());
 
         Iterator<Pair<Long, Long>> timeIterator = timestamps.iterator();
         while (timeIterator.hasNext() && timeIterator.next().first <= expiredCommitSeq) {
             timeIterator.remove();
         }
 
+        lockedBinlogs.entrySet().removeIf(ent -> ent.getValue() <= expiredCommitSeq);
         return Pair.of(tombstoneUpsert, expiredCommitSeq);
     }
 
@@ -278,6 +290,13 @@ public class TableBinlog {
                         break;
                     }
                     expiredCommitSeq = entry.first;
+                }
+
+                // find the min locked binlog commit seq, if not exists, use the last binlog commit seq.
+                Optional<Long> minLockedCommitSeq = lockedBinlogs.values().stream().min(Long::compareTo);
+                if (minLockedCommitSeq.isPresent() && expiredCommitSeq + 1L < minLockedCommitSeq.get()) {
+                    // Speed up the gc progress by the min locked commit seq.
+                    expiredCommitSeq = minLockedCommitSeq.get() - 1L;
                 }
             }
 

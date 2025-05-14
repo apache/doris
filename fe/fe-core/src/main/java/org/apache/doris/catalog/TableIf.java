@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.alter.AlterCancelException;
+import org.apache.doris.analysis.TableValuedFunctionRef;
 import org.apache.doris.catalog.constraint.Constraint;
 import org.apache.doris.catalog.constraint.ForeignKeyConstraint;
 import org.apache.doris.catalog.constraint.PrimaryKeyConstraint;
@@ -26,7 +27,9 @@ import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.datasource.systable.SysTable;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 import org.apache.doris.persist.AlterConstraintLog;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
@@ -139,17 +142,6 @@ public interface TableIf {
     void setNewFullSchema(List<Column> newSchema);
 
     Column getColumn(String name);
-
-    default int getBaseColumnIdxByName(String colName) {
-        int i = 0;
-        for (Column col : getBaseSchema()) {
-            if (col.getName().equalsIgnoreCase(colName)) {
-                return i;
-            }
-            ++i;
-        }
-        return -1;
-    }
 
     String getMysqlType();
 
@@ -387,7 +379,7 @@ public interface TableIf {
         @Deprecated ICEBERG, @Deprecated HUDI, JDBC,
         TABLE_VALUED_FUNCTION, HMS_EXTERNAL_TABLE, ES_EXTERNAL_TABLE, MATERIALIZED_VIEW, JDBC_EXTERNAL_TABLE,
         ICEBERG_EXTERNAL_TABLE, TEST_EXTERNAL_TABLE, PAIMON_EXTERNAL_TABLE, MAX_COMPUTE_EXTERNAL_TABLE,
-        HUDI_EXTERNAL_TABLE, TRINO_CONNECTOR_EXTERNAL_TABLE, LAKESOUl_EXTERNAL_TABLE;
+        HUDI_EXTERNAL_TABLE, TRINO_CONNECTOR_EXTERNAL_TABLE, LAKESOUl_EXTERNAL_TABLE, DICTIONARY;
 
         public String toEngineName() {
             switch (this) {
@@ -424,6 +416,8 @@ public interface TableIf {
                 case ICEBERG:
                 case ICEBERG_EXTERNAL_TABLE:
                     return "iceberg";
+                case DICTIONARY:
+                    return "dictionary";
                 default:
                     return null;
             }
@@ -461,6 +455,7 @@ public interface TableIf {
                 case ICEBERG_EXTERNAL_TABLE:
                 case PAIMON_EXTERNAL_TABLE:
                 case MATERIALIZED_VIEW:
+                case TRINO_CONNECTOR_EXTERNAL_TABLE:
                     return "BASE TABLE";
                 default:
                     return null;
@@ -520,4 +515,50 @@ public interface TableIf {
     boolean autoAnalyzeEnabled();
 
     TableIndexes getTableIndexes();
+
+    default boolean isTemporary() {
+        return false;
+    }
+
+    default List<SysTable> getSupportedSysTables() {
+        return Lists.newArrayList();
+    }
+
+    /**
+     * Get TableValuedFunction by tableNameWithSysTableName
+     *
+     * @param ctlName
+     * @param dbName
+     * @param tableNameWithSysTableName: eg: table$partitions
+     * @return
+     */
+    default Optional<TableValuedFunction> getSysTableFunction(
+            String ctlName, String dbName, String tableNameWithSysTableName) {
+        for (SysTable sysTable : getSupportedSysTables()) {
+            if (sysTable.containsMetaTable(tableNameWithSysTableName)) {
+                return Optional.of(sysTable.createFunction(ctlName, dbName,
+                        tableNameWithSysTableName));
+            }
+        }
+        return Optional.empty();
+    }
+
+    /**
+     * Get TableValuedFunctionRef by tableNameWithSysTableName
+     *
+     * @param ctlName
+     * @param dbName
+     * @param tableNameWithSysTableName: eg: table$partitions
+     * @return
+     */
+    default Optional<TableValuedFunctionRef> getSysTableFunctionRef(
+            String ctlName, String dbName, String tableNameWithSysTableName) {
+        for (SysTable sysTable : getSupportedSysTables()) {
+            if (sysTable.containsMetaTable(tableNameWithSysTableName)) {
+                return Optional.of(sysTable.createFunctionRef(ctlName, dbName,
+                        tableNameWithSysTableName));
+            }
+        }
+        return Optional.empty();
+    }
 }

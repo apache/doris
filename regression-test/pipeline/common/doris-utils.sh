@@ -206,14 +206,26 @@ function check_doris_ready() {
 
 function stop_doris() {
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
-    if [[ -f "${DORIS_HOME}"/ms/bin/stop.sh ]]; then bash "${DORIS_HOME}"/ms/bin/stop.sh; fi
-    if [[ -f "${DORIS_HOME}"/recycler/bin/stop.sh ]]; then bash "${DORIS_HOME}"/recycler/bin/stop.sh; fi
-    if "${DORIS_HOME}"/be/bin/stop_be.sh && "${DORIS_HOME}"/fe/bin/stop_fe.sh; then
+    if "${DORIS_HOME}"/fe/bin/stop_fe.sh && "${DORIS_HOME}"/be/bin/stop_be.sh; then
         echo "INFO: normally stoped doris"
     else
         pgrep -fi doris | xargs kill -9 &>/dev/null
         echo "WARNING: force stoped doris"
     fi
+    if [[ -f "${DORIS_HOME}"/ms/bin/stop.sh ]]; then bash "${DORIS_HOME}"/ms/bin/stop.sh; fi
+    if [[ -f "${DORIS_HOME}"/recycler/bin/stop.sh ]]; then bash "${DORIS_HOME}"/recycler/bin/stop.sh; fi
+}
+
+function stop_doris_grace() {
+    if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
+    if "${DORIS_HOME}"/fe/bin/stop_fe.sh --grace && "${DORIS_HOME}"/be/bin/stop_be.sh --grace; then
+        echo "INFO: normally stoped doris"
+    else
+        pgrep -fi doris | xargs kill -9 &>/dev/null
+        echo "WARNING: force stoped doris"
+    fi
+    if [[ -f "${DORIS_HOME}"/ms/bin/stop.sh ]]; then bash "${DORIS_HOME}"/ms/bin/stop.sh --grace; fi
+    if [[ -f "${DORIS_HOME}"/recycler/bin/stop.sh ]]; then bash "${DORIS_HOME}"/recycler/bin/stop.sh --grace; fi
 }
 
 function clean_fdb() {
@@ -460,6 +472,16 @@ show_session_variables() {
     fi
 }
 
+create_normal_workload_group() {
+    if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
+    query_port=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf/fe.conf query_port)
+    if mysql -h127.0.0.1 -P"${query_port}" -uroot -e"create workload group normal for cluster_name0 properties('cpu_share'='1024');"; then
+        return
+    else
+        return 1
+    fi
+}
+
 set_session_variable() {
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
     k="$1"
@@ -538,18 +560,22 @@ _monitor_regression_log() {
     echo "INFO: start monitoring the log files in ${LOG_DIR} for the keyword '${KEYWORD}'"
 
     local start_row=1
+    local filepath=""
+    set +x
     # Monitor the log directory for new files and changes, only one file
     # shellcheck disable=SC2034
     inotifywait -m -e modify "${LOG_DIR}" | while read -r directory events filename; do
-        total_rows=$(wc -l "${directory}${filename}" | awk '{print $1}')
-        if [[ ${start_row} -ge ${total_rows} ]]; then
+        filepath="${directory}${filename}"
+        if [[ ! -f "${filepath}" ]]; then continue; fi
+        total_rows=$(wc -l "${filepath}" | awk '{print $1}')
+        if [[ -n ${total_rows} ]] && [[ ${start_row} -ge ${total_rows} ]]; then
             start_row=${total_rows}
         fi
         # shellcheck disable=SC2250
-        if sed -n "${start_row},\$p" "${directory}${filename}" | grep -a -q "${KEYWORD}"; then
-            matched=$(grep -a -n "${KEYWORD}" "${directory}${filename}")
+        if sed -n "${start_row},\$p" "${filepath}" | grep -a -q "${KEYWORD}"; then
+            matched=$(grep -a -n "${KEYWORD}" "${filepath}")
             start_row=$(echo "${matched}" | tail -n1 | cut -d: -f1)
-            echo "WARNING: find '${matched}' in ${directory}${filename}, run 'show processlist;' to check the connections" | tee -a "${DORIS_HOME}"/fe/log/monitor_regression_log.out
+            echo "WARNING: find '${matched}' in ${filepath}, run 'show processlist;' to check the connections" | tee -a "${DORIS_HOME}"/fe/log/monitor_regression_log.out
             mysql -h127.0.0.1 -P"${query_port}" -uroot -e'show processlist;' | tee -a "${DORIS_HOME}"/fe/log/monitor_regression_log.out
         fi
         start_row=$((start_row + 1))

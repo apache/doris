@@ -35,15 +35,12 @@ namespace doris {
 using namespace ErrorCode;
 
 bvar::Adder<uint64_t> base_output_size("base_compaction", "output_size");
+bvar::LatencyRecorder g_base_compaction_hold_delete_bitmap_lock_time_ms(
+        "base_compaction_hold_delete_bitmap_lock_time_ms");
 
 CloudBaseCompaction::CloudBaseCompaction(CloudStorageEngine& engine, CloudTabletSPtr tablet)
         : CloudCompactionMixin(engine, tablet,
-                               "BaseCompaction:" + std::to_string(tablet->tablet_id())) {
-    auto uuid = UUIDGenerator::instance()->next_uuid();
-    std::stringstream ss;
-    ss << uuid;
-    _uuid = ss.str();
-}
+                               "BaseCompaction:" + std::to_string(tablet->tablet_id())) {}
 
 CloudBaseCompaction::~CloudBaseCompaction() = default;
 
@@ -69,6 +66,26 @@ Status CloudBaseCompaction::prepare_compact() {
 
     RETURN_IF_ERROR(pick_rowsets_to_compact());
 
+    for (auto& rs : _input_rowsets) {
+        _input_row_num += rs->num_rows();
+        _input_segments += rs->num_segments();
+        _input_rowsets_data_size += rs->data_disk_size();
+        _input_rowsets_index_size += rs->index_disk_size();
+        _input_rowsets_total_size += rs->total_disk_size();
+    }
+    LOG_INFO("start CloudBaseCompaction, tablet_id={}, range=[{}-{}]", _tablet->tablet_id(),
+             _input_rowsets.front()->start_version(), _input_rowsets.back()->end_version())
+            .tag("job_id", _uuid)
+            .tag("input_rowsets", _input_rowsets.size())
+            .tag("input_rows", _input_row_num)
+            .tag("input_segments", _input_segments)
+            .tag("input_rowsets_data_size", _input_rowsets_data_size)
+            .tag("input_rowsets_index_size", _input_rowsets_index_size)
+            .tag("input_rowsets_total_size", _input_rowsets_total_size);
+    return Status::OK();
+}
+
+Status CloudBaseCompaction::request_global_lock() {
     // prepare compaction job
     cloud::TabletJobInfoPB job;
     auto idx = job.mutable_idx();
@@ -118,25 +135,7 @@ Status CloudBaseCompaction::prepare_compact() {
             LOG(WARNING) << msg;
             return Status::InternalError(msg);
         }
-        return st;
     }
-
-    for (auto& rs : _input_rowsets) {
-        _input_row_num += rs->num_rows();
-        _input_segments += rs->num_segments();
-        _input_rowsets_data_size += rs->data_disk_size();
-        _input_rowsets_index_size += rs->index_disk_size();
-        _input_rowsets_total_size += rs->total_disk_size();
-    }
-    LOG_INFO("start CloudBaseCompaction, tablet_id={}, range=[{}-{}]", _tablet->tablet_id(),
-             _input_rowsets.front()->start_version(), _input_rowsets.back()->end_version())
-            .tag("job_id", _uuid)
-            .tag("input_rowsets", _input_rowsets.size())
-            .tag("input_rows", _input_row_num)
-            .tag("input_segments", _input_segments)
-            .tag("input_rowsets_data_size", _input_rowsets_data_size)
-            .tag("input_rowsets_index_size", _input_rowsets_index_size)
-            .tag("input_rowsets_total_size", _input_rowsets_total_size);
     return st;
 }
 
@@ -328,14 +327,14 @@ Status CloudBaseCompaction::modify_rowsets() {
     compaction_job->set_segment_size_output_rowsets(_output_rowset->data_disk_size());
 
     DeleteBitmapPtr output_rowset_delete_bitmap = nullptr;
+    int64_t get_delete_bitmap_lock_start_time = 0;
     if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
         _tablet->enable_unique_key_merge_on_write()) {
-        int64_t initiator = HashUtil::hash64(_uuid.data(), _uuid.size(), 0) &
-                            std::numeric_limits<int64_t>::max();
+        int64_t initiator = this->initiator();
         RETURN_IF_ERROR(cloud_tablet()->calc_delete_bitmap_for_compaction(
                 _input_rowsets, _output_rowset, *_rowid_conversion, compaction_type(),
                 _stats.merged_rows, _stats.filtered_rows, initiator, output_rowset_delete_bitmap,
-                _allow_delete_in_cumu_compaction));
+                _allow_delete_in_cumu_compaction, get_delete_bitmap_lock_start_time));
         LOG_INFO("update delete bitmap in CloudBaseCompaction, tablet_id={}, range=[{}-{}]",
                  _tablet->tablet_id(), _input_rowsets.front()->start_version(),
                  _input_rowsets.back()->end_version())
@@ -350,6 +349,12 @@ Status CloudBaseCompaction::modify_rowsets() {
 
     cloud::FinishTabletJobResponse resp;
     auto st = _engine.meta_mgr().commit_tablet_job(job, &resp);
+    if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
+        _tablet->enable_unique_key_merge_on_write()) {
+        int64_t hold_delete_bitmap_lock_time_ms =
+                (MonotonicMicros() - get_delete_bitmap_lock_start_time) / 1000;
+        g_base_compaction_hold_delete_bitmap_lock_time_ms << hold_delete_bitmap_lock_time_ms;
+    }
     if (!st.ok()) {
         if (resp.status().code() == cloud::TABLET_NOT_FOUND) {
             cloud_tablet()->clear_cache();
@@ -403,8 +408,8 @@ Status CloudBaseCompaction::modify_rowsets() {
     return Status::OK();
 }
 
-void CloudBaseCompaction::garbage_collection() {
-    CloudCompactionMixin::garbage_collection();
+Status CloudBaseCompaction::garbage_collection() {
+    RETURN_IF_ERROR(CloudCompactionMixin::garbage_collection());
     cloud::TabletJobInfoPB job;
     auto idx = job.mutable_idx();
     idx->set_tablet_id(_tablet->tablet_id());
@@ -418,9 +423,7 @@ void CloudBaseCompaction::garbage_collection() {
     compaction_job->set_type(cloud::TabletCompactionJobPB::BASE);
     if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
         _tablet->enable_unique_key_merge_on_write()) {
-        int64_t initiator = HashUtil::hash64(_uuid.data(), _uuid.size(), 0) &
-                            std::numeric_limits<int64_t>::max();
-        compaction_job->set_delete_bitmap_lock_initiator(initiator);
+        compaction_job->set_delete_bitmap_lock_initiator(this->initiator());
     }
     auto st = _engine.meta_mgr().abort_tablet_job(job);
     if (!st.ok()) {
@@ -429,6 +432,7 @@ void CloudBaseCompaction::garbage_collection() {
                 .tag("tablet_id", _tablet->tablet_id())
                 .error(st);
     }
+    return st;
 }
 
 void CloudBaseCompaction::do_lease() {

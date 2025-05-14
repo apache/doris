@@ -410,7 +410,6 @@ Status HdfsFileWriter::_append(std::string_view content) {
         if (_batch_buffer.full()) {
             auto error_msg = fmt::format("invalid batch buffer status, capacity {}, size {}",
                                          _batch_buffer.capacity(), _batch_buffer.size());
-            DCHECK(false) << error_msg;
             return Status::InternalError(error_msg);
         }
         size_t append_size = _batch_buffer.append(content);

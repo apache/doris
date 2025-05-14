@@ -376,6 +376,7 @@ public class ColumnDef {
             throw new AnalysisException("No column name or column type in column definition.");
         }
         FeNameFormat.checkColumnName(name);
+        FeNameFormat.checkColumnCommentLength(comment);
 
         typeDef.analyze(null);
 

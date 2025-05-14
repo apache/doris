@@ -25,11 +25,9 @@
 #include <algorithm>
 #include <ranges>
 #include <utility>
-#include <vector>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
-#include "gutil/integral_types.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
@@ -168,6 +166,10 @@ void null_execute_impl(ColumnRawPtrs arguments, ColumnWithTypeAndName& result_in
 
 } // namespace
 
+bool is_native_number(PrimitiveType type) {
+    return (is_int_or_bool(type) && type != TYPE_LARGEINT) || is_float_or_double(type);
+}
+
 template <typename Impl, typename Name>
 DataTypePtr FunctionAnyArityLogical<Impl, Name>::get_return_type_impl(
         const DataTypes& arguments) const {
@@ -192,8 +194,9 @@ DataTypePtr FunctionAnyArityLogical<Impl, Name>::get_return_type_impl(
             }
         }
 
-        if (!(is_native_number(arg_type) || (Impl::special_implementation_for_nulls() &&
-                                             is_native_number(remove_nullable(arg_type))))) {
+        auto arg_primitive_type = arg_type->get_primitive_type();
+        if (!(is_native_number(arg_primitive_type) ||
+              (Impl::special_implementation_for_nulls() && is_native_number(arg_primitive_type)))) {
             throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
                                    "Illegal type ({}) of {} argument of function {}",
                                    arg_type->get_name(), i + 1, get_name());
@@ -241,7 +244,7 @@ struct UnaryOperationImpl {
 template <template <typename> class Impl, typename Name>
 DataTypePtr FunctionUnaryLogical<Impl, Name>::get_return_type_impl(
         const DataTypes& arguments) const {
-    if (!is_native_number(arguments[0])) {
+    if (!is_native_number(arguments[0]->get_primitive_type())) {
         throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
                                "Illegal type ({}) of argument of function {}",
                                arguments[0]->get_name(), get_name());

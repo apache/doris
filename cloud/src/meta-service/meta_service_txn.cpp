@@ -949,7 +949,7 @@ void process_mow_when_commit_txn(
         // by another transaction and successfully committed.
         if (!lock_values[i].has_value()) {
             ss << "get delete bitmap update lock info, lock is expired"
-               << " table_id=" << table_id << " key=" << hex(lock_keys[i]);
+               << " table_id=" << table_id << " key=" << hex(lock_keys[i]) << " txn_id=" << txn_id;
             code = MetaServiceCode::LOCK_EXPIRED;
             msg = ss.str();
             LOG(WARNING) << msg << " txn_id=" << txn_id;
@@ -964,13 +964,14 @@ void process_mow_when_commit_txn(
             return;
         }
         if (lock_info.lock_id() != request->txn_id()) {
-            msg = "lock is expired";
+            ss << "lock is expired, locked by lock_id=" << lock_info.lock_id();
+            msg = ss.str();
             code = MetaServiceCode::LOCK_EXPIRED;
             return;
         }
         txn->remove(lock_keys[i]);
         LOG(INFO) << "xxx remove delete bitmap lock, lock_key=" << hex(lock_keys[i])
-                  << " txn_id=" << txn_id;
+                  << " table_id=" << table_id << " txn_id=" << txn_id;
 
         for (auto tablet_id : table_id_tablet_ids[table_id]) {
             std::string pending_key = meta_pending_delete_bitmap_key({instance_id, tablet_id});
@@ -1390,6 +1391,9 @@ void commit_txn_immediately(
         // Finally we are done...
         err = txn->commit();
         if (err != TxnErrorCode::TXN_OK) {
+            if (err == TxnErrorCode::TXN_CONFLICT) {
+                g_bvar_delete_bitmap_lock_txn_remove_conflict_by_load_counter << 1;
+            }
             code = cast_as<ErrCategory::COMMIT>(err);
             ss << "failed to commit kv txn, txn_id=" << txn_id << " err=" << err;
             msg = ss.str();
@@ -1714,7 +1718,7 @@ void commit_txn_eventually(
         DCHECK(txn_info.txn_id() == txn_id);
         if (txn_info.status() == TxnStatusPB::TXN_STATUS_ABORTED) {
             code = MetaServiceCode::TXN_ALREADY_ABORTED;
-            ss << "transaction is already aborted: db_id=" << db_id << " txn_id=" << txn_id;
+            ss << "transaction [" << txn_id << "] is already aborted, db_id=" << db_id;
             msg = ss.str();
             LOG(WARNING) << msg;
             return;
@@ -1854,6 +1858,9 @@ void commit_txn_eventually(
 
         err = txn->commit();
         if (err != TxnErrorCode::TXN_OK) {
+            if (err == TxnErrorCode::TXN_CONFLICT) {
+                g_bvar_delete_bitmap_lock_txn_remove_conflict_by_load_counter << 1;
+            }
             code = cast_as<ErrCategory::COMMIT>(err);
             ss << "failed to commit kv txn, txn_id=" << txn_id << " err=" << err;
             msg = ss.str();
@@ -2449,6 +2456,9 @@ void commit_txn_with_sub_txn(const CommitTxnRequest* request, CommitTxnResponse*
     // Finally we are done...
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
+        if (err == TxnErrorCode::TXN_CONFLICT) {
+            g_bvar_delete_bitmap_lock_txn_remove_conflict_by_load_counter << 1;
+        }
         if (err == TxnErrorCode::TXN_VALUE_TOO_LARGE || err == TxnErrorCode::TXN_BYTES_TOO_LARGE) {
             size_t max_size = 0, max_num_segments = 0,
                    min_num_segments = std::numeric_limits<size_t>::max(), avg_num_segments = 0;
@@ -2513,6 +2523,17 @@ void commit_txn_with_sub_txn(const CommitTxnRequest* request, CommitTxnResponse*
     response->mutable_txn_info()->CopyFrom(txn_info);
 } // end commit_txn_with_sub_txn
 
+static bool fuzzy_random() {
+    return std::chrono::steady_clock::now().time_since_epoch().count() & 0x01;
+}
+
+static bool force_txn_lazy_commit() {
+    if (config::enable_cloud_txn_lazy_commit_fuzzy_test) [[unlikely]] {
+        return fuzzy_random();
+    }
+    return false;
+}
+
 void MetaServiceImpl::commit_txn(::google::protobuf::RpcController* controller,
                                  const CommitTxnRequest* request, CommitTxnResponse* response,
                                  ::google::protobuf::Closure* done) {
@@ -2548,22 +2569,41 @@ void MetaServiceImpl::commit_txn(::google::protobuf::RpcController* controller,
     }
 
     TxnErrorCode err = TxnErrorCode::TXN_OK;
-    bool allow_txn_lazy_commit =
+    bool enable_txn_lazy_commit_feature =
             (request->has_is_2pc() && !request->is_2pc() && request->has_enable_txn_lazy_commit() &&
              request->enable_txn_lazy_commit() && config::enable_cloud_txn_lazy_commit);
 
-    if (!allow_txn_lazy_commit ||
-        (tmp_rowsets_meta.size() <= config::txn_lazy_commit_rowsets_thresold)) {
+    while ((!enable_txn_lazy_commit_feature ||
+            (tmp_rowsets_meta.size() <= config::txn_lazy_commit_rowsets_thresold))) {
+        if (force_txn_lazy_commit()) {
+            LOG(INFO) << "fuzzy test force_txn_lazy_commit, txn_id=" << txn_id;
+            break;
+        }
+
         commit_txn_immediately(request, response, txn_kv_, txn_lazy_committer_, code, msg,
                                instance_id, db_id, tmp_rowsets_meta, err);
-        if ((MetaServiceCode::OK == code) || (TxnErrorCode::TXN_BYTES_TOO_LARGE != err) ||
-            !allow_txn_lazy_commit) {
+
+        if (MetaServiceCode::OK == code) {
             return;
         }
+
+        if (TxnErrorCode::TXN_BYTES_TOO_LARGE != err) {
+            return;
+        }
+
+        if (!enable_txn_lazy_commit_feature) {
+            if (err == TxnErrorCode::TXN_BYTES_TOO_LARGE) {
+                msg += ", likely due to committing too many tablets. "
+                       "Please reduce the number of partitions involved in the load.";
+            }
+            return;
+        }
+
         DCHECK(code != MetaServiceCode::OK);
-        DCHECK(allow_txn_lazy_commit);
+        DCHECK(enable_txn_lazy_commit_feature);
         DCHECK(err == TxnErrorCode::TXN_BYTES_TOO_LARGE);
         LOG(INFO) << "txn_id=" << txn_id << " fallthrough commit_txn_eventually";
+        break;
     }
 
     LOG(INFO) << "txn_id=" << txn_id << " commit_txn_eventually"
@@ -3126,6 +3166,7 @@ void MetaServiceImpl::begin_sub_txn(::google::protobuf::RpcController* controlle
     const std::string index_key = txn_index_key({instance_id, sub_txn_id});
     std::string index_val;
     TxnIndexPB index_pb;
+    index_pb.mutable_tablet_index()->set_db_id(db_id);
     if (!index_pb.SerializeToString(&index_val)) {
         code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
         ss << "failed to serialize txn_index_pb "

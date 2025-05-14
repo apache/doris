@@ -477,7 +477,7 @@ CREATE TABLE IF NOT EXISTS store (
     s_zip char(10),
     s_country varchar(20),
     s_gmt_offset decimal(5,2),
-    s_tax_precentage decimal(5,2)
+    s_tax_percentage decimal(5,2)
 )
 DISTRIBUTED BY RANDOM
 PROPERTIES (

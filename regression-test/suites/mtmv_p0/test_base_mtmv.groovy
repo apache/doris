@@ -48,8 +48,11 @@ suite("test_base_mtmv","mtmv") {
     sql """
         INSERT INTO ${tableName} VALUES("2022-10-26",1,"clz"),("2022-10-28",2,"zhangsang"),("2022-10-29",3,"lisi");
     """
-
+    sql """
+        INSERT INTO ${newTableName} VALUES("2022-10-27",1,"clz"),("2022-10-28",2,"zhangsang"),("2022-10-29",3,"lisi");
+    """
     sql """drop materialized view if exists ${mvName};"""
+    String querySql = "SELECT event_day,id,username FROM ${tableName}";
 
     sql """
         CREATE MATERIALIZED VIEW ${mvName}
@@ -57,7 +60,7 @@ suite("test_base_mtmv","mtmv") {
         DISTRIBUTED BY RANDOM BUCKETS 2
         PROPERTIES ('replication_num' = '1') 
         AS 
-        SELECT event_day,id,username FROM ${tableName};
+        ${querySql};
     """
     def jobName = getJobName("regression_test_mtmv_p0", mvName);
     order_qt_init "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
@@ -67,6 +70,8 @@ suite("test_base_mtmv","mtmv") {
     waitingMTMVTaskFinished(jobName)
     order_qt_success "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
 
+    mv_rewrite_success_without_check_chosen("""${querySql}""", "${mvName}")
+
     // add column
     sql """
         alter table ${tableName} add COLUMN new_col INT AFTER username;
@@ -74,6 +79,7 @@ suite("test_base_mtmv","mtmv") {
     assertEquals("FINISHED", getAlterColumnFinalState("${tableName}"))
     order_qt_add_column "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
 
+    mv_rewrite_success_without_check_chosen("""${querySql}""", "${mvName}")
     // rename column
     sql """
         alter table ${tableName} rename COLUMN new_col new_col_1;
@@ -85,7 +91,7 @@ suite("test_base_mtmv","mtmv") {
     """
     waitingMTMVTaskFinished(jobName)
     order_qt_success "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
-
+    mv_rewrite_success_without_check_chosen("""${querySql}""", "${mvName}")
     // modify column
     sql """
         alter table ${tableName} modify COLUMN new_col_1 BIGINT;
@@ -97,7 +103,7 @@ suite("test_base_mtmv","mtmv") {
     """
     waitingMTMVTaskFinished(jobName)
     order_qt_success "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
-
+    mv_rewrite_success_without_check_chosen("""${querySql}""", "${mvName}")
     // drop column
     sql """
         alter table ${tableName} drop COLUMN new_col_1;
@@ -109,7 +115,7 @@ suite("test_base_mtmv","mtmv") {
     """
     waitingMTMVTaskFinished(jobName)
     order_qt_success "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
-
+    mv_rewrite_success_without_check_chosen("""${querySql}""", "${mvName}")
     // replace table
      sql """
     ALTER TABLE ${tableName} REPLACE WITH TABLE ${newTableName} PROPERTIES('swap' = 'false');
@@ -120,7 +126,7 @@ suite("test_base_mtmv","mtmv") {
     """
     waitingMTMVTaskFinished(jobName)
     order_qt_success "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
-
+    mv_rewrite_success_without_check_chosen("""${querySql}""", "${mvName}")
     // rename table
      sql """
     ALTER TABLE ${tableName} rename ${newTableName};
@@ -134,7 +140,7 @@ suite("test_base_mtmv","mtmv") {
     """
     waitingMTMVTaskFinished(jobName)
     order_qt_success "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
-
+    mv_rewrite_success_without_check_chosen("""${querySql}""", "${mvName}")
     // drop table
     sql """
         drop table ${tableName}
@@ -152,10 +158,27 @@ suite("test_base_mtmv","mtmv") {
         );
     """
     sql """
+        INSERT INTO ${tableName} VALUES("2022-10-26",1,"clz"),("2022-10-28",2,"zhangsang"),("2022-10-29",3,"lisi");
+    """
+    sql """
         REFRESH MATERIALIZED VIEW ${mvName} AUTO
     """
     waitingMTMVTaskFinished(jobName)
     order_qt_success "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
+    mv_rewrite_success_without_check_chosen("""${querySql}""", "${mvName}")
+
+    qt_desc_mv_1 "desc ${mvName}"
+
+    sql """ DROP MATERIALIZED VIEW ${mvName}"""
+    sql """
+        CREATE MATERIALIZED VIEW ${mvName}(event_Day,Id,UserName)
+        BUILD DEFERRED REFRESH COMPLETE ON MANUAL
+        DISTRIBUTED BY RANDOM BUCKETS 2
+        PROPERTIES ('replication_num' = '1') 
+        AS 
+        ${querySql};
+    """
+    qt_desc_mv_2 "desc ${mvName}"
 
     sql """drop table if exists `${tableName}`"""
     sql """drop table if exists `${newTableName}`"""

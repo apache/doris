@@ -95,8 +95,9 @@ suite("test_vault_privilege_with_role", "nonConcurrent") {
     connect(userName, userPassword, context.config.jdbcUrl) {
         sql """
             insert into ${dbName}.${tableName} values(1, 1);
-            select * from ${dbName}.${tableName};
         """
+        def result = sql """ select * from ${dbName}.${tableName}; """
+        assertEquals(result.size(), 1)
     }
 
     sql """REVOKE usage_priv ON STORAGE VAULT '${hdfsVaultName}' FROM ROLE '${roleName}';"""
@@ -117,4 +118,79 @@ suite("test_vault_privilege_with_role", "nonConcurrent") {
         }, "denied")
     }
 
+    def hdfsVaultName2 = "hdfs2_" + randomStr
+    def userName2 = "user2_${randomStr}"
+    def userPassword2 = "Cloud789654"
+    def roleName2 = "role2_${randomStr}"
+    def tableName2 = "tbl2_${randomStr}"
+
+    sql """DROP TABLE IF EXISTS ${dbName}.${tableName2}"""
+    sql """DROP USER IF EXISTS ${userName2}"""
+    sql """DROP ROLE IF EXISTS ${roleName2}"""
+
+    sql """CREATE ROLE ${roleName2}"""
+    sql """CREATE USER ${userName2} identified by '${userPassword2}'"""
+    sql """GRANT create_priv ON *.*.* TO '${userName2}'; """
+    sql """GRANT usage_priv ON STORAGE VAULT '${hdfsVaultName2}' TO '${userName2}';"""
+
+    sql """
+        CREATE STORAGE VAULT ${hdfsVaultName2}
+        PROPERTIES (
+            "type"="HDFS",
+            "fs.defaultFS"="${getHmsHdfsFs()}",
+            "path_prefix" = "${hdfsVaultName2}",
+            "hadoop.username" = "${getHmsUser()}"
+        );
+        """
+
+    sql """ GRANT usage_priv ON STORAGE VAULT '${hdfsVaultName2}' TO ROLE '${roleName2}';"""
+
+    connect(userName2, userPassword2, context.config.jdbcUrl) {
+        sql """
+            CREATE TABLE IF NOT EXISTS ${dbName}.${tableName2} (
+                C_CUSTKEY     INTEGER NOT NULL,
+                C_NAME        INTEGER NOT NULL
+            )
+            DUPLICATE KEY(C_CUSTKEY, C_NAME)
+            DISTRIBUTED BY HASH(C_CUSTKEY) BUCKETS 1
+            PROPERTIES (
+                "replication_num" = "1",
+                "storage_vault_name" = ${hdfsVaultName2}
+            )
+        """
+    }
+
+    sql """ GRANT load_priv,select_priv ON  *.*.* TO '${userName2}';"""
+    sql """ GRANT USAGE_PRIV ON COMPUTE GROUP '%' TO '${userName2}';"""
+    connect(userName2, userPassword2, context.config.jdbcUrl) {
+        sql """
+            insert into ${dbName}.${tableName2} values(1, 1);
+        """
+        def result = sql """ select * from ${dbName}.${tableName2}; """
+        assertEquals(result.size(), 1)
+    }
+
+    sql """REVOKE usage_priv ON STORAGE VAULT '${hdfsVaultName2}' FROM ROLE '${roleName2}';"""
+    connect(userName2, userPassword2, context.config.jdbcUrl) {
+        sql """
+            CREATE TABLE IF NOT EXISTS ${dbName}.${tableName2}_2 (
+                C_CUSTKEY     INTEGER NOT NULL,
+                C_NAME        INTEGER NOT NULL
+            )
+            DUPLICATE KEY(C_CUSTKEY, C_NAME)
+            DISTRIBUTED BY HASH(C_CUSTKEY) BUCKETS 1
+            PROPERTIES (
+                "replication_num" = "1",
+                "storage_vault_name" = ${hdfsVaultName2}
+            )
+        """
+    }
+
+    connect(userName2, userPassword2, context.config.jdbcUrl) {
+        sql """
+            insert into ${dbName}.${tableName2} values(2, 2);
+        """
+        def result = sql """ select * from ${dbName}.${tableName2}; """
+        assertEquals(result.size(), 2)
+    }
 }

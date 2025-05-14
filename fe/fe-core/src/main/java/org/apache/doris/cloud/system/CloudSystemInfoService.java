@@ -37,6 +37,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.nereids.trees.plans.commands.info.ModifyBackendOp;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.rpc.RpcException;
@@ -434,7 +435,17 @@ public class CloudSystemInfoService extends SystemInfoService {
     }
 
     @Override
+    public void modifyBackends(ModifyBackendOp op) throws UserException {
+        throw new UserException("Modifying backends is not supported in cloud mode");
+    }
+
+    @Override
     public void modifyBackendHost(ModifyBackendHostNameClause clause) throws UserException {
+        throw new UserException("Modifying backend hostname is not supported in cloud mode");
+    }
+
+    @Override
+    public void modifyBackendHostName(String srcHost, int srcPort, String destHost) throws UserException {
         throw new UserException("Modifying backend hostname is not supported in cloud mode");
     }
 
@@ -1025,7 +1036,7 @@ public class CloudSystemInfoService extends SystemInfoService {
         if (Cloud.ClusterStatus.valueOf(clusterStatus) != Cloud.ClusterStatus.NORMAL) {
             // ATTN: prevent `Automatic Analyzer` daemon threads from pulling up clusters
             // root ? see StatisticsUtil.buildConnectContext
-            if (ConnectContext.get() != null && ConnectContext.get().getUserIdentity().isRootUser()) {
+            if (ConnectContext.get() != null && ConnectContext.get().getCurrentUserIdentity().isRootUser()) {
                 LOG.warn("auto start daemon thread run in root, not resume cluster {}-{}", clusterName, clusterStatus);
                 return null;
             }

@@ -18,6 +18,8 @@
 package org.apache.doris.nereids;
 
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.analysis.TableSnapshot;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
 import org.apache.doris.catalog.constraint.TableIdentifier;
@@ -73,6 +75,7 @@ import java.util.BitSet;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -156,6 +159,7 @@ public class StatementContext implements Closeable {
     private final List<Expression> joinFilters = new ArrayList<>();
 
     private final List<Hint> hints = new ArrayList<>();
+    private boolean hintForcePreAggOn = false;
 
     // the columns in Plan.getExpressions(), such as columns in join condition or filter condition, group by expression
     private final Set<SlotReference> keySlots = Sets.newHashSet();
@@ -165,7 +169,7 @@ public class StatementContext implements Closeable {
     private final Stack<CloseableResource> plannerResources = new Stack<>();
 
     // placeholder params for prepared statement
-    private List<Placeholder> placeholders;
+    private List<Placeholder> placeholders = new ArrayList<>();
 
     // all tables in query
     private boolean needLockTables = true;
@@ -178,6 +182,8 @@ public class StatementContext implements Closeable {
     private final Map<List<String>, TableIf> insertTargetTables = Maps.newHashMap();
     // save view's def and sql mode to avoid them change before lock
     private final Map<List<String>, Pair<String, Long>> viewInfos = Maps.newHashMap();
+    // save insert into schema to avoid schema changed between two read locks
+    private final List<Column> insertTargetSchema = new ArrayList<>();
 
     // for create view support in nereids
     // key is the start and end position of the sql substring that needs to be replaced,
@@ -200,7 +206,7 @@ public class StatementContext implements Closeable {
 
     private FormatOptions formatOptions = FormatOptions.getDefault();
 
-    private final List<PlannerHook> plannerHooks = new ArrayList<>();
+    private final Set<PlannerHook> plannerHooks = new HashSet<>();
 
     private String disableJoinReorderReason;
 
@@ -209,6 +215,13 @@ public class StatementContext implements Closeable {
     private final Map<MvccTableInfo, MvccSnapshot> snapshots = Maps.newHashMap();
 
     private boolean privChecked;
+
+    /// for dictionary sink.
+    private List<Backend> usedBackendsDistributing; // report used backends after done distribute planning.
+    private long dictionaryUsedSrcVersion; // base table data version used in this refreshing.
+    private boolean partialLoadDictionary = false; // really used partial load.
+
+    private boolean prepareStage = false;
 
     public StatementContext() {
         this(ConnectContext.get(), null, 0);
@@ -246,6 +259,14 @@ public class StatementContext implements Closeable {
         this.needLockTables = needLockTables;
     }
 
+    public void setHintForcePreAggOn(boolean preAggOn) {
+        this.hintForcePreAggOn = preAggOn;
+    }
+
+    public boolean isHintForcePreAggOn() {
+        return hintForcePreAggOn;
+    }
+
     /**
      * cache view info to avoid view's def and sql mode changed before lock it.
      *
@@ -279,6 +300,10 @@ public class StatementContext implements Closeable {
 
     public Map<List<String>, TableIf> getTables() {
         return tables;
+    }
+
+    public List<Column> getInsertTargetSchema() {
+        return insertTargetSchema;
     }
 
     public void setTables(Map<List<String>, TableIf> tables) {
@@ -639,7 +664,7 @@ public class StatementContext implements Closeable {
         return formatOptions;
     }
 
-    public List<PlannerHook> getPlannerHooks() {
+    public Set<PlannerHook> getPlannerHooks() {
         return plannerHooks;
     }
 
@@ -650,13 +675,13 @@ public class StatementContext implements Closeable {
     /**
      * Load snapshot information of mvcc
      */
-    public void loadSnapshots() {
+    public void loadSnapshots(Optional<TableSnapshot> tableSnapshot) {
         for (TableIf tableIf : tables.values()) {
             if (tableIf instanceof MvccTable) {
                 MvccTableInfo mvccTableInfo = new MvccTableInfo(tableIf);
                 // may be set by MTMV, we can not load again
                 if (!snapshots.containsKey(mvccTableInfo)) {
-                    snapshots.put(mvccTableInfo, ((MvccTable) tableIf).loadSnapshot());
+                    snapshots.put(mvccTableInfo, ((MvccTable) tableIf).loadSnapshot(tableSnapshot));
                 }
             }
         }
@@ -765,5 +790,37 @@ public class StatementContext implements Closeable {
 
     public void setPrivChecked(boolean privChecked) {
         this.privChecked = privChecked;
+    }
+
+    public List<Backend> getUsedBackendsDistributing() {
+        return usedBackendsDistributing;
+    }
+
+    public void setUsedBackendsDistributing(List<Backend> usedBackends) {
+        this.usedBackendsDistributing = usedBackends;
+    }
+
+    public long getDictionaryUsedSrcVersion() {
+        return dictionaryUsedSrcVersion;
+    }
+
+    public void setDictionaryUsedSrcVersion(long dictionaryUsedSrcVersion) {
+        this.dictionaryUsedSrcVersion = dictionaryUsedSrcVersion;
+    }
+
+    public boolean isPartialLoadDictionary() {
+        return partialLoadDictionary;
+    }
+
+    public void setPartialLoadDictionary(boolean partialLoadDictionary) {
+        this.partialLoadDictionary = partialLoadDictionary;
+    }
+
+    public void setPrepareStage(boolean isPrepare) {
+        this.prepareStage = isPrepare;
+    }
+
+    public boolean isPrepareStage() {
+        return prepareStage;
     }
 }

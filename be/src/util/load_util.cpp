@@ -62,6 +62,30 @@ void LoadUtil::parse_format(const std::string& format_str, const std::string& co
     } else if (iequal(format_str, "JSON")) {
         if (compress_type_str.empty()) {
             *format_type = TFileFormatType::FORMAT_JSON;
+        } else if (iequal(compress_type_str, "GZ")) {
+            *format_type = TFileFormatType::FORMAT_JSON;
+            *compress_type = TFileCompressType::GZ;
+        } else if (iequal(compress_type_str, "LZO")) {
+            *format_type = TFileFormatType::FORMAT_JSON;
+            *compress_type = TFileCompressType::LZO;
+        } else if (iequal(compress_type_str, "BZ2")) {
+            *format_type = TFileFormatType::FORMAT_JSON;
+            *compress_type = TFileCompressType::BZ2;
+        } else if (iequal(compress_type_str, "LZ4")) {
+            *format_type = TFileFormatType::FORMAT_JSON;
+            *compress_type = TFileCompressType::LZ4FRAME;
+        } else if (iequal(compress_type_str, "LZ4_BLOCK")) {
+            *format_type = TFileFormatType::FORMAT_JSON;
+            *compress_type = TFileCompressType::LZ4BLOCK;
+        } else if (iequal(compress_type_str, "LZOP")) {
+            *format_type = TFileFormatType::FORMAT_JSON;
+            *compress_type = TFileCompressType::LZO;
+        } else if (iequal(compress_type_str, "SNAPPY_BLOCK")) {
+            *format_type = TFileFormatType::FORMAT_JSON;
+            *compress_type = TFileCompressType::SNAPPYBLOCK;
+        } else if (iequal(compress_type_str, "DEFLATE")) {
+            *format_type = TFileFormatType::FORMAT_JSON;
+            *compress_type = TFileCompressType::DEFLATE;
         }
     } else if (iequal(format_str, "PARQUET")) {
         *format_type = TFileFormatType::FORMAT_PARQUET;

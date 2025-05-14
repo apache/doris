@@ -219,7 +219,7 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
     }
 
     Suite.metaClass.update_ms_config = { String ms_endpoint, String key, String value /*param */ ->
-        return curl("POST", String.format("http://%s/MetaService/http/v1/update_config?%s=%s", ms_endpoint, key, value))
+        return curl("POST", String.format("http://%s/MetaService/http/v1/update_config?token=%s&configs=%s=%s", ms_endpoint, context.config.metaServiceToken, key, value))
     }
 
     Suite.metaClass.set_config_before_show_data_test = { ->
@@ -227,10 +227,11 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
         sql """admin set frontend config ("tablet_stat_update_interval_second" = "1")"""
         sql """admin set frontend config ("catalog_trash_expire_second" = "1")"""
 
-        def backendId_to_backendIP = [:]
-        def backendId_to_backendHttpPort = [:]
-        getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
+        def backendIdToBackendIP = [:]
+        def backendIdToBackendHttpPort = [:]
+        getBackendIpHttpPort(backendIdToBackendIP, backendIdToBackendHttpPort);
 
+        def backendId = backendIdToBackendIP.keySet()[0]
         def get_be_param = { paramName ->
             // assuming paramName on all BEs have save value
             def (code, out, err) = show_be_config(backendIdToBackendIP.get(backendId), backendIdToBackendHttpPort.get(backendId))
@@ -247,13 +248,20 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
         def ms_endpoint = get_be_param("meta_service_endpoint");
 
-        update_ms_config.call(ms_endpoint, "recycle_interval_seconds", "5")
-        update_ms_config.call(ms_endpoint, "retention_seconds", "0")
-        update_ms_config.call(ms_endpoint, "compacted_rowset_retention_seconds", "0")
-        update_ms_config.call(ms_endpoint, "recycle_job_lease_expired_ms", "0")
-        update_ms_config.call(ms_endpoint, "dropped_partition_retention_seconds", "0")
-        update_ms_config.call(ms_endpoint, "label_keep_max_second", "0")
-        update_ms_config.call(ms_endpoint, "copy_job_max_retention_second", "0")
+        def (code, out, err) = update_ms_config(ms_endpoint, "recycle_interval_seconds", "5")
+        logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
+        update_ms_config(ms_endpoint, "retention_seconds", "0")
+        logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
+        update_ms_config(ms_endpoint, "compacted_rowset_retention_seconds", "0")
+        logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
+        update_ms_config(ms_endpoint, "recycle_job_lease_expired_ms", "0")
+        logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
+        update_ms_config(ms_endpoint, "dropped_partition_retention_seconds", "0")
+        logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
+        update_ms_config(ms_endpoint, "label_keep_max_second", "0")
+        logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
+        update_ms_config(ms_endpoint, "copy_job_max_retention_second", "0")
+        logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
     }
 
     Suite.metaClass.set_config_after_show_data_test = { ->
@@ -261,9 +269,11 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
         sql """admin set frontend config ("tablet_stat_update_interval_second" = "10")"""
         sql """admin set frontend config ("catalog_trash_expire_second" = "600")"""
 
-        def backendId_to_backendIP = [:]
-        def backendId_to_backendHttpPort = [:]
-        getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
+        def backendIdToBackendIP = [:]
+        def backendIdToBackendHttpPort = [:]
+        getBackendIpHttpPort(backendIdToBackendIP, backendIdToBackendHttpPort);
+
+        def backendId = backendIdToBackendIP.keySet()[0]
 
         def get_be_param = { paramName ->
             // assuming paramName on all BEs have save value
@@ -281,12 +291,19 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
         def ms_endpoint = get_be_param("meta_service_endpoint");
 
-        update_ms_config.call(ms_endpoint, "recycle_interval_seconds", "600")
-        update_ms_config.call(ms_endpoint, "retention_seconds", "259200")
-        update_ms_config.call(ms_endpoint, "compacted_rowset_retention_seconds", "1800")
-        update_ms_config.call(ms_endpoint, "recycle_job_lease_expired_ms", "60000")
-        update_ms_config.call(ms_endpoint, "dropped_partition_retention_seconds", "10800")
-        update_ms_config.call(ms_endpoint, "label_keep_max_second", "300")
-        update_ms_config.call(ms_endpoint, "copy_job_max_retention_second", "259200")
+        update_ms_config(ms_endpoint, "recycle_interval_seconds", "600")
+        logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
+        update_ms_config(ms_endpoint, "retention_seconds", "259200")
+        logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
+        update_ms_config(ms_endpoint, "compacted_rowset_retention_seconds", "1800")
+        logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
+        update_ms_config(ms_endpoint, "recycle_job_lease_expired_ms", "60000")
+        logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
+        update_ms_config(ms_endpoint, "dropped_partition_retention_seconds", "10800")
+        logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
+        update_ms_config(ms_endpoint, "label_keep_max_second", "300")
+        logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
+        update_ms_config(ms_endpoint, "copy_job_max_retention_second", "259200")
+        logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
     }
 //http://qa-build.oss-cn-beijing.aliyuncs.com/regression/show_data/fullData.1.part1.gz

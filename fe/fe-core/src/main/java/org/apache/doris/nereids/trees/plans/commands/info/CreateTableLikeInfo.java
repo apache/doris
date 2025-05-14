@@ -33,14 +33,19 @@ import java.util.ArrayList;
 /** CreateTableLikeInfo */
 public class CreateTableLikeInfo {
     private final boolean ifNotExists;
+    private final boolean isTemp;
     private final TableNameInfo tableName;
     private final TableNameInfo existedTableName;
     private final ArrayList<String> rollupNames;
     private final boolean withAllRollup;
 
-    public CreateTableLikeInfo(boolean ifNotExists, TableNameInfo tableName, TableNameInfo existedTableName,
-            ArrayList<String> rollupNames, boolean withAllRollup) {
+    /**
+     * constructor for create table like
+     */
+    public CreateTableLikeInfo(boolean ifNotExists, boolean isTemp, TableNameInfo tableName,
+            TableNameInfo existedTableName, ArrayList<String> rollupNames, boolean withAllRollup) {
         this.ifNotExists = ifNotExists;
+        this.isTemp = isTemp;
         this.tableName = tableName;
         this.existedTableName = existedTableName;
         this.rollupNames = rollupNames;
@@ -48,7 +53,7 @@ public class CreateTableLikeInfo {
     }
 
     public CreateTableLikeStmt translateToLegacyStmt() throws DdlException {
-        return new CreateTableLikeStmt(ifNotExists, tableName.transferToTableName(),
+        return new CreateTableLikeStmt(ifNotExists, isTemp, tableName.transferToTableName(),
                 existedTableName.transferToTableName(), rollupNames, withAllRollup);
     }
 

@@ -78,12 +78,17 @@ public interface GlobalTransactionMgrIface extends Writable {
             throws UserException;
 
     @Deprecated
-    public void commitTransaction(long dbId, List<Table> tableList,
+    public void commitTransactionWithoutLock(long dbId, List<Table> tableList,
             long transactionId, List<TabletCommitInfo> tabletCommitInfos)
             throws UserException;
 
-    public void commitTransaction(long dbId, List<Table> tableList, long transactionId,
+    public void commitTransactionWithoutLock(long dbId, List<Table> tableList, long transactionId,
             List<TabletCommitInfo> tabletCommitInfos, TxnCommitAttachment txnCommitAttachment)
+            throws UserException;
+
+    public void commitTransaction(DatabaseIf db, List<Table> tableList, long transactionId,
+            List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis,
+            TxnCommitAttachment txnCommitAttachment)
             throws UserException;
 
     public boolean commitAndPublishTransaction(DatabaseIf db, List<Table> tableList, long transactionId,
@@ -201,4 +206,6 @@ public interface GlobalTransactionMgrIface extends Writable {
 
     public List<TransactionState> getUnFinishedPreviousLoad(long endTransactionId,
                 long dbId, List<Long> tableIdList) throws UserException;
+
+    public int getQueueLength();
 }

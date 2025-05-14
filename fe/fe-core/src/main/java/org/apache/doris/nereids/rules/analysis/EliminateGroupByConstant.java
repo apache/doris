@@ -27,8 +27,8 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.Utils;
 
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Sets;
 
 import java.util.HashMap;
@@ -75,7 +75,8 @@ public class EliminateGroupByConstant extends OneRewriteRuleFactory {
             if (slotGroupByExprs.isEmpty() && lit != null) {
                 slotGroupByExprs.add(lit);
             }
-            return aggregate.withGroupByAndOutput(ImmutableList.copyOf(slotGroupByExprs),
+            return aggregate.withGroupByAndOutput(
+                    ExpressionUtils.replace(Utils.fastToImmutableList(slotGroupByExprs), constantExprsReplaceMap),
                     ExpressionUtils.replaceNamedExpressions(outputExprs, constantExprsReplaceMap));
         }).toRule(RuleType.ELIMINATE_GROUP_BY_CONSTANT);
     }

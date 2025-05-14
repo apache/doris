@@ -96,7 +96,8 @@ public abstract class BaseAnalysisTask {
             + "SUBSTRING(CAST(${max} AS STRING), 1, 1024) AS `max`, "
             + "${dataSizeFunction} * ${scaleFactor} AS `data_size`, "
             + "NOW() FROM ( "
-            + "SELECT * FROM `${catalogName}`.`${dbName}`.`${tblName}` ${index} ${sampleHints} ${limit})  as t";
+            + "SELECT * FROM `${catalogName}`.`${dbName}`.`${tblName}` ${index} ${sampleHints} ${limit}) "
+            + "as t ${preAggHint}";
 
     protected static final String DUJ1_ANALYZE_TEMPLATE = "SELECT "
             + "CONCAT('${tblId}', '-', '${idxId}', '-', '${colId}') AS `id`, "
@@ -117,7 +118,8 @@ public abstract class BaseAnalysisTask {
             + "    SELECT t0.`colValue` as `column_key`, COUNT(1) as `count`, SUM(`len`) as `column_length` "
             + "    FROM "
             + "        (SELECT ${subStringColName} AS `colValue`, LENGTH(`${colName}`) as `len` "
-            + "        FROM `${catalogName}`.`${dbName}`.`${tblName}` ${index} ${sampleHints} ${limit}) as `t0` "
+            + "        FROM `${catalogName}`.`${dbName}`.`${tblName}` ${index} ${sampleHints} ${limit}) as `t0`"
+            + "        ${preAggHint}"
             + "    GROUP BY `t0`.`colValue` "
             + ") as `t1` ";
 
@@ -214,7 +216,8 @@ public abstract class BaseAnalysisTask {
                 || info.analysisType.equals(AnalysisType.HISTOGRAM))) {
             col = tbl.getColumn(info.colName);
             if (col == null) {
-                throw new RuntimeException(String.format("Column with name %s not exists", tbl.getName()));
+                throw new RuntimeException(String.format("Column with name %s not exists in table %s",
+                        info.colName, tbl.getName()));
             }
             Preconditions.checkArgument(!StatisticsUtil.isUnsupportedType(col.getType()),
                     String.format("Column with type %s is not supported", col.getType().toString()));

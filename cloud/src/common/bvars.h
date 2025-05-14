@@ -160,6 +160,9 @@ extern BvarLatencyRecorderWithTag g_bvar_ms_get_rl_task_commit_attach;
 extern BvarLatencyRecorderWithTag g_bvar_ms_reset_rl_progress;
 extern BvarLatencyRecorderWithTag g_bvar_ms_get_txn_id;
 extern BvarLatencyRecorderWithTag g_bvar_ms_check_kv;
+extern BvarLatencyRecorderWithTag g_bvar_ms_get_schema_dict;
+extern bvar::Adder<int64_t> g_bvar_update_delete_bitmap_fail_counter;
+extern bvar::Adder<int64_t> g_bvar_get_delete_bitmap_fail_counter;
 
 // recycler's bvars
 extern BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_index_earlest_ts;
@@ -185,6 +188,16 @@ extern bvar::LatencyRecorder g_bvar_txn_kv_batch_get;
 extern bvar::Adder<int64_t> g_bvar_txn_kv_commit_error_counter;
 extern bvar::Adder<int64_t> g_bvar_txn_kv_commit_conflict_counter;
 extern bvar::Adder<int64_t> g_bvar_txn_kv_get_count_normalized;
+
+extern bvar::Adder<int64_t> g_bvar_delete_bitmap_lock_txn_put_conflict_counter;
+extern bvar::Adder<int64_t> g_bvar_delete_bitmap_lock_txn_remove_conflict_by_fail_counter;
+extern bvar::Adder<int64_t> g_bvar_delete_bitmap_lock_txn_remove_conflict_by_load_counter;
+extern bvar::Adder<int64_t>
+        g_bvar_delete_bitmap_lock_txn_remove_conflict_by_compaction_commit_counter;
+extern bvar::Adder<int64_t>
+        g_bvar_delete_bitmap_lock_txn_remove_conflict_by_compaction_lease_counter;
+extern bvar::Adder<int64_t>
+        g_bvar_delete_bitmap_lock_txn_remove_conflict_by_compaction_abort_counter;
 
 extern const int64_t BVAR_FDB_INVALID_VALUE;
 extern bvar::Status<int64_t> g_bvar_fdb_client_count;

@@ -23,12 +23,12 @@
 #include <cstdint>
 #include <memory>
 
+#include "absl/strings/substitute.h"
 #include "common/cast_set.h"
 #include "common/compiler_util.h"
 #include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "gutil/strings/substitute.h"
 #include "runtime/user_function_cache.h"
 #include "util/jni-util.h"
 #include "vec/aggregate_functions/aggregate_function.h"
@@ -207,9 +207,8 @@ public:
         jobject output_map = JniUtil::convert_to_java_map(env, output_params);
         long output_address =
                 env->CallLongMethod(executor_obj, executor_get_value_id, place, output_map);
-        RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
         env->DeleteLocalRef(output_map);
-
+        RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
         return JniConnector::fill_block(&output_block, {0}, output_address);
     }
 
@@ -221,7 +220,7 @@ private:
             if (!s.ok()) {
                 LOG(WARNING) << "Failed to register function " << func_name << ": "
                              << s.to_string();
-                return Status::InternalError(strings::Substitute(
+                return Status::InternalError(absl::Substitute(
                         "Java-Udaf register_func_id meet error and error is $0", s.to_string()));
             }
             return s;
@@ -292,16 +291,12 @@ public:
     void create(AggregateDataPtr __restrict place) const override {
         new (place) Data(argument_types.size());
         if (_first_created) {
-            Status status = Status::OK();
-            SAFE_CREATE(RETURN_IF_STATUS_ERROR(status,
-                                               this->data(place).init_udaf(_fn, _local_location)),
-                        {
-                            static_cast<void>(this->data(place).destroy());
-                            this->data(place).~Data();
-                        });
+            Status status = this->data(place).init_udaf(_fn, _local_location);
             _first_created = false;
             _exec_place = place;
             if (UNLIKELY(!status.ok())) {
+                static_cast<void>(this->data(place).destroy());
+                this->data(place).~Data();
                 throw doris::Exception(ErrorCode::INTERNAL_ERROR, status.to_string());
             }
         }

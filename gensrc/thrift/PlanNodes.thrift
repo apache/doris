@@ -271,6 +271,9 @@ struct TFileAttributes {
     11: optional i32 skip_lines;
     //For text type file reading, whether to enable utf8 encoding check.(Catalog && TVF)
     12: optional bool enable_text_validate_utf8 = true;
+    // org.openx.data.jsonserde.JsonSerDe
+    13: optional bool openx_json_ignore_malformed = false;
+
     // for cloud copy into
     1001: optional bool ignore_csv_redundant_col;
 }
@@ -296,6 +299,7 @@ struct TIcebergFileDesc {
     // Deprecated
     5: optional Exprs.TExpr file_select_conjunct;
     6: optional string original_file_path;
+    // Deprecated
     7: optional i64 row_count;
 }
 
@@ -320,6 +324,8 @@ struct TPaimonFileDesc {
     12: optional TPaimonDeletionFileDesc deletion_file;
     13: optional map<string, string> hadoop_conf // deprecated
     14: optional string paimon_table  // deprecated
+    15: optional i64 row_count // deprecated
+    16: optional i64 schema_id; // for schema change.
 }
 
 struct TTrinoConnectorFileDesc {
@@ -357,7 +363,8 @@ struct THudiFileDesc {
     8: optional list<string> column_names;
     9: optional list<string> column_types;
     10: optional list<string> nested_fields;
-    11: optional string hudi_jni_scanner;
+    11: optional string hudi_jni_scanner; // deprecated
+    12: optional i64 schema_id; // for schema change. (native reader)
 }
 
 struct TLakeSoulFileDesc {
@@ -387,6 +394,7 @@ struct TTableFormatFileDesc {
     6: optional TMaxComputeFileDesc max_compute_params
     7: optional TTrinoConnectorFileDesc trino_connector_params
     8: optional TLakeSoulFileDesc lakesoul_params
+    9: optional i64 table_level_row_count
 }
 
 enum TTextSerdeType {
@@ -445,6 +453,7 @@ struct TFileScanRangeParams {
     //    1. Reduce the access to HMS and HDFS on the JNI side.
     //    2. There will be no inconsistency between the fe and be tables.
     24: optional string serialized_table
+    25: optional map<i64, map<i32, string>> history_schema_info // paimon/hudi map<schema id, map<column unique id , column name>> : for schema change. (native reader)
 }
 
 struct TFileRangeDesc {
@@ -473,6 +482,7 @@ struct TFileRangeDesc {
     // so fs_name should be with TFileRangeDesc
     12: optional string fs_name
     13: optional TFileFormatType format_type;
+    14: optional i64 self_split_weight
 }
 
 struct TSplitSource {
@@ -991,6 +1001,7 @@ struct TSortNode {
   9: optional bool is_analytic_sort
   10: optional bool is_colocate
   11: optional TSortAlgorithm algorithm
+  12: optional bool use_local_merge
 }
 
 enum TopNAlgorithm {
@@ -1102,6 +1113,8 @@ struct TAnalyticNode {
   9: optional Exprs.TExpr order_by_eq
 
   10: optional bool is_colocate
+
+  11: optional list<Exprs.TExpr> range_between_offset_exprs
 }
 
 struct TMergeNode {
@@ -1261,6 +1274,8 @@ struct TRuntimeFilterDesc {
 
   // Indicates if there is at least one target scan node that is in the
   // same fragment as the broadcast join that produced the runtime filter
+  // Now only use has_remote_targets to judge how to publish,
+  // the values ​​of has_local_targets and has_remote_targets must be different
   6: required bool has_local_targets
 
   // Indicates if there is at least one target scan node that is not in the same
@@ -1295,7 +1310,7 @@ struct TRuntimeFilterDesc {
 
   16: optional bool sync_filter_size; // Deprecated
   
-  17: optional bool build_bf_exactly;
+  17: optional bool build_bf_by_runtime_size;
 }
 
 

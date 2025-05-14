@@ -34,16 +34,16 @@ public:
               std::vector<std::unique_ptr<WorkloadCondition>> condition_list,
               std::vector<std::unique_ptr<WorkloadAction>> action_list);
 
-    bool enabled() { return _enabled; }
-    int priority() { return _priority; }
+    bool enabled() const { return _enabled; }
+    int priority() const { return _priority; }
 
-    bool is_match(WorkloadQueryInfo* query_info);
+    bool is_match(WorkloadAction::RuntimeContext* action_runtime_ctx) const;
 
     WorkloadActionType get_first_action_type() { return _first_action_type; }
 
-    void exec_action(WorkloadQueryInfo* query_info);
+    void exec_action(WorkloadAction::RuntimeContext* action_runtime_ctx);
 
-    int version() { return _version; }
+    int version() const { return _version; }
 
 private:
     int64_t _id;

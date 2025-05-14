@@ -1146,7 +1146,7 @@ class FilterEstimationTest {
         Statistics result = filterEstimation.estimate(and, stats);
         // result 1.0->2.0 bc happens because the calculation from normalization of
         // "Math.min(columnStatistic.numNulls * factor, rowCount - ndv);"
-        Assertions.assertEquals(result.getRowCount(), 3.5, 0.01);
+        Assertions.assertEquals(result.getRowCount(), 2.0, 0.01);
     }
 
     /**
@@ -1214,7 +1214,7 @@ class FilterEstimationTest {
 
         FilterEstimation filterEstimation = new FilterEstimation();
         Statistics result = filterEstimation.estimate(allAnd, stats);
-        Assertions.assertEquals(result.getRowCount(), 2109.0, 10);
+        Assertions.assertEquals(result.getRowCount(), 1809, 10);
     }
 
     /**
@@ -1519,5 +1519,35 @@ class FilterEstimationTest {
 
         Statistics stats = new FilterEstimation().estimate(predicate, statsBuilder.build());
         Assertions.assertEquals(250, stats.getRowCount());
+    }
+
+    @Test
+    void testEqualAndIsNull() {
+        // avoid to normalize num-nulls twice
+        Double row = 1000.0;
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        ColumnStatisticBuilder columnStatisticBuilderA = new ColumnStatisticBuilder(row)
+                .setNdv(10)
+                .setAvgSizeByte(4)
+                .setNumNulls(0);
+
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
+        ColumnStatisticBuilder columnStatisticBuilderB = new ColumnStatisticBuilder(row)
+                .setNdv(10)
+                .setAvgSizeByte(4)
+                .setNumNulls(90);
+
+        StatisticsBuilder statsBuilder = new StatisticsBuilder();
+        statsBuilder.setRowCount(row);
+        statsBuilder.putColumnStatistics(a, columnStatisticBuilderA.build());
+        statsBuilder.putColumnStatistics(b, columnStatisticBuilderB.build());
+
+        Expression expr = new And(
+                new EqualTo(a, new IntegerLiteral(1)),
+                new IsNull(b)
+        );
+
+        Statistics result = new FilterEstimation().estimate(expr, statsBuilder.build());
+        System.out.println(result);
     }
 }

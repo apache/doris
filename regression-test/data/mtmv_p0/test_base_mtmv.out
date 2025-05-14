@@ -44,3 +44,13 @@ multi_mv_test_base_mtmv	SCHEMA_CHANGE	SUCCESS
 -- !success --
 multi_mv_test_base_mtmv	NORMAL	SUCCESS
 
+-- !desc_mv_1 --
+event_day	date	Yes	true	\N	
+id	bigint	Yes	true	\N	
+username	varchar(20)	Yes	true	\N	
+
+-- !desc_mv_2 --
+event_Day	date	Yes	true	\N	
+Id	bigint	Yes	true	\N	
+UserName	varchar(20)	Yes	true	\N	
+

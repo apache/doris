@@ -21,6 +21,7 @@ package org.apache.doris.catalog;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.EnvUtils;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.common.util.Util;
@@ -28,6 +29,7 @@ import org.apache.doris.datasource.ExternalCatalog;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
@@ -35,6 +37,7 @@ import org.apache.commons.codec.binary.Hex;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
@@ -192,10 +195,10 @@ public class JdbcResource extends Resource {
     }
 
     @Override
-    protected void setProperties(Map<String, String> properties) throws DdlException {
+    protected void setProperties(ImmutableMap<String, String> properties) throws DdlException {
         Preconditions.checkState(properties != null);
-        validateProperties(properties);
-        configs = properties;
+        this.configs = Maps.newHashMap(properties);
+        validateProperties(this.configs);
         applyDefaultProperties();
         String currentDateTime = LocalDateTime.now(ZoneId.systemDefault()).toString().replace("T", " ");
         configs.put(CREATE_TIME, currentDateTime);
@@ -288,12 +291,18 @@ public class JdbcResource extends Resource {
     }
 
     public static String getFullDriverUrl(String driverUrl) throws IllegalArgumentException {
+        if (!(driverUrl.startsWith("file://") || driverUrl.startsWith("http://")
+                || driverUrl.startsWith("https://") || driverUrl.matches("^[^:/]+\\.jar$"))) {
+            throw new IllegalArgumentException("Invalid driver URL format. Supported formats are: "
+                    + "file://xxx.jar, http://xxx.jar, https://xxx.jar, or xxx.jar (without prefix).");
+        }
+
         try {
             URI uri = new URI(driverUrl);
             String schema = uri.getScheme();
             checkCloudWhiteList(driverUrl);
             if (schema == null && !driverUrl.startsWith("/")) {
-                return "file://" + Config.jdbc_drivers_dir + "/" + driverUrl;
+                return checkAndReturnDefaultDriverUrl(driverUrl);
             }
 
             if ("*".equals(Config.jdbc_driver_secure_path)) {
@@ -301,7 +310,7 @@ public class JdbcResource extends Resource {
             }
 
             boolean isAllowed = Arrays.stream(Config.jdbc_driver_secure_path.split(";"))
-                            .anyMatch(allowedPath -> driverUrl.startsWith(allowedPath.trim()));
+                    .anyMatch(allowedPath -> driverUrl.startsWith(allowedPath.trim()));
             if (!isAllowed) {
                 throw new IllegalArgumentException("Driver URL does not match any allowed paths: " + driverUrl);
             }
@@ -309,6 +318,27 @@ public class JdbcResource extends Resource {
         } catch (URISyntaxException e) {
             LOG.warn("invalid jdbc driver url: " + driverUrl);
             return driverUrl;
+        }
+    }
+
+    private static String checkAndReturnDefaultDriverUrl(String driverUrl) {
+        final String defaultDriverUrl = EnvUtils.getDorisHome() + "/plugins/jdbc_drivers";
+        final String defaultOldDriverUrl = EnvUtils.getDorisHome() + "/jdbc_drivers";
+        if (Config.jdbc_drivers_dir.equals(defaultDriverUrl)) {
+            // If true, which means user does not set `jdbc_drivers_dir` and use the default one.
+            // Because in new version, we change the default value of `jdbc_drivers_dir`
+            // from `DORIS_HOME/jdbc_drivers` to `DORIS_HOME/plugins/jdbc_drivers`,
+            // so we need to check the old default dir for compatibility.
+            File file = new File(defaultDriverUrl + "/" + driverUrl);
+            if (file.exists()) {
+                return "file://" + defaultDriverUrl + "/" + driverUrl;
+            } else {
+                // use old one
+                return "file://" + defaultOldDriverUrl + "/" + driverUrl;
+            }
+        } else {
+            // Return user specified driver url directly.
+            return "file://" + Config.jdbc_drivers_dir + "/" + driverUrl;
         }
     }
 
@@ -489,4 +519,3 @@ public class JdbcResource extends Resource {
         }
     }
 }
-

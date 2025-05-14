@@ -35,32 +35,49 @@ AggregateFunctionPtr create_aggregate_function_map_agg(const std::string& name,
                                                        const DataTypes& argument_types,
                                                        const bool result_is_nullable,
                                                        const AggregateFunctionAttr& attr) {
-    WhichDataType type(remove_nullable(argument_types[0]));
-
-#define DISPATCH(TYPE)               \
-    if (type.idx == TypeIndex::TYPE) \
-        return create_agg_function_map_agg<TYPE>(argument_types, result_is_nullable);
-
-    FOR_NUMERIC_TYPES(DISPATCH)
-    FOR_DECIMAL_TYPES(DISPATCH)
-#undef DISPATCH
-
-    if (type.idx == TypeIndex::String) {
-        return create_agg_function_map_agg<String>(argument_types, result_is_nullable);
-    }
-    if (type.idx == TypeIndex::DateTime || type.idx == TypeIndex::Date) {
+    switch (argument_types[0]->get_primitive_type()) {
+    case PrimitiveType::TYPE_BOOLEAN:
+        return create_agg_function_map_agg<UInt8>(argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_TINYINT:
+        return create_agg_function_map_agg<Int8>(argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_SMALLINT:
+        return create_agg_function_map_agg<Int16>(argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_INT:
+        return create_agg_function_map_agg<Int32>(argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_BIGINT:
         return create_agg_function_map_agg<Int64>(argument_types, result_is_nullable);
-    }
-    if (type.idx == TypeIndex::DateV2) {
+    case PrimitiveType::TYPE_LARGEINT:
+        return create_agg_function_map_agg<Int128>(argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_FLOAT:
+        return create_agg_function_map_agg<Float32>(argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_DOUBLE:
+        return create_agg_function_map_agg<Float64>(argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_DECIMAL32:
+        return create_agg_function_map_agg<Decimal32>(argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_DECIMAL64:
+        return create_agg_function_map_agg<Decimal64>(argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_DECIMAL128I:
+        return create_agg_function_map_agg<Decimal128V3>(argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_DECIMALV2:
+        return create_agg_function_map_agg<Decimal128V2>(argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_DECIMAL256:
+        return create_agg_function_map_agg<Decimal256>(argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_STRING:
+    case PrimitiveType::TYPE_CHAR:
+    case PrimitiveType::TYPE_VARCHAR:
+        return create_agg_function_map_agg<String>(argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_DATE:
+    case PrimitiveType::TYPE_DATETIME:
+        return create_agg_function_map_agg<Int64>(argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_DATEV2:
         return create_agg_function_map_agg<UInt32>(argument_types, result_is_nullable);
-    }
-    if (type.idx == TypeIndex::DateTimeV2) {
+    case PrimitiveType::TYPE_DATETIMEV2:
         return create_agg_function_map_agg<UInt64>(argument_types, result_is_nullable);
+    default:
+        LOG(WARNING) << fmt::format("unsupported input type {} for aggregate function {}",
+                                    argument_types[0]->get_name(), name);
+        return nullptr;
     }
-
-    LOG(WARNING) << fmt::format("unsupported input type {} for aggregate function {}",
-                                argument_types[0]->get_name(), name);
-    return nullptr;
 }
 
 void register_aggregate_function_map_agg(AggregateFunctionSimpleFactory& factory) {

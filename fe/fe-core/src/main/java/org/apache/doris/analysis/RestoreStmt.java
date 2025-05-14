@@ -45,6 +45,7 @@ public class RestoreStmt extends AbstractBackupStmt implements NotFallbackInPars
     public static final String PROP_CLEAN_TABLES = "clean_tables";
     public static final String PROP_CLEAN_PARTITIONS = "clean_partitions";
     public static final String PROP_ATOMIC_RESTORE = "atomic_restore";
+    public static final String PROP_FORCE_REPLACE = "force_replace";
 
     private boolean allowLoad = false;
     private ReplicaAllocation replicaAlloc = ReplicaAllocation.DEFAULT_ALLOCATION;
@@ -58,6 +59,7 @@ public class RestoreStmt extends AbstractBackupStmt implements NotFallbackInPars
     private boolean isCleanTables = false;
     private boolean isCleanPartitions = false;
     private boolean isAtomicRestore = false;
+    private boolean isForceReplace = false;
     private byte[] meta = null;
     private byte[] jobInfo = null;
 
@@ -131,6 +133,10 @@ public class RestoreStmt extends AbstractBackupStmt implements NotFallbackInPars
 
     public boolean isAtomicRestore() {
         return isAtomicRestore;
+    }
+
+    public boolean isForceReplace() {
+        return isForceReplace;
     }
 
     @Override
@@ -218,6 +224,9 @@ public class RestoreStmt extends AbstractBackupStmt implements NotFallbackInPars
 
         // is atomic restore
         isAtomicRestore = eatBooleanProperty(copiedProperties, PROP_ATOMIC_RESTORE, isAtomicRestore);
+
+        // is force replace
+        isForceReplace = eatBooleanProperty(copiedProperties, PROP_FORCE_REPLACE, isForceReplace);
 
         if (!copiedProperties.isEmpty()) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_COMMON_ERROR,

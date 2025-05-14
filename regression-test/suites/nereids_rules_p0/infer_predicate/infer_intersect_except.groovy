@@ -22,6 +22,7 @@ suite("infer_intersect_except") {
     sql 'set runtime_filter_mode=off'
     sql 'set enable_fold_constant_by_be=true'
     sql 'set debug_skip_fold_constant=false'
+    sql "set disable_nereids_rules='REORDER_INTERSECT'"
 
 
 
@@ -198,7 +199,7 @@ suite("infer_intersect_except") {
     (select abs(a) from infer_intersect_except1 t1 where abs(a)<3) except (select abs(a) from infer_intersect_except2 t2)  order by 1  """
 
     sql "drop table if exists infer_intersect_except4"
-    sql "create table infer_intersect_except4(d_int int, d_char100 char(100), d_smallint smallint, d_tinyint tinyint, d_char10 char(10),d_datetimev2 datetimev2, d_datev2 datev2) properties('replication_num'='1');"
+    sql "create table infer_intersect_except4(d_int int, d_char100 char(100), d_smallint smallint, d_tinyint tinyint, d_char10 char(32),d_datetimev2 datetimev2, d_datev2 datev2) properties('replication_num'='1');"
     sql """insert into infer_intersect_except4 values(1,'01234567890123456789', 3,3,'0123456789','2020-01-09 10:00:00.99','2020-01-09'),(14,'01234567890123456789', 33,23,'0123456789','2020-01-11 10:00:00.99','2020-01-11')
             ,(14,'01234567890123456789', 33,23,'2024-01-04','2020-01-11 10:00:00.99','2020-01-11'),
             (14,'01234567890123456789', 33,23,'2024-01-03 10:00:00','2020-01-11 10:00:00.99','2020-01-11');"""

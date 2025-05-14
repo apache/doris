@@ -27,7 +27,6 @@
 #include "common/config.h"
 #include "common/logging.h" // LOG
 #include "common/status.h"
-#include "gutil/port.h"
 #include "inverted_index_fs_directory.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/block_file_cache_factory.h"
@@ -188,6 +187,9 @@ Status SegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& co
     // except for columns whose type don't support zone map.
     opts.need_zone_map = column.is_key() || schema->keys_type() != KeysType::AGG_KEYS;
     opts.need_bloom_filter = column.is_bf_column();
+    if (opts.need_bloom_filter) {
+        opts.bf_options.fpp = schema->has_bf_fpp() ? schema->bloom_filter_fpp() : 0.05;
+    }
     auto* tablet_index = schema->get_ngram_bf_index(column.unique_id());
     if (tablet_index) {
         opts.need_bloom_filter = true;
@@ -368,7 +370,7 @@ Status SegmentWriter::append_block_with_variant_subcolumns(vectorized::Block& da
             _flush_schema->copy_from(*_tablet_schema);
         }
         auto column_ref = data.get_by_position(i).column;
-        const vectorized::ColumnObject& object_column = assert_cast<vectorized::ColumnObject&>(
+        const vectorized::ColumnVariant& object_column = assert_cast<vectorized::ColumnVariant&>(
                 remove_nullable(column_ref)->assume_mutable_ref());
         const TabletColumnPtr& parent_column = _tablet_schema->columns()[i];
 

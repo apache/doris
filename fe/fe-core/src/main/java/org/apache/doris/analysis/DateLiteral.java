@@ -670,7 +670,7 @@ public class DateLiteral extends LiteralExpr {
             return diff < 0 ? -1 : (diff == 0 ? 0 : 1);
         }
         // date time will not overflow when doing addition and subtraction
-        return getStringValue().compareTo(expr.getStringValue());
+        return Integer.signum(getStringValue().compareTo(expr.getStringValue()));
     }
 
     @Override
@@ -765,8 +765,8 @@ public class DateLiteral extends LiteralExpr {
     }
 
     @Override
-    public String getStringValueForArray(FormatOptions options) {
-        return options.getNestedStringWrapper() + getStringValue() + options.getNestedStringWrapper();
+    protected String getStringValueInComplexTypeForQuery(FormatOptions options) {
+        return options.getNestedStringWrapper() + getStringValueForQuery(options) + options.getNestedStringWrapper();
     }
 
     public void roundCeiling(int newScale) {

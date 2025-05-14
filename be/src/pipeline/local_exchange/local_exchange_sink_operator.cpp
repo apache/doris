@@ -28,7 +28,7 @@ LocalExchangeSinkLocalState::~LocalExchangeSinkLocalState() = default;
 std::vector<Dependency*> LocalExchangeSinkLocalState::dependencies() const {
     auto deps = Base::dependencies();
 
-    auto dep = _shared_state->get_sink_dep_by_channel_id(_channel_id);
+    auto* dep = _shared_state->get_sink_dep_by_channel_id(_channel_id);
     if (dep != nullptr) {
         deps.push_back(dep);
     }
@@ -41,21 +41,17 @@ Status LocalExchangeSinkOperatorX::init(ExchangeType type, const int num_buckets
     _name = "LOCAL_EXCHANGE_SINK_OPERATOR (" + get_exchange_type_name(type) + ")";
     _type = type;
     if (_type == ExchangeType::HASH_SHUFFLE) {
+        _shuffle_idx_to_instance_idx.clear();
         _use_global_shuffle = use_global_hash_shuffle;
         // For shuffle join, if data distribution has been broken by previous operator, we
         // should use a HASH_SHUFFLE local exchanger to shuffle data again. To be mentioned,
         // we should use map shuffle idx to instance idx because all instances will be
         // distributed to all BEs. Otherwise, we should use shuffle idx directly.
         if (use_global_hash_shuffle) {
-            std::for_each(shuffle_idx_to_instance_idx.begin(), shuffle_idx_to_instance_idx.end(),
-                          [&](const auto& item) {
-                              DCHECK(item.first != -1);
-                              _shuffle_idx_to_instance_idx.push_back({item.first, item.second});
-                          });
+            _shuffle_idx_to_instance_idx = shuffle_idx_to_instance_idx;
         } else {
-            _shuffle_idx_to_instance_idx.resize(_num_partitions);
             for (int i = 0; i < _num_partitions; i++) {
-                _shuffle_idx_to_instance_idx[i] = {i, i};
+                _shuffle_idx_to_instance_idx[i] = i;
             }
         }
         _partitioner.reset(new vectorized::Crc32HashPartitioner<vectorized::ShuffleChannelIds>(
@@ -70,8 +66,8 @@ Status LocalExchangeSinkOperatorX::init(ExchangeType type, const int num_buckets
     return Status::OK();
 }
 
-Status LocalExchangeSinkOperatorX::open(RuntimeState* state) {
-    RETURN_IF_ERROR(DataSinkOperatorX<LocalExchangeSinkLocalState>::open(state));
+Status LocalExchangeSinkOperatorX::prepare(RuntimeState* state) {
+    RETURN_IF_ERROR(DataSinkOperatorX<LocalExchangeSinkLocalState>::prepare(state));
     if (_type == ExchangeType::HASH_SHUFFLE || _type == ExchangeType::BUCKET_HASH_SHUFFLE) {
         RETURN_IF_ERROR(_partitioner->prepare(state, _child->row_desc()));
         RETURN_IF_ERROR(_partitioner->open(state));
@@ -144,10 +140,15 @@ Status LocalExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
+
+    if (state->low_memory_mode()) {
+        set_low_memory_mode(state);
+    }
     RETURN_IF_ERROR(local_state._exchanger->sink(
             state, in_block, eos,
             {local_state._compute_hash_value_timer, local_state._distribute_timer, nullptr},
-            {&local_state._channel_id, local_state._partitioner.get(), &local_state}));
+            {&local_state._channel_id, local_state._partitioner.get(), &local_state,
+             &_shuffle_idx_to_instance_idx}));
 
     // If all exchange sources ended due to limit reached, current task should also finish
     if (local_state._exchanger->_running_source_operators == 0) {
@@ -156,5 +157,4 @@ Status LocalExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
 
     return Status::OK();
 }
-
 } // namespace doris::pipeline

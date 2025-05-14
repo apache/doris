@@ -17,6 +17,9 @@
 
 #include "runtime/workload_management/workload_sched_policy.h"
 
+#include "runtime/workload_management/resource_context.h"
+#include "util/time.h"
+
 namespace doris {
 
 void WorkloadSchedPolicy::init(int64_t id, std::string name, int version, bool enabled,
@@ -32,41 +35,63 @@ void WorkloadSchedPolicy::init(int64_t id, std::string name, int version, bool e
     _action_list = std::move(action_list);
     _wg_id_set = wg_id_set;
 
-    _first_action_type = _action_list[0]->get_action_type();
-    if (_first_action_type != WorkloadActionType::MOVE_QUERY_TO_GROUP &&
-        _first_action_type != WorkloadActionType::CANCEL_QUERY) {
-        for (int i = 1; i < _action_list.size(); i++) {
-            WorkloadActionType cur_action_type = _action_list[i]->get_action_type();
-            // one policy can not both contains move and cancel
-            if (cur_action_type == WorkloadActionType::MOVE_QUERY_TO_GROUP ||
-                cur_action_type == WorkloadActionType::CANCEL_QUERY) {
-                _first_action_type = cur_action_type;
-                break;
+    if (!_action_list.empty()) {
+        _first_action_type = _action_list[0]->get_action_type();
+        if (_first_action_type != WorkloadActionType::MOVE_QUERY_TO_GROUP &&
+            _first_action_type != WorkloadActionType::CANCEL_QUERY) {
+            for (int i = 1; i < _action_list.size(); i++) {
+                WorkloadActionType cur_action_type = _action_list[i]->get_action_type();
+                // one policy can not both contains move and cancel
+                if (cur_action_type == WorkloadActionType::MOVE_QUERY_TO_GROUP ||
+                    cur_action_type == WorkloadActionType::CANCEL_QUERY) {
+                    _first_action_type = cur_action_type;
+                    break;
+                }
             }
         }
     }
 }
 
-bool WorkloadSchedPolicy::is_match(WorkloadQueryInfo* query_info_ptr) {
+bool WorkloadSchedPolicy::is_match(WorkloadAction::RuntimeContext* action_runtime_ctx) const {
     if (!_enabled) {
         return false;
     }
 
     // 1 when policy has no group(_wg_id_set.size() < 0), it should match all query
     // 2 when policy has group, it can only match the query which has the same group
-    if (_wg_id_set.size() > 0 && (query_info_ptr->wg_id <= 0 ||
-                                  _wg_id_set.find(query_info_ptr->wg_id) == _wg_id_set.end())) {
+    if (!_wg_id_set.empty() &&
+        (action_runtime_ctx->resource_ctx->workload_group() == nullptr ||
+         _wg_id_set.find(action_runtime_ctx->resource_ctx->workload_group()->id()) ==
+                 _wg_id_set.end())) {
         return false;
     }
 
-    auto& metric_val_map = query_info_ptr->metric_map;
-    std::string cond_eval_msg = "";
-    for (auto& cond : _condition_list) {
-        if (metric_val_map.find(cond->get_workload_metric_type()) == metric_val_map.end()) {
+    std::string cond_eval_msg;
+    for (const auto& cond : _condition_list) {
+        std::string val;
+        switch (cond->get_workload_metric_type()) {
+        case WorkloadMetricType::QUERY_TIME: {
+            val = std::to_string(
+                    action_runtime_ctx->resource_ctx->task_controller()->running_time());
+            break;
+        }
+        case WorkloadMetricType::SCAN_BYTES: {
+            val = std::to_string(action_runtime_ctx->resource_ctx->io_context()->scan_bytes());
+            break;
+        }
+        case WorkloadMetricType::SCAN_ROWS: {
+            val = std::to_string(action_runtime_ctx->resource_ctx->io_context()->scan_rows());
+            break;
+        }
+        case WorkloadMetricType::QUERY_MEMORY_BYTES: {
+            val = std::to_string(
+                    action_runtime_ctx->resource_ctx->memory_context()->current_memory_bytes());
+            break;
+        }
+        default:
             return false;
         }
 
-        std::string val = metric_val_map.at(cond->get_workload_metric_type());
         if (!cond->eval(val)) {
             return false;
         }
@@ -74,15 +99,15 @@ bool WorkloadSchedPolicy::is_match(WorkloadQueryInfo* query_info_ptr) {
                          cond->get_metric_value_string() + "), ";
     }
     cond_eval_msg = cond_eval_msg.substr(0, cond_eval_msg.size() - 2);
-    query_info_ptr->cond_eval_msg = cond_eval_msg;
+    action_runtime_ctx->cond_eval_msg = cond_eval_msg;
     return true;
 }
 
-void WorkloadSchedPolicy::exec_action(WorkloadQueryInfo* query_info) {
-    for (int i = 0; i < _action_list.size(); i++) {
-        query_info->policy_id = this->_id;
-        query_info->policy_name = this->_name;
-        _action_list[i]->exec(query_info);
+void WorkloadSchedPolicy::exec_action(WorkloadAction::RuntimeContext* action_runtime_ctx) {
+    for (auto& action : _action_list) {
+        action_runtime_ctx->policy_id = this->_id;
+        action_runtime_ctx->policy_name = this->_name;
+        action->exec(action_runtime_ctx);
     }
 }
 

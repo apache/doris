@@ -56,7 +56,7 @@ Status HierarchicalDataReader::create(std::unique_ptr<ColumnIterator>* reader,
     // like {"a" : "b" : {"e" : 1.1}} in jsonb format
     if (read_type == ReadType::MERGE_SPARSE) {
         ColumnIterator* it;
-        RETURN_IF_ERROR(root->data.reader->new_iterator(&it));
+        RETURN_IF_ERROR(root->data.reader->new_iterator(&it, nullptr));
         stream_iter->set_root(std::make_unique<SubstreamIterator>(
                 root->data.file_column_type->create_column(), std::unique_ptr<ColumnIterator>(it),
                 root->data.file_column_type));
@@ -132,7 +132,7 @@ Status HierarchicalDataReader::add_stream(const SubcolumnColumnReaders::Node* no
     }
     CHECK(node);
     ColumnIterator* it;
-    RETURN_IF_ERROR(node->data.reader->new_iterator(&it));
+    RETURN_IF_ERROR(node->data.reader->new_iterator(&it, nullptr));
     std::unique_ptr<ColumnIterator> it_ptr;
     it_ptr.reset(it);
     SubstreamIterator reader(node->data.file_column_type->create_column(), std::move(it_ptr),
@@ -175,14 +175,14 @@ Status ExtractReader::extract_to(vectorized::MutableColumnPtr& dst, size_t nrows
     }
     auto& variant =
             nullable_column == nullptr
-                    ? assert_cast<vectorized::ColumnObject&>(*dst)
-                    : assert_cast<vectorized::ColumnObject&>(nullable_column->get_nested_column());
+                    ? assert_cast<vectorized::ColumnVariant&>(*dst)
+                    : assert_cast<vectorized::ColumnVariant&>(nullable_column->get_nested_column());
     const auto& root =
             _root_reader->column->is_nullable()
-                    ? assert_cast<vectorized::ColumnObject&>(
+                    ? assert_cast<vectorized::ColumnVariant&>(
                               assert_cast<vectorized::ColumnNullable&>(*_root_reader->column)
                                       .get_nested_column())
-                    : assert_cast<const vectorized::ColumnObject&>(*_root_reader->column);
+                    : assert_cast<const vectorized::ColumnVariant&>(*_root_reader->column);
     // extract root value with path, we can't modify the original root column
     // since some other column may depend on it.
     vectorized::MutableColumnPtr extracted_column;
@@ -200,7 +200,7 @@ Status ExtractReader::extract_to(vectorized::MutableColumnPtr& dst, size_t nrows
         RETURN_IF_ERROR(vectorized::schema_util::cast_column(
                 {extracted_column->get_ptr(),
                  vectorized::make_nullable(
-                         std::make_shared<vectorized::ColumnObject::MostCommonType>()),
+                         std::make_shared<vectorized::ColumnVariant::MostCommonType>()),
                  ""},
                 expected_type, &cast_column));
         variant.get_root()->insert_range_from(*cast_column, 0, nrows);

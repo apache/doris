@@ -39,6 +39,8 @@ namespace doris::cloud {
 class Transaction;
 
 constexpr std::string_view BUILT_IN_STORAGE_VAULT_NAME = "built_in_storage_vault";
+static constexpr int COMPACTION_DELETE_BITMAP_LOCK_ID = -1;
+static constexpr int SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID = -2;
 
 void internal_get_rowset(Transaction* txn, int64_t start, int64_t end,
                          const std::string& instance_id, int64_t tablet_id, MetaServiceCode& code,
@@ -301,6 +303,10 @@ public:
     void get_txn_id(::google::protobuf::RpcController* controller, const GetTxnIdRequest* request,
                     GetTxnIdResponse* response, ::google::protobuf::Closure* done) override;
 
+    void get_schema_dict(::google::protobuf::RpcController* controller,
+                         const GetSchemaDictRequest* request, GetSchemaDictResponse* response,
+                         ::google::protobuf::Closure* done) override;
+
     // ATTN: If you add a new method, please also add the corresponding implementation in `MetaServiceProxy`.
 
     std::pair<MetaServiceCode, std::string> get_instance_info(const std::string& instance_id,
@@ -314,6 +320,26 @@ private:
     std::pair<MetaServiceCode, std::string> alter_instance(
             const AlterInstanceRequest* request,
             std::function<std::pair<MetaServiceCode, std::string>(InstanceInfoPB*)> action);
+
+    void get_delete_bitmap_update_lock_v2(google::protobuf::RpcController* controller,
+                                          const GetDeleteBitmapUpdateLockRequest* request,
+                                          GetDeleteBitmapUpdateLockResponse* response,
+                                          ::google::protobuf::Closure* done);
+
+    void get_delete_bitmap_update_lock_v1(google::protobuf::RpcController* controller,
+                                          const GetDeleteBitmapUpdateLockRequest* request,
+                                          GetDeleteBitmapUpdateLockResponse* response,
+                                          ::google::protobuf::Closure* done);
+
+    void remove_delete_bitmap_update_lock_v2(google::protobuf::RpcController* controller,
+                                             const RemoveDeleteBitmapUpdateLockRequest* request,
+                                             RemoveDeleteBitmapUpdateLockResponse* response,
+                                             ::google::protobuf::Closure* done);
+
+    void remove_delete_bitmap_update_lock_v1(google::protobuf::RpcController* controller,
+                                             const RemoveDeleteBitmapUpdateLockRequest* request,
+                                             RemoveDeleteBitmapUpdateLockResponse* response,
+                                             ::google::protobuf::Closure* done);
 
     std::shared_ptr<TxnKv> txn_kv_;
     std::shared_ptr<ResourceManager> resource_mgr_;
@@ -692,6 +718,12 @@ public:
     void get_txn_id(::google::protobuf::RpcController* controller, const GetTxnIdRequest* request,
                     GetTxnIdResponse* response, ::google::protobuf::Closure* done) override {
         call_impl(&cloud::MetaService::get_txn_id, controller, request, response, done);
+    }
+
+    void get_schema_dict(::google::protobuf::RpcController* controller,
+                         const GetSchemaDictRequest* request, GetSchemaDictResponse* response,
+                         ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::get_schema_dict, controller, request, response, done);
     }
 
 private:

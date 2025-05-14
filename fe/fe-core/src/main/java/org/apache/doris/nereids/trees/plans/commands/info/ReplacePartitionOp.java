@@ -111,8 +111,8 @@ public class ReplacePartitionOp extends AlterTableOp {
             throw new AnalysisException("No partition specified");
         }
 
-        partitionNames.validate(ctx);
-        tempPartitionNames.validate(ctx);
+        partitionNames.validate();
+        tempPartitionNames.validate();
 
         if (partitionNames.isTemp() || !tempPartitionNames.isTemp()) {
             throw new AnalysisException("Only support replace partitions with temp partitions");

@@ -93,7 +93,7 @@ public:
     struct ScanPredicate {
         ScanPredicate() = default;
         ~ScanPredicate() = default;
-        const std::string column_name;
+        std::string column_name;
         SQLFilterOp op;
         std::vector<const CppType*> values;
         int scale;
@@ -187,10 +187,11 @@ public:
      * @param column_names Fields to read, also the required_fields in scanner_params
      */
     JniConnector(std::string connector_class, std::map<std::string, std::string> scanner_params,
-                 std::vector<std::string> column_names)
+                 std::vector<std::string> column_names, int64_t self_split_weight = -1)
             : _connector_class(std::move(connector_class)),
               _scanner_params(std::move(scanner_params)),
-              _column_names(std::move(column_names)) {
+              _column_names(std::move(column_names)),
+              _self_split_weight(self_split_weight) {
         // Use java class name as connector name
         _connector_name = split(_connector_class, "/").back();
     }
@@ -222,7 +223,8 @@ public:
      * number_filters(4) | length(4) | column_name | op(4) | scale(4) | num_values(4) | value_length(4) | value | ...
      * Then, pass the byte array address in configuration map, like "push_down_predicates=${address}"
      */
-    Status init(std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
+    Status init(
+            const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
 
     /**
      * Call java side function JniScanner.getNextBatchMeta. The columns information are stored as long array:
@@ -255,11 +257,7 @@ public:
     Status close();
 
     static std::string get_jni_type(const DataTypePtr& data_type);
-
-    /**
-     * Map PrimitiveType to hive type.
-     */
-    static std::string get_jni_type(const TypeDescriptor& desc);
+    static std::string get_jni_type_with_different_string(const DataTypePtr& data_type);
 
     static Status to_java_table(Block* block, size_t num_rows, const ColumnNumbers& arguments,
                                 std::unique_ptr<long[]>& meta);
@@ -282,14 +280,22 @@ private:
     std::string _connector_class;
     std::map<std::string, std::string> _scanner_params;
     std::vector<std::string> _column_names;
+    int32_t _self_split_weight;
     bool _is_table_schema = false;
 
     RuntimeState* _state = nullptr;
     RuntimeProfile* _profile = nullptr;
     RuntimeProfile::Counter* _open_scanner_time = nullptr;
     RuntimeProfile::Counter* _java_scan_time = nullptr;
+    RuntimeProfile::Counter* _java_append_data_time = nullptr;
+    RuntimeProfile::Counter* _java_create_vector_table_time = nullptr;
     RuntimeProfile::Counter* _fill_block_time = nullptr;
     std::map<std::string, RuntimeProfile::Counter*> _scanner_profile;
+    RuntimeProfile::ConditionCounter* _max_time_split_weight_counter = nullptr;
+
+    int64_t _jni_scanner_open_watcher = 0;
+    int64_t _java_scan_watcher = 0;
+    int64_t _fill_block_watcher = 0;
 
     size_t _has_read = 0;
 
@@ -298,6 +304,8 @@ private:
     jclass _jni_scanner_cls;
     jobject _jni_scanner_obj;
     jmethodID _jni_scanner_open;
+    jmethodID _jni_scanner_get_append_data_time;
+    jmethodID _jni_scanner_get_create_vector_table_time;
     jmethodID _jni_scanner_get_next_batch;
     jmethodID _jni_scanner_get_table_schema;
     jmethodID _jni_scanner_close;
@@ -353,7 +361,7 @@ private:
     }
 
     void _generate_predicates(
-            std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
+            const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
 
     template <PrimitiveType primitive_type>
     void _parse_value_range(const ColumnValueRange<primitive_type>& col_val_range,

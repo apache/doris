@@ -19,7 +19,7 @@ suite("q75_spill") {
     set enable_force_spill=true;
   """
   sql """
-    set min_revocable_mem=100;
+    set spill_min_revocable_mem=100;
   """
   sql """
     use regression_test_tpcds_sf1_unique_p1;

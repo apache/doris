@@ -127,7 +127,7 @@ suite("materialized_view_grouping_sets") {
     sql """analyze table orders with sync;"""
     sql """analyze table partsupp with sync;"""
 
-    sql """alter table orders modify column o_comment set stats ('row_count'='10');"""
+    sql """alter table orders modify column O_COMMENT set stats ('row_count'='10');"""
     sql """alter table lineitem modify column l_comment set stats ('row_count'='7');"""
 
     // query has group sets, and mv doesn't

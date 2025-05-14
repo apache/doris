@@ -34,7 +34,6 @@
 
 #include "common/consts.h"
 #include "common/status.h"
-#include "gutil/stringprintf.h"
 #include "olap/metadata_adder.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/options.h"
@@ -122,7 +121,6 @@ public:
     void set_is_key(bool is_key) { _is_key = is_key; }
     void set_is_nullable(bool is_nullable) { _is_nullable = is_nullable; }
     void set_is_auto_increment(bool is_auto_increment) { _is_auto_increment = is_auto_increment; }
-    void set_has_default_value(bool has) { _has_default_value = has; }
     void set_path_info(const vectorized::PathInData& path);
     FieldAggregationMethod aggregation() const { return _aggregation; }
     vectorized::AggregateFunctionPtr get_aggregate_function_union(
@@ -253,8 +251,6 @@ private:
 bool operator==(const TabletColumn& a, const TabletColumn& b);
 bool operator!=(const TabletColumn& a, const TabletColumn& b);
 
-class TabletSchema;
-
 class TabletIndex : public MetadataAdder<TabletIndex> {
 public:
     TabletIndex() = default;
@@ -266,8 +262,8 @@ public:
     int64_t index_id() const { return _index_id; }
     const std::string& index_name() const { return _index_name; }
     IndexType index_type() const { return _index_type; }
-    const vector<int32_t>& col_unique_ids() const { return _col_unique_ids; }
-    const std::map<string, string>& properties() const { return _properties; }
+    const std::vector<int32_t>& col_unique_ids() const { return _col_unique_ids; }
+    const std::map<std::string, std::string>& properties() const { return _properties; }
     int32_t get_gram_size() const {
         if (_properties.contains("gram_size")) {
             return std::stoi(_properties.at("gram_size"));
@@ -294,8 +290,10 @@ private:
     std::string _index_name;
     IndexType _index_type;
     std::vector<int32_t> _col_unique_ids;
-    std::map<string, string> _properties;
+    std::map<std::string, std::string> _properties;
 };
+
+using TabletIndexPtr = std::shared_ptr<TabletIndex>;
 
 class TabletSchema : public MetadataAdder<TabletSchema> {
 public:
@@ -345,6 +343,7 @@ public:
     Result<const TabletColumn*> column(const std::string& field_name) const;
     Status have_column(const std::string& field_name) const;
     bool exist_column(const std::string& field_name) const;
+    bool has_column_unique_id(int32_t col_unique_id) const;
     const TabletColumn& column_by_uid(int32_t col_unique_id) const;
     TabletColumn& mutable_column_by_uid(int32_t col_unique_id);
     TabletColumn& mutable_column(size_t ordinal);
@@ -370,10 +369,10 @@ public:
         _disable_auto_compaction = disable_auto_compaction;
     }
     bool disable_auto_compaction() const { return _disable_auto_compaction; }
-    void set_variant_enable_flatten_nested(bool flatten_nested) {
-        _variant_enable_flatten_nested = flatten_nested;
+    void set_enable_variant_flatten_nested(bool flatten_nested) {
+        _enable_variant_flatten_nested = flatten_nested;
     }
-    bool variant_flatten_nested() const { return _variant_enable_flatten_nested; }
+    bool variant_flatten_nested() const { return _enable_variant_flatten_nested; }
     void set_enable_single_replica_compaction(bool enable_single_replica_compaction) {
         _enable_single_replica_compaction = enable_single_replica_compaction;
     }
@@ -401,8 +400,8 @@ public:
     const std::vector<const TabletIndex*> inverted_indexes() const {
         std::vector<const TabletIndex*> inverted_indexes;
         for (const auto& index : _indexes) {
-            if (index.index_type() == IndexType::INVERTED) {
-                inverted_indexes.emplace_back(&index);
+            if (index->index_type() == IndexType::INVERTED) {
+                inverted_indexes.emplace_back(index.get());
             }
         }
         return inverted_indexes;
@@ -410,14 +409,14 @@ public:
     bool has_inverted_index() const {
         for (const auto& index : _indexes) {
             DBUG_EXECUTE_IF("tablet_schema::has_inverted_index", {
-                if (index.col_unique_ids().empty()) {
+                if (index->col_unique_ids().empty()) {
                     throw Exception(Status::InternalError("col unique ids cannot be empty"));
                 }
             });
 
-            if (index.index_type() == IndexType::INVERTED) {
+            if (index->index_type() == IndexType::INVERTED) {
                 //if index_id == -1, ignore it.
-                if (!index.col_unique_ids().empty() && index.col_unique_ids()[0] >= 0) {
+                if (!index->col_unique_ids().empty() && index->col_unique_ids()[0] >= 0) {
                     return true;
                 }
             }
@@ -478,8 +477,8 @@ public:
     // only reserve extracted columns
     void reserve_extracted_columns();
 
-    string get_all_field_names() const {
-        string str = "[";
+    std::string get_all_field_names() const {
+        std::string str = "[";
         for (auto p : _field_name_to_index) {
             if (str.size() > 1) {
                 str += ", ";
@@ -491,8 +490,8 @@ public:
     }
 
     // Dump [(name, type, is_nullable), ...]
-    string dump_structure() const {
-        string str = "[";
+    std::string dump_structure() const {
+        std::string str = "[";
         for (auto p : _cols) {
             if (str.size() > 1) {
                 str += ", ";
@@ -510,8 +509,8 @@ public:
         return str;
     }
 
-    string dump_full_schema() const {
-        string str = "[";
+    std::string dump_full_schema() const {
+        std::string str = "[";
         for (auto p : _cols) {
             if (str.size() > 1) {
                 str += ", ";
@@ -546,6 +545,7 @@ private:
     TabletSchema(const TabletSchema&) = default;
 
     void clear_column_cache_handlers();
+    void clear_index_cache_handlers();
 
     KeysType _keys_type = DUP_KEYS;
     SortType _sort_type = SortType::LEXICAL;
@@ -553,11 +553,29 @@ private:
     std::vector<TabletColumnPtr> _cols;
     std::vector<Cache::Handle*> _column_cache_handlers;
 
-    std::vector<TabletIndex> _indexes;
+    std::vector<TabletIndexPtr> _indexes;
+    std::vector<Cache::Handle*> _index_cache_handlers;
     std::unordered_map<StringRef, int32_t, StringRefHash> _field_name_to_index;
     std::unordered_map<int32_t, int32_t> _field_id_to_index;
     std::unordered_map<vectorized::PathInDataRef, int32_t, vectorized::PathInDataRef::Hash>
             _field_path_to_index;
+
+    // index_type/col_unique_id/suffix -> idx in _indexes
+    using IndexKey = std::tuple<IndexType, int32_t, std::string>;
+    struct IndexKeyHash {
+        size_t operator()(const IndexKey& t) const {
+            std::size_t seed = 0;
+            seed = doris::HashUtil::hash((const char*)&std::get<0>(t), sizeof(std::get<0>(t)),
+                                         seed);
+            seed = doris::HashUtil::hash((const char*)&std::get<1>(t), sizeof(std::get<1>(t)),
+                                         seed);
+            seed = doris::HashUtil::hash((const char*)std::get<2>(t).c_str(), std::get<2>(t).size(),
+                                         seed);
+            return seed;
+        }
+    };
+    std::unordered_map<IndexKey, int32_t, IndexKeyHash> _col_id_suffix_to_index;
+
     size_t _num_columns = 0;
     size_t _num_variant_columns = 0;
     size_t _num_key_columns = 0;
@@ -591,8 +609,7 @@ private:
     // Contains column ids of which columns should be encoded into row store.
     // ATTN: For compability reason empty cids means all columns of tablet schema are encoded to row column
     std::vector<int32_t> _row_store_column_unique_ids;
-    bool _variant_enable_flatten_nested = false;
-    int64_t _vl_field_mem_size {0}; // variable length field
+    bool _enable_variant_flatten_nested = false;
 };
 
 bool operator==(const TabletSchema& a, const TabletSchema& b);

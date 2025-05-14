@@ -32,7 +32,7 @@
 #include "vec/exec/format/parquet/schema_desc.h"
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 class ParquetPredicate {
 #define FOR_REINTERPRET_TYPES(M)             \
     M(TYPE_BOOLEAN, tparquet::Type::BOOLEAN) \
@@ -446,7 +446,7 @@ private:
     static inline bool _is_ascii(uint8_t byte) { return byte < 128; }
 
     static int _common_prefix(const std::string& encoding_min, const std::string& encoding_max) {
-        int min_length = std::min(encoding_min.size(), encoding_max.size());
+        size_t min_length = std::min(encoding_min.size(), encoding_max.size());
         int common_length = 0;
         while (common_length < min_length &&
                encoding_min[common_length] == encoding_max[common_length]) {
@@ -507,8 +507,8 @@ public:
         bool need_filter = false;
         std::visit(
                 [&](auto&& range) {
-                    std::vector<ScanPredicate> filters =
-                            _value_range_to_predicate(range, col_schema->type.type);
+                    std::vector<ScanPredicate> filters = _value_range_to_predicate(
+                            range, col_schema->data_type->get_primitive_type());
                     // Currently, ScanPredicate doesn't include "is null" && "x = null", filters will be empty when contains these exprs.
                     // So we can handle is_all_null safely.
                     if (!filters.empty()) {
@@ -532,5 +532,6 @@ public:
         return need_filter;
     }
 };
+#include "common/compile_check_end.h"
 
 } // namespace doris::vectorized

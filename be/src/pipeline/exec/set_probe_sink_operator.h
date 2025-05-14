@@ -56,6 +56,8 @@ private:
     template <class HashTableContext, bool is_intersected>
     friend struct vectorized::HashTableProbe;
 
+    int64_t _estimate_memory_usage = 0;
+
     //record insert column id during probe
     std::vector<uint16_t> _probe_column_inserted_id;
     vectorized::ColumnRawPtrs _probe_columns;
@@ -83,6 +85,11 @@ public:
                                         : tnode.except_node.is_colocate),
               _partition_exprs(is_intersect ? tnode.intersect_node.result_expr_lists[child_id]
                                             : tnode.except_node.result_expr_lists[child_id]) {}
+
+#ifdef BE_TEST
+    SetProbeSinkOperatorX(int cur_child_id)
+            : _cur_child_id(cur_child_id), _is_colocate(false), _partition_exprs {} {}
+#endif
     ~SetProbeSinkOperatorX() override = default;
     Status init(const TDataSink& tsink) override {
         return Status::InternalError(
@@ -92,7 +99,7 @@ public:
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
 
-    Status open(RuntimeState* state) override;
+    Status prepare(RuntimeState* state) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
     DataDistribution required_data_distribution() const override {
@@ -101,6 +108,8 @@ public:
     }
 
     std::shared_ptr<BasicSharedState> create_shared_state() const override { return nullptr; }
+
+    size_t get_reserve_mem_size(RuntimeState* state, bool eos) override;
 
 private:
     void _finalize_probe(SetProbeSinkLocalState<is_intersect>& local_state);

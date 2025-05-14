@@ -1,4 +1,3 @@
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -37,6 +36,7 @@
 #include "util/sse_util.hpp"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 constexpr uint32_t BlockBloomFilter::kRehash[8] __attribute__((aligned(32)));
 // constexpr data member requires initialization in the class declaration.
@@ -66,7 +66,7 @@ Status BlockBloomFilter::init_internal(const int log_space_bytes, uint32_t hash_
     }
     // Don't use _log_num_buckets if it will lead to undefined behavior by a shift
     // that is too large.
-    _directory_mask = (1ULL << _log_num_buckets) - 1;
+    _directory_mask = (1 << _log_num_buckets) - 1;
 
     const size_t alloc_size = directory_size();
     close(); // Ensure that any previously allocated memory for directory_ is released.
@@ -269,3 +269,4 @@ Status BlockBloomFilter::merge(const BlockBloomFilter& other) {
 }
 
 } // namespace doris
+#include "common/compile_check_end.h"

@@ -80,7 +80,6 @@ public class OrToIn {
         ExpressionBottomUpRewriter simplify = ExpressionRewrite.bottomUp(SimplifyRange.INSTANCE);
         expr = simplify.rewrite(expr, context);
         return rewriteTree(expr);
-
     }
 
     /**

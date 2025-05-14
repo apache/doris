@@ -57,6 +57,7 @@ import org.apache.thrift.TException;
 import java.lang.reflect.Type;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 // EnvFactory is responsed for create none-cloud object.
 // CloudEnvFactory is responsed for create cloud object.
@@ -152,12 +153,26 @@ public class EnvFactory {
                                          List<PlanFragment> fragments, List<ScanNode> scanNodes,
                                          String timezone, boolean loadZeroTolerance, boolean enableProfile) {
         if (SessionVariable.canUseNereidsDistributePlanner()) {
-            ConnectContext connectContext = new ConnectContext();
-            connectContext.setQueryId(queryId);
-            StatementContext statementContext = new StatementContext(
-                    connectContext, new OriginStatement("", 0)
-            );
-            DistributePlanner distributePlanner = new DistributePlanner(statementContext, fragments);
+            if (queryId == null) {
+                UUID taskId = UUID.randomUUID();
+                queryId = new TUniqueId(taskId.getMostSignificantBits(), taskId.getLeastSignificantBits());
+            }
+            ConnectContext connectContext = ConnectContext.get();
+            if (connectContext == null) {
+                connectContext = new ConnectContext();
+            }
+            if (connectContext.getLoadId() == null) {
+                connectContext.setLoadId(queryId);
+            }
+            if (connectContext.getEnv() == null) {
+                connectContext.setEnv(Env.getCurrentEnv());
+            }
+            StatementContext statementContext = connectContext.getStatementContext();
+            if (statementContext == null) {
+                statementContext = new StatementContext(connectContext, new OriginStatement("", 0));
+            }
+            DistributePlanner distributePlanner = new DistributePlanner(
+                    statementContext, fragments, false, true);
             FragmentIdMapping<DistributedPlan> distributedPlans = distributePlanner.plan();
 
             return new NereidsCoordinator(

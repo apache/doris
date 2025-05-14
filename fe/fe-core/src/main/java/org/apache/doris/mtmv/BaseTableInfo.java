@@ -122,6 +122,10 @@ public class BaseTableInfo {
         }
     }
 
+    public boolean isValid() {
+        return ctlName != null && dbName != null && tableName != null;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {

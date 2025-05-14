@@ -128,13 +128,13 @@ public class MaxComputeExternalTable extends ExternalTable {
     private TablePartitionValues loadPartitionValues(MaxComputeSchemaCacheValue schemaCacheValue) {
         List<String> partitionSpecs = schemaCacheValue.getPartitionSpecs();
         List<Type> partitionTypes = schemaCacheValue.getPartitionTypes();
+        List<String> partitionColumnNames = schemaCacheValue.getPartitionColumnNames();
         TablePartitionValues partitionValues = new TablePartitionValues();
         partitionValues.addPartitions(partitionSpecs,
                 partitionSpecs.stream()
-                        .map(p -> parsePartitionValues(getPartitionColumns().stream().map(c -> c.getName()).collect(
-                                Collectors.toList()), p))
+                        .map(p -> parsePartitionValues(partitionColumnNames, p))
                         .collect(Collectors.toList()),
-                partitionTypes);
+                partitionTypes, Collections.nCopies(partitionSpecs.size(), 0L));
         return partitionValues;
     }
 
@@ -187,9 +187,21 @@ public class MaxComputeExternalTable extends ExternalTable {
         }
 
         List<com.aliyun.odps.Column> partitionColumns = odpsTable.getSchema().getPartitionColumns();
+        List<String> partitionColumnNames = new ArrayList<>(partitionColumns.size());
+        List<Type> partitionTypes = new ArrayList<>(partitionColumns.size());
 
-        for (com.aliyun.odps.Column partitionColumn : partitionColumns) {
-            columnNameToOdpsColumn.put(partitionColumn.getName(), partitionColumn);
+        // sort partition columns to align partitionTypes and partitionName.
+        List<Column> partitionDorisColumns = new ArrayList<>();
+        for (com.aliyun.odps.Column partColumn : partitionColumns) {
+            Type partitionType = mcTypeToDorisType(partColumn.getTypeInfo());
+            Column dorisCol = new Column(partColumn.getName(), partitionType, true, null,
+                    true, partColumn.getComment(), true, -1);
+
+            columnNameToOdpsColumn.put(partColumn.getName(), partColumn);
+            partitionColumnNames.add(partColumn.getName());
+            partitionDorisColumns.add(dorisCol);
+            partitionTypes.add(partitionType);
+            schema.add(dorisCol);
         }
 
         List<String> partitionSpecs;
@@ -200,22 +212,9 @@ public class MaxComputeExternalTable extends ExternalTable {
         } else {
             partitionSpecs = ImmutableList.of();
         }
-        // sort partition columns to align partitionTypes and partitionName.
-        Map<String, Column> partitionNameToColumns = Maps.newHashMap();
-        for (com.aliyun.odps.Column partColumn : partitionColumns) {
-            Column dorisCol = new Column(partColumn.getName(),
-                    mcTypeToDorisType(partColumn.getTypeInfo()), true, null,
-                    true, partColumn.getComment(), true, -1);
-            partitionNameToColumns.put(dorisCol.getName(), dorisCol);
-        }
-        List<Type> partitionTypes = partitionNameToColumns.values()
-                .stream()
-                .map(Column::getType)
-                .collect(Collectors.toList());
 
-        schema.addAll(partitionNameToColumns.values());
-        return Optional.of(new MaxComputeSchemaCacheValue(schema, odpsTable, partitionSpecs, partitionNameToColumns,
-                partitionTypes));
+        return Optional.of(new MaxComputeSchemaCacheValue(schema, odpsTable, partitionColumnNames,
+                partitionSpecs, partitionDorisColumns, partitionTypes));
     }
 
     private Type mcTypeToDorisType(TypeInfo typeInfo) {
@@ -270,6 +269,7 @@ public class MaxComputeExternalTable extends ExternalTable {
             case DATETIME: {
                 return ScalarType.createDatetimeV2Type(3);
             }
+            case TIMESTAMP:
             case TIMESTAMP_NTZ: {
                 return ScalarType.createDatetimeV2Type(6);
             }

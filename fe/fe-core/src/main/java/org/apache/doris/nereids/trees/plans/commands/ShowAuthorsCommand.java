@@ -51,8 +51,13 @@ public class ShowAuthorsCommand extends ShowCommand {
     }
 
     @Override
+    public ShowResultSetMetaData getMetaData() {
+        return META_DATA;
+    }
+
+    @Override
     public ShowResultSet doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
         List<List<String>> rowSet = Lists.newArrayList();
-        return new ShowResultSet(META_DATA, rowSet);
+        return new ShowResultSet(getMetaData(), rowSet);
     }
 }

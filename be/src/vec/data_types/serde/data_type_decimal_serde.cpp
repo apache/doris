@@ -63,7 +63,7 @@ Status DataTypeDecimalSerDe<T>::serialize_one_cell_to_json(const IColumn& column
 
 template <typename T>
 Status DataTypeDecimalSerDe<T>::deserialize_column_from_json_vector(
-        IColumn& column, std::vector<Slice>& slices, int* num_deserialized,
+        IColumn& column, std::vector<Slice>& slices, uint64_t* num_deserialized,
         const FormatOptions& options) const {
     DESERIALIZE_COLUMN_FROM_JSON_VECTOR();
     return Status::OK();
@@ -82,7 +82,7 @@ Status DataTypeDecimalSerDe<T>::deserialize_one_cell_from_json(IColumn& column, 
         return Status::OK();
     }
     return Status::InvalidArgument("parse decimal fail, string: '{}', primitive type: '{}'",
-                                   std::string(rb.position(), rb.count()).c_str(),
+                                   std::string(slice.data, slice.size).c_str(),
                                    get_primitive_type());
 }
 
@@ -92,8 +92,8 @@ void DataTypeDecimalSerDe<T>::write_column_to_arrow(const IColumn& column, const
                                                     int64_t start, int64_t end,
                                                     const cctz::time_zone& ctz) const {
     auto& col = reinterpret_cast<const ColumnDecimal<T>&>(column);
-    auto& builder = reinterpret_cast<arrow::Decimal128Builder&>(*array_builder);
     if constexpr (std::is_same_v<T, Decimal<Int128>>) {
+        auto& builder = reinterpret_cast<arrow::Decimal128Builder&>(*array_builder);
         std::shared_ptr<arrow::DataType> s_decimal_ptr =
                 std::make_shared<arrow::Decimal128Type>(27, 9);
         for (size_t i = start; i < end; ++i) {
@@ -111,6 +111,7 @@ void DataTypeDecimalSerDe<T>::write_column_to_arrow(const IColumn& column, const
                              array_builder->type()->name());
         }
     } else if constexpr (std::is_same_v<T, Decimal128V3>) {
+        auto& builder = reinterpret_cast<arrow::Decimal128Builder&>(*array_builder);
         std::shared_ptr<arrow::DataType> s_decimal_ptr =
                 std::make_shared<arrow::Decimal128Type>(38, col.get_scale());
         for (size_t i = start; i < end; ++i) {
@@ -128,6 +129,7 @@ void DataTypeDecimalSerDe<T>::write_column_to_arrow(const IColumn& column, const
                              array_builder->type()->name());
         }
     } else if constexpr (std::is_same_v<T, Decimal<Int32>>) {
+        auto& builder = reinterpret_cast<arrow::Decimal128Builder&>(*array_builder);
         std::shared_ptr<arrow::DataType> s_decimal_ptr =
                 std::make_shared<arrow::Decimal128Type>(8, col.get_scale());
         for (size_t i = start; i < end; ++i) {
@@ -142,6 +144,7 @@ void DataTypeDecimalSerDe<T>::write_column_to_arrow(const IColumn& column, const
                              array_builder->type()->name());
         }
     } else if constexpr (std::is_same_v<T, Decimal<Int64>>) {
+        auto& builder = reinterpret_cast<arrow::Decimal128Builder&>(*array_builder);
         std::shared_ptr<arrow::DataType> s_decimal_ptr =
                 std::make_shared<arrow::Decimal128Type>(18, col.get_scale());
         for (size_t i = start; i < end; ++i) {
@@ -155,6 +158,28 @@ void DataTypeDecimalSerDe<T>::write_column_to_arrow(const IColumn& column, const
             checkArrowStatus(builder.Append(value), column.get_name(),
                              array_builder->type()->name());
         }
+    } else if constexpr (std::is_same_v<T, Decimal256>) {
+        auto& builder = reinterpret_cast<arrow::Decimal256Builder&>(*array_builder);
+        std::shared_ptr<arrow::DataType> s_decimal_ptr =
+                std::make_shared<arrow::Decimal256Type>(76, col.get_scale());
+        for (size_t i = start; i < end; ++i) {
+            if (null_map && (*null_map)[i]) {
+                checkArrowStatus(builder.AppendNull(), column.get_name(),
+                                 array_builder->type()->name());
+                continue;
+            }
+            auto p_value = wide::Int256(col.get_element(i));
+            using half_type = wide::Int256::base_type; // uint64_t
+            half_type a0 = p_value.items[wide::Int256::_impl::little(0)];
+            half_type a1 = p_value.items[wide::Int256::_impl::little(1)];
+            half_type a2 = p_value.items[wide::Int256::_impl::little(2)];
+            half_type a3 = p_value.items[wide::Int256::_impl::little(3)];
+
+            std::array<uint64_t, 4> word_array = {a0, a1, a2, a3};
+            arrow::Decimal256 value(arrow::Decimal256::LittleEndianArray, word_array);
+            checkArrowStatus(builder.Append(value), column.get_name(),
+                             array_builder->type()->name());
+        }
     } else {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "write_column_to_arrow with type " + column.get_name());
@@ -163,18 +188,19 @@ void DataTypeDecimalSerDe<T>::write_column_to_arrow(const IColumn& column, const
 
 template <typename T>
 void DataTypeDecimalSerDe<T>::read_column_from_arrow(IColumn& column,
-                                                     const arrow::Array* arrow_array, int start,
-                                                     int end, const cctz::time_zone& ctz) const {
-    auto concrete_array = dynamic_cast<const arrow::DecimalArray*>(arrow_array);
-    const auto* arrow_decimal_type =
-            static_cast<const arrow::DecimalType*>(arrow_array->type().get());
-    const auto arrow_scale = arrow_decimal_type->scale();
+                                                     const arrow::Array* arrow_array, int64_t start,
+                                                     int64_t end,
+                                                     const cctz::time_zone& ctz) const {
     auto& column_data = static_cast<ColumnDecimal<T>&>(column).get_data();
     // Decimal<Int128> for decimalv2
     // Decimal<Int128I> for deicmalv3
     if constexpr (std::is_same_v<T, Decimal<Int128>>) {
+        const auto* concrete_array = dynamic_cast<const arrow::DecimalArray*>(arrow_array);
+        const auto* arrow_decimal_type =
+                static_cast<const arrow::DecimalType*>(arrow_array->type().get());
+        const auto arrow_scale = arrow_decimal_type->scale();
         // TODO check precision
-        for (size_t value_i = start; value_i < end; ++value_i) {
+        for (auto value_i = start; value_i < end; ++value_i) {
             auto value = *reinterpret_cast<const vectorized::Decimal128V2*>(
                     concrete_array->Value(value_i));
             // convert scale to 9;
@@ -198,7 +224,13 @@ void DataTypeDecimalSerDe<T>::read_column_from_arrow(IColumn& column,
         }
     } else if constexpr (std::is_same_v<T, Decimal128V3> || std::is_same_v<T, Decimal64> ||
                          std::is_same_v<T, Decimal32>) {
-        for (size_t value_i = start; value_i < end; ++value_i) {
+        const auto* concrete_array = dynamic_cast<const arrow::DecimalArray*>(arrow_array);
+        for (auto value_i = start; value_i < end; ++value_i) {
+            column_data.emplace_back(*reinterpret_cast<const T*>(concrete_array->Value(value_i)));
+        }
+    } else if constexpr (std::is_same_v<T, Decimal256>) {
+        const auto* concrete_array = dynamic_cast<const arrow::Decimal256Array*>(arrow_array);
+        for (auto value_i = start; value_i < end; ++value_i) {
             column_data.emplace_back(*reinterpret_cast<const T*>(concrete_array->Value(value_i)));
         }
     } else {
@@ -261,7 +293,7 @@ Status DataTypeDecimalSerDe<T>::write_column_to_orc(const std::string& timezone,
         for (size_t row_id = start; row_id < end; row_id++) {
             if (cur_batch->notNull[row_id] == 1) {
                 auto& v = col_data[row_id];
-                orc::Int128 value(v >> 64, (uint64_t)v);
+                orc::Int128 value(v >> 64, (uint64_t)v); // TODO, Decimal256 will lose precision
                 cur_batch->values[row_id] = value;
             }
         }
@@ -282,7 +314,7 @@ Status DataTypeDecimalSerDe<T>::write_column_to_orc(const std::string& timezone,
 template <typename T>
 
 Status DataTypeDecimalSerDe<T>::deserialize_column_from_fixed_json(
-        IColumn& column, Slice& slice, int rows, int* num_deserialized,
+        IColumn& column, Slice& slice, uint64_t rows, uint64_t* num_deserialized,
         const FormatOptions& options) const {
     if (rows < 1) [[unlikely]] {
         return Status::OK();
@@ -299,7 +331,7 @@ Status DataTypeDecimalSerDe<T>::deserialize_column_from_fixed_json(
 
 template <typename T>
 void DataTypeDecimalSerDe<T>::insert_column_last_value_multiple_times(IColumn& column,
-                                                                      int times) const {
+                                                                      uint64_t times) const {
     if (times < 1) [[unlikely]] {
         return;
     }

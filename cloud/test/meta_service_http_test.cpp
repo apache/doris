@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "meta-service/meta_service_http.h"
+
 #include <brpc/channel.h>
 #include <brpc/controller.h>
 #include <brpc/server.h>
@@ -697,14 +699,58 @@ TEST(MetaServiceHttpTest, AlterClusterTest) {
         ASSERT_EQ(resp.code(), MetaServiceCode::INVALID_ARGUMENT);
     }
 
+    // no cluster name
     {
         AlterClusterRequest req;
         req.set_instance_id(mock_instance);
         req.mutable_cluster()->set_type(ClusterPB::COMPUTE);
         req.mutable_cluster()->set_cluster_id(mock_cluster_id + "1");
         auto [status_code, resp] = ctx.forward<MetaServiceResponseStatus>("add_cluster", req);
+        ASSERT_EQ(status_code, 400);
+        ASSERT_EQ(resp.code(), MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_EQ(resp.msg(), "not have cluster name");
+    }
+
+    // cluster name ""
+    {
+        AlterClusterRequest req;
+        req.set_instance_id(mock_instance);
+        req.mutable_cluster()->set_type(ClusterPB::COMPUTE);
+        req.mutable_cluster()->set_cluster_name("");
+        req.mutable_cluster()->set_cluster_id(mock_cluster_id + "1");
+        auto [status_code, resp] = ctx.forward<MetaServiceResponseStatus>("add_cluster", req);
+        ASSERT_EQ(status_code, 400);
+        ASSERT_EQ(resp.code(), MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_EQ(resp.msg(),
+                  "cluster name not regex with ^[a-zA-Z][a-zA-Z0-9_]*$, please check it");
+    }
+
+    config::enable_cluster_name_check = false;
+    // cluster name ""
+    {
+        AlterClusterRequest req;
+        req.set_instance_id(mock_instance);
+        req.mutable_cluster()->set_type(ClusterPB::COMPUTE);
+        req.mutable_cluster()->set_cluster_name("");
+        req.mutable_cluster()->set_cluster_id(mock_cluster_id + "1");
+        auto [status_code, resp] = ctx.forward<MetaServiceResponseStatus>("add_cluster", req);
+        ASSERT_EQ(status_code, 400);
+        ASSERT_EQ(resp.code(), MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_EQ(resp.msg(), "not have cluster name");
+    }
+
+    config::enable_cluster_name_check = true;
+    // ok
+    {
+        AlterClusterRequest req;
+        req.set_instance_id(mock_instance);
+        req.mutable_cluster()->set_type(ClusterPB::COMPUTE);
+        req.mutable_cluster()->set_cluster_name("aaaa");
+        req.mutable_cluster()->set_cluster_id(mock_cluster_id + "1");
+        auto [status_code, resp] = ctx.forward<MetaServiceResponseStatus>("add_cluster", req);
         ASSERT_EQ(status_code, 200);
         ASSERT_EQ(resp.code(), MetaServiceCode::OK);
+        ASSERT_EQ(resp.msg(), "");
     }
 
     // case: request has invalid argument
@@ -1758,6 +1804,166 @@ TEST(MetaServiceHttpTest, UpdateConfig) {
         }
         std::filesystem::remove(config::custom_conf_path);
         config::custom_conf_path = original_conf_path;
+    }
+}
+
+TEST(HttpEncodeKeyTest, ProcessHttpSetValue) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+    // Create and serialize initial RowsetMeta
+    RowsetMetaCloudPB initial_rowset_meta;
+    initial_rowset_meta.set_rowset_id_v2("12345");
+    initial_rowset_meta.set_rowset_id(0);
+    initial_rowset_meta.set_tablet_id(67890);
+    initial_rowset_meta.set_num_rows(100);
+    initial_rowset_meta.set_data_disk_size(1024);
+    std::string serialized_initial = initial_rowset_meta.SerializeAsString();
+
+    // Generate proper rowset meta key
+    std::string instance_id = "test_instance";
+    int64_t tablet_id = 67890;
+    int64_t version = 10086;
+
+    // Generate proper rowset meta key
+    MetaRowsetKeyInfo key_info {instance_id, tablet_id, version};
+    std::string initial_key = meta_rowset_key(key_info);
+
+    // Store initial RowsetMeta in TxnKv
+    txn->put(initial_key, serialized_initial);
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    // Create new RowsetMeta to update
+    RowsetMetaCloudPB new_rowset_meta;
+    new_rowset_meta.set_rowset_id_v2("12345");
+    new_rowset_meta.set_rowset_id(0);
+    new_rowset_meta.set_tablet_id(67890);
+    new_rowset_meta.set_num_rows(200);        // Updated row count
+    new_rowset_meta.set_data_disk_size(2048); // Updated size
+    std::string json_value = proto_to_json(new_rowset_meta);
+
+    // Initialize cntl URI with required parameters
+    brpc::URI cntl_uri;
+    cntl_uri._path = "/meta-service/http/set_value";
+    cntl_uri.SetQuery("key_type", "MetaRowsetKey");
+    cntl_uri.SetQuery("instance_id", instance_id);
+    cntl_uri.SetQuery("tablet_id", std::to_string(tablet_id));
+    cntl_uri.SetQuery("version", std::to_string(version));
+
+    brpc::Controller cntl;
+    cntl.request_attachment().append(json_value);
+    cntl.http_request().uri() = cntl_uri;
+
+    // Test update
+    auto response = process_http_set_value(txn_kv.get(), &cntl);
+    EXPECT_EQ(response.status_code, 200) << response.msg;
+    std::stringstream final_json;
+    final_json << "original_value_hex=" << hex(initial_rowset_meta.SerializeAsString()) << "\n"
+               << "key_hex=" << hex(initial_key) << "\n"
+               << "original_value_json=" << proto_to_json(initial_rowset_meta) << "\n";
+    // std::cout << "xxx " << final_json.str() << std::endl;
+    EXPECT_EQ(response.body, final_json.str());
+
+    // Verify update
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string updated_value;
+    ASSERT_EQ(txn->get(initial_key, &updated_value), TxnErrorCode::TXN_OK);
+
+    RowsetMetaCloudPB updated_rowset_meta;
+    ASSERT_TRUE(updated_rowset_meta.ParseFromString(updated_value));
+    EXPECT_EQ(updated_rowset_meta.rowset_id_v2(), "12345");
+    EXPECT_EQ(updated_rowset_meta.tablet_id(), 67890);
+    EXPECT_EQ(updated_rowset_meta.num_rows(), 200);
+    EXPECT_EQ(updated_rowset_meta.data_disk_size(), 2048);
+}
+
+TEST(MetaServiceHttpTest, CreateInstanceWithIamRoleTest) {
+    HttpContext ctx;
+
+    brpc::Controller cntl;
+    std::string instance_id = "iam_role_test_instance_id";
+
+    {
+        ObjectStoreInfoPB obj;
+        obj.set_endpoint("s3.us-east-1.amazonaws.com");
+        obj.set_region("us-east-1");
+        obj.set_prefix("/test-prefix");
+        obj.set_provider(ObjectStoreInfoPB::S3);
+
+        // create instance without ram user
+        CreateInstanceRequest create_instance_req;
+        create_instance_req.set_instance_id(instance_id);
+        create_instance_req.set_user_id("test_user");
+        create_instance_req.set_name("test_name");
+        create_instance_req.mutable_obj_info()->CopyFrom(obj);
+        CreateInstanceResponse create_instance_res;
+        ctx.meta_service_->create_instance(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &create_instance_req,
+                &create_instance_res, nullptr);
+        LOG(INFO) << create_instance_res.DebugString();
+        ASSERT_EQ(create_instance_res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+    }
+
+    {
+        ObjectStoreInfoPB obj;
+        obj.set_endpoint("s3.us-east-1.amazonaws.com");
+        obj.set_region("us-east-1");
+        obj.set_prefix("/test-prefix");
+        obj.set_provider(ObjectStoreInfoPB::S3);
+
+        // create instance without ram user
+        CreateInstanceRequest create_instance_req;
+        create_instance_req.set_instance_id(instance_id);
+        create_instance_req.set_user_id("test_user");
+        create_instance_req.set_name("test_name");
+        create_instance_req.mutable_obj_info()->CopyFrom(obj);
+        CreateInstanceResponse create_instance_res;
+        ctx.meta_service_->create_instance(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &create_instance_req,
+                &create_instance_res, nullptr);
+        LOG(INFO) << create_instance_res.DebugString();
+        ASSERT_EQ(create_instance_res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+    }
+
+    {
+        ObjectStoreInfoPB obj;
+        obj.set_endpoint("s3.us-east-1.amazonaws.com");
+        obj.set_region("us-east-1");
+        obj.set_bucket("test-bucket");
+        obj.set_prefix("test-prefix");
+        obj.set_provider(ObjectStoreInfoPB::S3);
+        obj.set_role_arn("arn:aws:iam::123456789012:role/test-role");
+        obj.set_external_id("test-external-id");
+        obj.set_cred_provider_type(CredProviderTypePB::INSTANCE_PROFILE);
+
+        CreateInstanceRequest create_instance_req;
+        create_instance_req.set_instance_id(instance_id);
+        create_instance_req.set_user_id("test_user");
+        create_instance_req.set_name("test_name");
+        create_instance_req.mutable_obj_info()->CopyFrom(obj);
+        CreateInstanceResponse create_instance_res;
+        ctx.meta_service_->create_instance(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &create_instance_req,
+                &create_instance_res, nullptr);
+        LOG(INFO) << create_instance_res.DebugString();
+        ASSERT_EQ(create_instance_res.status().code(), MetaServiceCode::OK);
+
+        InstanceInfoPB instance = ctx.get_instance_info(instance_id);
+        LOG(INFO) << instance.DebugString();
+
+        ASSERT_EQ(instance.obj_info().Get(0).endpoint(), "s3.us-east-1.amazonaws.com");
+        ASSERT_EQ(instance.obj_info().Get(0).region(), "us-east-1");
+        ASSERT_EQ(instance.obj_info().Get(0).bucket(), "test-bucket");
+        ASSERT_EQ(instance.obj_info().Get(0).prefix(), "test-prefix");
+        ASSERT_EQ(instance.obj_info().Get(0).provider(), ObjectStoreInfoPB::S3);
+        ASSERT_EQ(instance.obj_info().Get(0).role_arn(),
+                  "arn:aws:iam::123456789012:role/test-role");
+        ASSERT_EQ(instance.obj_info().Get(0).external_id(), "test-external-id");
+        ASSERT_EQ(instance.obj_info().Get(0).cred_provider_type(),
+                  CredProviderTypePB::INSTANCE_PROFILE);
+        ASSERT_EQ(instance.obj_info().Get(0).has_ak(), false);
+        ASSERT_EQ(instance.obj_info().Get(0).has_sk(), false);
     }
 }
 

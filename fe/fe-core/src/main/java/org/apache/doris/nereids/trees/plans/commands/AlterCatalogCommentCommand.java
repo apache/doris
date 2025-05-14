@@ -42,6 +42,7 @@ public class AlterCatalogCommentCommand extends AlterCatalogCommand {
 
     @Override
     public void doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        validate(ctx);
         // Validate the catalog name
         if (Strings.isNullOrEmpty(comment)) {
             throw new AnalysisException("New comment is not set.");

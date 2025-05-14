@@ -38,9 +38,9 @@
 #include "cloud/config.h"
 #include "common/cast_set.h"
 #include "common/config.h"
+#include "common/kerberos/kerberos_ticket_mgr.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "gutil/integral_types.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/block_file_cache_downloader.h"
 #include "io/cache/block_file_cache_factory.h"
@@ -110,15 +110,22 @@
 #include "vec/exec/format/orc/orc_memory_pool.h"
 #include "vec/exec/format/parquet/arrow_memory_pool.h"
 #include "vec/exec/scan/scanner_scheduler.h"
+#include "vec/functions/dictionary_factory.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 #include "vec/sink/delta_writer_v2_pool.h"
 #include "vec/sink/load_stream_map_pool.h"
 #include "vec/spill/spill_stream_manager.h"
+// clang-format off
+// this must after util/brpc_client_cache.h
+// /doris/thirdparty/installed/include/brpc/errno.pb.h:69:3: error: expected identifier
+//  EINTERNAL = 2001,
+//   ^
+//  /doris/thirdparty/installed/include/hadoop_hdfs/hdfs.h:61:19: note: expanded from macro 'EINTERNAL'
+//  #define EINTERNAL 255
+#include "io/fs/hdfs/hdfs_mgr.h"
+// clang-format on
 
-#if !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && \
-        !defined(THREAD_SANITIZER) && !defined(USE_JEMALLOC)
 #include "runtime/memory/tcmalloc_hook.h"
-#endif
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -149,7 +156,7 @@ static void init_doris_metrics(const std::vector<StorePath>& store_paths) {
 }
 
 // Used to calculate the num of min thread and max thread based on the passed config
-static pair<size_t, size_t> get_num_threads(size_t min_num, size_t max_num) {
+static std::pair<size_t, size_t> get_num_threads(size_t min_num, size_t max_num) {
     auto num_cores = doris::CpuInfo::num_cores();
     min_num = (min_num == 0) ? num_cores : min_num;
     max_num = (max_num == 0) ? num_cores : max_num;
@@ -252,6 +259,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     // so it should be created before all query begin and deleted after all query and daemon thread stoppped
     _runtime_query_statistics_mgr = new RuntimeQueryStatisticsMgr();
     CgroupCpuCtl::init_doris_cgroup_path();
+    _file_cache_open_fd_cache = std::make_unique<io::FDCache>();
     _file_cache_factory = new io::FileCacheFactory();
     std::vector<doris::CachePath> cache_paths;
     init_file_cache_factory(cache_paths);
@@ -260,7 +268,6 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _pipeline_tracer_ctx = std::make_unique<pipeline::PipelineTracerContext>(); // before query
     RETURN_IF_ERROR(init_pipeline_task_scheduler());
     _workload_group_manager = new WorkloadGroupMgr();
-    _workload_group_manager->init_internal_workload_group();
     _scanner_scheduler = new doris::vectorized::ScannerScheduler();
     _fragment_mgr = new FragmentMgr(this);
     _result_cache = new ResultCache(config::query_cache_max_size_mb,
@@ -292,11 +299,12 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _memtable_memory_limiter = std::make_unique<MemTableMemoryLimiter>();
     _load_stream_map_pool = std::make_unique<LoadStreamMapPool>();
     _delta_writer_v2_pool = std::make_unique<vectorized::DeltaWriterV2Pool>();
-    _file_cache_open_fd_cache = std::make_unique<io::FDCache>();
     _wal_manager = WalManager::create_unique(this, config::group_commit_wal_path);
     _dns_cache = new DNSCache();
     _write_cooldown_meta_executors = std::make_unique<WriteCooldownMetaExecutors>();
     _spill_stream_mgr = new vectorized::SpillStreamManager(std::move(spill_store_map));
+    _kerberos_ticket_mgr = new kerberos::KerberosTicketMgr(config::kerberos_ccache_path);
+    _hdfs_mgr = new io::HdfsMgr();
     _backend_client_cache->init_metrics("backend");
     _frontend_client_cache->init_metrics("frontend");
     _broker_client_cache->init_metrics("broker");
@@ -348,8 +356,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
         return st;
     }
     _storage_engine->set_heartbeat_flags(this->heartbeat_flags());
-    WorkloadGroupPtr internal_wg = _workload_group_manager->get_internal_wg();
-    if (st = _storage_engine->start_bg_threads(internal_wg); !st.ok()) {
+    if (st = _storage_engine->start_bg_threads(nullptr); !st.ok()) {
         LOG(ERROR) << "Failed to starge bg threads of storage engine, res=" << st;
         return st;
     }
@@ -359,6 +366,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
 
     RETURN_IF_ERROR(_spill_stream_mgr->init());
     _runtime_query_statistics_mgr->start_report_thread();
+    _dict_factory = new doris::vectorized::DictionaryFactory();
     _s_ready = true;
 
     return Status::OK();
@@ -437,10 +445,8 @@ Status ExecEnv::_init_mem_env() {
     _heap_profiler = HeapProfiler::create_global_instance();
     init_mem_tracker();
     thread_context()->thread_mem_tracker_mgr->init();
-#if defined(USE_MEM_TRACKER) && !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && \
-        !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER) && !defined(USE_JEMALLOC)
+
     init_hook();
-#endif
 
     if (!BitUtil::IsPowerOf2(config::min_buffer_size)) {
         ss << "Config min_buffer_size must be a power-of-two: " << config::min_buffer_size;
@@ -604,6 +610,8 @@ void ExecEnv::init_mem_tracker() {
             MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "S3FileBuffer");
     _stream_load_pipe_tracker =
             MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::LOAD, "StreamLoadPipe");
+    _parquet_meta_tracker =
+            MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::METADATA, "ParquetMeta");
 }
 
 Status ExecEnv::_check_deploy_mode() {
@@ -710,7 +718,6 @@ void ExecEnv::destroy() {
     _memtable_memory_limiter.reset();
     _delta_writer_v2_pool.reset();
     _load_stream_map_pool.reset();
-    _file_cache_open_fd_cache.reset();
     SAFE_STOP(_write_cooldown_meta_executors);
 
     // StorageEngine must be destoried before _cache_manager destory
@@ -731,7 +738,6 @@ void ExecEnv::destroy() {
 
     SAFE_DELETE(_load_channel_mgr);
 
-    SAFE_DELETE(_spill_stream_mgr);
     SAFE_DELETE(_inverted_index_query_cache);
     SAFE_DELETE(_inverted_index_searcher_cache);
     SAFE_DELETE(_lookup_connection_cache);
@@ -763,11 +769,16 @@ void ExecEnv::destroy() {
 
     SAFE_DELETE(_bfd_parser);
     SAFE_DELETE(_result_cache);
+    SAFE_DELETE(_vstream_mgr);
+    // When _vstream_mgr is deconstructed, it will try call query context's dctor and will
+    // access spill stream mgr, so spill stream mgr should be deconstructed after data stream manager
+    SAFE_DELETE(_spill_stream_mgr);
     SAFE_DELETE(_fragment_mgr);
     SAFE_DELETE(_workload_sched_mgr);
     SAFE_DELETE(_workload_group_manager);
     SAFE_DELETE(_file_cache_factory);
     SAFE_DELETE(_runtime_filter_timer_queue);
+    SAFE_DELETE(_dict_factory);
     // TODO(zhiqiang): Maybe we should call shutdown before release thread pool?
     _lazy_release_obj_pool.reset(nullptr);
     _non_block_close_thread_pool.reset(nullptr);
@@ -776,7 +787,6 @@ void ExecEnv::destroy() {
     _buffered_reader_prefetch_thread_pool.reset(nullptr);
     _s3_file_upload_thread_pool.reset(nullptr);
     _send_batch_thread_pool.reset(nullptr);
-    _file_cache_open_fd_cache.reset(nullptr);
     _write_cooldown_meta_executors.reset(nullptr);
 
     SAFE_DELETE(_broker_client_cache);
@@ -784,13 +794,13 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_backend_client_cache);
     SAFE_DELETE(_result_queue_mgr);
 
-    SAFE_DELETE(_vstream_mgr);
     SAFE_DELETE(_external_scan_context_mgr);
     SAFE_DELETE(_user_function_cache);
 
     // cache_manager must be destoried after all cache.
     // https://github.com/apache/doris/issues/24082#issuecomment-1712544039
     SAFE_DELETE(_cache_manager);
+    _file_cache_open_fd_cache.reset(nullptr);
 
     // _heartbeat_flags must be destoried after staroge engine
     SAFE_DELETE(_heartbeat_flags);
@@ -813,6 +823,8 @@ void ExecEnv::destroy() {
 
     // dns cache is a global instance and need to be released at last
     SAFE_DELETE(_dns_cache);
+    SAFE_DELETE(_kerberos_ticket_mgr);
+    SAFE_DELETE(_hdfs_mgr);
 
     SAFE_DELETE(_process_profile);
     SAFE_DELETE(_heap_profiler);

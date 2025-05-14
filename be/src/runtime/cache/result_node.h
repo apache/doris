@@ -24,7 +24,6 @@
 #include <shared_mutex>
 #include <unordered_map>
 
-#include "gutil/integral_types.h"
 #include "runtime/cache/cache_utils.h"
 #include "util/uid_util.h"
 
@@ -35,7 +34,7 @@ namespace doris {
 */
 class PartitionRowBatch {
 public:
-    PartitionRowBatch(int64 partition_key)
+    PartitionRowBatch(int64_t partition_key)
             : _partition_key(partition_key), _cache_value(nullptr), _data_size(0) {}
 
     ~PartitionRowBatch() {}
@@ -44,7 +43,7 @@ public:
     bool is_hit_cache(const PCacheParam& param);
     void clear();
 
-    int64 get_partition_key() const { return _partition_key; }
+    int64_t get_partition_key() const { return _partition_key; }
 
     PCacheValue* get_value() { return _cache_value; }
 
@@ -92,13 +91,13 @@ private:
     }
 
 private:
-    int64 _partition_key;
+    int64_t _partition_key;
     PCacheValue* _cache_value = nullptr;
     size_t _data_size;
     CacheStat _cache_stat;
 };
 
-typedef int64 PartitionKey;
+typedef int64_t PartitionKey;
 typedef std::list<PartitionRowBatch*> PartitionRowBatchList;
 typedef std::unordered_map<PartitionKey, PartitionRowBatch*> PartitionRowBatchMap;
 
