@@ -97,6 +97,7 @@ Status TabletSinkHashPartitioner::do_partitioning(RuntimeState* state, Block* bl
     int64_t filtered_rows = 0;
     int64_t number_input_rows = _local_state->rows_input_counter()->value();
     std::shared_ptr<vectorized::Block> convert_block = std::make_shared<vectorized::Block>();
+    // add local_exchange before this node to deal row distribution
     RETURN_IF_ERROR(_row_distribution.generate_rows_distribution(
             *block, convert_block, filtered_rows, has_filtered_rows, _row_part_tablet_ids,
             number_input_rows, _row_distribution.consume_reentry_flag()));

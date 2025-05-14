@@ -143,7 +143,7 @@ public:
     std::vector<bool> get_skipped() { return _skip; } // skipped in last round
 
     // for auto partition
-    std::unique_ptr<MutableBlock> _batching_block;
+    std::unique_ptr<MutableBlock> _batching_block; // same structure with input_block
     bool _deal_batched = false; // If true, send batched block before any block's append.
     void store_reentry_flag() {
         DCHECK_EQ(_reentry_flag, false);

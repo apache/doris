@@ -395,7 +395,8 @@ Status VRowDistribution::_generate_rows_distribution_for_auto_partition(
     RETURN_IF_ERROR(_filter_block(block, row_part_tablet_ids));
 
     if (!_missing_map.empty()) {
-        RETURN_IF_ERROR(_deal_missing_map(block, partition_cols_idx, rows_stat_val));
+        RETURN_IF_ERROR(_deal_missing_map(block, partition_cols_idx,
+                                          rows_stat_val)); // send input block to save
     }
     return Status::OK();
 }
@@ -498,7 +499,7 @@ Status VRowDistribution::generate_rows_distribution(
 
         // batching block rows which need new partitions. deal together at finish.
         if (!_batching_block) [[unlikely]] {
-            std::unique_ptr<Block> tmp_block = block->create_same_struct_block(0);
+            std::unique_ptr<Block> tmp_block = input_block.create_same_struct_block(0);
             _batching_block = MutableBlock::create_unique(std::move(*tmp_block));
         }
     }

@@ -817,7 +817,7 @@ Status PipelineFragmentContext::_add_local_exchange_impl(
                         ? cast_set<int>(
                                   _runtime_state->query_options().local_exchange_free_blocks_limit)
                         : 0);
-        break;
+        break; //TODO: add exchange type to generate new Exchanger
     default:
         return Status::InternalError("Unsupported local exchange type : " +
                                      std::to_string((int)data_distribution.distribution_type));
