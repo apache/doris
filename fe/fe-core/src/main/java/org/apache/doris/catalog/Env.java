@@ -6416,6 +6416,8 @@ public class Env {
             olapTable.replaceTempPartitions(dbId, replaceTempPartitionLog.getPartitions(),
                     replaceTempPartitionLog.getTempPartitions(), replaceTempPartitionLog.isStrictRange(),
                     replaceTempPartitionLog.useTempPartitionName(), replaceTempPartitionLog.isForce());
+            // In cloud mode, the internal partition deletion logic will update the table version,
+            // so here we only need to handle non-cloud mode.
             if (Config.isNotCloudMode()) {
                 olapTable.updateVisibleVersionAndTime(replaceTempPartitionLog.getVersion(),
                         replaceTempPartitionLog.getVersionTime());
