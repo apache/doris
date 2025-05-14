@@ -25,7 +25,6 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.security.authentication.AuthenticationConfig;
 import org.apache.doris.common.security.authentication.HadoopAuthenticator;
-import org.apache.doris.common.security.authentication.PreExecutionAuthenticator;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
@@ -162,14 +161,18 @@ public class HMSExternalCatalog extends ExternalCatalog {
     }
 
     @Override
-    protected void initLocalObjectsImpl() {
-        this.preExecutionAuthenticator = new PreExecutionAuthenticator();
+    public void initPreExecutionAuthenticator() {
+        super.initPreExecutionAuthenticator();
         if (this.authenticator == null) {
             AuthenticationConfig config = AuthenticationConfig.getKerberosConfig(getConfiguration());
             this.authenticator = HadoopAuthenticator.getHadoopAuthenticator(config);
             this.preExecutionAuthenticator.setHadoopAuthenticator(authenticator);
         }
+    }
 
+    @Override
+    protected void initLocalObjectsImpl() {
+        initPreExecutionAuthenticator();
         HiveConf hiveConf = null;
         JdbcClientConfig jdbcClientConfig = null;
         String hiveMetastoreType = catalogProperty.getOrDefault(HMSProperties.HIVE_METASTORE_TYPE, "");

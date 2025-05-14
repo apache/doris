@@ -20,7 +20,6 @@ package org.apache.doris.datasource.iceberg;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.security.authentication.AuthenticationConfig;
 import org.apache.doris.common.security.authentication.HadoopAuthenticator;
-import org.apache.doris.common.security.authentication.PreExecutionAuthenticator;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
@@ -56,13 +55,18 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     protected abstract void initCatalog();
 
     @Override
-    protected void initLocalObjectsImpl() {
-        preExecutionAuthenticator = new PreExecutionAuthenticator();
+    public void initPreExecutionAuthenticator() {
+        super.initPreExecutionAuthenticator();
         // TODO If the storage environment does not support Kerberos (such as s3),
         //      there is no need to generate a simple authentication information anymore.
         AuthenticationConfig config = AuthenticationConfig.getKerberosConfig(getConfiguration());
         HadoopAuthenticator authenticator = HadoopAuthenticator.getHadoopAuthenticator(config);
         preExecutionAuthenticator.setHadoopAuthenticator(authenticator);
+    }
+
+    @Override
+    protected void initLocalObjectsImpl() {
+        initPreExecutionAuthenticator();
         initCatalog();
         IcebergMetadataOps ops = ExternalMetadataOperations.newIcebergMetadataOps(this, catalog);
         transactionManager = TransactionManagerFactory.createIcebergTransactionManager(ops);

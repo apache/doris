@@ -183,6 +183,12 @@ public abstract class ExternalCatalog
         this.comment = Strings.nullToEmpty(comment);
     }
 
+    public void initPreExecutionAuthenticator() {
+        if (preExecutionAuthenticator == null) {
+            preExecutionAuthenticator = new PreExecutionAuthenticator();
+        }
+    }
+
     public Configuration getConfiguration() {
         // build configuration is costly, so we cache it.
         if (cachedConf != null) {
@@ -1228,7 +1234,10 @@ public abstract class ExternalCatalog
     }
 
     public PreExecutionAuthenticator getPreExecutionAuthenticator() {
-        makeSureInitialized();
+        if (null != preExecutionAuthenticator) {
+            return preExecutionAuthenticator;
+        }
+        initPreExecutionAuthenticator();
         return preExecutionAuthenticator;
     }
 
