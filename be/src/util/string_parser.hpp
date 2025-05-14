@@ -146,7 +146,7 @@ public:
     }
 
     // Parses a string for 'true' or 'false', case insensitive.
-    static inline bool string_to_bool(const char* __restrict s, int len, ParseResult* result) {
+    static inline bool string_to_bool(const char* __restrict s, size_t len, ParseResult* result) {
         bool ans = string_to_bool_internal(s, len, result);
         if (LIKELY(*result == PARSE_SUCCESS)) {
             return ans;
