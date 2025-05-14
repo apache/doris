@@ -140,7 +140,7 @@ S3ClientFactory::S3ClientFactory() {
         return std::make_shared<DorisAWSLogger>(logLevel);
     };
     Aws::InitAPI(_aws_options);
-    _ca_cert_file_path = get_valid_ca_cert_path();
+    _ca_cert_file_path = get_valid_ca_cert_path(doris::split(config::ca_cert_file_paths, ";"));
     _rate_limiters = {
             std::make_unique<S3RateLimiterHolder>(
                     config::s3_get_token_per_second, config::s3_get_bucket_tokens,
@@ -150,17 +150,6 @@ S3ClientFactory::S3ClientFactory() {
                     config::s3_put_token_per_second, config::s3_put_bucket_tokens,
                     config::s3_put_token_limit,
                     metric_func_factory(put_rate_limit_ns, put_rate_limit_exceed_req_num))};
-}
-
-std::string S3ClientFactory::get_valid_ca_cert_path() {
-    auto vec_ca_file_path = doris::split(config::ca_cert_file_paths, ";");
-    auto it = vec_ca_file_path.begin();
-    for (; it != vec_ca_file_path.end(); ++it) {
-        if (std::filesystem::exists(*it)) {
-            return *it;
-        }
-    }
-    return "";
 }
 
 S3ClientFactory::~S3ClientFactory() {
@@ -243,6 +232,14 @@ std::shared_ptr<Aws::Auth::AWSCredentialsProvider> S3ClientFactory::get_aws_cred
         Aws::Client::ClientConfiguration clientConfiguration =
                 S3ClientFactory::getClientConfiguration();
 
+        if (_ca_cert_file_path.empty()) {
+            _ca_cert_file_path =
+                    get_valid_ca_cert_path(doris::split(config::ca_cert_file_paths, ";"));
+        }
+        if (!_ca_cert_file_path.empty()) {
+            clientConfiguration.caFile = _ca_cert_file_path;
+        }
+
         auto stsClient = std::make_shared<Aws::STS::STSClient>(
                 std::make_shared<Aws::Auth::InstanceProfileCredentialsProvider>(),
                 clientConfiguration);
@@ -264,16 +261,15 @@ std::shared_ptr<io::ObjStorageClient> S3ClientFactory::_create_s3_client(
         aws_config.endpointOverride = s3_conf.endpoint;
     }
     aws_config.region = s3_conf.region;
-    std::string ca_cert = get_valid_ca_cert_path();
-    if ("" != _ca_cert_file_path) {
-        aws_config.caFile = _ca_cert_file_path;
-    } else {
-        // config::ca_cert_file_paths is valmutable,get newest value if file path invaild
-        _ca_cert_file_path = get_valid_ca_cert_path();
-        if ("" != _ca_cert_file_path) {
-            aws_config.caFile = _ca_cert_file_path;
-        }
+
+    if (_ca_cert_file_path.empty()) {
+        _ca_cert_file_path = get_valid_ca_cert_path(doris::split(config::ca_cert_file_paths, ";"));
     }
+
+    if (!_ca_cert_file_path.empty()) {
+        aws_config.caFile = _ca_cert_file_path;
+    }
+
     if (s3_conf.max_connections > 0) {
         aws_config.maxConnections = s3_conf.max_connections;
     } else {

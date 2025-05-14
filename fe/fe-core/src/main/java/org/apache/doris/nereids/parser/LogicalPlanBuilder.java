@@ -537,11 +537,14 @@ import org.apache.doris.nereids.trees.plans.algebra.OneRowRelation;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.commands.AddConstraintCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminCancelRebalanceDiskCommand;
+import org.apache.doris.nereids.trees.plans.commands.AdminCancelRepairTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminCheckTabletsCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminCleanTrashCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminCompactTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminCopyTabletCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminRebalanceDiskCommand;
+import org.apache.doris.nereids.trees.plans.commands.AdminRepairTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.AdminSetReplicaStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetTableStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminShowReplicaStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterCatalogCommentCommand;
@@ -891,6 +894,10 @@ import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DateTimeType;
+import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.DateType;
+import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.StructField;
@@ -2942,19 +2949,37 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-    public Literal visitTypeConstructor(TypeConstructorContext ctx) {
+    public Expression visitTypeConstructor(TypeConstructorContext ctx) {
         String value = ctx.STRING_LITERAL().getText();
         value = value.substring(1, value.length() - 1);
         String type = ctx.type.getText().toUpperCase();
         switch (type) {
             case "DATE":
-                return Config.enable_date_conversion ? new DateV2Literal(value) : new DateLiteral(value);
+                try {
+                    return Config.enable_date_conversion ? new DateV2Literal(value) : new DateLiteral(value);
+                } catch (Exception e) {
+                    return new Cast(new StringLiteral(value),
+                            Config.enable_date_conversion ? DateV2Type.INSTANCE : DateType.INSTANCE);
+                }
             case "TIMESTAMP":
-                return Config.enable_date_conversion ? new DateTimeV2Literal(value) : new DateTimeLiteral(value);
+                try {
+                    return Config.enable_date_conversion ? new DateTimeV2Literal(value) : new DateTimeLiteral(value);
+                } catch (Exception e) {
+                    return new Cast(new StringLiteral(value),
+                            Config.enable_date_conversion ? DateTimeV2Type.MAX : DateTimeType.INSTANCE);
+                }
             case "DATEV2":
-                return new DateV2Literal(value);
+                try {
+                    return new DateV2Literal(value);
+                } catch (Exception e) {
+                    return new Cast(new StringLiteral(value), DateV2Type.INSTANCE);
+                }
             case "DATEV1":
-                return new DateLiteral(value);
+                try {
+                    return new DateLiteral(value);
+                } catch (Exception e) {
+                    return new Cast(new StringLiteral(value), DateType.INSTANCE);
+                }
             default:
                 throw new ParseException("Unsupported data type : " + type, ctx);
         }
@@ -6703,6 +6728,24 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             index,
             columnName,
             properties);
+    }
+
+    @Override
+    public LogicalPlan visitAdminSetReplicaStatus(DorisParser.AdminSetReplicaStatusContext ctx) {
+        Map<String, String> properties = visitPropertyItemList(ctx.propertyItemList());
+        return new AdminSetReplicaStatusCommand(properties);
+    }
+
+    @Override
+    public LogicalPlan visitAdminRepairTable(DorisParser.AdminRepairTableContext ctx) {
+        TableRefInfo tableRefInfo = visitBaseTableRefContext(ctx.baseTableRef());
+        return new AdminRepairTableCommand(tableRefInfo);
+    }
+
+    @Override
+    public LogicalPlan visitAdminCancelRepairTable(DorisParser.AdminCancelRepairTableContext ctx) {
+        TableRefInfo tableRefInfo = visitBaseTableRefContext(ctx.baseTableRef());
+        return new AdminCancelRepairTableCommand(tableRefInfo);
     }
 
     @Override
