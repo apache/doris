@@ -479,7 +479,8 @@ Status OlapScanLocalState::hold_tablets() {
                     return Status::OK();
                 });
             }
-            RETURN_IF_ERROR(cloud::bthread_fork_join(tasks, 10));
+            RETURN_IF_ERROR(
+                    cloud::bthread_fork_join(tasks, config::init_scanner_sync_rowsets_parallelism));
         }
         COUNTER_UPDATE(_sync_rowset_timer, duration_ns);
         auto total_rowsets = std::accumulate(
