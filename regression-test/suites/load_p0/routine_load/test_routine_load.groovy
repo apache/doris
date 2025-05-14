@@ -258,7 +258,7 @@ suite("test_routine_load","p0") {
                         continue;
                     }
                     log.info("reason of state changed: ${res[0][17].toString()}".toString())
-                    assertEquals(res[0][8].toString(), "RUNNING")
+                    assertEquals("RUNNING", res[0][8].toString())
                     break;
                 }
 
@@ -1301,7 +1301,7 @@ suite("test_routine_load","p0") {
                     sql "sync"
                 }catch (Exception e) {
                     log.info("create routine load failed: ${e.getMessage()}")
-                    assertEquals(e.getMessage(), "errCode = 2, detailMessage = Format type is invalid. format=`test`")
+                    assertEquals(e.getMessage(), "errCode = 2, detailMessage = format:test is not supported.")
                 }
                 i++
             }
