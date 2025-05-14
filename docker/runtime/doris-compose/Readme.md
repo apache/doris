@@ -38,10 +38,10 @@ Make sure BuildKit configured in the machine. if not follow [docker-with-BuildKi
 ### 2. The doris image should contains
 
 ```shell
-/opt/apache-doris/{fe, be, cloud}
+/opt/apache-doris/{fe, be, ms}
 ```
 
-If don't create cloud cluster, the image no need to contains the cloud pkg.
+If don't create cloud cluster, the image no need to contains the ms pkg.
 
 If build doris use `sh build.sh --fe --be --cloud` **without do any change on their origin conf or shells**, then its `output/` satisfy with all above, then run command in doris root directory will generate such a image. If you want to pack a product that is not the `output/` directory, you can modify `Dockerfile` by yourself.
 
