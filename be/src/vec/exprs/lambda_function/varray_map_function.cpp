@@ -222,7 +222,7 @@ public:
                 long current_step = std::min(
                         max_step, (long)(args_info.cur_size - args_info.current_offset_in_array));
                 size_t pos = args_info.array_start + args_info.current_offset_in_array;
-                for (int i = 0; i < arguments.size(); ++i) {
+                for (int i = 0; i < arguments.size() && current_step > 0; ++i) {
                     columns[gap + i]->insert_range_from(*lambda_datas[i], pos, current_step);
                 }
                 args_info.current_offset_in_array += current_step;
