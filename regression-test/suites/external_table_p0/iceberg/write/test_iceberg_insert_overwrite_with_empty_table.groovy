@@ -48,9 +48,9 @@ suite("test_iceberg_insert_overwrite_with_empty_table", "p0,external,doris,exter
 
     sql """ drop table if exists ${db1}.${tb1} """
     sql """ drop table if exists ${db1}.${tb2} """
-    sql """ drop database if exists ${db1} """
+    sql """ drop table if exists ${db1}.${tb3} """
 
-    sql """ create database ${db1} """
+    sql """ create database if not exists ${db1} """
     sql """ create table ${db1}.${tb1} (id int, val int) partition by list (val)() """
     sql """ create table ${db1}.${tb2} (id int, val int) """
     sql """ create table ${db1}.${tb3} (id int, val int) """
@@ -67,11 +67,5 @@ suite("test_iceberg_insert_overwrite_with_empty_table", "p0,external,doris,exter
 
     order_qt_q2 """ select * from ${tb1} """   // should have 3 records
     order_qt_q3 """ select * from ${tb2} """   // should have no records
-
-    sql """ drop table ${db1}.${tb1} """
-    sql """ drop table ${db1}.${tb2} """
-    sql """ drop table ${db1}.${tb3} """
-    sql """ drop database ${db1} """
-    sql """ drop catalog ${catalog_name} """
 
 }
