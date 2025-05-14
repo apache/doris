@@ -111,7 +111,7 @@ public class HttpDialectUtils {
         private String to;   // CHECKSTYLE IGNORE THIS LINE
         private String source;  // CHECKSTYLE IGNORE THIS LINE
         private String case_sensitive;  // CHECKSTYLE IGNORE THIS LINE
-        private String[] features; // CHECKSTYLE IGNORE THIS LINE
+        private String[] enable_sql_convertor_features; // CHECKSTYLE IGNORE THIS LINE
 
         public ConvertRequest(String originStmt, String dialect, String[] features) {
             this.version = "v1";
@@ -120,7 +120,7 @@ public class HttpDialectUtils {
             this.to = "doris";
             this.source = "text";
             this.case_sensitive = "0";
-            this.features = features;
+            this.enable_sql_convertor_features = features;
         }
 
         public String toJson() {
