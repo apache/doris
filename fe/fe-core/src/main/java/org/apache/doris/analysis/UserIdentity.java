@@ -182,11 +182,11 @@ public class UserIdentity implements Writable, GsonPostProcessable {
     }
 
     public boolean isRootUser() {
-        return user.equals(Auth.ROOT_USER);
+        return this.equals(ROOT);
     }
 
     public boolean isAdminUser() {
-        return user.equals(Auth.ADMIN_USER);
+        return this.equals(ADMIN);
     }
 
     public boolean isSystemUser() {
