@@ -36,6 +36,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.resource.Tag;
@@ -1047,11 +1048,14 @@ public class PropertyAnalyzer {
         if (typeStr != null && keysType != KeysType.UNIQUE_KEYS) {
             throw new AnalysisException("sequence column only support UNIQUE_KEYS");
         }
-        PrimitiveType type = PrimitiveType.valueOf(typeStr.toUpperCase());
+
+        Type type = DataType.convertFromString(typeStr.toLowerCase()).toCatalogDataType();
+
         if (!type.isFixedPointType() && !type.isDateType()) {
             throw new AnalysisException("sequence type only support integer types and date types");
         }
-        return ScalarType.createType(type);
+
+        return type;
     }
 
     public static String analyzeSequenceMapCol(Map<String, String> properties, KeysType keysType)
