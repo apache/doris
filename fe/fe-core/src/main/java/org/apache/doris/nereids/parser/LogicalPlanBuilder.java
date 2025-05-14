@@ -4681,8 +4681,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         long limit = -1L;
         long offset = 0L;
         if (ctx.database != null) {
-            List<String> nameParts = visitMultipartIdentifier(ctx.database);
-            dbName = nameParts.get(0); // only one entry possible
+            dbName = ctx.database.getText();
         }
         if (ctx.sortClause() != null) {
             orderKeys = visit(ctx.sortClause().sortItem(), OrderKey.class);

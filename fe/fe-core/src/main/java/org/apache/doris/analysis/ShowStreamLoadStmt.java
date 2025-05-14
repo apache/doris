@@ -60,7 +60,7 @@ public class ShowStreamLoadStmt extends ShowStmt implements NotFallbackInParser 
 
     private ArrayList<OrderByPair> orderByPairs;
 
-    public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
+    private static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("Label").add("Db").add("Table")
             .add("ClientIp").add("Status").add("Message").add("Url").add("TotalRows")
             .add("LoadedRows").add("FilteredRows").add("UnselectedRows").add("LoadBytes")

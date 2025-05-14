@@ -54,6 +54,7 @@ import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
@@ -69,6 +70,21 @@ import java.util.stream.Collectors;
  * show load command
  */
 public class ShowLoadCommand extends ShowCommand {
+    // LOAD_TITLE_NAMES copy from org.apache.doris.common.proc.LoadProcDir
+    public static final ImmutableList<String> LOAD_TITLE_NAMES = new ImmutableList.Builder<String>()
+            .add("JobId").add("Label").add("State").add("Progress")
+            .add("Type").add("EtlInfo").add("TaskInfo").add("ErrorMsg").add("CreateTime")
+            .add("EtlStartTime").add("EtlFinishTime").add("LoadStartTime").add("LoadFinishTime")
+            .add("URL").add("JobDetails").add("TransactionId").add("ErrorTablets").add("User").add("Comment")
+            .build();
+
+    // STREAM_LOAD_TITLE_NAMES copy from org.apache.doris.analysis.org.apache.doris.analysis
+    public static final ImmutableList<String> STREAM_LOAD_TITLE_NAMES = new ImmutableList.Builder<String>()
+            .add("Label").add("Db").add("Table")
+            .add("ClientIp").add("Status").add("Message").add("Url").add("TotalRows")
+            .add("LoadedRows").add("FilteredRows").add("UnselectedRows").add("LoadBytes")
+            .add("StartTime").add("FinishTime").add("User").add("Comment")
+            .build();
     protected String labelValue;
     protected String stateValue;
     protected boolean isAccurateMatch;
@@ -121,17 +137,10 @@ public class ShowLoadCommand extends ShowCommand {
 
     @Override
     public ShowResultSetMetaData getMetaData() {
+        ImmutableList<String> titles = isStreamLoad ? STREAM_LOAD_TITLE_NAMES : LOAD_TITLE_NAMES;
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
-        for (String title : LoadProcDir.TITLE_NAMES) {
-            builder.addColumn(new Column(title, ScalarType.createVarchar(30)));
-        }
-        return builder.build();
-    }
-
-    public ShowResultSetMetaData getStreamLoadMetaData() {
-        ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
-        for (String title : ShowStreamLoadStmt.TITLE_NAMES) {
-            builder.addColumn(new Column(title, ScalarType.createVarchar(30)));
+        for (String title : titles) {
+            builder.addColumn(new Column(title, ScalarType.createVarchar(128)));
         }
         return builder.build();
     }
@@ -253,7 +262,7 @@ public class ShowLoadCommand extends ShowCommand {
             }
         }
 
-        return new ShowResultSet(isStreamLoad ? getStreamLoadMetaData() : getMetaData(), rows);
+        return new ShowResultSet(getMetaData(), rows);
     }
 
     @VisibleForTesting
@@ -419,10 +428,6 @@ public class ShowLoadCommand extends ShowCommand {
 
     @Override
     public RedirectStatus toRedirectStatus() {
-        if (ConnectContext.get().getSessionVariable().getForwardToMaster()) {
-            return RedirectStatus.FORWARD_NO_SYNC;
-        } else {
-            return RedirectStatus.NO_FORWARD;
-        }
+        return RedirectStatus.FORWARD_NO_SYNC;
     }
 }
