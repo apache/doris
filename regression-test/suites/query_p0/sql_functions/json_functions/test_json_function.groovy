@@ -86,4 +86,9 @@ suite("test_json_function", "arrow_flight_sql") {
     qt_sql "SELECT json_extract_no_quotes(null, '\$.id');"
     qt_sql "SELECT json_extract_no_quotes('{\"k1\": \"v1\", \"k2\": { \"k21\": 6.6, \"k22\": [1, 2, 3] } }', '\$.k1', '\$.k2');"
     qt_sql "SELECT json_extract_no_quotes('{\"k1\": \"v1\", \"k2\": { \"k21\": 6.6, \"k22\": [1, 2, 3] } }', '\$.k2.k21', '\$.k2.k22', '\$.k2.k22[1]');"
+
+    // invalid json path
+    qt_sql """select get_json_string('{"name\\k" : 123}', '\$.name\\k')"""
+    qt_sql """select get_json_string('{"name\\k" : 123}', '\$.name\\\\k')"""
+    qt_sql """select get_json_string('{"name\\k" : 123}', '\$.name\\\\\\k')"""
 }
