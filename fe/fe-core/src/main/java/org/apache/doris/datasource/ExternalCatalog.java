@@ -305,7 +305,7 @@ public abstract class ExternalCatalog
             } else {
                 if (!Env.getCurrentEnv().isMaster()) {
                     // Forward to master and wait the journal to replay.
-                    int waitTimeOut = ConnectContext.get() == null ? 300 : ConnectContext.get().getExecTimeout();
+                    int waitTimeOut = ConnectContext.get() == null ? 300 : ConnectContext.get().getExecTimeoutS();
                     MasterCatalogExecutor remoteExecutor = new MasterCatalogExecutor(waitTimeOut * 1000);
                     try {
                         remoteExecutor.forward(id, -1);

@@ -328,8 +328,8 @@ public class CoordinatorContext {
     private static TQueryOptions initQueryOptions(ConnectContext context) {
         TQueryOptions queryOptions = context.getSessionVariable().toThrift();
         queryOptions.setBeExecVersion(Config.be_exec_version);
-        queryOptions.setQueryTimeout(context.getExecTimeout());
-        queryOptions.setExecutionTimeout(context.getExecTimeout());
+        queryOptions.setQueryTimeout(context.getExecTimeoutS());
+        queryOptions.setExecutionTimeout(context.getExecTimeoutS());
         if (queryOptions.getExecutionTimeout() < 1) {
             LOG.info("try set timeout less than 1", new RuntimeException(""));
         }
