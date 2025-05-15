@@ -1412,6 +1412,8 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInf
     if (is_partial_update) {
         transient_rs_writer = DORIS_TRY(self->create_transient_rowset_writer(
                 *rowset, txn_info->partial_update_info, txn_expiration));
+        DBUG_EXECUTE_IF("BaseTablet::update_delete_bitmap.after.create_transient_rs_writer",
+                        DBUG_BLOCK);
         // Partial update might generate new segments when there is conflicts while publish, and mark
         // the same key in original segments as delete.
         // When the new segment flush fails or the rowset build fails, the deletion marker for the
