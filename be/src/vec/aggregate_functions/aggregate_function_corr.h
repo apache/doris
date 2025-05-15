@@ -20,8 +20,9 @@
 
 namespace doris::vectorized {
 
-template <typename T>
+template <PrimitiveType Type>
 struct CorrMoment {
+    using T = typename PrimitiveTypeTraits<Type>::CppType;
     T m0 {};
     T x1 {};
     T y1 {};
@@ -85,9 +86,10 @@ struct CorrMoment {
     }
 };
 
-template <typename T>
+template <PrimitiveType T>
 struct CorrMomentWelford {
-    static_assert(std::is_same_v<T, double>, "CorrMomentWelford only support double");
+    static_assert(std::is_same_v<typename PrimitiveTypeTraits<T>::CppType, double>,
+                  "CorrMomentWelford only support double");
     double meanX {};
     double meanY {};
     double c2 {};

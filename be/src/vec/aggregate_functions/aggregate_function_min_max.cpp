@@ -57,30 +57,33 @@ AggregateFunctionPtr create_aggregate_function_single_value(const String& name,
                 AggregateFunctionsSingleValue<Data<SingleValueDataString>>>(argument_types,
                                                                             result_is_nullable);
     case PrimitiveType::TYPE_DATE:
+        return creator_without_type::create<
+                AggregateFunctionsSingleValue<Data<SingleValueDataFixed<TYPE_DATE>>>>(
+                argument_types, result_is_nullable);
     case PrimitiveType::TYPE_DATETIME:
         return creator_without_type::create<
-                AggregateFunctionsSingleValue<Data<SingleValueDataFixed<Int64>>>>(
+                AggregateFunctionsSingleValue<Data<SingleValueDataFixed<TYPE_DATETIME>>>>(
                 argument_types, result_is_nullable);
     case PrimitiveType::TYPE_DATEV2:
         return creator_without_type::create<
-                AggregateFunctionsSingleValue<Data<SingleValueDataFixed<UInt32>>>>(
+                AggregateFunctionsSingleValue<Data<SingleValueDataFixed<TYPE_DATEV2>>>>(
                 argument_types, result_is_nullable);
     case PrimitiveType::TYPE_DATETIMEV2:
         return creator_without_type::create<
-                AggregateFunctionsSingleValue<Data<SingleValueDataFixed<UInt64>>>>(
+                AggregateFunctionsSingleValue<Data<SingleValueDataFixed<TYPE_DATETIMEV2>>>>(
                 argument_types, result_is_nullable);
     case PrimitiveType::TYPE_TIME:
     case PrimitiveType::TYPE_TIMEV2:
         return creator_without_type::create<
-                AggregateFunctionsSingleValue<Data<SingleValueDataFixed<Float64>>>>(
+                AggregateFunctionsSingleValue<Data<SingleValueDataFixed<TYPE_TIMEV2>>>>(
                 argument_types, result_is_nullable);
     case PrimitiveType::TYPE_IPV4:
         return creator_without_type::create<
-                AggregateFunctionsSingleValue<Data<SingleValueDataFixed<IPv4>>>>(
+                AggregateFunctionsSingleValue<Data<SingleValueDataFixed<TYPE_IPV4>>>>(
                 argument_types, result_is_nullable);
     case PrimitiveType::TYPE_IPV6:
         return creator_without_type::create<
-                AggregateFunctionsSingleValue<Data<SingleValueDataFixed<IPv6>>>>(
+                AggregateFunctionsSingleValue<Data<SingleValueDataFixed<TYPE_IPV6>>>>(
                 argument_types, result_is_nullable);
     default:
         return nullptr;

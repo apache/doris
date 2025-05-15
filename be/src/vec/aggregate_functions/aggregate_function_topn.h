@@ -63,9 +63,10 @@ class ColumnDecimal;
 namespace doris::vectorized {
 
 // space-saving algorithm
-template <typename T>
+template <PrimitiveType T>
 struct AggregateFunctionTopNData {
-    using ColVecType = std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<T>, ColumnVector<T>>;
+    using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
+    using DataType = typename PrimitiveTypeTraits<T>::ColumnItemType;
     void set_paramenters(int input_top_num, int space_expand_rate = 50) {
         top_num = input_top_num;
         capacity = (uint64_t)top_num * space_expand_rate;
@@ -81,7 +82,7 @@ struct AggregateFunctionTopNData {
         }
     }
 
-    void add(const T& value, const UInt64& increment = 1) {
+    void add(const DataType& value, const UInt64& increment = 1) {
         auto it = counter_map.find(value);
         if (it != counter_map.end()) {
             it->second = it->second + increment;
@@ -132,13 +133,16 @@ struct AggregateFunctionTopNData {
         }
     }
 
-    std::vector<std::pair<uint64_t, T>> get_remain_vector() const {
-        std::vector<std::pair<uint64_t, T>> counter_vector;
+    std::vector<std::pair<uint64_t, typename PrimitiveTypeTraits<T>::ColumnItemType>>
+    get_remain_vector() const {
+        std::vector<std::pair<uint64_t, typename PrimitiveTypeTraits<T>::ColumnItemType>>
+                counter_vector;
         for (auto it : counter_map) {
             counter_vector.emplace_back(it.second, it.first);
         }
         std::sort(counter_vector.begin(), counter_vector.end(),
-                  std::greater<std::pair<uint64_t, T>>());
+                  std::greater<
+                          std::pair<uint64_t, typename PrimitiveTypeTraits<T>::ColumnItemType>>());
         return counter_vector;
     }
 
@@ -166,7 +170,7 @@ struct AggregateFunctionTopNData {
         read_binary(element_number, buf);
 
         counter_map.clear();
-        std::pair<T, uint64_t> element;
+        std::pair<DataType, uint64_t> element;
         for (auto i = 0; i < element_number; i++) {
             read_binary(element.first, buf);
             read_binary(element.second, buf);
@@ -195,7 +199,7 @@ struct AggregateFunctionTopNData {
         auto counter_vector = get_remain_vector();
         for (int i = 0; i < std::min((int)counter_vector.size(), top_num); i++) {
             const auto& element = counter_vector[i];
-            if constexpr (std::is_same_v<T, std::string>) {
+            if constexpr (is_string_type(T)) {
                 assert_cast<ColumnString&, TypeCheckOnRelease::DISABLE>(to).insert_data(
                         element.second.c_str(), element.second.length());
             } else {
@@ -209,11 +213,11 @@ struct AggregateFunctionTopNData {
 
     int top_num = 0;
     uint64_t capacity = 0;
-    flat_hash_map<T, uint64_t> counter_map;
+    flat_hash_map<DataType, uint64_t> counter_map;
 };
 
 struct AggregateFunctionTopNImplInt {
-    static void add(AggregateFunctionTopNData<std::string>& __restrict place,
+    static void add(AggregateFunctionTopNData<TYPE_STRING>& __restrict place,
                     const IColumn** columns, size_t row_num) {
         place.set_paramenters(
                 assert_cast<const ColumnInt32*, TypeCheckOnRelease::DISABLE>(columns[1])
@@ -224,7 +228,7 @@ struct AggregateFunctionTopNImplInt {
 };
 
 struct AggregateFunctionTopNImplIntInt {
-    static void add(AggregateFunctionTopNData<std::string>& __restrict place,
+    static void add(AggregateFunctionTopNData<TYPE_STRING>& __restrict place,
                     const IColumn** columns, size_t row_num) {
         place.set_paramenters(
                 assert_cast<const ColumnInt32*, TypeCheckOnRelease::DISABLE>(columns[1])
@@ -236,9 +240,9 @@ struct AggregateFunctionTopNImplIntInt {
 };
 
 //for topn_array agg
-template <typename T, bool has_default_param>
+template <PrimitiveType T, bool has_default_param>
 struct AggregateFunctionTopNImplArray {
-    using ColVecType = std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<T>, ColumnVector<T>>;
+    using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
     static void add(AggregateFunctionTopNData<T>& __restrict place, const IColumn** columns,
                     size_t row_num) {
         if constexpr (has_default_param) {
@@ -253,11 +257,12 @@ struct AggregateFunctionTopNImplArray {
                     assert_cast<const ColumnInt32*, TypeCheckOnRelease::DISABLE>(columns[1])
                             ->get_element(row_num));
         }
-        if constexpr (std::is_same_v<T, std::string>) {
+        if constexpr (is_string_type(T)) {
             place.add(assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(*columns[0])
                               .get_data_at(row_num));
         } else {
-            T val = assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0])
+            typename PrimitiveTypeTraits<T>::ColumnItemType val =
+                    assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0])
                             .get_data()[row_num];
             place.add(val);
         }
@@ -265,9 +270,9 @@ struct AggregateFunctionTopNImplArray {
 };
 
 //for topn_weighted agg
-template <typename T, bool has_default_param>
+template <PrimitiveType T, bool has_default_param>
 struct AggregateFunctionTopNImplWeight {
-    using ColVecType = std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<T>, ColumnVector<T>>;
+    using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
     static void add(AggregateFunctionTopNData<T>& __restrict place, const IColumn** columns,
                     size_t row_num) {
         if constexpr (has_default_param) {
@@ -281,7 +286,7 @@ struct AggregateFunctionTopNImplWeight {
             place.set_paramenters(
                     assert_cast<const ColumnInt32*>(columns[2])->get_element(row_num));
         }
-        if constexpr (std::is_same_v<T, std::string>) {
+        if constexpr (is_string_type(T)) {
             auto weight = assert_cast<const ColumnVector<Int64>&, TypeCheckOnRelease::DISABLE>(
                                   *columns[1])
                                   .get_data()[row_num];
@@ -289,7 +294,9 @@ struct AggregateFunctionTopNImplWeight {
                               .get_data_at(row_num),
                       weight);
         } else {
-            T val = assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0])
+            typename PrimitiveTypeTraits<T>::ColumnItemType val =
+                    assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
+                                TypeCheckOnRelease::DISABLE>(*columns[0])
                             .get_data()[row_num];
             auto weight = assert_cast<const ColumnVector<Int64>&, TypeCheckOnRelease::DISABLE>(
                                   *columns[1])
@@ -300,7 +307,7 @@ struct AggregateFunctionTopNImplWeight {
 };
 
 //base function
-template <typename Impl, typename T>
+template <typename Impl, PrimitiveType T>
 class AggregateFunctionTopNBase
         : public IAggregateFunctionDataHelper<AggregateFunctionTopNData<T>,
                                               AggregateFunctionTopNBase<Impl, T>> {
@@ -332,7 +339,7 @@ public:
 };
 
 //topn function return string
-template <typename Impl, typename T = std::string>
+template <typename Impl, PrimitiveType T = TYPE_STRING>
 class AggregateFunctionTopN final : public AggregateFunctionTopNBase<Impl, T> {
 public:
     AggregateFunctionTopN(const DataTypes& argument_types_)
@@ -349,7 +356,7 @@ public:
 };
 
 //topn function return array
-template <typename Impl, typename T, bool is_weighted>
+template <typename Impl, PrimitiveType T, bool is_weighted>
 class AggregateFunctionTopNArray final : public AggregateFunctionTopNBase<Impl, T> {
 public:
     AggregateFunctionTopNArray(const DataTypes& argument_types_)

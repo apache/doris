@@ -128,11 +128,11 @@ void DataTypeVariantSerDe::read_one_cell_from_jsonb(IColumn& column, const Jsonb
     Field field;
     if (arg->isBinary()) {
         const auto* blob = static_cast<const JsonbBlobVal*>(arg);
-        field = JsonbField(blob->getBlob(), blob->getBlobLen());
+        field = Field::create_field<TYPE_JSONB>(JsonbField(blob->getBlob(), blob->getBlobLen()));
     } else if (arg->isString()) {
         // not a valid jsonb type, insert as string
         const auto* str = static_cast<const JsonbStringVal*>(arg);
-        field = Field(String(str->getBlob(), str->getBlobLen()));
+        field = Field::create_field<TYPE_STRING>(String(str->getBlob(), str->getBlobLen()));
     } else {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Invalid jsonb type");
     }
