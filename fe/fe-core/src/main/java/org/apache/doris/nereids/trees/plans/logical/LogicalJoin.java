@@ -385,8 +385,21 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
                 children, otherJoinReorderContext);
     }
 
-    public LogicalJoin<Plan, Plan> withHashJoinConjunctsAndChildren(
-            List<Expression> hashJoinConjuncts, Plan left, Plan right, JoinReorderContext otherJoinReorderContext) {
+    /**
+     * Creates a new LogicalJoin with updated hash join conjuncts, mark join conjuncts, and child plans.
+     *
+     * @param hashJoinConjuncts the list of hash join conjuncts used for hash-based join conditions.
+     * @param markJoinConjuncts the list of mark join conjuncts used for marking specific join conditions.
+     *                          These are typically used in semi-join or anti-join scenarios to track
+     *                          whether a condition is satisfied.
+     * @param left the left child plan.
+     * @param right the right child plan.
+     * @param otherJoinReorderContext the context for join reordering.
+     * @return a new LogicalJoin instance with the specified parameters.
+     */
+    public LogicalJoin<Plan, Plan> withHashAndMarkJoinConjunctsAndChildren(
+            List<Expression> hashJoinConjuncts, List<Expression> markJoinConjuncts,
+            Plan left, Plan right, JoinReorderContext otherJoinReorderContext) {
         Preconditions.checkArgument(children.size() == 2);
         return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts,
                 hint, markJoinSlotReference, Optional.empty(), Optional.empty(),
