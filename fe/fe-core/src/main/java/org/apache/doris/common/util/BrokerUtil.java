@@ -18,6 +18,7 @@
 package org.apache.doris.common.util;
 
 import org.apache.doris.analysis.BrokerDesc;
+import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.backup.Status;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
@@ -29,6 +30,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
 import org.apache.doris.datasource.property.PropertyConverter;
+import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.fs.remote.RemoteFile;
 import org.apache.doris.fs.remote.RemoteFileSystem;
@@ -86,10 +88,19 @@ public class BrokerUtil {
     public static void parseFile(String path, BrokerDesc brokerDesc, List<TBrokerFileStatus> fileStatuses)
             throws UserException {
         List<RemoteFile> rfiles = new ArrayList<>();
-        PropertyConverter.s3BrokerConvertToHadoopProperties(brokerDesc.getProperties(), path);
+        boolean convertSchema = false;
+        String provider = brokerDesc.getProperties().get(S3Properties.PROVIDER);
         try (RemoteFileSystem fileSystem = FileSystemFactory.get(
                     brokerDesc.getName(), brokerDesc.getStorageType(), brokerDesc.getProperties())) {
-            Status st = fileSystem.globList(brokerDesc.getProperties().get("convertPath"), rfiles, false);
+            if (brokerDesc.getStorageType() == StorageBackend.StorageType.S3) {
+                if (provider != null) {
+                    convertSchema = true;
+                    PropertyConverter.s3BrokerConvertToHadoopProperties(brokerDesc.getProperties());
+                    path = PropertyConverter.s3SchemaConvertToFileSystem(path, provider);
+
+                }
+            }
+            Status st = fileSystem.globList(path, rfiles, false);
             if (!st.ok()) {
                 throw new UserException(st.getErrMsg());
             }
@@ -100,7 +111,11 @@ public class BrokerUtil {
         }
         for (RemoteFile r : rfiles) {
             if (r.isFile()) {
-                TBrokerFileStatus status = new TBrokerFileStatus(r.getName(), !r.isFile(), r.getSize(), r.isFile());
+                String pathName = PropertyConverter.fileSystemSchemaConvertTos3(r.getName(), provider);
+                if (convertSchema) {
+                    pathName = pathName.replace(provider.toLowerCase() + "://", "s3://");
+                }
+                TBrokerFileStatus status = new TBrokerFileStatus(pathName, !r.isFile(), r.getSize(), r.isFile());
                 status.setBlockSize(r.getBlockSize());
                 status.setModificationTime(r.getModificationTime());
                 fileStatuses.add(status);
