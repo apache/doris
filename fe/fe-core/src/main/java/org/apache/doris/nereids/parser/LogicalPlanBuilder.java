@@ -344,6 +344,7 @@ import org.apache.doris.nereids.DorisParser.ShowGlobalFunctionsContext;
 import org.apache.doris.nereids.DorisParser.ShowGrantsContext;
 import org.apache.doris.nereids.DorisParser.ShowGrantsForUserContext;
 import org.apache.doris.nereids.DorisParser.ShowLastInsertContext;
+import org.apache.doris.nereids.DorisParser.ShowLoadContext;
 import org.apache.doris.nereids.DorisParser.ShowLoadProfileContext;
 import org.apache.doris.nereids.DorisParser.ShowPartitionIdContext;
 import org.apache.doris.nereids.DorisParser.ShowPluginsContext;
@@ -685,6 +686,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowFunctionsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowGrantsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowIndexStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLastInsertCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLoadProfileCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPartitionIdCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPluginsCommand;
@@ -894,6 +896,10 @@ import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DateTimeType;
+import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.DateType;
+import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.StructField;
@@ -2945,19 +2951,37 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-    public Literal visitTypeConstructor(TypeConstructorContext ctx) {
+    public Expression visitTypeConstructor(TypeConstructorContext ctx) {
         String value = ctx.STRING_LITERAL().getText();
         value = value.substring(1, value.length() - 1);
         String type = ctx.type.getText().toUpperCase();
         switch (type) {
             case "DATE":
-                return Config.enable_date_conversion ? new DateV2Literal(value) : new DateLiteral(value);
+                try {
+                    return Config.enable_date_conversion ? new DateV2Literal(value) : new DateLiteral(value);
+                } catch (Exception e) {
+                    return new Cast(new StringLiteral(value),
+                            Config.enable_date_conversion ? DateV2Type.INSTANCE : DateType.INSTANCE);
+                }
             case "TIMESTAMP":
-                return Config.enable_date_conversion ? new DateTimeV2Literal(value) : new DateTimeLiteral(value);
+                try {
+                    return Config.enable_date_conversion ? new DateTimeV2Literal(value) : new DateTimeLiteral(value);
+                } catch (Exception e) {
+                    return new Cast(new StringLiteral(value),
+                            Config.enable_date_conversion ? DateTimeV2Type.MAX : DateTimeType.INSTANCE);
+                }
             case "DATEV2":
-                return new DateV2Literal(value);
+                try {
+                    return new DateV2Literal(value);
+                } catch (Exception e) {
+                    return new Cast(new StringLiteral(value), DateV2Type.INSTANCE);
+                }
             case "DATEV1":
-                return new DateLiteral(value);
+                try {
+                    return new DateLiteral(value);
+                } catch (Exception e) {
+                    return new Cast(new StringLiteral(value), DateType.INSTANCE);
+                }
             default:
                 throw new ParseException("Unsupported data type : " + type, ctx);
         }
@@ -4702,6 +4726,40 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     public LogicalPlan visitShowLastInsert(ShowLastInsertContext ctx) {
         return new ShowLastInsertCommand();
+    }
+
+    @Override
+    public LogicalPlan visitShowLoad(ShowLoadContext ctx) {
+        String dbName = null;
+        Expression wildWhere = null;
+        List<OrderKey> orderKeys = null;
+        long limit = -1L;
+        long offset = 0L;
+        if (ctx.database != null) {
+            dbName = ctx.database.getText();
+        }
+        if (ctx.sortClause() != null) {
+            orderKeys = visit(ctx.sortClause().sortItem(), OrderKey.class);
+        }
+        if (ctx.wildWhere() != null) {
+            wildWhere = getWildWhere(ctx.wildWhere());
+        }
+        if (ctx.limitClause() != null) {
+            limit = ctx.limitClause().limit != null
+                    ? Long.parseLong(ctx.limitClause().limit.getText())
+                    : 0;
+            if (limit < 0) {
+                throw new ParseException("Limit requires non-negative number", ctx.limitClause());
+            }
+            offset = ctx.limitClause().offset != null
+                    ? Long.parseLong(ctx.limitClause().offset.getText())
+                    : 0;
+            if (offset < 0) {
+                throw new ParseException("Offset requires non-negative number", ctx.limitClause());
+            }
+        }
+        boolean isStreamLoad = ctx.STREAM() != null;
+        return new ShowLoadCommand(wildWhere, orderKeys, limit, offset, dbName, isStreamLoad);
     }
 
     @Override

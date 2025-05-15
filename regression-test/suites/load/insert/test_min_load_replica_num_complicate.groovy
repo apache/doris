@@ -119,7 +119,7 @@ suite('test_min_load_replica_num_complicate', 'docker') {
 
                     futures.add(thread {
                         sql '''admin set frontend config ("disable_tablet_scheduler" = "false")'''
-                        cluster.decommissionBackends(clean = true, originBackends.get(0).index)
+                        cluster.decommissionBackends(true, originBackends.get(0).index)
                         cluster.clearFrontendDebugPoints()
                         cluster.clearBackendDebugPoints()
 
