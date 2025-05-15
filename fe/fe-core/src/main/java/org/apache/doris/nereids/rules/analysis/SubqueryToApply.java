@@ -26,7 +26,6 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.rules.TrySimplifyPredicateWithMarkJoinSlot;
 import org.apache.doris.nereids.trees.expressions.Alias;
-import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.Exists;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -35,7 +34,6 @@ import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.ScalarSubquery;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -652,24 +650,6 @@ public class SubqueryToApply implements AnalysisRuleFactory {
         SearchNot,
         SearchAnd,
         SearchExistsOrInSubquery
-    }
-
-    private boolean shouldOutputMarkJoinSlot(Expression expr, SearchState searchState) {
-        if (searchState == SearchState.SearchNot && expr instanceof Not) {
-            if (shouldOutputMarkJoinSlot(((Not) expr).child(), SearchState.SearchAnd)) {
-                return true;
-            }
-        } else if (searchState == SearchState.SearchAnd && expr instanceof And) {
-            for (Expression child : expr.children()) {
-                if (shouldOutputMarkJoinSlot(child, SearchState.SearchExistsOrInSubquery)) {
-                    return true;
-                }
-            }
-        } else if (searchState == SearchState.SearchExistsOrInSubquery
-                && (expr instanceof InSubquery || expr instanceof Exists)) {
-            return true;
-        }
-        return false;
     }
 
     private List<Boolean> shouldOutputMarkJoinSlot(Collection<Expression> conjuncts) {
