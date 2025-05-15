@@ -155,11 +155,16 @@ public:
     }
 
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst) override {
-        return Status::NotSupported("frame page not implement vec op now");
+        return Status::NotSupported("frame page not implement vec op next_batch now");
+    }
+
+    Status read_by_rowids(const rowid_t* rowids, ordinal_t page_first_ordinal, size_t* n,
+                          vectorized::MutableColumnPtr& dst) override {
+        return Status::NotSupported("frame page not implement vec op read_by_rowids now");
     }
 
     Status peek_next_batch(size_t* n, vectorized::MutableColumnPtr& dst) override {
-        return Status::NotSupported("frame page not implement vec op now");
+        return Status::NotSupported("frame page not implement vec op peek_next_batch now");
     }
 
     size_t count() const override { return _num_elements; }

@@ -118,6 +118,11 @@ public:
 
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst) override;
 
+    Status read_by_rowids(const rowid_t* rowids, ordinal_t page_first_ordinal, size_t* n,
+                          vectorized::MutableColumnPtr& dst) override {
+        return Status::NotSupported("binary prefix page not implement vec op read_by_rowids now");
+    }
+
     size_t count() const override {
         DCHECK(_parsed);
         return _num_values;
