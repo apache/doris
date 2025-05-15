@@ -316,6 +316,9 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
     }
 
     public void replayCreateJob(T job) throws JobException {
+        if (!job.needPersist()) {
+            return;
+        }
         if (jobMap.containsKey(job.getJobId())) {
             return;
         }
@@ -327,6 +330,9 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
      * Replay update load job.
      **/
     public void replayUpdateJob(T job) {
+        if (!job.needPersist()) {
+            return;
+        }
         jobMap.put(job.getJobId(), job);
         log.info(new LogBuilder(LogKey.SCHEDULER_JOB, job.getJobId())
                 .add("msg", "replay update scheduler job").build());
@@ -336,6 +342,9 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
      * Replay delete load job. we need to remove job from job map
      */
     public void replayDeleteJob(T replayJob) throws JobException {
+        if (!replayJob.needPersist()) {
+            return;
+        }
         T job = jobMap.get(replayJob.getJobId());
         if (null == job) {
             return;
