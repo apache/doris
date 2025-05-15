@@ -1408,8 +1408,10 @@ public class ConnectContext {
         String sessionCluster = getSessionVariable().getCloudCluster();
         if (!Strings.isNullOrEmpty(sessionCluster)) {
             choseWay = "use session";
-            LOG.debug("finally set context compute group name {} for user {} with chose way '{}'",
-                    sessionCluster, getCurrentUserIdentity(), choseWay);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("finally set context compute group name {} for user {} with chose way '{}'",
+                        sessionCluster, getCurrentUserIdentity(), choseWay);
+            }
             return sessionCluster;
         }
 
@@ -1417,8 +1419,10 @@ public class ConnectContext {
         String userPropCluster = getDefaultCloudClusterFromUser();
         if (!StringUtils.isEmpty(userPropCluster)) {
             choseWay = "user property";
-            LOG.debug("finally set context compute group name {} for user {} with chose way '{}'", userPropCluster,
-                    getCurrentUserIdentity(), choseWay);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("finally set context compute group name {} for user {} with chose way '{}'", userPropCluster,
+                        getCurrentUserIdentity(), choseWay);
+            }
             return userPropCluster;
         }
 
@@ -1426,8 +1430,10 @@ public class ConnectContext {
         // this value comes from a cluster selection policy
         if (!Strings.isNullOrEmpty(this.cloudCluster)) {
             choseWay = "user selection policy";
-            LOG.debug("finally set context compute group name {} for user {} with chose way '{}'",
-                    cloudCluster, getCurrentUserIdentity(), choseWay);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("finally set context compute group name {} for user {} with chose way '{}'",
+                        cloudCluster, getCurrentUserIdentity(), choseWay);
+            }
             return cloudCluster;
         }
 
@@ -1455,8 +1461,10 @@ public class ConnectContext {
             this.cloudCluster = policyCluster;
         }
 
-        LOG.debug("finally set context compute group name {} for user {} with chose way '{}'", this.cloudCluster,
-                getCurrentUserIdentity(), choseWay);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("finally set context compute group name {} for user {} with chose way '{}'", this.cloudCluster,
+                    getCurrentUserIdentity(), choseWay);
+        }
 
         return this.cloudCluster;
     }

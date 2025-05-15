@@ -88,14 +88,14 @@ public class BackendDistributedPlanWorkerManager implements DistributedPlanWorke
         // 1 get compute group
         ComputeGroup cg = context.getComputeGroup();
 
-        // 2 load job has been checked priv when submitting task, so no need check priv here.
-        if (!isLoadJob) {
-            try {
-                ((CloudEnv) Env.getCurrentEnv()).checkCloudClusterPriv(cg.getName());
-            } catch (Exception e) {
-                LOG.warn("cluster priv check failed", e);
-                throw new UserException("cluster priv check failed", e);
-            }
+        // 2 check priv
+        try {
+            ((CloudEnv) Env.getCurrentEnv()).checkCloudClusterPriv(cg.getName());
+        } catch (Exception e) {
+            LOG.warn("cluster priv check failed", e);
+            throw new UserException(
+                    "cluster priv check failed, user is " + ConnectContext.get().getCurrentUserIdentity().toString()
+                            + ", cluster is " + cg.getName(), e);
         }
 
         // 3 return be list

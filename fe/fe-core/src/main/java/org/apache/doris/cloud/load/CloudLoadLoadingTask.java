@@ -64,6 +64,7 @@ public class CloudLoadLoadingTask extends LoadLoadingTask {
             throw new UserException("cluster name is empty, cluster id is: " + this.cloudClusterId);
         }
 
+        // NOTE: set user info here for the following text auth check.
         if (ConnectContext.get() == null) {
             ConnectContext connectContext = new ConnectContext();
             connectContext.setCloudCluster(clusterName);
@@ -72,6 +73,8 @@ public class CloudLoadLoadingTask extends LoadLoadingTask {
             return new AutoCloseConnectContext(connectContext);
         } else {
             ConnectContext.get().setCloudCluster(clusterName);
+            ConnectContext.get().setCurrentUserIdentity(this.userInfo);
+            ConnectContext.get().setQualifiedUser(this.userInfo.getQualifiedUser());
             return null;
         }
     }

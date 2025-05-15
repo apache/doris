@@ -95,19 +95,19 @@ public class CloudBrokerLoadJob extends BrokerLoadJob {
             try {
                 clusterName = context.getCloudCluster();
             } catch (ComputeGroupException e) {
-                LOG.warn("error happens when get cloud cluster", e);
-                throw new MetaNotFoundException("error happens when get cloud cluster " + e);
+                LOG.warn("failed to get compute group name", e);
+                throw new MetaNotFoundException("failed to get compute group name " + e);
             }
             if (Strings.isNullOrEmpty(clusterName)) {
-                LOG.warn("can not find a valid compute group");
-                throw new MetaNotFoundException("can not find a valid compute group");
+                LOG.warn("compute group name is empty");
+                throw new MetaNotFoundException("compute group name is empty");
             }
 
             this.cloudClusterId = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
                     .getCloudClusterIdByName(clusterName);
             if (Strings.isNullOrEmpty(this.cloudClusterId)) {
-                LOG.warn("can not find cluster: {}", clusterName);
-                throw new MetaNotFoundException("can not find cluster: " + clusterName);
+                LOG.warn("can not find compute group: {}", clusterName);
+                throw new MetaNotFoundException("can not find compute group: " + clusterName);
             }
             sessionVariables.put(CLOUD_CLUSTER_ID, this.cloudClusterId);
         }
@@ -122,6 +122,7 @@ public class CloudBrokerLoadJob extends BrokerLoadJob {
             throw new UserException("cluster name is empty, cluster id is: " + cloudClusterId);
         }
 
+        // NOTE: set user info in context in for auth check in CloudReplica
         if (ConnectContext.get() == null) {
             ConnectContext connectContext = new ConnectContext();
             connectContext.setCloudCluster(clusterName);
@@ -166,6 +167,7 @@ public class CloudBrokerLoadJob extends BrokerLoadJob {
         try (AutoCloseConnectContext r = buildConnectContext()) {
             task.init(loadId, attachment.getFileStatusByTable(aggKey),
                     attachment.getFileNumByTable(aggKey), getUserInfo());
+            task.settWorkloadGroups(tWorkloadGroups);
         } catch (UserException e) {
             throw e;
         }

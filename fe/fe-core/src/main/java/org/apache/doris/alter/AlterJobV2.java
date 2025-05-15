@@ -17,6 +17,7 @@
 
 package org.apache.doris.alter;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
@@ -228,6 +229,7 @@ public abstract class AlterJobV2 implements Writable {
             ConnectContext ctx = new ConnectContext();
             ctx.setThreadLocalInfo();
             ctx.setCloudCluster(cloudClusterName);
+            ctx.setCurrentUserIdentity(UserIdentity.ROOT); // used for CloudReplica.getCurrentClusterId
         }
 
         // /api/debug_point/add/FE.STOP_ALTER_JOB_RUN
