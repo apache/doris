@@ -19,35 +19,85 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
+import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteTestHelper;
+import org.apache.doris.nereids.trees.expressions.Add;
+import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.IsNull;
+import org.apache.doris.nereids.trees.expressions.MatchAny;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Not;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
+import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanConstructor;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+
+import java.util.List;
+import java.util.Set;
 
 class ConstantPropagationTest {
 
     private final ConstantPropagation executor = new ConstantPropagation();
     private final NereidsParser parser = new NereidsParser();
-    private final ExpressionRewriteContext context;
-    private final LogicalOlapScan dummyPlan = PlanConstructor.newLogicalOlapScan(1, "tbl", 0);
+    private final ExpressionRewriteContext exprRewriteContext;
+
+    private final JobContext jobContext;
+
+    LogicalOlapScan student;
+    LogicalOlapScan course;
+    SlotReference courseCid;
+    SlotReference courseName;
+    SlotReference studentId;
+    SlotReference studentGender;
+    SlotReference studentAge;
 
     ConstantPropagationTest() {
         CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(
                 new UnboundRelation(new RelationId(1), ImmutableList.of("tbl")));
-        context = new ExpressionRewriteContext(cascadesContext);
+        exprRewriteContext = new ExpressionRewriteContext(cascadesContext);
+        jobContext = new JobContext(cascadesContext, null, Double.MAX_VALUE);
+
+        student = new LogicalOlapScan(PlanConstructor.getNextRelationId(), PlanConstructor.student, ImmutableList.of(""));
+        course = new LogicalOlapScan(PlanConstructor.getNextRelationId(), PlanConstructor.course, ImmutableList.of(""));
+        //select *
+        //from student join course
+        //where (course.cid=1 and student.age=10) or (student.gender = 0 and course.name='abc')
+        courseCid = (SlotReference) course.getOutput().get(0);
+        courseName = (SlotReference) course.getOutput().get(1);
+        studentId = (SlotReference) student.getOutput().get(0);
+        studentGender = (SlotReference) student.getOutput().get(1);
+        studentAge = (SlotReference) student.getOutput().get(3);
     }
 
     @Test
-    public void testRewriteExpression() {
+    public void testExpressionReplace() {
         assertRewrite("a = 1 and a = b", "a = 1 and b = 1");
         assertRewrite("a = 1 and a + b = 2 and b + c = 2 and c + d = 2 and d + e = 2 and e + f = 2",
                 "a = 1 and b = 1 and c = 1 and d = 1 and e = 1 and f = 1");
@@ -103,11 +153,242 @@ class ConstantPropagationTest {
                 "x = 10 and y = 5 and z = 10");
     }
 
+    @Test
+    void testExpressionNotReplace() {
+        // for `a = b`, if a and b's qualifier diff, will not rewrite it.
+        assertRewrite("t.a = 1 and t.a = t.b", "a = 1 and b = 1");
+        assertRewrite("t1.a = 1 and t1.a = t2.b", "a = 1 and a = b and b = 1");
+
+        // for `a is not null`, if this Not isGeneratedIsNotNull, then will not rewrite it
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, true);
+        Expression expr1 = ExpressionUtils.and(new EqualTo(a, new IntegerLiteral(1)), new Not(new IsNull(a), false));
+        Expression rewrittenExpr1 = executor.replaceConstantsAndRewriteExpr(student, expr1, exprRewriteContext);
+        Expression expectExpr1 = new EqualTo(a, new IntegerLiteral(1));
+        Assertions.assertEquals(expectExpr1, rewrittenExpr1);
+        Expression expr2 = ExpressionUtils.and(new EqualTo(a, new IntegerLiteral(1)), new Not(new IsNull(a), true));
+        Expression rewrittenExpr2 = executor.replaceConstantsAndRewriteExpr(student, expr2, exprRewriteContext);
+        Assertions.assertEquals(expr2, rewrittenExpr2);
+
+        // for `a match_any xx`, don't replace it, because the match require left child is column, not literal
+        SlotReference b = new SlotReference("b", StringType.INSTANCE, true);
+        Expression expr3 = ExpressionUtils.and(new EqualTo(b, new StringLiteral("hello")), new MatchAny(b, new StringLiteral("%ll%")));
+        Expression rewrittenExpr3 = executor.replaceConstantsAndRewriteExpr(student, expr3, exprRewriteContext);
+        Assertions.assertEquals(expr3, rewrittenExpr3);
+    }
+
+    @Test
+    void testLogicalFilter() {
+        Set<Expression> conjunctions1 = ImmutableSet.of(
+                new EqualTo(studentId, new IntegerLiteral(1)),
+                new EqualTo(studentId, studentAge)
+        );
+        Set<Expression> expectConjunctions1 = ImmutableSet.of(
+                new EqualTo(studentId, new IntegerLiteral(1)),
+                new EqualTo(studentAge, new IntegerLiteral(1))
+        );
+        LogicalFilter filter1 = new LogicalFilter<>(conjunctions1, student);
+        LogicalFilter rewrittenFilter1 = (LogicalFilter) executor.rewriteRoot(filter1, jobContext);
+        Assertions.assertEquals(expectConjunctions1, rewrittenFilter1.getConjuncts());
+
+        Set<Expression> conjunctions2 = ImmutableSet.of(
+                new EqualTo(new Add(studentAge, new IntegerLiteral(10)),
+                        new Cast(studentGender, BigIntType.INSTANCE))
+        );
+        Set<Expression> expectConjunctions2 = ImmutableSet.of(
+                new EqualTo(studentGender, new IntegerLiteral(11))
+        );
+        LogicalFilter filter2 = new LogicalFilter<>(conjunctions2, filter1);
+        LogicalFilter rewrittenFilter2 = (LogicalFilter) executor.rewriteRoot(filter2, jobContext);
+        Assertions.assertEquals(expectConjunctions2, rewrittenFilter2.getConjuncts());
+    }
+
+    @Test
+    void testLogicalHaving() {
+        Set<Expression> conjunctions1 = ImmutableSet.of(
+                new EqualTo(studentId, new IntegerLiteral(1)),
+                new EqualTo(studentId, studentAge)
+        );
+        Set<Expression> expectConjunctions1 = ImmutableSet.of(
+                new EqualTo(studentId, new IntegerLiteral(1)),
+                new EqualTo(studentAge, new IntegerLiteral(1))
+        );
+        LogicalHaving having1 = new LogicalHaving<>(conjunctions1, student);
+        LogicalHaving rewrittenHaving1 = (LogicalHaving) executor.rewriteRoot(having1, jobContext);
+        Assertions.assertEquals(expectConjunctions1, rewrittenHaving1.getConjuncts());
+
+        Set<Expression> conjunctions2 = ImmutableSet.of(
+                new EqualTo(new Add(studentAge, new IntegerLiteral(10)),
+                        new Cast(studentGender, BigIntType.INSTANCE))
+        );
+        Set<Expression> expectConjunctions2 = ImmutableSet.of(
+                new EqualTo(studentGender, new IntegerLiteral(11))
+        );
+        LogicalHaving having2 = new LogicalHaving<>(conjunctions2, having1);
+        LogicalHaving rewrittenHaving2 = (LogicalHaving) executor.rewriteRoot(having2, jobContext);
+        Assertions.assertEquals(expectConjunctions2, rewrittenHaving2.getConjuncts());
+    }
+
+    @Test
+    void testLogicalProject() {
+        Set<Expression> conjunctions = ImmutableSet.of(
+                new EqualTo(studentId, new IntegerLiteral(1))
+        );
+        List<NamedExpression> projection = ImmutableList.of(
+                // don't replace
+                studentId,
+                new Alias(new Cast(studentId, StringType.INSTANCE)),
+
+                // replace
+                new Alias(new Add(studentId, new IntegerLiteral(10))),
+                new Alias(new Add(studentId, new IntegerLiteral(20)), "b")
+        );
+        List<NamedExpression> expectProjection = ImmutableList.of(
+                studentId,
+                projection.get(1),
+                new Alias(projection.get(2).getExprId(), new BigIntLiteral(11L)),
+                new Alias(projection.get(3).getExprId(), new BigIntLiteral(21L), "b")
+        );
+        LogicalFilter filter = new LogicalFilter<>(conjunctions, student);
+        LogicalProject project = new LogicalProject<>(projection, filter);
+        LogicalProject rewrittenProject = (LogicalProject) executor.rewriteRoot(project, jobContext);
+        Assertions.assertEquals(expectProjection, rewrittenProject.getProjects());
+    }
+
+    @Test
+    void testLogicalSort() {
+        Set<Expression> conjunctions = ImmutableSet.of(
+                new EqualTo(studentId, new IntegerLiteral(1))
+        );
+        List<OrderKey> keys1 = ImmutableList.of(
+                new OrderKey(studentId, true, false),
+                new OrderKey(studentAge, true, false),
+                new OrderKey(new Add(studentId, new IntegerLiteral(10)), true, false),
+                new OrderKey(new Add(studentId, studentAge), true, false)
+        );
+        List<OrderKey> expectKeys1 = ImmutableList.of(
+                new OrderKey(studentAge, true, false),
+                new OrderKey(new Add(new IntegerLiteral(1), studentAge), true, false)
+        );
+        LogicalFilter filter = new LogicalFilter<>(conjunctions, student);
+        LogicalSort sort1 = new LogicalSort<>(keys1, filter);
+        LogicalSort rewrittenSort1 = (LogicalSort) executor.rewriteRoot(sort1, jobContext);
+        Assertions.assertEquals(expectKeys1, rewrittenSort1.getOrderKeys());
+
+        List<OrderKey> keys2 = ImmutableList.of(
+                new OrderKey(studentId, true, false),
+                new OrderKey(new Add(studentId, new IntegerLiteral(10)), true, false)
+        );
+        LogicalSort sort2 = new LogicalSort<>(keys2, filter);
+        Assertions.assertEquals(filter, executor.rewriteRoot(sort2, jobContext));
+    }
+
+    @Test
+    void testLogicalAggregate() {
+        Set<Expression> conjunctions1 = ImmutableSet.of(
+                new EqualTo(studentId, new IntegerLiteral(1))
+        );
+        List<NamedExpression> projection = Lists.newArrayList(
+                new Alias(new Add(studentId, new IntegerLiteral(10))),
+                new Alias(new Add(studentAge, new IntegerLiteral(10))),
+                new Alias(new Add(studentId, studentAge))
+        );
+        projection.addAll(student.getOutput());
+        LogicalFilter filter1 = new LogicalFilter<>(conjunctions1, student);
+        List<Expression> groupby = ImmutableList.of(
+                studentId,
+                studentAge,
+                projection.get(0).toSlot(),
+                projection.get(1).toSlot(),
+                projection.get(2).toSlot()
+        );
+        List<Expression> expectGroupby1 = ImmutableList.of(
+                groupby.get(1),
+                groupby.get(3),
+                (new Alias(((SlotReference) groupby.get(4)).getExprId(),
+                        new Add(new IntegerLiteral(1), studentAge))).toSlot()
+        );
+        List<NamedExpression> aggOutput = Lists.newArrayList(
+                new Alias(new Sum(studentId)),
+                new Alias(new Sum(studentAge)),
+                new Alias(new Sum(new Add(studentId, new IntegerLiteral(1)))),
+                new Alias(new Sum(new Add(studentAge, new IntegerLiteral(1)))),
+                new Alias(new Sum(new Add(studentId, studentAge)))
+        );
+        aggOutput.addAll((List) groupby);
+        List<NamedExpression> expectAggOutput1 = ImmutableList.of(
+                new Alias(aggOutput.get(0).getExprId(), new Sum(new IntegerLiteral(1))),
+                aggOutput.get(1),
+                new Alias(aggOutput.get(2).getExprId(), new Sum(new BigIntLiteral(2L))),
+                aggOutput.get(3),
+                new Alias(aggOutput.get(4).getExprId(),
+                        new Sum(new Add(new IntegerLiteral(1), studentAge))),
+
+                // for output also in group by, if is not constant, then just keep it
+                aggOutput.get(6),
+                aggOutput.get(8),
+                aggOutput.get(9)
+        );
+        List<NamedExpression> expectProjection1 = ImmutableList.of(
+                expectAggOutput1.get(0).toSlot(),
+                expectAggOutput1.get(1).toSlot(),
+                expectAggOutput1.get(2).toSlot(),
+                expectAggOutput1.get(3).toSlot(),
+                expectAggOutput1.get(4).toSlot(),
+                new Alias(aggOutput.get(5).getExprId(), new IntegerLiteral(1)),
+                // for output also in group by, if is not constant, then just keep it
+                expectAggOutput1.get(5).toSlot(),
+                new Alias(aggOutput.get(7).getExprId(), new BigIntLiteral(11L)),
+                expectAggOutput1.get(6).toSlot(),
+                expectAggOutput1.get(7).toSlot()
+        );
+        LogicalAggregate agg1 = new LogicalAggregate<>(groupby, aggOutput, new LogicalProject<>(projection, filter1));
+        LogicalProject rewrittenProject1 = (LogicalProject) executor.rewriteRoot(agg1, jobContext);
+        LogicalAggregate rewrittenAgg1 = (LogicalAggregate) rewrittenProject1.child();
+        Assertions.assertEquals(expectGroupby1, rewrittenAgg1.getGroupByExpressions());
+        Assertions.assertEquals(expectAggOutput1, rewrittenAgg1.getOutputExpressions());
+        Assertions.assertEquals(expectProjection1, rewrittenProject1.getProjects());
+
+        Set<Expression> conjunctions2 = ImmutableSet.of(
+                new EqualTo(studentId, new IntegerLiteral(3)),
+                new EqualTo(studentAge, new IntegerLiteral(3))
+        );
+        List<Expression> expectGroupby2 = ImmutableList.of(
+                groupby.get(0)
+        );
+        List<NamedExpression> expectAggOutput2 = ImmutableList.of(
+                new Alias(aggOutput.get(0).getExprId(), new Sum(new IntegerLiteral(3))),
+                new Alias(aggOutput.get(1).getExprId(), new Sum(new IntegerLiteral(3))),
+                new Alias(aggOutput.get(2).getExprId(), new Sum(new BigIntLiteral(4L))),
+                new Alias(aggOutput.get(3).getExprId(), new Sum(new BigIntLiteral(4L))),
+                new Alias(aggOutput.get(4).getExprId(), new Sum(new BigIntLiteral(6L))),
+                aggOutput.get(5)
+        );
+        List<NamedExpression> expectProjection2 = ImmutableList.of(
+                expectAggOutput2.get(0).toSlot(),
+                expectAggOutput2.get(1).toSlot(),
+                expectAggOutput2.get(2).toSlot(),
+                expectAggOutput2.get(3).toSlot(),
+                expectAggOutput2.get(4).toSlot(),
+                new Alias(expectAggOutput2.get(5).getExprId(), new IntegerLiteral(3)),
+                new Alias(aggOutput.get(6).getExprId(), new IntegerLiteral(3)),
+                new Alias(aggOutput.get(7).getExprId(), new BigIntLiteral(13L)),
+                new Alias(aggOutput.get(8).getExprId(), new BigIntLiteral(13L)),
+                new Alias(aggOutput.get(9).getExprId(), new BigIntLiteral(6L))
+        );
+        LogicalFilter filter2 = new LogicalFilter<>(conjunctions2, student);
+        LogicalAggregate agg2 = new LogicalAggregate<>(groupby, aggOutput, new LogicalProject<>(projection, filter2));
+        LogicalProject rewrittenProject2 = (LogicalProject) executor.rewriteRoot(agg2, jobContext);
+        LogicalAggregate rewrittenAgg2 = (LogicalAggregate) rewrittenProject2.child();
+        Assertions.assertEquals(expectGroupby2, rewrittenAgg2.getGroupByExpressions());
+        Assertions.assertEquals(expectAggOutput2, rewrittenAgg2.getOutputs());
+        Assertions.assertEquals(expectProjection2, rewrittenProject2.getProjects());
+    }
+
     private void assertRewrite(String expression, String expected) {
         Expression rewriteExpression = parser.parseExpression(expression);
         rewriteExpression = ExpressionRewriteTestHelper.typeCoercion(
                 ExpressionRewriteTestHelper.replaceUnboundSlot(rewriteExpression, Maps.newHashMap()));
-        rewriteExpression = executor.replaceConstantsAndRewriteExpr(dummyPlan, rewriteExpression, context);
+        rewriteExpression = executor.replaceConstantsAndRewriteExpr(student, rewriteExpression, exprRewriteContext);
         Expression expectedExpression = parser.parseExpression(expected);
         Assertions.assertEquals(expectedExpression.toSql(), rewriteExpression.toSql());
     }
