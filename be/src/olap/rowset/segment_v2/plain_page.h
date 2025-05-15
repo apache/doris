@@ -31,7 +31,7 @@ namespace segment_v2 {
 static const size_t PLAIN_PAGE_HEADER_SIZE = sizeof(uint32_t);
 
 template <FieldType Type>
-class PlainPageBuilder : public PageBuilderHelper<PlainPageBuilder<Type> > {
+class PlainPageBuilder : public PageBuilderHelper<PlainPageBuilder<Type>> {
 public:
     using Self = PlainPageBuilder<Type>;
     friend class PageBuilderHelper<Self>;
@@ -148,6 +148,34 @@ public:
         return Status::OK();
     }
 
+    Status read_by_rowids(const rowid_t* rowids, ordinal_t page_first_ordinal, size_t* n,
+                          vectorized::MutableColumnPtr& dst) override {
+        DCHECK(_parsed) << "Must call init() firstly(plan page) in read_by_rowids";
+        if (PREDICT_FALSE(*n == 0)) {
+            *n = 0;
+            return Status::OK();
+        }
+
+        auto total = *n;
+        auto read_count = 0;
+        _buffer.resize(total);
+        for (size_t i = 0; i < total; ++i) {
+            ordinal_t ord = rowids[i] - page_first_ordinal;
+            if (UNLIKELY(ord >= _num_elems)) {
+                break;
+            }
+
+            _buffer[read_count++] = *reinterpret_cast<CppType*>(get_data(ord));
+        }
+
+        if (LIKELY(read_count > 0)) {
+            dst->insert_many_fix_len_data((char*)_buffer.data(), read_count);
+        }
+
+        *n = read_count;
+        return Status::OK();
+    }
+
     Status seek_to_position_in_page(size_t pos) override {
         CHECK(_parsed) << "Must call init()";
         if (_num_elems == 0) [[unlikely]] {
@@ -237,6 +265,7 @@ private:
     uint32_t _cur_idx;
     typedef typename TypeTraits<Type>::CppType CppType;
     enum { SIZE_OF_TYPE = TypeTraits<Type>::size };
+    std::vector<std::conditional_t<std::is_same_v<CppType, bool>, uint8_t, CppType>> _buffer;
 };
 
 } // namespace segment_v2
