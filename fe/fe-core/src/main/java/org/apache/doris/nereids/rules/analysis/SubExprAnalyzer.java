@@ -102,7 +102,7 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
 
     @Override
     public Expression visitInSubquery(InSubquery expr, T context) {
-        if (!expr.getListQuery().getCorrelateSlots().isEmpty()) {
+        if (!expr.getCorrelateSlots().isEmpty()) {
             return expr;
         }
         LogicalPlan queryPlan = expr.getQueryPlan();
