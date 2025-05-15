@@ -487,7 +487,7 @@ void CloudTabletMgr::get_topn_tablet_delete_bitmap_score(
               << max_base_rowset_delete_bitmap_score_tablet_id << ",tablets=[" << ss.str() << "]";
 }
 
-void CloudTabletMgr::put(std::shared_ptr<CloudTablet> tablet) {
+void CloudTabletMgr::put_tablet_for_UT(std::shared_ptr<CloudTablet> tablet) {
     _tablet_map->put(tablet);
 }
 } // namespace doris
