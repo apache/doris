@@ -22,11 +22,11 @@ import org.apache.doris.analysis.CreateStorageVaultStmt;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableMap;
 import com.google.protobuf.TextFormat;
 
 import java.util.ArrayList;
@@ -146,10 +146,6 @@ public abstract class StorageVault {
                 vault.modifyProperties(stmt.getProperties());
                 break;
             case S3:
-                if (!stmt.getProperties().containsKey(PropertyConverter.USE_PATH_STYLE)) {
-                    stmt.getProperties().put(PropertyConverter.USE_PATH_STYLE, "true");
-                }
-
                 CreateResourceStmt resourceStmt =
                         new CreateResourceStmt(false, ifNotExists, name, stmt.getProperties());
                 resourceStmt.analyzeResourceType();
@@ -177,7 +173,7 @@ public abstract class StorageVault {
      * @param properties
      * @throws DdlException
      */
-    public abstract void modifyProperties(Map<String, String> properties) throws DdlException;
+    public abstract void modifyProperties(ImmutableMap<String, String> properties) throws DdlException;
 
     /**
      * Check properties in child resources

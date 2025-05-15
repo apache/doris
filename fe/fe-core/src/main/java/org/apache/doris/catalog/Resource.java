@@ -30,6 +30,7 @@ import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
@@ -233,7 +234,7 @@ public abstract class Resource implements Writable, GsonPostProcessable {
     /**
      * Set and check the properties in child resources
      */
-    protected abstract void setProperties(Map<String, String> properties) throws DdlException;
+    protected abstract void setProperties(ImmutableMap<String, String> properties) throws DdlException;
 
     public abstract Map<String, String> getCopiedProperties();
 
