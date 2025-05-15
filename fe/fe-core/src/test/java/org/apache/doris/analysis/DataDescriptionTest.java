@@ -124,7 +124,7 @@ public class DataDescriptionTest {
         Assert.assertEquals("[col1, col2]", desc.getFileFieldNames().toString());
         Assert.assertEquals("[abc.txt]", desc.getFilePaths().toString());
         Assert.assertTrue(desc.isNegative());
-        Assert.assertNull(csvFileFormatProperties.getColumnSeparator());
+        Assert.assertEquals("\t", csvFileFormatProperties.getColumnSeparator());
         Expr whereExpr = new BinaryPredicate(BinaryPredicate.Operator.EQ, new IntLiteral(1),  new IntLiteral(1));
 
         desc = new DataDescription("testTable", null, Lists.newArrayList("abc.txt"),
