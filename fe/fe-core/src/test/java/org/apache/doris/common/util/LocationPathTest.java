@@ -25,6 +25,8 @@ import org.apache.doris.fs.FileSystemType;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
@@ -248,7 +250,7 @@ public class LocationPathTest {
         location = "hdfs:///path/to/file";
         host = "nameservice";
         result = LocationPath.normalizedHdfsPath(location, host, false);
-        Assertions.assertEquals("hdfs://nameservice//path/to/file", result);
+        Assertions.assertEquals("hdfs://nameservice/path/to/file", result);
 
         // Test case 3: Broken prefix case (hdfs:/ instead of hdfs://)
         // Input: hdfs:/path, host = nameservice
@@ -303,5 +305,16 @@ public class LocationPathTest {
         host = "nameservice";
         result = LocationPath.normalizedHdfsPath(location, host, false);
         Assertions.assertEquals("hdfs://nameservice/hdfs_host/path/to/file", result);
+    }
+
+    @Test
+    public void test() throws URISyntaxException {
+        // Test case 2: Empty host in URI with host parameter provided
+        // Input: hdfs:///, host = nameservice
+        // Expected: hdfs://nameservice/
+        String location = "hdfs://127.0.0.1/hdfs_host/path/to/file";
+        URI normalizedUri = new URI(location);
+        System.out.println(normalizedUri.normalize().getPath());
+        System.out.println(normalizedUri.normalize().getHost());
     }
 }

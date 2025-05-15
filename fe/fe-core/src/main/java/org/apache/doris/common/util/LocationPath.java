@@ -54,6 +54,7 @@ public class LocationPath {
     private static final String SCHEME_DELIM = "://";
     private static final String NONSTANDARD_SCHEME_DELIM = ":/";
     private static final String STANDARD_HDFS_PREFIX = "hdfs://";
+    private static final String EMPTY_HDFS_PREFIX = "hdfs:///";
     private static final String BROKEN_HDFS_PREFIX = "hdfs:/";
     private final Scheme scheme;
     private final String location;
@@ -376,38 +377,42 @@ public class LocationPath {
             // Hive partition may contain special characters such as ' ', '<', '>' and so on.
             // Need to encode these characters before creating URI.
             // But doesn't encode '/' and ':' so that we can get the correct uri host.
-            location = URLEncoder.encode(location, StandardCharsets.UTF_8.name())
-                .replace("%2F", "/").replace("%3A", ":");
-            URI normalizedUri = new URI(location);
+            String newLocation = URLEncoder.encode(location, StandardCharsets.UTF_8.name()).replace("%2F", "/")
+                    .replace("%3A", ":");
+            URI normalizedUri = new URI(newLocation).normalize();
             // compatible with 'hdfs:///' or 'hdfs:/'
             if (StringUtils.isEmpty(normalizedUri.getHost())) {
-                location = URLDecoder.decode(location, StandardCharsets.UTF_8.name());
-                if (location.startsWith(BROKEN_HDFS_PREFIX) && !location.startsWith(STANDARD_HDFS_PREFIX)) {
-                    location = location.replace(BROKEN_HDFS_PREFIX, STANDARD_HDFS_PREFIX);
+                newLocation = URLDecoder.decode(newLocation, StandardCharsets.UTF_8.name());
+                if (newLocation.startsWith(BROKEN_HDFS_PREFIX) && !newLocation.startsWith(STANDARD_HDFS_PREFIX)) {
+                    newLocation = newLocation.replace(BROKEN_HDFS_PREFIX, STANDARD_HDFS_PREFIX);
                 }
                 if (StringUtils.isNotEmpty(host)) {
                     // Replace 'hdfs://key/' to 'hdfs://name_service/key/'
                     // Or hdfs:///abc to hdfs://name_service/abc
-                    return location.replace(STANDARD_HDFS_PREFIX, STANDARD_HDFS_PREFIX + host + "/");
+                    if (newLocation.startsWith(EMPTY_HDFS_PREFIX)) {
+                        return newLocation.replace(STANDARD_HDFS_PREFIX, STANDARD_HDFS_PREFIX + host);
+                    } else {
+                        return newLocation.replace(STANDARD_HDFS_PREFIX, STANDARD_HDFS_PREFIX + host + "/");
+                    }
                 } else {
                     // 'hdfs://null/' equals the 'hdfs:///'
-                    if (location.startsWith(HdfsResource.HDFS_PREFIX + "///")) {
+                    if (newLocation.startsWith(EMPTY_HDFS_PREFIX)) {
                         // Do not support hdfs:///location
-                        throw new RuntimeException("Invalid location with empty host: " + location);
+                        throw new RuntimeException("Invalid location with empty host: " + newLocation);
                     } else {
                         if (enableOssRootPolicy) {
                             // if oss root policy is enabled, the path should be like:
                             // hdfs://customized_host/path/to/file
                             // Should remain unchanged.
-                            return location;
+                            return newLocation;
                         } else {
                             // Replace 'hdfs://key/' to '/key/', try access local NameNode on BE.
-                            return location.replace(STANDARD_HDFS_PREFIX, "/");
+                            return newLocation.replace(STANDARD_HDFS_PREFIX, "/");
                         }
                     }
                 }
             }
-            return URLDecoder.decode(location, StandardCharsets.UTF_8.name());
+            return URLDecoder.decode(newLocation, StandardCharsets.UTF_8.name());
         } catch (URISyntaxException | UnsupportedEncodingException e) {
             throw new RuntimeException(e.getMessage(), e);
         }
