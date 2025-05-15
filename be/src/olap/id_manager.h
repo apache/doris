@@ -222,7 +222,7 @@ public:
         std::unique_lock lock(_query_to_id_file_map_mtx);
         auto it = _query_to_id_file_map.find(query_id);
         if (it == _query_to_id_file_map.end()) {
-            auto id_file_map = std::make_shared<IdFileMap>(UnixSeconds() + timeout);
+            auto id_file_map = std::make_shared<IdFileMap>(UnixSeconds() + timeout + 10);
             _query_to_id_file_map[query_id] = id_file_map;
             return id_file_map;
         }
@@ -233,6 +233,7 @@ public:
         std::unique_lock lock(_query_to_id_file_map_mtx);
         for (auto it = _query_to_id_file_map.begin(); it != _query_to_id_file_map.end();) {
             if (it->second->get_delayed_expired_timestamp() <= now) {
+                LOG(INFO) << "gc expired id file map for query_id=" << it->first;
                 it = _query_to_id_file_map.erase(it);
             } else {
                 ++it;
