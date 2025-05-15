@@ -60,6 +60,7 @@ public class CreateFunctionTest {
         FeConstants.runningUnitTest = true;
         // create connect context
         connectContext = UtFrameUtils.createDefaultCtx();
+        Env.getCurrentEnv().getWorkloadGroupMgr().createNormalWorkloadGroupForUT();
     }
 
     @AfterClass
