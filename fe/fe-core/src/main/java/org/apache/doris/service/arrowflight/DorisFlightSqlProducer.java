@@ -595,7 +595,11 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
     @Override
     public void closeSession(CloseSessionRequest request, final CallContext context,
             final StreamListener<CloseSessionResult> listener) {
-
+        // https://github.com/apache/arrow-adbc/issues/2821
+        // currently FlightSqlConnection does not provide a separate interface for external calls to
+        // FlightSqlClient::closeSession(), nor will it automatically call closeSession
+        // when FlightSqlConnection::close(). Python flight sql Cursor.close() will call closeSession().
+        // Neither C++ nor Java seem to have similar behavior.
         try {
             flightSessionsManager.closeConnectContext(context.peerIdentity());
         } catch (final Exception e) {

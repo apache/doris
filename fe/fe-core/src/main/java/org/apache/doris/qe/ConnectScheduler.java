@@ -24,9 +24,12 @@ import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.qe.ConnectContext.ThreadInfo;
 import org.apache.doris.service.arrowflight.sessions.FlightSqlConnectSchedulerImpl;
 
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -61,15 +64,6 @@ public class ConnectScheduler {
 
     public ConnectScheduler(int commonMaxConnections) {
         this(commonMaxConnections, Config.arrow_flight_max_connections);
-    }
-
-    private class TimeoutChecker extends TimerTask {
-        @Override
-        public void run() {
-            long now = System.currentTimeMillis();
-            commonConnectScheduler.timeoutChecker(now);
-            flightSqlConnectScheduler.timeoutChecker(now);
-        }
     }
 
     public ConnectSchedulerImpl getCommonConnectScheduler() {
@@ -121,7 +115,8 @@ public class ConnectScheduler {
     }
 
     public List<ThreadInfo> listConnection(String user, boolean isFull) {
-        List<ConnectContext.ThreadInfo> infos = commonConnectScheduler.listConnection(user, isFull);
+        List<ConnectContext.ThreadInfo> infos = Lists.newArrayList();
+        infos.addAll(commonConnectScheduler.listConnection(user, isFull));
         infos.addAll(flightSqlConnectScheduler.listConnection(user, isFull));
         return infos;
     }
@@ -129,7 +124,8 @@ public class ConnectScheduler {
     // used for thrift
     public List<List<String>> listConnectionForRpc(UserIdentity userIdentity, boolean isShowFullSql,
             Optional<String> timeZone) {
-        List<List<String>> list = commonConnectScheduler.listConnectionForRpc(userIdentity, isShowFullSql, timeZone);
+        List<List<String>> list = new ArrayList<>();
+        list.addAll(commonConnectScheduler.listConnectionForRpc(userIdentity, isShowFullSql, timeZone));
         list.addAll(flightSqlConnectScheduler.listConnectionForRpc(userIdentity, isShowFullSql, timeZone));
         return list;
     }
@@ -143,14 +139,25 @@ public class ConnectScheduler {
     }
 
     public Map<Integer, ConnectContext> getConnectionMap() {
-        Map<Integer, ConnectContext> map = commonConnectScheduler.getConnectionMap();
+        Map<Integer, ConnectContext> map = Maps.newConcurrentMap();
+        map.putAll(commonConnectScheduler.getConnectionMap());
         map.putAll(flightSqlConnectScheduler.getConnectionMap());
         return map;
     }
 
     public Map<String, AtomicInteger> getUserConnectionMap() {
-        Map<String, AtomicInteger> map = commonConnectScheduler.getUserConnectionMap();
+        Map<String, AtomicInteger> map = Maps.newConcurrentMap();
+        map.putAll(commonConnectScheduler.getUserConnectionMap());
         map.putAll(flightSqlConnectScheduler.getUserConnectionMap());
         return map;
+    }
+
+    private class TimeoutChecker extends TimerTask {
+        @Override
+        public void run() {
+            long now = System.currentTimeMillis();
+            commonConnectScheduler.timeoutChecker(now);
+            flightSqlConnectScheduler.timeoutChecker(now);
+        }
     }
 }

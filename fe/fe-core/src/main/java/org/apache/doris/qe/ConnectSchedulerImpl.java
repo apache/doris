@@ -137,8 +137,7 @@ public class ConnectSchedulerImpl {
         long nowMs = System.currentTimeMillis();
         for (ConnectContext ctx : connectionMap.values()) {
             // Check auth
-            if (!ctx.getCurrentUserIdentity().equals(userIdentity) && !Env.getCurrentEnv()
-                    .getAccessManager()
+            if (!ctx.getCurrentUserIdentity().equals(userIdentity) && !Env.getCurrentEnv().getAccessManager()
                     .checkGlobalPriv(userIdentity, PrivPredicate.GRANT)) {
                 continue;
             }
