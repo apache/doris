@@ -2837,7 +2837,7 @@ public class Config extends ConfigBase {
     @ConfField(description = {"Arrow Flight Server中用户token的存活时间，自上次写入后过期时间，单位分钟，默认值为1440，即1天",
             "The alive time of the user token in Arrow Flight Server, expire after write, unit minutes,"
             + "the default value is 1440, which is 1 days"})
-    public static int arrow_flight_token_alive_time = 1440;
+    public static int arrow_flight_token_alive_time_minute = 1440;
 
     @ConfField(mutable = true, description = {
             "Doris 为了兼用 mysql 周边工具生态，会内置一个名为 mysql 的数据库，如果该数据库与用户自建数据库冲突，"

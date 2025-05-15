@@ -65,7 +65,7 @@ public class FlightSqlConnectContext extends ConnectContext {
         if (flightSqlChannel != null) {
             flightSqlChannel.close();
         }
-        connectScheduler.getFlightSqlConnectScheduler().unregisterConnection(this);
+        connectScheduler.getFlightSqlConnectPoolMgr().unregisterConnection(this);
     }
 
     // kill operation with no protect.
@@ -89,7 +89,7 @@ public class FlightSqlConnectContext extends ConnectContext {
         }
         this.queryId = queryId;
         if (connectScheduler != null && !Strings.isNullOrEmpty(traceId)) {
-            connectScheduler.getFlightSqlConnectScheduler().putTraceId2QueryId(traceId, queryId);
+            connectScheduler.getFlightSqlConnectPoolMgr().putTraceId2QueryId(traceId, queryId);
         }
     }
 

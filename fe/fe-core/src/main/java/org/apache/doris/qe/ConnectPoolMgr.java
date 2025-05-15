@@ -36,8 +36,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 
-public class ConnectSchedulerImpl {
-    private static final Logger LOG = LogManager.getLogger(ConnectSchedulerImpl.class);
+public class ConnectPoolMgr {
+    private static final Logger LOG = LogManager.getLogger(ConnectPoolMgr.class);
     protected final int maxConnections;
     protected final AtomicInteger numberConnection;
     protected final Map<Integer, ConnectContext> connectionMap = Maps.newConcurrentMap();
@@ -46,7 +46,7 @@ public class ConnectSchedulerImpl {
     // valid trace id -> query id
     protected final Map<String, TUniqueId> traceId2QueryId = Maps.newConcurrentMap();
 
-    public ConnectSchedulerImpl(int maxConnections) {
+    public ConnectPoolMgr(int maxConnections) {
         this.maxConnections = maxConnections;
         numberConnection = new AtomicInteger(0);
     }

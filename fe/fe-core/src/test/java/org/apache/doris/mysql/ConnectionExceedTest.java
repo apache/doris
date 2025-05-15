@@ -78,14 +78,14 @@ public class ConnectionExceedTest {
         context1.setEnv(mockEnv);
         context1.setQualifiedUser("test_user");
         Assert.assertTrue(scheduler.submit(context1));
-        Assert.assertEquals(-1, scheduler.getCommonConnectScheduler().registerConnection(context1));
+        Assert.assertEquals(-1, scheduler.getConnectPoolMgr().registerConnection(context1));
 
         // Create second context and register
         ConnectContext context2 = new ConnectContext();
         context2.setEnv(mockEnv);
         context2.setQualifiedUser("test_user");
         Assert.assertTrue(scheduler.submit(context2));
-        Assert.assertEquals(-1, scheduler.getCommonConnectScheduler().registerConnection(context2));
+        Assert.assertEquals(-1, scheduler.getConnectPoolMgr().registerConnection(context2));
 
         // Create third context and try to register - should fail
         ConnectContext context3 = new ConnectContext();
@@ -98,7 +98,7 @@ public class ConnectionExceedTest {
         listener.handleConnection(context3, mockConnection);
         String expectedMsg = String.format(
                 "Reach limit of connections. Total: %d, User: %d, Current: %d",
-                scheduler.getCommonConnectScheduler().getMaxConnections(),
+                scheduler.getConnectPoolMgr().getMaxConnections(),
                 2, // Mocked user connection limit
                 scheduler.getConnectionNum());
         Assert.assertEquals(expectedMsg, context3.getState().getErrorMessage());
@@ -141,14 +141,14 @@ public class ConnectionExceedTest {
         context1.setEnv(mockEnv);
         context1.setQualifiedUser("test_user");
         Assert.assertTrue(scheduler.submit(context1));
-        Assert.assertEquals(-1, scheduler.getFlightSqlConnectScheduler().registerConnection(context1));
+        Assert.assertEquals(-1, scheduler.getFlightSqlConnectPoolMgr().registerConnection(context1));
 
         // Create second context and register
         ConnectContext context2 = new ConnectContext();
         context2.setEnv(mockEnv);
         context2.setQualifiedUser("test_user");
         Assert.assertTrue(scheduler.submit(context2));
-        Assert.assertEquals(-1, scheduler.getFlightSqlConnectScheduler().registerConnection(context2));
+        Assert.assertEquals(-1, scheduler.getFlightSqlConnectPoolMgr().registerConnection(context2));
 
         // Create FlightSessionsWithTokenManager and try to create a new connection
         FlightSessionsWithTokenManager manager = new FlightSessionsWithTokenManager(mockTokenManager);
@@ -161,7 +161,7 @@ public class ConnectionExceedTest {
                     "Register arrow flight sql connection failed, Unknown Error, the number of arrow flight "
                             + "bearer tokens should be equal to arrow flight sql max connections, "
                             + "max connections: %d, used: %d.",
-                    scheduler.getFlightSqlConnectScheduler().getMaxConnections(),
+                    scheduler.getFlightSqlConnectPoolMgr().getMaxConnections(),
                     scheduler.getConnectionNum());
             Assert.assertEquals(expectedMsg, e.getMessage());
         }

@@ -41,7 +41,7 @@ public class FlightSessionsWithTokenManager implements FlightSessionsManager {
     @Override
     public ConnectContext getConnectContext(String peerIdentity) {
         try {
-            ConnectContext connectContext = ExecuteEnv.getInstance().getScheduler().getFlightSqlConnectScheduler()
+            ConnectContext connectContext = ExecuteEnv.getInstance().getScheduler().getFlightSqlConnectPoolMgr()
                     .getContextWithFlightToken(peerIdentity);
             if (null == connectContext) {
                 connectContext = createConnectContext(peerIdentity);
@@ -69,13 +69,13 @@ public class FlightSessionsWithTokenManager implements FlightSessionsManager {
                 flightTokenDetails.getUserIdentity(), flightTokenDetails.getRemoteIp());
         ConnectScheduler connectScheduler = ExecuteEnv.getInstance().getScheduler();
         connectScheduler.submit(connectContext);
-        int res = connectScheduler.getFlightSqlConnectScheduler().registerConnection(connectContext);
+        int res = connectScheduler.getFlightSqlConnectPoolMgr().registerConnection(connectContext);
         if (res >= 0) {
             String errMsg = String.format(
                     "Register arrow flight sql connection failed, Unknown Error, the number of arrow flight "
                             + "bearer tokens should be equal to arrow flight sql max connections, "
                             + "max connections: %d, used: %d.",
-                    connectScheduler.getFlightSqlConnectScheduler().getMaxConnections(), res);
+                    connectScheduler.getFlightSqlConnectPoolMgr().getMaxConnections(), res);
             connectContext.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, errMsg);
             throw new IllegalArgumentException(errMsg);
         }

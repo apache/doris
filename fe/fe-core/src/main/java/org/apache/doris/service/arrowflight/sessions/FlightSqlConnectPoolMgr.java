@@ -19,7 +19,7 @@ package org.apache.doris.service.arrowflight.sessions;
 
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContext.ConnectType;
-import org.apache.doris.qe.ConnectSchedulerImpl;
+import org.apache.doris.qe.ConnectPoolMgr;
 
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
@@ -27,12 +27,12 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.Map;
 
-public class FlightSqlConnectSchedulerImpl extends ConnectSchedulerImpl {
+public class FlightSqlConnectPoolMgr extends ConnectPoolMgr {
     private static final Logger LOG = LogManager.getLogger(
-            org.apache.doris.service.arrowflight.sessions.FlightSqlConnectSchedulerImpl.class);
+            FlightSqlConnectPoolMgr.class);
     private final Map<String, Integer> flightToken2ConnectionId = Maps.newConcurrentMap();
 
-    public FlightSqlConnectSchedulerImpl(int maxConnections) {
+    public FlightSqlConnectPoolMgr(int maxConnections) {
         super(maxConnections);
     }
 

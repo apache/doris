@@ -74,10 +74,10 @@ public class FlightTokenManagerImpl implements FlightTokenManager {
                         // TODO: broadcast this message to other FE
                         String token = notification.getKey();
                         FlightTokenDetails tokenDetails = notification.getValue();
-                        ConnectContext context = ExecuteEnv.getInstance().getScheduler().getFlightSqlConnectScheduler()
+                        ConnectContext context = ExecuteEnv.getInstance().getScheduler().getFlightSqlConnectPoolMgr()
                                 .getContextWithFlightToken(token);
                         if (context != null) {
-                            ExecuteEnv.getInstance().getScheduler().getFlightSqlConnectScheduler()
+                            ExecuteEnv.getInstance().getScheduler().getFlightSqlConnectPoolMgr()
                                     .unregisterConnection(context);
                             LOG.info("evict bearer token: " + token + " from tokenCache, reason: "
                                     + notification.getCause()
@@ -152,12 +152,12 @@ public class FlightTokenManagerImpl implements FlightTokenManager {
             throw new IllegalArgumentException("invalid bearer token: " + token
                     + ", try reconnect, bearer token may not be created, or may have been evict, search for this "
                     + "token in fe.log to see the evict reason. currently in fe.conf, `arrow_flight_max_connections`="
-                    + this.cacheSize + ", `arrow_flight_token_alive_time`=" + this.cacheExpiration);
+                    + this.cacheSize + ", `arrow_flight_token_alive_time_minute`=" + this.cacheExpiration);
         }
         if (System.currentTimeMillis() >= value.getExpiresAt()) {
             tokenCache.invalidate(token);
             throw new IllegalArgumentException("bearer token expired: " + token + ", try reconnect, "
-                    + "currently in fe.conf, `arrow_flight_token_alive_time`=" + this.cacheExpiration);
+                    + "currently in fe.conf, `arrow_flight_token_alive_time_minute`=" + this.cacheExpiration);
         }
         if (usersTokenLRU.containsKey(value.getUsername())) {
             try {

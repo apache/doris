@@ -22,7 +22,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.qe.ConnectContext.ThreadInfo;
-import org.apache.doris.service.arrowflight.sessions.FlightSqlConnectSchedulerImpl;
+import org.apache.doris.service.arrowflight.sessions.FlightSqlConnectPoolMgr;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -45,8 +45,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class ConnectScheduler {
     private static final Logger LOG = LogManager.getLogger(ConnectScheduler.class);
     private final AtomicInteger nextConnectionId;
-    private final ConnectSchedulerImpl commonConnectScheduler;
-    private final FlightSqlConnectSchedulerImpl flightSqlConnectScheduler;
+    private final ConnectPoolMgr connectPoolMgr;
+    private final FlightSqlConnectPoolMgr flightSqlConnectPoolMgr;
 
     // Use a thread to check whether connection is timeout. Because
     // 1. If use a scheduler, the task maybe a huge number when query is messy.
@@ -57,8 +57,8 @@ public class ConnectScheduler {
 
     public ConnectScheduler(int commonMaxConnections, int flightSqlMaxConnections) {
         nextConnectionId = new AtomicInteger(0);
-        this.commonConnectScheduler = new ConnectSchedulerImpl(commonMaxConnections);
-        this.flightSqlConnectScheduler = new FlightSqlConnectSchedulerImpl(flightSqlMaxConnections);
+        this.connectPoolMgr = new ConnectPoolMgr(commonMaxConnections);
+        this.flightSqlConnectPoolMgr = new FlightSqlConnectPoolMgr(flightSqlMaxConnections);
         checkTimer.scheduleAtFixedRate(new TimeoutChecker(), 0, 1000L, TimeUnit.MILLISECONDS);
     }
 
@@ -66,12 +66,12 @@ public class ConnectScheduler {
         this(commonMaxConnections, Config.arrow_flight_max_connections);
     }
 
-    public ConnectSchedulerImpl getCommonConnectScheduler() {
-        return commonConnectScheduler;
+    public ConnectPoolMgr getConnectPoolMgr() {
+        return connectPoolMgr;
     }
 
-    public FlightSqlConnectSchedulerImpl getFlightSqlConnectScheduler() {
-        return flightSqlConnectScheduler;
+    public FlightSqlConnectPoolMgr getFlightSqlConnectPoolMgr() {
+        return flightSqlConnectPoolMgr;
     }
 
     // submit one MysqlContext to this scheduler.
@@ -87,37 +87,37 @@ public class ConnectScheduler {
     }
 
     public ConnectContext getContext(int connectionId) {
-        ConnectContext ctx = commonConnectScheduler.getContext(connectionId);
+        ConnectContext ctx = connectPoolMgr.getContext(connectionId);
         if (ctx == null) {
-            ctx = flightSqlConnectScheduler.getContext(connectionId);
+            ctx = flightSqlConnectPoolMgr.getContext(connectionId);
         }
         return ctx;
     }
 
     public ConnectContext getContextWithQueryId(String queryId) {
-        ConnectContext ctx = commonConnectScheduler.getContextWithQueryId(queryId);
+        ConnectContext ctx = connectPoolMgr.getContextWithQueryId(queryId);
         if (ctx == null) {
-            ctx = flightSqlConnectScheduler.getContextWithQueryId(queryId);
+            ctx = flightSqlConnectPoolMgr.getContextWithQueryId(queryId);
         }
         return ctx;
     }
 
     public boolean cancelQuery(String queryId, Status cancelReason) {
-        boolean ret = commonConnectScheduler.cancelQuery(queryId, cancelReason);
+        boolean ret = connectPoolMgr.cancelQuery(queryId, cancelReason);
         if (!ret) {
-            ret = flightSqlConnectScheduler.cancelQuery(queryId, cancelReason);
+            ret = flightSqlConnectPoolMgr.cancelQuery(queryId, cancelReason);
         }
         return ret;
     }
 
     public int getConnectionNum() {
-        return commonConnectScheduler.getConnectionNum() + flightSqlConnectScheduler.getConnectionNum();
+        return connectPoolMgr.getConnectionNum() + flightSqlConnectPoolMgr.getConnectionNum();
     }
 
     public List<ThreadInfo> listConnection(String user, boolean isFull) {
         List<ConnectContext.ThreadInfo> infos = Lists.newArrayList();
-        infos.addAll(commonConnectScheduler.listConnection(user, isFull));
-        infos.addAll(flightSqlConnectScheduler.listConnection(user, isFull));
+        infos.addAll(connectPoolMgr.listConnection(user, isFull));
+        infos.addAll(flightSqlConnectPoolMgr.listConnection(user, isFull));
         return infos;
     }
 
@@ -125,30 +125,30 @@ public class ConnectScheduler {
     public List<List<String>> listConnectionForRpc(UserIdentity userIdentity, boolean isShowFullSql,
             Optional<String> timeZone) {
         List<List<String>> list = new ArrayList<>();
-        list.addAll(commonConnectScheduler.listConnectionForRpc(userIdentity, isShowFullSql, timeZone));
-        list.addAll(flightSqlConnectScheduler.listConnectionForRpc(userIdentity, isShowFullSql, timeZone));
+        list.addAll(connectPoolMgr.listConnectionForRpc(userIdentity, isShowFullSql, timeZone));
+        list.addAll(flightSqlConnectPoolMgr.listConnectionForRpc(userIdentity, isShowFullSql, timeZone));
         return list;
     }
 
     public String getQueryIdByTraceId(String traceId) {
-        String queryId = commonConnectScheduler.getQueryIdByTraceId(traceId);
+        String queryId = connectPoolMgr.getQueryIdByTraceId(traceId);
         if (Objects.equals(queryId, "")) {
-            queryId = flightSqlConnectScheduler.getQueryIdByTraceId(traceId);
+            queryId = flightSqlConnectPoolMgr.getQueryIdByTraceId(traceId);
         }
         return queryId;
     }
 
     public Map<Integer, ConnectContext> getConnectionMap() {
         Map<Integer, ConnectContext> map = Maps.newConcurrentMap();
-        map.putAll(commonConnectScheduler.getConnectionMap());
-        map.putAll(flightSqlConnectScheduler.getConnectionMap());
+        map.putAll(connectPoolMgr.getConnectionMap());
+        map.putAll(flightSqlConnectPoolMgr.getConnectionMap());
         return map;
     }
 
     public Map<String, AtomicInteger> getUserConnectionMap() {
         Map<String, AtomicInteger> map = Maps.newConcurrentMap();
-        map.putAll(commonConnectScheduler.getUserConnectionMap());
-        map.putAll(flightSqlConnectScheduler.getUserConnectionMap());
+        map.putAll(connectPoolMgr.getUserConnectionMap());
+        map.putAll(flightSqlConnectPoolMgr.getUserConnectionMap());
         return map;
     }
 
@@ -156,8 +156,8 @@ public class ConnectScheduler {
         @Override
         public void run() {
             long now = System.currentTimeMillis();
-            commonConnectScheduler.timeoutChecker(now);
-            flightSqlConnectScheduler.timeoutChecker(now);
+            connectPoolMgr.timeoutChecker(now);
+            flightSqlConnectPoolMgr.timeoutChecker(now);
         }
     }
 }

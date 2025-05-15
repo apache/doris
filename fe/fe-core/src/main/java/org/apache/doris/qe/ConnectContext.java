@@ -940,7 +940,7 @@ public class ConnectContext {
         }
         this.queryId = queryId;
         if (connectScheduler != null && !Strings.isNullOrEmpty(traceId)) {
-            connectScheduler.getCommonConnectScheduler().putTraceId2QueryId(traceId, queryId);
+            connectScheduler.getConnectPoolMgr().putTraceId2QueryId(traceId, queryId);
         }
     }
 
