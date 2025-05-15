@@ -69,92 +69,92 @@ import java.util.stream.Collectors;
  */
 public class TypeAndEncoding {
     private static final Map<String, EncodingTypePB> encodingMap = new HashMap<>();
-    private static final Map<Class<? extends DataType>, Set<EncodingTypePB>> supportedEncodingMap = new HashMap<>();
+    private static final Map<Class<? extends DataType>, Set<Integer>> supportedEncodingMap = new HashMap<>();
 
     static {
         // same as BE cod: encoding_info.cpp
-        Set<EncodingTypePB> tinyIntEncoding = new HashSet<>();
-        tinyIntEncoding.add(EncodingTypePB.BIT_SHUFFLE);
-        tinyIntEncoding.add(EncodingTypePB.FOR_ENCODING);
-        tinyIntEncoding.add(EncodingTypePB.PLAIN_ENCODING);
+        Set<Integer> tinyIntEncoding = new HashSet<>();
+        tinyIntEncoding.add(EncodingTypePB.BIT_SHUFFLE.getNumber());
+        // tinyIntEncoding.add(EncodingTypePB.FOR_ENCODING);
+        tinyIntEncoding.add(EncodingTypePB.PLAIN_ENCODING.getNumber());
         supportedEncodingMap.put(TinyIntType.class, tinyIntEncoding);
 
-        Set<EncodingTypePB> smallIntEncoding = new HashSet<>();
-        smallIntEncoding.add(EncodingTypePB.BIT_SHUFFLE);
-        smallIntEncoding.add(EncodingTypePB.FOR_ENCODING);
-        smallIntEncoding.add(EncodingTypePB.PLAIN_ENCODING);
+        Set<Integer> smallIntEncoding = new HashSet<>();
+        smallIntEncoding.add(EncodingTypePB.BIT_SHUFFLE.getNumber());
+        // smallIntEncoding.add(EncodingTypePB.FOR_ENCODING);
+        smallIntEncoding.add(EncodingTypePB.PLAIN_ENCODING.getNumber());
         supportedEncodingMap.put(SmallIntType.class, smallIntEncoding);
 
-        Set<EncodingTypePB> intEncoding = new HashSet<>();
-        intEncoding.add(EncodingTypePB.BIT_SHUFFLE);
-        intEncoding.add(EncodingTypePB.FOR_ENCODING);
-        intEncoding.add(EncodingTypePB.PLAIN_ENCODING);
+        Set<Integer> intEncoding = new HashSet<>();
+        intEncoding.add(EncodingTypePB.BIT_SHUFFLE.getNumber());
+        // intEncoding.add(EncodingTypePB.FOR_ENCODING);
+        intEncoding.add(EncodingTypePB.PLAIN_ENCODING.getNumber());
         supportedEncodingMap.put(IntegerType.class, intEncoding);
 
-        Set<EncodingTypePB> bigIntEncoding = new HashSet<>();
-        bigIntEncoding.add(EncodingTypePB.BIT_SHUFFLE);
-        bigIntEncoding.add(EncodingTypePB.FOR_ENCODING);
-        bigIntEncoding.add(EncodingTypePB.PLAIN_ENCODING);
+        Set<Integer> bigIntEncoding = new HashSet<>();
+        bigIntEncoding.add(EncodingTypePB.BIT_SHUFFLE.getNumber());
+        // bigIntEncoding.add(EncodingTypePB.FOR_ENCODING);
+        bigIntEncoding.add(EncodingTypePB.PLAIN_ENCODING.getNumber());
         supportedEncodingMap.put(BigIntType.class, bigIntEncoding);
 
-        Set<EncodingTypePB> largeIntEncoding = new HashSet<>();
-        largeIntEncoding.add(EncodingTypePB.BIT_SHUFFLE);
-        largeIntEncoding.add(EncodingTypePB.PLAIN_ENCODING);
-        largeIntEncoding.add(EncodingTypePB.FOR_ENCODING);
+        Set<Integer> largeIntEncoding = new HashSet<>();
+        largeIntEncoding.add(EncodingTypePB.BIT_SHUFFLE.getNumber());
+        largeIntEncoding.add(EncodingTypePB.PLAIN_ENCODING.getNumber());
+        // largeIntEncoding.add(EncodingTypePB.FOR_ENCODING);
         supportedEncodingMap.put(LargeIntType.class, largeIntEncoding);
 
-        Set<EncodingTypePB> floatEncoding = new HashSet<>();
-        floatEncoding.add(EncodingTypePB.BIT_SHUFFLE);
-        floatEncoding.add(EncodingTypePB.PLAIN_ENCODING);
+        Set<Integer> floatEncoding = new HashSet<>();
+        floatEncoding.add(EncodingTypePB.BIT_SHUFFLE.getNumber());
+        floatEncoding.add(EncodingTypePB.PLAIN_ENCODING.getNumber());
         supportedEncodingMap.put(FloatType.class, floatEncoding);
 
-        Set<EncodingTypePB> doubleEncoding = new HashSet<>();
-        doubleEncoding.add(EncodingTypePB.BIT_SHUFFLE);
-        doubleEncoding.add(EncodingTypePB.PLAIN_ENCODING);
+        Set<Integer> doubleEncoding = new HashSet<>();
+        doubleEncoding.add(EncodingTypePB.BIT_SHUFFLE.getNumber());
+        doubleEncoding.add(EncodingTypePB.PLAIN_ENCODING.getNumber());
         supportedEncodingMap.put(DoubleType.class, doubleEncoding);
 
-        Set<EncodingTypePB> charLikeEncoding = new HashSet<>();
-        charLikeEncoding.add(EncodingTypePB.DICT_ENCODING);
-        charLikeEncoding.add(EncodingTypePB.PLAIN_ENCODING);
-        charLikeEncoding.add(EncodingTypePB.PREFIX_ENCODING);
+        Set<Integer> charLikeEncoding = new HashSet<>();
+        charLikeEncoding.add(EncodingTypePB.DICT_ENCODING.getNumber());
+        charLikeEncoding.add(EncodingTypePB.PLAIN_ENCODING.getNumber());
+        // charLikeEncoding.add(EncodingTypePB.PREFIX_ENCODING);
         supportedEncodingMap.put(CharType.class, charLikeEncoding);
         supportedEncodingMap.put(VarcharType.class, charLikeEncoding);
         supportedEncodingMap.put(StringType.class, charLikeEncoding);
         supportedEncodingMap.put(JsonType.class, charLikeEncoding);
         supportedEncodingMap.put(VariantType.class, charLikeEncoding);
 
-        Set<EncodingTypePB> boolEncoding = new HashSet<>();
-        boolEncoding.add(EncodingTypePB.RLE);
-        boolEncoding.add(EncodingTypePB.BIT_SHUFFLE);
-        boolEncoding.add(EncodingTypePB.PLAIN_ENCODING);
+        Set<Integer> boolEncoding = new HashSet<>();
+        boolEncoding.add(EncodingTypePB.RLE.getNumber());
+        boolEncoding.add(EncodingTypePB.BIT_SHUFFLE.getNumber());
+        boolEncoding.add(EncodingTypePB.PLAIN_ENCODING.getNumber());
         supportedEncodingMap.put(BooleanType.class, boolEncoding);
 
-        Set<EncodingTypePB> dateLikeEncoding = new HashSet<>();
-        dateLikeEncoding.add(EncodingTypePB.BIT_SHUFFLE);
-        dateLikeEncoding.add(EncodingTypePB.PLAIN_ENCODING);
-        dateLikeEncoding.add(EncodingTypePB.FOR_ENCODING);
+        Set<Integer> dateLikeEncoding = new HashSet<>();
+        dateLikeEncoding.add(EncodingTypePB.BIT_SHUFFLE.getNumber());
+        dateLikeEncoding.add(EncodingTypePB.PLAIN_ENCODING.getNumber());
+        // dateLikeEncoding.add(EncodingTypePB.FOR_ENCODING);
         supportedEncodingMap.put(DateType.class, dateLikeEncoding);
         supportedEncodingMap.put(DateV2Type.class, dateLikeEncoding);
         supportedEncodingMap.put(DateTimeType.class, dateLikeEncoding);
         supportedEncodingMap.put(DateTimeV2Type.class, dateLikeEncoding);
 
-        Set<EncodingTypePB> decimalLikeEncoding = new HashSet<>();
-        decimalLikeEncoding.add(EncodingTypePB.BIT_SHUFFLE);
-        decimalLikeEncoding.add(EncodingTypePB.PLAIN_ENCODING);
+        Set<Integer> decimalLikeEncoding = new HashSet<>();
+        decimalLikeEncoding.add(EncodingTypePB.BIT_SHUFFLE.getNumber());
+        decimalLikeEncoding.add(EncodingTypePB.PLAIN_ENCODING.getNumber());
         supportedEncodingMap.put(DecimalV2Type.class, decimalLikeEncoding);
         supportedEncodingMap.put(DecimalV3Type.class, decimalLikeEncoding);
 
-        Set<EncodingTypePB> ipLikeEncoding = new HashSet<>();
-        ipLikeEncoding.add(EncodingTypePB.BIT_SHUFFLE);
-        ipLikeEncoding.add(EncodingTypePB.PLAIN_ENCODING);
+        Set<Integer> ipLikeEncoding = new HashSet<>();
+        ipLikeEncoding.add(EncodingTypePB.BIT_SHUFFLE.getNumber());
+        ipLikeEncoding.add(EncodingTypePB.PLAIN_ENCODING.getNumber());
         supportedEncodingMap.put(IPv4Type.class, ipLikeEncoding);
         supportedEncodingMap.put(IPv6Type.class, ipLikeEncoding);
 
-        supportedEncodingMap.put(HllType.class, Sets.newHashSet(EncodingTypePB.PLAIN_ENCODING));
+        supportedEncodingMap.put(HllType.class, Sets.newHashSet(EncodingTypePB.PLAIN_ENCODING.getNumber()));
 
-        supportedEncodingMap.put(QuantileStateType.class, Sets.newHashSet(EncodingTypePB.PLAIN_ENCODING));
+        supportedEncodingMap.put(QuantileStateType.class, Sets.newHashSet(EncodingTypePB.PLAIN_ENCODING.getNumber()));
 
-        supportedEncodingMap.put(AggStateType.class, Sets.newHashSet(EncodingTypePB.PLAIN_ENCODING));
+        supportedEncodingMap.put(AggStateType.class, Sets.newHashSet(EncodingTypePB.PLAIN_ENCODING.getNumber()));
     }
 
     public final SegmentV2.EncodingTypePB encoding;
@@ -233,7 +233,8 @@ public class TypeAndEncoding {
         Integer encodingNumber = EncodingInfo.getEncodingNumber(encoding);
         if (encodingNumber == null) {
             throw new IllegalArgumentException("Unsupported encoding: " + encoding);
-        } else if (supportedEncodingMap.containsKey(dataType.getClass())) {
+        } else if (supportedEncodingMap.containsKey(dataType.getClass())
+                && supportedEncodingMap.get(dataType.getClass()).contains(encodingNumber)) {
             return new TypeAndEncoding(dataType, EncodingTypePB.forNumber(encodingNumber), children);
         } else {
             throw new IllegalArgumentException("Unsupported encoding: " + encoding + ", type: " + dataType.toSql());
