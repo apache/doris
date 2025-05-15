@@ -169,7 +169,7 @@ PhysicalResultSink
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t3.a = expr_cast(a as INT)) and (t3.b = t.b)) otherCondition=()
 ----PhysicalUnion
-----filter(a IN (2, 3, 5))
+----filter(a IN (2, 3, 5) and b IN ('aa', 'aab', 'dd'))
 ------PhysicalOlapScan[test_pull_up_predicate_set_op3]
 
 -- !union_child_and_const_exprs --

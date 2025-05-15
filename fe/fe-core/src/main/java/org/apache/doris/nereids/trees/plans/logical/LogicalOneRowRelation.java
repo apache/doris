@@ -77,8 +77,8 @@ public class LogicalOneRowRelation extends LogicalRelation implements OneRowRela
     }
 
     @Override
-    public boolean canMergeParentProjections(List<NamedExpression> parentProject) {
-        return !ExpressionUtils.containsTypes(parentProject, FORBIDDEN_EXPRESSIONS);
+    public boolean canProcessProject(List<NamedExpression> parentProjects) {
+        return !ExpressionUtils.containsTypes(parentProjects, FORBIDDEN_EXPRESSIONS);
     }
 
     @Override

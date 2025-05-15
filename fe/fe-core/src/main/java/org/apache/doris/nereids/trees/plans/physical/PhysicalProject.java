@@ -372,4 +372,9 @@ public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHIL
         }
         return withProjects(allProjects);
     }
+
+    @Override
+    public boolean canProcessProject(List<NamedExpression> parentProjects) {
+        return true;
+    }
 }

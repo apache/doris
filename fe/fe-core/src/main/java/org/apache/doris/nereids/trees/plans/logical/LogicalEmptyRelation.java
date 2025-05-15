@@ -61,7 +61,7 @@ public class LogicalEmptyRelation extends LogicalRelation
     }
 
     @Override
-    public boolean canMergeParentProjections(List<NamedExpression> parentProject) {
+    public boolean canProcessProject(List<NamedExpression> parentProjects) {
         return true;
     }
 

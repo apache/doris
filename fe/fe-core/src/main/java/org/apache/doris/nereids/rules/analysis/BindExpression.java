@@ -92,7 +92,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUsingJoin;
-import org.apache.doris.nereids.trees.plans.logical.ProjectMergeable;
+import org.apache.doris.nereids.trees.plans.logical.ProjectProcessor;
 import org.apache.doris.nereids.trees.plans.visitor.InferPlanOutputAlias;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.StructField;
@@ -352,7 +352,7 @@ public class BindExpression implements AnalysisRuleFactory {
                 newChild = child;
             } else {
                 List<NamedExpression> parentProject = childrenProjections.get(i);
-                newChild = ProjectMergeable.mergeContinuedProjects(parentProject, child)
+                newChild = ProjectProcessor.tryProcessProject(parentProject, child)
                         .orElseGet(() -> new LogicalProject<>(parentProject, child));
             }
             newChildren.add(newChild);

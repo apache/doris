@@ -55,7 +55,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.logical.LogicalView;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.logical.OutputPrunable;
-import org.apache.doris.nereids.trees.plans.logical.ProjectMergeable;
+import org.apache.doris.nereids.trees.plans.logical.ProjectProcessor;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.types.TinyIntType;
@@ -233,8 +233,7 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
         if (context.needPrune) {
             project = (LogicalProject) pruneOutput(project, project.getOutputs(), project::pruneOutputs, context);
         }
-        Plan plan = ProjectMergeable.mergeContinuedProjects(project.getProjects(), project.child())
-                .orElse(project);
+        Plan plan = ProjectProcessor.tryProcessProject(project.getProjects(), project).orElse(project);
         return pruneChildren(plan, new BitSet());
     }
 

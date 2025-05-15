@@ -158,6 +158,7 @@ import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -236,13 +237,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         )
                 ),
 
-                bottomUp(
-                    // UnCorrelatedApplyAggregateFilter rule will create new aggregate outputs,
-                    // The later rule CHECK_PRIVILEGES which inherent from ColumnPruning only works
-                    // if the aggregation node is normalized, so we need call NormalizeAggregate here
-                    new NormalizeAggregate()
-                ),
-
                 // before `Subquery unnesting` topic, some correlate slots should have appeared at LogicalApply.left,
                 // but it appeared at LogicalApply.right. After the `Subquery unnesting` topic, all slots is placed in a
                 // normal position, then we can check column privileges by these steps
@@ -251,6 +245,11 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 // 2. and then check the column privileges
                 // 3. finally, we can eliminate the LogicalView
                 topic("Inline view and check column privileges",
+                    bottomUp(
+                        // The later rule CHECK_PRIVILEGES which inherent from ColumnPruning only works
+                        // if the aggregation node is normalized, so we need call NormalizeAggregate here
+                        new NormalizeAggregate()
+                    ),
                     custom(RuleType.CHECK_PRIVILEGES, ColumnPruning::new)
                 ),
                 topic("Eliminate optimization",
@@ -292,7 +291,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         )
                 ),
                 topic("Rewrite join",
-                        cascadesContext -> cascadesContext.rewritePlanContainsTypes(LogicalJoin.class),
                         // infer not null filter, then push down filter, and then reorder join(cross join to inner join)
                         topDown(
                                 new InferAggNotNull(),
@@ -305,24 +303,28 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         // but top-down traverse can not cover this case in one iteration, so bottom-up is more
                         // efficient because it can find the new plans and apply transform wherever it is
                         bottomUp(RuleSet.PUSH_DOWN_FILTERS),
-                        topDown(
-                                new MergeFilters(),
-                                new ReorderJoin(),
-                                new PushFilterInsideJoin(),
-                                new FindHashConditionForJoin(),
-                                new ConvertInnerOrCrossJoin(),
-                                new EliminateNullAwareLeftAntiJoin()
+
+                        topic("",
+                                cascadesContext -> cascadesContext.rewritePlanContainsTypes(LogicalJoin.class),
+                                topDown(
+                                        new ReorderJoin(),
+                                        new PushFilterInsideJoin(),
+                                        new FindHashConditionForJoin(),
+                                        new ConvertInnerOrCrossJoin(),
+                                        new EliminateNullAwareLeftAntiJoin()
+                                ),
+                                // push down SEMI Join
+                                bottomUp(
+                                        new TransposeSemiJoinLogicalJoin(),
+                                        new TransposeSemiJoinLogicalJoinProject(),
+                                        new TransposeSemiJoinAgg(),
+                                        new TransposeSemiJoinAggProject()
+                                ),
+                                topDown(
+                                        new EliminateDedupJoinCondition()
+                                )
                         ),
-                        // push down SEMI Join
-                        bottomUp(
-                                new TransposeSemiJoinLogicalJoin(),
-                                new TransposeSemiJoinLogicalJoinProject(),
-                                new TransposeSemiJoinAgg(),
-                                new TransposeSemiJoinAggProject()
-                        ),
-                        topDown(
-                                new EliminateDedupJoinCondition()
-                        ),
+
                         // eliminate useless not null or inferred not null
                         // TODO: wait InferPredicates to infer more not null.
                         bottomUp(new EliminateNotNull()),
@@ -332,8 +334,14 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         topic("",
                                 cascadesContext -> cascadesContext.rewritePlanContainsTypes(SetOperation.class),
                                 // Do MergeSetOperation first because we hope to match pattern of Distinct SetOperator.
-                                topDown(new PushProjectThroughUnion(), new MergeProjects()),
-                                bottomUp(new MergeSetOperations(), new MergeSetOperationsExcept())
+                                topDown(
+                                        new PushProjectThroughUnion(),
+                                        new MergeProjects()
+                                ),
+                                bottomUp(
+                                        new MergeSetOperations(),
+                                        new MergeSetOperationsExcept()
+                                )
                         ),
                         topDown(new PushProjectIntoOneRowRelation()),
                         topic("",
@@ -362,7 +370,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     ),
                     topic("infer predicate",
                         cascadesContext -> cascadesContext.rewritePlanContainsTypes(
-                                LogicalJoin.class, LogicalSetOperation.class
+                                LogicalFilter.class, LogicalJoin.class, LogicalSetOperation.class
                         ),
                         custom(RuleType.INFER_PREDICATES, InferPredicates::new),
                         // column pruning create new project, so we should use PUSH_DOWN_FILTERS

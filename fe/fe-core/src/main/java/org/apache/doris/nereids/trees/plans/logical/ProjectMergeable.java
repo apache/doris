@@ -32,11 +32,16 @@ import java.util.Optional;
  * 2. project(project) -> project
  * 3. project(emptyRelation) -> emptyRelation
  */
-public interface ProjectMergeable extends OutputPrunable, Plan {
+public interface ProjectMergeable extends ProjectProcessor, OutputPrunable, Plan {
+    @Override
+    default Optional<Plan> processProject(List<NamedExpression> parentProjects) {
+        return mergeContinuedProjects(parentProjects, this);
+    }
+
     /** merge project until can not merge */
     static Optional<Plan> mergeContinuedProjects(List<NamedExpression> parentProject, Plan plan) {
         if (!(plan instanceof ProjectMergeable)
-                || !((ProjectMergeable) plan).canMergeParentProjections(parentProject)) {
+                || !((ProjectMergeable) plan).canProcessProject(parentProject)) {
             return Optional.empty();
         }
         List<NamedExpression> mergedProjects = parentProject;
@@ -44,15 +49,13 @@ public interface ProjectMergeable extends OutputPrunable, Plan {
         while (true) {
             mergedProjects = PlanUtils.mergeProjections(child.getProjects(), mergedProjects);
             if (child.arity() == 1 && child.child(0) instanceof ProjectMergeable
-                    && ((ProjectMergeable) child.child(0)).canMergeParentProjections(mergedProjects)) {
+                    && ((ProjectMergeable) child.child(0)).canProcessProject(mergedProjects)) {
                 child = (ProjectMergeable) child.child(0);
                 continue;
             }
             return Optional.of(child.withProjects(mergedProjects));
         }
     }
-
-    boolean canMergeParentProjections(List<NamedExpression> parentProject);
 
     List<NamedExpression> getProjects();
 
