@@ -55,35 +55,45 @@ public:
     size_t get_number_of_arguments() const override { return 1; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        DCHECK(is_array(arguments[0]))
+        DCHECK(arguments[0]->get_primitive_type() == TYPE_ARRAY)
                 << "argument for function: " << name << " should be DataTypeArray but it has type "
                 << arguments[0]->get_name() << ".";
         auto nested_type = assert_cast<const DataTypeArray&>(*(arguments[0])).get_nested_type();
 
-        auto non_null_nested_type = remove_nullable(nested_type);
-        auto scale = get_decimal_scale(*non_null_nested_type);
-        WhichDataType which(non_null_nested_type);
-
-        //return type is promoted to prevent result overflow
-        //like: input is int32 ---> return type will be int64
         DataTypePtr return_type = nullptr;
-
-        // same cast logic as array_sum
-        if (which.is_uint8() || which.is_int8() || which.is_uint16() || which.is_int16() ||
-            which.is_uint32() || which.is_int32() || which.is_int64() || which.is_uint64()) {
+        switch (nested_type->get_primitive_type()) {
+        case PrimitiveType::TYPE_BOOLEAN:
+        case PrimitiveType::TYPE_TINYINT:
+        case PrimitiveType::TYPE_SMALLINT:
+        case PrimitiveType::TYPE_INT:
+        case PrimitiveType::TYPE_BIGINT: {
             return_type = std::make_shared<DataTypeInt64>();
-        } else if (which.is_int128()) {
-            return_type = std::make_shared<DataTypeInt128>();
-        } else if (which.is_float32() || which.is_float64()) {
-            return_type = std::make_shared<DataTypeFloat64>();
-        } else if (which.is_decimal128v2() && !which.is_decimal128v3()) {
-            // decimalv2
-            return_type = std::make_shared<DataTypeDecimal<Decimal128V2>>(
-                    DataTypeDecimal<Decimal128V2>::max_precision(), scale);
-        } else if (which.is_decimal()) {
-            return_type = std::make_shared<DataTypeDecimal<DecimalResultType>>(
-                    DataTypeDecimal<DecimalResultType>::max_precision(), scale);
+            break;
         }
+        case PrimitiveType::TYPE_LARGEINT: {
+            return_type = std::make_shared<DataTypeInt128>();
+            break;
+        }
+        case PrimitiveType::TYPE_FLOAT:
+        case PrimitiveType::TYPE_DOUBLE: {
+            return_type = std::make_shared<DataTypeFloat64>();
+            break;
+        }
+        case PrimitiveType::TYPE_DECIMALV2:
+            return_type = std::make_shared<DataTypeDecimal<Decimal128V2>>(
+                    DataTypeDecimal<Decimal128V2>::max_precision(), nested_type->get_scale());
+            break;
+        case PrimitiveType::TYPE_DECIMAL32:
+        case PrimitiveType::TYPE_DECIMAL64:
+        case PrimitiveType::TYPE_DECIMAL128I:
+        case PrimitiveType::TYPE_DECIMAL256:
+            return_type = std::make_shared<DataTypeDecimal<DecimalResultType>>(
+                    DataTypeDecimal<DecimalResultType>::max_precision(), nested_type->get_scale());
+            break;
+        default:
+            break;
+        }
+
         if (return_type) {
             return std::make_shared<DataTypeArray>(make_nullable(return_type));
         }
@@ -138,48 +148,62 @@ private:
                           const ColumnArray::Offsets64& src_offsets,
                           const NullMapType& src_null_map, ColumnPtr& res_nested_ptr) const {
         bool res = false;
-        WhichDataType which(remove_nullable(src_nested_type));
-        if (which.is_uint8()) {
+        switch (src_nested_type->get_primitive_type()) {
+        case TYPE_BOOLEAN:
             res = _execute_number<UInt8, Int64>(src_column, src_offsets, src_null_map,
                                                 res_nested_ptr);
-        } else if (which.is_int8()) {
+            break;
+        case TYPE_TINYINT:
             res = _execute_number<Int8, Int64>(src_column, src_offsets, src_null_map,
                                                res_nested_ptr);
-        } else if (which.is_int16()) {
+            break;
+        case TYPE_SMALLINT:
             res = _execute_number<Int16, Int64>(src_column, src_offsets, src_null_map,
                                                 res_nested_ptr);
-        } else if (which.is_int32()) {
+            break;
+        case TYPE_INT:
             res = _execute_number<Int32, Int64>(src_column, src_offsets, src_null_map,
                                                 res_nested_ptr);
-        } else if (which.is_int64()) {
+            break;
+        case TYPE_BIGINT:
             res = _execute_number<Int64, Int64>(src_column, src_offsets, src_null_map,
                                                 res_nested_ptr);
-        } else if (which.is_int128()) {
+            break;
+        case TYPE_LARGEINT:
             res = _execute_number<Int128, Int128>(src_column, src_offsets, src_null_map,
                                                   res_nested_ptr);
-        } else if (which.is_float32()) {
+            break;
+        case TYPE_FLOAT:
             res = _execute_number<Float32, Float64>(src_column, src_offsets, src_null_map,
                                                     res_nested_ptr);
-        } else if (which.is_float64()) {
+            break;
+        case TYPE_DOUBLE:
             res = _execute_number<Float64, Float64>(src_column, src_offsets, src_null_map,
                                                     res_nested_ptr);
-        } else if (which.is_decimal32()) {
+            break;
+        case TYPE_DECIMAL32:
             res = _execute_number<Decimal32, DecimalResultType>(src_column, src_offsets,
                                                                 src_null_map, res_nested_ptr);
-        } else if (which.is_decimal64()) {
+            break;
+        case TYPE_DECIMAL64:
             res = _execute_number<Decimal64, DecimalResultType>(src_column, src_offsets,
                                                                 src_null_map, res_nested_ptr);
-        } else if (which.is_decimal128v3()) {
+            break;
+        case TYPE_DECIMAL128I:
             res = _execute_number<Decimal128V3, DecimalResultType>(src_column, src_offsets,
                                                                    src_null_map, res_nested_ptr);
-        } else if (which.is_decimal256()) {
+            break;
+        case TYPE_DECIMAL256:
             res = _execute_number<Decimal256, DecimalResultType>(src_column, src_offsets,
                                                                  src_null_map, res_nested_ptr);
-        } else if (which.is_decimal128v2()) {
+            break;
+        case TYPE_DECIMALV2:
             res = _execute_number<Decimal128V2, Decimal128V2>(src_column, src_offsets, src_null_map,
                                                               res_nested_ptr);
+            break;
+        default:
+            break;
         }
-
         return res;
     }
 

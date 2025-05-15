@@ -164,7 +164,7 @@ public abstract class TestWithFeService {
         beforeCluster();
         createDorisCluster();
         runBeforeAll();
-        Env.getCurrentEnv().getWorkloadGroupMgr().tryCreateNormalWorkloadGroup();
+        Env.getCurrentEnv().getWorkloadGroupMgr().tryCreateNormalWorkloadGroup("default");
     }
 
     protected void beforeCluster() {
@@ -688,7 +688,6 @@ public abstract class TestWithFeService {
 
     public void createTable(String sql, boolean enableNerieds) throws Exception {
         try {
-            Config.enable_odbc_mysql_broker_table = true;
             createTables(enableNerieds, sql);
         } catch (Exception e) {
             e.printStackTrace();

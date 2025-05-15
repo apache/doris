@@ -45,19 +45,21 @@ AggregateFunctionPtr create_aggregate_function_sequence_base(const std::string& 
         return nullptr;
     }
 
-    if (WhichDataType(remove_nullable(argument_types[1])).is_date_time_v2()) {
+    switch (argument_types[1]->get_primitive_type()) {
+    case TYPE_DATETIMEV2:
         return creator_without_type::create<
                 AggregateFunction<DateV2Value<DateTimeV2ValueType>, UInt64>>(argument_types,
                                                                              result_is_nullable);
-    } else if (WhichDataType(remove_nullable(argument_types[1])).is_date_time()) {
+    case TYPE_DATETIME:
         return creator_without_type::create<AggregateFunction<VecDateTimeValue, Int64>>(
                 argument_types, result_is_nullable);
-    } else if (WhichDataType(remove_nullable(argument_types[1])).is_date_v2()) {
+    case TYPE_DATEV2:
         return creator_without_type::create<
                 AggregateFunction<DateV2Value<DateV2ValueType>, UInt32>>(argument_types,
                                                                          result_is_nullable);
+    default:
+        return nullptr;
     }
-    return nullptr;
 }
 
 void register_aggregate_function_sequence_match(AggregateFunctionSimpleFactory& factory) {

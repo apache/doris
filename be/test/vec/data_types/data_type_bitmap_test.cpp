@@ -68,7 +68,7 @@ TEST_P(DataTypeBitMapTest, MetaInfoTest) {
     auto col_meta = std::make_shared<PColumnMeta>();
     col_meta->set_type(PGenericType_TypeId_BITMAP);
     CommonDataTypeTest::DataTypeMetaInfo bitmap_meta_info_to_assert = {
-            .type_id = TypeIndex::BitMap,
+            .type_id = PrimitiveType::TYPE_OBJECT,
             .type_as_type_descriptor = bitmap_type_descriptor,
             .family_name = "BitMap",
             .has_subtypes = false,

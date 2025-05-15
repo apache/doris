@@ -145,7 +145,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
     protected boolean hasRowStoreChange = false;
 
     // save all schema change tasks
-    private AgentBatchTask schemaChangeBatchTask = new AgentBatchTask();
+    AgentBatchTask schemaChangeBatchTask = new AgentBatchTask();
 
     protected SchemaChangeJobV2() {
         super(JobType.SCHEMA_CHANGE);
@@ -583,15 +583,14 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                     if (task.getErrorCode() != null && task.getErrorCode()
                             .equals(TStatusCode.DELETE_BITMAP_LOCK_ERROR)) {
                         maxFailedTimes = Config.schema_change_max_retry_time;
-                        LOG.warn("schema change task failed: {}, set maxFailedTimes {}", task.getErrorMsg(),
-                                maxFailedTimes);
                     }
                 }
                 if (task.getFailedTimes() > maxFailedTimes) {
                     task.setFinished(true);
                     if (!FeConstants.runningUnitTest) {
                         AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.ALTER, task.getSignature());
-                        LOG.warn("schema change task failed: {}", task.getErrorMsg());
+                        LOG.warn("schema change task failed, failedTimes: {}, maxFailedTimes: {}, err: {}",
+                                task.getFailedTimes(), maxFailedTimes, task.getErrorMsg());
                         List<Long> failedBackends = failedTabletBackends.get(task.getTabletId());
                         if (failedBackends == null) {
                             failedBackends = Lists.newArrayList();
@@ -651,14 +650,13 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                                 healthyReplicaNum++;
                             }
                         }
-                        if (!FeConstants.runningUnitTest) {
-                            if (healthyReplicaNum < expectReplicationNum / 2 + 1) {
-                                LOG.warn("shadow tablet {} has few healthy replicas: {}, schema change job: {}"
-                                        + " healthyReplicaNum {} expectReplicationNum {}",
-                                        shadowTablet.getId(), replicas, jobId, healthyReplicaNum, expectReplicationNum);
-                                throw new AlterCancelException(
+
+                        if ((healthyReplicaNum < expectReplicationNum / 2 + 1) && !FeConstants.runningUnitTest) {
+                            LOG.warn("shadow tablet {} has few healthy replicas: {}, schema change job: {}"
+                                    + " healthyReplicaNum {} expectReplicationNum {}",
+                                    shadowTablet.getId(), replicas, jobId, healthyReplicaNum, expectReplicationNum);
+                            throw new AlterCancelException(
                                     "shadow tablet " + shadowTablet.getId() + " has few healthy replicas");
-                            }
                         }
                     } // end for tablets
                 }

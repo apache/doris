@@ -55,8 +55,6 @@ public:
     }
 
     // If input is a disabled predicate, the final result is a disabled predicate.
-    // If input is a ignored predicate, then we will skip this predicate.
-    // If all inputs are ignored predicate, the final result is a ignored predicate.
     Status merge_from(const RuntimeFilter* other) {
         _received_producer_num++;
         if (_expected_producer_num < _received_producer_num) {

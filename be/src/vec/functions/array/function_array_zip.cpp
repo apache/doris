@@ -75,7 +75,8 @@ public:
         DataTypes res_data_types;
         size_t num_elements = arguments.size();
         for (size_t i = 0; i < num_elements; ++i) {
-            DCHECK(is_array(arguments[i])) << i << "-th element is not array type";
+            DCHECK(arguments[i]->get_primitive_type() == TYPE_ARRAY)
+                    << i << "-th element is not array type";
 
             const auto* array_type = check_and_get_data_type<DataTypeArray>(arguments[i].get());
             DCHECK(array_type) << "function: " << get_name() << " " << i + 1
