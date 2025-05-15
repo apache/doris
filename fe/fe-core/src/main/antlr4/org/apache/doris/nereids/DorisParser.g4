@@ -73,7 +73,6 @@ statementBase
 
 unsupportedStatement
     : unsupportedUseStatement
-    | unsupportedDmlStatement
     | unsupportedCreateStatement
     | unsupportedDropStatement
     | unsupportedStatsStatement
@@ -165,6 +164,7 @@ supportedDmlStatement
             (stageAndPattern | (LEFT_PAREN SELECT selectColumnClause
                 FROM stageAndPattern whereClause? RIGHT_PAREN))
             properties=propertyClause?                                 #copyInto
+    | TRUNCATE TABLE multipartIdentifier specifiedPartition?  FORCE?   #truncateTable
     ;
 
 supportedCreateStatement
@@ -230,6 +230,7 @@ supportedCreateStatement
 		LEFT_PAREN dictionaryColumnDefs RIGHT_PAREN
         LAYOUT LEFT_PAREN layoutType=identifier RIGHT_PAREN
         properties=propertyClause?         # createDictionary
+    | CREATE STAGE (IF NOT EXISTS)? name=identifier properties=propertyClause?      #createStage
     ;
 
 dictionaryColumnDefs:
@@ -295,6 +296,7 @@ supportedDropStatement
         ON tableName=multipartIdentifier
         (FOR (userIdentify | ROLE roleName=identifier))?                        #dropRowPolicy
     | DROP DICTIONARY (IF EXISTS)? name=multipartIdentifier                     #dropDictionary
+    | DROP STAGE (IF EXISTS)? name=identifier                                   #dropStage
     ;
 
 supportedShowStatement
@@ -354,6 +356,8 @@ supportedShowStatement
     | SHOW STAGES                                                                   #showStages
     | SHOW REPLICA DISTRIBUTION FROM baseTableRef                                   #showReplicaDistribution
     | SHOW RESOURCES wildWhere? sortClause? limitClause?                            #showResources
+    | SHOW STREAM? LOAD ((FROM | IN) database=identifier)? wildWhere?
+        sortClause? limitClause?                                                    #showLoad
     | SHOW FULL? TRIGGERS ((FROM | IN) database=multipartIdentifier)? wildWhere?    #showTriggers
     | SHOW TABLET DIAGNOSIS tabletId=INTEGER_VALUE                                  #showDiagnoseTablet
     | SHOW FRONTENDS name=identifier?                                               #showFrontends
@@ -384,6 +388,7 @@ supportedShowStatement
 supportedLoadStatement
     : SYNC                                                                          #sync
     | createRoutineLoad                                                             #createRoutineLoadAlias
+    | SHOW ALL? CREATE ROUTINE LOAD FOR label=multipartIdentifier                   #showCreateRoutineLoad
     | PAUSE ROUTINE LOAD FOR label=multipartIdentifier                              #pauseRoutineLoad
     | PAUSE ALL ROUTINE LOAD                                                        #pauseAllRoutineLoad
     | RESUME ROUTINE LOAD FOR label=multipartIdentifier                             #resumeRoutineLoad
@@ -444,8 +449,6 @@ unsupportedShowStatement
         ((FROM | IN) database=multipartIdentifier)? wildWhere?                      #showColumns
     | SHOW LOAD WARNINGS ((((FROM | IN) database=multipartIdentifier)?
         wildWhere? limitClause?) | (ON url=STRING_LITERAL))                         #showLoadWarings
-    | SHOW STREAM? LOAD ((FROM | IN) database=multipartIdentifier)? wildWhere?
-        sortClause? limitClause?                                                    #showLoad
     | SHOW EXPORT ((FROM | IN) database=multipartIdentifier)? wildWhere?
         sortClause? limitClause?                                                    #showExport
     | SHOW ALTER TABLE (ROLLUP | (MATERIALIZED VIEW) | COLUMN)
@@ -485,7 +488,6 @@ unsupportedLoadStatement
         (commentSpec)?                                                              #mysqlLoad
     | SHOW ALL? ROUTINE LOAD ((FOR label=multipartIdentifier) | wildWhere?)         #showRoutineLoad
     | SHOW ROUTINE LOAD TASK ((FROM | IN) database=identifier)? wildWhere?          #showRoutineLoadTask
-    | SHOW ALL? CREATE ROUTINE LOAD FOR label=multipartIdentifier                   #showCreateRoutineLoad
     | SHOW CREATE LOAD FOR label=multipartIdentifier                                #showCreateLoad
     ;
 
@@ -586,6 +588,10 @@ supportedAdminStatement
         (ON LEFT_PAREN backends+=STRING_LITERAL
               (COMMA backends+=STRING_LITERAL)* RIGHT_PAREN)?                       #adminCleanTrash
     | ADMIN SET TABLE name=multipartIdentifier STATUS properties=propertyClause?    #adminSetTableStatus
+    | ADMIN SET REPLICA STATUS PROPERTIES LEFT_PAREN propertyItemList RIGHT_PAREN   #adminSetReplicaStatus
+    | ADMIN REPAIR TABLE baseTableRef                                               #adminRepairTable
+    | ADMIN CANCEL REPAIR TABLE baseTableRef                                        #adminCancelRepairTable
+    | ADMIN COPY TABLET tabletId=INTEGER_VALUE properties=propertyClause?           #adminCopyTablet
     ;
 
 supportedRecoverStatement
@@ -597,15 +603,11 @@ supportedRecoverStatement
     ;
 
 unsupportedAdminStatement
-    : ADMIN SET REPLICA STATUS PROPERTIES LEFT_PAREN propertyItemList RIGHT_PAREN   #adminSetReplicaStatus
-    | ADMIN SET REPLICA VERSION PROPERTIES LEFT_PAREN propertyItemList RIGHT_PAREN  #adminSetReplicaVersion
-    | ADMIN REPAIR TABLE baseTableRef                                               #adminRepairTable
-    | ADMIN CANCEL REPAIR TABLE baseTableRef                                        #adminCancelRepairTable
+    : ADMIN SET REPLICA VERSION PROPERTIES LEFT_PAREN propertyItemList RIGHT_PAREN  #adminSetReplicaVersion
     | ADMIN SET (FRONTEND | (ALL FRONTENDS)) CONFIG
         (LEFT_PAREN propertyItemList RIGHT_PAREN)? ALL?                             #adminSetFrontendConfig
     | ADMIN SET TABLE name=multipartIdentifier
         PARTITION VERSION properties=propertyClause?                                #adminSetPartitionVersion
-    | ADMIN COPY TABLET tabletId=INTEGER_VALUE properties=propertyClause?           #adminCopyTablet
     ;
 
 baseTableRef
@@ -747,7 +749,6 @@ fromRollup
 
 unsupportedDropStatement
     : DROP VIEW (IF EXISTS)? name=multipartIdentifier                           #dropView
-    | DROP STAGE (IF EXISTS)? name=identifier                                   #dropStage
     ;
 
 supportedStatsStatement
@@ -806,7 +807,6 @@ unsupportedCreateStatement
         (CONDITIONS LEFT_PAREN workloadPolicyConditions RIGHT_PAREN)?
         (ACTIONS LEFT_PAREN workloadPolicyActions RIGHT_PAREN)?
         properties=propertyClause?                                              #createWorkloadPolicy
-    | CREATE STAGE (IF NOT EXISTS)? name=identifier properties=propertyClause?  #createStage
     ;
 
 workloadPolicyActions
@@ -905,10 +905,6 @@ supportedUseStatement
 
 unsupportedUseStatement
     : USE ((catalog=identifier DOT)? database=identifier)? ATSIGN cluster=identifier #useCloudCluster
-    ;
-
-unsupportedDmlStatement
-    : TRUNCATE TABLE multipartIdentifier specifiedPartition?  FORCE?                 #truncateTable
     ;
 
 stageAndPattern

@@ -24,7 +24,6 @@ using std::vector;
 #include "gutil/integral_types.h"
 // IWYU pragma: no_include <butil/macros.h>
 #include "gutil/macros.h" // IWYU pragma: keep
-#include "gutil/port.h"
 #include "gutil/stringprintf.h"
 
 // START DOXYGEN NumbersFunctions grouping
@@ -147,36 +146,6 @@ inline char* FastUIntToBuffer(unsigned int i, char* buffer) {
     return (sizeof(i) == 4 ? FastUInt32ToBuffer(i, buffer) : FastUInt64ToBuffer(i, buffer));
 }
 
-// ----------------------------------------------------------------------
-// FastInt32ToBufferLeft()
-// FastUInt32ToBufferLeft()
-// FastInt64ToBufferLeft()
-// FastUInt64ToBufferLeft()
-//
-// Like the Fast*ToBuffer() functions above, these are intended for speed.
-// Unlike the Fast*ToBuffer() functions, however, these functions write
-// their output to the beginning of the buffer (hence the name, as the
-// output is left-aligned).  The caller is responsible for ensuring that
-// the buffer has enough space to hold the output.
-//
-// Returns a pointer to the end of the string (i.e. the null character
-// terminating the string).
-// ----------------------------------------------------------------------
-
-char* FastInt32ToBufferLeft(int32 i, char* buffer);   // at least 12 bytes
-char* FastUInt32ToBufferLeft(uint32 i, char* buffer); // at least 12 bytes
-char* FastInt64ToBufferLeft(int64 i, char* buffer);   // at least 22 bytes
-char* FastUInt64ToBufferLeft(uint64 i, char* buffer); // at least 22 bytes
-
-// Just define these in terms of the above.
-inline char* FastUInt32ToBuffer(uint32 i, char* buffer) {
-    FastUInt32ToBufferLeft(i, buffer);
-    return buffer;
-}
-inline char* FastUInt64ToBuffer(uint64 i, char* buffer) {
-    FastUInt64ToBufferLeft(i, buffer);
-    return buffer;
-}
 
 // ----------------------------------------------------------------------
 // HexDigitsPrefix()
@@ -185,118 +154,6 @@ inline char* FastUInt64ToBuffer(uint64 i, char* buffer) {
 //  The function checks for '\0' for string termination.
 // ----------------------------------------------------------------------
 int HexDigitsPrefix(const char* buf, int num_digits);
-
-// ----------------------------------------------------------------------
-// ConsumeStrayLeadingZeroes
-//    Eliminates all leading zeroes (unless the string itself is composed
-//    of nothing but zeroes, in which case one is kept: 0...0 becomes 0).
-void ConsumeStrayLeadingZeroes(string* str);
-
-// ----------------------------------------------------------------------
-// ParseLeadingInt32Value
-//    A simple parser for int32 values. Returns the parsed value
-//    if a valid integer is found; else returns deflt. It does not
-//    check if str is entirely consumed.
-//    This cannot handle decimal numbers with leading 0s, since they will be
-//    treated as octal.  If you know it's decimal, use ParseLeadingDec32Value.
-// --------------------------------------------------------------------
-int32 ParseLeadingInt32Value(const char* str, int32 deflt);
-inline int32 ParseLeadingInt32Value(const string& str, int32 deflt) {
-    return ParseLeadingInt32Value(str.c_str(), deflt);
-}
-
-// ParseLeadingUInt32Value
-//    A simple parser for uint32 values. Returns the parsed value
-//    if a valid integer is found; else returns deflt. It does not
-//    check if str is entirely consumed.
-//    This cannot handle decimal numbers with leading 0s, since they will be
-//    treated as octal.  If you know it's decimal, use ParseLeadingUDec32Value.
-// --------------------------------------------------------------------
-uint32 ParseLeadingUInt32Value(const char* str, uint32 deflt);
-inline uint32 ParseLeadingUInt32Value(const string& str, uint32 deflt) {
-    return ParseLeadingUInt32Value(str.c_str(), deflt);
-}
-
-// ----------------------------------------------------------------------
-// ParseLeadingDec32Value
-//    A simple parser for decimal int32 values. Returns the parsed value
-//    if a valid integer is found; else returns deflt. It does not
-//    check if str is entirely consumed.
-//    The string passed in is treated as *10 based*.
-//    This can handle strings with leading 0s.
-//    See also: ParseLeadingDec64Value
-// --------------------------------------------------------------------
-int32 ParseLeadingDec32Value(const char* str, int32 deflt);
-inline int32 ParseLeadingDec32Value(const string& str, int32 deflt) {
-    return ParseLeadingDec32Value(str.c_str(), deflt);
-}
-
-// ParseLeadingUDec32Value
-//    A simple parser for decimal uint32 values. Returns the parsed value
-//    if a valid integer is found; else returns deflt. It does not
-//    check if str is entirely consumed.
-//    The string passed in is treated as *10 based*.
-//    This can handle strings with leading 0s.
-//    See also: ParseLeadingUDec64Value
-// --------------------------------------------------------------------
-uint32 ParseLeadingUDec32Value(const char* str, uint32 deflt);
-inline uint32 ParseLeadingUDec32Value(const string& str, uint32 deflt) {
-    return ParseLeadingUDec32Value(str.c_str(), deflt);
-}
-
-// ----------------------------------------------------------------------
-// ParseLeadingUInt64Value
-// ParseLeadingInt64Value
-// ParseLeadingHex64Value
-// ParseLeadingDec64Value
-// ParseLeadingUDec64Value
-//    A simple parser for long long values.
-//    Returns the parsed value if a
-//    valid integer is found; else returns deflt
-// --------------------------------------------------------------------
-uint64 ParseLeadingUInt64Value(const char* str, uint64 deflt);
-inline uint64 ParseLeadingUInt64Value(const string& str, uint64 deflt) {
-    return ParseLeadingUInt64Value(str.c_str(), deflt);
-}
-int64 ParseLeadingInt64Value(const char* str, int64 deflt);
-inline int64 ParseLeadingInt64Value(const string& str, int64 deflt) {
-    return ParseLeadingInt64Value(str.c_str(), deflt);
-}
-uint64 ParseLeadingHex64Value(const char* str, uint64 deflt);
-inline uint64 ParseLeadingHex64Value(const string& str, uint64 deflt) {
-    return ParseLeadingHex64Value(str.c_str(), deflt);
-}
-int64 ParseLeadingDec64Value(const char* str, int64 deflt);
-inline int64 ParseLeadingDec64Value(const string& str, int64 deflt) {
-    return ParseLeadingDec64Value(str.c_str(), deflt);
-}
-uint64 ParseLeadingUDec64Value(const char* str, uint64 deflt);
-inline uint64 ParseLeadingUDec64Value(const string& str, uint64 deflt) {
-    return ParseLeadingUDec64Value(str.c_str(), deflt);
-}
-
-// ----------------------------------------------------------------------
-// ParseLeadingDoubleValue
-//    A simple parser for double values. Returns the parsed value
-//    if a valid double is found; else returns deflt. It does not
-//    check if str is entirely consumed.
-// --------------------------------------------------------------------
-double ParseLeadingDoubleValue(const char* str, double deflt);
-inline double ParseLeadingDoubleValue(const string& str, double deflt) {
-    return ParseLeadingDoubleValue(str.c_str(), deflt);
-}
-
-// ----------------------------------------------------------------------
-// ParseLeadingBoolValue()
-//    A recognizer of boolean string values. Returns the parsed value
-//    if a valid value is found; else returns deflt.  This skips leading
-//    whitespace, is case insensitive, and recognizes these forms:
-//    0/1, false/true, no/yes, n/y
-// --------------------------------------------------------------------
-bool ParseLeadingBoolValue(const char* str, bool deflt);
-inline bool ParseLeadingBoolValue(const string& str, bool deflt) {
-    return ParseLeadingBoolValue(str.c_str(), deflt);
-}
 
 // ----------------------------------------------------------------------
 // AutoDigitStrCmp
@@ -351,34 +208,6 @@ struct strict_autodigit_greater {
     }
 };
 
-// ----------------------------------------------------------------------
-// SimpleItoa()
-//    Description: converts an integer to a string.
-//    Faster than printf("%d").
-//
-//    Return value: string
-// ----------------------------------------------------------------------
-inline string SimpleItoa(int32 i) {
-    char buf[16]; // Longest is -2147483648
-    return string(buf, FastInt32ToBufferLeft(i, buf));
-}
-
-// We need this overload because otherwise SimpleItoa(5U) wouldn't compile.
-inline string SimpleItoa(uint32 i) {
-    char buf[16]; // Longest is 4294967295
-    return string(buf, FastUInt32ToBufferLeft(i, buf));
-}
-
-inline string SimpleItoa(int64 i) {
-    char buf[32]; // Longest is -9223372036854775808
-    return string(buf, FastInt64ToBufferLeft(i, buf));
-}
-
-// We need this overload because otherwise SimpleItoa(5ULL) wouldn't compile.
-inline string SimpleItoa(uint64 i) {
-    char buf[32]; // Longest is 18446744073709551615
-    return string(buf, FastUInt64ToBufferLeft(i, buf));
-}
 
 // SimpleAtoi converts a string to an integer.
 // Uses safe_strto?() for actual parsing, so strict checking is

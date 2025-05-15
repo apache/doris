@@ -55,8 +55,6 @@ public:
 
     std::string do_get_name() const override { return get_family_name(); }
     const char* get_family_name() const override { return "BitMap"; }
-
-    TypeIndex get_type_id() const override { return TypeIndex::BitMap; }
     PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_OBJECT; }
 
     doris::FieldType get_storage_field_type() const override {

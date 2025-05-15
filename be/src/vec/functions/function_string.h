@@ -709,14 +709,14 @@ public:
 
         auto str_col =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-        const auto& str_offset = assert_cast<const ColumnString*>(str_col.get())->get_offsets();
-
+        const auto* str_column = assert_cast<const ColumnString*>(str_col.get());
         auto pos_col =
                 block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
         const auto& pos_data = assert_cast<const ColumnInt32*>(pos_col.get())->get_data();
 
         for (int i = 0; i < input_rows_count; ++i) {
-            strlen_data[i] = str_offset[i] - str_offset[i - 1];
+            auto str = str_column->get_data_at(i);
+            strlen_data[i] = simd::VStringFunctions::get_char_len(str.data, str.size);
         }
 
         for (int i = 0; i < input_rows_count; ++i) {
@@ -1967,10 +1967,10 @@ public:
     size_t get_number_of_arguments() const override { return 2; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        DCHECK(is_string(arguments[0]))
+        DCHECK(is_string_type(arguments[0]->get_primitive_type()))
                 << "first argument for function: " << name << " should be string"
                 << " and arguments[0] is " << arguments[0]->get_name();
-        DCHECK(is_string(arguments[1]))
+        DCHECK(is_string_type(arguments[1]->get_primitive_type()))
                 << "second argument for function: " << name << " should be string"
                 << " and arguments[1] is " << arguments[1]->get_name();
         return std::make_shared<DataTypeArray>(make_nullable(arguments[0]));
@@ -2244,10 +2244,10 @@ public:
     size_t get_number_of_arguments() const override { return 2; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        DCHECK(is_string(arguments[0]))
+        DCHECK(is_string_type(arguments[0]->get_primitive_type()))
                 << "first argument for function: " << name << " should be string"
                 << " and arguments[0] is " << arguments[0]->get_name();
-        DCHECK(is_string(arguments[1]))
+        DCHECK(is_string_type(arguments[1]->get_primitive_type()))
                 << "second argument for function: " << name << " should be string"
                 << " and arguments[1] is " << arguments[1]->get_name();
         return std::make_shared<DataTypeInt32>();
@@ -4564,8 +4564,8 @@ private:
         return pattern_count;
     }
 
-    pair<size_t, size_t> get_text_set(StringRef& text, int gram_num, NgramMap& pattern_map,
-                                      std::vector<uint32_t>& restore_map) const {
+    std::pair<size_t, size_t> get_text_set(StringRef& text, int gram_num, NgramMap& pattern_map,
+                                           std::vector<uint32_t>& restore_map) const {
         restore_map.clear();
         //intersection_count indicates a substring both in pattern and text.
         size_t text_count = 0, intersection_count = 0;

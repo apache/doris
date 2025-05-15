@@ -60,6 +60,7 @@
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_bitmap.h"
 #include "vec/data_types/data_type_date.h"
+#include "vec/data_types/data_type_date_or_datetime_v2.h"
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_hll.h"
@@ -71,7 +72,6 @@
 #include "vec/data_types/data_type_quantilestate.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/data_types/data_type_struct.h"
-#include "vec/data_types/data_type_time_v2.h"
 #include "vec/runtime/vdatetime_value.h"
 #include "vec/utils/arrow_column_to_doris_column.h"
 
@@ -292,7 +292,7 @@ void serialize_and_deserialize_arrow_test(std::vector<PrimitiveType> cols, int r
         {
             auto column_vector_datetimev2 = vectorized::ColumnVector<vectorized::UInt64>::create();
             DateV2Value<DateTimeV2ValueType> value;
-            string date_literal = "2022-01-01 11:11:11.111";
+            std::string date_literal = "2022-01-01 11:11:11.111";
             cctz::time_zone ctz;
             TimezoneUtils::find_cctz_time_zone("UTC", ctz);
             EXPECT_TRUE(value.from_date_str(date_literal.c_str(), date_literal.size(), ctz, 3));

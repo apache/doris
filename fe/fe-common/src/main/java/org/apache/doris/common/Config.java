@@ -2244,10 +2244,6 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = false)
     public static int blacklist_duration_second = 120;
 
-    @ConfField(mutable = true, masterOnly = false, description = {
-            "禁止创建odbc, mysql, broker类型的外表", "Disallow the creation of odbc, mysql, broker type external tables"})
-    public static boolean enable_odbc_mysql_broker_table = false;
-
     /**
      * The default connection timeout for hive metastore.
      * hive.metastore.client.socket.timeout
@@ -2276,7 +2272,7 @@ public class Config extends ConfigBase {
             "Max cache number of partition at table level in Hive Metastore."})
     public static long max_hive_partition_cache_num = 10000;
 
-    @ConfField(description = {"Hudi/Iceberg 表级别缓存的最大数量。",
+    @ConfField(description = {"Hudi/Iceberg/Paimon 表级别缓存的最大数量。",
             "Max cache number of hudi/iceberg table."})
     public static long max_external_table_cache_num = 1000;
 
@@ -3002,6 +2998,15 @@ public class Config extends ConfigBase {
     })
     public static int backup_restore_batch_task_num_per_rpc = 10000;
 
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "一个 BE 同时执行的恢复任务的并发数",
+            "The number of concurrent restore tasks per be"})
+    public static int restore_task_concurrency_per_be = 5000;
+
+    @ConfField(mutable = true, description = {"执行 agent task 时，BE心跳超过多长时间，认为BE不可用",
+            "The time after which BE is considered unavailable if the heartbeat is not received"})
+    public static int agent_task_be_unavailable_heartbeat_timeout_second = 300;
+
     @ConfField(description = {"是否开启通过http接口获取log文件的功能",
             "Whether to enable the function of getting log files through http interface"})
     public static boolean enable_get_log_file_api = false;
@@ -3574,4 +3579,8 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true, description = {"是否允许 variant 类型的列使用倒排索引格式 v1",
             "Whether to allow the use of inverted index v1 for variant"})
     public static boolean enable_inverted_index_v1_for_variant = false;
+
+    @ConfField(mutable = true, description = {"Prometheus 输出表维度指标的个数限制",
+            "Prometheus output table dimension metric count limit"})
+    public static int prom_output_table_metrics_limit = 10000;
 }

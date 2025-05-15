@@ -22,7 +22,6 @@ import org.apache.doris.analysis.CreateStorageVaultStmt;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.base.Preconditions;
@@ -147,10 +146,6 @@ public abstract class StorageVault {
                 vault.modifyProperties(stmt.getProperties());
                 break;
             case S3:
-                if (!stmt.getProperties().containsKey(PropertyConverter.USE_PATH_STYLE)) {
-                    stmt.getProperties().put(PropertyConverter.USE_PATH_STYLE, "true");
-                }
-
                 CreateResourceStmt resourceStmt =
                         new CreateResourceStmt(false, ifNotExists, name, stmt.getProperties());
                 resourceStmt.analyzeResourceType();
@@ -186,10 +181,15 @@ public abstract class StorageVault {
      * @throws UserException
      */
     public void checkCreationProperties(Map<String, String> properties) throws UserException {
-        Preconditions.checkArgument(
-                properties.get(PropertyKey.TYPE) != null, "Missing property " + PropertyKey.TYPE);
-        Preconditions.checkArgument(
-                !properties.get(PropertyKey.TYPE).isEmpty(), "Property " + PropertyKey.TYPE + " cannot be empty");
+        String type = null;
+        for (Map.Entry<String, String> property : properties.entrySet()) {
+            if (property.getKey().equalsIgnoreCase(StorageVault.PropertyKey.TYPE)) {
+                type = property.getValue();
+            }
+        }
+
+        Preconditions.checkArgument(type != null, "Missing property " + PropertyKey.TYPE);
+        Preconditions.checkArgument(!type.isEmpty(), "Property " + PropertyKey.TYPE + " cannot be empty");
     }
 
     protected void replaceIfEffectiveValue(Map<String, String> properties, String key, String value) {

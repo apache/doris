@@ -125,10 +125,7 @@
 #include "io/fs/hdfs/hdfs_mgr.h"
 // clang-format on
 
-#if !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && \
-        !defined(THREAD_SANITIZER) && !defined(USE_JEMALLOC)
 #include "runtime/memory/tcmalloc_hook.h"
-#endif
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -159,7 +156,7 @@ static void init_doris_metrics(const std::vector<StorePath>& store_paths) {
 }
 
 // Used to calculate the num of min thread and max thread based on the passed config
-static pair<size_t, size_t> get_num_threads(size_t min_num, size_t max_num) {
+static std::pair<size_t, size_t> get_num_threads(size_t min_num, size_t max_num) {
     auto num_cores = doris::CpuInfo::num_cores();
     min_num = (min_num == 0) ? num_cores : min_num;
     max_num = (max_num == 0) ? num_cores : max_num;
@@ -448,10 +445,8 @@ Status ExecEnv::_init_mem_env() {
     _heap_profiler = HeapProfiler::create_global_instance();
     init_mem_tracker();
     thread_context()->thread_mem_tracker_mgr->init();
-#if defined(USE_MEM_TRACKER) && !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && \
-        !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER) && !defined(USE_JEMALLOC)
+
     init_hook();
-#endif
 
     if (!BitUtil::IsPowerOf2(config::min_buffer_size)) {
         ss << "Config min_buffer_size must be a power-of-two: " << config::min_buffer_size;

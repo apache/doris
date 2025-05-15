@@ -104,6 +104,9 @@ CONF_mInt64(recycle_task_threshold_seconds, "10800"); // 3h
 // **just for TEST**
 CONF_Bool(force_immediate_recycle, "false");
 
+CONF_mBool(enable_mow_compaction_key_check, "false");
+CONF_mInt64(compaction_key_check_expiration_diff_seconds, "600"); // 10min
+
 CONF_String(test_s3_ak, "");
 CONF_String(test_s3_sk, "");
 CONF_String(test_s3_endpoint, "");
@@ -289,5 +292,11 @@ CONF_Strings(recycler_storage_vault_white_list, "");
 //    Debug = 5,
 //    Trace = 6
 CONF_Int32(aws_log_level, "2");
+
+// ca_cert_file is in this path by default, Normally no modification is required
+// ca cert default path is different from different OS
+CONF_mString(ca_cert_file_paths,
+             "/etc/pki/tls/certs/ca-bundle.crt;/etc/ssl/certs/ca-certificates.crt;"
+             "/etc/ssl/ca-bundle.pem");
 
 } // namespace doris::cloud::config

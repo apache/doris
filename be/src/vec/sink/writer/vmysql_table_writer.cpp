@@ -45,7 +45,7 @@
 #include "vec/core/materialize_block.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
-#include "vec/data_types/data_type_time_v2.h"
+#include "vec/data_types/data_type_date_or_datetime_v2.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/runtime/vdatetime_value.h"
