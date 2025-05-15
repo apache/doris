@@ -36,16 +36,20 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -54,8 +58,8 @@ import org.apache.doris.nereids.util.PlanConstructor;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Maps;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -70,13 +74,14 @@ class ConstantPropagationTest {
 
     private final JobContext jobContext;
 
-    LogicalOlapScan student;
-    LogicalOlapScan course;
-    SlotReference courseCid;
-    SlotReference courseName;
-    SlotReference studentId;
-    SlotReference studentGender;
-    SlotReference studentAge;
+    private final LogicalOlapScan student;
+    private final SlotReference studentId;
+    private final SlotReference studentGender;
+    private final SlotReference studentAge;
+    private final LogicalOlapScan score;
+    private final SlotReference scoreSid;
+    private final SlotReference scoreCid;
+    private final SlotReference scoreGrade;
 
     ConstantPropagationTest() {
         CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(
@@ -85,15 +90,14 @@ class ConstantPropagationTest {
         jobContext = new JobContext(cascadesContext, null, Double.MAX_VALUE);
 
         student = new LogicalOlapScan(PlanConstructor.getNextRelationId(), PlanConstructor.student, ImmutableList.of(""));
-        course = new LogicalOlapScan(PlanConstructor.getNextRelationId(), PlanConstructor.course, ImmutableList.of(""));
-        //select *
-        //from student join course
-        //where (course.cid=1 and student.age=10) or (student.gender = 0 and course.name='abc')
-        courseCid = (SlotReference) course.getOutput().get(0);
-        courseName = (SlotReference) course.getOutput().get(1);
         studentId = (SlotReference) student.getOutput().get(0);
         studentGender = (SlotReference) student.getOutput().get(1);
         studentAge = (SlotReference) student.getOutput().get(3);
+
+        score = new LogicalOlapScan(PlanConstructor.getNextRelationId(), PlanConstructor.score, ImmutableList.of(""));
+        scoreSid = (SlotReference) score.getOutput().get(0);
+        scoreCid = (SlotReference) score.getOutput().get(1);
+        scoreGrade = (SlotReference) score.getOutput().get(2);
     }
 
     @Test
@@ -382,6 +386,39 @@ class ConstantPropagationTest {
         Assertions.assertEquals(expectGroupby2, rewrittenAgg2.getGroupByExpressions());
         Assertions.assertEquals(expectAggOutput2, rewrittenAgg2.getOutputs());
         Assertions.assertEquals(expectProjection2, rewrittenProject2.getProjects());
+    }
+
+    @Test
+    void testLogicalJoin() {
+        Set<Expression> conjunctions1 = ImmutableSet.of(
+                new EqualTo(studentId, new IntegerLiteral(1))
+        );
+        Set<Expression> conjunctions2 = ImmutableSet.of(
+                new EqualTo(scoreCid, new IntegerLiteral(2))
+        );
+        LogicalFilter left = new LogicalFilter<>(conjunctions1, student);
+        LogicalFilter right = new LogicalFilter<>(conjunctions2, score);
+
+        List<Expression> hashConjuncts1 = ImmutableList.of(
+                new EqualTo(studentId, scoreSid),
+                new EqualTo(new Cast(new Add(studentId, new IntegerLiteral(10)), DoubleType.INSTANCE), scoreGrade)
+        );
+        List<Expression> expectHashConjuncts1 = ImmutableList.of(
+                new EqualTo(studentId, scoreSid)
+        );
+        List<Expression> otherConjuncts1 = ImmutableList.of(
+                new EqualTo(new Add(studentId, studentAge), new BigIntLiteral(50L))
+        );
+        List<Expression> expectOtherConjuncts1 = ImmutableList.of(
+                new EqualTo(scoreGrade, new DoubleLiteral(11)),
+                new EqualTo(studentAge, new IntegerLiteral(49)),
+                new EqualTo(scoreSid, new IntegerLiteral(1))
+        );
+        LogicalJoin join1 = new LogicalJoin<>(JoinType.CROSS_JOIN, hashConjuncts1, otherConjuncts1, left, right, null);
+        LogicalJoin rewrittenJoin1 = (LogicalJoin) executor.rewriteRoot(join1, jobContext);
+        Assertions.assertEquals(JoinType.INNER_JOIN, rewrittenJoin1.getJoinType());
+        Assertions.assertEquals(expectHashConjuncts1, rewrittenJoin1.getHashJoinConjuncts());
+        Assertions.assertEquals(expectOtherConjuncts1, rewrittenJoin1.getOtherJoinConjuncts());
     }
 
     private void assertRewrite(String expression, String expected) {
