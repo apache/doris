@@ -49,7 +49,7 @@ public class DorisFlightSqlService {
         // arrow flight sql is a stateless protocol, connection is usually not actively disconnected.
         // bearer token is evict from the cache will unregister ConnectContext.
         this.flightTokenManager = new FlightTokenManagerImpl(
-                Math.max(Config.arrow_flight_max_connections, Config.arrow_flight_token_cache_size),
+                Math.min(Config.arrow_flight_max_connections, Config.arrow_flight_token_cache_size),
                 Config.arrow_flight_token_alive_time);
         this.flightSessionsManager = new FlightSessionsWithTokenManager(flightTokenManager);
 

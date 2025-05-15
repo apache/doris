@@ -290,8 +290,14 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
     @Override
     public FlightInfo getFlightInfoStatement(final CommandStatementQuery request, final CallContext context,
             final FlightDescriptor descriptor) {
-        ConnectContext connectContext = flightSessionsManager.getConnectContext(context.peerIdentity());
-        return executeQueryStatement(context.peerIdentity(), connectContext, request.getQuery(), descriptor);
+        try {
+            ConnectContext connectContext = flightSessionsManager.getConnectContext(context.peerIdentity());
+            return executeQueryStatement(context.peerIdentity(), connectContext, request.getQuery(), descriptor);
+        } catch (Exception e) {
+            String errMsg = "get flight info statement failed, " + e.getMessage();
+            LOG.error(errMsg, e);
+            throw CallStatus.INTERNAL.withDescription(errMsg).withCause(e).toRuntimeException();
+        }
     }
 
     @Override

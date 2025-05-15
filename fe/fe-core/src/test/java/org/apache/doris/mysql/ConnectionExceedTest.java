@@ -161,7 +161,7 @@ public class ConnectionExceedTest {
                     "Register arrow flight sql connection failed, Unknown Error, the number of arrow flight "
                             + "bearer tokens should be equal to arrow flight sql max connections, "
                             + "max connections: %d, used: %d.",
-                    scheduler.getCommonConnectScheduler().getMaxConnections(),
+                    scheduler.getFlightSqlConnectScheduler().getMaxConnections(),
                     scheduler.getConnectionNum());
             Assert.assertEquals(expectedMsg, e.getMessage());
         }
