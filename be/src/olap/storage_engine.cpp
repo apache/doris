@@ -89,6 +89,10 @@ using namespace ErrorCode;
 extern void get_round_robin_stores(int64 curr_index, const std::vector<DirInfo>& dir_infos,
                                    std::vector<DataDir*>& stores);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(unused_rowsets_count, MetricUnit::ROWSETS);
+bvar::Status<int64_t> g_max_rowsets_with_useless_delete_bitmap(
+        "max_rowsets_with_useless_delete_bitmap", 0);
+bvar::Status<int64_t> g_max_rowsets_with_useless_delete_bitmap_version(
+        "max_rowsets_with_useless_delete_bitmap_version", 0);
 
 namespace {
 bvar::Adder<uint64_t> unused_rowsets_counter("ununsed_rowsets_counter");
@@ -1187,12 +1191,14 @@ void StorageEngine::_parse_default_rowset_type() {
 }
 
 void StorageEngine::start_delete_unused_rowset() {
-    LOG(INFO) << "start to delete unused rowset, size: " << _unused_rowsets.size();
+    LOG(INFO) << "start to delete unused rowset, size: " << _unused_rowsets.size()
+              << ", unused delete bitmap size: " << _unused_delete_bitmap.size();
     std::vector<RowsetSharedPtr> unused_rowsets_copy;
     unused_rowsets_copy.reserve(_unused_rowsets.size());
     auto due_to_use_count = 0;
     auto due_to_not_delete_file = 0;
     auto due_to_delayed_expired_ts = 0;
+    std::set<int64_t> tablets_to_save_meta;
     {
         std::lock_guard<std::mutex> lock(_gc_mutex);
         for (auto it = _unused_rowsets.begin(); it != _unused_rowsets.end();) {
@@ -1214,11 +1220,47 @@ void StorageEngine::start_delete_unused_rowset() {
                 ++it;
             }
         }
+        // check remove delete bitmaps
+        for (auto it = _unused_delete_bitmap.begin(); it != _unused_delete_bitmap.end();) {
+            auto tablet_id = std::get<0>(*it);
+            auto tablet = _tablet_manager->get_tablet(tablet_id);
+            if (tablet == nullptr) {
+                it = _unused_delete_bitmap.erase(it);
+                continue;
+            }
+            auto& rowset_ids = std::get<1>(*it);
+            auto& key_ranges = std::get<2>(*it);
+            bool find_unused_rowset = false;
+            for (const auto& rowset_id : rowset_ids) {
+                if (_unused_rowsets.find(rowset_id) != _unused_rowsets.end()) {
+                    VLOG_DEBUG << "can not remove pre rowset delete bitmap because rowset is in use"
+                               << ", tablet_id=" << tablet_id
+                               << ", rowset_id=" << rowset_id.to_string();
+                    find_unused_rowset = true;
+                    break;
+                }
+            }
+            if (find_unused_rowset) {
+                ++it;
+                continue;
+            }
+            tablet->tablet_meta()->delete_bitmap().remove(key_ranges);
+            tablets_to_save_meta.emplace(tablet_id);
+            it = _unused_delete_bitmap.erase(it);
+        }
+    }
+    for (const auto& tablet_id : tablets_to_save_meta) {
+        auto tablet = _tablet_manager->get_tablet(tablet_id);
+        if (tablet) {
+            std::shared_lock rlock(tablet->get_header_lock());
+            tablet->save_meta();
+        }
     }
     LOG(INFO) << "collected " << unused_rowsets_copy.size() << " unused rowsets to remove, skipped "
               << due_to_use_count << " rowsets due to use count > 1, skipped "
               << due_to_not_delete_file << " rowsets due to don't need to delete file, skipped "
-              << due_to_delayed_expired_ts << " rowsets due to delayed expired timestamp.";
+              << due_to_delayed_expired_ts << " rowsets due to delayed expired timestamp. left "
+              << _unused_delete_bitmap.size() << " unused delete bitmap.";
     for (auto&& rs : unused_rowsets_copy) {
         VLOG_NOTICE << "start to remove rowset:" << rs->rowset_id()
                     << ", version:" << rs->version();
@@ -1250,6 +1292,14 @@ void StorageEngine::add_unused_rowset(RowsetSharedPtr rowset) {
         _unused_rowsets[rowset->rowset_id()] = std::move(rowset);
         unused_rowsets_counter << 1;
     }
+}
+
+void StorageEngine::add_unused_delete_bitmap_key_ranges(int64_t tablet_id,
+                                                        const std::vector<RowsetId>& rowsets,
+                                                        const DeleteBitmapKeyRanges& key_ranges) {
+    VLOG_NOTICE << "add unused delete bitmap key ranges, tablet id:" << tablet_id;
+    std::lock_guard<std::mutex> lock(_gc_mutex);
+    _unused_delete_bitmap.push_back(std::make_tuple(tablet_id, rowsets, key_ranges));
 }
 
 // TODO(zc): refactor this funciton
