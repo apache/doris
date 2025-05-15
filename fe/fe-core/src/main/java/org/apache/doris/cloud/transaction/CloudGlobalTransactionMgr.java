@@ -1163,6 +1163,9 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                     signature = UUID.randomUUID().getLeastSignificantBits();
                 }
             }
+            if (DebugPointUtil.isEnable("sendCalcDbmtask.change_signature")) {
+                signature = UUID.randomUUID().getLeastSignificantBits();
+            }
             setTxnLastSignature(dbId, transactionId, signature);
             for (long tableId : mowTableIds) {
                 setTableLastTxnId(dbId, tableId, transactionId);
