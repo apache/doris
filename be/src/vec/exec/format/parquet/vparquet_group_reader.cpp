@@ -216,8 +216,9 @@ bool RowGroupReader::_can_filter_by_dict(int slot_id,
     //  Here we check if the predicate expr is IN or BINARY_PRED.
     //  Implementation of NULL value dictionary filtering will be carried out later.
     return std::ranges::all_of(_slot_id_to_filter_conjuncts->at(slot_id), [&](const auto& ctx) {
-        return ctx->root()->node_type() == TExprNodeType::IN_PRED ||
-               ctx->root()->node_type() == TExprNodeType::BINARY_PRED;
+        return (ctx->root()->node_type() == TExprNodeType::IN_PRED ||
+                ctx->root()->node_type() == TExprNodeType::BINARY_PRED) &&
+               ctx->root()->children()[0]->node_type() == TExprNodeType::SLOT_REF;
     });
 }
 
