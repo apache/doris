@@ -7005,7 +7005,7 @@ public class Env {
     }
 
     public void alterMTMVJobStatus(TableNameInfo mvName, JobStatus status) {
-        AlterMTMV alter = new AlterMTMV(mvName, MTMVAlterOpType.ALTER_STATUS);
+        AlterMTMV alter = new AlterMTMV(mvName, MTMVAlterOpType.ALTER_JOB_STATUS);
         alter.setJobStatus(status);
         this.alter.processAlterMTMV(alter, false);
     }
