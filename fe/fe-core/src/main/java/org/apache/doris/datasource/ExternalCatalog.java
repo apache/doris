@@ -81,6 +81,7 @@ import com.google.gson.annotations.SerializedName;
 import lombok.Data;
 import org.apache.commons.lang3.NotImplementedException;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -340,7 +341,7 @@ public abstract class ExternalCatalog
         Map<String, String> properties = getCatalogProperty().getProperties();
         if (properties.containsKey(CatalogMgr.METADATA_REFRESH_INTERVAL_SEC)) {
             try {
-                Integer metadataRefreshIntervalSec = Integer.valueOf(
+                int metadataRefreshIntervalSec = Integer.parseInt(
                         properties.get(CatalogMgr.METADATA_REFRESH_INTERVAL_SEC));
                 if (metadataRefreshIntervalSec < 0) {
                     throw new DdlException("Invalid properties: " + CatalogMgr.METADATA_REFRESH_INTERVAL_SEC);
@@ -350,11 +351,13 @@ public abstract class ExternalCatalog
             }
         }
 
-        // if (properties.getOrDefault(ExternalCatalog.USE_META_CACHE, "true").equals("false")) {
-        //     LOG.warn("force to set use_meta_cache to true for catalog: {} when creating", name);
-        //     getCatalogProperty().addProperty(ExternalCatalog.USE_META_CACHE, "true");
-        //     useMetaCache = Optional.of(true);
-        // }
+        // check schema.cache.ttl-second parameter
+        String schemaCacheTtlSecond = catalogProperty.getOrDefault(SCHEMA_CACHE_TTL_SECOND, null);
+        if (java.util.Objects.nonNull(schemaCacheTtlSecond) && NumberUtils.toInt(schemaCacheTtlSecond, CACHE_NO_TTL)
+                < CACHE_TTL_DISABLE_CACHE) {
+            throw new DdlException(
+                    "The parameter " + SCHEMA_CACHE_TTL_SECOND + " is wrong, value is " + schemaCacheTtlSecond);
+        }
     }
 
     /**
@@ -1254,5 +1257,14 @@ public abstract class ExternalCatalog
     @Override
     public int hashCode() {
         return Objects.hashCode(name);
+    }
+
+    @Override
+    public void notifyPropertiesUpdated(Map<String, String> updatedProps) {
+        CatalogIf.super.notifyPropertiesUpdated(updatedProps);
+        String schemaCacheTtl = updatedProps.getOrDefault(SCHEMA_CACHE_TTL_SECOND, null);
+        if (java.util.Objects.nonNull(schemaCacheTtl)) {
+            Env.getCurrentEnv().getExtMetaCacheMgr().invalidSchemaCache(id);
+        }
     }
 }
