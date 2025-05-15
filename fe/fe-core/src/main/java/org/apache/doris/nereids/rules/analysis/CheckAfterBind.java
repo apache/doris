@@ -56,7 +56,7 @@ public class CheckAfterBind implements AnalysisRuleFactory {
         Set<Expression> havingConjuncts = having.getConjuncts();
         for (Expression predicate : havingConjuncts) {
             if (predicate instanceof InSubquery) {
-                if (((InSubquery) predicate).getListQuery().getDataType().isObjectType()) {
+                if (((InSubquery) predicate).getSubqueryOutput().getDataType().isObjectType()) {
                     throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
                 }
             }
