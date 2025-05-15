@@ -38,9 +38,9 @@ suite("create_view_nereids_fix_null") {
     logger.info("jdbcUser: " + jdbcUser)
     String jdbcPassword = context.config.jdbcPassword
     logger.info("jdbcPassword: " + jdbcPassword)
-    sql "drop catalog if exists jdbc_catalog"
+    sql "drop catalog if exists create_view_nereids_fix_null_catalog"
     sql """
-        CREATE CATALOG jdbc_catalog PROPERTIES (
+        CREATE CATALOG create_view_nereids_fix_null_catalog PROPERTIES (
          "type"="jdbc",
          "user"="${jdbcUser}",
          "password"="${jdbcPassword}",
@@ -49,8 +49,9 @@ suite("create_view_nereids_fix_null") {
          "driver_class"="com.mysql.cj.jdbc.Driver"
         );
     """
-    sql "switch jdbc_catalog"
+    sql "switch create_view_nereids_fix_null_catalog"
     sql "use ${dbname}"
     qt_test_null "select * from test_null"
     qt_test_null_array "select * from test_null_array"
+    sql "drop catalog create_view_nereids_fix_null_catalog;"
 }
