@@ -18,22 +18,18 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.ThreadPoolManager;
-import org.apache.doris.common.util.DebugUtil;
-import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.qe.ConnectContext.ConnectType;
-import org.apache.doris.thrift.TUniqueId;
+import org.apache.doris.qe.ConnectContext.ThreadInfo;
+import org.apache.doris.service.arrowflight.sessions.FlightSqlConnectSchedulerImpl;
 
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.TimerTask;
 import java.util.concurrent.ScheduledExecutorService;
@@ -45,15 +41,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 // TODO(zhaochun): We should consider if the number of local file connection can >= maximum connections later.
 public class ConnectScheduler {
     private static final Logger LOG = LogManager.getLogger(ConnectScheduler.class);
-    private final int maxConnections;
-    private final AtomicInteger numberConnection;
     private final AtomicInteger nextConnectionId;
-    private final Map<Integer, ConnectContext> connectionMap = Maps.newConcurrentMap();
-    private final Map<String, AtomicInteger> connByUser = Maps.newConcurrentMap();
-    private final Map<String, Integer> flightToken2ConnectionId = Maps.newConcurrentMap();
-
-    // valid trace id -> query id
-    private final Map<String, TUniqueId> traceId2QueryId = Maps.newConcurrentMap();
+    private final ConnectSchedulerImpl commonConnectScheduler;
+    private final FlightSqlConnectSchedulerImpl flightSqlConnectScheduler;
 
     // Use a thread to check whether connection is timeout. Because
     // 1. If use a scheduler, the task maybe a huge number when query is messy.
@@ -62,24 +52,35 @@ public class ConnectScheduler {
     private final ScheduledExecutorService checkTimer = ThreadPoolManager.newDaemonScheduledThreadPool(1,
             "connect-scheduler-check-timer", true);
 
-    public ConnectScheduler(int maxConnections) {
-        this.maxConnections = maxConnections;
-        numberConnection = new AtomicInteger(0);
+    public ConnectScheduler(int commonMaxConnections, int flightSqlMaxConnections) {
         nextConnectionId = new AtomicInteger(0);
+        this.commonConnectScheduler = new ConnectSchedulerImpl(commonMaxConnections);
+        this.flightSqlConnectScheduler = new FlightSqlConnectSchedulerImpl(flightSqlMaxConnections);
         checkTimer.scheduleAtFixedRate(new TimeoutChecker(), 0, 1000L, TimeUnit.MILLISECONDS);
+    }
+
+    public ConnectScheduler(int commonMaxConnections) {
+        this(commonMaxConnections, Config.arrow_flight_max_connections);
     }
 
     private class TimeoutChecker extends TimerTask {
         @Override
         public void run() {
             long now = System.currentTimeMillis();
-            for (ConnectContext connectContext : connectionMap.values()) {
-                connectContext.checkTimeout(now);
-            }
+            commonConnectScheduler.timeoutChecker(now);
+            flightSqlConnectScheduler.timeoutChecker(now);
         }
     }
 
-    // submit one MysqlContext or ArrowFlightSqlContext to this scheduler.
+    public ConnectSchedulerImpl getCommonConnectScheduler() {
+        return commonConnectScheduler;
+    }
+
+    public FlightSqlConnectSchedulerImpl getFlightSqlConnectScheduler() {
+        return flightSqlConnectScheduler;
+    }
+
+    // submit one MysqlContext to this scheduler.
     // return true, if this connection has been successfully submitted, otherwise return false.
     // Caller should close ConnectContext if return false.
     public boolean submit(ConnectContext context) {
@@ -91,127 +92,65 @@ public class ConnectScheduler {
         return true;
     }
 
-    // Register one connection with its connection id.
-    // Return -1 means register OK
-    // Return >=0 means register failed, and return value is current connection num.
-    public int registerConnection(ConnectContext ctx) {
-        if (numberConnection.incrementAndGet() > maxConnections) {
-            numberConnection.decrementAndGet();
-            return numberConnection.get();
-        }
-        // Check user
-        connByUser.putIfAbsent(ctx.getQualifiedUser(), new AtomicInteger(0));
-        AtomicInteger conns = connByUser.get(ctx.getQualifiedUser());
-        if (conns.incrementAndGet() > ctx.getEnv().getAuth().getMaxConn(ctx.getQualifiedUser())) {
-            conns.decrementAndGet();
-            numberConnection.decrementAndGet();
-            return numberConnection.get();
-        }
-        connectionMap.put(ctx.getConnectionId(), ctx);
-        if (ctx.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL)) {
-            flightToken2ConnectionId.put(ctx.getPeerIdentity(), ctx.getConnectionId());
-        }
-        return -1;
-    }
-
-    public void unregisterConnection(ConnectContext ctx) {
-        ctx.closeTxn();
-        if (connectionMap.remove(ctx.getConnectionId()) != null) {
-            AtomicInteger conns = connByUser.get(ctx.getQualifiedUser());
-            if (conns != null) {
-                conns.decrementAndGet();
-            }
-            numberConnection.decrementAndGet();
-            if (ctx.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL)) {
-                flightToken2ConnectionId.remove(ctx.getPeerIdentity());
-            }
-        }
-    }
-
     public ConnectContext getContext(int connectionId) {
-        return connectionMap.get(connectionId);
+        ConnectContext ctx = commonConnectScheduler.getContext(connectionId);
+        if (ctx == null) {
+            ctx = flightSqlConnectScheduler.getContext(connectionId);
+        }
+        return ctx;
     }
 
     public ConnectContext getContextWithQueryId(String queryId) {
-        for (ConnectContext context : connectionMap.values()) {
-            if (queryId.equals(DebugUtil.printId(context.queryId))) {
-                return context;
-            }
+        ConnectContext ctx = commonConnectScheduler.getContextWithQueryId(queryId);
+        if (ctx == null) {
+            ctx = flightSqlConnectScheduler.getContextWithQueryId(queryId);
         }
-        return null;
+        return ctx;
     }
 
-    public ConnectContext getContext(String flightToken) {
-        if (flightToken2ConnectionId.containsKey(flightToken)) {
-            int connectionId = flightToken2ConnectionId.get(flightToken);
-            return getContext(connectionId);
+    public boolean cancelQuery(String queryId, Status cancelReason) {
+        boolean ret = commonConnectScheduler.cancelQuery(queryId, cancelReason);
+        if (!ret) {
+            ret = flightSqlConnectScheduler.cancelQuery(queryId, cancelReason);
         }
-        return null;
-    }
-
-    public void cancelQuery(String queryId, Status cancelReason) {
-        for (ConnectContext ctx : connectionMap.values()) {
-            TUniqueId qid = ctx.queryId();
-            if (qid != null && DebugUtil.printId(qid).equals(queryId)) {
-                ctx.cancelQuery(cancelReason);
-                break;
-            }
-        }
+        return ret;
     }
 
     public int getConnectionNum() {
-        return numberConnection.get();
+        return commonConnectScheduler.getConnectionNum() + flightSqlConnectScheduler.getConnectionNum();
     }
 
-    public List<ConnectContext.ThreadInfo> listConnection(String user, boolean isFull) {
-        List<ConnectContext.ThreadInfo> infos = Lists.newArrayList();
-        for (ConnectContext ctx : connectionMap.values()) {
-            // Check auth
-            if (!ctx.getQualifiedUser().equals(user) && !Env.getCurrentEnv().getAccessManager()
-                    .checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
-                continue;
-            }
-
-            infos.add(ctx.toThreadInfo(isFull));
-        }
+    public List<ThreadInfo> listConnection(String user, boolean isFull) {
+        List<ConnectContext.ThreadInfo> infos = commonConnectScheduler.listConnection(user, isFull);
+        infos.addAll(flightSqlConnectScheduler.listConnection(user, isFull));
         return infos;
     }
 
     // used for thrift
     public List<List<String>> listConnectionForRpc(UserIdentity userIdentity, boolean isShowFullSql,
             Optional<String> timeZone) {
-        List<List<String>> list = new ArrayList<>();
-        long nowMs = System.currentTimeMillis();
-        for (ConnectContext ctx : connectionMap.values()) {
-            // Check auth
-            if (!ctx.getCurrentUserIdentity().equals(userIdentity) && !Env.getCurrentEnv()
-                    .getAccessManager()
-                    .checkGlobalPriv(userIdentity, PrivPredicate.GRANT)) {
-                continue;
-            }
-            list.add(ctx.toThreadInfo(isShowFullSql).toRow(-1, nowMs, timeZone));
-        }
+        List<List<String>> list = commonConnectScheduler.listConnectionForRpc(userIdentity, isShowFullSql, timeZone);
+        list.addAll(flightSqlConnectScheduler.listConnectionForRpc(userIdentity, isShowFullSql, timeZone));
         return list;
     }
 
-    public void putTraceId2QueryId(String traceId, TUniqueId queryId) {
-        traceId2QueryId.put(traceId, queryId);
-    }
-
     public String getQueryIdByTraceId(String traceId) {
-        TUniqueId queryId = traceId2QueryId.get(traceId);
-        return queryId == null ? "" : DebugUtil.printId(queryId);
+        String queryId = commonConnectScheduler.getQueryIdByTraceId(traceId);
+        if (Objects.equals(queryId, "")) {
+            queryId = flightSqlConnectScheduler.getQueryIdByTraceId(traceId);
+        }
+        return queryId;
     }
 
     public Map<Integer, ConnectContext> getConnectionMap() {
-        return connectionMap;
+        Map<Integer, ConnectContext> map = commonConnectScheduler.getConnectionMap();
+        map.putAll(flightSqlConnectScheduler.getConnectionMap());
+        return map;
     }
 
     public Map<String, AtomicInteger> getUserConnectionMap() {
-        return connByUser;
-    }
-
-    public int getMaxConnections() {
-        return maxConnections;
+        Map<String, AtomicInteger> map = commonConnectScheduler.getUserConnectionMap();
+        map.putAll(flightSqlConnectScheduler.getUserConnectionMap());
+        return map;
     }
 }

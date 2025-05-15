@@ -36,6 +36,8 @@ import com.google.protobuf.Any;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.Message;
 import org.apache.arrow.flight.CallStatus;
+import org.apache.arrow.flight.CloseSessionRequest;
+import org.apache.arrow.flight.CloseSessionResult;
 import org.apache.arrow.flight.Criteria;
 import org.apache.arrow.flight.FlightDescriptor;
 import org.apache.arrow.flight.FlightEndpoint;
@@ -582,6 +584,21 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
     public void getStreamCrossReference(CommandGetCrossReference command, CallContext context,
             ServerStreamListener listener) {
         throw CallStatus.UNIMPLEMENTED.withDescription("getStreamCrossReference unimplemented").toRuntimeException();
+    }
+
+    @Override
+    public void closeSession(CloseSessionRequest request, final CallContext context,
+            final StreamListener<CloseSessionResult> listener) {
+
+        try {
+            flightSessionsManager.closeConnectContext(context.peerIdentity());
+        } catch (final Exception e) {
+            LOG.error("closeSession failed", e);
+            listener.onError(
+                    CallStatus.INTERNAL.withDescription("closeSession failed").withCause(e).toRuntimeException());
+        }
+        listener.onNext(new CloseSessionResult(CloseSessionResult.Status.CLOSED));
+        listener.onCompleted();
     }
 
     private <T extends Message> FlightInfo getFlightInfoForSchema(final T request, final FlightDescriptor descriptor,
