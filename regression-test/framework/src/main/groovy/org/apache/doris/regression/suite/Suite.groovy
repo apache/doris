@@ -1648,7 +1648,7 @@ class Suite implements GroovyInterceptable {
         return debugPoint
     }
 
-    // get follower ip:HttpPort
+    // get follower ip
     def get_follower_ip = {
         def result = sql """show frontends;"""
         if (result.size() == 1) {
@@ -1662,7 +1662,7 @@ class Suite implements GroovyInterceptable {
         return null
     }
 
-    // get master ip:HttpPort
+    // get master ip
     def get_master_ip = {
         def result = sql """show frontends;"""
         for (int i = 0; i < result.size(); i++) {

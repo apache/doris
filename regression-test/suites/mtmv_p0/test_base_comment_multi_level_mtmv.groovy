@@ -128,7 +128,7 @@ suite("test_base_comment_multi_level_mtmv","mtmv") {
         alter table ${tableName1} MODIFY COMMENT "new table comment";
         """
     run_on_follower_and_master({ jdbc_url ->
-        connect("root", "", jdbc_url) {
+        connect(context.config.jdbcUser, context.config.jdbcPassword, jdbc_url) {
             sql "sync"
             sql """set enable_materialized_view_nest_rewrite = true;"""
             sql "use ${dbName}"

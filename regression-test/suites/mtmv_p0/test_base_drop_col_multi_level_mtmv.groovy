@@ -129,7 +129,7 @@ suite("test_base_drop_col_multi_level_mtmv","mtmv") {
         alter table ${tableName1} drop COLUMN k3;
         """
     run_on_follower_and_master({ jdbc_url ->
-        connect("root", "", jdbc_url) {
+        connect(context.config.jdbcUser, context.config.jdbcPassword, jdbc_url) {
             sql "sync"
             sql """set enable_materialized_view_nest_rewrite = true;"""
             sql "use ${dbName}"

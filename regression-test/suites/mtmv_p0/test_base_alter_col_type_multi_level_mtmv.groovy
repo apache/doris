@@ -129,7 +129,7 @@ suite("test_base_alter_col_type_multi_level_mtmv","mtmv") {
         alter table ${tableName1} modify COLUMN k3 VARCHAR(100);
         """
     run_on_follower_and_master({ jdbc_url ->
-        connect("root", "", jdbc_url) {
+        connect(context.config.jdbcUser, context.config.jdbcPassword, jdbc_url) {
             sql "sync"
             sql """set enable_materialized_view_nest_rewrite = true;"""
             sql "use ${dbName}"

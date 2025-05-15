@@ -126,7 +126,7 @@ suite("test_base_drop_multi_level_mtmv","mtmv") {
     // drop t1
     sql """drop table if exists `${tableName1}`"""
     run_on_follower_and_master({ jdbc_url ->
-        connect("root", "", jdbc_url) {
+        connect(context.config.jdbcUser, context.config.jdbcPassword, jdbc_url) {
             sql "sync"
             sql """set enable_materialized_view_nest_rewrite = true;"""
             sql "use ${dbName}"
@@ -153,7 +153,7 @@ suite("test_base_drop_multi_level_mtmv","mtmv") {
         """
 
     run_on_follower_and_master({ jdbc_url ->
-        connect("root", "", jdbc_url) {
+        connect(context.config.jdbcUser, context.config.jdbcPassword, jdbc_url) {
             sql "sync"
             sql """set enable_materialized_view_nest_rewrite = true;"""
             sql "use ${dbName}"

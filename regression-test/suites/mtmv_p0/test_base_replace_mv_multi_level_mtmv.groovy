@@ -146,7 +146,7 @@ suite("test_base_replace_mv_multi_level_mtmv","mtmv") {
         """
 
     run_on_follower_and_master({ jdbc_url ->
-        connect("root", "", jdbc_url) {
+        connect(context.config.jdbcUser, context.config.jdbcPassword, jdbc_url) {
             sql "sync"
             sql """set enable_materialized_view_nest_rewrite = true;"""
             sql "use ${dbName}"
@@ -170,7 +170,7 @@ suite("test_base_replace_mv_multi_level_mtmv","mtmv") {
         """
     waitingMTMVTaskFinishedByMvName(mvName1)
     run_on_follower_and_master({ jdbc_url ->
-        connect("root", "", jdbc_url) {
+        connect(context.config.jdbcUser, context.config.jdbcPassword, jdbc_url) {
             sql "sync"
             sql """set enable_materialized_view_nest_rewrite = true;"""
             sql "use ${dbName}"
@@ -184,7 +184,7 @@ suite("test_base_replace_mv_multi_level_mtmv","mtmv") {
         """
     waitingMTMVTaskFinishedByMvName(mvName11)
     run_on_follower_and_master({ jdbc_url ->
-        connect("root", "", jdbc_url) {
+        connect(context.config.jdbcUser, context.config.jdbcPassword, jdbc_url) {
             sql "sync"
             sql """set enable_materialized_view_nest_rewrite = true;"""
             sql "use ${dbName}"
@@ -197,7 +197,7 @@ suite("test_base_replace_mv_multi_level_mtmv","mtmv") {
         ALTER MATERIALIZED VIEW ${mvName1} REPLACE WITH MATERIALIZED VIEW ${mvName11} PROPERTIES('swap' = 'false');;
         """
     run_on_follower_and_master({ jdbc_url ->
-        connect("root", "", jdbc_url) {
+        connect(context.config.jdbcUser, context.config.jdbcPassword, jdbc_url) {
             sql "sync"
             sql """set enable_materialized_view_nest_rewrite = true;"""
             sql "use ${dbName}"
@@ -220,7 +220,7 @@ suite("test_base_replace_mv_multi_level_mtmv","mtmv") {
         """
     waitingMTMVTaskFinishedByMvName(mvName1)
     run_on_follower_and_master({ jdbc_url ->
-        connect("root", "", jdbc_url) {
+        connect(context.config.jdbcUser, context.config.jdbcPassword, jdbc_url) {
             sql "sync"
             sql """set enable_materialized_view_nest_rewrite = true;"""
             sql "use ${dbName}"
