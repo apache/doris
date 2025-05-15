@@ -193,7 +193,7 @@ public class HiveMetadataOps implements ExternalMetadataOps {
             // set default owner
             if (!props.containsKey("owner")) {
                 if (ConnectContext.get() != null) {
-                    props.put("owner", ConnectContext.get().getUserIdentity().getUser());
+                    props.put("owner", ConnectContext.get().getCurrentUserIdentity().getUser());
                 }
             }
 

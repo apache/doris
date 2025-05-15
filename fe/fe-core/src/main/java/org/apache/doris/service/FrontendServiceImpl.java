@@ -103,6 +103,7 @@ import org.apache.doris.qe.DdlExecutor;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.HttpStreamParams;
 import org.apache.doris.qe.MasterCatalogExecutor;
+import org.apache.doris.qe.MasterOpExecutor;
 import org.apache.doris.qe.MysqlConnectProcessor;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QueryState;
@@ -492,7 +493,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     continue;
                 }
 
-                if (matcher != null && !matcher.match(dbName)) {
+                if (matcher != null && !matcher.match(getMysqlTableSchema(catalog.getName(), dbName))) {
                     continue;
                 }
 
@@ -2794,15 +2795,42 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
 
+        boolean syncJournal = false;
         if (!Env.getCurrentEnv().isMaster()) {
-            status.setStatusCode(TStatusCode.NOT_MASTER);
-            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
-            result.setMasterAddress(getMasterAddress());
-            LOG.error("failed to get beginTxn: {}", NOT_MASTER_ERR_MSG);
-            return result;
+            if (!request.isAllowFollowerRead()) {
+                status.setStatusCode(TStatusCode.NOT_MASTER);
+                status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
+                result.setMasterAddress(getMasterAddress());
+                LOG.error("failed to get binlog: {}", NOT_MASTER_ERR_MSG);
+                return result;
+            }
+            syncJournal = true;
         }
 
         try {
+            /// Check all required arg: user, passwd, db, prev_commit_seq
+            if (!request.isSetUser()) {
+                throw new UserException("user is not set");
+            }
+            if (!request.isSetPasswd()) {
+                throw new UserException("passwd is not set");
+            }
+            if (!request.isSetDb()) {
+                throw new UserException("db is not set");
+            }
+            if (!request.isSetPrevCommitSeq()) {
+                throw new UserException("prev_commit_seq is not set");
+            }
+
+            if (syncJournal) {
+                ConnectContext ctx = new ConnectContext(null);
+                ctx.setDatabase(request.getDb());
+                ctx.setQualifiedUser(request.getUser());
+                ctx.setEnv(Env.getCurrentEnv());
+                MasterOpExecutor executor = new MasterOpExecutor(ctx);
+                executor.syncJournal();
+            }
+
             result = getBinlogImpl(request, clientAddr);
         } catch (UserException e) {
             LOG.warn("failed to get binlog: {}", e.getMessage());
@@ -2819,20 +2847,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     private TGetBinlogResult getBinlogImpl(TGetBinlogRequest request, String clientIp) throws UserException {
-        /// Check all required arg: user, passwd, db, prev_commit_seq
-        if (!request.isSetUser()) {
-            throw new UserException("user is not set");
-        }
-        if (!request.isSetPasswd()) {
-            throw new UserException("passwd is not set");
-        }
-        if (!request.isSetDb()) {
-            throw new UserException("db is not set");
-        }
-        if (!request.isSetPrevCommitSeq()) {
-            throw new UserException("prev_commit_seq is not set");
-        }
-
         // step 1: check auth
         if (Strings.isNullOrEmpty(request.getToken())) {
             checkSingleTablePasswordAndPrivs(request.getUser(), request.getPasswd(), request.getDb(),
@@ -3788,7 +3802,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             needReplace = overwriteManager.tryReplacePartitionIds(taskGroupId, reqPartitionIds, resultPartitionIds);
             // request: [1 2 3 4] result: [1 2 5 6] means ONLY 1 and 2 need replace.
             if (needReplace) {
-                // names for [1 2]
+                // names for [1 2]. if another txn dropped origin partitions, we will fail here. return the exception.
+                // that's reasonable because we want iot-auto-detect txn has as less impact as possible. so only when we
+                // detected the conflict in this RPC, we will fail the txn. it allows more concurrent transactions.
                 List<String> pendingPartitionNames = olapTable.getEqualPartitionNames(reqPartitionIds,
                                 resultPartitionIds);
                 for (String name : pendingPartitionNames) {
@@ -3816,7 +3832,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     }
                 }
             }
-        } catch (DdlException ex) {
+        } catch (DdlException | RuntimeException ex) {
             errorStatus.setErrorMsgs(Lists.newArrayList(ex.getMessage()));
             result.setStatus(errorStatus);
             LOG.warn("send create partition error status: {}", result);

@@ -100,8 +100,10 @@ public class SplitAssignment {
             for (Split split : splits) {
                 locations.add(splitToScanRange.getScanRange(backend, locationProperties, split, pathPartitionKeys));
             }
-            if (!assignment.computeIfAbsent(backend, be -> new LinkedBlockingQueue<>()).offer(locations)) {
-                throw new UserException("Failed to offer batch split");
+            try {
+                assignment.computeIfAbsent(backend, be -> new LinkedBlockingQueue<>(10000)).put(locations);
+            } catch (Exception e) {
+                throw new UserException("Failed to offer batch split", e);
             }
         }
     }
