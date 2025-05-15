@@ -60,7 +60,11 @@ std::string DeleteBitmapLockWhiteList::get_delete_bitmap_lock_version(std::strin
             return "v1";
         }
     }
-    std::string white_list = config::delete_bitmap_lock_v2_white_list;
+    std::string white_list;
+    {
+        std::shared_lock<std::shared_mutex> lock(*config::get_mutable_string_config_lock());
+        white_list = config::delete_bitmap_lock_v2_white_list;
+    }
     if (white_list == "*") {
         return "v2";
     }
