@@ -83,13 +83,13 @@ TEST_P(DataTypeBitMapTest, MetaInfoTest) {
             .is_value_represented_by_number = false,
             .pColumnMeta = col_meta.get(),
             .is_value_unambiguously_represented_in_contiguous_memory_region = true,
-            .default_field = BitmapValue::empty_bitmap(),
+            .default_field = Field::create_field<TYPE_OBJECT>(BitmapValue::empty_bitmap()),
     };
     helper->meta_info_assert(dt_bitmap, bitmap_meta_info_to_assert);
 }
 
 TEST_P(DataTypeBitMapTest, CreateColumnTest) {
-    Field default_field_bitmap = BitmapValue::empty_bitmap();
+    Field default_field_bitmap = Field::create_field<TYPE_OBJECT>(BitmapValue::empty_bitmap());
     helper->create_column_assert(dt_bitmap, default_field_bitmap, 17);
 }
 

@@ -220,6 +220,22 @@ void ColumnDecimal<T>::update_hashes_with_value(uint64_t* __restrict hashes,
 }
 
 template <typename T>
+Field ColumnDecimal<T>::operator[](size_t n) const {
+    if constexpr (std::is_same_v<T, Decimal32>) {
+        return Field::create_field<TYPE_DECIMAL32>(DecimalField<Decimal32>(data[n], scale));
+    } else if constexpr (std::is_same_v<T, Decimal64>) {
+        return Field::create_field<TYPE_DECIMAL64>(DecimalField<Decimal64>(data[n], scale));
+    } else if constexpr (std::is_same_v<T, Decimal128V2>) {
+        return Field::create_field<TYPE_DECIMALV2>(data[n]);
+    } else if constexpr (std::is_same_v<T, Decimal128V3>) {
+        return Field::create_field<TYPE_DECIMAL128I>(DecimalField<Decimal128V3>(data[n], scale));
+    } else if constexpr (std::is_same_v<T, Decimal256>) {
+        return Field::create_field<TYPE_DECIMAL256>(DecimalField<Decimal256>(data[n], scale));
+    }
+    throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT, "Invalid decimal type");
+}
+
+template <typename T>
 void ColumnDecimal<T>::get_permutation(bool reverse, size_t limit, int,
                                        IColumn::Permutation& res) const {
 #if 1 /// TODO: perf test

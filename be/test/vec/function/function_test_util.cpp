@@ -334,7 +334,7 @@ bool insert_array_cell(MutableColumnPtr& column, DataTypePtr type_ptr, const Any
         field_vector.push_back((*sub_column)[i]);
     }
 
-    column->insert(field_vector);
+    column->insert(Field::create_field<TYPE_ARRAY>(field_vector));
     return true;
 }
 
