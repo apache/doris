@@ -189,9 +189,9 @@ public:
             // Default column iterator
             return true;
         }
-        if (vectorized::WhichDataType(vectorized::remove_nullable(storage_column_type))
-                    .is_variant_type()) {
-            // Predicate should nerver apply on variant type
+        auto nested_type = vectorized::remove_nullable(storage_column_type);
+        if (vectorized::is_variant_type(nested_type) || vectorized::is_complex_type(nested_type)) {
+            // Predicate should nerver apply on variant/complex type
             return false;
         }
         bool safe =
