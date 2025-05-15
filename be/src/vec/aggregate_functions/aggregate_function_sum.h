@@ -36,9 +36,8 @@
 #include "vec/data_types/data_type_fixed_length_object.h"
 #include "vec/io/io_helper.h"
 
-namespace doris {
+namespace doris::vectorized {
 #include "common/compile_check_begin.h"
-namespace vectorized {
 class Arena;
 class BufferReadable;
 class BufferWritable;
@@ -48,10 +47,6 @@ template <typename T>
 class DataTypeNumber;
 template <typename>
 class ColumnVector;
-} // namespace vectorized
-} // namespace doris
-
-namespace doris::vectorized {
 
 template <typename T>
 struct AggregateFunctionSumData {
@@ -222,30 +217,44 @@ private:
     UInt32 scale;
 };
 
-template <typename T, bool level_up>
+template <PrimitiveType T, bool level_up>
 struct SumSimple {
     /// @note It uses slow Decimal128 (cause we need such a variant). sumWithOverflow is faster for Decimal32/64
-    using ResultType = std::conditional_t<level_up, DisposeDecimal<T, NearestFieldType<T>>, T>;
+    using ResultType = std::conditional_t<
+            level_up,
+            std::conditional_t<
+                    T == TYPE_DECIMALV2, Decimal128V2,
+                    std::conditional_t<is_decimal(T), Decimal128V3,
+                                       typename PrimitiveTypeTraits<T>::NearestFieldType>>,
+            typename PrimitiveTypeTraits<T>::ColumnItemType>;
     using AggregateDataType = AggregateFunctionSumData<ResultType>;
-    using Function = AggregateFunctionSum<T, ResultType, AggregateDataType>;
+    using Function = AggregateFunctionSum<typename PrimitiveTypeTraits<T>::ColumnItemType,
+                                          ResultType, AggregateDataType>;
 };
 
-template <typename T>
+template <PrimitiveType T>
 using AggregateFunctionSumSimple = typename SumSimple<T, true>::Function;
 
-template <typename T, bool level_up>
+template <PrimitiveType T, bool level_up>
 struct SumSimpleDecimal256 {
     /// @note It uses slow Decimal128 (cause we need such a variant). sumWithOverflow is faster for Decimal32/64
-    using ResultType = std::conditional_t<level_up, DisposeDecimal256<T, NearestFieldType<T>>, T>;
+    using ResultType = std::conditional_t<
+            level_up,
+            std::conditional_t<
+                    T == TYPE_DECIMALV2, Decimal128V2,
+                    std::conditional_t<is_decimal(T), Decimal128V3,
+                                       typename PrimitiveTypeTraits<T>::NearestFieldType>>,
+            typename PrimitiveTypeTraits<T>::ColumnItemType>;
     using AggregateDataType = AggregateFunctionSumData<ResultType>;
-    using Function = AggregateFunctionSum<T, ResultType, AggregateDataType>;
+    using Function = AggregateFunctionSum<typename PrimitiveTypeTraits<T>::ColumnItemType,
+                                          ResultType, AggregateDataType>;
 };
 
-template <typename T>
+template <PrimitiveType T>
 using AggregateFunctionSumSimpleDecimal256 = typename SumSimpleDecimal256<T, true>::Function;
 
 // do not level up return type for agg reader
-template <typename T>
+template <PrimitiveType T>
 using AggregateFunctionSumSimpleReader = typename SumSimple<T, false>::Function;
 
 } // namespace doris::vectorized

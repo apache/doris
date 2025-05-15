@@ -155,12 +155,12 @@ MutableColumnPtr ColumnNullable::clone_resized(size_t new_size) const {
 }
 
 Field ColumnNullable::operator[](size_t n) const {
-    return is_null_at(n) ? Null() : get_nested_column()[n];
+    return is_null_at(n) ? Field::create_field<TYPE_NULL>(Null()) : get_nested_column()[n];
 }
 
 void ColumnNullable::get(size_t n, Field& res) const {
     if (is_null_at(n)) {
-        res = Null();
+        res = Field();
     } else {
         get_nested_column().get(n, res);
     }

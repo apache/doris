@@ -105,12 +105,12 @@ public:
     }
 
     Field operator[](size_t n) const override {
-        return Field(
+        return Field::create_field<TYPE_STRING>(
                 String(reinterpret_cast<const char*>(_data.data() + n * _item_size), _item_size));
     }
 
     void get(size_t n, Field& res) const override {
-        res = Field(
+        res = Field::create_field<TYPE_STRING>(
                 String(reinterpret_cast<const char*>(_data.data() + n * _item_size), _item_size));
     }
 

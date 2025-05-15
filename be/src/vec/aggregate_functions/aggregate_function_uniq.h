@@ -43,27 +43,26 @@
 #include "vec/io/io_helper.h"
 #include "vec/io/var_int.h"
 
-namespace doris {
+template <typename T>
+struct HashCRC32;
+
+namespace doris::vectorized {
 #include "common/compile_check_begin.h"
-namespace vectorized {
+
 class Arena;
 class BufferReadable;
 class BufferWritable;
 template <typename T>
 class ColumnDecimal;
-} // namespace vectorized
-} // namespace doris
-template <typename T>
-struct HashCRC32;
-
-namespace doris::vectorized {
-
 /// uniqExact
 
-template <typename T>
+template <PrimitiveType T>
 struct AggregateFunctionUniqExactData {
-    static constexpr bool is_string_key = std::is_same_v<T, String>;
-    using Key = std::conditional_t<is_string_key, UInt128, T>;
+    static constexpr bool is_string_key = is_string_type(T);
+    using Key =
+            std::conditional_t<is_string_key, UInt128,
+                               std::conditional_t<T == TYPE_BOOLEAN, UInt8,
+                                                  typename PrimitiveTypeTraits<T>::CppNativeType>>;
     using Hash = HashCRC32<Key>;
 
     using Set = flat_hash_set<Key, Hash>;
@@ -86,18 +85,15 @@ namespace detail {
 /** The structure for the delegation work to add one element to the `uniq` aggregate functions.
   * Used for partial specialization to add strings.
   */
-template <typename T, typename Data>
+template <PrimitiveType T, typename Data>
 struct OneAdder {
     static void ALWAYS_INLINE add(Data& data, const IColumn& column, size_t row_num) {
-        if constexpr (std::is_same_v<T, String>) {
+        if constexpr (is_string_type(T)) {
             StringRef value = column.get_data_at(row_num);
             data.set.insert(Data::get_key(value));
-        } else if constexpr (IsDecimalNumber<T>) {
-            data.set.insert(
-                    assert_cast<const ColumnDecimal<T>&, TypeCheckOnRelease::DISABLE>(column)
-                            .get_data()[row_num]);
         } else {
-            data.set.insert(assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(column)
+            data.set.insert(assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
+                                        TypeCheckOnRelease::DISABLE>(column)
                                     .get_data()[row_num]);
         }
     }
@@ -106,11 +102,12 @@ struct OneAdder {
 } // namespace detail
 
 /// Calculates the number of different values approximately or exactly.
-template <typename T, typename Data>
+template <PrimitiveType T, typename Data>
 class AggregateFunctionUniq final
         : public IAggregateFunctionDataHelper<Data, AggregateFunctionUniq<T, Data>> {
 public:
-    using KeyType = std::conditional_t<std::is_same_v<T, String>, UInt128, T>;
+    using KeyType = std::conditional_t<is_string_type(T), UInt128,
+                                       typename PrimitiveTypeTraits<T>::ColumnItemType>;
     AggregateFunctionUniq(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<Data, AggregateFunctionUniq<T, Data>>(argument_types_) {}
 
@@ -127,7 +124,7 @@ public:
 
     static ALWAYS_INLINE const KeyType* get_keys(std::vector<KeyType>& keys_container,
                                                  const IColumn& column, size_t batch_size) {
-        if constexpr (std::is_same_v<T, String>) {
+        if constexpr (is_string_type(T)) {
             keys_container.resize(batch_size);
             for (size_t i = 0; i != batch_size; ++i) {
                 StringRef value = column.get_data_at(i);
@@ -135,9 +132,9 @@ public:
             }
             return keys_container.data();
         } else {
-            using ColumnType =
-                    std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<T>, ColumnVector<T>>;
-            return assert_cast<const ColumnType&>(column).get_data().data();
+            return assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&>(column)
+                    .get_data()
+                    .data();
         }
     }
 

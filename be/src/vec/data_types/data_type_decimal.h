@@ -191,7 +191,7 @@ public:
             DecimalV2Value value;
             if (value.parse_from_str(node.decimal_literal.value.c_str(),
                                      node.decimal_literal.value.size()) == E_DEC_OK) {
-                return DecimalField<Decimal128V2>(value.value(), value.scale());
+                return Field::create_field<TYPE_DECIMALV2>(value.value());
             } else {
                 throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
                                        "Invalid decimal(scale: {}) value: {}", value.scale(),
@@ -205,7 +205,17 @@ public:
                                    "Invalid value: {} for type {}", node.decimal_literal.value,
                                    do_get_name());
         };
-        return DecimalField<T>(val, scale);
+        if constexpr (std::is_same_v<T, Decimal32>) {
+            return Field::create_field<TYPE_DECIMAL32>(DecimalField<T>(val, scale));
+        } else if constexpr (std::is_same_v<T, Decimal64>) {
+            return Field::create_field<TYPE_DECIMAL64>(DecimalField<T>(val, scale));
+        } else if constexpr (std::is_same_v<T, Decimal128V3>) {
+            return Field::create_field<TYPE_DECIMAL128I>(DecimalField<T>(val, scale));
+        } else if constexpr (std::is_same_v<T, Decimal256>) {
+            return Field::create_field<TYPE_DECIMAL256>(DecimalField<T>(val, scale));
+        }
+        throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT, "Invalid type {}",
+                               do_get_name());
     }
 
     MutableColumnPtr create_column() const override;

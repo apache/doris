@@ -316,7 +316,7 @@ public:
             res[i] = apply_visitor(
                     FieldVisitorReplaceScalars(replacement, num_dimensions_to_keep - 1), x[i]);
         }
-        return res;
+        return Field::create_field<TYPE_ARRAY>(res);
     }
 
     template <typename T>
@@ -481,7 +481,7 @@ Array create_empty_array_field(size_t num_dimensions) {
     Array array;
     Array* current_array = &array;
     for (size_t i = 1; i < num_dimensions; ++i) {
-        current_array->push_back(Array());
+        current_array->push_back(Field::create_field<TYPE_NULL>(Null()));
         current_array = &current_array->back().get<Array&>();
     }
 
@@ -950,13 +950,13 @@ void ColumnVariant::insert_default() {
 
 void ColumnVariant::Subcolumn::get(size_t n, Field& res) const {
     if (least_common_type.get_base_type_id() == PrimitiveType::INVALID_TYPE) {
-        res = Null();
+        res = Field();
         return;
     }
     if (is_finalized()) {
         if (least_common_type.get_base_type_id() == PrimitiveType::TYPE_JSONB) {
             // JsonbFiled is special case
-            res = JsonbField();
+            res = Field::create_field<TYPE_JSONB>(JsonbField());
         }
         get_finalized_column().get(n, res);
         return;
@@ -1000,7 +1000,7 @@ void ColumnVariant::get(size_t n, Field& res) const {
                                "Index ({}) for getting field is out of range for size {}", n,
                                size());
     }
-    res = VariantMap();
+    res = Field::create_field<TYPE_VARIANT>(VariantMap());
     auto& object = res.get<VariantMap&>();
 
     for (const auto& entry : subcolumns) {
@@ -1012,7 +1012,7 @@ void ColumnVariant::get(size_t n, Field& res) const {
         }
     }
     if (object.empty()) {
-        res = Null();
+        res = Field();
     }
 }
 
@@ -2082,10 +2082,10 @@ bool ColumnVariant::try_insert_default_from_nested(const Subcolumns::NodePtr& en
     size_t leaf_num_dimensions = leaf->data.get_dimensions();
     size_t entry_num_dimensions = entry->data.get_dimensions();
 
-    auto default_scalar =
-            entry_num_dimensions > leaf_num_dimensions
-                    ? create_empty_array_field(entry_num_dimensions - leaf_num_dimensions)
-                    : entry->data.get_least_common_type()->get_default();
+    auto default_scalar = entry_num_dimensions > leaf_num_dimensions
+                                  ? Field::create_field<TYPE_ARRAY>(create_empty_array_field(
+                                            entry_num_dimensions - leaf_num_dimensions))
+                                  : entry->data.get_least_common_type()->get_default();
 
     auto default_field = apply_visitor(
             FieldVisitorReplaceScalars(default_scalar, leaf_num_dimensions), last_field);

@@ -29,13 +29,14 @@ template <bool nullable>
 AggregateFunctionPtr create_with_int_data_type(const DataTypes& argument_types) {
     switch (argument_types[0]->get_primitive_type()) {
     case PrimitiveType::TYPE_TINYINT:
-        return std::make_shared<AggregateFunctionBitmapAgg<nullable, Int8>>(argument_types);
+        return std::make_shared<AggregateFunctionBitmapAgg<nullable, TYPE_TINYINT>>(argument_types);
     case PrimitiveType::TYPE_SMALLINT:
-        return std::make_shared<AggregateFunctionBitmapAgg<nullable, Int16>>(argument_types);
+        return std::make_shared<AggregateFunctionBitmapAgg<nullable, TYPE_SMALLINT>>(
+                argument_types);
     case PrimitiveType::TYPE_INT:
-        return std::make_shared<AggregateFunctionBitmapAgg<nullable, Int32>>(argument_types);
+        return std::make_shared<AggregateFunctionBitmapAgg<nullable, TYPE_INT>>(argument_types);
     case PrimitiveType::TYPE_BIGINT:
-        return std::make_shared<AggregateFunctionBitmapAgg<nullable, Int64>>(argument_types);
+        return std::make_shared<AggregateFunctionBitmapAgg<nullable, TYPE_BIGINT>>(argument_types);
     default:
         LOG(WARNING) << "with unknown type, failed in create_with_int_data_type bitmap_union_int"
                      << " and type is: " << argument_types[0]->get_name();
