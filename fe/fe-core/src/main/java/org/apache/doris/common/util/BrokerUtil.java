@@ -97,7 +97,6 @@ public class BrokerUtil {
                     convertSchema = true;
                     PropertyConverter.s3BrokerConvertToHadoopProperties(brokerDesc.getProperties());
                     path = PropertyConverter.s3SchemaConvertToFileSystem(path, provider);
-
                 }
             }
             Status st = fileSystem.globList(path, rfiles, false);
@@ -111,9 +110,9 @@ public class BrokerUtil {
         }
         for (RemoteFile r : rfiles) {
             if (r.isFile()) {
-                String pathName = PropertyConverter.fileSystemSchemaConvertTos3(r.getName(), provider);
+                String pathName = r.getName();
                 if (convertSchema) {
-                    pathName = pathName.replace(provider.toLowerCase() + "://", "s3://");
+                    pathName = PropertyConverter.fileSystemSchemaConvertTos3(pathName, provider);
                 }
                 TBrokerFileStatus status = new TBrokerFileStatus(pathName, !r.isFile(), r.getSize(), r.isFile());
                 status.setBlockSize(r.getBlockSize());
