@@ -6935,12 +6935,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitCancelBuildIndex(DorisParser.CancelBuildIndexContext ctx) {
         TableNameInfo tableNameInfo = new TableNameInfo(visitMultipartIdentifier(ctx.tableName));
-        AlterOpType alterOpType = AlterOpType.CANCEL_INDEX;
         List<Long> jobIs = new ArrayList<>();
         for (Token token : ctx.jobIds) {
             jobIs.add(Long.parseLong(token.getText()));
         }
-        return new CancelBuildIndexCommand(tableNameInfo, alterOpType, jobIs);
+        return new CancelBuildIndexCommand(tableNameInfo, jobIs);
     }
 
     @Override

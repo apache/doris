@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
@@ -40,26 +39,18 @@ import java.util.Objects;
  */
 public class CancelBuildIndexCommand extends CancelCommand {
     private final TableNameInfo tableNameInfo;
-    private final AlterOpType alterOpType;
     private final List<Long> alterJobIdList;
 
     /**
      * CancelBuildIndexCommand
      */
     public CancelBuildIndexCommand(TableNameInfo tableNameInfo,
-                                   AlterOpType alterOpType,
                                    List<Long> alterJobIdList) {
         super(PlanType.CANCEL_BUILD_INDEX_COMMAND);
         Objects.requireNonNull(tableNameInfo, "tableNameInfo is null");
-        Objects.requireNonNull(alterOpType, "alterOpType is null");
         Objects.requireNonNull(alterJobIdList, "alterJobIdList is null");
         this.tableNameInfo = tableNameInfo;
-        this.alterOpType = alterOpType;
         this.alterJobIdList = alterJobIdList;
-    }
-
-    public AlterOpType getAlterOpType() {
-        return alterOpType;
     }
 
     public String getDbName() {

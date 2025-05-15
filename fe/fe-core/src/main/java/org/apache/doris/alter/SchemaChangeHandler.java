@@ -2611,10 +2611,6 @@ public class SchemaChangeHandler extends AlterHandler {
         }
     }
 
-    public void cancel(CancelBuildIndexCommand command) throws DdlException {
-        cancelIndexJob(command);
-    }
-
     @Override
     public void cancel(CancelStmt stmt) throws DdlException {
         CancelAlterTableStmt cancelAlterTableStmt = (CancelAlterTableStmt) stmt;
@@ -2664,7 +2660,7 @@ public class SchemaChangeHandler extends AlterHandler {
         }
     }
 
-    private void cancelIndexJob(CancelBuildIndexCommand command) throws DdlException {
+    public void cancelIndexJob(CancelBuildIndexCommand command) throws DdlException {
         String dbName = command.getDbName();
         String tableName = command.getTableName();
         Preconditions.checkState(!Strings.isNullOrEmpty(dbName));
