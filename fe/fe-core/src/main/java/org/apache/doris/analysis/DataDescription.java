@@ -214,11 +214,18 @@ public class DataDescription implements InsertStmt.DataDesc {
         this.deleteCondition = deleteCondition;
         this.sequenceCol = sequenceColName;
         this.properties = properties;
-        this.analysisMap.putAll(properties);
-        this.analysisMap.put(FileFormatProperties.PROP_FORMAT, fileFormat);
-        this.analysisMap.put(FileFormatProperties.PROP_COMPRESS_TYPE, compressType);
-        this.analysisMap.put(CsvFileFormatProperties.PROP_COLUMN_SEPARATOR, columnSeparator.getOriSeparator());
-        this.analysisMap.put(CsvFileFormatProperties.PROP_LINE_DELIMITER, lineDelimiter.getOriSeparator());
+        if (properties != null) {
+            this.analysisMap.putAll(properties);
+        }
+        if (columnSeparator != null) {
+            putAnalysisMapIfNonNull(CsvFileFormatProperties.PROP_COLUMN_SEPARATOR, columnSeparator.getOriSeparator());
+        }
+        if (lineDelimiter != null) {
+            putAnalysisMapIfNonNull(CsvFileFormatProperties.PROP_LINE_DELIMITER, lineDelimiter.getOriSeparator());
+        }
+        putAnalysisMapIfNonNull(FileFormatProperties.PROP_FORMAT, fileFormat);
+        putAnalysisMapIfNonNull(FileFormatProperties.PROP_COMPRESS_TYPE, compressType);
+
         columnsNameToLowerCase(fileFieldNames);
         columnsNameToLowerCase(columnsFromPath);
     }
@@ -246,7 +253,9 @@ public class DataDescription implements InsertStmt.DataDesc {
         this.mergeType = mergeType;
         this.deleteCondition = deleteCondition;
         this.properties = properties;
-        this.analysisMap.putAll(properties);
+        if (properties != null) {
+            this.analysisMap.putAll(properties);
+        }
     }
 
     // data desc for mysql client
@@ -275,10 +284,16 @@ public class DataDescription implements InsertStmt.DataDesc {
         this.mergeType = null;
         this.deleteCondition = null;
         this.properties = properties;
-        this.analysisMap.putAll(properties);
-        this.analysisMap.put(CsvFileFormatProperties.PROP_COLUMN_SEPARATOR, columnSeparator.getOriSeparator());
-        this.analysisMap.put(CsvFileFormatProperties.PROP_LINE_DELIMITER, lineDelimiter.getOriSeparator());
-        this.analysisMap.put(CsvFileFormatProperties.PROP_SKIP_LINES, String.valueOf(skipLines));
+        if (properties != null) {
+            this.analysisMap.putAll(properties);
+        }
+        if (columnSeparator != null) {
+            putAnalysisMapIfNonNull(CsvFileFormatProperties.PROP_COLUMN_SEPARATOR, columnSeparator.getOriSeparator());
+        }
+        if (lineDelimiter != null) {
+            putAnalysisMapIfNonNull(CsvFileFormatProperties.PROP_LINE_DELIMITER, lineDelimiter.getOriSeparator());
+        }
+        putAnalysisMapIfNonNull(CsvFileFormatProperties.PROP_SKIP_LINES, String.valueOf(skipLines));
         this.isMysqlLoad = true;
         columnsNameToLowerCase(fileFieldNames);
     }
@@ -307,31 +322,45 @@ public class DataDescription implements InsertStmt.DataDesc {
         this.sequenceCol = taskInfo.getSequenceCol();
 
         this.properties = Maps.newHashMap();
-        this.analysisMap.putAll(properties);
-        this.analysisMap.put(FileFormatProperties.PROP_FORMAT, getFileFormat(taskInfo));
-        this.analysisMap.put(FileFormatProperties.PROP_COMPRESS_TYPE, taskInfo.getCompressType().toString());
-        this.analysisMap.put(CsvFileFormatProperties.PROP_COLUMN_SEPARATOR,
-                taskInfo.getColumnSeparator().getOriSeparator());
-        this.analysisMap.put(CsvFileFormatProperties.PROP_LINE_DELIMITER,
-                taskInfo.getLineDelimiter().getOriSeparator());
-        this.analysisMap.put(CsvFileFormatProperties.PROP_ENCLOSE, String.valueOf(taskInfo.getEnclose()));
-        this.analysisMap.put(CsvFileFormatProperties.PROP_ESCAPE, String.valueOf(taskInfo.getEscape()));
-        this.analysisMap.put(CsvFileFormatProperties.PROP_TRIM_DOUBLE_QUOTES,
+        if (properties != null) {
+            this.analysisMap.putAll(properties);
+        }
+        putAnalysisMapIfNonNull(FileFormatProperties.PROP_FORMAT, getFileFormat(taskInfo));
+        if (taskInfo.getCompressType() != null) {
+            putAnalysisMapIfNonNull(FileFormatProperties.PROP_COMPRESS_TYPE, taskInfo.getCompressType().toString());
+        }
+        if (taskInfo.getColumnSeparator() != null) {
+            putAnalysisMapIfNonNull(CsvFileFormatProperties.PROP_COLUMN_SEPARATOR,
+                    taskInfo.getColumnSeparator().getOriSeparator());
+        }
+        if (taskInfo.getLineDelimiter() != null) {
+            putAnalysisMapIfNonNull(CsvFileFormatProperties.PROP_LINE_DELIMITER,
+                    taskInfo.getLineDelimiter().getOriSeparator());
+        }
+        putAnalysisMapIfNonNull(CsvFileFormatProperties.PROP_ENCLOSE, String.valueOf(taskInfo.getEnclose()));
+        putAnalysisMapIfNonNull(CsvFileFormatProperties.PROP_ESCAPE, String.valueOf(taskInfo.getEscape()));
+        putAnalysisMapIfNonNull(CsvFileFormatProperties.PROP_TRIM_DOUBLE_QUOTES,
                 String.valueOf(taskInfo.getTrimDoubleQuotes()));
-        this.analysisMap.put(CsvFileFormatProperties.PROP_SKIP_LINES,
+        putAnalysisMapIfNonNull(CsvFileFormatProperties.PROP_SKIP_LINES,
                 String.valueOf(taskInfo.getSkipLines()));
 
-        this.analysisMap.put(JsonFileFormatProperties.PROP_STRIP_OUTER_ARRAY,
+        putAnalysisMapIfNonNull(JsonFileFormatProperties.PROP_STRIP_OUTER_ARRAY,
                 String.valueOf(taskInfo.isStripOuterArray()));
-        this.analysisMap.put(JsonFileFormatProperties.PROP_JSON_PATHS, taskInfo.getJsonPaths());
-        this.analysisMap.put(JsonFileFormatProperties.PROP_JSON_ROOT, taskInfo.getJsonRoot());
-        this.analysisMap.put(JsonFileFormatProperties.PROP_FUZZY_PARSE, String.valueOf(taskInfo.isFuzzyParse()));
-        this.analysisMap.put(JsonFileFormatProperties.PROP_READ_JSON_BY_LINE,
+        putAnalysisMapIfNonNull(JsonFileFormatProperties.PROP_JSON_PATHS, taskInfo.getJsonPaths());
+        putAnalysisMapIfNonNull(JsonFileFormatProperties.PROP_JSON_ROOT, taskInfo.getJsonRoot());
+        putAnalysisMapIfNonNull(JsonFileFormatProperties.PROP_FUZZY_PARSE, String.valueOf(taskInfo.isFuzzyParse()));
+        putAnalysisMapIfNonNull(JsonFileFormatProperties.PROP_READ_JSON_BY_LINE,
                 String.valueOf(taskInfo.isReadJsonByLine()));
-        this.analysisMap.put(JsonFileFormatProperties.PROP_NUM_AS_STRING, String.valueOf(taskInfo.isNumAsString()));
+        putAnalysisMapIfNonNull(JsonFileFormatProperties.PROP_NUM_AS_STRING, String.valueOf(taskInfo.isNumAsString()));
 
         this.uniquekeyUpdateMode = taskInfo.getUniqueKeyUpdateMode();
         columnsNameToLowerCase(fileFieldNames);
+    }
+
+    private void putAnalysisMapIfNonNull(String key, String value) {
+        if (value != null) {
+            this.analysisMap.put(key, value);
+        }
     }
 
     private String getFileFormat(LoadTaskInfo taskInfo) {
@@ -1003,10 +1032,16 @@ public class DataDescription implements InsertStmt.DataDesc {
             sb.append(partitionNames.toSql());
         }
         if (analysisMap.get(CsvFileFormatProperties.PROP_COLUMN_SEPARATOR) != null) {
-            sb.append(" COLUMNS TERMINATED BY ").append(analysisMap.get(CsvFileFormatProperties.PROP_COLUMN_SEPARATOR));
+            sb.append(" COLUMNS TERMINATED BY ")
+                    .append("'")
+                    .append(analysisMap.get(CsvFileFormatProperties.PROP_COLUMN_SEPARATOR))
+                    .append("'");
         }
         if (analysisMap.get(CsvFileFormatProperties.PROP_LINE_DELIMITER) != null && isMysqlLoad) {
-            sb.append(" LINES TERMINATED BY ").append(analysisMap.get(CsvFileFormatProperties.PROP_LINE_DELIMITER));
+            sb.append(" LINES TERMINATED BY ")
+                    .append("'")
+                    .append(analysisMap.get(CsvFileFormatProperties.PROP_LINE_DELIMITER))
+                    .append("'");
         }
         if (!Strings.isNullOrEmpty(analysisMap.get(FileFormatProperties.PROP_FORMAT))) {
             sb.append(" FORMAT AS '" + analysisMap.get(FileFormatProperties.PROP_FORMAT) + "'");
