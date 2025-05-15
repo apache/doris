@@ -109,8 +109,9 @@ public abstract class ExpressionRewriteTestHelper extends ExpressionRewrite {
         }
         if (expression instanceof UnboundSlot) {
             ExprId exprId = StatementScopeIdGenerator.newExprId();
-            String name = ((UnboundSlot) expression).getName();
-            List<String> qualifier = ImmutableList.of();
+            UnboundSlot slot = (UnboundSlot) expression;
+            String name = slot.getNameParts().get(slot.getNameParts().size() - 1);
+            List<String> qualifier = slot.getQualifier();
             DataType dataType = getType(name.charAt(0));
             Column column = new Column(name, dataType.toCatalogDataType());
             mem.putIfAbsent(name, new SlotReference(exprId, name, dataType, true, qualifier, null, column));
