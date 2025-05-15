@@ -87,7 +87,6 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.commands.AlterCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelAlterTableCommand;
-import org.apache.doris.nereids.trees.plans.commands.CancelCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.persist.AlterLightSchemaChangeInfo;
 import org.apache.doris.persist.RemoveAlterJobV2OperationLog;
@@ -2588,10 +2587,8 @@ public class SchemaChangeHandler extends AlterHandler {
         }
     }
 
-    @Override
-    public void cancel(CancelCommand command) throws DdlException {
-        CancelAlterTableCommand cancelAlterTableCommand = (CancelAlterTableCommand) command;
-        cancelColumnJob(cancelAlterTableCommand);
+    public void cancel(CancelAlterTableCommand command) throws DdlException {
+        cancelColumnJob(command);
     }
 
     @Override
