@@ -17,13 +17,13 @@
 
 #pragma once
 
-#include "x_index_storage_format.h"
+#include "index_storage_format.h"
 
 namespace doris::segment_v2 {
 
 class XIndexStorageFormatV1 : public XIndexStorageFormat {
 public:
-    XIndexStorageFormatV1(XIndexFileWriter* file_writer);
+    XIndexStorageFormatV1(IndexFileWriter* file_writer);
     ~XIndexStorageFormatV1() override = default;
 
     Status write() override;

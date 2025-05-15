@@ -21,7 +21,7 @@
 // #include <gtest/gtest.h>
 
 // #include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
-// #include "olap/rowset/segment_v2/x_index_file_writer.h"
+// #include "olap/rowset/segment_v2/index_file_writer.h"
 // #include "olap/storage_engine.h"
 
 // namespace doris::segment_v2 {

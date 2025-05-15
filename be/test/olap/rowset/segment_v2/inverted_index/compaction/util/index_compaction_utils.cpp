@@ -33,8 +33,8 @@
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/beta_rowset_writer.h"
 #include "olap/rowset/rowset_factory.h"
+#include "olap/rowset/segment_v2/index_file_reader.h"
 #include "olap/rowset/segment_v2/inverted_index/query/query_factory.h"
-#include "olap/rowset/segment_v2/x_index_file_reader.h"
 #include "olap/storage_engine.h"
 
 namespace doris {
@@ -459,7 +459,7 @@ class IndexCompactionUtils {
     }
 
     static void check_idx_file_writer_closed(BaseBetaRowsetWriter* writer, bool closed) {
-        for (const auto& [seg_id, idx_file_writer] : writer->x_index_file_writers()) {
+        for (const auto& [seg_id, idx_file_writer] : writer->index_file_writers()) {
             EXPECT_EQ(idx_file_writer->_closed, closed);
         }
     }

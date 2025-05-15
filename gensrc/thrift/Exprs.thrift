@@ -82,6 +82,8 @@ enum TExprNodeType {
   // to prevent push to storage layer
   NULL_AWARE_IN_PRED,
   NULL_AWARE_BINARY_PRED,
+
+  VIRTUAL_SLOT_REF,
 }
 
 //enum TAggregationOp {

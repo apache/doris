@@ -15,11 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "x_index_storage_format_v2.h"
+#include "index_storage_format_v2.h"
 
+#include "olap/rowset/segment_v2/index_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
-#include "olap/rowset/segment_v2/x_index_file_writer.h"
 #include "util/debug_points.h"
 
 namespace doris::segment_v2 {
@@ -33,7 +33,7 @@ FileMetadata::FileMetadata(int64_t id, std::string suffix, std::string file, int
           length(len),
           directory(dir) {}
 
-XIndexStorageFormatV2::XIndexStorageFormatV2(XIndexFileWriter* x_file_writer)
+XIndexStorageFormatV2::XIndexStorageFormatV2(IndexFileWriter* x_file_writer)
         : XIndexStorageFormat(x_file_writer) {}
 
 Status XIndexStorageFormatV2::write() {

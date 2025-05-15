@@ -43,18 +43,19 @@ class TabletIndex;
 class TabletColumn;
 
 namespace segment_v2 {
-class XIndexFileWriter;
+class IndexFileWriter;
 
-class IndexColumnWriter {
+class IndexWriter {
 public:
-    static Status create(const Field* field, std::unique_ptr<IndexColumnWriter>* res,
-                         XIndexFileWriter* index_file_writer, const TabletIndex* inverted_index);
+    static Status create(const Field* field, std::unique_ptr<IndexWriter>* res,
+                         IndexFileWriter* index_file_writer, const TabletIndex* inverted_index);
     virtual Status init() = 0;
 
-    IndexColumnWriter() = default;
-    virtual ~IndexColumnWriter() = default;
+    IndexWriter() = default;
+    virtual ~IndexWriter() = default;
 
     virtual Status add_values(const std::string name, const void* values, size_t count) = 0;
+
     virtual Status add_array_values(size_t field_size, const CollectionValue* values,
                                     size_t count) = 0;
 
@@ -77,7 +78,7 @@ public:
     static bool check_support_ann_index(const TabletColumn& column);
 
 private:
-    DISALLOW_COPY_AND_ASSIGN(IndexColumnWriter);
+    DISALLOW_COPY_AND_ASSIGN(IndexWriter);
 };
 
 class TmpFileDirs {

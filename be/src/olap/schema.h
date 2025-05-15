@@ -81,9 +81,13 @@ public:
             _has_sequence_col = true;
         }
         _init(columns, col_ids, num_key_columns);
+        LOG_INFO("Tabelt_schema num_columns:{}, schame col_ids {}", tablet_schema->num_columns(),
+                 this->column_ids().size());
     }
 
     // All the columns of one table may exist in the columns param, but col_ids is only a subset.
+    // arg 1 columns is the columns of the table
+    // arg 2 col_ids is the columns to read
     Schema(const std::vector<TabletColumnPtr>& columns, const std::vector<ColumnId>& col_ids) {
         size_t num_key_columns = 0;
         _unique_ids.resize(columns.size());

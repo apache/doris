@@ -78,11 +78,13 @@ void Schema::_init(const std::vector<TabletColumnPtr>& cols, const std::vector<C
     size_t offset = 0;
     std::unordered_set<uint32_t> col_id_set(col_ids.begin(), col_ids.end());
     for (int cid = 0; cid < cols.size(); ++cid) {
+        // 如果没有在col_ids中找到cid, 说明这个列不需要被读取
         if (col_id_set.find(cid) == col_id_set.end()) {
             continue;
         }
         _cols[cid] = FieldFactory::create(*cols[cid]);
 
+        // 这个字段应该是基于行存格式的时候使用的
         _col_offsets[cid] = offset;
         // Plus 1 byte for null byte
         offset += _cols[cid]->size() + 1;
@@ -124,7 +126,8 @@ Schema::~Schema() {
 }
 
 vectorized::DataTypePtr Schema::get_data_type_ptr(const Field& field) {
-    return vectorized::DataTypeFactory::instance().create_data_type(field);
+    return vectorized::DataTypeFactory::instance().create_data_type(field.get_desc(),
+                                                                    field.is_nullable());
 }
 
 vectorized::IColumn::MutablePtr Schema::get_column_by_field(const Field& field) {

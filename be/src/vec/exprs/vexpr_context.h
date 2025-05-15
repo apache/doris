@@ -279,6 +279,8 @@ public:
 
     [[nodiscard]] size_t get_memory_usage() const { return _memory_usage; }
 
+    Status prepare_ann_range_search();
+
 private:
     // Close method is called in vexpr context dector, not need call expicility
     void close();

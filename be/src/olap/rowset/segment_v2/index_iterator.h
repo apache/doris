@@ -21,10 +21,7 @@
 
 #include <variant>
 
-#include "common/exception.h"
-#include "common/factory_creator.h"
 #include "olap/rowset/segment_v2/index_reader.h"
-#include "olap/rowset/segment_v2/inverted_index_query_type.h"
 #include "runtime/runtime_state.h"
 
 namespace doris::segment_v2 {

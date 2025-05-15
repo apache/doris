@@ -47,10 +47,10 @@
 #include "olap/rowset/rowset_writer_context.h" // RowsetWriterContext
 #include "olap/rowset/segment_creator.h"
 #include "olap/rowset/segment_v2/column_writer.h" // ColumnWriter
+#include "olap/rowset/segment_v2/index_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/rowset/segment_v2/page_io.h"
 #include "olap/rowset/segment_v2/page_pointer.h"
-#include "olap/rowset/segment_v2/x_index_file_writer.h"
 #include "olap/segment_loader.h"
 #include "olap/short_key_index.h"
 #include "olap/tablet_schema.h"
@@ -91,14 +91,14 @@ VerticalSegmentWriter::VerticalSegmentWriter(io::FileWriter* file_writer, uint32
                                              TabletSchemaSPtr tablet_schema, BaseTabletSPtr tablet,
                                              DataDir* data_dir,
                                              const VerticalSegmentWriterOptions& opts,
-                                             XIndexFileWriter* inverted_file_writer)
+                                             IndexFileWriter* inverted_file_writer)
         : _segment_id(segment_id),
           _tablet_schema(std::move(tablet_schema)),
           _tablet(std::move(tablet)),
           _data_dir(data_dir),
           _opts(opts),
           _file_writer(file_writer),
-          _x_index_file_writer(inverted_file_writer),
+          _index_file_writer(inverted_file_writer),
           _mem_tracker(std::make_unique<MemTracker>(
                   vertical_segment_writer_mem_tracker_name(segment_id))),
           _mow_context(std::move(opts.mow_ctx)) {
@@ -221,16 +221,16 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
         index != nullptr && !skip_inverted_index) {
         opts.inverted_index = index;
         opts.need_inverted_index = true;
-        DCHECK(_x_index_file_writer != nullptr);
-        opts.x_index_file_writer = _x_index_file_writer;
+        DCHECK(_index_file_writer != nullptr);
+        opts._index_file_writer = _index_file_writer;
         // TODO support multiple inverted index
     }
 
     if (const auto& index = tablet_schema->ann_index(column); index != nullptr) {
         opts.ann_index = index;
         opts.need_ann_index = true;
-        DCHECK(_x_index_file_writer != nullptr);
-        opts.x_index_file_writer = _x_index_file_writer;
+        DCHECK(_index_file_writer != nullptr);
+        opts._index_file_writer = _index_file_writer;
         // TODO support multiple inverted index
     }
 

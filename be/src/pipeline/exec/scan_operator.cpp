@@ -18,10 +18,12 @@
 #include "scan_operator.h"
 
 #include <fmt/format.h>
+#include <gen_cpp/Exprs_types.h>
 
 #include <cstdint>
 #include <memory>
 
+#include "common/global_types.h"
 #include "pipeline/exec/es_scan_operator.h"
 #include "pipeline/exec/file_scan_operator.h"
 #include "pipeline/exec/group_commit_scan_operator.h"
@@ -29,6 +31,7 @@
 #include "pipeline/exec/meta_scan_operator.h"
 #include "pipeline/exec/olap_scan_operator.h"
 #include "pipeline/exec/operator.h"
+#include "runtime/descriptors.h"
 #include "runtime/types.h"
 #include "runtime_filter/runtime_filter_consumer_helper.h"
 #include "util/runtime_profile.h"
@@ -37,7 +40,9 @@
 #include "vec/exprs/vectorized_fn_call.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
+#include "vec/exprs/vexpr_fwd.h"
 #include "vec/exprs/vin_predicate.h"
+#include "vec/exprs/virtual_slot_ref.h"
 #include "vec/exprs/vruntimefilter_wrapper.h"
 #include "vec/exprs/vslot_ref.h"
 #include "vec/exprs/vtopn_pred.h"
@@ -254,7 +259,15 @@ Status ScanLocalState<Derived>::_normalize_predicate(
         if (is_leaf(conjunct_expr_root)) {
             auto impl = conjunct_expr_root->get_impl();
             // If impl is not null, which means this a conjuncts from runtime filter.
-            auto cur_expr = impl ? impl.get() : conjunct_expr_root.get();
+            vectorized::VExpr* cur_expr = impl ? impl.get() : conjunct_expr_root.get();
+            if (dynamic_cast<vectorized::VirtualSlotRef*>(cur_expr)) {
+                // If the expr has virtual slot ref, we need to keep it in the tree.
+                output_expr = conjunct_expr_root;
+                return Status::OK();
+            }
+
+            // select funcA(col) from t where
+
             SlotDescriptor* slot = nullptr;
             ColumnValueRangeType* range = nullptr;
             PushDownType pdt = PushDownType::UNACCEPTABLE;
@@ -579,6 +592,12 @@ Status ScanLocalState<Derived>::_normalize_in_and_eq_predicate(vectorized::VExpr
                                                                PushDownType* pdt) {
     auto temp_range = ColumnValueRange<T>::create_empty_column_value_range(
             slot->is_nullable(), range.precision(), range.scale());
+
+    if (slot->get_virtual_column_expr() != nullptr) {
+        // virtual column, do not push down
+        return Status::OK();
+    }
+
     // 1. Normalize in conjuncts like 'where col in (v1, v2, v3)'
     if (TExprNodeType::IN_PRED == expr->node_type()) {
         HybridSetBase::IteratorBase* iter = nullptr;
@@ -1234,6 +1253,15 @@ template <typename LocalStateType>
 Status ScanOperatorX<LocalStateType>::prepare(RuntimeState* state) {
     _input_tuple_desc = state->desc_tbl().get_tuple_descriptor(_input_tuple_id);
     _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
+    LOG_INFO(
+            "ScanOperator, _input_tuple_id:{}, _input_tuple_desc.slots:{}, _output_tuple_id:{}, "
+            "_output_tuple_desc.slots:{}",
+            _input_tuple_id,
+            _input_tuple_desc == nullptr ? -1
+                                         : static_cast<int32>(_input_tuple_desc->slots().size()),
+            _output_tuple_id,
+            _output_tuple_desc == nullptr ? -1
+                                          : static_cast<int32>(_output_tuple_desc->slots().size()));
     RETURN_IF_ERROR(OperatorX<LocalStateType>::prepare(state));
 
     const auto slots = _output_tuple_desc->slots();
