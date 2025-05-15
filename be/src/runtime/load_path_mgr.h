@@ -48,8 +48,7 @@ public:
     Status allocate_dir(const std::string& db, const std::string& label, std::string* prefix,
                         int64_t file_bytes);
 
-    bool check_disk_space(size_t disk_capacity_bytes, size_t available_bytes, int64_t file_bytes,
-                          bool* is_available);
+    bool check_disk_space(size_t disk_capacity_bytes, size_t available_bytes, int64_t file_bytes);
 
     void get_load_data_path(std::vector<std::string>* data_paths);
 

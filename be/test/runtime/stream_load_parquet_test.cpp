@@ -30,7 +30,7 @@ protected:
         // create tmp file
         _test_dir = "/tmp/test_clean_file";
         _test_dir1 = "/tmp/test_clean_file/mini_download";
-        _test_dir2 = "/tmp/test_clean_file/test.parquet";
+        _test_dir2 = "/tmp/test_clean_file1/mini_download/test.parquet";
 
         auto result = io::global_local_filesystem()->delete_directory_or_file(_test_dir1);
         result = io::global_local_filesystem()->create_directory(_test_dir1);
@@ -62,8 +62,8 @@ TEST_F(LoadPathMgrTest, CheckDiskSpaceTest) {
     size_t disk_capacity_bytes = 10;
     size_t available_bytes = 9;
     int64_t file_bytes = 1;
-    _load_path_mgr->check_disk_space(disk_capacity_bytes, available_bytes, file_bytes,
-                                     &is_available);
+    is_available =
+            _load_path_mgr->check_disk_space(disk_capacity_bytes, available_bytes, file_bytes);
     ASSERT_TRUE(is_available);
 
     // Check disk space
@@ -71,8 +71,8 @@ TEST_F(LoadPathMgrTest, CheckDiskSpaceTest) {
     disk_capacity_bytes = 10;
     available_bytes = 2;
     file_bytes = 1;
-    _load_path_mgr->check_disk_space(disk_capacity_bytes, available_bytes, file_bytes,
-                                     &is_available);
+    is_available =
+            _load_path_mgr->check_disk_space(disk_capacity_bytes, available_bytes, file_bytes);
     ASSERT_FALSE(is_available);
 
     std::string prefix;
