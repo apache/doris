@@ -62,7 +62,10 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
                         Optional.empty(),
                         olapScan.getLogicalProperties(),
                         olapScan.getTableSample(),
-                        olapScan.getOperativeSlots())
+                        olapScan.getOperativeSlots(),
+                        olapScan.getVirtualColumns(),
+                        olapScan.getAnnOrderKeys(),
+                        olapScan.getAnnLimit())
         ).toRule(RuleType.LOGICAL_OLAP_SCAN_TO_PHYSICAL_OLAP_SCAN_RULE);
     }
 
@@ -115,7 +118,8 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
                         // If the length of the column in the bucket key changes after DDL, the length cannot be
                         // determined. As a result, some bucket fields are lost in the query execution plan.
                         // So here we use the column name to avoid this problem
-                        if (((SlotReference) slot).getColumn().get().getName().equalsIgnoreCase(column.getName())) {
+                        if (((SlotReference) slot).getColumn().isPresent() && ((SlotReference) slot).getColumn().get()
+                                .getName().equalsIgnoreCase(column.getName())) {
                             hashColumns.add(slot.getExprId());
                         }
                     }

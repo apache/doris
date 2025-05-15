@@ -61,8 +61,7 @@ public class CommonSubExpressionCollector extends ExpressionVisitor<Integer, Boo
         // ArrayItemSlot and ArrayItemReference could not be common expressions
         // TODO: could not extract common expression when expression contains same lambda expression
         //   because ArrayItemSlot in Lambda are not same.
-        if (expressions.contains(expr)
-                && !(inLambda && expr.containsType(ArrayItemSlot.class, ArrayItemReference.class))) {
+        if (!(inLambda && expr.containsType(ArrayItemSlot.class, ArrayItemReference.class))) {
             Set<Expression> commonExpression = getExpressionsFromDepthMap(depth, commonExprByDepth);
             commonExpression.add(expr);
         }

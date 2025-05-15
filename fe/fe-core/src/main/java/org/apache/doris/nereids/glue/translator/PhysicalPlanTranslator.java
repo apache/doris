@@ -760,6 +760,18 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         OlapTable olapTable = olapScan.getTable();
         // generate real output tuple
         TupleDescriptor tupleDescriptor = generateTupleDesc(slots, olapTable, context);
+
+        // put virtual column expr into slot desc
+        Map<ExprId, Expression> slotToVirtualColumnMap = olapScan.getSlotToVirtualColumnMap();
+        for (SlotDescriptor slotDescriptor : tupleDescriptor.getSlots()) {
+            ExprId exprId = context.findExprId(slotDescriptor.getId());
+            if (slotToVirtualColumnMap.containsKey(exprId)) {
+                slotDescriptor.setVirtualColumn(ExpressionTranslator.translate(
+                        slotToVirtualColumnMap.get(exprId), context));
+                context.getVirtualColumnIds().add(slotDescriptor.getId());
+            }
+        }
+
         // generate base index tuple because this fragment partitioned expr relay on slots of based index
         if (olapScan.getSelectedIndexId() != olapScan.getTable().getBaseIndexId()) {
             generateTupleDesc(olapScan.getBaseOutputs(), olapTable, context);
@@ -767,6 +779,26 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
         OlapScanNode olapScanNode = new OlapScanNode(context.nextPlanNodeId(), tupleDescriptor, "OlapScanNode");
         olapScanNode.setNereidsId(olapScan.getId());
+
+        // translate ann topn info
+        if (!olapScan.getAnnOrderKeys().isEmpty()) {
+            TupleDescriptor annSortTuple = olapScanNode.getTupleDesc();
+            List<Expr> orderingExprs = Lists.newArrayList();
+            List<Boolean> ascOrders = Lists.newArrayList();
+            List<Boolean> nullsFirstParams = Lists.newArrayList();
+            List<OrderKey> annOrderKeys = olapScan.getAnnOrderKeys();
+            annOrderKeys.forEach(k -> {
+                orderingExprs.add(ExpressionTranslator.translate(k.getExpr(), context));
+                ascOrders.add(k.isAsc());
+                nullsFirstParams.add(k.isNullFirst());
+            });
+            SortInfo annSortInfo = new SortInfo(orderingExprs, ascOrders, nullsFirstParams, annSortTuple);
+            olapScanNode.setAnnSortInfo(annSortInfo);
+        }
+        if (olapScan.getAnnLimit().isPresent()) {
+            olapScanNode.setAnnSortLimit(olapScan.getAnnLimit().get());
+        }
+
         // TODO: move all node set cardinality into one place
         if (olapScan.getStats() != null) {
             // NOTICE: we should not set stats row count
@@ -2517,9 +2549,24 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     private void updateScanSlotsMaterialization(ScanNode scanNode,
             Set<SlotId> requiredSlotIdSet, Set<SlotId> requiredByProjectSlotIdSet,
             PlanTranslatorContext context) {
+        Set<SlotId> requiredWithVirtualColumns = Sets.newHashSet(requiredSlotIdSet);
+        for (SlotDescriptor virtualSlot : scanNode.getTupleDesc().getSlots()) {
+            Expr virtualColumn = virtualSlot.getVirtualColumn();
+            if (virtualColumn == null) {
+                continue;
+            }
+            Set<Expr> slotRefs = Sets.newHashSet();
+            virtualColumn.collect(e -> e instanceof SlotRef, slotRefs);
+            Set<SlotId> virtualColumnInputSlotIds = slotRefs.stream()
+                    .filter(s -> s instanceof SlotRef)
+                    .map(s -> (SlotRef) s)
+                    .map(SlotRef::getSlotId)
+                    .collect(Collectors.toSet());
+            requiredWithVirtualColumns.addAll(virtualColumnInputSlotIds);
+        }
         // TODO: use smallest slot if do not need any slot in upper node
         SlotDescriptor smallest = scanNode.getTupleDesc().getSlots().get(0);
-        scanNode.getTupleDesc().getSlots().removeIf(s -> !requiredSlotIdSet.contains(s.getId()));
+        scanNode.getTupleDesc().getSlots().removeIf(s -> !requiredWithVirtualColumns.contains(s.getId()));
         if (scanNode.getTupleDesc().getSlots().isEmpty()) {
             scanNode.getTupleDesc().getSlots().add(smallest);
         }
