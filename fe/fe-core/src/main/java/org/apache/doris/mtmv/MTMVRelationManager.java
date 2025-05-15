@@ -85,7 +85,8 @@ public class MTMVRelationManager implements MTMVHookService {
             boolean forceConsistent, BiPredicate<ConnectContext, MTMV> predicate) {
         Set<MTMV> res = Sets.newLinkedHashSet();
         Set<BaseTableInfo> mvInfos = getMTMVInfos(tableInfos);
-        Map<List<String>, Set<String>> queryUsedPartitions = PartitionCompensator.getQueryUsedPartitions(ctx);
+        Map<List<String>, Set<String>> queryUsedPartitions = PartitionCompensator.getQueryUsedPartitions(
+                ctx.getStatementContext());
 
         for (BaseTableInfo tableInfo : mvInfos) {
             try {

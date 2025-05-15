@@ -32,7 +32,6 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -55,30 +54,11 @@ import java.util.Set;
 public class PartitionCompensator {
 
     public static final Logger LOG = LogManager.getLogger(PartitionCompensator.class);
+    // if partition pair is null which means can not get partitions from table in QueryPartitionCollector,
+    // we think this table scan query all partitions default
     public static final Pair<RelationId, Set<String>> ALL_PARTITIONS = Pair.of(null, null);
     public static final Collection<Pair<RelationId, Set<String>>> ALL_PARTITIONS_LIST =
             ImmutableList.of(ALL_PARTITIONS);
-
-    /**
-     * Get table used partitions by the table full qualifiers
-     */
-    public static Set<String> getQueryTableUsedPartition(
-            List<String> targetTableFullQualifiers,
-            StructInfo queryStructInfo,
-            StatementContext context) {
-        Multimap<List<String>, Pair<RelationId, Set<String>>> tableUsedPartitionNameMap
-                = context.getTableUsedPartitionNameMap();
-        Collection<Pair<RelationId, Set<String>>> tableUsedPartitions =
-                tableUsedPartitionNameMap.get(targetTableFullQualifiers);
-        Set<RelationId> queryUsedRelationSet = queryStructInfo.getRelationIdStructInfoNodeMap().keySet();
-        Set<String> queryUsedPartitionSet = new HashSet<>();
-        for (Pair<RelationId, Set<String>> relationPartition : tableUsedPartitions) {
-            if (queryUsedRelationSet.contains(relationPartition.key())) {
-                queryUsedPartitionSet.addAll(relationPartition.value());
-            }
-        }
-        return queryUsedPartitionSet;
-    }
 
     /**
      * Maybe only some partitions is invalid in materialized view, or base table maybe add, modify, delete partition
@@ -181,36 +161,33 @@ public class PartitionCompensator {
         return !PartitionType.UNPARTITIONED.equals(type) && relatedTableInfo != null;
     }
 
-    public static boolean isAllPartition(Collection<Pair<RelationId, Set<String>>> usedPartition) {
-        return ALL_PARTITIONS_LIST.equals(usedPartition);
-    }
-
     /**
      * Get query used partitions
      * this is calculated from tableUsedPartitionNameMap and tables in statementContext
      * */
-    public static Map<List<String>, Set<String>> getQueryUsedPartitions(ConnectContext ctx) {
+    public static Map<List<String>, Set<String>> getQueryUsedPartitions(StatementContext statementContext) {
         // get table used partitions
         // if table is not in statementContext().getTables() which means the table is partition prune as empty relation
-        Multimap<List<String>, Pair<RelationId, Set<String>>> tableUsedPartitionNameMap = ctx.getStatementContext()
+        Multimap<List<String>, Pair<RelationId, Set<String>>> tableUsedPartitionNameMap = statementContext
                 .getTableUsedPartitionNameMap();
         // if value is empty, means query no partitions
         // if value is null, means query all partitions
         // if value is not empty, means query some partitions
         Map<List<String>, Set<String>> queryUsedRelatedTablePartitionsMap = new HashMap<>();
-        for (Map.Entry<List<String>, TableIf> queryUsedTableEntry : ctx.getStatementContext().getTables().entrySet()) {
+        outer:
+        for (Map.Entry<List<String>, TableIf> queryUsedTableEntry : statementContext.getTables().entrySet()) {
             Set<String> usedPartitionSet = new HashSet<>();
             Collection<Pair<RelationId, Set<String>>> tableUsedPartitions =
                     tableUsedPartitionNameMap.get(queryUsedTableEntry.getKey());
             if (!tableUsedPartitions.isEmpty()) {
-                if (PartitionCompensator.isAllPartition(tableUsedPartitions)) {
+                if (ALL_PARTITIONS_LIST.equals(tableUsedPartitions)) {
                     queryUsedRelatedTablePartitionsMap.put(queryUsedTableEntry.getKey(), null);
-                    break;
+                    continue;
                 }
                 for (Pair<RelationId, Set<String>> partitionPair : tableUsedPartitions) {
                     if (ALL_PARTITIONS.equals(partitionPair)) {
                         queryUsedRelatedTablePartitionsMap.put(queryUsedTableEntry.getKey(), null);
-                        break;
+                        continue outer;
                     }
                     usedPartitionSet.addAll(partitionPair.value());
                 }

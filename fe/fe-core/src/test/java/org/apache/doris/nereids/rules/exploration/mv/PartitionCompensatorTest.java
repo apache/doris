@@ -17,15 +17,19 @@
 
 package org.apache.doris.nereids.rules.exploration.mv;
 
+import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Multimap;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 public class PartitionCompensatorTest extends TestWithFeService {
@@ -104,14 +108,80 @@ public class PartitionCompensatorTest extends TestWithFeService {
                                 + "left outer join orders_list_partition\n"
                                 + "on l1.l_shipdate = o_orderdate\n",
                         nereidsPlanner -> {
+                            Map<List<String>, Set<String>> queryUsedPartitions
+                                    = PartitionCompensator.getQueryUsedPartitions(
+                                            nereidsPlanner.getCascadesContext().getStatementContext());
+
+                            List<String> itmeQualifier = ImmutableList.of(
+                                    "internal", "partition_compensate_test", "lineitem_list_partition");
+                            Set<String> queryTableUsedPartition = queryUsedPartitions.get(itmeQualifier);
+                            Assertions.assertEquals(queryTableUsedPartition, ImmutableSet.of("p1", "p2", "p3"));
+
+                            List<String> orderQualifier = ImmutableList.of(
+                                    "internal", "partition_compensate_test", "orders_list_partition");
+                            Set<String> orderTableUsedPartition = queryUsedPartitions.get(orderQualifier);
+                            Assertions.assertEquals(orderTableUsedPartition, ImmutableSet.of("p1", "p2", "p3", "p4"));
+                        });
+    }
+
+    @Test
+    public void testGetAllTableUsedPartition() {
+        PlanChecker.from(connectContext)
+                .checkExplain("select l1.*, O_CUSTKEY \n"
+                                + "from lineitem_list_partition l1\n"
+                                + "left outer join orders_list_partition\n"
+                                + "on l1.l_shipdate = o_orderdate\n",
+                        nereidsPlanner -> {
                             List<String> qualifier = ImmutableList.of(
                                     "internal", "partition_compensate_test", "lineitem_list_partition");
-                            StructInfo queryStructInfo = StructInfo.of(nereidsPlanner.getRewrittenPlan(),
-                                    nereidsPlanner.getRewrittenPlan(), nereidsPlanner.getCascadesContext());
-                            Set<String> queryTableUsedPartition = PartitionCompensator.getQueryTableUsedPartition(
-                                    qualifier, queryStructInfo, connectContext.getStatementContext()
-                            );
-                            Assertions.assertEquals(queryTableUsedPartition, ImmutableSet.of("p1", "p2", "p3"));
+
+                            Multimap<List<String>, Pair<RelationId, Set<String>>> tableUsedPartitionNameMap
+                                    = connectContext.getStatementContext().getTableUsedPartitionNameMap();
+                            tableUsedPartitionNameMap.put(qualifier, PartitionCompensator.ALL_PARTITIONS);
+
+                            Map<List<String>, Set<String>> queryUsedPartitions
+                                    = PartitionCompensator.getQueryUsedPartitions(
+                                            nereidsPlanner.getCascadesContext().getStatementContext());
+                            Set<String> queryTableUsedPartition = queryUsedPartitions.get(qualifier);
+                            // if tableUsedPartitionNameMap contain any PartitionCompensator.ALL_PARTITIONS
+                            // consider query all partitions from table
+                            Assertions.assertNull(queryTableUsedPartition);
+
+                            List<String> orderQualifier = ImmutableList.of(
+                                    "internal", "partition_compensate_test", "orders_list_partition");
+                            Set<String> orderTableUsedPartition = queryUsedPartitions.get(orderQualifier);
+                            Assertions.assertEquals(orderTableUsedPartition, ImmutableSet.of("p1", "p2", "p3", "p4"));
+                        });
+    }
+
+    @Test
+    public void testGetAllTableUsedPartitionList() {
+        PlanChecker.from(connectContext)
+                .checkExplain("select l1.*, O_CUSTKEY \n"
+                                + "from lineitem_list_partition l1\n"
+                                + "left outer join orders_list_partition\n"
+                                + "on l1.l_shipdate = o_orderdate\n",
+                        nereidsPlanner -> {
+                            List<String> qualifier = ImmutableList.of(
+                                    "internal", "partition_compensate_test", "lineitem_list_partition");
+
+                            Multimap<List<String>, Pair<RelationId, Set<String>>> tableUsedPartitionNameMap
+                                    = connectContext.getStatementContext().getTableUsedPartitionNameMap();
+                            tableUsedPartitionNameMap.removeAll(qualifier);
+                            tableUsedPartitionNameMap.put(qualifier, PartitionCompensator.ALL_PARTITIONS);
+
+                            Map<List<String>, Set<String>> queryUsedPartitions
+                                    = PartitionCompensator.getQueryUsedPartitions(
+                                            nereidsPlanner.getCascadesContext().getStatementContext());
+                            Set<String> queryTableUsedPartition = queryUsedPartitions.get(qualifier);
+                            // if tableUsedPartitionNameMap contain only PartitionCompensator.ALL_PARTITIONS
+                            // consider query all partitions from table
+                            Assertions.assertNull(queryTableUsedPartition);
+
+                            List<String> orderQualifier = ImmutableList.of(
+                                    "internal", "partition_compensate_test", "orders_list_partition");
+                            Set<String> orderTableUsedPartition = queryUsedPartitions.get(orderQualifier);
+                            Assertions.assertEquals(orderTableUsedPartition, ImmutableSet.of("p1", "p2", "p3", "p4"));
                         });
     }
 }

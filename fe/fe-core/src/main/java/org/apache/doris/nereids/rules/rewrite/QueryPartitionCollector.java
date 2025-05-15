@@ -33,6 +33,8 @@ import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Multimap;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.HashSet;
 import java.util.List;
@@ -42,6 +44,8 @@ import java.util.Set;
  * Used to collect query partitions, only collect once
  * */
 public class QueryPartitionCollector extends DefaultPlanRewriter<ConnectContext> implements CustomRewriter {
+
+    public static final Logger LOG = LogManager.getLogger(QueryPartitionCollector.class);
 
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
@@ -59,7 +63,8 @@ public class QueryPartitionCollector extends DefaultPlanRewriter<ConnectContext>
 
         TableIf table = catalogRelation.getTable();
         if (table.getDatabase() == null) {
-            // logic for test
+            LOG.error("QueryPartitionCollector visitLogicalCatalogRelation database is null, table is "
+                    + table.getName());
             return catalogRelation;
         }
         Multimap<List<String>, Pair<RelationId, Set<String>>> tableUsedPartitionNameMap = context.getStatementContext()
@@ -82,7 +87,8 @@ public class QueryPartitionCollector extends DefaultPlanRewriter<ConnectContext>
             tableUsedPartitionNameMap.put(table.getFullQualifiers(),
                     Pair.of(catalogRelation.getRelationId(), tablePartitions));
         } else {
-            tableUsedPartitionNameMap.putAll(table.getFullQualifiers(), PartitionCompensator.ALL_PARTITIONS_LIST);
+            // not support get partition scene, we consider query all partitions from table
+            tableUsedPartitionNameMap.put(table.getFullQualifiers(), PartitionCompensator.ALL_PARTITIONS);
         }
         return catalogRelation;
     }

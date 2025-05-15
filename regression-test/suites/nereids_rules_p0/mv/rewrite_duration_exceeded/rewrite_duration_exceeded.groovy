@@ -133,7 +133,7 @@ suite("rewrite_duration_exceeded") {
             o_comment;
     """)
 
-    sql """set materialized_view_rewrite_duration_threshold = -1;"""
+    sql """set materialized_view_rewrite_duration_threshold_ms = -1;"""
 
     // should materialized view rewrite duration is exceeded
     explain {

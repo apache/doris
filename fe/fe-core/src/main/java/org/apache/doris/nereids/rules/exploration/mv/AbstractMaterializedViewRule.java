@@ -296,22 +296,38 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             if (PartitionCompensator.needUnionRewrite(materializationContext)) {
                 MTMV mtmv = ((AsyncMaterializationContext) materializationContext).getMtmv();
                 BaseTableInfo relatedTableInfo = mtmv.getMvPartitionInfo().getRelatedTableInfo();
+                Map<List<String>, Set<String>> queryUsedPartitions = PartitionCompensator.getQueryUsedPartitions(
+                        cascadesContext.getConnectContext().getStatementContext());
+                Set<String> relateTableUsedPartitions = queryUsedPartitions.get(relatedTableInfo.toList());
+                if (relateTableUsedPartitions == null) {
+                    materializationContext.recordFailReason(queryStructInfo,
+                            String.format("queryUsedPartition is null but needUnionRewrite, table is %s, queryId is %s",
+                                    relatedTableInfo.toList(),
+                                    cascadesContext.getConnectContext().getQueryIdentifier()),
+                            () -> String.format(
+                                    "queryUsedPartition is null but needUnionRewrite, table is %s, queryId is %s",
+                                    relatedTableInfo.toList(),
+                                    cascadesContext.getConnectContext().getQueryIdentifier()));
+                    LOG.warn(String.format(
+                            "queryUsedPartition is null but needUnionRewrite, table is %s, queryId is %s",
+                            relatedTableInfo.toList(), cascadesContext.getConnectContext().getQueryIdentifier()));
+                    return rewriteResults;
+                }
+                if (relateTableUsedPartitions.isEmpty()) {
+                    materializationContext.recordFailReason(queryStructInfo,
+                            String.format("queryUsedPartition is empty, table is %s, queryId is %s",
+                                    relatedTableInfo.toList(),
+                                    cascadesContext.getConnectContext().getQueryIdentifier()),
+                            () -> String.format("queryUsedPartition is empty, table is %s, queryId is %s",
+                                    relatedTableInfo.toList(),
+                                    cascadesContext.getConnectContext().getQueryIdentifier()));
+                    LOG.debug(String.format("queryUsedPartition is empty, table is %s, queryId is %s",
+                            relatedTableInfo.toList(), cascadesContext.getConnectContext().getQueryIdentifier()));
+                    // no need to rewrite by current mv, becaus
+                    return rewriteResults;
+                }
                 try {
-                    Set<String> queryUsedPartition = PartitionCompensator.getQueryTableUsedPartition(
-                            relatedTableInfo.toList(), queryStructInfo, cascadesContext.getStatementContext());
-                    if (queryUsedPartition.isEmpty()) {
-                        materializationContext.recordFailReason(queryStructInfo,
-                                String.format("queryUsedPartition is empty, table is %s, queryId is %s",
-                                        relatedTableInfo.toList(),
-                                        cascadesContext.getConnectContext().getQueryIdentifier()),
-                                () -> String.format("queryUsedPartition is empty, table is %s, queryId is %s",
-                                        relatedTableInfo.toList(),
-                                        cascadesContext.getConnectContext().getQueryIdentifier()));
-                        LOG.debug(String.format("queryUsedPartition is empty, table is %s, queryId is %s",
-                                relatedTableInfo.toList(), cascadesContext.getConnectContext().getQueryIdentifier()));
-                        break;
-                    }
-                    invalidPartitions = calcInvalidPartitions(queryUsedPartition, rewrittenPlan,
+                    invalidPartitions = calcInvalidPartitions(relateTableUsedPartitions, rewrittenPlan,
                             cascadesContext, (AsyncMaterializationContext) materializationContext);
                 } catch (AnalysisException e) {
                     materializationContext.recordFailReason(queryStructInfo,
@@ -322,10 +338,10 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                     continue;
                 }
                 if (invalidPartitions == null) {
-                    // if mv can not offer any partition for query, query rewrite bail out to avoid cycle run
                     materializationContext.recordFailReason(queryStructInfo,
                             "mv can not offer any partition for query",
                             () -> String.format("mv partition info %s", mtmv.getMvPartitionInfo()));
+                    // if mv can not offer any partition for query, query rewrite bail out to avoid cycle run
                     return rewriteResults;
                 }
                 boolean partitionNeedUnion = PartitionCompensator.needUnionRewrite(invalidPartitions, cascadesContext);
