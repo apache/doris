@@ -835,14 +835,6 @@ public class Alter {
             } else {
                 Env.getCurrentRecycleBin().recycleTable(db.getId(), origTable, isReplay, isForce, 0);
             }
-            if (origTable.getType() == TableType.MATERIALIZED_VIEW) {
-                // Because the current dropMTMV will delete jobs related to materialized views,
-                // this method will maintain its own metadata for deleting jobs,
-                // so it cannot be called during playback
-                if (!isReplay) {
-                    Env.getCurrentEnv().getMtmvService().dropMTMV((MTMV) origTable);
-                }
-            }
             Env.getCurrentEnv().getAnalysisManager().removeTableStats(origTable.getId());
         }
     }
@@ -1307,6 +1299,9 @@ public class Alter {
                 case ADD_TASK:
                     mtmv.addTaskResult(alterMTMV.getTask(), alterMTMV.getRelation(), alterMTMV.getPartitionSnapshots(),
                             isReplay);
+                    break;
+                case ALTER_JOB_STATUS:
+                    mtmv.alterJobStatus(alterMTMV.getJobStatus());
                     break;
                 default:
                     throw new RuntimeException("Unknown type value: " + alterMTMV.getOpType());

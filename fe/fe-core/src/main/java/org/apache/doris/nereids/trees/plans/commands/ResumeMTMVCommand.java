@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.info.ResumeMTMVInfo;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -41,7 +42,7 @@ public class ResumeMTMVCommand extends Command implements ForwardWithSync {
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         resumeMTMVInfo.analyze(ctx);
-        Env.getCurrentEnv().getMtmvService().resumeMTMV(resumeMTMVInfo);
+        Env.getCurrentEnv().alterMTMVJobStatus(resumeMTMVInfo.getMvName(), JobStatus.RUNNING);
     }
 
     @Override

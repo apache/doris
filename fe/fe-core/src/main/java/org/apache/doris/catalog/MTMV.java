@@ -27,6 +27,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.CatalogMgr;
+import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
 import org.apache.doris.mtmv.EnvInfo;
@@ -185,6 +186,16 @@ public class MTMV extends OlapTable {
         writeMvLock();
         try {
             return this.status.updateNotNull(newStatus);
+        } finally {
+            writeMvUnlock();
+        }
+    }
+
+    public void alterJobStatus(JobStatus jobStatus) {
+        writeMvLock();
+        try {
+            Env.getCurrentEnv().getMtmvService().alterJobStatus(this, jobStatus);
+            this.jobInfo.setJobStatus(jobStatus);
         } finally {
             writeMvUnlock();
         }

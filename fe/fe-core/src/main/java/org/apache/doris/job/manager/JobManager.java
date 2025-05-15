@@ -48,6 +48,8 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.collect.Lists;
 import lombok.extern.log4j.Log4j2;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -62,6 +64,7 @@ import java.util.stream.Collectors;
 
 @Log4j2
 public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
+    private static final Logger LOG = LogManager.getLogger(JobManager.class);
 
     private final ConcurrentHashMap<Long, T> jobMap = new ConcurrentHashMap<>(32);
 
@@ -128,6 +131,19 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
         }
     }
 
+    public boolean createJobInternal(T job) {
+        writeLock();
+        try {
+            if (jobMap.containsKey(job.getJobId())) {
+                return false;
+            }
+            jobMap.putIfAbsent(job.getJobId(), job);
+            return true;
+        } finally {
+            writeUnlock();
+        }
+    }
+
     private void checkJobNameExist(String jobName) throws JobException {
         if (jobMap.values().stream().anyMatch(a -> a.getJobName().equals(jobName))) {
             throw new JobException("job name exist, jobName:" + jobName);
@@ -188,6 +204,24 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
         }
     }
 
+    public T dropJobInternal(T job) {
+        // set to stop status avoid create new tasks
+        // todo if we can remove it from trigger map?
+        job.setJobStatus(JobStatus.STOPPED);
+        // cancel tasks that has been created
+        try {
+            job.cancelAllTasksWithoutLog(true);
+        } catch (JobException e) {
+            LOG.warn("cancel task failed, jobName: {}", job.getJobName(), e);
+        }
+        writeLock();
+        try {
+            return jobMap.remove(job.getJobId());
+        } finally {
+            writeUnlock();
+        }
+    }
+
     public void alterJobStatus(Long jobId, JobStatus status) throws JobException {
         checkJobExist(jobId);
         jobMap.get(jobId).updateJobStatus(status);
@@ -195,6 +229,17 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
             jobScheduler.scheduleOneJob(jobMap.get(jobId));
         }
         jobMap.get(jobId).logUpdateOperation();
+    }
+
+    // only for pause and running
+    public void alterJobStatusInternal(T job, JobStatus status) throws JobException {
+        if (JobStatus.PAUSED != status && JobStatus.RUNNING != status) {
+            return;
+        }
+        if (JobStatus.PAUSED.equals(status)) {
+            job.cancelAllTasksWithoutLog(true);
+        }
+        job.setJobStatus(status);
     }
 
     public void alterJobStatus(String jobName, JobStatus jobStatus) throws JobException {
@@ -320,12 +365,14 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        out.writeInt(jobMap.size());
-        jobMap.forEach((jobId, job) -> {
+        List<T> needPersistJobs = jobMap.values().stream().filter(job -> job.needPersist())
+                .collect(Collectors.toList());
+        out.writeInt(needPersistJobs.size());
+        needPersistJobs.forEach((job) -> {
             try {
                 job.write(out);
             } catch (IOException e) {
-                log.error("write job error, jobId:" + jobId, e);
+                log.error("write job error, jobId:" + job.getJobId(), e);
             }
         });
     }
@@ -340,7 +387,9 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
         int size = in.readInt();
         for (int i = 0; i < size; i++) {
             AbstractJob job = AbstractJob.readFields(in);
-            jobMap.putIfAbsent(job.getJobId(), (T) job);
+            if (job.needPersist()) {
+                jobMap.putIfAbsent(job.getJobId(), (T) job);
+            }
         }
     }
 

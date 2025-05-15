@@ -38,9 +38,7 @@ import org.apache.doris.job.extensions.mtmv.MTMVTaskContext;
 import org.apache.doris.mtmv.MTMVRefreshEnum.BuildMode;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshTrigger;
 import org.apache.doris.nereids.trees.plans.commands.info.CancelMTMVTaskInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.PauseMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.ResumeMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.persist.AlterMTMV;
 import org.apache.doris.qe.ConnectContext;
@@ -69,17 +67,23 @@ public class MTMVJobManager implements MTMVHookService {
      * @throws DdlException
      */
     @Override
-    public void createMTMV(MTMV mtmv) throws DdlException {
-        MTMVJob job = new MTMVJob(mtmv.getDatabase().getId(), mtmv.getId());
-        job.setJobId(Env.getCurrentEnv().getNextId());
-        job.setJobName(mtmv.getJobInfo().getJobName());
-        job.setCreateUser(ConnectContext.get().getCurrentUserIdentity());
-        job.setJobStatus(JobStatus.RUNNING);
-        job.setJobConfig(getJobConfig(mtmv));
+    public void createMTMV(MTMV mtmv) {
+        if (!mtmv.getRefreshInfo().getBuildMode().equals(BuildMode.IMMEDIATE)) {
+            return;
+        }
+        MTMVJob job = null;
         try {
-            Env.getCurrentEnv().getJobManager().registerJob(job);
+            job = getJobByMTMV(mtmv);
+        } catch (DdlException e) {
+            // should not happen
+            LOG.warn("get job failed by mvName: {}", mtmv.getName(), e);
+        }
+        MTMVTaskContext mtmvTaskContext = new MTMVTaskContext(MTMVTaskTriggerMode.SYSTEM, null, true);
+        try {
+            Env.getCurrentEnv().getJobManager().triggerJob(job.getJobId(), mtmvTaskContext);
         } catch (JobException e) {
-            throw new DdlException(e.getMessage(), e);
+            // should not happen
+            LOG.warn("triggerJob failed by mvName: {}", mtmv.getName(), e);
         }
     }
 
@@ -122,31 +126,28 @@ public class MTMVJobManager implements MTMVHookService {
         jobExecutionConfiguration.setTimerDefinition(timerDefinition);
     }
 
-    /**
-     * drop MTMVJob
-     *
-     * @param mtmv
-     * @throws DdlException
-     */
-    @Override
-    public void dropMTMV(MTMV mtmv) throws DdlException {
-        try {
-            Env.getCurrentEnv().getJobManager()
-                    .unregisterJob(mtmv.getJobInfo().getJobName(), true);
-        } catch (JobException e) {
-            LOG.warn("drop mtmv job failed, mtmvName: {}", mtmv.getName(), e);
-            throw new DdlException(e.getMessage());
-        }
-    }
-
     @Override
     public void registerMTMV(MTMV mtmv, Long dbId) {
-
+        MTMVJob job = new MTMVJob(mtmv.getDatabase().getId(), mtmv.getId());
+        job.setJobId(Env.getCurrentEnv().getNextId());
+        job.setJobName(mtmv.getJobInfo().getJobName());
+        job.setCreateUser(ConnectContext.get().getCurrentUserIdentity());
+        job.setJobStatus(mtmv.getJobInfo().getJobStatus());
+        job.setJobConfig(getJobConfig(mtmv));
+        Env.getCurrentEnv().getJobManager().createJobInternal(job);
     }
 
     @Override
     public void unregisterMTMV(MTMV mtmv) {
-
+        MTMVJob job;
+        try {
+            job = getJobByMTMV(mtmv);
+        } catch (DdlException e) {
+            // should not happen
+            LOG.warn("unregisterMTMV failed by mvName: {}", mtmv.getName(), e);
+            return;
+        }
+        Env.getCurrentEnv().getJobManager().dropJobInternal(job);
     }
 
     /**
@@ -159,8 +160,8 @@ public class MTMVJobManager implements MTMVHookService {
     @Override
     public void alterMTMV(MTMV mtmv, AlterMTMV alterMTMV) throws DdlException {
         if (alterMTMV.isNeedRebuildJob()) {
-            dropMTMV(mtmv);
-            createMTMV(mtmv);
+            unregisterMTMV(mtmv);
+            registerMTMV(mtmv, mtmv.getDatabase().getId());
         }
     }
 
@@ -195,21 +196,29 @@ public class MTMVJobManager implements MTMVHookService {
     }
 
     @Override
-    public void pauseMTMV(PauseMTMVInfo info) throws MetaNotFoundException, DdlException, JobException {
-        MTMVJob job = getJobByTableNameInfo(info.getMvName());
-        Env.getCurrentEnv().getJobManager().alterJobStatus(job.getJobId(), JobStatus.PAUSED);
-    }
-
-    @Override
-    public void resumeMTMV(ResumeMTMVInfo info) throws MetaNotFoundException, DdlException, JobException {
-        MTMVJob job = getJobByTableNameInfo(info.getMvName());
-        Env.getCurrentEnv().getJobManager().alterJobStatus(job.getJobId(), JobStatus.RUNNING);
-    }
-
-    @Override
     public void cancelMTMVTask(CancelMTMVTaskInfo info) throws DdlException, MetaNotFoundException, JobException {
         MTMVJob job = getJobByTableNameInfo(info.getMvName());
         job.cancelTaskById(info.getTaskId());
+    }
+
+    @Override
+    public void alterJobStatus(MTMV mtmv, JobStatus jobStatus) {
+        MTMVJob job = null;
+        try {
+            job = getJobByMTMV(mtmv);
+        } catch (DdlException e) {
+            // should not happen
+            LOG.warn("alterJobStatus failed by mvName: {}", mtmv.getName(), e);
+            return;
+        }
+
+        try {
+            Env.getCurrentEnv().getJobManager().alterJobStatusInternal(job, jobStatus);
+        } catch (JobException e) {
+            // should not happen
+            LOG.warn("alterJobStatus failed by mvName: {}", mtmv.getName(), e);
+            return;
+        }
     }
 
     public void onCommit(MTMV mtmv) throws DdlException, JobException {

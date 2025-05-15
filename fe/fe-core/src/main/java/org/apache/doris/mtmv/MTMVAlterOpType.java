@@ -21,5 +21,6 @@ public enum MTMVAlterOpType {
     ALTER_REFRESH_INFO,
     ALTER_STATUS,
     ALTER_PROPERTY,
-    ADD_TASK;
+    ADD_TASK,
+    ALTER_JOB_STATUS;
 }
