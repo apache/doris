@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 // This file is copied from
-// https://github.com/ClickHouse/ClickHouse/blob/master/src/Columns/ColumnObject.h
+// https://github.com/ClickHouse/ClickHouse/blob/master/src/Columns/ColumnVariant.h
 // and modified by Doris
 
 #pragma once
@@ -65,7 +65,7 @@ namespace doris::vectorized {
 /// of dimensions or nullability.
 struct FieldInfo {
     /// The common type id of of all scalars in field.
-    TypeIndex scalar_type_id;
+    PrimitiveType scalar_type_id;
     /// Do we have NULL scalar in field.
     bool have_nulls;
     /// If true then we have scalars with different types in array and
@@ -78,10 +78,10 @@ struct FieldInfo {
 void get_field_info(const Field& field, FieldInfo* info);
 /** A column that represents object with dynamic set of subcolumns.
  *  Subcolumns are identified by paths in document and are stored in
- *  a trie-like structure. ColumnObject is not suitable for writing into tables
+ *  a trie-like structure. ColumnVariant is not suitable for writing into tables
  *  and it should be converted to Tuple with fixed set of subcolumns before that.
  */
-class ColumnObject final : public COWHelper<IColumn, ColumnObject> {
+class ColumnVariant final : public COWHelper<IColumn, ColumnVariant> {
 public:
     /** Class that represents one subcolumn.
      * It stores values in several parts of column
@@ -94,7 +94,7 @@ public:
 
     // Using jsonb type as most common type, since it's adopted all types of json
     using MostCommonType = DataTypeJsonb;
-    constexpr static TypeIndex MOST_COMMON_TYPE_ID = TypeIndex::JSONB;
+    constexpr static PrimitiveType MOST_COMMON_TYPE_ID = PrimitiveType::TYPE_JSONB;
     // Nullable(Array(Nullable(Object)))
     const static DataTypePtr NESTED_TYPE;
     // Finlize mode for subcolumns, write mode will estimate which subcolumns are sparse columns(too many null values inside column),
@@ -179,7 +179,7 @@ public:
 
         void add_new_column_part(DataTypePtr type);
 
-        friend class ColumnObject;
+        friend class ColumnVariant;
 
     private:
         class LeastCommonType {
@@ -193,12 +193,12 @@ public:
             const DataTypePtr& get_base() const { return base_type; }
 
             // The least command type id
-            const TypeIndex& get_type_id() const { return type_id; }
+            const PrimitiveType& get_type_id() const { return type_id; }
 
             // The inner least common type if of array,
             // example: Array(Nullable(Object))
             // then the base type id is Object
-            const TypeIndex& get_base_type_id() const { return base_type_id; }
+            const PrimitiveType& get_base_type_id() const { return base_type_id; }
 
             size_t get_dimensions() const { return num_dimensions; }
 
@@ -209,8 +209,8 @@ public:
         private:
             DataTypePtr type;
             DataTypePtr base_type;
-            TypeIndex type_id;
-            TypeIndex base_type_id;
+            PrimitiveType type_id;
+            PrimitiveType base_type_id;
             size_t num_dimensions = 0;
             DataTypeSerDeSPtr least_common_type_serder;
         };
@@ -256,19 +256,21 @@ private:
 public:
     static constexpr auto COLUMN_NAME_DUMMY = "_dummy";
 
-    explicit ColumnObject(bool is_nullable_, bool create_root = true);
+    explicit ColumnVariant(bool is_nullable_, bool create_root = true);
 
-    explicit ColumnObject(bool is_nullable_, DataTypePtr type, MutableColumnPtr&& column);
+    explicit ColumnVariant(bool is_nullable_, DataTypePtr type, MutableColumnPtr&& column);
 
-    ColumnObject(Subcolumns&& subcolumns_, bool is_nullable_);
+    ColumnVariant(Subcolumns&& subcolumns_, bool is_nullable_);
 
-    ~ColumnObject() override = default;
+    ~ColumnVariant() override = default;
 
     /// Checks that all subcolumns have consistent sizes.
     void check_consistency() const;
 
     MutableColumnPtr get_root() {
-        if (subcolumns.empty() || is_nothing(subcolumns.get_root()->data.get_least_common_type())) {
+        if (subcolumns.empty() ||
+            subcolumns.get_root()->data.get_least_common_type()->get_primitive_type() ==
+                    INVALID_TYPE) {
             return nullptr;
         }
         return subcolumns.get_mutable_root()->data.get_finalized_column_ptr()->assume_mutable();
@@ -363,7 +365,7 @@ public:
 
     MutableColumnPtr clone_finalized() const {
         auto finalized = IColumn::mutate(get_ptr());
-        static_cast<ColumnObject*>(finalized.get())->finalize(FinalizeMode::READ_MODE);
+        static_cast<ColumnVariant*>(finalized.get())->finalize(FinalizeMode::READ_MODE);
         return finalized;
     }
 

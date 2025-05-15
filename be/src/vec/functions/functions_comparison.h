@@ -395,9 +395,6 @@ private:
 
     Status execute_decimal(Block& block, uint32_t result, const ColumnWithTypeAndName& col_left,
                            const ColumnWithTypeAndName& col_right) const {
-        TypeIndex left_number = col_left.type->get_type_id();
-        TypeIndex right_number = col_right.type->get_type_id();
-
         auto call = [&](const auto& types) -> bool {
             using Types = std::decay_t<decltype(types)>;
             using LeftDataType = typename Types::LeftType;
@@ -408,7 +405,9 @@ private:
             return true;
         };
 
-        if (!call_on_basic_types<true, false, true, false>(left_number, right_number, call)) {
+        if (!call_on_basic_types<true, false, true, false>(col_left.type->get_primitive_type(),
+                                                           col_right.type->get_primitive_type(),
+                                                           call)) {
             return Status::RuntimeError("Wrong call for {} with {} and {}", get_name(),
                                         col_left.type->get_name(), col_right.type->get_name());
         }
@@ -635,14 +634,15 @@ public:
             }
         }
 
-        WhichDataType which_left {left_type};
-        WhichDataType which_right {right_type};
+        auto can_compare = [](PrimitiveType t) -> bool {
+            return is_int_or_bool(t) || is_float_or_double(t) || t == TYPE_IPV4 || t == TYPE_IPV6 ||
+                   t == TYPE_DATEV2 || t == TYPE_DATETIMEV2;
+        };
+        const bool left_is_num_can_compare = can_compare(left_type->get_primitive_type());
+        const bool right_is_num_can_compare = can_compare(right_type->get_primitive_type());
 
-        const bool left_is_num_can_compare = which_left.is_num_can_compare();
-        const bool right_is_num_can_compare = which_right.is_num_can_compare();
-
-        const bool left_is_string = which_left.is_string_or_fixed_string();
-        const bool right_is_string = which_right.is_string_or_fixed_string();
+        const bool left_is_string = is_string_type(left_type->get_primitive_type());
+        const bool right_is_string = is_string_type(right_type->get_primitive_type());
 
         if (left_is_num_can_compare && right_is_num_can_compare) {
             if (!(execute_num_left_type<UInt8>(block, result, col_left_untyped,
@@ -672,7 +672,8 @@ public:
             }
             return Status::OK();
         }
-        if (is_decimal_v2(left_type) || is_decimal_v2(right_type)) {
+        if (left_type->get_primitive_type() == TYPE_DECIMALV2 ||
+            right_type->get_primitive_type() == TYPE_DECIMALV2) {
             if (!allow_decimal_comparison(left_type, right_type)) {
                 return Status::RuntimeError("No operation {} between {} and {}", get_name(),
                                             left_type->get_name(), right_type->get_name());
@@ -681,7 +682,8 @@ public:
                                    col_with_type_and_name_right);
         }
 
-        if (is_decimal(left_type) || is_decimal(right_type)) {
+        if (is_decimal(left_type->get_primitive_type()) ||
+            is_decimal(right_type->get_primitive_type())) {
             if (!allow_decimal_comparison(left_type, right_type)) {
                 return Status::RuntimeError("No operation {} between {} and {}", get_name(),
                                             left_type->get_name(), right_type->get_name());
@@ -690,7 +692,10 @@ public:
                                    col_with_type_and_name_right);
         }
 
-        if (which_left.idx != which_right.idx) {
+        // Types from left and right hand should be same (char/varchar/string are string type.)
+        if (!(left_type->get_primitive_type() == right_type->get_primitive_type() ||
+              (is_string_type(left_type->get_primitive_type()) &&
+               is_string_type(right_type->get_primitive_type())))) {
             return Status::InternalError(
                     "comparison must input two same type column or column type is "
                     "decimalv3/numeric, lhs={}, rhs={}",

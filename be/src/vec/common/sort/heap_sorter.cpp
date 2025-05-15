@@ -21,6 +21,7 @@
 
 #include <algorithm>
 
+#include "runtime/primitive_type.h"
 #include "runtime/thread_context.h"
 #include "util/defer_op.h"
 #include "vec/columns/column.h"
@@ -164,7 +165,7 @@ Status HeapSorter::get_next(RuntimeState* state, Block* block, bool* eos) {
 }
 
 Field HeapSorter::get_top_value() {
-    Field field {Field::Types::Null};
+    Field field {PrimitiveType::TYPE_NULL};
     // get field from first sort column of top row
     if (_heap->size() >= _heap_size) {
         auto& top = _heap->top();

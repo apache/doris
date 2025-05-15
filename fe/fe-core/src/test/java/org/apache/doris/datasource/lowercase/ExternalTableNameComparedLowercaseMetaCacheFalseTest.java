@@ -23,7 +23,9 @@ import org.apache.doris.analysis.RefreshCatalogStmt;
 import org.apache.doris.analysis.SwitchStmt;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.SchemaTable;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.test.TestExternalCatalog;
@@ -100,6 +102,13 @@ public class ExternalTableNameComparedLowercaseMetaCacheFalseTest extends TestWi
         Assertions.assertEquals(2, tableNames.size());
         Assertions.assertTrue(tableNames.contains("TABLE1"));
         Assertions.assertTrue(tableNames.contains("TABLE2"));
+    }
+
+    @Test
+    public void testShowInformationSchemaTables() {
+        Set<String> tableNames = env.getCatalogMgr().getCatalog("test1").getDbNullable(InfoSchemaDb.DATABASE_NAME).getTableNamesWithLock();
+        Assertions.assertTrue(SchemaTable.TABLE_MAP.keySet().containsAll(tableNames));
+        Assertions.assertTrue(tableNames.containsAll(SchemaTable.TABLE_MAP.keySet()));
     }
 
     private void switchTest() throws Exception {

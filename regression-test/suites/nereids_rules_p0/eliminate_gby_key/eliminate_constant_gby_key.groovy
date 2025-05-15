@@ -16,8 +16,8 @@
 // under the License.
 
 suite("eliminate_constant_gby_key") {
-    sql """DROP TABLE IF EXISTS t1;"""
-    sql """CREATE TABLE t1 (
+    sql """DROP TABLE IF EXISTS eliminate_constant_gby_key_t;"""
+    sql """CREATE TABLE eliminate_constant_gby_key_t (
         c1 INT,
         c2 VARCHAR(50),
         c3 DECIMAL(10,2),
@@ -25,7 +25,7 @@ suite("eliminate_constant_gby_key") {
         c5 BOOLEAN
     ) distributed by hash(c1) properties("replication_num"="1");"""
 
-    sql """INSERT INTO t1 (c1, c2, c3, c4, c5) VALUES 
+    sql """INSERT INTO eliminate_constant_gby_key_t (c1, c2, c3, c4, c5) VALUES 
     (1, 'Apple', 10.50, '2023-01-01 10:00:00', true),
     (2, 'Banana', 20.75, '2023-01-02 11:30:00', false),
     (3, 'Cherry', 15.25, '2023-01-03 09:15:00', true),
@@ -53,7 +53,7 @@ suite("eliminate_constant_gby_key") {
             ${funA} AS funA, 
             c1, 
             ${funA} + c1 AS 'funA+c1' 
-        FROM t1 
+        FROM eliminate_constant_gby_key_t 
         GROUP BY ${funA}, c1
         ORDER BY 1, 2, 3
         """ }],
@@ -64,7 +64,7 @@ suite("eliminate_constant_gby_key") {
             ${funA} AS funA, 
             c1, 
             ${funA} + c1 AS 'funA+c1' 
-        FROM t1 
+        FROM eliminate_constant_gby_key_t 
         GROUP BY ${funA}, c1, ${funA} + c1
         ORDER BY 1, 2, 3
         """ }],
@@ -75,7 +75,7 @@ suite("eliminate_constant_gby_key") {
             COUNT(DISTINCT ${funA}) AS 'count(distinct funA)', 
             ${funA} AS funA, 
             c1 
-        FROM t1 
+        FROM eliminate_constant_gby_key_t 
         GROUP BY ${funA}, c1
         ORDER BY 1, 2, 3
         """ }],
@@ -86,7 +86,7 @@ suite("eliminate_constant_gby_key") {
             COUNT(${funA}) AS 'count(funA)', 
             ${funA} AS funA, 
             c1 
-        FROM t1 
+        FROM eliminate_constant_gby_key_t 
         GROUP BY ${funA}, c1
         ORDER BY 1, 2, 3
         """ }],
@@ -97,7 +97,7 @@ suite("eliminate_constant_gby_key") {
             COUNT(DISTINCT ${funA} + 1) AS 'count(distinct funA+1)', 
             ${funA} AS funA, 
             c1 
-        FROM t1 
+        FROM eliminate_constant_gby_key_t 
         GROUP BY ${funA}, c1
         ORDER BY 1, 2, 3
         """ }],
@@ -108,7 +108,7 @@ suite("eliminate_constant_gby_key") {
             MAX(${funA} + 1) AS 'max(funA+1)', 
             ${funA} AS funA, 
             c1 
-        FROM t1 
+        FROM eliminate_constant_gby_key_t 
         GROUP BY ${funA}, c1
         ORDER BY 1, 2, 3
         """ }],
@@ -119,7 +119,7 @@ suite("eliminate_constant_gby_key") {
             MAX(${funA} + c1) AS 'max(funA+c1)',
             ${funA} AS funA,
             c2
-        FROM t1
+        FROM eliminate_constant_gby_key_t
         GROUP BY ${funA}, c2
         ORDER BY 1, 2, 3
         """ }]
@@ -138,7 +138,7 @@ suite("eliminate_constant_gby_key") {
         count(DISTINCT  from_unixtime(1742860744.003242)) AS 'max(distinct funA)', 
         from_unixtime(1742860744.003242) AS funA, 
         c1 
-    FROM t1 
+    FROM eliminate_constant_gby_key_t 
     GROUP BY from_unixtime(1742860744.003242), c1
     order by 1,2,3
     """
@@ -152,7 +152,7 @@ suite("eliminate_constant_gby_key") {
         WHEN (c4 < '2024-01-01') THEN '2026-02-18'
         ELSE DATE_ADD(c4, INTERVAL 365 DAY) END))
         c1 
-    FROM t1 
+    FROM eliminate_constant_gby_key_t 
     GROUP BY from_unixtime(1742860744.003242), (TO_DATE(CASE
         WHEN ('2024-01-08' < '2024-02-18') THEN '2023-12-19'
         WHEN (c4 < '2024-01-01') THEN '2026-02-18'
@@ -165,7 +165,7 @@ suite("eliminate_constant_gby_key") {
         from_unixtime(1742860744.003242),
          from_unixtime(1742860744.003242)
         c1 
-    FROM t1 
+    FROM eliminate_constant_gby_key_t 
     GROUP BY from_unixtime(1742860744.003242), from_unixtime(1742860744.003242),'abc',c1
     order by 1,2,3,4
     """
