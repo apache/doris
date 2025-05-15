@@ -2280,7 +2280,7 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_STRICT_CAST,
             description = {"cast使用严格模式", "Use strict mode for cast"})
-    public boolean enableStrictCast = true;
+    public boolean enableStrictCast = false;
 
     public Set<Integer> getIgnoredRuntimeFilterIds() {
         Set<Integer> ids = Sets.newLinkedHashSet();
