@@ -202,13 +202,26 @@ TEST_F(BlockFileCacheTest, test_lru_log_record_replay_dump_restore) {
             std::chrono::milliseconds(2 * config::file_cache_background_lru_dump_interval_ms));
 
     // Verify all 4 dump files
+    // TODO(zhengyu): abstract those read/write into a function
     {
         std::string filename = fmt::format("{}/lru_dump_{}.bin", cache_base_path, "ttl");
 
         struct stat file_stat;
         EXPECT_EQ(stat(filename.c_str(), &file_stat), 0) << "File " << filename << " not found";
 
-        EXPECT_EQ(file_stat.st_size, 0) << "File " << filename << " is not empty";
+        EXPECT_EQ(file_stat.st_size, 12) << "File " << filename << " has more data than footer";
+        std::ifstream in(filename, std::ios::binary);
+        ASSERT_TRUE(in) << "Failed to open " << filename;
+        size_t entry_num = 0;
+        int8_t version = 0;
+        char magic_str[3];
+        char target_str[3] = {'D', 'O', 'R'};
+        in.read(reinterpret_cast<char*>(&entry_num), sizeof(entry_num));
+        in.read(reinterpret_cast<char*>(&version), sizeof(version));
+        in.read(magic_str, sizeof(magic_str));
+        EXPECT_EQ(entry_num, 0);
+        EXPECT_EQ(version, 1);
+        EXPECT_TRUE(memcmp(magic_str, target_str, sizeof(magic_str)) == 0);
     }
     {
         std::string filename = fmt::format("{}/lru_dump_{}.bin", cache_base_path, "normal");
@@ -216,7 +229,7 @@ TEST_F(BlockFileCacheTest, test_lru_log_record_replay_dump_restore) {
         struct stat file_stat;
         EXPECT_EQ(stat(filename.c_str(), &file_stat), 0) << "File " << filename << " not found";
 
-        EXPECT_GT(file_stat.st_size, 0) << "File " << filename << " is empty";
+        EXPECT_GT(file_stat.st_size, 12) << "File " << filename << " is empty";
 
         std::ifstream in(filename, std::ios::binary);
         ASSERT_TRUE(in) << "Failed to open " << filename;
@@ -277,7 +290,7 @@ TEST_F(BlockFileCacheTest, test_lru_log_record_replay_dump_restore) {
         struct stat file_stat;
         EXPECT_EQ(stat(filename.c_str(), &file_stat), 0) << "File " << filename << " not found";
 
-        EXPECT_GT(file_stat.st_size, 0) << "File " << filename << " is empty";
+        EXPECT_GT(file_stat.st_size, 12) << "File " << filename << " is empty";
 
         std::ifstream in(filename, std::ios::binary);
         ASSERT_TRUE(in) << "Failed to open " << filename;

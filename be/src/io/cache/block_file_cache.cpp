@@ -582,6 +582,7 @@ FileBlocks BlockFileCache::get_impl(const UInt128Wrapper& hash, const CacheConte
 }
 
 std::string BlockFileCache::clear_file_cache_async() {
+    // TODO(zhengyu): rm lru dump file before and after clear file cache
     LOG(INFO) << "start clear_file_cache_async, path=" << _cache_base_path;
     int64_t num_cells_all = 0;
     int64_t num_cells_to_delete = 0;
@@ -1985,6 +1986,13 @@ void BlockFileCache::run_background_lru_dump() {
                         out.write(reinterpret_cast<const char*>(&offset), sizeof(offset));
                         out.write(reinterpret_cast<const char*>(&size), sizeof(size));
                     }
+                    // write footer: size_t entry_num, version, magic, totally 12 bytes
+                    size_t entry_num = elements.size();
+                    int8_t version = 1;
+                    std::string magic_str = "DOR";
+                    out.write(reinterpret_cast<const char*>(&entry_num), sizeof(entry_num));
+                    out.write(reinterpret_cast<const char*>(&version), sizeof(version));
+                    out.write(magic_str.c_str(), magic_str.size());
                     out.close();
                     if (std::rename(tmp_filename.c_str(), final_filename.c_str()) != 0) {
                         std::remove(tmp_filename.c_str());
@@ -2033,30 +2041,70 @@ void BlockFileCache::restore_lru_queues_from_disk(std::lock_guard<std::mutex>& c
         int64_t duration_ns = 0;
         if (in) {
             LOG(INFO) << "lru dump file is founded for " << queue_name << ". starting lru restore.";
+            // TODO(zhengyu): abstract these file format operations to seperate files
+
+            // why we are not using protobuf here?
+            // AFAIK, current protobuf version dose not support streaming mode,
+            // so that we need to store all the message in memory which will
+            // consume loads of RAMs. Even if we use delimited/streaming mode,
+            // extra space for delimiters is needed which enlarges file size.
+            // on the contrary, using this simple format not only supports
+            // streaming by its nature, but is also convinient to upgrade use
+            // the version field in the footer.
+
+            size_t file_size = std::filesystem::file_size(filename);
+            size_t entry_num;
+            int8_t version;
+            char magic_str[3];
+            size_t footer_size =
+                    static_cast<int64_t>(sizeof(entry_num) + sizeof(version) + sizeof(magic_str));
+            if (file_size < footer_size) {
+                LOG(WARNING) << "lru dump file is shorter than footer, skip restore";
+                return;
+            }
             SCOPED_RAW_TIMER(&duration_ns);
+            in.seekg(-footer_size, std::ios::end);
+            in.read(reinterpret_cast<char*>(&entry_num), sizeof(entry_num));
+            in.read(reinterpret_cast<char*>(&version), sizeof(version));
+            in.read(magic_str, sizeof(magic_str));
+
+            if (version != 1 || std::string(magic_str, 3) != "DOR") {
+                LOG(WARNING) << "Invalid footer: version=" << static_cast<int>(version)
+                             << ", magic=" << std::string(magic_str, 3);
+                return;
+            }
+            LOG(INFO) << "Footer parsed successfully: entry_num=" << entry_num
+                      << ", version=" << static_cast<int>(version)
+                      << ", magic=" << std::string(magic_str, 3);
+
+            in.seekg(0, std::ios::beg);
             UInt128Wrapper hash;
             size_t offset, size;
-            while (in.read(reinterpret_cast<char*>(&hash), sizeof(hash)) &&
-                   in.read(reinterpret_cast<char*>(&offset), sizeof(offset)) &&
-                   in.read(reinterpret_cast<char*>(&size), sizeof(size))) {
-                CacheContext ctx;
-                if (queue_name == "ttl") {
-                    ctx.cache_type = FileCacheType::TTL;
-                    ctx.expiration_time =
-                            10800; // TODO(zhengyu): we haven't persist expiration time yet, use 3h default
-                    // TODO(zhengyu): we don't use stats yet, see if this will cause any problem
-                } else if (queue_name == "index") {
-                    ctx.cache_type = FileCacheType::INDEX;
-                } else if (queue_name == "normal") {
-                    ctx.cache_type = FileCacheType::NORMAL;
-                } else if (queue_name == "disposable") {
-                    ctx.cache_type = FileCacheType::DISPOSABLE;
+            for (int i = 0; i < entry_num; ++i) {
+                if (in.read(reinterpret_cast<char*>(&hash), sizeof(hash)) &&
+                    in.read(reinterpret_cast<char*>(&offset), sizeof(offset)) &&
+                    in.read(reinterpret_cast<char*>(&size), sizeof(size))) {
+                    CacheContext ctx;
+                    if (queue_name == "ttl") {
+                        ctx.cache_type = FileCacheType::TTL;
+                        // TODO(zhengyu): we haven't persist expiration time yet, use 3h default
+                        ctx.expiration_time = 10800;
+                        // TODO(zhengyu): we don't use stats yet, see if this will cause any problem
+                    } else if (queue_name == "index") {
+                        ctx.cache_type = FileCacheType::INDEX;
+                    } else if (queue_name == "normal") {
+                        ctx.cache_type = FileCacheType::NORMAL;
+                    } else if (queue_name == "disposable") {
+                        ctx.cache_type = FileCacheType::DISPOSABLE;
+                    } else {
+                        LOG_WARNING("unknown queue type");
+                        DCHECK(false);
+                        return;
+                    }
+                    add_cell(hash, ctx, offset, size, FileBlock::State::DOWNLOADED, cache_lock);
                 } else {
-                    LOG_WARNING("unknown queue type");
-                    DCHECK(false);
-                    return;
+                    LOG(WARNING) << "read lru dump failure for " << queue_name;
                 }
-                add_cell(hash, ctx, offset, size, FileBlock::State::DOWNLOADED, cache_lock);
             }
         } else {
             LOG(INFO) << "no lru dump file is founded for " << queue_name;
@@ -2237,6 +2285,7 @@ bool BlockFileCache::try_reserve_during_async_load(size_t size,
 }
 
 std::string BlockFileCache::clear_file_cache_directly() {
+    //TODO(zhengyu): rm lru dump file before and after clear file cache
     using namespace std::chrono;
     std::stringstream ss;
     auto start = steady_clock::now();
