@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_agg_skew_hint") {
+    sql "set runtime_filter_mode=OFF"
     sql "drop table if exists test_skew_hint"
     sql "create table test_skew_hint (a int, b int, c int) distributed by hash(a) properties('replication_num'='1');"
     sql "insert into test_skew_hint values(1,2,3),(1,2,4),(1,3,4),(2,3,5),(2,4,5),(3,4,5),(3,5,6),(3,6,7),(3,7,8),(3,8,9),(3,10,11);"
