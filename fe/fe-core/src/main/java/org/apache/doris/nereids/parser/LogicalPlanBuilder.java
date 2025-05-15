@@ -3557,7 +3557,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 : ctx.type instanceof ComplexDataTypeContext
                         ? visitComplexDataType((ComplexDataTypeContext) ctx.type)
                         : visitAggStateDataType((AggStateDataTypeContext) ctx.type);
-        typeAndEncoding.conversion();
+        typeAndEncoding = typeAndEncoding.conversion();
         boolean isKey = ctx.KEY() != null;
         ColumnNullableType nullableType = ColumnNullableType.DEFAULT;
         if (ctx.NOT() != null) {
@@ -4399,18 +4399,20 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-    public Pair<DataType, Boolean> visitDataTypeWithNullable(DataTypeWithNullableContext ctx) {
+    public Pair<TypeAndEncoding, Boolean> visitDataTypeWithNullable(DataTypeWithNullableContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> Pair.of(typedVisit(ctx.dataType()), ctx.NOT() == null));
     }
 
     @Override
     public TypeAndEncoding visitAggStateDataType(AggStateDataTypeContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> {
-            List<Pair<DataType, Boolean>> dataTypeWithNullables = ctx.dataTypes.stream()
+            List<Pair<TypeAndEncoding, Boolean>> dataTypeWithNullables = ctx.dataTypes.stream()
                     .map(this::visitDataTypeWithNullable)
                     .collect(Collectors.toList());
-            List<DataType> dataTypes = dataTypeWithNullables.stream()
+            List<TypeAndEncoding> children = dataTypeWithNullables.stream()
                     .map(dt -> dt.first)
+                    .collect(ImmutableList.toImmutableList());
+            List<DataType> dataTypes = children.stream().map(TypeAndEncoding::getDataType)
                     .collect(ImmutableList.toImmutableList());
             List<Boolean> nullables = dataTypeWithNullables.stream()
                     .map(dt -> dt.second)
@@ -4420,6 +4422,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 // TODO use function binder to check function exists
                 throw new ParseException("Can not found function '" + functionName + "'", ctx);
             }
+            // Do not support AggStateType for encoding.
             return TypeAndEncoding.wrap(new AggStateType(functionName, dataTypes, nullables), null, null);
         });
     }
