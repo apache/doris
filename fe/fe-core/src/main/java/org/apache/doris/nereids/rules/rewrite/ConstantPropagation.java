@@ -213,15 +213,18 @@ public class ConstantPropagation extends DefaultPlanRewriter<ExpressionRewriteCo
         for (NamedExpression expr : oldOutputExprs) {
             // ColumnPruning will also add all group by expression into output expressions
             // agg output need contains group by expression
-            Expression newExpr = newGroupByExprSet.contains(expr)
-                    ? expr : replaceConstants(expr, context, childEqualTrait.first, childEqualTrait.second);
-            if (newExpr instanceof NamedExpression) {
-                newOutputExprs.add((NamedExpression) newExpr);
-                projectBuilder.add(((NamedExpression) newExpr).toSlot());
-            } else {
-                Preconditions.checkArgument(newExpr.isConstant(), newExpr);
-                projectBuilder.add(new Alias(expr.getExprId(), newExpr, expr.getName()));
+            Expression replacedExpr = replaceConstants(expr, context, childEqualTrait.first, childEqualTrait.second);
+            Expression newOutputExpr = newGroupByExprSet.contains(expr) ? expr : replacedExpr;
+            if (newOutputExpr instanceof NamedExpression) {
+                newOutputExprs.add((NamedExpression) newOutputExpr);
+            }
+
+            if (replacedExpr.isConstant()) {
+                projectBuilder.add(new Alias(expr.getExprId(), replacedExpr, expr.getName()));
                 containsConstantOutput = true;
+            } else {
+                Preconditions.checkArgument(newOutputExpr instanceof NamedExpression, newOutputExpr);
+                projectBuilder.add(((NamedExpression) newOutputExpr).toSlot());
             }
         }
 
@@ -372,9 +375,13 @@ public class ConstantPropagation extends DefaultPlanRewriter<ExpressionRewriteCo
         Map<Slot, Literal> newConstants = equalAndConstantOptions.get().second;
         // myInferConstantSlots : the slots that are inferred by this expression, not inferred by parent
         // myInferConstantSlots[slot] = true means expression had contains conjunct `slot = constant`
-        Map<Slot, Boolean> myInferConstantSlots = newConstants.keySet().stream()
-                .filter(slot -> !parentConstants.containsKey(slot))
-                .collect(Collectors.toMap(Function.identity(), e -> Boolean.FALSE));
+        Map<Slot, Boolean> myInferConstantSlots = Maps.newLinkedHashMapWithExpectedSize(
+                Math.max(0, newConstants.size() - parentConstants.size()));
+        for (Slot slot : newConstants.keySet()) {
+            if (!parentConstants.containsKey(slot)) {
+                myInferConstantSlots.put(slot, false);
+            }
+        }
         ImmutableList.Builder<Expression> builder = ImmutableList.builderWithExpectedSize(conjunctions.size());
         for (Expression child : conjunctions) {
             Expression newChild = child;
@@ -505,7 +512,7 @@ public class ConstantPropagation extends DefaultPlanRewriter<ExpressionRewriteCo
             List<Expression> conjunctions,
             ImmutableEqualSet<Slot> parentEqualSet,
             Map<Slot, Literal> parentConstants) {
-        Map<Slot, Literal> newConstants = Maps.newHashMapWithExpectedSize(parentConstants.size());
+        Map<Slot, Literal> newConstants = Maps.newLinkedHashMapWithExpectedSize(parentConstants.size());
         newConstants.putAll(parentConstants);
         ImmutableEqualSet.Builder<Slot> newEqualSetBuilder = new Builder<>(parentEqualSet);
         for (Expression child : conjunctions) {
