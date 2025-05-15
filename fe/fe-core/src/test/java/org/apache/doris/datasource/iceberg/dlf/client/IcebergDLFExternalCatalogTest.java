@@ -47,10 +47,10 @@ public class IcebergDLFExternalCatalogTest {
         HashMap<String, String> props = new HashMap<>();
         IcebergDLFExternalCatalog catalog = new IcebergDLFExternalCatalog(1, "test", "test", props, "test");
         Assert.assertThrows(NotSupportedException.class, () -> catalog.createDb(null));
-        Assert.assertThrows(NotSupportedException.class, () -> catalog.dropDb("", true, true));
+        Assert.assertThrows(NotSupportedException.class, () -> catalog.dropDb(null));
         Assert.assertThrows(NotSupportedException.class, () -> catalog.createTable(null));
         Assert.assertThrows(NotSupportedException.class, () -> catalog.dropTable(null));
-        Assert.assertThrows(NotSupportedException.class, () -> catalog.dropTable("", "", true, true, true, true));
+        Assert.assertThrows(NotSupportedException.class, () -> catalog.dropTable(null));
         Assert.assertThrows(NotSupportedException.class, () -> catalog.truncateTable(null));
     }
 }
