@@ -51,6 +51,6 @@ public class IcebergDLFExternalCatalogTest {
         Assert.assertThrows(NotSupportedException.class, () -> catalog.createTable(null));
         Assert.assertThrows(NotSupportedException.class, () -> catalog.dropTable(null));
         Assert.assertThrows(NotSupportedException.class, () -> catalog.dropTable("", "", true, true, true, true));
-        Assert.assertThrows(NotSupportedException.class, () -> catalog.truncateTable(null));
+        Assert.assertThrows(NotSupportedException.class, () -> catalog.truncateTable((TruncateTableStmt) null));
     }
 }
