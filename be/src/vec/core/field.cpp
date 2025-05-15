@@ -138,6 +138,7 @@ void Field::create(const Field& field) {
     case PrimitiveType::TYPE_DATE:
     case PrimitiveType::TYPE_BOOLEAN:
     case PrimitiveType::TYPE_TINYINT:
+    case PrimitiveType::TYPE_SMALLINT:
     case PrimitiveType::TYPE_INT:
     case PrimitiveType::TYPE_BIGINT:
         create_concrete<TYPE_BIGINT>(
