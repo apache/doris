@@ -266,7 +266,7 @@ class RequestPropertyDeriverTest {
     @Test
     void testWindowWithPartitionKeyAndOrderKey() {
         SlotReference col1 = new SlotReference("col1", IntegerType.INSTANCE);
-        SlotReference col2= new SlotReference("col2", IntegerType.INSTANCE);
+        SlotReference col2 = new SlotReference("col2", IntegerType.INSTANCE);
         Expression rowNumber = new RowNumber();
         WindowExpression windowExpression = new WindowExpression(rowNumber, ImmutableList.of(col1),
                 ImmutableList.of(new OrderExpression(new OrderKey(col2, true, false))),
@@ -314,7 +314,7 @@ class RequestPropertyDeriverTest {
 
     @Test
     void testWindowWithNoPartitionKeyAndOrderKey() {
-        SlotReference col2= new SlotReference("col2", IntegerType.INSTANCE);
+        SlotReference col2 = new SlotReference("col2", IntegerType.INSTANCE);
         Expression rowNumber = new RowNumber();
         WindowExpression windowExpression = new WindowExpression(rowNumber, ImmutableList.of(),
                 ImmutableList.of(new OrderExpression(new OrderKey(col2, true, false))),
