@@ -55,13 +55,13 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     protected abstract void initCatalog();
 
     @Override
-    public void initPreExecutionAuthenticator() {
+    public synchronized void initPreExecutionAuthenticator() {
         super.initPreExecutionAuthenticator();
-        // TODO If the storage environment does not support Kerberos (such as s3),
-        //      there is no need to generate a simple authentication information anymore.
-        AuthenticationConfig config = AuthenticationConfig.getKerberosConfig(getConfiguration());
-        HadoopAuthenticator authenticator = HadoopAuthenticator.getHadoopAuthenticator(config);
-        preExecutionAuthenticator.setHadoopAuthenticator(authenticator);
+        if (preExecutionAuthenticator.getHadoopAuthenticator() == null) {
+            AuthenticationConfig config = AuthenticationConfig.getKerberosConfig(getConfiguration());
+            HadoopAuthenticator authenticator = HadoopAuthenticator.getHadoopAuthenticator(config);
+            preExecutionAuthenticator.setHadoopAuthenticator(authenticator);
+        }
     }
 
     @Override

@@ -183,7 +183,7 @@ public abstract class ExternalCatalog
         this.comment = Strings.nullToEmpty(comment);
     }
 
-    public void initPreExecutionAuthenticator() {
+    public synchronized void initPreExecutionAuthenticator() {
         if (preExecutionAuthenticator == null) {
             preExecutionAuthenticator = new PreExecutionAuthenticator();
         }

@@ -161,12 +161,16 @@ public class HMSExternalCatalog extends ExternalCatalog {
     }
 
     @Override
-    public void initPreExecutionAuthenticator() {
+    public synchronized void initPreExecutionAuthenticator() {
         super.initPreExecutionAuthenticator();
         if (this.authenticator == null) {
-            AuthenticationConfig config = AuthenticationConfig.getKerberosConfig(getConfiguration());
-            this.authenticator = HadoopAuthenticator.getHadoopAuthenticator(config);
-            this.preExecutionAuthenticator.setHadoopAuthenticator(authenticator);
+            try {
+                AuthenticationConfig config = AuthenticationConfig.getKerberosConfig(getConfiguration());
+                this.authenticator = HadoopAuthenticator.getHadoopAuthenticator(config);
+                this.preExecutionAuthenticator.setHadoopAuthenticator(authenticator);
+            } catch (Exception e) {
+                throw new RuntimeException("Failed to initialize authenticator", e);
+            }
         }
     }
 
