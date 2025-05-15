@@ -123,6 +123,11 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
         boolean isCorrelated = analyzedResult.isCorrelated();
         LogicalPlan analyzedSubqueryPlan = analyzedResult.logicalPlan;
         checkOutputColumn(analyzedSubqueryPlan);
+        // use limitOneIsEliminated to indicate if subquery has limit 1 clause
+        // because limit 1 clause will ensure subquery output at most 1 row
+        // we eliminate limit 1 clause and pass this info to later SubqueryToApply rule
+        // so when creating LogicalApply node, we don't need to add AssertTrue function
+        boolean limitOneIsEliminated = false;
         if (isCorrelated) {
             if (analyzedSubqueryPlan instanceof LogicalLimit) {
                 LogicalLimit limit = (LogicalLimit) analyzedSubqueryPlan;
@@ -130,6 +135,7 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
                     // skip useless limit node
                     analyzedResult = new AnalyzedResult((LogicalPlan) analyzedSubqueryPlan.child(0),
                             analyzedResult.correlatedSlots);
+                    limitOneIsEliminated = true;
                 } else {
                     throw new AnalysisException("limit is not supported in correlated subquery "
                             + analyzedResult.getLogicalPlan());
@@ -169,7 +175,8 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
             }
         }
 
-        return new ScalarSubquery(analyzedResult.getLogicalPlan(), analyzedResult.getCorrelatedSlots());
+        return new ScalarSubquery(analyzedResult.getLogicalPlan(), analyzedResult.getCorrelatedSlots(),
+                limitOneIsEliminated);
     }
 
     private void checkOutputColumn(LogicalPlan plan) {

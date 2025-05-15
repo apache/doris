@@ -66,6 +66,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -400,7 +401,11 @@ public class SubqueryToApply implements AnalysisRuleFactory {
         Optional<MarkJoinSlotReference> markJoinSlot = subqueryToMarkJoinSlot.get(subquery);
         boolean needAddScalarSubqueryOutputToProjects = isConjunctContainsScalarSubqueryOutput(
                 subquery, conjunct, isProject, singleSubquery);
-        boolean needRuntimeAssertCount = false;
+        // for scalar subquery, we need ensure it output at most 1 row
+        // by doing that, we add an aggregate function any_value() to the project list
+        // we use needRuntimeAnyValue to indicate if any_value() is needed
+        // if needRuntimeAnyValue is true, we will add it to the project list
+        boolean needRuntimeAnyValue = false;
         NamedExpression oldSubqueryOutput = subquery.getQueryPlan().getOutput().get(0);
         Slot countSlot = null;
         Slot anyValueSlot = null;
@@ -450,11 +455,17 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                 // select (select t2.c1 from t2 where t2.c2 = t1.c2) from t1;
                 // the original output of the correlate subquery is t2.c1, after adding a scalar agg, it will be
                 // select (select count(*), any_value(t2.c1) from t2 where t2.c2 = t1.c2) from t1;
-                Alias countAlias = new Alias(new Count());
                 Alias anyValueAlias = new Alias(new AnyValue(oldSubqueryOutput));
-                LogicalAggregate<Plan> aggregate = new LogicalAggregate<>(ImmutableList.of(),
-                        ImmutableList.of(countAlias, anyValueAlias), subquery.getQueryPlan());
-                countSlot = countAlias.toSlot();
+                LogicalAggregate<Plan> aggregate;
+                if (((ScalarSubquery) subquery).limitOneIsEliminated()) {
+                    aggregate = new LogicalAggregate<>(ImmutableList.of(),
+                            ImmutableList.of(anyValueAlias), subquery.getQueryPlan());
+                } else {
+                    Alias countAlias = new Alias(new Count());
+                    countSlot = countAlias.toSlot();
+                    aggregate = new LogicalAggregate<>(ImmutableList.of(),
+                            ImmutableList.of(countAlias, anyValueAlias), subquery.getQueryPlan());
+                }
                 anyValueSlot = anyValueAlias.toSlot();
                 subquery = subquery.withSubquery(aggregate);
                 if (conjunct.isPresent()) {
@@ -462,7 +473,7 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                     replaceMap.put(oldSubqueryOutput, anyValueSlot);
                     newConjunct = Optional.of(ExpressionUtils.replace(conjunct.get(), replaceMap));
                 }
-                needRuntimeAssertCount = true;
+                needRuntimeAnyValue = true;
             }
         }
         LogicalApply.SubQueryType subQueryType;
@@ -493,21 +504,33 @@ public class SubqueryToApply implements AnalysisRuleFactory {
         projects.addAll(childPlan.getOutput());
         // markJoinSlotReference
         markJoinSlot.map(projects::add);
+        LogicalProject logicalProject;
         if (needAddScalarSubqueryOutputToProjects) {
-            if (needRuntimeAssertCount) {
+            if (needRuntimeAnyValue) {
                 // if we create a new subquery in previous step, we need add the any_value() and assert_true()
                 // into the project list. So BE will use assert_true to check if the subquery return only 1 row
                 projects.add(anyValueSlot);
-                projects.add(new Alias(new AssertTrue(
-                        ExpressionUtils.or(new IsNull(countSlot),
-                                new LessThanEqual(countSlot, new IntegerLiteral(1))),
-                        new VarcharLiteral("correlate scalar subquery must return only 1 row"))));
+                if (countSlot != null) {
+                    List<NamedExpression> upperProjects = new ArrayList<>();
+                    upperProjects.addAll(projects.build());
+                    projects.add(new Alias(new AssertTrue(
+                            ExpressionUtils.or(new IsNull(countSlot),
+                                    new LessThanEqual(countSlot, new IntegerLiteral(1))),
+                            new VarcharLiteral("correlate scalar subquery must return only 1 row"))));
+                    logicalProject = new LogicalProject(projects.build(), newApply);
+                    logicalProject = new LogicalProject(upperProjects, logicalProject);
+                } else {
+                    logicalProject = new LogicalProject(projects.build(), newApply);
+                }
             } else {
                 projects.add(oldSubqueryOutput);
+                logicalProject = new LogicalProject(projects.build(), newApply);
             }
+        } else {
+            logicalProject = new LogicalProject(projects.build(), newApply);
         }
 
-        return Pair.of(new LogicalProject(projects.build(), newApply), newConjunct);
+        return Pair.of(logicalProject, newConjunct);
     }
 
     private boolean isConjunctContainsScalarSubqueryOutput(

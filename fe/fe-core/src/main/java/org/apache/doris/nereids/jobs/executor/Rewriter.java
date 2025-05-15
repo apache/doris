@@ -173,6 +173,10 @@ public class Rewriter extends AbstractBatchJobExecutor {
             ImmutableSet.of(LogicalCTEAnchor.class),
             () -> jobs(
                 topic("Plan Normalization",
+                        // move MergeProjects rule from analyze phase
+                        // because SubqueryToApply and BindSink rule may create extra project node
+                        // we need merge them at the beginning of rewrite phase to let later rules happy
+                        topDown(new MergeProjects()),
                         topDown(
                                 new EliminateOrderByConstant(),
                                 new EliminateSortUnderSubqueryOrView(),

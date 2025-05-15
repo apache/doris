@@ -41,25 +41,35 @@ import java.util.Optional;
  */
 public class ScalarSubquery extends SubqueryExpr implements LeafExpression {
 
+    // indicate if the subquery's root plan node is LogicalAggregate
     private final boolean hasTopLevelScalarAgg;
 
+    // indicate if the subquery has limit 1 clause but it's been eliminated in previous process step
+    private final boolean limitOneIsEliminated;
+
     public ScalarSubquery(LogicalPlan subquery) {
-        this(subquery, ImmutableList.of());
+        this(subquery, ImmutableList.of(), false);
     }
 
-    public ScalarSubquery(LogicalPlan subquery, List<Slot> correlateSlots) {
-        this(subquery, correlateSlots, Optional.empty());
+    public ScalarSubquery(LogicalPlan subquery, List<Slot> correlateSlots, boolean limitOneIsEliminated) {
+        this(subquery, correlateSlots, Optional.empty(), limitOneIsEliminated);
     }
 
-    public ScalarSubquery(LogicalPlan subquery, List<Slot> correlateSlots, Optional<Expression> typeCoercionExpr) {
+    public ScalarSubquery(LogicalPlan subquery, List<Slot> correlateSlots, Optional<Expression> typeCoercionExpr,
+                          boolean limitOneIsEliminated) {
         super(Objects.requireNonNull(subquery, "subquery can not be null"),
                 Objects.requireNonNull(correlateSlots, "correlateSlots can not be null"),
                 typeCoercionExpr);
         hasTopLevelScalarAgg = findTopLevelScalarAgg(subquery, ImmutableSet.copyOf(correlateSlots)) != null;
+        this.limitOneIsEliminated = limitOneIsEliminated;
     }
 
     public boolean hasTopLevelScalarAgg() {
         return hasTopLevelScalarAgg;
+    }
+
+    public boolean limitOneIsEliminated() {
+        return limitOneIsEliminated;
     }
 
     /**
@@ -103,12 +113,12 @@ public class ScalarSubquery extends SubqueryExpr implements LeafExpression {
         return new ScalarSubquery(queryPlan, correlateSlots,
                 dataType == queryPlan.getOutput().get(0).getDataType()
                     ? Optional.of(queryPlan.getOutput().get(0))
-                    : Optional.of(new Cast(queryPlan.getOutput().get(0), dataType)));
+                    : Optional.of(new Cast(queryPlan.getOutput().get(0), dataType)), limitOneIsEliminated);
     }
 
     @Override
     public ScalarSubquery withSubquery(LogicalPlan subquery) {
-        return new ScalarSubquery(subquery, correlateSlots, typeCoercionExpr);
+        return new ScalarSubquery(subquery, correlateSlots, typeCoercionExpr, limitOneIsEliminated);
     }
 
     /**
