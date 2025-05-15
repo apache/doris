@@ -42,7 +42,7 @@ import java.util.Set;
 /**
  * extract virtual column from filter and push down them into olap scan.
  */
-public class PushDownVirualColumnsIntoOlapScan extends OneRewriteRuleFactory {
+public class PushDownVirtualColumnsIntoOlapScan extends OneRewriteRuleFactory {
 
     @Override
     public Rule build() {
