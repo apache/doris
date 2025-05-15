@@ -45,6 +45,7 @@ public class KillQueryCommandTest extends TestWithFeService {
         accessControllerManager = env.getAccessManager();
         ConnectScheduler scheduler = new ConnectScheduler(10);
         connectContext.setQualifiedUser("root");
+        scheduler.registerConnection(connectContext);
         new Expectations() {
             {
                 accessControllerManager.checkGlobalPriv(connectContext, PrivPredicate.ADMIN);
