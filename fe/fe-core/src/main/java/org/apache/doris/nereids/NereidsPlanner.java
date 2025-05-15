@@ -33,6 +33,7 @@ import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.FieldInfo;
+import org.apache.doris.nereids.StatementContext.PlanCachePhase;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
@@ -40,6 +41,7 @@ import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.jobs.executor.Optimizer;
+import org.apache.doris.nereids.jobs.executor.PlanCacheRewriter;
 import org.apache.doris.nereids.jobs.executor.Rewriter;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -51,6 +53,9 @@ import org.apache.doris.nereids.processor.post.PlanPostProcessors;
 import org.apache.doris.nereids.processor.pre.PlanPreprocessors;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializationContext;
+import org.apache.doris.nereids.simple.SimpleAnalyzer;
+import org.apache.doris.nereids.simple.SimpleOptimizer;
+import org.apache.doris.nereids.simple.SimpleRewriter;
 import org.apache.doris.nereids.stats.StatsCalculator;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -105,6 +110,7 @@ import java.util.function.Function;
  * Planner to do query plan in Nereids.
  */
 public class NereidsPlanner extends Planner {
+    // private static final AtomicInteger executeCount = new AtomicInteger(0);
     public static final Logger LOG = LogManager.getLogger(NereidsPlanner.class);
 
     protected Plan parsedPlan;
@@ -255,7 +261,6 @@ public class NereidsPlanner extends Planner {
             boolean showPlanProcess) {
         // minidump of input must be serialized first, this process ensure minidump string not null
         try {
-
             MinidumpUtils.serializeInputsToDumpFile(plan, statementContext);
         } catch (IOException e) {
             throw new RuntimeException(e);
@@ -278,7 +283,7 @@ public class NereidsPlanner extends Planner {
             }
         }
 
-        optimize();
+        optimize(showPlanProcess);
         // print memo before choose plan.
         // if chooseNthPlan failed, we could get memo to debug
         if (cascadesContext.getConnectContext().getSessionVariable().dumpNereidsMemo) {
@@ -290,7 +295,13 @@ public class NereidsPlanner extends Planner {
             }
         }
         int nth = cascadesContext.getConnectContext().getSessionVariable().getNthOptimizedPlan();
-        PhysicalPlan physicalPlan = chooseNthPlan(getRoot(), requireProperties, nth);
+        PhysicalPlan physicalPlan;
+        if (cascadesContext.getConnectContext().getSessionVariable().enableNereidsSimplePlanner
+                || statementContext.planCachePhase == PlanCachePhase.TWO) {
+            physicalPlan = this.physicalPlan;
+        } else {
+            physicalPlan = chooseNthPlan(getRoot(), requireProperties, nth);
+        }
 
         physicalPlan = postProcess(physicalPlan);
         if (cascadesContext.getConnectContext().getSessionVariable().dumpNereidsMemo) {
@@ -375,7 +386,13 @@ public class NereidsPlanner extends Planner {
         if (LOG.isDebugEnabled()) {
             LOG.debug("Start analyze plan");
         }
-        keepOrShowPlanProcess(showPlanProcess, () -> cascadesContext.newAnalyzer().analyze());
+        keepOrShowPlanProcess(showPlanProcess, () -> {
+            if (cascadesContext.getConnectContext().getSessionVariable().enableNereidsSimplePlanner) {
+                new SimpleAnalyzer(cascadesContext).execute();
+            } else if (statementContext.planCachePhase != PlanCachePhase.TWO) {
+                cascadesContext.newAnalyzer().analyze();
+            }
+        });
         this.statementContext.getPlannerHooks().forEach(hook -> hook.afterAnalyze(this));
         NereidsTracer.logImportantTime("EndAnalyzePlan");
         if (LOG.isDebugEnabled()) {
@@ -395,7 +412,28 @@ public class NereidsPlanner extends Planner {
         if (LOG.isDebugEnabled()) {
             LOG.debug("Start rewrite plan");
         }
-        keepOrShowPlanProcess(showPlanProcess, () -> Rewriter.getWholeTreeRewriter(cascadesContext).execute());
+        keepOrShowPlanProcess(showPlanProcess, () -> {
+            if (cascadesContext.getConnectContext().getSessionVariable().enableNereidsSimplePlanner) {
+                new SimpleRewriter(cascadesContext).execute();
+            } else {
+                switch (statementContext.planCachePhase) {
+                    case NONE:
+                        Rewriter.getWholeTreeRewriter(cascadesContext).execute();
+                        break;
+                    case ONE:
+                        // phase one: rewrite with placeholder literal
+                        Rewriter.getWholeTreeRewriter(cascadesContext).execute();
+                        // phase two: replace placeholder literal to normal literal, and rewrite again
+                        new PlanCacheRewriter(cascadesContext).rewrite();
+                        break;
+                    case TWO:
+                        new PlanCacheRewriter(cascadesContext).rewrite();
+                        break;
+                    default:
+                        throw new RuntimeException("Unsupported plan cache phase: " + statementContext.planCachePhase);
+                }
+            }
+        });
         NereidsTracer.logImportantTime("EndRewritePlan");
         if (LOG.isDebugEnabled()) {
             LOG.debug("End rewrite plan");
@@ -403,10 +441,16 @@ public class NereidsPlanner extends Planner {
         if (statementContext.getConnectContext().getExecutor() != null) {
             statementContext.getConnectContext().getExecutor().getSummaryProfile().setNereidsRewriteTime();
         }
+        // help gc
+        // try {
+        //     Thread.sleep(0);
+        // } catch (InterruptedException e) {
+        //     ;
+        // }
     }
 
     // DependsRules: EnsureProjectOnTopJoin.class
-    protected void optimize() {
+    protected void optimize(boolean showPlanProcess) {
         // if we cannot get table row count, skip join reorder
         // except:
         //   1. user set leading hint
@@ -423,7 +467,16 @@ public class NereidsPlanner extends Planner {
         if (LOG.isDebugEnabled()) {
             LOG.debug("Start optimize plan");
         }
-        new Optimizer(cascadesContext).execute();
+        if (cascadesContext.getConnectContext().getSessionVariable().enableNereidsSimplePlanner
+                || statementContext.planCachePhase == PlanCachePhase.TWO) {
+            Plan logicalPlan = cascadesContext.getRewritePlan();
+            Plan physicalPlan = logicalPlan.accept(new SimpleOptimizer(), null);
+            this.physicalPlan = (PhysicalPlan) physicalPlan;
+        } else {
+            keepOrShowPlanProcess(showPlanProcess, () -> {
+                new Optimizer(cascadesContext).execute();
+            });
+        }
         NereidsTracer.logImportantTime("EndOptimizePlan");
         if (LOG.isDebugEnabled()) {
             LOG.debug("End optimize plan");
@@ -431,6 +484,12 @@ public class NereidsPlanner extends Planner {
         if (statementContext.getConnectContext().getExecutor() != null) {
             statementContext.getConnectContext().getExecutor().getSummaryProfile().setNereidsOptimizeTime();
         }
+        // help gc
+        // try {
+        //     Thread.sleep(0);
+        // } catch (InterruptedException e) {
+        //     ;
+        // }
     }
 
     /**
@@ -574,12 +633,21 @@ public class NereidsPlanner extends Planner {
         }
 
         splitFragments(physicalPlan);
-        doDistribute(canUseNereidsDistributePlanner);
+        doDistribute(canUseNereidsDistributePlanner, explainLevel);
     }
 
-    protected void doDistribute(boolean canUseNereidsDistributePlanner) {
+    protected void doDistribute(boolean canUseNereidsDistributePlanner, ExplainLevel explainLevel) {
         if (!canUseNereidsDistributePlanner) {
             return;
+        }
+        switch (explainLevel) {
+            case NONE:
+            case ALL_PLAN:
+            case DISTRIBUTED_PLAN:
+                break;
+            default: {
+                return;
+            }
         }
 
         boolean notNeedBackend = false;

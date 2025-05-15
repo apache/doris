@@ -15,16 +15,29 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.rewrite;
+package org.apache.doris.nereids.types.coercion;
 
-import org.apache.doris.nereids.rules.Rule;
-import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.plans.logical.LogicalView;
+import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.types.DataType;
 
-/** InlineLogicalView */
-public class InlineLogicalView extends OneRewriteRuleFactory {
+/** PlaceholderDataType */
+public class PlaceholderDataType extends DataType {
+    public static final PlaceholderDataType INSTANCE = new PlaceholderDataType();
+
+    private PlaceholderDataType() {}
+
     @Override
-    public Rule build() {
-        return logicalView().then(LogicalView::child).toRule(RuleType.INLINE_VIEW);
+    public Type toCatalogDataType() {
+        return null;
+    }
+
+    @Override
+    public String toSql() {
+        return "?";
+    }
+
+    @Override
+    public int width() {
+        return 0;
     }
 }

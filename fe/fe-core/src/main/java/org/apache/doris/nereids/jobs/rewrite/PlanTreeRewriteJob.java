@@ -19,13 +19,13 @@ package org.apache.doris.nereids.jobs.rewrite;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.PlanProcess;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.JobType;
 import org.apache.doris.nereids.minidump.NereidsTracer;
 import org.apache.doris.nereids.pattern.Pattern;
 import org.apache.doris.nereids.rules.Rule;
+import org.apache.doris.nereids.rules.Rules;
 import org.apache.doris.nereids.trees.plans.Plan;
 
 import com.google.common.collect.ImmutableList;
@@ -43,21 +43,21 @@ public abstract class PlanTreeRewriteJob extends Job {
         this.isTraverseChildren = Objects.requireNonNull(isTraverseChildren, "isTraverseChildren can not be null");
     }
 
-    protected final RewriteResult rewrite(Plan plan, List<Rule> rules, RewriteJobContext rewriteJobContext) {
+    protected final RewriteResult rewrite(Plan plan, Rules rules, RewriteJobContext rewriteJobContext) {
         CascadesContext cascadesContext = context.getCascadesContext();
         cascadesContext.setIsRewriteRoot(rewriteJobContext.isRewriteRoot());
 
         boolean showPlanProcess = cascadesContext.showPlanProcess();
-        for (Rule rule : rules) {
+        for (Rule rule : rules.getCurrentRules(plan)) {
             if (disableRules.get(rule.getRuleType().type())) {
                 continue;
             }
             Pattern<Plan> pattern = (Pattern<Plan>) rule.getPattern();
             if (pattern.matchPlanTree(plan)) {
                 List<Plan> newPlans = rule.transform(plan, cascadesContext);
-                if (newPlans.size() != 1) {
-                    throw new AnalysisException("Rewrite rule should generate one plan: " + rule.getRuleType());
-                }
+                // if (newPlans.size() != 1) {
+                //     throw new AnalysisException("Rewrite rule should generate one plan: " + rule.getRuleType());
+                // }
                 Plan newPlan = newPlans.get(0);
                 if (!newPlan.deepEquals(plan)) {
                     NereidsTracer.logRewriteEvent(rule.toString(), pattern, plan, newPlan);
@@ -131,7 +131,7 @@ public abstract class PlanTreeRewriteJob extends Job {
         return context.getCascadesContext()
                 .getCurrentRootRewriteJobContext().get()
                 .getNewestPlan()
-                .treeString();
+                .treeString(true);
     }
 
     static class RewriteResult {

@@ -714,10 +714,12 @@ public class Memo {
         if (childrenGroups.isEmpty()) {
             return plan;
         }
-        List<Plan> groupPlanChildren = childrenGroups.stream()
-                .map(GroupPlan::new)
-                .collect(ImmutableList.toImmutableList());
-        return plan.withChildren(groupPlanChildren);
+
+        ImmutableList.Builder<Plan> groupPlanChildren = ImmutableList.builderWithExpectedSize(childrenGroups.size());
+        for (Group childrenGroup : childrenGroups) {
+            groupPlanChildren.add(new GroupPlan(childrenGroup));
+        }
+        return plan.withChildren(groupPlanChildren.build());
     }
 
     /*

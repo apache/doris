@@ -359,7 +359,6 @@ public class FunctionRegistry {
         @Override
         public Expression withChildren(List<Expression> children) {
             throw new AnalysisException("could not call withChildren on UdfSignatureSearcher");
-
         }
     }
 }
