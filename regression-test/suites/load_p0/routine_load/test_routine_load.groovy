@@ -19,6 +19,7 @@ import org.apache.kafka.clients.admin.AdminClient
 import org.apache.kafka.clients.producer.KafkaProducer
 import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.clients.producer.ProducerConfig
+import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_routine_load","p0") {
 
@@ -1606,12 +1607,25 @@ suite("test_routine_load","p0") {
                         if (res[0][0] > 0) {
                             break
                         }
+
+                        def tablets = sql_return_maparray """ show tablets from ${tableName1} """
+                        for (def tablet_info : tablets) {
+                            logger.info("tablet: $tablet_info")
+                            def compact_url = tablet_info.get("CompactionStatus")
+                            String command = "curl ${compact_url}"
+                            Process process = command.execute()
+                            def code = process.waitFor()
+                            def err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())));
+                            def out = process.getText()
+                            logger.info("code=" + code + ", out=" + out + ", err=" + err)
+                        }
+
                         if (count >= 120) {
                             log.error("routine load can not visible for long time")
                             assertEquals(20, res[0][0])
                             break
                         }
-                        sleep(5000)
+                        sleep(1000)
                         count++
                     }
 
