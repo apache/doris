@@ -92,6 +92,15 @@
 22	\N
 24	\N
 
+-- !select_project3 --
+\N
+\N
+\N
+\N
+\N
+2
+2
+
 -- !select_join1 --
 3	4
 
