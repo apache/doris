@@ -98,7 +98,7 @@ PhysicalResultSink
 
 -- !union_filter1 --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((id = id)) otherCondition=()
+--NestedLoopJoin[INNER_JOIN]
 ----PhysicalUnion
 ------filter((b.id = 1))
 --------PhysicalOlapScan[table_b]

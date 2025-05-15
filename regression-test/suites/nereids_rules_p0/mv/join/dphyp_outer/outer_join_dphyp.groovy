@@ -21,7 +21,7 @@ suite("outer_join_dphyp") {
     sql "set runtime_filter_mode=OFF";
     sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
     sql "SET enable_dphyp_optimizer = true"
-    sql "set disable_nereids_rules=ELIMINATE_CONST_JOIN_CONDITION"
+    sql "set disable_nereids_rules='ELIMINATE_CONST_JOIN_CONDITION,CONSTANT_PROPAGATION'"
 
     sql """
     drop table if exists orders

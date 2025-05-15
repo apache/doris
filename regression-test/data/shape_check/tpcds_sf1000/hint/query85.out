@@ -15,7 +15,7 @@ PhysicalResultSink
 --------------------PhysicalProject
 ----------------------hashJoin[INNER_JOIN broadcast] hashCondition=((reason.r_reason_sk = web_returns.wr_reason_sk)) otherCondition=() build RFs:RF8 r_reason_sk->[wr_reason_sk]
 ------------------------PhysicalProject
---------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((cd1.cd_education_status = cd2.cd_education_status) and (cd1.cd_marital_status = cd2.cd_marital_status) and (cd2.cd_demo_sk = web_returns.wr_returning_cdemo_sk)) otherCondition=() build RFs:RF5 wr_returning_cdemo_sk->[cd_demo_sk];RF6 cd_marital_status->[cd_marital_status];RF7 cd_education_status->[cd_education_status]
+--------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((cd1.cd_education_status = cd2.cd_education_status) and (cd1.cd_marital_status = cd2.cd_marital_status) and (cd2.cd_demo_sk = web_returns.wr_returning_cdemo_sk)) otherCondition=(OR[AND[(cd1.cd_marital_status = 'D'),(cd1.cd_education_status = 'Primary'),(web_sales.ws_sales_price >= 100.00),(web_sales.ws_sales_price <= 150.00),(cd2.cd_marital_status = 'D'),(cd2.cd_education_status = 'Primary')],AND[(cd1.cd_marital_status = 'S'),(cd1.cd_education_status = 'College'),(web_sales.ws_sales_price <= 100.00),(cd2.cd_marital_status = 'S'),(cd2.cd_education_status = 'College')],AND[(cd1.cd_marital_status = 'U'),(cd1.cd_education_status = 'Advanced Degree'),(web_sales.ws_sales_price >= 150.00),(cd2.cd_marital_status = 'U'),(cd2.cd_education_status = 'Advanced Degree')]]) build RFs:RF5 wr_returning_cdemo_sk->[cd_demo_sk];RF6 cd_marital_status->[cd_marital_status];RF7 cd_education_status->[cd_education_status]
 ----------------------------PhysicalProject
 ------------------------------filter(cd_education_status IN ('Advanced Degree', 'College', 'Primary') and cd_marital_status IN ('D', 'S', 'U'))
 --------------------------------PhysicalOlapScan[customer_demographics] apply RFs: RF5 RF6 RF7
@@ -25,7 +25,7 @@ PhysicalResultSink
 ----------------------------------filter((customer_address.ca_country = 'United States') and ca_state IN ('GA', 'IA', 'KY', 'NC', 'OK', 'TX', 'VA', 'WI', 'WV'))
 ------------------------------------PhysicalOlapScan[customer_address] apply RFs: RF4
 --------------------------------PhysicalProject
-----------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((cd1.cd_demo_sk = web_returns.wr_refunded_cdemo_sk)) otherCondition=(OR[AND[(cd1.cd_marital_status = 'D'),(cd1.cd_education_status = 'Primary'),(web_sales.ws_sales_price >= 100.00),(web_sales.ws_sales_price <= 150.00)],AND[(cd1.cd_marital_status = 'S'),(cd1.cd_education_status = 'College'),(web_sales.ws_sales_price <= 100.00)],AND[(cd1.cd_marital_status = 'U'),(cd1.cd_education_status = 'Advanced Degree'),(web_sales.ws_sales_price >= 150.00)]]) build RFs:RF3 cd_demo_sk->[wr_refunded_cdemo_sk]
+----------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((cd1.cd_demo_sk = web_returns.wr_refunded_cdemo_sk)) otherCondition=() build RFs:RF3 cd_demo_sk->[wr_refunded_cdemo_sk]
 ------------------------------------PhysicalProject
 --------------------------------------hashJoin[INNER_JOIN colocated] hashCondition=((web_sales.ws_item_sk = web_returns.wr_item_sk) and (web_sales.ws_order_number = web_returns.wr_order_number)) otherCondition=() build RFs:RF1 ws_item_sk->[wr_item_sk];RF2 ws_order_number->[wr_order_number]
 ----------------------------------------PhysicalProject

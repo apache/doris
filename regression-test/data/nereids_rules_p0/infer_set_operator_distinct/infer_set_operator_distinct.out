@@ -353,9 +353,11 @@ PhysicalResultSink
 ----------------filter((t1.score > 10))
 ------------------PhysicalOlapScan[t1]
 ------------PhysicalDistribute[DistributionSpecExecutionAny]
---------------hashAgg[LOCAL]
-----------------filter((t2.name = 'Test'))
-------------------PhysicalOlapScan[t2]
+--------------PhysicalProject
+----------------hashAgg[LOCAL]
+------------------PhysicalProject
+--------------------filter((t2.name = 'Test'))
+----------------------PhysicalOlapScan[t2]
 
 Hint log:
 Used: use_INFER_SET_OPERATOR_DISTINCT

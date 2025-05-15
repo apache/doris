@@ -285,11 +285,16 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
                     );
                 }
             }
-            Expression expression = ExpressionUtils.replace(
-                    ExpressionUtils.and(Lists.newArrayList(childPredicates)),
-                    expressionSlotMap
-            );
-            Set<Expression> predicates = Sets.newLinkedHashSet(ExpressionUtils.extractConjunction(expression));
+            Set<Expression> predicates;
+            if (childPredicates.isEmpty()) {
+                predicates = ImmutableSet.of();
+            } else {
+                Expression expression = ExpressionUtils.replace(
+                        ExpressionUtils.and(Lists.newArrayList(childPredicates)),
+                        expressionSlotMap
+                );
+                predicates = Sets.newLinkedHashSet(ExpressionUtils.extractConjunction(expression));
+            }
             return getAvailableExpressions(predicates, aggregate);
         });
     }

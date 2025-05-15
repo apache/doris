@@ -19,16 +19,22 @@ package org.apache.doris.nereids.rules.expression;
 
 import com.google.common.collect.ImmutableList;
 
+import java.util.List;
+
 /** ExpressionNormalizationAndOptimization */
 public class ExpressionNormalizationAndOptimization extends ExpressionRewrite {
     /** ExpressionNormalizationAndOptimization */
-    public ExpressionNormalizationAndOptimization() {
-        super(new ExpressionRuleExecutor(
-                ImmutableList.<ExpressionRewriteRule>builder()
-                        .addAll(ExpressionNormalization.NORMALIZE_REWRITE_RULES)
-                        .addAll(ExpressionOptimization.OPTIMIZE_REWRITE_RULES)
-                        .addAll(ExpressionOptimization.ADD_RANGE)
-                        .build()
-        ));
+    public ExpressionNormalizationAndOptimization(boolean addRange) {
+        super(new ExpressionRuleExecutor(buildRewriteRule(addRange)));
+    }
+
+    private static List<ExpressionRewriteRule> buildRewriteRule(boolean addRange) {
+        ImmutableList.Builder<ExpressionRewriteRule> builder = ImmutableList.builder();
+        builder.addAll(ExpressionNormalization.NORMALIZE_REWRITE_RULES)
+                .addAll(ExpressionOptimization.OPTIMIZE_REWRITE_RULES);
+        if (addRange) {
+            builder.addAll(ExpressionOptimization.ADD_RANGE);
+        }
+        return builder.build();
     }
 }

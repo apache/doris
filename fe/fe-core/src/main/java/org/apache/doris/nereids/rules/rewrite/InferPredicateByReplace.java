@@ -32,7 +32,6 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
-import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.types.DecimalV2Type;
@@ -181,9 +180,8 @@ public class InferPredicateByReplace {
                 continue;
             }
             PredicateInferUtils.getPairFromCast((ComparisonPredicate) input)
-                    .filter(pair -> PredicateInferUtils.isSlotOrLiteral(pair.first)
-                            && PredicateInferUtils.isSlotOrLiteral(pair.second))
-                    .filter(pair -> !(pair.first instanceof NullLiteral) && !(pair.second instanceof NullLiteral))
+                    .filter(pair -> PredicateInferUtils.isSlotOrNotNullLiteral(pair.first)
+                            && PredicateInferUtils.isSlotOrNotNullLiteral(pair.second))
                     .ifPresent(pair -> {
                         Expression left = pair.first;
                         Expression right = pair.second;
