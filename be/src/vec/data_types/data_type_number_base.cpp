@@ -127,22 +127,22 @@ Field DataTypeNumberBase<T>::get_default() const {
 
 template <typename T>
 Field DataTypeNumberBase<T>::get_field(const TExprNode& node) const {
-    if constexpr (std::is_same_v<TypeId<T>, TypeId<UInt8>>) {
+    if constexpr (std::is_same_v<T, UInt8>) {
         return UInt8(node.bool_literal.value);
     }
-    if constexpr (std::is_same_v<TypeId<T>, TypeId<Int8>>) {
+    if constexpr (std::is_same_v<T, Int8>) {
         return Int8(node.int_literal.value);
     }
-    if constexpr (std::is_same_v<TypeId<T>, TypeId<Int16>>) {
+    if constexpr (std::is_same_v<T, Int16>) {
         return Int16(node.int_literal.value);
     }
-    if constexpr (std::is_same_v<TypeId<T>, TypeId<Int32>>) {
+    if constexpr (std::is_same_v<T, Int32>) {
         return Int32(node.int_literal.value);
     }
-    if constexpr (std::is_same_v<TypeId<T>, TypeId<Int64>>) {
+    if constexpr (std::is_same_v<T, Int64>) {
         return Int64(node.int_literal.value);
     }
-    if constexpr (std::is_same_v<TypeId<T>, TypeId<Int128>>) {
+    if constexpr (std::is_same_v<T, Int128>) {
         StringParser::ParseResult parse_result = StringParser::PARSE_SUCCESS;
         auto value = StringParser::string_to_int<__int128>(node.large_int_literal.value.c_str(),
                                                            node.large_int_literal.value.size(),
@@ -152,10 +152,10 @@ Field DataTypeNumberBase<T>::get_field(const TExprNode& node) const {
         }
         return Int128(value);
     }
-    if constexpr (std::is_same_v<TypeId<T>, TypeId<Float32>>) {
+    if constexpr (std::is_same_v<T, Float32>) {
         return Float32(node.float_literal.value);
     }
-    if constexpr (std::is_same_v<TypeId<T>, TypeId<Float64>>) {
+    if constexpr (std::is_same_v<T, Float64>) {
         return Float64(node.float_literal.value);
     }
     throw Exception(Status::FatalError("__builtin_unreachable"));

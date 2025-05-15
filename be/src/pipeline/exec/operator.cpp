@@ -27,6 +27,7 @@
 #include "pipeline/exec/cache_sink_operator.h"
 #include "pipeline/exec/cache_source_operator.h"
 #include "pipeline/exec/datagen_operator.h"
+#include "pipeline/exec/dict_sink_operator.h"
 #include "pipeline/exec/distinct_streaming_aggregation_operator.h"
 #include "pipeline/exec/empty_set_operator.h"
 #include "pipeline/exec/es_scan_operator.h"
@@ -45,6 +46,7 @@
 #include "pipeline/exec/memory_scratch_sink_operator.h"
 #include "pipeline/exec/meta_scan_operator.h"
 #include "pipeline/exec/mock_operator.h"
+#include "pipeline/exec/mock_scan_operator.h"
 #include "pipeline/exec/multi_cast_data_stream_sink.h"
 #include "pipeline/exec/multi_cast_data_stream_source.h"
 #include "pipeline/exec/nested_loop_join_build_operator.h"
@@ -762,6 +764,7 @@ DECLARE_OPERATOR(SetSinkLocalState<false>)
 DECLARE_OPERATOR(PartitionedHashJoinSinkLocalState)
 DECLARE_OPERATOR(GroupCommitBlockSinkLocalState)
 DECLARE_OPERATOR(CacheSinkLocalState)
+DECLARE_OPERATOR(DictSinkLocalState)
 
 #undef DECLARE_OPERATOR
 
@@ -798,6 +801,7 @@ DECLARE_OPERATOR(CacheSourceLocalState)
 
 #ifdef BE_TEST
 DECLARE_OPERATOR(MockLocalState)
+DECLARE_OPERATOR(MockScanLocalState)
 #endif
 #undef DECLARE_OPERATOR
 

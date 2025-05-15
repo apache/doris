@@ -24,7 +24,6 @@
 #include <string>
 
 #include "gutil/dynamic_annotations.h"
-#include "gutil/port.h"
 #include "util/memcpy_inlined.h"
 #include "util/slice.h"
 #include "vec/common/allocator.h"
@@ -103,7 +102,9 @@ public:
     // NOTE: even though the new capacity is reserved, it is illegal to begin writing into that memory
     // directly using pointers. If ASAN is enabled, this is ensured using manual memory poisoning.
     void reserve(size_t newcapacity) {
-        if (PREDICT_TRUE(newcapacity <= capacity_)) return;
+        if (newcapacity <= capacity_) [[likely]] {
+            return;
+        }
         GrowArray(newcapacity);
     }
 
@@ -206,7 +207,7 @@ private:
     // If necessary, expand the buffer to fit at least 'count' more bytes.
     // If the array has to be grown, it is grown by at least 50%.
     void EnsureRoomForAppend(size_t count) {
-        if (PREDICT_TRUE(len_ + count <= capacity_)) {
+        if (len_ + count <= capacity_) [[likely]] {
             return;
         }
 

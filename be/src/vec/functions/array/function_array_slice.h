@@ -54,14 +54,14 @@ public:
     size_t get_number_of_arguments() const override { return 0; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        DCHECK(is_array(arguments[0]))
+        DCHECK(arguments[0]->get_primitive_type() == TYPE_ARRAY)
                 << "First argument for function: " << name
                 << " should be DataTypeArray but it has type " << arguments[0]->get_name() << ".";
-        DCHECK(is_integer(arguments[1]))
+        DCHECK(is_int_or_bool(arguments[1]->get_primitive_type()))
                 << "Second argument for function: " << name << " should be Integer but it has type "
                 << arguments[1]->get_name() << ".";
         if (arguments.size() > 2) {
-            DCHECK(is_integer(arguments[2]))
+            DCHECK(is_int_or_bool(arguments[2]->get_primitive_type()))
                     << "Third argument for function: " << name
                     << " should be Integer but it has type " << arguments[2]->get_name() << ".";
         }

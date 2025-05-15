@@ -29,7 +29,6 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "exec/tablet_info.h"
-#include "gutil/strings/numbers.h"
 #include "io/fs/file_writer.h" // IWYU pragma: keep
 #include "olap/memtable.h"
 #include "olap/memtable_flush_executor.h"
@@ -160,7 +159,7 @@ Status MemTableWriter::flush_async() {
     // 1. call by local, from `VTabletWriterV2::_write_memtable`.
     // 2. call by remote, from `LoadChannelMgr::_get_load_channel`.
     // 3. call by daemon thread, from `handle_paused_queries` -> `flush_workload_group_memtables`.
-    SCOPED_SWITCH_RESOURCE_CONTEXT(_resource_ctx);
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_resource_ctx->memory_context()->mem_tracker());
     if (!_is_init || _is_closed) {
         // This writer is uninitialized or closed before flushing, do nothing.
         // We return OK instead of NOT_INITIALIZED or ALREADY_CLOSED.
@@ -202,7 +201,7 @@ void MemTableWriter::_reset_mem_table() {
     {
         std::lock_guard<std::mutex> l(_mem_table_ptr_lock);
         _mem_table.reset(new MemTable(_req.tablet_id, _tablet_schema, _req.slots, _req.tuple_desc,
-                                      _unique_key_mow, _partial_update_info.get()));
+                                      _unique_key_mow, _partial_update_info.get(), _resource_ctx));
     }
 
     _segment_num++;

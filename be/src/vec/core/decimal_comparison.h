@@ -34,10 +34,12 @@
 namespace doris::vectorized {
 
 inline bool allow_decimal_comparison(const DataTypePtr& left_type, const DataTypePtr& right_type) {
-    if (is_decimal(left_type)) {
-        if (is_decimal(right_type) || is_not_decimal_but_comparable_to_decimal(right_type))
+    if (is_decimal(left_type->get_primitive_type())) {
+        if (is_decimal(right_type->get_primitive_type()) ||
+            is_int_or_bool(right_type->get_primitive_type()))
             return true;
-    } else if (is_not_decimal_but_comparable_to_decimal(left_type) && is_decimal(right_type))
+    } else if (is_int_or_bool(left_type->get_primitive_type()) &&
+               is_decimal(right_type->get_primitive_type()))
         return true;
     return false;
 }

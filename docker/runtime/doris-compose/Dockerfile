@@ -25,37 +25,59 @@
 ARG JDK_IMAGE=openjdk:17-jdk-slim
 #ARG JDK_IMAGE=openjdk:8u342-jdk
 
+# user can download a doris release package, extract it, then build its image used arg `OUTPUT_PATH`
+# for example:
+#
+# ```
+# cd ~/tmp
+# wget https://apache-doris-releases.oss-accelerate.aliyuncs.com/apache-doris-3.0.5-bin-x64.tar.gz
+# tar xvf apache-doris-3.0.5-bin-x64.tar.gz  # after extract, there will be a directory ./apache-doris-3.0.5-bin-x64/{fe, be, ms}
+#
+# docker build \
+#     --build-arg OUTPUT_PATH=./apache-doris-3.0.5-bin-x64 \
+#     -f ~/workspace/doris/docker/runtime/doris-compose/Dockerfile \
+#     -t my-doris:v3.0.5 \
+#     .
+# ```
+ARG OUTPUT_PATH=./output
+
 #### END ARG ####
 
 FROM ${JDK_IMAGE}
 
 # set environment variables
-ENV JACOCO_VERSION 0.8.8
+ENV JACOCO_VERSION=0.8.8
 
-RUN mkdir -p /opt/apache-doris/coverage
+RUN sed -i s@/deb.debian.org/@/mirrors.aliyun.com/@g /etc/apt/sources.list \
+    && apt-get clean \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+        default-mysql-client \
+        python \
+        lsof \
+        tzdata \
+        curl \
+        unzip \
+        patchelf \
+        jq \
+        procps \
+        util-linux \
+        gosu \
+    && ln -fs /usr/share/zoneinfo/Asia/Shanghai /etc/localtime \
+    && dpkg-reconfigure -f noninteractive tzdata \
+    && apt-get clean
 
-RUN  sed -i s@/deb.debian.org/@/mirrors.aliyun.com/@g /etc/apt/sources.list
-RUN  apt-get clean
+RUN mkdir -p /opt/apache-doris/{fdb,coverage}
 
-RUN apt-get update && \
-    apt-get install -y default-mysql-client python lsof tzdata curl unzip patchelf jq procps util-linux gosu && \
-    ln -fs /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && \
-    dpkg-reconfigure -f noninteractive tzdata && \
-    apt-get clean
+RUN curl -f https://repo1.maven.org/maven2/org/jacoco/jacoco/${JACOCO_VERSION}/jacoco-${JACOCO_VERSION}.zip -o jacoco.zip \
+    && mkdir /jacoco \
+    && unzip jacoco.zip -d /jacoco
 
-RUN curl -f https://repo1.maven.org/maven2/org/jacoco/jacoco/${JACOCO_VERSION}/jacoco-${JACOCO_VERSION}.zip -o jacoco.zip && \
-    mkdir /jacoco && \
-    unzip jacoco.zip -d /jacoco
-
-# cloud
-COPY --chmod=777 README.md cloud/output* output/ms* /opt/apache-doris/cloud/
-RUN mkdir /opt/apache-doris/fdb
-RUN if [ -d /opt/apache-doris/cloud/bin ]; then                            \
-        sed -i 's/\<chmod\>/echo/g' /opt/apache-doris/cloud/bin/start.sh ; \
-    fi
-
-# fe and be
-COPY --chmod=777 output /opt/apache-doris/
+# COPY need refine ARG after FROM
+ARG OUTPUT_PATH
+COPY --chmod=777 ${OUTPUT_PATH} /opt/apache-doris/
 # in docker, run 'chmod 755 doris_be' first time cost 1min, remove it.
 RUN sed -i 's/\<chmod\>/echo/g' /opt/apache-doris/be/bin/start_be.sh
-
+RUN if [ -d /opt/apache-doris/ms/bin ]; then                            \
+        sed -i 's/\<chmod\>/echo/g' /opt/apache-doris/ms/bin/start.sh ; \
+    fi

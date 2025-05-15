@@ -74,7 +74,7 @@ Status RuntimeFilterMgr::register_consumer_filter(
 
 Status RuntimeFilterMgr::register_local_merger_producer_filter(
         const QueryContext* query_ctx, const TRuntimeFilterDesc& desc,
-        std::shared_ptr<RuntimeFilterProducer> producer, RuntimeProfile* parent_profile) {
+        std::shared_ptr<RuntimeFilterProducer> producer) {
     if (!_is_global) [[unlikely]] {
         return Status::InternalError(
                 "A local merge filter can not be registered in Local RuntimeFilterMgr");
@@ -129,10 +129,9 @@ Status RuntimeFilterMgr::get_local_merge_producer_filters(int filter_id,
     return Status::OK();
 }
 
-Status RuntimeFilterMgr::register_producer_filter(const QueryContext* query_ctx,
-                                                  const TRuntimeFilterDesc& desc,
-                                                  std::shared_ptr<RuntimeFilterProducer>* producer,
-                                                  RuntimeProfile* parent_profile) {
+Status RuntimeFilterMgr::register_producer_filter(
+        const QueryContext* query_ctx, const TRuntimeFilterDesc& desc,
+        std::shared_ptr<RuntimeFilterProducer>* producer) {
     if (_is_global) [[unlikely]] {
         return Status::InternalError(
                 "A local producer filter should not be registered in Global RuntimeFilterMgr");
@@ -144,7 +143,7 @@ Status RuntimeFilterMgr::register_producer_filter(const QueryContext* query_ctx,
     if (_producer_id_set.contains(key)) {
         return Status::InvalidArgument("filter {} has been registered", key);
     }
-    RETURN_IF_ERROR(RuntimeFilterProducer::create(query_ctx, &desc, producer, parent_profile));
+    RETURN_IF_ERROR(RuntimeFilterProducer::create(query_ctx, &desc, producer));
     _producer_id_set.insert(key);
     return Status::OK();
 }
@@ -312,7 +311,7 @@ Status RuntimeFilterMergeControllerEntity::merge(std::shared_ptr<QueryContext> q
         }
         std::shared_ptr<RuntimeFilterProducer> tmp_filter;
         RETURN_IF_ERROR(RuntimeFilterProducer::create(query_ctx.get(), &cnt_val.runtime_filter_desc,
-                                                      &tmp_filter, nullptr));
+                                                      &tmp_filter));
 
         RETURN_IF_ERROR(tmp_filter->assign(*request, attach_data));
 
@@ -347,6 +346,7 @@ Status RuntimeFilterMergeControllerEntity::merge(std::shared_ptr<QueryContext> q
         auto ctx = query_ctx->ignore_runtime_filter_error() ? std::weak_ptr<QueryContext> {}
                                                             : query_ctx;
         std::vector<TRuntimeFilterTargetParamsV2>& targets = cnt_val.targetv2_info;
+
         for (auto& target : targets) {
             auto closure = AutoReleaseClosure<PPublishFilterRequestV2,
                                               DummyBrpcCallback<PPublishFilterResponse>>::

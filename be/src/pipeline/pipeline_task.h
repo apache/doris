@@ -67,13 +67,14 @@ public:
 
     int get_core_id() const { return _core_id; }
 
-    void set_core_id(int id) {
+    PipelineTask& set_core_id(int id) {
         if (id != _core_id) {
             if (_core_id != -1) {
                 COUNTER_UPDATE(_core_change_times, 1);
             }
             _core_id = id;
         }
+        return *this;
     }
 
     Status finalize();
@@ -122,14 +123,11 @@ public:
     // Execution phase should be terminated. This is called if this task is canceled or waken up early.
     void terminate();
 
-    void set_task_queue(MultiCoreTaskQueue* task_queue) { _task_queue = task_queue; }
+    PipelineTask& set_task_queue(MultiCoreTaskQueue* task_queue) {
+        _task_queue = task_queue;
+        return *this;
+    }
     MultiCoreTaskQueue* get_task_queue() { return _task_queue; }
-
-#ifdef BE_TEST
-    unsigned long long THREAD_TIME_SLICE = 100'000'000ULL;
-#else
-    static constexpr auto THREAD_TIME_SLICE = 100'000'000ULL;
-#endif
 
     // 1 used for update priority queue
     // note(wb) an ugly implementation, need refactor later
@@ -150,32 +148,9 @@ public:
 
     bool is_running() { return _running.load(); }
     bool is_revoking() const;
-    bool set_running(bool running) { return _running.exchange(running); }
-
-    bool is_exceed_debug_timeout() {
-        if (_has_exceed_timeout) {
-            return true;
-        }
-        // If enable_debug_log_timeout_secs <= 0, then disable the log
-        if (_pipeline_task_watcher.elapsed_time() >
-            config::enable_debug_log_timeout_secs * 1000L * 1000L * 1000L) {
-            _has_exceed_timeout = true;
-            return true;
-        }
-        return false;
-    }
-
-    void log_detail_if_need() {
-        if (config::enable_debug_log_timeout_secs < 1) {
-            return;
-        }
-        if (is_exceed_debug_timeout()) {
-            LOG(INFO) << "query id|instanceid " << print_id(_state->query_id()) << "|"
-                      << print_id(_state->fragment_instance_id())
-                      << " current pipeline exceed run time "
-                      << config::enable_debug_log_timeout_secs << " seconds. "
-                      << "/n task detail:" << debug_string();
-        }
+    PipelineTask& set_running(bool running) {
+        _running.exchange(running);
+        return *this;
     }
 
     RuntimeState* runtime_state() const { return _state; }
@@ -215,7 +190,6 @@ private:
     const TUniqueId _query_id;
     const uint32_t _index;
     PipelinePtr _pipeline;
-    bool _has_exceed_timeout = false;
     bool _opened;
     RuntimeState* _state = nullptr;
     int _core_id = -1;
@@ -254,8 +228,6 @@ private:
     RuntimeProfile::Counter* _memory_reserve_times = nullptr;
     RuntimeProfile::Counter* _memory_reserve_failed_times = nullptr;
 
-    MonotonicStopWatch _pipeline_task_watcher;
-
     Operators _operators; // left is _source, right is _root
     OperatorXBase* _source;
     OperatorXBase* _root;
@@ -277,7 +249,8 @@ private:
             _shared_state_map;
     int _task_idx;
     bool _dry_run = false;
-
+    MOCK_REMOVE(const)
+    unsigned long long _exec_time_slice = config::pipeline_task_exec_time_slice * NANOS_PER_MILLIS;
     Dependency* _blocked_dep = nullptr;
 
     Dependency* _execution_dep = nullptr;

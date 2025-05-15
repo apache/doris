@@ -40,6 +40,7 @@ import org.apache.doris.common.proc.ProcService;
 import org.apache.doris.common.proc.TableProcDir;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.systable.SysTable;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
@@ -130,16 +131,20 @@ public class DescribeStmt extends ShowStmt implements NotFallbackInParser {
         // It will convert this to corresponding table valued functions
         // eg: DESC table$partitions -> partition_values(...)
         if (dbTableName != null) {
+            // if this is isTableValuedFunction, eg: desc function s3(),
+            // the dbTableName is null.
             dbTableName.analyze(analyzer);
             CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalogOrAnalysisException(dbTableName.getCtl());
-            Pair<String, String> sourceTableNameWithMetaName = catalog.getSourceTableNameWithMetaTableName(
-                    dbTableName.getTbl());
-            if (!Strings.isNullOrEmpty(sourceTableNameWithMetaName.second)) {
+            DatabaseIf db = catalog.getDbOrAnalysisException(dbTableName.getDb());
+            Pair<String, String> tableNameWithSysTableName
+                    = SysTable.getTableNameWithSysTableName(dbTableName.getTbl());
+            if (!Strings.isNullOrEmpty(tableNameWithSysTableName.second)) {
+                TableIf table = db.getTableOrDdlException(tableNameWithSysTableName.first);
                 isTableValuedFunction = true;
-                Optional<TableValuedFunctionRef> optTvfRef = catalog.getMetaTableFunctionRef(
+                Optional<TableValuedFunctionRef> optTvfRef = table.getSysTableFunctionRef(dbTableName.getCtl(),
                         dbTableName.getDb(), dbTableName.getTbl());
                 if (!optTvfRef.isPresent()) {
-                    throw new AnalysisException("meta table not found: " + sourceTableNameWithMetaName.second);
+                    throw new AnalysisException("sys table not found: " + tableNameWithSysTableName.second);
                 }
                 tableValuedFunctionRef = optTvfRef.get();
             }

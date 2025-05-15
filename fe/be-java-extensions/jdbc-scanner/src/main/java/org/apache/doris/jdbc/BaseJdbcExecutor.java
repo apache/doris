@@ -362,17 +362,31 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
         } catch (FileNotFoundException e) {
             throw new JdbcExecutorException("FileNotFoundException failed: ", e);
         } catch (Exception e) {
+            String msg = e.getMessage();
+            // If driver class loading failed (Hikari wraps it), clear stale cache and prompt retry
+            if (msg != null && msg.contains("Failed to load driver class")) {
+                try {
+                    URL url = new URL(config.getJdbcDriverUrl());
+                    classLoaderMap.remove(url);
+                    // Prompt user to verify driver validity and retry
+                    throw new JdbcExecutorException(
+                        String.format("Failed to load driver class `%s`. "
+                                        + "Please check that the driver JAR is valid and retry.",
+                                      config.getJdbcDriverClass()), e);
+                } catch (MalformedURLException ignore) {
+                    // ignore invalid URL when cleaning cache
+                }
+            }
             throw new JdbcExecutorException("Initialize datasource failed: ", e);
         } finally {
             Thread.currentThread().setContextClassLoader(oldClassLoader);
         }
     }
 
-    private synchronized void initializeClassLoader(JdbcDataSourceConfig config)
-            throws MalformedURLException, FileNotFoundException {
+    private synchronized void initializeClassLoader(JdbcDataSourceConfig config) {
         try {
             URL[] urls = {new URL(config.getJdbcDriverUrl())};
-            if (classLoaderMap.containsKey(urls[0])) {
+            if (classLoaderMap.containsKey(urls[0]) && classLoaderMap.get(urls[0]) != null) {
                 this.classLoader = classLoaderMap.get(urls[0]);
             } else {
                 String expectedChecksum = config.getJdbcDriverChecksum();
@@ -385,7 +399,8 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
                 classLoaderMap.put(urls[0], this.classLoader);
             }
         } catch (MalformedURLException e) {
-            throw new RuntimeException("Error loading JDBC driver.", e);
+            throw new RuntimeException("Failed to load JDBC driver from path: "
+                    + config.getJdbcDriverUrl(), e);
         }
     }
 

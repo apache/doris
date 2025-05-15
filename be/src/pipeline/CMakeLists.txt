@@ -23,10 +23,6 @@ set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/pipeline")
 
 file(GLOB_RECURSE PIPELINE_FILES CONFIGURE_DEPENDS *.cpp)
 
-if (NOT WITH_MYSQL)
-    list(REMOVE_ITEM PIPELINE_FILES ${CMAKE_CURRENT_SOURCE_DIR}/exec/mysql_scan_operator.cpp)
-endif ()
-
 add_library(Pipeline STATIC
         ${PIPELINE_FILES}
 )

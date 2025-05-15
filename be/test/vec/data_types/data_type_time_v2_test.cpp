@@ -15,8 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/data_types/data_type_time_v2.h"
-
 #include <gen_cpp/Types_types.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
@@ -36,6 +34,7 @@
 #include "vec/core/types.h"
 #include "vec/data_types/common_data_type_serder_test.h"
 #include "vec/data_types/common_data_type_test.h"
+#include "vec/data_types/data_type_date_or_datetime_v2.h"
 #include "vec/data_types/data_type_time.h"
 
 namespace doris::vectorized {

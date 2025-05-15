@@ -113,7 +113,7 @@ public:
     // Which dependency current pipeline task is blocked by. `nullptr` if this dependency is ready.
     [[nodiscard]] Dependency* is_blocked_by(std::shared_ptr<PipelineTask> task = nullptr);
     // Notify downstream pipeline tasks this dependency is ready.
-    virtual void set_ready();
+    void set_ready();
     void set_ready_to_read(int channel_id = 0) {
         DCHECK_LT(channel_id, _shared_state->source_deps.size()) << debug_string();
         _shared_state->source_deps[channel_id]->set_ready();
@@ -676,6 +676,7 @@ public:
     // If a calculation involves both nullable and non-nullable columns, the final output should be a nullable column
     Status update_build_not_ignore_null(const vectorized::VExprContextSPtrs& ctxs);
 
+    size_t get_hash_table_size() const;
     /// init in both upstream side.
     //The i-th result expr list refers to the i-th child.
     std::vector<vectorized::VExprContextSPtrs> child_exprs_lists;

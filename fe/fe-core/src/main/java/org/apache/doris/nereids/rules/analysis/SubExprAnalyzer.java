@@ -24,7 +24,6 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Exists;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InSubquery;
-import org.apache.doris.nereids.trees.expressions.ListQuery;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.ScalarSubquery;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -75,7 +74,7 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
                     new Exists(((Exists) child).getQueryPlan(), true), context);
         } else if (child instanceof InSubquery) {
             return visitInSubquery(new InSubquery(((InSubquery) child).getCompareExpr(),
-                    ((InSubquery) child).getListQuery(), true), context);
+                    ((InSubquery) child).getQueryPlan(), true), context);
         }
         return visit(not, context);
     }
@@ -114,7 +113,7 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
 
         return new InSubquery(
                 expr.getCompareExpr().accept(this, context),
-                new ListQuery(analyzedResult.getLogicalPlan()),
+                analyzedResult.getLogicalPlan(),
                 analyzedResult.getCorrelatedSlots(), expr.isNot());
     }
 

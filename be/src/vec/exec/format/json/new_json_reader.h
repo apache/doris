@@ -56,7 +56,6 @@ namespace io {
 class FileSystem;
 struct IOContext;
 } // namespace io
-struct TypeDescriptor;
 
 namespace vectorized {
 
@@ -82,10 +81,10 @@ public:
                                col_default_value_ctx,
                        bool is_load);
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
-    Status get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
+    Status get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
                        std::unordered_set<std::string>* missing_cols) override;
     Status get_parsed_schema(std::vector<std::string>* col_names,
-                             std::vector<TypeDescriptor>* col_types) override;
+                             std::vector<DataTypePtr>* col_types) override;
 
 protected:
     void _collect_profile_before_close() override;
@@ -121,7 +120,7 @@ private:
                              const std::vector<SlotDescriptor*>& slot_descs, bool* valid);
 
     Status _write_data_to_column(rapidjson::Value::ConstValueIterator value,
-                                 const TypeDescriptor& type_desc, vectorized::IColumn* column_ptr,
+                                 const DataTypePtr& type_desc, vectorized::IColumn* column_ptr,
                                  const std::string& column_name, DataTypeSerDeSPtr serde,
                                  bool* valid);
 
@@ -175,7 +174,7 @@ private:
                                       const std::vector<SlotDescriptor*>& slot_descs, bool* valid);
 
     Status _simdjson_write_data_to_column(simdjson::ondemand::value& value,
-                                          const TypeDescriptor& type_desc,
+                                          const DataTypePtr& type_desc,
                                           vectorized::IColumn* column_ptr,
                                           const std::string& column_name, DataTypeSerDeSPtr serde,
                                           bool* valid);
@@ -293,18 +292,22 @@ private:
 
     int32_t skip_bitmap_col_idx {-1};
 
-    bool _is_load = true;
     //Used to indicate whether it is a stream load. When loading, only data will be inserted into columnString.
     //If an illegal value is encountered during the load process, `_append_error_msg` should be called
     //instead of directly returning `Status::DataQualityError`
+    bool _is_load = true;
 
-    bool _is_hive_table = false;
     // In hive : create table xxx ROW FORMAT SERDE 'org.apache.hive.hcatalog.data.JsonSerDe';
     // Hive will not allow you to create columns with the same name but different case, including field names inside
     // structs, and will automatically convert uppercase names in create sql to lowercase.However, when Hive loads data
     // to table, the column names in the data may be uppercase,and there may be multiple columns with
     // the same name but different capitalization.We refer to the behavior of hive, convert all column names
     // in the data to lowercase,and use the last one as the insertion value
+    bool _is_hive_table = false;
+
+    // hive : org.openx.data.jsonserde.JsonSerDe, `ignore.malformed.json` prop.
+    // If the variable is true, `null` will be inserted for llegal json format instead of return error.
+    bool _openx_json_ignore_malformed = false;
 
     DataTypeSerDeSPtrs _serdes;
     vectorized::DataTypeSerDe::FormatOptions _serde_options;

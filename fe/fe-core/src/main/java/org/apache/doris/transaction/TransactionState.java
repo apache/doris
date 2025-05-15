@@ -277,6 +277,7 @@ public class TransactionState implements Writable {
     // this map should be set when load execution begin, so that when the txn commit, it will know
     // which tables and rollups it loaded.
     // tbl id -> (index ids)
+    @SerializedName(value = "loadedTblIndexes")
     private Map<Long, Set<Long>> loadedTblIndexes = Maps.newHashMap();
 
     /**

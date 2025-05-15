@@ -75,7 +75,8 @@ TEST(FunctionLikeTest, like) {
     };
 
     // pattern is constant value
-    InputTypeSet const_pattern_input_types = {TypeIndex::String, TypeIndex::String};
+    InputTypeSet const_pattern_input_types = {PrimitiveType::TYPE_VARCHAR,
+                                              PrimitiveType::TYPE_VARCHAR};
     static_cast<void>(
             check_function<DataTypeUInt8, true>(func_name, const_pattern_input_types, data_set));
 }
@@ -108,7 +109,8 @@ TEST(FunctionLikeTest, regexp) {
                         {{Null(), std::string("xxx.*")}, Null()}};
 
     // pattern is constant value
-    InputTypeSet const_pattern_input_types = {TypeIndex::String, Consted {TypeIndex::String}};
+    InputTypeSet const_pattern_input_types = {PrimitiveType::TYPE_VARCHAR,
+                                              Consted {PrimitiveType::TYPE_VARCHAR}};
     for (const auto& line : data_set) {
         DataSet const_pattern_dataset = {line};
         static_cast<void>(check_function<DataTypeUInt8, true>(func_name, const_pattern_input_types,
@@ -146,8 +148,9 @@ TEST(FunctionLikeTest, regexp_extract) {
                         {{Null(), std::string("i([0-9]+)"), (int64_t)0}, Null()}};
 
     // pattern is constant value
-    InputTypeSet const_pattern_input_types = {TypeIndex::String, Consted {TypeIndex::String},
-                                              TypeIndex::Int64};
+    InputTypeSet const_pattern_input_types = {PrimitiveType::TYPE_VARCHAR,
+                                              Consted {PrimitiveType::TYPE_VARCHAR},
+                                              PrimitiveType::TYPE_BIGINT};
     for (const auto& line : data_set) {
         DataSet const_pattern_dataset = {line};
         static_cast<void>(check_function<DataTypeString, true>(func_name, const_pattern_input_types,
@@ -185,8 +188,9 @@ TEST(FunctionLikeTest, regexp_extract_or_null) {
                         {{Null(), std::string("i([0-9]+)"), (int64_t)0}, Null()}};
 
     // pattern is constant value
-    InputTypeSet const_pattern_input_types = {TypeIndex::String, Consted {TypeIndex::String},
-                                              TypeIndex::Int64};
+    InputTypeSet const_pattern_input_types = {PrimitiveType::TYPE_VARCHAR,
+                                              Consted {PrimitiveType::TYPE_VARCHAR},
+                                              PrimitiveType::TYPE_BIGINT};
     for (const auto& line : data_set) {
         DataSet const_pattern_dataset = {line};
         static_cast<void>(check_function<DataTypeString, true>(func_name, const_pattern_input_types,
@@ -217,7 +221,8 @@ TEST(FunctionLikeTest, regexp_extract_all) {
             {{Null(), std::string("i([0-9]+)")}, Null()}};
 
     // pattern is constant value
-    InputTypeSet const_pattern_input_types = {TypeIndex::String, Consted {TypeIndex::String}};
+    InputTypeSet const_pattern_input_types = {PrimitiveType::TYPE_VARCHAR,
+                                              Consted {PrimitiveType::TYPE_VARCHAR}};
     for (const auto& line : data_set) {
         DataSet const_pattern_dataset = {line};
         static_cast<void>(check_function<DataTypeString, true>(func_name, const_pattern_input_types,
@@ -246,8 +251,9 @@ TEST(FunctionLikeTest, regexp_replace) {
             {{Null(), std::string("i([0-9]+)"), std::string("x=18abc")}, Null()}};
 
     // pattern is constant value
-    InputTypeSet const_pattern_input_types = {TypeIndex::String, Consted {TypeIndex::String},
-                                              TypeIndex::String};
+    InputTypeSet const_pattern_input_types = {PrimitiveType::TYPE_VARCHAR,
+                                              Consted {PrimitiveType::TYPE_VARCHAR},
+                                              PrimitiveType::TYPE_VARCHAR};
     for (const auto& line : data_set) {
         DataSet const_pattern_dataset = {line};
         static_cast<void>(check_function<DataTypeString, true>(func_name, const_pattern_input_types,
@@ -276,8 +282,9 @@ TEST(FunctionLikeTest, regexp_replace_one) {
             {{Null(), std::string("i([0-9]+)"), std::string("x=18abc")}, Null()}};
 
     // pattern is constant value
-    InputTypeSet const_pattern_input_types = {TypeIndex::String, Consted {TypeIndex::String},
-                                              TypeIndex::String};
+    InputTypeSet const_pattern_input_types = {PrimitiveType::TYPE_VARCHAR,
+                                              Consted {PrimitiveType::TYPE_VARCHAR},
+                                              PrimitiveType::TYPE_VARCHAR};
     for (const auto& line : data_set) {
         DataSet const_pattern_dataset = {line};
         static_cast<void>(check_function<DataTypeString, true>(func_name, const_pattern_input_types,

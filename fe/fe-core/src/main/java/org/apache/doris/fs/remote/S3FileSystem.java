@@ -23,11 +23,13 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.security.authentication.AuthenticationConfig;
 import org.apache.doris.common.security.authentication.HadoopAuthenticator;
 import org.apache.doris.datasource.property.PropertyConverter;
+import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.fs.obj.S3ObjStorage;
 import org.apache.doris.fs.remote.dfs.DFSFileSystem;
 
 import com.amazonaws.services.s3.model.AmazonS3Exception;
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Strings;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
@@ -102,8 +104,7 @@ public class S3FileSystem extends ObjFileSystem {
     }
 
     // broker file pattern glob is too complex, so we use hadoop directly
-    @Override
-    public Status globList(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
+    private Status globListImplV1(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
         try {
             FileSystem s3AFileSystem = nativeFileSystem(remotePath);
             Path pathPattern = new Path(remotePath);
@@ -118,6 +119,10 @@ public class S3FileSystem extends ObjFileSystem {
                         fileStatus.getBlockSize(), fileStatus.getModificationTime());
                 result.add(remoteFile);
             }
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("remotePath:{}, result:{}", remotePath, result);
+            }
+
         } catch (FileNotFoundException e) {
             LOG.info("file not found: " + e.getMessage());
             return new Status(Status.ErrCode.NOT_FOUND, "file not found: " + e.getMessage());
@@ -137,6 +142,24 @@ public class S3FileSystem extends ObjFileSystem {
             return new Status(Status.ErrCode.COMMON_ERROR, "errors while get file status " + e.getMessage());
         }
         return Status.OK;
+    }
+
+    private Status globListImplV2(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
+        return ((S3ObjStorage) objStorage).globList(remotePath, result, fileNameOnly);
+    }
+
+    @Override
+    public Status globList(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
+        if (!Strings.isNullOrEmpty(properties.get(S3Properties.ROLE_ARN))
+                || !Strings.isNullOrEmpty(properties.get(S3Properties.Env.ROLE_ARN))) {
+            // https://issues.apache.org/jira/browse/HADOOP-19201
+            // hadoop 3.3.6 we used now, not support aws assumed role with external id, so we
+            // write a globListImplV2 to support it
+            LOG.info("aws role arn mode, use globListImplV2");
+            return globListImplV2(remotePath, result, fileNameOnly);
+        }
+
+        return globListImplV1(remotePath, result, fileNameOnly);
     }
 
     @VisibleForTesting

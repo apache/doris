@@ -33,7 +33,6 @@ static const char* STATS_KEY_PREFIX    = "stats";
 static const char* JOB_KEY_PREFIX      = "job";
 static const char* COPY_KEY_PREFIX     = "copy";
 static const char* VAULT_KEY_PREFIX    = "storage_vault";
-static const char* MOW_KEY_PREFIX      = "mow";
 
 // Infix
 static const char* TXN_KEY_INFIX_LABEL                  = "txn_label";
@@ -137,7 +136,8 @@ static void encode_prefix(const T& t, std::string* key) {
                       || std::is_same_v<T, MetaSchemaPBDictionaryInfo>
                       || std::is_same_v<T, MetaDeleteBitmapInfo>
                       || std::is_same_v<T, MetaDeleteBitmapUpdateLockInfo>
-                      || std::is_same_v<T, MetaPendingDeleteBitmapInfo>) {
+                      || std::is_same_v<T, MetaPendingDeleteBitmapInfo>
+                      || std::is_same_v<T, MowTabletCompactionInfo>) {
         encode_bytes(META_KEY_PREFIX, key);
     } else if constexpr (std::is_same_v<T, PartitionVersionKeyInfo>
                       || std::is_same_v<T, TableVersionKeyInfo>) {
@@ -159,8 +159,6 @@ static void encode_prefix(const T& t, std::string* key) {
         encode_bytes(COPY_KEY_PREFIX, key);
     } else if constexpr (std::is_same_v<T, StorageVaultKeyInfo>) {
         encode_bytes(VAULT_KEY_PREFIX, key);
-    } else if constexpr(std::is_same_v<T, MowTabletCompactionInfo>) {
-        encode_bytes(MOW_KEY_PREFIX, key);
     } else {
         // This branch mean to be unreachable, add an assert(false) here to
         // prevent missing branch match.
@@ -302,6 +300,13 @@ void meta_delete_bitmap_update_lock_key(const MetaDeleteBitmapUpdateLockInfo& in
     encode_bytes(META_KEY_INFIX_DELETE_BITMAP_LOCK, out); // "delete_bitmap_lock"
     encode_int64(std::get<1>(in), out);                   // table_id
     encode_int64(std::get<2>(in), out);                   // partition_id
+}
+
+void mow_tablet_compaction_key(const MowTabletCompactionInfo& in, std::string* out) {
+    encode_prefix(in, out);                                  // 0x01 "meta" ${instance_id}
+    encode_bytes(META_KEY_INFIX_MOW_TABLET_COMPACTION, out); // "mow_tablet_comp"
+    encode_int64(std::get<1>(in), out);                      // table_id
+    encode_int64(std::get<2>(in), out);                      // initiator
 }
 
 void meta_pending_delete_bitmap_key(const MetaPendingDeleteBitmapInfo& in, std::string* out) {
@@ -501,13 +506,6 @@ std::string system_meta_service_encryption_key_info_key() {
 //==============================================================================
 // Other keys
 //==============================================================================
-
-void mow_tablet_compaction_key(const MowTabletCompactionInfo& in, std::string* out) {
-    encode_prefix(in, out);                                  // 0x01 "mow" ${instance_id}
-    encode_bytes(META_KEY_INFIX_MOW_TABLET_COMPACTION, out); // "mow_tablet_comp"
-    encode_int64(std::get<1>(in), out);                      // table_id
-    encode_int64(std::get<2>(in), out);                      // initiator
-}
 
 //==============================================================================
 // Decode keys

@@ -434,6 +434,13 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
                 Optional.empty(), Optional.empty(), ImmutableList.of(left, right), otherJoinReorderContext);
     }
 
+    public LogicalJoin<Plan, Plan> withHashJoinConjuncts(List<Expression> hashJoinConjuncts) {
+        return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts,
+                hint, markJoinSlotReference, exceptAsteriskOutputs,
+                Optional.empty(), Optional.empty(),
+                ImmutableList.of(left(), right()), joinReorderContext);
+    }
+
     public LogicalJoin<Plan, Plan> withConjunctsChildren(List<Expression> hashJoinConjuncts,
             List<Expression> otherJoinConjuncts, Plan left, Plan right, JoinReorderContext otherJoinReorderContext) {
         return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts,
@@ -636,5 +643,15 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
         if (!joinType.isRightSemiOrAntiJoin()) {
             builder.addFuncDepsDG(left().getLogicalProperties().getTrait());
         }
+    }
+
+    @Override
+    public String getFingerprint() {
+        List<Object> args = Lists.newArrayList(
+                "type", joinType,
+                "hashCondition", hashJoinConjuncts,
+                "otherCondition", otherJoinConjuncts,
+                "markCondition", markJoinConjuncts);
+        return Utils.toSqlString("JOIN", args.toArray());
     }
 }

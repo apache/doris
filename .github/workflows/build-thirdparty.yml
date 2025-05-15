@@ -96,7 +96,7 @@ jobs:
             'autoconf'
             'libtool-bin'
             'pkg-config'
-            'cmake'
+            'cmake=3.22.1-1ubuntu1.22.04.2'
             'ninja-build'
             'ccache'
             'python-is-python3'
@@ -116,6 +116,7 @@ jobs:
           )
 
           sudo apt update
+          sudo apt-cache policy cmake
           sudo DEBIAN_FRONTEND=noninteractive apt install --yes "${packages[@]}"
 
           mkdir -p "${DEFAULT_DIR}"
@@ -162,7 +163,6 @@ jobs:
             'coreutils'
             'gnu-getopt'
             'python@3'
-            'cmake'
             'ninja'
             'ccache'
             'bison'
@@ -176,7 +176,15 @@ jobs:
             'llvm@16'
           )
 
+          # Install packages except cmake
           brew install "${packages[@]}" || true
+
+          # Install specific version of cmake
+          brew unlink cmake || true
+          wget https://github.com/Kitware/CMake/releases/download/v3.22.1/cmake-3.22.1-macos-universal.tar.gz
+          tar -xzf cmake-3.22.1-macos-universal.tar.gz
+          sudo cp -r cmake-3.22.1-macos-universal/CMake.app/Contents/* /usr/local/
+          cmake --version
 
       - name: Build
         run: |
@@ -213,7 +221,6 @@ jobs:
             'coreutils'
             'gnu-getopt'
             'python@3'
-            'cmake'
             'ninja'
             'ccache'
             'bison'
@@ -227,7 +234,15 @@ jobs:
             'llvm@16'
           )
 
+          # Install packages except cmake
           brew install "${packages[@]}" || true
+
+          # Install specific version of cmake
+          brew unlink cmake || true
+          wget https://github.com/Kitware/CMake/releases/download/v3.22.1/cmake-3.22.1-macos-universal.tar.gz
+          tar -xzf cmake-3.22.1-macos-universal.tar.gz
+          sudo cp -r cmake-3.22.1-macos-universal/CMake.app/Contents/* /usr/local/
+          cmake --version
 
       - name: Build
         run: |

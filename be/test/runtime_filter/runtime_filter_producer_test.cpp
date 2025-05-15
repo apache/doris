@@ -31,7 +31,7 @@ TEST_F(RuntimeFilterProducerTest, basic) {
     std::shared_ptr<RuntimeFilterProducer> producer;
     auto desc = TRuntimeFilterDescBuilder().build();
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
-            RuntimeFilterProducer::create(_query_ctx.get(), &desc, &producer, &_profile));
+            RuntimeFilterProducer::create(_query_ctx.get(), &desc, &producer));
 }
 
 TEST_F(RuntimeFilterProducerTest, no_sync_filter_size) {
@@ -42,7 +42,7 @@ TEST_F(RuntimeFilterProducerTest, no_sync_filter_size) {
                             .set_is_broadcast_join(true)
                             .build();
         FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
-                RuntimeFilterProducer::create(_query_ctx.get(), &desc, &producer, &_profile));
+                RuntimeFilterProducer::create(_query_ctx.get(), &desc, &producer));
         ASSERT_EQ(producer->_need_sync_filter_size, false);
         ASSERT_EQ(producer->_rf_state, RuntimeFilterProducer::State::WAITING_FOR_DATA);
     }
@@ -53,7 +53,7 @@ TEST_F(RuntimeFilterProducerTest, no_sync_filter_size) {
                             .set_is_broadcast_join(false)
                             .build();
         FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
-                RuntimeFilterProducer::create(_query_ctx.get(), &desc, &producer, &_profile));
+                RuntimeFilterProducer::create(_query_ctx.get(), &desc, &producer));
         ASSERT_EQ(producer->_need_sync_filter_size, false);
         ASSERT_EQ(producer->_rf_state, RuntimeFilterProducer::State::WAITING_FOR_DATA);
     }
@@ -66,7 +66,7 @@ TEST_F(RuntimeFilterProducerTest, sync_filter_size) {
                         .set_is_broadcast_join(false)
                         .build();
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
-            RuntimeFilterProducer::create(_query_ctx.get(), &desc, &producer, &_profile));
+            RuntimeFilterProducer::create(_query_ctx.get(), &desc, &producer));
     ASSERT_EQ(producer->_need_sync_filter_size, true);
     ASSERT_EQ(producer->_rf_state, RuntimeFilterProducer::State::WAITING_FOR_SEND_SIZE);
 
@@ -85,7 +85,7 @@ TEST_F(RuntimeFilterProducerTest, sync_filter_size_local_no_merge) {
                         .set_is_broadcast_join(false)
                         .build();
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
-            RuntimeFilterProducer::create(_query_ctx.get(), &desc, &producer, &_profile));
+            RuntimeFilterProducer::create(_query_ctx.get(), &desc, &producer));
     ASSERT_EQ(producer->_need_sync_filter_size, true);
     ASSERT_EQ(producer->_rf_state, RuntimeFilterProducer::State::WAITING_FOR_SEND_SIZE);
 
@@ -106,10 +106,10 @@ TEST_F(RuntimeFilterProducerTest, sync_filter_size_local_merge) {
 
     std::shared_ptr<RuntimeFilterProducer> producer;
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
-            _runtime_states[0]->register_producer_runtime_filter(desc, &producer, &_profile));
+            _runtime_states[0]->register_producer_runtime_filter(desc, &producer));
     std::shared_ptr<RuntimeFilterProducer> producer2;
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
-            _runtime_states[1]->register_producer_runtime_filter(desc, &producer2, &_profile));
+            _runtime_states[1]->register_producer_runtime_filter(desc, &producer2));
 
     std::shared_ptr<RuntimeFilterConsumer> consumer;
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
@@ -142,10 +142,10 @@ TEST_F(RuntimeFilterProducerTest, set_disable) {
 
     std::shared_ptr<RuntimeFilterProducer> producer;
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
-            _runtime_states[0]->register_producer_runtime_filter(desc, &producer, &_profile));
+            _runtime_states[0]->register_producer_runtime_filter(desc, &producer));
     std::shared_ptr<RuntimeFilterProducer> producer2;
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
-            _runtime_states[1]->register_producer_runtime_filter(desc, &producer2, &_profile));
+            _runtime_states[1]->register_producer_runtime_filter(desc, &producer2));
 
     std::shared_ptr<RuntimeFilterConsumer> consumer;
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
@@ -173,6 +173,22 @@ TEST_F(RuntimeFilterProducerTest, set_disable) {
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(producer2->publish(_runtime_states[1].get(), true));
     ASSERT_EQ(consumer->_rf_state, RuntimeFilterConsumer::State::READY);
     ASSERT_EQ(consumer->_wrapper->_state, RuntimeFilterWrapper::State::DISABLED);
+}
+
+TEST_F(RuntimeFilterProducerTest, publish_release_wrapper) {
+    auto desc = TRuntimeFilterDescBuilder()
+                        .set_build_bf_by_runtime_size(false)
+                        .set_is_broadcast_join(false)
+                        .add_planId_to_target_expr(0)
+                        .build();
+
+    std::shared_ptr<RuntimeFilterProducer> producer;
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
+            _runtime_states[0]->register_producer_runtime_filter(desc, &producer));
+
+    producer->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::DISABLED);
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(producer->publish(_runtime_states[0].get(), true));
+    ASSERT_EQ(producer->_wrapper, nullptr);
 }
 
 } // namespace doris

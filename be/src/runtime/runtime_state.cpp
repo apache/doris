@@ -76,18 +76,8 @@ RuntimeState::RuntimeState(const TPlanFragmentExecParams& fragment_exec_params,
     Status status =
             init(fragment_exec_params.fragment_instance_id, query_options, query_globals, exec_env);
     DCHECK(status.ok());
-    if (query_mem_tracker != nullptr) {
-        _query_mem_tracker = query_mem_tracker;
-    } else {
-        DCHECK(ctx != nullptr);
-        _query_mem_tracker = ctx->query_mem_tracker();
-    }
-#ifdef BE_TEST
-    if (_query_mem_tracker == nullptr) {
-        init_mem_trackers();
-    }
-#endif
-    DCHECK(_query_mem_tracker != nullptr && _query_mem_tracker->label() != "Orphan");
+    _query_mem_tracker = query_mem_tracker;
+    DCHECK(_query_mem_tracker != nullptr);
 }
 
 RuntimeState::RuntimeState(const TUniqueId& instance_id, const TUniqueId& query_id,
@@ -112,12 +102,6 @@ RuntimeState::RuntimeState(const TUniqueId& instance_id, const TUniqueId& query_
     [[maybe_unused]] auto status = init(instance_id, query_options, query_globals, exec_env);
     DCHECK(status.ok());
     _query_mem_tracker = ctx->query_mem_tracker();
-#ifdef BE_TEST
-    if (_query_mem_tracker == nullptr) {
-        init_mem_trackers();
-    }
-#endif
-    DCHECK(_query_mem_tracker != nullptr && _query_mem_tracker->label() != "Orphan");
 }
 
 RuntimeState::RuntimeState(const TUniqueId& query_id, int32_t fragment_id,
@@ -143,12 +127,6 @@ RuntimeState::RuntimeState(const TUniqueId& query_id, int32_t fragment_id,
     Status status = init(TUniqueId(), query_options, query_globals, exec_env);
     DCHECK(status.ok());
     _query_mem_tracker = ctx->query_mem_tracker();
-#ifdef BE_TEST
-    if (_query_mem_tracker == nullptr) {
-        init_mem_trackers();
-    }
-#endif
-    DCHECK(_query_mem_tracker != nullptr && _query_mem_tracker->label() != "Orphan");
 }
 
 RuntimeState::RuntimeState(const TQueryGlobals& query_globals)
@@ -495,14 +473,13 @@ RuntimeFilterMgr* RuntimeState::global_runtime_filter_mgr() {
 }
 
 Status RuntimeState::register_producer_runtime_filter(
-        const TRuntimeFilterDesc& desc, std::shared_ptr<RuntimeFilterProducer>* producer_filter,
-        RuntimeProfile* parent_profile) {
+        const TRuntimeFilterDesc& desc, std::shared_ptr<RuntimeFilterProducer>* producer_filter) {
     // Producers are created by local runtime filter mgr and shared by global runtime filter manager.
     // When RF is published, consumers in both global and local RF mgr will be found.
-    RETURN_IF_ERROR(local_runtime_filter_mgr()->register_producer_filter(
-            _query_ctx, desc, producer_filter, parent_profile));
+    RETURN_IF_ERROR(local_runtime_filter_mgr()->register_producer_filter(_query_ctx, desc,
+                                                                         producer_filter));
     RETURN_IF_ERROR(global_runtime_filter_mgr()->register_local_merger_producer_filter(
-            _query_ctx, desc, *producer_filter, &_profile));
+            _query_ctx, desc, *producer_filter));
     return Status::OK();
 }
 

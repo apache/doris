@@ -38,8 +38,9 @@ import java.nio.charset.StandardCharsets;
 public class HttpDialectUtils {
     private static final Logger LOG = LogManager.getLogger(HttpDialectUtils.class);
 
-    public static String convertSql(String targetURL, String originStmt, String dialect) {
-        ConvertRequest convertRequest = new ConvertRequest(originStmt, dialect);
+    public static String convertSql(String targetURL, String originStmt, String dialect,
+            String[] features) {
+        ConvertRequest convertRequest = new ConvertRequest(originStmt, dialect, features);
 
         HttpURLConnection connection = null;
         try {
@@ -110,14 +111,16 @@ public class HttpDialectUtils {
         private String to;   // CHECKSTYLE IGNORE THIS LINE
         private String source;  // CHECKSTYLE IGNORE THIS LINE
         private String case_sensitive;  // CHECKSTYLE IGNORE THIS LINE
+        private String[] enable_sql_convertor_features; // CHECKSTYLE IGNORE THIS LINE
 
-        public ConvertRequest(String originStmt, String dialect) {
+        public ConvertRequest(String originStmt, String dialect, String[] features) {
             this.version = "v1";
             this.sql_query = originStmt;
             this.from = dialect;
             this.to = "doris";
             this.source = "text";
             this.case_sensitive = "0";
+            this.enable_sql_convertor_features = features;
         }
 
         public String toJson() {

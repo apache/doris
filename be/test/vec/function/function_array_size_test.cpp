@@ -16,43 +16,38 @@
 // under the License.
 
 #include <string>
-#include <vector>
 
-#include "common/status.h"
 #include "function_test_util.h"
-#include "gtest/gtest_pred_impl.h"
-#include "testutil/any_type.h"
-#include "vec/core/field.h"
 #include "vec/core/types.h"
-#include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 
 namespace doris::vectorized {
 
 TEST(function_array_size_test, size) {
     std::string func_name = "size";
-    Array empty_arr;
+    TestArray empty_arr;
 
     // size(Array<Int32>)
     {
-        InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Int32};
+        InputTypeSet input_types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_INT};
 
-        Array vec = {Int32(1), Int32(2), Int32(3)};
-        DataSet data_set = {{{vec}, Int64(3)}, {{Null()}, Null()}, {{empty_arr}, Int64(0)}};
+        TestArray vec = {Int32(1), Int32(2), Int32(3)};
+        DataSet data_set = {
+                {{AnyType(vec)}, Int64(3)}, {{Null()}, Null()}, {{AnyType(empty_arr)}, Int64(0)}};
 
         static_cast<void>(check_function<DataTypeInt64, true>(func_name, input_types, data_set));
     }
 
     // size(Array<String>)
     {
-        InputTypeSet input_types = {TypeIndex::Array, TypeIndex::String};
+        InputTypeSet input_types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_VARCHAR};
 
-        Array vec1 = {Field(String("abc", 3)), Field(String("", 0)), Field(String("def", 3))};
-        Array vec2 = {Field(String("abc", 3)), Field(String("123", 0)), Field(String("def", 3))};
-        DataSet data_set = {{{vec1}, Int64(3)},
-                            {{vec2}, Int64(3)},
+        TestArray vec1 = {std::string("abc"), std::string(""), std::string("def")};
+        TestArray vec2 = {std::string("abc"), std::string("123"), std::string("def")};
+        DataSet data_set = {{{AnyType(vec1)}, Int64(3)},
+                            {{AnyType(vec2)}, Int64(3)},
                             {{Null()}, Null()},
-                            {{empty_arr}, Int64(0)}};
+                            {{AnyType(empty_arr)}, Int64(0)}};
 
         static_cast<void>(check_function<DataTypeInt64, true>(func_name, input_types, data_set));
     }
@@ -60,28 +55,29 @@ TEST(function_array_size_test, size) {
 
 TEST(function_array_size_test, cardinality) {
     std::string func_name = "cardinality";
-    Array empty_arr;
+    TestArray empty_arr;
 
     // cardinality(Array<Int32>)
     {
-        InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Int32};
+        InputTypeSet input_types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_INT};
 
-        Array vec = {Int32(1), Int32(2), Int32(3)};
-        DataSet data_set = {{{vec}, Int64(3)}, {{Null()}, Null()}, {{empty_arr}, Int64(0)}};
+        TestArray vec = {Int32(1), Int32(2), Int32(3)};
+        DataSet data_set = {
+                {{AnyType(vec)}, Int64(3)}, {{Null()}, Null()}, {{AnyType(empty_arr)}, Int64(0)}};
 
         static_cast<void>(check_function<DataTypeInt64, true>(func_name, input_types, data_set));
     }
 
     // cardinality(Array<String>)
     {
-        InputTypeSet input_types = {TypeIndex::Array, TypeIndex::String};
+        InputTypeSet input_types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_VARCHAR};
 
-        Array vec1 = {Field(String("abc", 3)), Field(String("", 0)), Field(String("def", 3))};
-        Array vec2 = {Field(String("abc", 3)), Field(String("123", 0)), Field(String("def", 3))};
-        DataSet data_set = {{{vec1}, Int64(3)},
-                            {{vec2}, Int64(3)},
+        TestArray vec1 = {std::string("abc"), std::string(""), std::string("def")};
+        TestArray vec2 = {std::string("abc"), std::string("123"), std::string("def")};
+        DataSet data_set = {{{AnyType(vec1)}, Int64(3)},
+                            {{AnyType(vec2)}, Int64(3)},
                             {{Null()}, Null()},
-                            {{empty_arr}, Int64(0)}};
+                            {{AnyType(empty_arr)}, Int64(0)}};
 
         static_cast<void>(check_function<DataTypeInt64, true>(func_name, input_types, data_set));
     }
@@ -89,28 +85,29 @@ TEST(function_array_size_test, cardinality) {
 
 TEST(function_array_size_test, array_size) {
     std::string func_name = "array_size";
-    Array empty_arr;
+    TestArray empty_arr;
 
     // array_size(Array<Int32>)
     {
-        InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Int32};
+        InputTypeSet input_types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_INT};
 
-        Array vec = {Int32(1), Int32(2), Int32(3)};
-        DataSet data_set = {{{vec}, Int64(3)}, {{Null()}, Null()}, {{empty_arr}, Int64(0)}};
+        TestArray vec = {Int32(1), Int32(2), Int32(3)};
+        DataSet data_set = {
+                {{AnyType(vec)}, Int64(3)}, {{Null()}, Null()}, {{AnyType(empty_arr)}, Int64(0)}};
 
         static_cast<void>(check_function<DataTypeInt64, true>(func_name, input_types, data_set));
     }
 
     // array_size(Array<String>)
     {
-        InputTypeSet input_types = {TypeIndex::Array, TypeIndex::String};
+        InputTypeSet input_types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_VARCHAR};
 
-        Array vec1 = {Field(String("abc", 3)), Field(String("", 0)), Field(String("def", 3))};
-        Array vec2 = {Field(String("abc", 3)), Field(String("123", 0)), Field(String("def", 3))};
-        DataSet data_set = {{{vec1}, Int64(3)},
-                            {{vec2}, Int64(3)},
+        TestArray vec1 = {std::string("abc"), std::string(""), std::string("def")};
+        TestArray vec2 = {std::string("abc"), std::string("123"), std::string("def")};
+        DataSet data_set = {{{AnyType(vec1)}, Int64(3)},
+                            {{AnyType(vec2)}, Int64(3)},
                             {{Null()}, Null()},
-                            {{empty_arr}, Int64(0)}};
+                            {{AnyType(empty_arr)}, Int64(0)}};
 
         static_cast<void>(check_function<DataTypeInt64, true>(func_name, input_types, data_set));
     }

@@ -59,6 +59,7 @@ import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.datasource.test.TestExternalDatabase;
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalDatabase;
 import org.apache.doris.fs.remote.dfs.DFSFileSystem;
+import org.apache.doris.nereids.trees.plans.commands.TruncateTableCommand;
 import org.apache.doris.persist.CreateDbInfo;
 import org.apache.doris.persist.CreateTableInfo;
 import org.apache.doris.persist.DropDbInfo;
@@ -124,6 +125,8 @@ public abstract class ExternalCatalog
     public static final Set<String> HIDDEN_PROPERTIES = Sets.newHashSet(
             CREATE_TIME,
             USE_META_CACHE);
+
+    protected static final int ICEBERG_CATALOG_EXECUTOR_THREAD_NUM = Runtime.getRuntime().availableProcessors();
 
     // Unique id of this catalog, will be assigned after catalog is loaded.
     @SerializedName(value = "id")
@@ -296,7 +299,7 @@ public abstract class ExternalCatalog
             } else {
                 if (!Env.getCurrentEnv().isMaster()) {
                     // Forward to master and wait the journal to replay.
-                    int waitTimeOut = ConnectContext.get() == null ? 300 : ConnectContext.get().getExecTimeout();
+                    int waitTimeOut = ConnectContext.get() == null ? 300 : ConnectContext.get().getExecTimeoutS();
                     MasterCatalogExecutor remoteExecutor = new MasterCatalogExecutor(waitTimeOut * 1000);
                     try {
                         remoteExecutor.forward(id, -1);
@@ -1179,6 +1182,32 @@ public abstract class ExternalCatalog
         } catch (Exception e) {
             LOG.warn("Failed to truncate table {}.{} in catalog {}", stmt.getTblRef().getName().getDb(),
                     stmt.getTblRef().getName().getTbl(), getName(), e);
+            throw e;
+        }
+    }
+
+    @Override
+    public void truncateTable(TruncateTableCommand command) throws DdlException {
+        makeSureInitialized();
+        if (metadataOps == null) {
+            throw new UnsupportedOperationException("Truncate table not supported in " + getName());
+        }
+        try {
+            String db = command.getTableNameInfo().getDb();
+            String tbl = command.getTableNameInfo().getTbl();
+
+            // delete all table data if null
+            List<String> partitions = null;
+            if (command.getPartitionNamesInfo().isPresent()) {
+                partitions = command.getPartitionNamesInfo().get().getPartitionNames();
+            }
+
+            metadataOps.truncateTable(db, tbl, partitions);
+            TruncateTableInfo info = new TruncateTableInfo(getName(), db, tbl, partitions);
+            Env.getCurrentEnv().getEditLog().logTruncateTable(info);
+        } catch (Exception e) {
+            LOG.warn("Failed to truncate table {}.{} in catalog {}", command.getTableNameInfo().getDb(),
+                    command.getTableNameInfo().getTbl(), getName(), e);
             throw e;
         }
     }

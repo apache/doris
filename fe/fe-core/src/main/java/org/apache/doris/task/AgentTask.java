@@ -114,6 +114,7 @@ public abstract class AgentTask {
 
     public void failedWithMsg(String errMsg) {
         failed();
+        setErrorMsg(errMsg);
     }
 
     public int getFailedTimes() {

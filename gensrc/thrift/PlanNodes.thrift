@@ -271,6 +271,9 @@ struct TFileAttributes {
     11: optional i32 skip_lines;
     //For text type file reading, whether to enable utf8 encoding check.(Catalog && TVF)
     12: optional bool enable_text_validate_utf8 = true;
+    // org.openx.data.jsonserde.JsonSerDe
+    13: optional bool openx_json_ignore_malformed = false;
+
     // for cloud copy into
     1001: optional bool ignore_csv_redundant_col;
 }
@@ -360,7 +363,7 @@ struct THudiFileDesc {
     8: optional list<string> column_names;
     9: optional list<string> column_types;
     10: optional list<string> nested_fields;
-    11: optional string hudi_jni_scanner;
+    11: optional string hudi_jni_scanner; // deprecated
     12: optional i64 schema_id; // for schema change. (native reader)
 }
 
@@ -479,6 +482,7 @@ struct TFileRangeDesc {
     // so fs_name should be with TFileRangeDesc
     12: optional string fs_name
     13: optional TFileFormatType format_type;
+    14: optional i64 self_split_weight
 }
 
 struct TSplitSource {

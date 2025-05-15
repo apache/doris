@@ -33,7 +33,6 @@
 #include "common/config.h"
 #include "common/logging.h" // LOG
 #include "common/status.h"
-#include "gutil/port.h"
 #include "inverted_index_fs_directory.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
@@ -1043,7 +1042,7 @@ Status VerticalSegmentWriter::_append_block_with_variant_subcolumns(RowsInBlock&
             _flush_schema->copy_from(*_tablet_schema);
         }
         auto column_ref = data.block->get_by_position(i).column;
-        const vectorized::ColumnObject& object_column = assert_cast<vectorized::ColumnObject&>(
+        const vectorized::ColumnVariant& object_column = assert_cast<vectorized::ColumnVariant&>(
                 remove_nullable(column_ref)->assume_mutable_ref());
         const TabletColumnPtr& parent_column = _tablet_schema->columns()[i];
 

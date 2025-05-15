@@ -38,6 +38,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.resource.Tag;
@@ -898,7 +899,8 @@ public class PropertyAnalyzer {
                 + " must be `true` or `false`");
     }
 
-    public static String analyzeCompactionPolicy(Map<String, String> properties) throws AnalysisException {
+    public static String analyzeCompactionPolicy(Map<String, String> properties, KeysType keysType)
+            throws AnalysisException {
         if (properties == null || properties.isEmpty()) {
             return SIZE_BASED_COMPACTION_POLICY;
         }
@@ -913,6 +915,9 @@ public class PropertyAnalyzer {
             }
         }
 
+        if (keysType == KeysType.UNIQUE_KEYS && compactionPolicy.equals(TIME_SERIES_COMPACTION_POLICY)) {
+            throw new AnalysisException("Time series compaction policy is not supported for unique key table");
+        }
         return compactionPolicy;
     }
 
@@ -1285,11 +1290,14 @@ public class PropertyAnalyzer {
         if (typeStr != null && keysType != KeysType.UNIQUE_KEYS) {
             throw new AnalysisException("sequence column only support UNIQUE_KEYS");
         }
-        PrimitiveType type = PrimitiveType.valueOf(typeStr.toUpperCase());
+
+        Type type = DataType.convertFromString(typeStr.toLowerCase()).toCatalogDataType();
+
         if (!type.isFixedPointType() && !type.isDateType()) {
             throw new AnalysisException("sequence type only support integer types and date types");
         }
-        return ScalarType.createType(type);
+
+        return type;
     }
 
     public static String analyzeSequenceMapCol(Map<String, String> properties, KeysType keysType)

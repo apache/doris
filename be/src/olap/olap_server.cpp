@@ -51,7 +51,6 @@
 #include "cpp/sync_point.h"
 #include "gen_cpp/FrontendService.h"
 #include "gen_cpp/internal_service.pb.h"
-#include "gutil/ref_counted.h"
 #include "io/fs/file_writer.h" // IWYU pragma: keep
 #include "io/fs/path.h"
 #include "olap/base_tablet.h"
@@ -82,6 +81,7 @@
 #include "util/debug_points.h"
 #include "util/doris_metrics.h"
 #include "util/mem_info.h"
+#include "util/metrics.h"
 #include "util/thread.h"
 #include "util/threadpool.h"
 #include "util/thrift_rpc_helper.h"
@@ -465,9 +465,17 @@ void StorageEngine::_path_gc_thread_callback(DataDir* data_dir) {
         int32_t current_time = time(nullptr);
 
         int32_t interval = _auto_get_interval_by_disk_capacity(data_dir);
+        DBUG_EXECUTE_IF("_path_gc_thread_callback.interval.eq.1ms", {
+            LOG(INFO) << "debug point change interval eq 1ms";
+            interval = 1;
+            while (DebugPoints::instance()->is_enable("_path_gc_thread_callback.always.do")) {
+                data_dir->perform_path_gc();
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            }
+        });
         if (interval <= 0) {
             LOG(WARNING) << "path gc thread check interval config is illegal:" << interval
-                         << "will be forced set to half hour";
+                         << " will be forced set to half hour";
             interval = 1800; // 0.5 hour
         }
         if (current_time - last_exec_time >= interval) {
@@ -483,8 +491,9 @@ void StorageEngine::_path_gc_thread_callback(DataDir* data_dir) {
 void StorageEngine::_tablet_checkpoint_callback(const std::vector<DataDir*>& data_dirs) {
     int64_t interval = config::generate_tablet_meta_checkpoint_tasks_interval_secs;
     do {
-        LOG(INFO) << "begin to produce tablet meta checkpoint tasks.";
         for (auto data_dir : data_dirs) {
+            LOG(INFO) << "begin to produce tablet meta checkpoint tasks, data_dir="
+                      << data_dir->path();
             auto st = _tablet_meta_checkpoint_thread_pool->submit_func(
                     [data_dir, this]() { _tablet_manager->do_tablet_meta_checkpoint(data_dir); });
             if (!st.ok()) {
@@ -1040,6 +1049,15 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
                       << ", num_total_queued_tasks: " << thread_pool->get_queue_size();
         auto st = thread_pool->submit_func([tablet, compaction = std::move(compaction),
                                             compaction_type, permits, force, this]() {
+            if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) [[likely]] {
+                DorisMetrics::instance()->cumulative_compaction_task_running_total->increment(1);
+                DorisMetrics::instance()->cumulative_compaction_task_pending_total->set_value(
+                        _cumu_compaction_thread_pool->get_queue_size());
+            } else if (compaction_type == CompactionType::BASE_COMPACTION) {
+                DorisMetrics::instance()->base_compaction_task_running_total->increment(1);
+                DorisMetrics::instance()->base_compaction_task_pending_total->set_value(
+                        _base_compaction_thread_pool->get_queue_size());
+            }
             bool is_large_task = true;
             Defer defer {[&]() {
                 DBUG_EXECUTE_IF("StorageEngine._submit_compaction_task.sleep", { sleep(5); })
@@ -1054,6 +1072,14 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
                     if (!is_large_task) {
                         _cumu_compaction_thread_pool_small_tasks_running--;
                     }
+                    DorisMetrics::instance()->cumulative_compaction_task_running_total->increment(
+                            -1);
+                    DorisMetrics::instance()->cumulative_compaction_task_pending_total->set_value(
+                            _cumu_compaction_thread_pool->get_queue_size());
+                } else if (compaction_type == CompactionType::BASE_COMPACTION) {
+                    DorisMetrics::instance()->base_compaction_task_running_total->increment(-1);
+                    DorisMetrics::instance()->base_compaction_task_pending_total->set_value(
+                            _base_compaction_thread_pool->get_queue_size());
                 }
             }};
             do {
@@ -1112,6 +1138,13 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
             TEST_SYNC_POINT_RETURN_WITH_VOID("olap_server::execute_compaction");
             tablet->execute_compaction(*compaction);
         });
+        if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) [[likely]] {
+            DorisMetrics::instance()->cumulative_compaction_task_pending_total->set_value(
+                    _cumu_compaction_thread_pool->get_queue_size());
+        } else if (compaction_type == CompactionType::BASE_COMPACTION) {
+            DorisMetrics::instance()->base_compaction_task_pending_total->set_value(
+                    _base_compaction_thread_pool->get_queue_size());
+        }
         if (!st.ok()) {
             if (!force) {
                 _permit_limiter.release(permits);
@@ -1517,6 +1550,7 @@ void StorageEngine::_cold_data_compaction_producer_callback() {
                                          << t->tablet_id();
                             return;
                         }
+                        _update_cumulative_compaction_policy();
                         if (t->get_cumulative_compaction_policy() == nullptr ||
                             t->get_cumulative_compaction_policy()->name() !=
                                     t->tablet_meta()->compaction_policy()) {

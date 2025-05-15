@@ -118,8 +118,8 @@ public:
     Tie(size_t begin, size_t end) : _begin(begin), _end(end) {
         _bits = std::vector<uint8_t>(_end - _begin, 1);
     }
-    uint8_t operator[](int i) const { return _bits[i - _begin]; }
-    uint8_t& operator[](int i) { return _bits[i - _begin]; }
+    uint8_t operator[](size_t i) const { return _bits[i - _begin]; }
+    uint8_t& operator[](size_t i) { return _bits[i - _begin]; }
     Iter iter() { return Iter(*this); }
 
 private:
@@ -172,7 +172,8 @@ class MemTable {
 public:
     MemTable(int64_t tablet_id, std::shared_ptr<TabletSchema> tablet_schema,
              const std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
-             bool enable_unique_key_mow, PartialUpdateInfo* partial_update_info);
+             bool enable_unique_key_mow, PartialUpdateInfo* partial_update_info,
+             const std::shared_ptr<ResourceContext>& resource_ctx);
     ~MemTable();
 
     int64_t tablet_id() const { return _tablet_id; }

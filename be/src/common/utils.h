@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <random>
 #include <string>
 
 namespace doris {
@@ -75,4 +76,11 @@ To convert_to(From from) {
     return _to;
 }
 
+inline bool random_bool_slow(double probability_of_true = 0.5) {
+    // Due to an unknown JNI bug, we cannot use thread_local variables here.
+    static std::random_device seed;
+    static std::mt19937 gen(seed());
+    std::bernoulli_distribution d(probability_of_true);
+    return d(gen);
+}
 } // namespace doris

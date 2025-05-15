@@ -62,8 +62,6 @@
 #include "common/logging.h"
 #include "common/signal_handler.h"
 #include "common/status.h"
-#include "gutil/ref_counted.h"
-#include "gutil/strings/substitute.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/file_system.h"
@@ -711,6 +709,9 @@ void Tablet::_delete_stale_rowset_by_version(const Version& version) {
 }
 
 void Tablet::delete_expired_stale_rowset() {
+    if (config::enable_mow_verbose_log) {
+        LOG_INFO("begin delete_expired_stale_rowset for tablet={}", tablet_id());
+    }
     int64_t now = UnixSeconds();
     // hold write lock while processing stable rowset
     {
@@ -879,6 +880,9 @@ void Tablet::delete_expired_stale_rowset() {
         save_meta();
     }
 #endif
+    if (config::enable_mow_verbose_log) {
+        LOG_INFO("finish delete_expired_stale_rowset for tablet={}", tablet_id());
+    }
 }
 
 Status Tablet::capture_consistent_versions_unlocked(const Version& spec_version,
@@ -1494,7 +1498,6 @@ bool Tablet::do_tablet_meta_checkpoint() {
         _newly_created_rowset_num < config::tablet_meta_checkpoint_min_new_rowsets_num) {
         return false;
     }
-
     // hold read-lock other than write-lock, because it will not modify meta structure
     std::shared_lock rdlock(_meta_lock);
     if (tablet_state() != TABLET_RUNNING) {
@@ -1770,12 +1773,6 @@ Status Tablet::prepare_compaction_and_calculate_permits(
             // return OK if OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSION, so that we don't need to
             // print too much useless logs.
             // And because we set permits to 0, so even if we return OK here, nothing will be done.
-            LOG_INFO(
-                    "cumulative compaction meet delete rowset, increase cumu point without other "
-                    "operation.")
-                    .tag("tablet id:", tablet->tablet_id())
-                    .tag("after cumulative compaction, cumu point:",
-                         tablet->cumulative_layer_point());
             return Status::OK();
         }
     } else if (compaction_type == CompactionType::BASE_COMPACTION) {
@@ -2032,6 +2029,12 @@ Status Tablet::cooldown(RowsetSharedPtr rowset) {
     if (_cooldown_conf.cooldown_replica_id <= 0) { // wait for FE to push cooldown conf
         return Status::InternalError("invalid cooldown_replica_id");
     }
+
+    auto mem_tracker = MemTrackerLimiter::create_shared(
+            MemTrackerLimiter::Type::OTHER,
+            fmt::format("Tablet::cooldown#tableId={}:replicaId={}", std::to_string(tablet_id()),
+                        std::to_string(replica_id())));
+    SCOPED_ATTACH_TASK(mem_tracker);
 
     if (_cooldown_conf.cooldown_replica_id == replica_id()) {
         // this replica is cooldown replica

@@ -159,8 +159,6 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t /*input_rows_count*/) const override;
 
-    Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) override;
-
     friend struct VectorAllpassSearchState;
     friend struct VectorEqualSearchState;
     friend struct VectorSubStringSearchState;

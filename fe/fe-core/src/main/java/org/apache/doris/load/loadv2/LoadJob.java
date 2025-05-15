@@ -333,7 +333,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback
                 break;
             case INSERT:
                 timeout = Optional.ofNullable(ConnectContext.get())
-                                    .map(ConnectContext::getExecTimeout)
+                                    .map(ConnectContext::getExecTimeoutS)
                                     .orElse(Config.insert_load_default_timeout_second);
                 break;
             case MINI:

@@ -29,6 +29,7 @@
 #include "runtime_filter/runtime_filter_consumer.h"
 #include "runtime_filter/runtime_filter_test_utils.h"
 #include "vec/columns/columns_number.h"
+#include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_number.h"
 
 namespace doris {
@@ -71,6 +72,8 @@ TEST_F(RuntimeFilterConsumerHelperTest, basic) {
 
     std::vector<std::shared_ptr<pipeline::Dependency>> runtime_filter_dependencies;
     SlotDescriptor slot_desc;
+    slot_desc._type = vectorized::DataTypeFactory::instance().create_data_type(
+            PrimitiveType::TYPE_INT, false);
     TupleDescriptor tuple_desc;
     tuple_desc.add_slot(&slot_desc);
     RowDescriptor row_desc;
@@ -88,7 +91,7 @@ TEST_F(RuntimeFilterConsumerHelperTest, basic) {
 
     std::shared_ptr<RuntimeFilterProducer> producer;
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(RuntimeFilterProducer::create(
-            _query_ctx.get(), runtime_filter_descs.data(), &producer, &_profile));
+            _query_ctx.get(), runtime_filter_descs.data(), &producer));
     producer->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::READY);
     helper._consumers[0]->signal(producer.get());
 

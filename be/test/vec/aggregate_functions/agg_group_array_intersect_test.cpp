@@ -29,6 +29,7 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_date.h"
+#include "vec/data_types/data_type_date_or_datetime_v2.h"
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
@@ -77,8 +78,14 @@ void validate_numeric_test(MutableColumnPtr& test_col_data) {
     // Prepare test function and parameters.
     AggregateFunctionSimpleFactory factory;
     register_aggregate_function_group_array_intersect(factory);
-    DataTypePtr data_type_array_numeric(
-            std::make_shared<DataTypeArray>(std::make_shared<DataTypeNumber<T>>()));
+    const auto nested =
+            std::is_same_v<DateV2, T>
+                    ? std::dynamic_pointer_cast<const IDataType>(std::make_shared<DataTypeDateV2>())
+            : std::is_same_v<DateTimeV2, T> ? std::dynamic_pointer_cast<const IDataType>(
+                                                      std::make_shared<DataTypeDateTimeV2>())
+                                            : std::dynamic_pointer_cast<const IDataType>(
+                                                      std::make_shared<DataTypeNumber<T>>());
+    DataTypePtr data_type_array_numeric(std::make_shared<DataTypeArray>(nested));
     DataTypes data_types = {data_type_array_numeric};
     auto agg_function = factory.get("group_array_intersect", data_types, false, -1);
     std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
@@ -143,8 +150,15 @@ void validate_numeric_nullable_test(MutableColumnPtr& test_col_data) {
     AggregateFunctionSimpleFactory factory;
     register_aggregate_function_group_array_intersect(factory);
 
-    DataTypePtr data_type_array_numeric(std::make_shared<DataTypeArray>(
-            std::make_shared<DataTypeNullable>(std::make_shared<DataTypeNumber<T>>())));
+    const auto nested =
+            std::is_same_v<DateV2, T>
+                    ? std::dynamic_pointer_cast<const IDataType>(std::make_shared<DataTypeDateV2>())
+            : std::is_same_v<DateTimeV2, T> ? std::dynamic_pointer_cast<const IDataType>(
+                                                      std::make_shared<DataTypeDateTimeV2>())
+                                            : std::dynamic_pointer_cast<const IDataType>(
+                                                      std::make_shared<DataTypeNumber<T>>());
+    DataTypePtr data_type_array_numeric(
+            std::make_shared<DataTypeArray>(std::make_shared<DataTypeNullable>(nested)));
     DataTypes data_types = {data_type_array_numeric};
     auto agg_function = factory.get("group_array_intersect", data_types, false, -1);
     std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);

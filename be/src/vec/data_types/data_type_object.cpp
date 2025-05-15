@@ -46,17 +46,17 @@ class IColumn;
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
-DataTypeObject::DataTypeObject(const String& schema_format_, bool is_nullable_)
+DataTypeVariant::DataTypeVariant(const String& schema_format_, bool is_nullable_)
         : schema_format(to_lower(schema_format_)), is_nullable(is_nullable_) {}
-bool DataTypeObject::equals(const IDataType& rhs) const {
-    return typeid_cast<const DataTypeObject*>(&rhs) != nullptr;
+bool DataTypeVariant::equals(const IDataType& rhs) const {
+    return typeid_cast<const DataTypeVariant*>(&rhs) != nullptr;
 }
 
-int64_t DataTypeObject::get_uncompressed_serialized_bytes(const IColumn& column,
-                                                          int be_exec_version) const {
-    const auto& column_object = assert_cast<const ColumnObject&>(column);
+int64_t DataTypeVariant::get_uncompressed_serialized_bytes(const IColumn& column,
+                                                           int be_exec_version) const {
+    const auto& column_object = assert_cast<const ColumnVariant&>(column);
     if (!column_object.is_finalized()) {
-        const_cast<ColumnObject&>(column_object).finalize();
+        const_cast<ColumnVariant&>(column_object).finalize();
     }
 
     const auto& subcolumns = column_object.get_subcolumns();
@@ -65,7 +65,7 @@ int64_t DataTypeObject::get_uncompressed_serialized_bytes(const IColumn& column,
     size += sizeof(uint32_t);
     for (const auto& entry : subcolumns) {
         auto type = entry->data.get_least_common_type();
-        if (is_nothing(type)) {
+        if (type->get_primitive_type() == INVALID_TYPE) {
             continue;
         }
         PColumnMeta column_meta_pb;
@@ -87,10 +87,10 @@ int64_t DataTypeObject::get_uncompressed_serialized_bytes(const IColumn& column,
     return size;
 }
 
-char* DataTypeObject::serialize(const IColumn& column, char* buf, int be_exec_version) const {
-    const auto& column_object = assert_cast<const ColumnObject&>(column);
+char* DataTypeVariant::serialize(const IColumn& column, char* buf, int be_exec_version) const {
+    const auto& column_object = assert_cast<const ColumnVariant&>(column);
     if (!column_object.is_finalized()) {
-        const_cast<ColumnObject&>(column_object).finalize();
+        const_cast<ColumnVariant&>(column_object).finalize();
     }
 #ifndef NDEBUG
     // DCHECK size
@@ -107,7 +107,7 @@ char* DataTypeObject::serialize(const IColumn& column, char* buf, int be_exec_ve
     for (const auto& entry : subcolumns) {
         // 2.1 serialize subcolumn column meta pb (path and type)
         auto type = entry->data.get_least_common_type();
-        if (is_nothing(type)) {
+        if (type->get_primitive_type() == INVALID_TYPE) {
             continue;
         }
         ++num_of_columns;
@@ -137,9 +137,9 @@ char* DataTypeObject::serialize(const IColumn& column, char* buf, int be_exec_ve
     return buf;
 }
 
-const char* DataTypeObject::deserialize(const char* buf, MutableColumnPtr* column,
-                                        int be_exec_version) const {
-    auto column_object = assert_cast<ColumnObject*>(column->get());
+const char* DataTypeVariant::deserialize(const char* buf, MutableColumnPtr* column,
+                                         int be_exec_version) const {
+    auto column_object = assert_cast<ColumnVariant*>(column->get());
 
     // 1. deserialize num of subcolumns
     uint32_t num_subcolumns = *reinterpret_cast<const uint32_t*>(buf);
@@ -183,15 +183,15 @@ const char* DataTypeObject::deserialize(const char* buf, MutableColumnPtr* colum
     return buf;
 }
 
-std::string DataTypeObject::to_string(const IColumn& column, size_t row_num) const {
-    const auto& variant = assert_cast<const ColumnObject&>(column);
+std::string DataTypeVariant::to_string(const IColumn& column, size_t row_num) const {
+    const auto& variant = assert_cast<const ColumnVariant&>(column);
     std::string res;
     static_cast<void>(variant.serialize_one_row_to_string(cast_set<Int32>(row_num), &res));
     return res;
 }
 
-void DataTypeObject::to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const {
-    const auto& variant = assert_cast<const ColumnObject&>(column);
+void DataTypeVariant::to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const {
+    const auto& variant = assert_cast<const ColumnVariant&>(column);
     static_cast<void>(variant.serialize_one_row_to_string(cast_set<Int32>(row_num), ostr));
 }
 

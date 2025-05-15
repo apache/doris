@@ -558,7 +558,7 @@ public:
 };
 
 /// Implements several methods for manipulation with data. T - type of structure with data for aggregation.
-template <typename T, typename Derived>
+template <typename T, typename Derived, bool create_with_argument_types = false>
 class IAggregateFunctionDataHelper : public IAggregateFunctionHelper<Derived> {
 protected:
     using Data = T;
@@ -572,7 +572,13 @@ public:
     IAggregateFunctionDataHelper(const DataTypes& argument_types_)
             : IAggregateFunctionHelper<Derived>(argument_types_) {}
 
-    void create(AggregateDataPtr __restrict place) const override { new (place) Data; }
+    void create(AggregateDataPtr __restrict place) const override {
+        if constexpr (create_with_argument_types) {
+            new (place) Data(IAggregateFunction::argument_types);
+        } else {
+            new (place) Data;
+        }
+    }
 
     void destroy(AggregateDataPtr __restrict place) const noexcept override { data(place).~Data(); }
 

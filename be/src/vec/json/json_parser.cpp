@@ -278,7 +278,7 @@ bool JSONDataParser<ParserImpl>::tryInsertDefaultFromNested(ParseArrayContext& c
 template <typename ParserImpl>
 StringRef JSONDataParser<ParserImpl>::getNameOfNested(const PathInData::Parts& path,
                                                       const Field& value) {
-    if (value.get_type() != Field::Types::Array || path.empty()) {
+    if (value.get_type() != PrimitiveType::TYPE_ARRAY || path.empty()) {
         return {};
     }
     /// Find first key that is marked as nested,

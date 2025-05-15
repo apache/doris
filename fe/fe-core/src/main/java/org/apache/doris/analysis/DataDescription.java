@@ -845,7 +845,10 @@ public class DataDescription implements InsertStmt.DataDesc {
                         + "The mapping operator error, op: " + predicate.getOp());
             }
             Expr child0 = predicate.getChild(0);
-            if (!(child0 instanceof SlotRef)) {
+            if (child0 instanceof CastExpr && child0.getChild(0) instanceof SlotRef) {
+                predicate.setChild(0, child0.getChild(0));
+                child0 = predicate.getChild(0);
+            } else if (!(child0 instanceof SlotRef)) {
                 throw new AnalysisException("Mapping function expr only support the column or eq binary predicate. "
                         + "The mapping column error. column: " + child0.toSql());
             }

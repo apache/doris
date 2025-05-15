@@ -50,9 +50,6 @@ struct FunctionFakeBaseImpl {
     }
     static DataTypes get_variadic_argument_types() {
         if constexpr (VARIADIC) {
-            if constexpr (AlwaysNullable) {
-                return {make_nullable(std::make_shared<ReturnType>())};
-            }
             return {std::make_shared<ReturnType>()};
         } else {
             return {};
@@ -63,7 +60,8 @@ struct FunctionFakeBaseImpl {
 
 struct FunctionExplode {
     static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
-        DCHECK(is_array(arguments[0])) << arguments[0]->get_name() << " not supported";
+        DCHECK(arguments[0]->get_primitive_type() == TYPE_ARRAY)
+                << arguments[0]->get_name() << " not supported";
         return make_nullable(
                 check_and_get_data_type<DataTypeArray>(arguments[0].get())->get_nested_type());
     }
@@ -75,7 +73,7 @@ struct FunctionExplodeV2 {
     static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
         DataTypes fieldTypes(arguments.size());
         for (int i = 0; i < arguments.size(); i++) {
-            if (arguments[i]->get_type_id() == TypeIndex::VARIANT) {
+            if (arguments[i]->get_primitive_type() == PrimitiveType::TYPE_VARIANT) {
                 if (arguments[i]->is_nullable()) {
                     fieldTypes[i] = arguments[i];
                 } else {
@@ -101,7 +99,8 @@ struct FunctionExplodeV2 {
 // explode map: make map k,v as struct field
 struct FunctionExplodeMap {
     static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
-        DCHECK(is_map(arguments[0])) << arguments[0]->get_name() << " not supported";
+        DCHECK(arguments[0]->get_primitive_type() == TYPE_MAP)
+                << arguments[0]->get_name() << " not supported";
         DataTypes fieldTypes(2);
         fieldTypes[0] = check_and_get_data_type<DataTypeMap>(arguments[0].get())->get_key_type();
         fieldTypes[1] = check_and_get_data_type<DataTypeMap>(arguments[0].get())->get_value_type();
@@ -114,7 +113,8 @@ struct FunctionExplodeMap {
 template <bool AlwaysNullable = false>
 struct FunctionPoseExplode {
     static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
-        DCHECK(is_array(arguments[0])) << arguments[0]->get_name() << " not supported";
+        DCHECK(arguments[0]->get_primitive_type() == TYPE_ARRAY)
+                << arguments[0]->get_name() << " not supported";
         DataTypes fieldTypes(2);
         fieldTypes[0] = make_nullable(std::make_shared<DataTypeInt32>());
         fieldTypes[1] =
@@ -133,7 +133,7 @@ struct FunctionPoseExplode {
 // explode json-object: expands json-object to struct with a pair of key and value in column string
 struct FunctionExplodeJsonObject {
     static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
-        DCHECK(WhichDataType(arguments[0]).is_json())
+        DCHECK_EQ(arguments[0]->get_primitive_type(), PrimitiveType::TYPE_JSONB)
                 << " explode json object " << arguments[0]->get_name() << " not supported";
         DataTypes fieldTypes(2);
         fieldTypes[0] = make_nullable(std::make_shared<DataTypeString>());
@@ -248,7 +248,7 @@ void register_function_fake(SimpleFunctionFactory& factory) {
     register_table_function_with_impl<FunctionPoseExplode<false>>(factory, "posexplode");
     register_table_function_with_impl<FunctionPoseExplode<true>>(factory, "posexplode",
                                                                  COMBINATOR_SUFFIX_OUTER);
-    register_table_alternative_function_expand_outer_default<DataTypeObject, false>(
+    register_table_alternative_function_expand_outer_default<DataTypeVariant, false>(
             factory, "explode_variant_array");
     register_table_function_with_impl<FunctionExplodeV2>(factory, "explode_variant_array");
 }

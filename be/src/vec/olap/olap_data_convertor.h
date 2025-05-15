@@ -517,7 +517,7 @@ private:
         // const ColumnString* _root_data_column;
         // // _nullmap contains null info for this variant
         std::unique_ptr<OlapColumnDataConvertorVarChar> _root_data_convertor;
-        ColumnObject* _source_column_ptr;
+        ColumnVariant* _source_column_ptr;
     };
 
 private:

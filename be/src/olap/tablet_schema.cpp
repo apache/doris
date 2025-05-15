@@ -682,7 +682,7 @@ vectorized::AggregateFunctionPtr TabletColumn::get_aggregate_function(
     vectorized::AggregateFunctionPtr function = nullptr;
 
     auto type = vectorized::DataTypeFactory::instance().create_data_type(*this);
-    if (type && type->get_type_as_type_descriptor().type == PrimitiveType::TYPE_AGG_STATE) {
+    if (type && type->get_primitive_type() == PrimitiveType::TYPE_AGG_STATE) {
         function = get_aggregate_function_union(type, current_be_exec_version);
     } else {
         std::string origin_name = TabletColumn::get_string_by_aggregation_type(_aggregation);
@@ -748,10 +748,9 @@ void TabletIndex::init_from_thrift(const TOlapTableIndex& index,
             col_unique_ids[i] = tablet_schema.column(column_idx).unique_id();
         } else {
             // if column unique id not found by column name, find by column unique id
-            // column unique id can not bigger than tablet schema column size, if bigger than column size means
-            // this column is a new column added by light schema change
-            if (index.__isset.column_unique_ids &&
-                index.column_unique_ids[i] < tablet_schema.num_columns()) {
+            // column unique id can not found means this column is a new column added by light schema change
+            if (index.__isset.column_unique_ids && !index.column_unique_ids.empty() &&
+                tablet_schema.has_column_unique_id(index.column_unique_ids[i])) {
                 col_unique_ids[i] = index.column_unique_ids[i];
             } else {
                 col_unique_ids[i] = -1;

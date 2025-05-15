@@ -127,16 +127,19 @@ public class HashDistributionInfo extends DistributionInfo {
     }
 
     @Override
-    public String toSql(boolean forSync) {
-        StringBuilder builder = new StringBuilder();
-        builder.append("DISTRIBUTED BY HASH(");
-
+    public String getColumnsName() {
         List<String> colNames = Lists.newArrayList();
         for (Column column : distributionColumns) {
             colNames.add("`" + column.getName() + "`");
         }
-        String colList = Joiner.on(", ").join(colNames);
-        builder.append(colList);
+        return Joiner.on(", ").join(colNames);
+    }
+
+    @Override
+    public String toSql(boolean forSync) {
+        StringBuilder builder = new StringBuilder();
+        builder.append("DISTRIBUTED BY HASH(");
+        builder.append(getColumnsName());
 
         if (autoBucket && !forSync) {
             builder.append(") BUCKETS AUTO");

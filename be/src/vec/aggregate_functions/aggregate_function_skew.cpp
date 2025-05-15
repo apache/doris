@@ -59,18 +59,36 @@ AggregateFunctionPtr create_aggregate_function_skew(const std::string& name,
     }
 
     const bool nullable_input = argument_types[0]->is_nullable();
-    WhichDataType type(remove_nullable(argument_types[0]));
-
-#define DISPATCH(TYPE)                                                                             \
-    if (type.idx == TypeIndex::TYPE)                                                               \
-        return type_dispatch_for_aggregate_function_skew<TYPE>(argument_types, result_is_nullable, \
+    switch (argument_types[0]->get_primitive_type()) {
+    case PrimitiveType::TYPE_BOOLEAN:
+        return type_dispatch_for_aggregate_function_skew<UInt8>(argument_types, result_is_nullable,
+                                                                nullable_input);
+    case PrimitiveType::TYPE_TINYINT:
+        return type_dispatch_for_aggregate_function_skew<Int8>(argument_types, result_is_nullable,
                                                                nullable_input);
-    FOR_NUMERIC_TYPES(DISPATCH)
-#undef DISPATCH
-
-    LOG(WARNING) << "unsupported input type " << argument_types[0]->get_name()
-                 << " for aggregate function " << name;
-    return nullptr;
+    case PrimitiveType::TYPE_SMALLINT:
+        return type_dispatch_for_aggregate_function_skew<Int16>(argument_types, result_is_nullable,
+                                                                nullable_input);
+    case PrimitiveType::TYPE_INT:
+        return type_dispatch_for_aggregate_function_skew<Int32>(argument_types, result_is_nullable,
+                                                                nullable_input);
+    case PrimitiveType::TYPE_BIGINT:
+        return type_dispatch_for_aggregate_function_skew<Int64>(argument_types, result_is_nullable,
+                                                                nullable_input);
+    case PrimitiveType::TYPE_LARGEINT:
+        return type_dispatch_for_aggregate_function_skew<Int128>(argument_types, result_is_nullable,
+                                                                 nullable_input);
+    case PrimitiveType::TYPE_FLOAT:
+        return type_dispatch_for_aggregate_function_skew<Float32>(
+                argument_types, result_is_nullable, nullable_input);
+    case PrimitiveType::TYPE_DOUBLE:
+        return type_dispatch_for_aggregate_function_skew<Float64>(
+                argument_types, result_is_nullable, nullable_input);
+    default:
+        LOG(WARNING) << "unsupported input type " << argument_types[0]->get_name()
+                     << " for aggregate function " << name;
+        return nullptr;
+    }
 }
 
 void register_aggregate_function_skewness(AggregateFunctionSimpleFactory& factory) {

@@ -40,7 +40,7 @@
 #include "util/mem_info.h"
 
 int main(int argc, char** argv) {
-    doris::ThreadLocalHandle::create_thread_local_if_not_exits();
+    SCOPED_INIT_THREAD_CONTEXT();
     doris::ExecEnv::GetInstance()->init_mem_tracker();
     // Used for unit test
     std::unique_ptr<doris::ThreadPool> non_block_close_thread_pool;
@@ -95,7 +95,7 @@ int main(int argc, char** argv) {
 
     ::testing::TestEventListeners& listeners = ::testing::UnitTest::GetInstance()->listeners();
     listeners.Append(new TestListener);
-    doris::ExecEnv::GetInstance()->set_tracking_memory(false);
+    doris::ExecEnv::set_tracking_memory(false);
 
     google::ParseCommandLineFlags(&argc, &argv, false);
 

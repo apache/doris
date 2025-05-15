@@ -2346,8 +2346,20 @@ auto check_permute = [](const IColumn& column, const IColumn::Permutation& permu
                         size_t limit, size_t expected_size) {
     auto res_col = column.permute(permutation, limit);
     EXPECT_EQ(res_col->size(), expected_size);
-    for (size_t j = 0; j < expected_size; ++j) {
-        EXPECT_EQ(res_col->compare_at(j, permutation[j], column, -1), 0);
+    try {
+        for (size_t j = 0; j < expected_size; ++j) {
+            EXPECT_EQ(res_col->compare_at(j, permutation[j], column, -1), 0);
+        }
+    } catch (doris::Exception& e) {
+        LOG(ERROR) << "Exception: " << e.what();
+        // using field check
+        for (size_t j = 0; j < expected_size; ++j) {
+            Field r;
+            Field l;
+            column.get(permutation[j], r);
+            res_col->get(j, l);
+            EXPECT_EQ(r, l);
+        }
     }
 };
 auto assert_column_vector_permute = [](MutableColumns& cols, size_t num_rows) {

@@ -17,3 +17,7 @@
 
 yapf -i *.py
 shfmt -w resource/*.sh
+
+# format docker file
+# go install github.com/reteps/dockerfmt@latest
+dockerfmt Dockerfile -w

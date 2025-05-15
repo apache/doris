@@ -27,10 +27,9 @@
 #include <thread>
 #include <utility>
 
+#include "absl/strings/substitute.h"
 #include "common/exception.h"
 #include "common/logging.h"
-#include "gutil/port.h"
-#include "gutil/strings/substitute.h"
 #include "util/debug/sanitizer_scopes.h"
 #include "util/debug_points.h"
 #include "util/doris_metrics.h"
@@ -55,7 +54,6 @@ DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(thread_pool_task_wait_worker_count_total, M
 using namespace ErrorCode;
 
 using std::string;
-using strings::Substitute;
 
 class FunctionRunnable : public Runnable {
 public:
@@ -270,7 +268,7 @@ ThreadPool::ThreadPool(const ThreadPoolBuilder& builder)
 
 ThreadPool::~ThreadPool() {
     // There should only be one live token: the one used in tokenless submission.
-    CHECK_EQ(1, _tokens.size()) << strings::Substitute(
+    CHECK_EQ(1, _tokens.size()) << absl::Substitute(
             "Threadpool $0 destroyed with $1 allocated tokens", _name, _tokens.size());
     shutdown();
 }
@@ -411,8 +409,8 @@ std::unique_ptr<ThreadPoolToken> ThreadPool::new_token(ExecutionMode mode, int m
 
 void ThreadPool::release_token(ThreadPoolToken* t) {
     std::lock_guard<std::mutex> l(_lock);
-    CHECK(!t->is_active()) << strings::Substitute("Token with state $0 may not be released",
-                                                  ThreadPoolToken::state_to_string(t->state()));
+    CHECK(!t->is_active()) << absl::Substitute("Token with state $0 may not be released",
+                                               ThreadPoolToken::state_to_string(t->state()));
     CHECK_EQ(1, _tokens.erase(t));
 }
 
@@ -686,7 +684,7 @@ void ThreadPool::dispatch_thread() {
 }
 
 Status ThreadPool::create_thread() {
-    return Thread::create("thread pool", strings::Substitute("$0 [worker]", _name),
+    return Thread::create("thread pool", absl::Substitute("$0 [worker]", _name),
                           &ThreadPool::dispatch_thread, this, nullptr);
 }
 

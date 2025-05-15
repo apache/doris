@@ -370,7 +370,6 @@ public class ExportJob implements Writable {
         StatementContext statementContext = new StatementContext();
         ConnectContext connectContext = ConnectContext.get();
         if (connectContext != null) {
-            connectContext.setStatementContext(statementContext);
             statementContext.setConnectContext(connectContext);
         }
 

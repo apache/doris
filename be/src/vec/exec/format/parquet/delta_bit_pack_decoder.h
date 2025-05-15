@@ -30,7 +30,6 @@
 #include <vector>
 
 #include "common/status.h"
-#include "gutil/port.h"
 #include "util/bit_stream_utils.h"
 #include "util/bit_stream_utils.inline.h"
 #include "util/slice.h"

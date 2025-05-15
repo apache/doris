@@ -22,7 +22,6 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.mtmv.MTMVCache;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DataTrait;
@@ -229,6 +228,20 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
 
     public List<Long> getSelectedPartitionIds() {
         return selectedPartitionIds;
+    }
+
+    @Override
+    public String getFingerprint() {
+        String partitions = "";
+        int partitionCount = this.table.getPartitionNames().size();
+        if (selectedPartitionIds.size() != partitionCount) {
+            partitions = " partitions(" + selectedPartitionIds.size() + "/" + partitionCount + ")";
+        }
+        // NOTE: embed version info avoid mismatching under data maintaining
+        // TODO: more efficient way to ignore the ignorable data maintaining
+        return Utils.toSqlString("OlapScan[" + table.getNameWithFullQualifiers() + partitions + "]"
+                + "#" + getRelationId() + "@" + getTable().getVisibleVersion()
+                + "@" + getTable().getVisibleVersionTime());
     }
 
     @Override
@@ -500,6 +513,12 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
         return tableSample;
     }
 
+    public String getQualifierWithRelationId() {
+        String fullQualifier = getTable().getNameWithFullQualifiers();
+        String relationId = getRelationId().toString();
+        return fullQualifier + "#" + relationId;
+    }
+
     public boolean isDirectMvScan() {
         return directMvScan;
     }
@@ -565,7 +584,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
             MTMVCache cache;
             try {
                 cache = mtmv.getOrGenerateCache(ConnectContext.get());
-            } catch (AnalysisException e) {
+            } catch (Exception e) {
                 LOG.warn(String.format("LogicalOlapScan computeUnique fail, mv name is %s", mtmv.getName()), e);
                 return;
             }
@@ -604,7 +623,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
             MTMVCache cache;
             try {
                 cache = mtmv.getOrGenerateCache(ConnectContext.get());
-            } catch (AnalysisException e) {
+            } catch (Exception e) {
                 LOG.warn(String.format("LogicalOlapScan computeUniform fail, mv name is %s", mtmv.getName()), e);
                 return;
             }
@@ -625,7 +644,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
             MTMVCache cache;
             try {
                 cache = mtmv.getOrGenerateCache(ConnectContext.get());
-            } catch (AnalysisException e) {
+            } catch (Exception e) {
                 LOG.warn(String.format("LogicalOlapScan computeEqualSet fail, mv name is %s", mtmv.getName()), e);
                 return;
             }
@@ -646,7 +665,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
             MTMVCache cache;
             try {
                 cache = mtmv.getOrGenerateCache(ConnectContext.get());
-            } catch (AnalysisException e) {
+            } catch (Exception e) {
                 LOG.warn(String.format("LogicalOlapScan computeFd fail, mv name is %s", mtmv.getName()), e);
                 return;
             }
@@ -677,7 +696,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
         MTMVCache cache;
         try {
             cache = mtmv.getOrGenerateCache(ConnectContext.get());
-        } catch (AnalysisException e) {
+        } catch (Exception e) {
             LOG.warn(String.format("LogicalOlapScan constructReplaceMap fail, mv name is %s", mtmv.getName()), e);
             return replaceMap;
         }

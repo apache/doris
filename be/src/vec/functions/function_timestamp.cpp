@@ -58,12 +58,12 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_date.h"
+#include "vec/data_types/data_type_date_or_datetime_v2.h"
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
-#include "vec/data_types/data_type_time_v2.h"
 #include "vec/functions/function.h"
 #include "vec/functions/simple_function_factory.h"
 #include "vec/runtime/vdatetime_value.h"
@@ -131,8 +131,8 @@ struct StrToDate {
         // Because of we cant distinguish by return_type when we find function. so the return_type may NOT be same with real return type
         // which decided by FE. that's found by which.
         ColumnPtr res = nullptr;
-        WhichDataType which(remove_nullable(block.get_by_position(result).type));
-        if (which.is_date_time_v2()) {
+        switch (block.get_by_position(result).type->get_primitive_type()) {
+        case PrimitiveType::TYPE_DATETIMEV2: {
             res = ColumnDateTimeV2::create();
             if (col_const[1]) {
                 execute_impl_const_right<DataTypeDateTimeV2>(
@@ -145,7 +145,9 @@ struct StrToDate {
                         static_cast<ColumnDateTimeV2*>(res->assume_mutable().get())->get_data(),
                         null_map->get_data());
             }
-        } else if (which.is_date_v2()) {
+            break;
+        }
+        case PrimitiveType::TYPE_DATEV2: {
             res = ColumnDateV2::create();
             if (col_const[1]) {
                 execute_impl_const_right<DataTypeDateV2>(
@@ -158,7 +160,9 @@ struct StrToDate {
                         static_cast<ColumnDateV2*>(res->assume_mutable().get())->get_data(),
                         null_map->get_data());
             }
-        } else {
+            break;
+        }
+        default: {
             res = ColumnDateTime::create();
             if (col_const[1]) {
                 execute_impl_const_right<DataTypeDateTime>(
@@ -172,7 +176,7 @@ struct StrToDate {
                         null_map->get_data());
             }
         }
-
+        }
         block.get_by_position(result).column = ColumnNullable::create(res, std::move(null_map));
         return Status::OK();
     }
@@ -229,7 +233,8 @@ private:
             null_map[index] = 1;
         } else {
             if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {
-                if (context->get_return_type().type == doris::PrimitiveType::TYPE_DATETIME) {
+                if (context->get_return_type()->get_primitive_type() ==
+                    doris::PrimitiveType::TYPE_DATETIME) {
                     ts_val.to_datetime();
                 } else {
                     ts_val.cast_to_date();
@@ -267,8 +272,8 @@ struct MakeDateImpl {
                 unpack_if_const(block.get_by_position(arguments[1]).column);
 
         ColumnPtr res = nullptr;
-        WhichDataType which(remove_nullable(block.get_by_position(result).type));
-        if (which.is_date_v2()) {
+        switch (block.get_by_position(result).type->get_primitive_type()) {
+        case PrimitiveType::TYPE_DATEV2: {
             res = ColumnDateV2::create();
             if (col_const[1]) {
                 execute_impl_right_const<DataTypeDateV2>(
@@ -287,7 +292,9 @@ struct MakeDateImpl {
                         static_cast<ColumnDateV2*>(res->assume_mutable().get())->get_data(),
                         null_map->get_data());
             }
-        } else if (which.is_date_time_v2()) {
+            break;
+        }
+        case PrimitiveType::TYPE_DATETIMEV2: {
             res = ColumnDateTimeV2::create();
             if (col_const[1]) {
                 execute_impl_right_const<DataTypeDateTimeV2>(
@@ -306,7 +313,9 @@ struct MakeDateImpl {
                         static_cast<ColumnDateTimeV2*>(res->assume_mutable().get())->get_data(),
                         null_map->get_data());
             }
-        } else {
+            break;
+        }
+        default: {
             res = ColumnDateTime::create();
             if (col_const[1]) {
                 execute_impl_right_const<DataTypeDateTime>(
@@ -326,7 +335,7 @@ struct MakeDateImpl {
                         null_map->get_data());
             }
         }
-
+        }
         block.get_by_position(result).column = ColumnNullable::create(res, std::move(null_map));
         return Status::OK();
     }
@@ -514,8 +523,7 @@ public:
         auto data_col = assert_cast<const ColumnVector<Int32>*>(argument_column.get());
 
         ColumnPtr res_column;
-        WhichDataType which(remove_nullable(block.get_by_position(result).type));
-        if (which.is_date()) {
+        if (block.get_by_position(result).type->get_primitive_type() == PrimitiveType::TYPE_DATE) {
             res_column = ColumnInt64::create(input_rows_count);
             execute_straight<VecDateTimeValue, Int64>(
                     input_rows_count, null_map->get_data(), data_col->get_data(),
@@ -526,7 +534,6 @@ public:
                     input_rows_count, null_map->get_data(), data_col->get_data(),
                     static_cast<ColumnDateV2*>(res_column->assume_mutable().get())->get_data());
         }
-
         block.replace_by_position(
                 result, ColumnNullable::create(std::move(res_column), std::move(null_map)));
         return Status::OK();
@@ -666,8 +673,7 @@ struct UnixTimeStampDateImpl {
                         ts_value.unix_timestamp(&timestamp, context->state()->timezone_obj());
                 DCHECK(valid);
 
-                auto& [sec, ms] = timestamp;
-                sec = UnixTimeStampImpl::trim_timestamp(sec);
+                auto [sec, ms] = UnixTimeStampImpl::trim_timestamp(timestamp);
                 auto ms_str = std::to_string(ms).substr(0, scale);
                 if (ms_str.empty()) {
                     ms_str = "0";
@@ -1243,7 +1249,7 @@ struct FromIso8601DateV2 {
 
             int iso_string_format_value = 0;
 
-            vector<int> src_string_values;
+            std::vector<int> src_string_values;
             src_string_values.reserve(10);
 
             //The maximum length of the current iso8601 format is 10.

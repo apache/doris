@@ -66,6 +66,9 @@ public:
     [[noreturn]] String operator()(const UInt128& x) const {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
     }
+    [[noreturn]] String operator()(const Int128& x) const {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
+    }
     [[noreturn]] String operator()(const Array& x) const {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
     }
@@ -175,15 +178,11 @@ Field convert_numeric_type_impl(const Field& from) {
 
 template <typename To>
 void convert_numric_type(const Field& from, const IDataType& type, Field* to) {
-    if (from.get_type() == Field::Types::UInt64) {
-        *to = convert_numeric_type_impl<UInt64, To>(from);
-    } else if (from.get_type() == Field::Types::Int64) {
+    if (from.get_type() == PrimitiveType::TYPE_BIGINT) {
         *to = convert_numeric_type_impl<Int64, To>(from);
-    } else if (from.get_type() == Field::Types::Float64) {
+    } else if (from.get_type() == PrimitiveType::TYPE_DOUBLE) {
         *to = convert_numeric_type_impl<Float64, To>(from);
-    } else if (from.get_type() == Field::Types::UInt128) {
-        // *to = convert_numeric_type_impl<UInt128, To>(from);
-    } else if (from.get_type() == Field::Types::Int128) {
+    } else if (from.get_type() == PrimitiveType::TYPE_LARGEINT) {
         *to = convert_numeric_type_impl<Int128, To>(from);
     } else {
         throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
@@ -198,61 +197,47 @@ void convert_field_to_typeImpl(const Field& src, const IDataType& type,
         *to = src;
         return;
     }
-    WhichDataType which_type(type);
     // TODO add more types
-    if (type.is_value_represented_by_number() && src.get_type() != Field::Types::String) {
-        if (which_type.is_uint8()) {
+    if (type.is_value_represented_by_number() && !is_string_type(src.get_type())) {
+        switch (type.get_primitive_type()) {
+        case PrimitiveType::TYPE_BOOLEAN:
             return convert_numric_type<UInt8>(src, type, to);
-        }
-        if (which_type.is_uint16()) {
-            return convert_numric_type<UInt16>(src, type, to);
-        }
-        if (which_type.is_uint32()) {
-            return convert_numric_type<UInt32>(src, type, to);
-        }
-        if (which_type.is_uint64()) {
-            return convert_numric_type<UInt64>(src, type, to);
-        }
-        if (which_type.is_uint128()) {
-            // return convert_numric_type<UInt128>(src, type, to);
-        }
-        if (which_type.is_int8()) {
+        case PrimitiveType::TYPE_TINYINT:
             return convert_numric_type<Int8>(src, type, to);
-        }
-        if (which_type.is_int16()) {
+        case PrimitiveType::TYPE_SMALLINT:
             return convert_numric_type<Int16>(src, type, to);
-        }
-        if (which_type.is_int32()) {
+        case PrimitiveType::TYPE_INT:
             return convert_numric_type<Int32>(src, type, to);
-        }
-        if (which_type.is_int64()) {
+        case PrimitiveType::TYPE_BIGINT:
             return convert_numric_type<Int64>(src, type, to);
-        }
-        if (which_type.is_int128()) {
+        case PrimitiveType::TYPE_LARGEINT:
             return convert_numric_type<Int128>(src, type, to);
-        }
-        if (which_type.is_float32()) {
+        case PrimitiveType::TYPE_FLOAT:
             return convert_numric_type<Float32>(src, type, to);
-        }
-        if (which_type.is_float64()) {
+        case PrimitiveType::TYPE_DOUBLE:
             return convert_numric_type<Float64>(src, type, to);
-        }
-        if ((which_type.is_date() || which_type.is_date_time()) &&
-            src.get_type() == Field::Types::UInt64) {
+        case PrimitiveType::TYPE_DATE:
+        case PrimitiveType::TYPE_DATETIME: {
             /// We don't need any conversion UInt64 is under type of Date and DateTime
-            *to = src;
-            return;
+            if (is_date_type(src.get_type())) {
+                *to = src;
+                return;
+            }
+            break;
         }
-    } else if (which_type.is_string_or_fixed_string()) {
-        if (src.get_type() == Field::Types::String) {
+        default:
+            break;
+        }
+    } else if (is_string_type(type.get_primitive_type())) {
+        if (is_string_type(src.get_type())) {
             *to = src;
             return;
         }
         // TODO this is a very simple translator, support more complex types
         *to = apply_visitor(FieldVisitorToStringSimple(), src);
         return;
-    } else if (which_type.is_json()) {
-        if (src.get_type() == Field::Types::JSONB) {
+    } else if (type.get_primitive_type() == PrimitiveType::TYPE_JSONB) {
+        if (src.get_type() == PrimitiveType::TYPE_JSONB) {
             *to = src;
             return;
         }
@@ -262,8 +247,8 @@ void convert_field_to_typeImpl(const Field& src, const IDataType& type,
         *to = JsonbField(writer.getOutput()->getBuffer(),
                          cast_set<UInt32, size_t, false>(writer.getOutput()->getSize()));
         return;
-    } else if (which_type.is_variant_type()) {
-        if (src.get_type() == Field::Types::VariantMap) {
+    } else if (type.get_primitive_type() == PrimitiveType::TYPE_VARIANT) {
+        if (src.get_type() == PrimitiveType::TYPE_VARIANT) {
             *to = src;
             return;
         }
@@ -272,7 +257,7 @@ void convert_field_to_typeImpl(const Field& src, const IDataType& type,
                                type.get_name(), src.get_type());
         return;
     } else if (const DataTypeArray* type_array = typeid_cast<const DataTypeArray*>(&type)) {
-        if (src.get_type() == Field::Types::Array) {
+        if (src.get_type() == PrimitiveType::TYPE_ARRAY) {
             const Array& src_arr = src.get<Array>();
             size_t src_arr_size = src_arr.size();
             const auto& element_type = *(type_array->get_nested_type());
@@ -306,7 +291,7 @@ void convert_field_to_type(const Field& from_value, const IDataType& to_type, Fi
     if (const auto* nullable_type = typeid_cast<const DataTypeNullable*>(&to_type)) {
         const IDataType& nested_type = *nullable_type->get_nested_type();
         /// NULL remains NULL after any conversion.
-        if (WhichDataType(nested_type).is_nothing()) {
+        if (nested_type.get_primitive_type() == INVALID_TYPE) {
             *to = {};
             return;
         }

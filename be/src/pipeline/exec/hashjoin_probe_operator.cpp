@@ -514,7 +514,7 @@ Status HashJoinProbeOperatorX::prepare(RuntimeState* state) {
                         std::find(_hash_output_slot_ids.begin(), _hash_output_slot_ids.end(),
                                   slot_desc->id()) != _hash_output_slot_ids.end());
                 if (init_finalize_flag && output_slot_flags.back() &&
-                    slot_desc->type().is_variant_type()) {
+                    slot_desc->type()->get_primitive_type() == PrimitiveType::TYPE_VARIANT) {
                     _need_finalize_variant_column = true;
                 }
             }
@@ -526,17 +526,12 @@ Status HashJoinProbeOperatorX::prepare(RuntimeState* state) {
     // _other_join_conjuncts are evaluated in the context of the rows produced by this node
     for (auto& conjunct : _other_join_conjuncts) {
         RETURN_IF_ERROR(conjunct->prepare(state, *_intermediate_row_desc));
-    }
-
-    for (auto conjunct : _other_join_conjuncts) {
         conjunct->root()->collect_slot_column_ids(_should_not_lazy_materialized_column_ids);
     }
 
     for (auto& conjunct : _mark_join_conjuncts) {
         RETURN_IF_ERROR(conjunct->prepare(state, *_intermediate_row_desc));
-        if (_have_other_join_conjunct) {
-            conjunct->root()->collect_slot_column_ids(_should_not_lazy_materialized_column_ids);
-        }
+        conjunct->root()->collect_slot_column_ids(_should_not_lazy_materialized_column_ids);
     }
 
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_probe_expr_ctxs, state, _child->row_desc()));
@@ -566,21 +561,42 @@ Status HashJoinProbeOperatorX::prepare(RuntimeState* state) {
         }
 
         const auto& null_data_type = assert_cast<const vectorized::DataTypeNullable&>(*data_type);
-        if (null_data_type.get_nested_type()->get_type_id() != vectorized::TypeIndex::UInt8) {
+        if (null_data_type.get_nested_type()->get_primitive_type() != PrimitiveType::TYPE_BOOLEAN) {
             return Status::InternalError(
                     "The last column for mark join should be Nullable(UInt8), not {}",
                     data_type->get_name());
         }
     }
 
-    const size_t right_col_idx =
-            (_is_right_semi_anti && !_have_other_join_conjunct) ? 0 : _left_table_data_types.size();
+    _right_col_idx = (_is_right_semi_anti && !_have_other_join_conjunct &&
+                      (!_is_mark_join || _mark_join_conjuncts.empty()))
+                             ? 0
+                             : _left_table_data_types.size();
+
     size_t idx = 0;
     for (const auto* slot : slots_to_check) {
         auto data_type = slot->get_data_type_ptr();
-        const auto slot_on_left = idx < right_col_idx;
+        const auto slot_on_left = idx < _right_col_idx;
+
+        if (slot_on_left) {
+            if (idx >= _left_table_data_types.size()) {
+                return Status::InternalError(
+                        "Join node(id={}, OP={}) intermediate slot({}, #{})'s on left table "
+                        "idx out bound of _left_table_data_types: {} vs {}",
+                        _node_id, _join_op, slot->col_name(), slot->id(), idx,
+                        _left_table_data_types.size());
+            }
+        } else if (idx - _right_col_idx >= _right_table_data_types.size()) {
+            return Status::InternalError(
+                    "Join node(id={}, OP={}) intermediate slot({}, #{})'s on right table "
+                    "idx out bound of _right_table_data_types: {} vs {}(idx = {}, _right_col_idx = "
+                    "{})",
+                    _node_id, _join_op, slot->col_name(), slot->id(), idx - _right_col_idx,
+                    _right_table_data_types.size(), idx, _right_col_idx);
+        }
+
         auto target_data_type = slot_on_left ? _left_table_data_types[idx]
-                                             : _right_table_data_types[idx - right_col_idx];
+                                             : _right_table_data_types[idx - _right_col_idx];
         ++idx;
         if (data_type->equals(*target_data_type)) {
             continue;

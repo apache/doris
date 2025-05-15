@@ -22,8 +22,18 @@ import org.apache.kafka.clients.producer.ProducerConfig
 
 suite("test_routine_load","p0") {
 
-    sql "create workload group if not exists create_routine_load_group properties ( 'cpu_share'='123');"
-    sql "create workload group if not exists alter_routine_load_group properties ( 'cpu_share'='123');"
+    def forComputeGroupStr = "";
+
+    //cloud-mode
+    if (isCloudMode()) {
+        def clusters = sql " SHOW CLUSTERS; "
+        assertTrue(!clusters.isEmpty())
+        def validCluster = clusters[0][0]
+        forComputeGroupStr = " for  $validCluster "
+    }
+
+    sql "create workload group if not exists create_routine_load_group $forComputeGroupStr properties ( 'cpu_share'='123');"
+    sql "create workload group if not exists alter_routine_load_group $forComputeGroupStr properties ( 'cpu_share'='123');"
     Thread.sleep(5000) // wait publish workload group to be
 
     def tables = [
@@ -248,7 +258,7 @@ suite("test_routine_load","p0") {
                         continue;
                     }
                     log.info("reason of state changed: ${res[0][17].toString()}".toString())
-                    assertEquals(res[0][8].toString(), "RUNNING")
+                    assertEquals("RUNNING", res[0][8].toString())
                     break;
                 }
 
@@ -1291,7 +1301,7 @@ suite("test_routine_load","p0") {
                     sql "sync"
                 }catch (Exception e) {
                     log.info("create routine load failed: ${e.getMessage()}")
-                    assertEquals(e.getMessage(), "errCode = 2, detailMessage = Format type is invalid. format=`test`")
+                    assertEquals(e.getMessage(), "errCode = 2, detailMessage = format:test is not supported.")
                 }
                 i++
             }

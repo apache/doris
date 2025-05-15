@@ -53,6 +53,10 @@ suite("test_cast_datetime") {
     qt_3 "select a, '' = mydate, '' = mydatev2, '' = mydatetime, '' = mydatetimev2 from casttbl"
 
     def wrong_date_strs = [
+        "date '2020-01'",
+        "datev1 '2020-01'",
+        "datev2 '2020-01'",
+        "timestamp '2020-01'",
         "'' > date '2019-06-01'",
         "'' > date_sub('2019-06-01', -10)",
         "'' > cast('2019-06-01 00:00:00' as datetime)",
@@ -571,6 +575,16 @@ suite("test_cast_datetime") {
         test {
             sql "select date_add('2023-11-05 01:30:00 America/New_York', INTERVAL 1 DAY)"
             result([[LocalDateTime.parse('2023-11-06T01:30:00')]])
+        }
+
+        test {
+            sql "select date '2025年1月20日'"
+            result([[Date.valueOf('2025-01-20')]])
+        }
+
+        test {
+            sql "select timestamp '2025年1月20日10时20分5秒'"
+            result([[LocalDateTime.parse('2025-01-20T10:20:05')]])
         }
     }
 }

@@ -34,8 +34,7 @@ class RuntimeFilterProducerHelperSet : public RuntimeFilterProducerHelper {
 public:
     ~RuntimeFilterProducerHelperSet() override = default;
 
-    RuntimeFilterProducerHelperSet(RuntimeProfile* profile)
-            : RuntimeFilterProducerHelper(profile, true, false) {}
+    RuntimeFilterProducerHelperSet() : RuntimeFilterProducerHelper(true, false) {}
 
     Status process(RuntimeState* state, const vectorized::Block* block, uint64_t cardinality) {
         if (_skip_runtime_filters_process) {

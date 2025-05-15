@@ -49,7 +49,7 @@ Status VExplodeV2TableFunction::_process_init_variant(Block* block, int value_co
     // explode variant array
     auto column_without_nullable = remove_nullable(block->get_by_position(value_column_idx).column);
     auto column = column_without_nullable->convert_to_full_column_if_const();
-    const auto& variant_column = assert_cast<const ColumnObject&>(*column);
+    const auto& variant_column = assert_cast<const ColumnVariant&>(*column);
     _multi_detail[children_column_idx].output_as_variant = true;
     if (!variant_column.is_null_root()) {
         _array_columns[children_column_idx] = variant_column.get_root();
@@ -86,8 +86,7 @@ Status VExplodeV2TableFunction::process_init(Block* block, RuntimeState* state) 
     for (int i = 0; i < expr_size; i++) {
         RETURN_IF_ERROR(_expr_context->root()->children()[i]->execute(_expr_context.get(), block,
                                                                       &value_column_idx));
-        if (WhichDataType(remove_nullable(block->get_by_position(value_column_idx).type))
-                    .is_variant_type()) {
+        if (block->get_by_position(value_column_idx).type->get_primitive_type() == TYPE_VARIANT) {
             RETURN_IF_ERROR(_process_init_variant(block, value_column_idx, i));
         } else {
             _array_columns[i] = block->get_by_position(value_column_idx)

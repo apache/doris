@@ -28,13 +28,17 @@ class CloudStorageEngine;
 
 struct SyncRowsetStats {
     int64_t get_remote_rowsets_num {0};
-    int64_t get_remote_rowsets_rpc_ms {0};
+    int64_t get_remote_rowsets_rpc_ns {0};
 
     int64_t get_local_delete_bitmap_rowsets_num {0};
     int64_t get_remote_delete_bitmap_rowsets_num {0};
     int64_t get_remote_delete_bitmap_key_count {0};
     int64_t get_remote_delete_bitmap_bytes {0};
-    int64_t get_remote_delete_bitmap_rpc_ms {0};
+    int64_t get_remote_delete_bitmap_rpc_ns {0};
+
+    int64_t get_remote_tablet_meta_rpc_ns {0};
+    int64_t tablet_meta_cache_hit {0};
+    int64_t tablet_meta_cache_miss {0};
 };
 
 struct SyncOptions {
@@ -202,7 +206,8 @@ public:
                                              ReaderType compaction_type, int64_t merged_rows,
                                              int64_t filtered_rows, int64_t initiator,
                                              DeleteBitmapPtr& output_rowset_delete_bitmap,
-                                             bool allow_delete_in_cumu_compaction);
+                                             bool allow_delete_in_cumu_compaction,
+                                             int64_t& get_delete_bitmap_lock_start_time);
 
     // Find the missed versions until the spec_version.
     //
@@ -212,6 +217,8 @@ public:
     Versions calc_missed_versions(int64_t spec_version, Versions existing_versions) const override;
 
     std::mutex& get_rowset_update_lock() { return _rowset_update_lock; }
+
+    bthread::Mutex& get_sync_meta_lock() { return _sync_meta_lock; }
 
     const auto& rowset_map() const { return _rs_version_map; }
 
@@ -245,6 +252,7 @@ private:
 
     // this mutex MUST ONLY be used when sync meta
     bthread::Mutex _sync_meta_lock;
+    // ATTENTION: lock order should be: _sync_meta_lock -> _meta_lock
 
     std::atomic<int64_t> _cumulative_point {-1};
     std::atomic<int64_t> _approximate_num_rowsets {-1};
@@ -278,6 +286,9 @@ private:
 
     std::mutex _base_compaction_lock;
     std::mutex _cumulative_compaction_lock;
+
+    // To avoid multiple calc delete bitmap tasks on same (txn_id, tablet_id) with different
+    // signatures being executed concurrently, we use _rowset_update_lock to serialize them
     mutable std::mutex _rowset_update_lock;
 
     // Schema will be merged from all rowsets when sync_rowsets

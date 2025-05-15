@@ -18,6 +18,8 @@
 package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.catalog.HdfsResource;
+import org.apache.doris.common.security.authentication.AuthenticationConfig;
+import org.apache.doris.common.security.authentication.HadoopAuthenticator;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.property.PropertyConverter;
 
@@ -52,15 +54,30 @@ public class IcebergHadoopExternalCatalog extends IcebergExternalCatalog {
     @Override
     protected void initCatalog() {
         icebergCatalogType = ICEBERG_HADOOP;
-        HadoopCatalog hadoopCatalog = new HadoopCatalog();
+
         Configuration conf = getConfiguration();
         initS3Param(conf);
+
+        //create the authenticator first
+        if (preExecutionAuthenticator.getHadoopAuthenticator() == null) {
+            AuthenticationConfig config = AuthenticationConfig.getKerberosConfig(conf);
+            HadoopAuthenticator authenticator = HadoopAuthenticator.getHadoopAuthenticator(config);
+            preExecutionAuthenticator.setHadoopAuthenticator(authenticator);
+        }
+
         // initialize hadoop catalog
-        Map<String, String> catalogProperties = catalogProperty.getProperties();
-        String warehouse = catalogProperty.getHadoopProperties().get(CatalogProperties.WAREHOUSE_LOCATION);
-        hadoopCatalog.setConf(conf);
-        catalogProperties.put(CatalogProperties.WAREHOUSE_LOCATION, warehouse);
-        hadoopCatalog.initialize(getName(), catalogProperties);
-        catalog = hadoopCatalog;
+        try {
+            this.catalog = preExecutionAuthenticator.execute(() -> {
+                Map<String, String> catalogProperties = catalogProperty.getProperties();
+                String warehouse = catalogProperty.getHadoopProperties().get(CatalogProperties.WAREHOUSE_LOCATION);
+                HadoopCatalog hadoopCatalog = new HadoopCatalog();
+                hadoopCatalog.setConf(conf);
+                catalogProperties.put(CatalogProperties.WAREHOUSE_LOCATION, warehouse);
+                hadoopCatalog.initialize(getName(), catalogProperties);
+                return hadoopCatalog;
+            });
+        } catch (Exception e) {
+            throw new RuntimeException("Hadoop catalog init error!", e);
+        }
     }
 }
