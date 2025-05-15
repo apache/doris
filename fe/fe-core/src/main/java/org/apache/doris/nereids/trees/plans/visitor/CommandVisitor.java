@@ -1060,7 +1060,7 @@ public interface CommandVisitor<R, C> {
         return visitCommand(dropAnalyzeJobCommand, context);
     }
 
-    default R visitCancelBuildIndex(CancelBuildIndexCommand cancelBuildIndexCommand, C context) {
+    default R visitCancelBuildIndexCommand(CancelBuildIndexCommand cancelBuildIndexCommand, C context) {
         return visitCommand(cancelBuildIndexCommand, context);
     }
 

@@ -96,7 +96,7 @@ public class CancelBuildIndexCommand extends CancelCommand {
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return visitor.visitCancelBuildIndex(this, context);
+        return visitor.visitCancelBuildIndexCommand(this, context);
     }
 
     @Override
