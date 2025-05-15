@@ -123,6 +123,11 @@ public abstract class ExternalCatalog
 
     // https://help.aliyun.com/zh/emr/emr-on-ecs/user-guide/use-rootpolicy-to-access-oss-hdfs?spm=a2c4g.11186623.help-menu-search-28066.d_0
     public static final String OOS_ROOT_POLICY = "oss.root_policy";
+    public static final String SCHEMA_CACHE_TTL_SECOND = "schema.cache.ttl-second";
+    // -1 means cache with no ttl
+    public static final int CACHE_NO_TTL = -1;
+    // 0 means cache is disabled; >0 means cache with ttl;
+    public static final int CACHE_TTL_DISABLE_CACHE = 0;
 
     // Properties that should not be shown in the `show create catalog` result
     public static final Set<String> HIDDEN_PROPERTIES = Sets.newHashSet(
