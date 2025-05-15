@@ -51,7 +51,6 @@ import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.AlterCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterSystemCommand;
-import org.apache.doris.nereids.trees.plans.commands.CancelCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelDecommissionBackendCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.AddBackendOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AddBrokerOp;
@@ -595,14 +594,12 @@ public class SystemHandler extends AlterHandler {
         }
     }
 
-    @Override
-    public void cancel(CancelCommand command) throws DdlException {
-        CancelDecommissionBackendCommand cancelAlterSystemStmt = (CancelDecommissionBackendCommand) command;
+    public void cancel(CancelDecommissionBackendCommand command) throws DdlException {
         SystemInfoService infoService = Env.getCurrentSystemInfo();
         // check if backends is under decommission
-        List<HostInfo> hostInfos = cancelAlterSystemStmt.getHostInfos();
+        List<HostInfo> hostInfos = command.getHostInfos();
         if (hostInfos.isEmpty()) {
-            List<String> ids = cancelAlterSystemStmt.getIds();
+            List<String> ids = command.getIds();
             for (String id : ids) {
                 Backend backend = infoService.getBackend(Long.parseLong(id));
                 if (backend == null) {

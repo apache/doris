@@ -36,7 +36,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.nereids.trees.plans.commands.AlterCommand;
-import org.apache.doris.nereids.trees.plans.commands.CancelCommand;
 import org.apache.doris.persist.RemoveAlterJobV2OperationLog;
 import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.task.AlterReplicaTask;
@@ -207,8 +206,6 @@ public abstract class AlterHandler extends MasterDaemon {
      * cancel alter ops
      */
     public abstract void cancel(CancelStmt stmt) throws DdlException;
-
-    public abstract void cancel(CancelCommand command) throws DdlException;
 
     /*
      * Handle the finish report of alter task.
