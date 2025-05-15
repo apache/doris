@@ -94,7 +94,7 @@ public class PushDownFilterThroughSetOperation extends OneRewriteRuleFactory {
                         (rowIndex, columnIndex) -> setOperation.getRegularChildOutput(rowIndex).get(columnIndex),
                         Function.identity());
                 return setOperation.withChildren(newChildren);
-        }).toRule(RuleType.PUSH_DOWN_FILTER_THROUGH_SET_OPERATION);
+            }).toRule(RuleType.PUSH_DOWN_FILTER_THROUGH_SET_OPERATION);
     }
 
     private <T> void addFiltersToNewChildren(
