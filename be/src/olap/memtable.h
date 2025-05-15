@@ -183,7 +183,8 @@ public:
 
     void shrink_memtable_by_agg();
 
-    bool need_flush() const;
+    bool need_flush(const vectorized::Block* block, const DorisVector<uint32_t>& row_idxs,
+                    PartialUpdateInfo* _partial_update_info) const;
 
     bool need_agg() const;
 

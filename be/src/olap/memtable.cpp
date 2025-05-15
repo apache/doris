@@ -19,17 +19,24 @@
 
 #include <fmt/format.h>
 #include <gen_cpp/olap_file.pb.h>
+#include <glog/logging.h>
 #include <pdqsort.h>
 
 #include <algorithm>
+#include <cstddef>
+#include <cstdint>
 #include <limits>
 #include <string>
 #include <vector>
 
 #include "bvar/bvar.h"
 #include "common/config.h"
+#include "olap/iterators.h"
 #include "olap/memtable_memory_limiter.h"
 #include "olap/olap_define.h"
+#include "olap/rowset/rowset.h"
+#include "olap/rowset/rowset_meta.h"
+#include "olap/rowset/segment_v2/segment.h"
 #include "olap/tablet_schema.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
@@ -604,12 +611,87 @@ void MemTable::shrink_memtable_by_agg() {
     }
 }
 
-bool MemTable::need_flush() const {
+bool MemTable::need_flush(const vectorized::Block* block, const DorisVector<uint32_t>& row_idxs,
+                          PartialUpdateInfo* _partial_update_info) const {
     DBUG_EXECUTE_IF("MemTable.need_flush", { return true; });
     auto max_size = config::write_buffer_size;
     if (_partial_update_mode == UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS) {
-        auto update_columns_size = _num_columns;
-        max_size = max_size * update_columns_size / _tablet_schema->num_columns();
+        int64_t update_data_size = 0;
+        int64_t total_data_size = 0;
+
+        for (const auto& rs : _partial_update_info->all_rowsets) {
+            const auto& _rowset_meta = rs->rowset_meta();
+            const auto& fs = _rowset_meta->fs();
+            if (!fs) {
+                return Status::InternalError("fs is not initialized, resource_id={}",
+                                             _rowset_meta->resource_id());
+            }
+
+            for (int seg_id = 0; seg_id < rs->num_segments(); ++seg_id) {
+                auto seg_path = DORIS_TRY(rs->segment_path(seg_id));
+
+                std::shared_ptr<segment_v2::Segment> segment;
+                io::FileReaderOptions reader_options {
+                        .cache_type = config::enable_file_cache
+                                              ? io::FileCachePolicy::FILE_BLOCK_CACHE
+                                              : io::FileCachePolicy::NO_CACHE,
+                        .is_doris_table = true,
+                        .cache_base_path {},
+                        .file_size = _rowset_meta->segment_file_size(seg_id),
+                };
+
+                RETURN_IF_ERROR(segment_v2::Segment::open(
+                        fs, seg_path, _rowset_meta->tablet_id(), seg_id, rs->rowset_id(),
+                        _tablet_schema, reader_options, &segment,
+                        _rowset_meta->inverted_index_file_info(seg_id)));
+
+                std::unique_ptr<segment_v2::ColumnIterator> iter;
+                StorageReadOptions opts;
+                OlapReaderStatistics stats;
+                opts.stats = &stats;
+                opts.io_ctx.reader_type = ReaderType::READER_QUERY;
+                segment_v2::ColumnIteratorOptions opt {
+                        .use_page_cache = !config::disable_storage_page_cache,
+                        .file_reader = segment->file_reader().get(),
+                        .stats = &stats,
+                        .io_ctx = io::IOContext {.reader_type = ReaderType::READER_QUERY,
+                                                 .file_cache_stats = &stats.file_cache_stats},
+                };
+
+                int64_t update_col_data_size = 0;
+                int64_t total_col_data_size = 0;
+
+                for (const auto& col : _tablet_schema->columns()) {
+                    RETURN_IF_ERROR(segment->new_column_iterator(
+                            _tablet_schema->column(col->unique_id()), &iter, &opts));
+                    RETURN_IF_ERROR(iter->init(opt));
+
+                    auto column_type = _tablet_schema->column(col->unique_id()).get_vec_type();
+                    auto column = column_type->create_column();
+                    RETURN_IF_ERROR(iter->seek_to_ordinal(0));
+                    size_t num_to_read = 1;
+                    RETURN_IF_ERROR(iter->next_batch(&num_to_read, column));
+
+                    total_col_data_size += column->get_data_at(0).size;
+
+                    if (std::find(_partial_update_info->update_cids.begin(),
+                                  _partial_update_info->update_cids.end(),
+                                  col->unique_id()) != _partial_update_info->update_cids.end()) {
+                        update_col_data_size += column->get_data_at(0).size;
+                    }
+                    total_data_size += total_col_data_size;
+                    update_data_size += update_col_data_size;
+                }
+            }
+        }
+
+        max_size = max_size / static_cast<int64_t>(total_data_size / update_data_size);
+
+        DBUG_EXECUTE_IF("MemTable.update_flush_max_size", {
+            auto max_size_t = dp->param<int64>("max_size", config::write_buffer_size);
+            max_size_t = max_size_t / static_cast<int64_t>(total_data_size / update_data_size);
+            return memory_usage() >= max_size_t;
+        });
         max_size = max_size > 1048576 ? max_size : 1048576;
     }
     return memory_usage() >= max_size;

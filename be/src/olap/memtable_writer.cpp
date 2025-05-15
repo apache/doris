@@ -126,7 +126,7 @@ Status MemTableWriter::write(const vectorized::Block* block,
     if (UNLIKELY(_mem_table->need_agg() && config::enable_shrink_memory)) {
         _mem_table->shrink_memtable_by_agg();
     }
-    if (UNLIKELY(_mem_table->need_flush())) {
+    if (UNLIKELY(_mem_table->need_flush(block, row_idxs, _partial_update_info.get()))) {
         auto s = _flush_memtable_async();
         _reset_mem_table();
         if (UNLIKELY(!s.ok())) {

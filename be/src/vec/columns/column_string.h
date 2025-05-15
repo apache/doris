@@ -34,6 +34,7 @@
 #include "common/exception.h"
 #include "common/status.h"
 #include "runtime/define_primitive_type.h"
+#include "util/debug_points.h"
 #include "util/hash_util.hpp"
 #include "vec/columns/column.h"
 #include "vec/common/assert_cast.h"
@@ -63,6 +64,18 @@ public:
 
     void static check_chars_length(size_t total_length, size_t element_number, size_t rows = 0) {
         if constexpr (std::is_same_v<T, UInt32>) {
+            DBUG_EXECUTE_IF("ColumnString.check_string_overflow", {
+                auto max_string_size = dp->param<int64>("max_string_size", MAX_STRING_SIZE);
+                if (total_length > max_string_size) {
+                    throw Exception(
+                            ErrorCode::STRING_OVERFLOW_IN_VEC_ENGINE,
+                            "string column length is too large: total_length={}, "
+                            "element_number={}, "
+                            "you can set batch_size a number smaller than {} to avoid this error. "
+                            "rows:{}",
+                            total_length, element_number, element_number, rows);
+                }
+            });
             if (UNLIKELY(total_length > MAX_STRING_SIZE)) {
                 throw Exception(
                         ErrorCode::STRING_OVERFLOW_IN_VEC_ENGINE,
