@@ -107,7 +107,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type1 --
 PhysicalResultSink
 --PhysicalProject
-----NestedLoopJoin[INNER_JOIN]
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -119,7 +119,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type2 --
 PhysicalResultSink
 --PhysicalProject
-----NestedLoopJoin[INNER_JOIN]
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -131,7 +131,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type3 --
 PhysicalResultSink
 --PhysicalProject
-----NestedLoopJoin[INNER_JOIN]
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -143,7 +143,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type4 --
 PhysicalResultSink
 --PhysicalProject
-----NestedLoopJoin[INNER_JOIN]
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -155,7 +155,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type5 --
 PhysicalResultSink
 --PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_bool as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -167,7 +167,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type6 --
 PhysicalResultSink
 --PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_float as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -179,7 +179,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type7 --
 PhysicalResultSink
 --PhysicalProject
-----NestedLoopJoin[INNER_JOIN]
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -191,7 +191,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type8 --
 PhysicalResultSink
 --PhysicalProject
-----NestedLoopJoin[INNER_JOIN]
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -203,7 +203,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type9 --
 PhysicalResultSink
 --PhysicalProject
-----NestedLoopJoin[INNER_JOIN]
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -215,7 +215,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type10 --
 PhysicalResultSink
 --PhysicalProject
-----NestedLoopJoin[INNER_JOIN]
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -227,7 +227,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type11 --
 PhysicalResultSink
 --PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_char as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -239,7 +239,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type12 --
 PhysicalResultSink
 --PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_varchar as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -251,7 +251,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type13 --
 PhysicalResultSink
 --PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_string as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -279,7 +279,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type18 --
 PhysicalResultSink
 --PhysicalProject
-----NestedLoopJoin[INNER_JOIN]
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -291,7 +291,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type19 --
 PhysicalResultSink
 --PhysicalProject
-----NestedLoopJoin[INNER_JOIN]
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -303,7 +303,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type20 --
 PhysicalResultSink
 --PhysicalProject
-----NestedLoopJoin[INNER_JOIN]
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -315,7 +315,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type21 --
 PhysicalResultSink
 --PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_bool as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -327,7 +327,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type22 --
 PhysicalResultSink
 --PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_float as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -339,7 +339,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type23 --
 PhysicalResultSink
 --PhysicalProject
-----NestedLoopJoin[INNER_JOIN]
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -351,7 +351,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type24 --
 PhysicalResultSink
 --PhysicalProject
-----NestedLoopJoin[INNER_JOIN]
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -385,7 +385,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type27 --
 PhysicalResultSink
 --PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_char as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -397,7 +397,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type28 --
 PhysicalResultSink
 --PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_varchar as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -409,7 +409,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type29 --
 PhysicalResultSink
 --PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_string as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -441,7 +441,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type35 --
 PhysicalResultSink
 --PhysicalProject
-----NestedLoopJoin[INNER_JOIN]
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -453,7 +453,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type36 --
 PhysicalResultSink
 --PhysicalProject
-----NestedLoopJoin[INNER_JOIN]
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -465,7 +465,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type37 --
 PhysicalResultSink
 --PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_bool as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -477,7 +477,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type38 --
 PhysicalResultSink
 --PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_float as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -489,7 +489,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type39 --
 PhysicalResultSink
 --PhysicalProject
-----NestedLoopJoin[INNER_JOIN]
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -501,7 +501,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type40 --
 PhysicalResultSink
 --PhysicalProject
-----NestedLoopJoin[INNER_JOIN]
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -535,7 +535,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type43 --
 PhysicalResultSink
 --PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_char as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -547,7 +547,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type44 --
 PhysicalResultSink
 --PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_varchar as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -559,7 +559,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type45 --
 PhysicalResultSink
 --PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_string as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -595,7 +595,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type52 --
 PhysicalResultSink
 --PhysicalProject
-----NestedLoopJoin[INNER_JOIN]
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -607,7 +607,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type53 --
 PhysicalResultSink
 --PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_bool as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -619,7 +619,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type54 --
 PhysicalResultSink
 --PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_float as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -631,7 +631,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type55 --
 PhysicalResultSink
 --PhysicalProject
-----NestedLoopJoin[INNER_JOIN]
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -643,7 +643,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type56 --
 PhysicalResultSink
 --PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_decimal as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -677,7 +677,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type59 --
 PhysicalResultSink
 --PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_char as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -689,7 +689,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type60 --
 PhysicalResultSink
 --PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_varchar as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -701,7 +701,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type61 --
 PhysicalResultSink
 --PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_string as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -741,7 +741,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type69 --
 PhysicalResultSink
 --PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_bool as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -753,7 +753,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type70 --
 PhysicalResultSink
 --PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_float as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -765,7 +765,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type71 --
 PhysicalResultSink
 --PhysicalProject
-----NestedLoopJoin[INNER_JOIN]
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -781,7 +781,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type73 --
 PhysicalResultSink
 --PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_date as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -793,7 +793,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type74 --
 PhysicalResultSink
 --PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_datetime as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -805,7 +805,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type75 --
 PhysicalResultSink
 --PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_char as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -817,7 +817,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type76 --
 PhysicalResultSink
 --PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_varchar as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -829,7 +829,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type77 --
 PhysicalResultSink
 --PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_string as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -841,7 +841,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type80 --
 PhysicalResultSink
 --PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_tinyint as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -853,7 +853,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type81 --
 PhysicalResultSink
 --PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_smallint as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -865,7 +865,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type82 --
 PhysicalResultSink
 --PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_int as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -877,7 +877,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type83 --
 PhysicalResultSink
 --PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_bigint as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -889,7 +889,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type84 --
 PhysicalResultSink
 --PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_largeint as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -913,7 +913,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type86 --
 PhysicalResultSink
 --PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_float as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -925,7 +925,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type87 --
 PhysicalResultSink
 --PhysicalProject
-----NestedLoopJoin[INNER_JOIN]
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -937,7 +937,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type88 --
 PhysicalResultSink
 --PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_decimal as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -949,7 +949,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type89 --
 PhysicalResultSink
 --PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_date as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -961,7 +961,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type90 --
 PhysicalResultSink
 --PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_datetime as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -973,7 +973,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type91 --
 PhysicalResultSink
 --PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_char as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -985,7 +985,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type92 --
 PhysicalResultSink
 --PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_varchar as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -997,7 +997,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type93 --
 PhysicalResultSink
 --PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_string as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -1025,7 +1025,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type100 --
 PhysicalResultSink
 --PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_largeint as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -1037,7 +1037,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type101 --
 PhysicalResultSink
 --PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_bool as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -1049,7 +1049,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type102 --
 PhysicalResultSink
 --PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_float as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -1061,7 +1061,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type103 --
 PhysicalResultSink
 --PhysicalProject
-----NestedLoopJoin[INNER_JOIN]
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -1073,7 +1073,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type104 --
 PhysicalResultSink
 --PhysicalProject
-----NestedLoopJoin[INNER_JOIN]
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -1085,7 +1085,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type105 --
 PhysicalResultSink
 --PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_date as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -1097,7 +1097,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type106 --
 PhysicalResultSink
 --PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_datetime as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -1109,7 +1109,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type107 --
 PhysicalResultSink
 --PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_char as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -1121,7 +1121,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type108 --
 PhysicalResultSink
 --PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_varchar as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -1133,7 +1133,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type109 --
 PhysicalResultSink
 --PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_string as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -1161,7 +1161,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type116 --
 PhysicalResultSink
 --PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_largeint as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -1173,7 +1173,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type117 --
 PhysicalResultSink
 --PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_bool as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -1185,7 +1185,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type118 --
 PhysicalResultSink
 --PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_float as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -1197,7 +1197,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type119 --
 PhysicalResultSink
 --PhysicalProject
-----NestedLoopJoin[INNER_JOIN]
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -1209,7 +1209,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type120 --
 PhysicalResultSink
 --PhysicalProject
-----NestedLoopJoin[INNER_JOIN]
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -1221,7 +1221,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type121 --
 PhysicalResultSink
 --PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_date as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -1233,7 +1233,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type122 --
 PhysicalResultSink
 --PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_datetime as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -1245,7 +1245,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type123 --
 PhysicalResultSink
 --PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_char as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -1257,7 +1257,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type124 --
 PhysicalResultSink
 --PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_varchar as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -1269,7 +1269,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type125 --
 PhysicalResultSink
 --PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_string as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -1297,7 +1297,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type132 --
 PhysicalResultSink
 --PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_largeint as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -1309,7 +1309,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type133 --
 PhysicalResultSink
 --PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_bool as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -1321,7 +1321,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type134 --
 PhysicalResultSink
 --PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_float as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -1333,7 +1333,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type135 --
 PhysicalResultSink
 --PhysicalProject
-----NestedLoopJoin[INNER_JOIN]
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -1345,7 +1345,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type136 --
 PhysicalResultSink
 --PhysicalProject
-----NestedLoopJoin[INNER_JOIN]
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -1357,7 +1357,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type137 --
 PhysicalResultSink
 --PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_date as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -1369,7 +1369,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type138 --
 PhysicalResultSink
 --PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_datetime as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -1381,7 +1381,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type139 --
 PhysicalResultSink
 --PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_char as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -1393,7 +1393,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type140 --
 PhysicalResultSink
 --PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_varchar as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -1405,7 +1405,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type141 --
 PhysicalResultSink
 --PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_string as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -1516,7 +1516,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type153 --
 PhysicalResultSink
 --PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_date as DATETIMEV2(0)) = expr_cast(c1 as DATETIMEV2(0)))) otherCondition=()
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -1528,7 +1528,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type154 --
 PhysicalResultSink
 --PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_datetime as DATETIMEV2(6)) = expr_cast(c1 as DATETIMEV2(6)))) otherCondition=()
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -1587,13 +1587,14 @@ PhysicalResultSink
 -- !const_value_and_join_column_type159 --
 PhysicalResultSink
 --PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((t2.d_ipv6 = expr_cast(c1 as IPV6))) otherCondition=()
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
---------PhysicalOlapScan[test_types]
+--------filter((t2.d_ipv6 = cast('2024-07-01' as IPV6)))
+----------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type160 --
 PhysicalResultSink
@@ -1697,7 +1698,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type169 --
 PhysicalResultSink
 --PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_date as DATETIMEV2(0)) = expr_cast(c1 as DATETIMEV2(0)))) otherCondition=()
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -1760,13 +1761,14 @@ PhysicalResultSink
 -- !const_value_and_join_column_type175 --
 PhysicalResultSink
 --PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((t2.d_ipv6 = expr_cast(c1 as IPV6))) otherCondition=()
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
---------PhysicalOlapScan[test_types]
+--------filter((t2.d_ipv6 = cast('2024-08-02 10:10:00.123332' as IPV6)))
+----------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type176 --
 PhysicalResultSink
@@ -1917,13 +1919,14 @@ PhysicalResultSink
 -- !const_value_and_join_column_type191 --
 PhysicalResultSink
 --PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((t2.d_ipv6 = expr_cast(c1 as IPV6))) otherCondition=()
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
---------PhysicalOlapScan[test_types]
+--------filter((t2.d_ipv6 = cast('abcdsadtestchar' as IPV6)))
+----------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type192 --
 PhysicalResultSink
@@ -2074,13 +2077,14 @@ PhysicalResultSink
 -- !const_value_and_join_column_type207 --
 PhysicalResultSink
 --PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((t2.d_ipv6 = expr_cast(c1 as IPV6))) otherCondition=()
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
---------PhysicalOlapScan[test_types]
+--------filter((t2.d_ipv6 = cast('dtestvarcharvarchar' as IPV6)))
+----------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type208 --
 PhysicalResultSink
@@ -2231,13 +2235,14 @@ PhysicalResultSink
 -- !const_value_and_join_column_type223 --
 PhysicalResultSink
 --PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((t2.d_ipv6 = expr_cast(c1 as IPV6))) otherCondition=()
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
---------PhysicalOlapScan[test_types]
+--------filter((t2.d_ipv6 = cast('longlonglongstring' as IPV6)))
+----------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type224 --
 PhysicalResultSink
@@ -2377,7 +2382,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type238 --
 PhysicalResultSink
 --PhysicalProject
-----NestedLoopJoin[INNER_JOIN]
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
@@ -2389,13 +2394,14 @@ PhysicalResultSink
 -- !const_value_and_join_column_type239 --
 PhysicalResultSink
 --PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((t2.d_ipv6 = expr_cast(c1 as IPV6))) otherCondition=()
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
---------PhysicalOlapScan[test_types]
+--------filter((t2.d_ipv6 = cast('127.0.0.1' as IPV6)))
+----------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type240 --
 PhysicalResultSink
@@ -2546,7 +2552,7 @@ PhysicalResultSink
 -- !const_value_and_join_column_type255 --
 PhysicalResultSink
 --PhysicalProject
-----NestedLoopJoin[INNER_JOIN]
+----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
