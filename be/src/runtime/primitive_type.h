@@ -219,9 +219,9 @@ struct PrimitiveTypeTraits<TYPE_BOOLEAN> {
     using ColumnItemType = vectorized::UInt8;
     using DataType = vectorized::DataTypeBool;
     using ColumnType = vectorized::ColumnUInt8;
-    using NearestFieldType = vectorized::UInt64;
-    using AvgNearestFieldType = vectorized::UInt64;
-    using AvgNearestFieldType256 = vectorized::UInt64;
+    using NearestFieldType = vectorized::Int64;
+    using AvgNearestFieldType = vectorized::Int64;
+    using AvgNearestFieldType256 = vectorized::Int64;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_TINYINT> {

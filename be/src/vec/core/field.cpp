@@ -129,14 +129,16 @@ void Field::create(const Field& field) {
                 field.template get<
                         typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::ColumnItemType>());
         return;
+    case PrimitiveType::TYPE_DATEV2:
+        create_concrete<TYPE_DATEV2>(
+                field.template get<
+                        typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::ColumnItemType>());
+        return;
     case PrimitiveType::TYPE_DATETIME:
-        create_concrete<TYPE_DATETIME>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_DATETIME>::ColumnItemType>());
-        return;
     case PrimitiveType::TYPE_DATE:
-        create_concrete<TYPE_DATE>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_DATE>::ColumnItemType>());
-        return;
+    case PrimitiveType::TYPE_BOOLEAN:
+    case PrimitiveType::TYPE_TINYINT:
+    case PrimitiveType::TYPE_INT:
     case PrimitiveType::TYPE_BIGINT:
         create_concrete<TYPE_BIGINT>(
                 field.template get<typename PrimitiveTypeTraits<TYPE_BIGINT>::ColumnItemType>());
@@ -149,6 +151,8 @@ void Field::create(const Field& field) {
         create_concrete<TYPE_IPV6>(
                 field.template get<typename PrimitiveTypeTraits<TYPE_IPV6>::ColumnItemType>());
         return;
+    case PrimitiveType::TYPE_FLOAT:
+    case PrimitiveType::TYPE_TIMEV2:
     case PrimitiveType::TYPE_DOUBLE:
         create_concrete<TYPE_DOUBLE>(
                 field.template get<typename PrimitiveTypeTraits<TYPE_DOUBLE>::ColumnItemType>());
@@ -459,7 +463,23 @@ std::string Field::get_type_name() const {
     template void Field::FUNC_NAME<TYPE_DOUBLE>(                                           \
             typename PrimitiveTypeTraits<TYPE_DOUBLE>::ColumnItemType && rhs);             \
     template void Field::FUNC_NAME<TYPE_DOUBLE>(                                           \
-            const typename PrimitiveTypeTraits<TYPE_DOUBLE>::ColumnItemType& rhs);
+            const typename PrimitiveTypeTraits<TYPE_DOUBLE>::ColumnItemType& rhs);         \
+    template void Field::FUNC_NAME<TYPE_JSONB>(                                            \
+            typename PrimitiveTypeTraits<TYPE_JSONB>::ColumnItemType && rhs);              \
+    template void Field::FUNC_NAME<TYPE_JSONB>(                                            \
+            const typename PrimitiveTypeTraits<TYPE_JSONB>::ColumnItemType& rhs);          \
+    template void Field::FUNC_NAME<TYPE_STRUCT>(                                           \
+            typename PrimitiveTypeTraits<TYPE_STRUCT>::ColumnItemType && rhs);             \
+    template void Field::FUNC_NAME<TYPE_STRUCT>(                                           \
+            const typename PrimitiveTypeTraits<TYPE_STRUCT>::ColumnItemType& rhs);         \
+    template void Field::FUNC_NAME<TYPE_MAP>(                                              \
+            typename PrimitiveTypeTraits<TYPE_MAP>::ColumnItemType && rhs);                \
+    template void Field::FUNC_NAME<TYPE_MAP>(                                              \
+            const typename PrimitiveTypeTraits<TYPE_MAP>::ColumnItemType& rhs);            \
+    template void Field::FUNC_NAME<TYPE_OBJECT>(                                           \
+            typename PrimitiveTypeTraits<TYPE_OBJECT>::ColumnItemType && rhs);             \
+    template void Field::FUNC_NAME<TYPE_OBJECT>(                                           \
+            const typename PrimitiveTypeTraits<TYPE_OBJECT>::ColumnItemType& rhs);
 DECLARE_FUNCTION(create_concrete)
 DECLARE_FUNCTION(assign_concrete)
 
