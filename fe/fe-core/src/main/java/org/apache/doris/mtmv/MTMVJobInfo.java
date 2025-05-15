@@ -34,11 +34,17 @@ public class MTMVJobInfo {
     @SerializedName("ht")
     private ConcurrentLinkedQueue<MTMVTask> historyTasks;
     @SerializedName("js")
-    private JobStatus jobStatus = JobStatus.RUNNING;
+    private JobStatus jobStatus;
+
+    // For deserialization
+    public MTMVJobInfo() {
+        this.jobStatus = JobStatus.RUNNING;
+    }
 
     public MTMVJobInfo(String jobName) {
         this.jobName = jobName;
-        historyTasks = new ConcurrentLinkedQueue<>();
+        this.historyTasks = new ConcurrentLinkedQueue<>();
+        this.jobStatus = JobStatus.RUNNING;
     }
 
     public String getJobName() {
@@ -72,6 +78,7 @@ public class MTMVJobInfo {
         return "MTMVJobInfo{"
                 + "jobName='" + jobName + '\''
                 + ", historyTasks=" + historyTasks
+                + ", jobStatus=" + jobStatus
                 + '}';
     }
 }

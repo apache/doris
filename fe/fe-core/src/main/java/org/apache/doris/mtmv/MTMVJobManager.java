@@ -17,6 +17,7 @@
 
 package org.apache.doris.mtmv;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
@@ -41,7 +42,6 @@ import org.apache.doris.nereids.trees.plans.commands.info.CancelMTMVTaskInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.persist.AlterMTMV;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
 import org.apache.commons.collections.CollectionUtils;
@@ -131,7 +131,7 @@ public class MTMVJobManager implements MTMVHookService {
         MTMVJob job = new MTMVJob(dbId, mtmv.getId());
         job.setJobId(Env.getCurrentEnv().getNextId());
         job.setJobName(mtmv.getJobInfo().getJobName());
-        job.setCreateUser(ConnectContext.get().getCurrentUserIdentity());
+        job.setCreateUser(UserIdentity.ADMIN);
         job.setJobStatus(mtmv.getJobInfo().getJobStatus());
         job.setJobConfig(getJobConfig(mtmv));
         Env.getCurrentEnv().getJobManager().createJobInternal(job);
