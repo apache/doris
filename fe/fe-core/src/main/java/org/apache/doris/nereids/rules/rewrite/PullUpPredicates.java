@@ -22,6 +22,7 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -134,7 +135,7 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
             Set<Expression> predicates = new LinkedHashSet<>();
             for (NamedExpression expr : r.getProjects()) {
                 if (expr instanceof Alias && expr.child(0) instanceof Literal) {
-                    predicates.add(new EqualTo(expr.toSlot(), expr.child(0)));
+                    predicates.add(new NullSafeEqual(expr.toSlot(), expr.child(0)));
                 }
             }
             return ImmutableSet.copyOf(predicates);
@@ -262,7 +263,7 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
             }
             for (NamedExpression expr : project.getProjects()) {
                 if (expr instanceof Alias && expr.child(0) instanceof Literal) {
-                    allPredicates.add(new EqualTo(expr.toSlot(), expr.child(0)));
+                    allPredicates.add(new NullSafeEqual(expr.toSlot(), expr.child(0)));
                 }
             }
             return getAvailableExpressions(allPredicates, project);
