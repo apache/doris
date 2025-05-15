@@ -55,14 +55,13 @@ public class PushProjectThroughUnion extends OneRewriteRuleFactory {
 
     /** canPushProject */
     public static boolean canPushProject(List<NamedExpression> projects, LogicalSetOperation logicalSetOperation) {
-        return projects.size() == logicalSetOperation.getOutput().size()
-                && projects.stream().allMatch(e -> {
-            if (e instanceof SlotReference) {
-                return true;
-            } else {
-                Expression expr = ExpressionUtils.getExpressionCoveredByCast(e.child(0));
-                return expr instanceof SlotReference;
-            }
+        return projects.size() == logicalSetOperation.getOutput().size() && projects.stream().allMatch(e -> {
+                if (e instanceof SlotReference) {
+                    return true;
+                } else {
+                    Expression expr = ExpressionUtils.getExpressionCoveredByCast(e.child(0));
+                    return expr instanceof SlotReference;
+                }
         });
     }
 

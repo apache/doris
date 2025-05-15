@@ -63,15 +63,15 @@ public class PushDownFilterThroughSetOperation extends OneRewriteRuleFactory {
                     StatementContext statementContext = ctx.statementContext;
                     List<List<NamedExpression>> newConstantExprs = new ArrayList<>();
                     addFiltersToNewChildren(
-                        setOperation, filter, constantExprs, cascadesContext, newChildren, newConstantExprs,
-                        (rowIndex, columnIndex) -> constantExprs.get(rowIndex).get(columnIndex).toSlot(),
-                        selectConstants -> new LogicalOneRowRelation(
-                                statementContext.getNextRelationId(), selectConstants)
+                            setOperation, filter, constantExprs, cascadesContext, newChildren, newConstantExprs,
+                            (rowIndex, columnIndex) -> constantExprs.get(rowIndex).get(columnIndex).toSlot(),
+                            selectConstants -> new LogicalOneRowRelation(
+                                    statementContext.getNextRelationId(), selectConstants)
                     );
                     addFiltersToNewChildren(setOperation, filter, setOperation.children(),
-                        cascadesContext, newChildren, newConstantExprs,
-                        (rowIndex, columnIndex) -> setOperation.getRegularChildOutput(rowIndex).get(columnIndex),
-                        Function.identity());
+                            cascadesContext, newChildren, newConstantExprs,
+                            (rowIndex, columnIndex) -> setOperation.getRegularChildOutput(rowIndex).get(columnIndex),
+                            Function.identity());
 
                     if (newChildren.isEmpty() && newConstantExprs.isEmpty()) {
                         return new LogicalEmptyRelation(
