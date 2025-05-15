@@ -49,7 +49,6 @@ import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.types.coercion.ComplexDataType;
-import org.apache.doris.nereids.types.coercion.PrimitiveType;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -57,6 +56,7 @@ import com.google.common.collect.Sets;
 import doris.segment_v2.SegmentV2;
 import doris.segment_v2.SegmentV2.EncodingTypePB;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -184,8 +184,40 @@ public class TypeAndEncoding {
         this.dataType = dataType;
     }
 
-    public void conversion() {
-        this.dataType = this.dataType.conversion();
+    /**
+     * DataType conversion. For example DecimalV2Type to DecimalV3Type.
+     */
+    public TypeAndEncoding conversion() {
+        if (dataType instanceof ComplexDataType) {
+            List<TypeAndEncoding> newChildren = new ArrayList<>();
+            for (TypeAndEncoding child : children) {
+                newChildren.add(child.conversion());
+            }
+            if (dataType.isArrayType()) {
+                DataType newItemType = newChildren.get(0).getDataType();
+                return new TypeAndEncoding(ArrayType.of(newItemType, dataType.isNullType()), encoding, newChildren);
+            }
+            if (dataType.isStructType()) {
+                List<StructField> newFields = new ArrayList<>();
+                StructType oldDataType = (StructType) dataType;
+                for (int i = 0; i < oldDataType.getFields().size(); i++) {
+                    StructField oldChildField = oldDataType.getFields().get(i);
+                    DataType newChildType = newChildren.get(i).getDataType();
+                    newFields.add(oldChildField.withDataType(newChildType));
+                }
+                return new TypeAndEncoding(new StructType(newFields), encoding, newChildren);
+            }
+            if (dataType.isMapType()) {
+                return new TypeAndEncoding(
+                        MapType.of(newChildren.get(0).getDataType(), newChildren.get(1).getDataType()), encoding,
+                        newChildren);
+            }
+            throw new IllegalArgumentException("Unsupported data type: " + dataType.toSql());
+        }
+        if (children != null && !children.isEmpty()) {
+            throw new IllegalArgumentException(dataType.toSql() + " has children encoding");
+        }
+        return new TypeAndEncoding(dataType.conversion(), encoding, children);
     }
 
     /**
@@ -195,17 +227,16 @@ public class TypeAndEncoding {
         if (Strings.isNullOrEmpty(encoding) || encoding.equalsIgnoreCase("DEFAULT")) {
             return new TypeAndEncoding(dataType, EncodingTypePB.DEFAULT_ENCODING, children);
         }
-        if (dataType instanceof PrimitiveType) {
-            Integer encodingNumber = EncodingInfo.getEncodingNumber(encoding);
-            if (encodingNumber == null) {
-                throw new IllegalArgumentException("Unsupported encoding: " + encoding);
-            } else if (supportedEncodingMap.containsKey(dataType.getClass())) {
-                return new TypeAndEncoding(dataType, EncodingTypePB.forNumber(encodingNumber), children);
-            } else {
-                throw new IllegalArgumentException("Unsupported encoding: " + encoding + ", type: " + dataType.toSql());
-            }
-        } else {
+        if (dataType instanceof ComplexDataType) {
             return new TypeAndEncoding(dataType, EncodingTypePB.DEFAULT_ENCODING, children);
+        }
+        Integer encodingNumber = EncodingInfo.getEncodingNumber(encoding);
+        if (encodingNumber == null) {
+            throw new IllegalArgumentException("Unsupported encoding: " + encoding);
+        } else if (supportedEncodingMap.containsKey(dataType.getClass())) {
+            return new TypeAndEncoding(dataType, EncodingTypePB.forNumber(encodingNumber), children);
+        } else {
+            throw new IllegalArgumentException("Unsupported encoding: " + encoding + ", type: " + dataType.toSql());
         }
     }
 
@@ -215,18 +246,17 @@ public class TypeAndEncoding {
     public static TypeAndEncoding forDefaultEncoding(DataType dataType) {
         if (dataType instanceof ComplexDataType) {
             List<TypeAndEncoding> children = Lists.newArrayList();
-            if (dataType instanceof ArrayType) {
+            if (dataType.isArrayType()) {
                 ArrayType arrayType = (ArrayType) dataType;
                 children.add(forDefaultEncoding(arrayType.getItemType()));
-            } else if (dataType instanceof MapType) {
+            } else if (dataType.isMapType()) {
                 MapType mapType = (MapType) dataType;
                 children.add(forDefaultEncoding(mapType.getKeyType()));
                 children.add(forDefaultEncoding(mapType.getValueType()));
-            } else if (dataType instanceof StructType) {
+            } else if (dataType.isStructType()) {
                 StructType structType = (StructType) dataType;
                 structType.getFields().stream().map(StructField::getDataType)
                         .forEach(dt -> children.add(forDefaultEncoding(dt)));
-
             } else {
                 throw new IllegalArgumentException("Unsupported complex data type: " + dataType.toSql());
             }
