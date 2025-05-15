@@ -128,7 +128,7 @@ public class MTMVJobManager implements MTMVHookService {
 
     @Override
     public void registerMTMV(MTMV mtmv, Long dbId) {
-        MTMVJob job = new MTMVJob(mtmv.getDatabase().getId(), mtmv.getId());
+        MTMVJob job = new MTMVJob(dbId, mtmv.getId());
         job.setJobId(Env.getCurrentEnv().getNextId());
         job.setJobName(mtmv.getJobInfo().getJobName());
         job.setCreateUser(ConnectContext.get().getCurrentUserIdentity());

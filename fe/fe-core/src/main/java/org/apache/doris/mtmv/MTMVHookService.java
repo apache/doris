@@ -46,7 +46,7 @@ public interface MTMVHookService {
      * When triggered, db has not completed playback yet, so use dbId as param
      *
      * @param mtmv
-     * @param dbId
+     * @param dbId when load from image, table.getDatabase() will be null, so need dbId as param
      */
     void registerMTMV(MTMV mtmv, Long dbId);
 
