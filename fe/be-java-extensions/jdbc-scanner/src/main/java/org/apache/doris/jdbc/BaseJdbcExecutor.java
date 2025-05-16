@@ -215,7 +215,9 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
             curBlockRows = 0;
             int columnCount = resultSetMetaData.getColumnCount();
 
-            initializeBlock(columnCount, replaceStringList, batchSize, outputTable);
+            if (block == null) {
+                initializeBlock(columnCount, replaceStringList, batchSize, outputTable);
+            }
 
             do {
                 for (int i = 0; i < columnCount; ++i) {
@@ -227,12 +229,9 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
 
             for (int i = 0; i < columnCount; ++i) {
                 ColumnType type = outputTable.getColumnType(i);
-                Object[] columnData = block.get(i);
-                Class<?> componentType = columnData.getClass().getComponentType();
-                Object[] newColumn = (Object[]) Array.newInstance(componentType, curBlockRows);
-                System.arraycopy(columnData, 0, newColumn, 0, curBlockRows);
                 boolean isNullable = Boolean.parseBoolean(nullableList[i]);
-                outputTable.appendData(i, newColumn, getOutputConverter(type, replaceStringList[i]), isNullable);
+                outputTable.appendData(i, block.get(i), getOutputConverter(type, replaceStringList[i]), isNullable,
+                        0, curBlockRows);
             }
         } catch (Exception e) {
             LOG.warn("jdbc get block address exception: ", e);
