@@ -93,7 +93,9 @@ public class BackendDistributedPlanWorkerManager implements DistributedPlanWorke
             ((CloudEnv) Env.getCurrentEnv()).checkCloudClusterPriv(cg.getName());
         } catch (Exception e) {
             LOG.warn("cluster priv check failed", e);
-            throw new UserException("cluster priv check failed", e);
+            throw new UserException(
+                    "cluster priv check failed, user is " + ConnectContext.get().getCurrentUserIdentity().toString()
+                            + ", cluster is " + cg.getName(), e);
         }
 
         // 3 return be list

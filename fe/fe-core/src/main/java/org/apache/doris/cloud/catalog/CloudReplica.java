@@ -17,6 +17,7 @@
 
 package org.apache.doris.cloud.catalog;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Partition;
@@ -37,6 +38,7 @@ import com.google.common.collect.Lists;
 import com.google.common.hash.HashCode;
 import com.google.common.hash.Hashing;
 import com.google.gson.annotations.SerializedName;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -219,7 +221,8 @@ public class CloudReplica extends Replica {
                 LOG.debug("get compute group by context {}", cluster);
             }
 
-            if (context.getCurrentUserIdentity() != null) {
+            UserIdentity currentUid = context.getCurrentUserIdentity();
+            if (currentUid != null && !StringUtils.isEmpty(currentUid.getQualifiedUser())) {
                 try {
                     ((CloudEnv) Env.getCurrentEnv()).checkCloudClusterPriv(cluster);
                 } catch (Exception e) {

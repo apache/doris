@@ -25,6 +25,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.Profile;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.loadv2.LoadLoadingTask;
 import org.apache.doris.load.loadv2.LoadTaskCallback;
@@ -32,6 +33,7 @@ import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -72,6 +74,8 @@ public class CloudLoadLoadingTask extends LoadLoadingTask {
             return new AutoCloseConnectContext(connectContext);
         } else {
             ConnectContext.get().setCloudCluster(clusterName);
+            ConnectContext.get().setCurrentUserIdentity(this.userInfo);
+            ConnectContext.get().setQualifiedUser(this.userInfo.getQualifiedUser());
             return null;
         }
     }
@@ -79,6 +83,11 @@ public class CloudLoadLoadingTask extends LoadLoadingTask {
     @Override
     protected void executeOnce() throws Exception {
         try (AutoCloseConnectContext r = buildConnectContext()) {
+            if (ConnectContext.get().getCurrentUserIdentity() == null || StringUtils.isEmpty(
+                    ConnectContext.get().getCurrentUserIdentity().getQualifiedUser())) {
+                LOG.warn("user is empty for cloud load job {}, job user is {} ", DebugUtil.printId(this.getLoadId()),
+                        this.userInfo.getQualifiedUser());
+            }
             super.executeOnce();
         }
     }
