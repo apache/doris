@@ -56,7 +56,7 @@ suite('test_no_cluster_hits', 'multi_cluster, docker') {
         // no cluster auth
         sql """GRANT SELECT_PRIV ON *.*.* TO ${user}"""
         try {
-            connectInDocker(user = user, password = '') {
+            connectInDocker(user, '') {
                 // errCode = 2, detailMessage = the user is not granted permission to the compute group, 
                 // ComputeGroupException: CURRENT_USER_NO_AUTH_TO_USE_ANY_COMPUTE_GROUP, you can contact the system administrator and request that they grant you the appropriate compute group permissions, use SQL `GRANT USAGE_PRIV ON COMPUTE GROUP {compute_group_name} TO {user}
                 sql """select * from information_schema.columns"""
@@ -70,7 +70,7 @@ suite('test_no_cluster_hits', 'multi_cluster, docker') {
         logger.info("show cluster1 : {}", result)
         def currentCluster = result.stream().filter(cluster -> cluster.is_current == "TRUE").findFirst().orElse(null)
         sql """GRANT USAGE_PRIV ON COMPUTE GROUP ${currentCluster.cluster} TO $user"""
-        connectInDocker(user = user, password = '') {
+        connectInDocker(user, '') {
             try {
                 sql """select * from information_schema.columns"""
             } catch (Exception e) {
@@ -116,7 +116,7 @@ suite('test_no_cluster_hits', 'multi_cluster, docker') {
 
         sql """REVOKE USAGE_PRIV ON COMPUTE GROUP ${currentCluster.cluster} from $user"""
         try {
-            connectInDocker(user = user, password = '') {
+            connectInDocker(user, '') {
                 sql """SET PROPERTY FOR '${user}' 'default_cloud_cluster' = '${currentCluster.cluster}'"""
                 // errCode = 2, detailMessage = tablet 10901 err: default cluster compute_cluster check auth failed, ComputeGroupException: CURRENT_USER_NO_AUTH_TO_USE_DEFAULT_COMPUTE_GROUP
                 sql """select * from $table"""
