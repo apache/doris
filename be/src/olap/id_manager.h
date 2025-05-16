@@ -233,7 +233,6 @@ public:
         std::unique_lock lock(_query_to_id_file_map_mtx);
         for (auto it = _query_to_id_file_map.begin(); it != _query_to_id_file_map.end();) {
             if (it->second->get_delayed_expired_timestamp() <= now) {
-                LOG(INFO) << "gc expired id file map for query_id=" << it->first;
                 it = _query_to_id_file_map.erase(it);
             } else {
                 ++it;

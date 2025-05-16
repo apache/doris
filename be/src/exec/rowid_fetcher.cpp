@@ -577,9 +577,9 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
                              file_type_stats, external_init_reader_ms, external_get_block_ms);
     }
 
-    //    if (request.has_gc_id_map() && request.gc_id_map()) {
-    //        ExecEnv::GetInstance()->get_id_manager()->remove_id_file_map(request.query_id());
-    //    }
+    if (request.has_gc_id_map() && request.gc_id_map()) {
+        ExecEnv::GetInstance()->get_id_manager()->remove_id_file_map(request.query_id());
+    }
 
     return Status::OK();
 }

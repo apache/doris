@@ -125,6 +125,11 @@ Status MaterializationSinkOperatorX::sink(RuntimeState* state, vectorized::Block
         }
         RETURN_IF_ERROR(
                 local_state._shared_state->create_muiltget_result(columns, eos, _gc_id_map));
+        if (eos && _gc_id_map) {
+            LOG(INFO) << "happen lee MaterializationSinkOperatorX do gc_id_map query id:"
+                      << print_id(state->query_id()) << " node id:" << _node_id
+                      << " operator ptr:" << this << " state ptr:" << state;
+        }
 
         for (auto& [backend_id, rpc_struct] : local_state._shared_state->rpc_struct_map) {
             auto callback = MaterializationCallback<PMultiGetResponseV2>::create_shared(
