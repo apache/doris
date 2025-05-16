@@ -314,6 +314,7 @@ public class MTMVPartitionUtilTest {
         };
         Assert.assertTrue(cache.isEmpty());
         MTMVPartitionUtil.getTableSnapshotFromContext(baseOlapTable, context);
-        Assert.assertFalse(cache.isEmpty());
+        Assert.assertEquals(1, cache.size());
+        Assert.assertEquals(baseSnapshotIf, cache.values().iterator().next());
     }
 }
