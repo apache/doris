@@ -124,31 +124,10 @@ public class ConstantPropagation extends DefaultPlanRewriter<ExpressionRewriteCo
         Pair<ImmutableEqualSet<Slot>, Map<Slot, Literal>> childEqualTrait =
                 getChildEqualSetAndConstants(project, context);
         List<NamedExpression> newProjects = project.getProjects().stream()
-                .map(expr -> !canReplaceProjection(expr) ? expr :
-                        replaceNameExpressionConstants(expr, context, childEqualTrait.first, childEqualTrait.second))
+                .map(expr -> replaceNameExpressionConstants(
+                        expr, context, childEqualTrait.first, childEqualTrait.second))
                 .collect(ImmutableList.toImmutableList());
         return newProjects.equals(project.getProjects()) ? project : project.withProjects(newProjects);
-    }
-
-    private boolean canReplaceProjection(NamedExpression expression) {
-        // if a project item is a slot reference, and the slot equals to a constant value, don't rewrite it.
-        // because rule `EliminateUnnecessaryProject ` can eliminate a project when the project's output slots equal to
-        // its child's output slots.
-        // for example, for `sink -> ... -> project(a, b, c) -> filter(a = 10)`
-        // if rewrite project to project(alias 10 as a, b, c), later other rule may prune `alias 10 as a`, and project
-        // will become project(b, c), so project and filter's output slot will not equal,
-        // then the project cannot be eliminated.
-        if (expression instanceof SlotReference) {
-            return false;
-        }
-
-        // PushProjectThroughUnion require projection is a slot reference, or like (cast slot reference as xx);
-        // TODO: if PushProjectThroughUnion support projection like  `literal as xx`, then delete this check.
-        if (ExpressionUtils.getExpressionCoveredByCast(expression.child(0)) instanceof SlotReference) {
-            return false;
-        }
-
-        return true;
     }
 
     @Override
@@ -333,6 +312,26 @@ public class ConstantPropagation extends DefaultPlanRewriter<ExpressionRewriteCo
     // process NameExpression
     private NamedExpression replaceNameExpressionConstants(NamedExpression expr, ExpressionRewriteContext context,
             ImmutableEqualSet<Slot> equalSet, Map<Slot, Literal> constants) {
+
+        // if a project item is a slot reference, and the slot equals to a constant value, don't rewrite it.
+        // because rule `EliminateUnnecessaryProject ` can eliminate a project when the project's output slots equal to
+        // its child's output slots.
+        // for example, for `sink -> ... -> project(a, b, c) -> filter(a = 10)`
+        // if rewrite project to project(alias 10 as a, b, c), later other rule may prune `alias 10 as a`, and project
+        // will become project(b, c), so project and filter's output slot will not equal,
+        // then the project cannot be eliminated.
+        // so we don't replace SlotReference.
+        // for safety reason, we only replace Alias
+        if (!(expr instanceof Alias)) {
+            return expr;
+        }
+
+        // PushProjectThroughUnion require projection is a slot reference, or like (cast slot reference as xx);
+        // TODO: if PushProjectThroughUnion support projection like  `literal as xx`, then delete this check.
+        if (ExpressionUtils.getExpressionCoveredByCast(expr.child(0)) instanceof SlotReference) {
+            return expr;
+        }
+
         Expression newExpr = replaceConstants(expr, context, equalSet, constants);
         if (newExpr instanceof NamedExpression) {
             return (NamedExpression) newExpr;

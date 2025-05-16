@@ -106,7 +106,7 @@ class ConstantPropagationTest {
         assertRewrite("a = 1 and a + b = 2 and b + c = 2 and c + d = 2 and d + e = 2 and e + f = 2",
                 "a = 1 and b = 1 and c = 1 and d = 1 and e = 1 and f = 1");
         assertRewrite("(a = 1 and a + 1 = b or b = 2 and b + c = 5) and d = 4",
-                "(a = 1 and b = 2 or b = 2 and c = 3) and d = 4");
+                "b = 2 and (a = 1 or c = 3) and d = 4");
 
         // Multiple equalities chained together
         assertRewrite("a = 10 and a = b and b = c", "a = 10 and b = 10 and c = 10");

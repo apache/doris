@@ -172,6 +172,36 @@ suite('constant_propagation') {
        from t1 full outer join t2 on t1.a = 1 and t2.x = 2 and t1.a > t2.x
     '''
 
+    explain_and_result 'join_4', '''
+       select a, x
+       from t1 join t2 on t1.a = t2.x * 10 and t2.x = 1
+    '''
+
+    explain_and_result 'join_5', '''
+       select a, x
+       from t1 left join t2 on t1.a = t2.x * 10 and t2.x = 1
+    '''
+
+    explain_and_result 'join_6', '''
+       select a, x
+       from t1 full outer join t2 on t1.a = t2.x * 10 and t2.x = 1
+    '''
+
+    explain_and_result 'join_7', '''
+       select a
+       from t1 left semi join t2 on t1.a = t2.x * 10 and t2.x = 1
+    '''
+
+    explain_and_result 'join_8', '''
+       select a
+       from t1 left anti join t2 on t1.a = t2.x * 10 and t2.x = 1
+    '''
+
+    explain_and_result 'join_9', '''
+       select t1.a, t2.x, t3.a
+       from t1 join t2 on t1.a = t2.x * 10 join t3 on t2.x = t3.a where t1.a = 10
+    '''
+
     explain_and_result 'subquery_1', '''
        select a, x
        from (select a from t1 where a = 1) s1, (select x from t2 where x = 1) s2
@@ -206,6 +236,56 @@ suite('constant_propagation') {
       select a, b, c
       from t1
       where t1.a + 2 in (select t2.x + t2.y from t2 where t2.x = 1 and t2.y = 2)
+    '''
+
+    explain_and_result 'subquery_7', '''
+      select t.a, t2.x
+      from (select * from t1 where a = 10) t join t2 on t.a = t2.x * 10
+    '''
+
+    explain_and_result 'subquery_8', '''
+      select t.k, t.b, t3.a
+      from (select a * 10 as k, b from t1 union all select x as k, y as b from t2) t join t3 on t.k = t3.a * 5 where t3.a = 2
+    '''
+
+    explain_and_result 'subquery_9', '''
+      select t.k, t.b, t3.a
+      from (select a * 10 as k, b from t1 except select x as k, y as b from t2) t join t3 on t.k = t3.a * 5 where t3.a = 2
+    '''
+
+    explain_and_result 'subquery_10', '''
+      select t.k, t.b, t3.a
+      from (select a * 10 as k, b from t1 intersect select x as k, y as b from t2) t join t3 on t.k = t3.a * 5 where t3.a = 2
+    '''
+
+    explain_and_result 'subquery_10', '''
+      select t1.a
+      from t1 where t1.a in (select t2.x * 10 from t2 where t2.x = 1)
+    '''
+
+    explain_and_result 'subquery_11', '''
+      select t1.a
+      from t1 where t1.a in (select t2.x - 10 from t2 where t2.x = 20)
+    '''
+
+    explain_and_result 'subquery_12', '''
+      select t1.a
+      from t1 where exists (select 0 from t2 where t2.x = 1 and t1.a = t2.x * 10)
+    '''
+
+    explain_and_result 'subquery_13', '''
+      select t1.a
+      from t1 where exists (select 0 from t2 where t2.x = 20 and t1.a + 10 = t2.x)
+    '''
+
+    explain_and_result 'subquery_14', '''
+      select t1.a
+      from t1 where not exists (select 0 from t2 where t2.x = 1 and t1.a = t2.x * 10)
+    '''
+
+    explain_and_result 'subquery_15', '''
+      select t1.a
+      from t1 where not exists (select 0 from t2 where t2.x = 20 and t1.a + 10 = t2.x)
     '''
 
     explain_and_result 'agg_1', '''
@@ -243,6 +323,22 @@ suite('constant_propagation') {
         where a = 1 and b = 2
         group by a, b, c
         having k > 10;
+    '''
+
+    explain_and_result 'agg_6', '''
+        select a, count(a)
+        from t1
+        where a = 10
+        group by a
+        having sum(b) > a
+    '''
+
+    explain_and_result 'agg_7', '''
+        select a, b, count(a)
+        from t1
+        where a = 10 and b = 20
+        group by a, b
+        having sum(b) > a and a > b;
     '''
 
     test {
