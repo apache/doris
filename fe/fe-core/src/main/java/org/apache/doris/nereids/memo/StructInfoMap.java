@@ -37,6 +37,7 @@ import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import javax.annotation.Nullable;
 
@@ -111,7 +112,9 @@ public class StructInfoMap {
             childrenPlan.add(
                     constructPlan(groupExpressionBitSetPair.first, groupExpressionBitSetPair.second, childMap));
         }
-        return groupExpression.getPlan().withChildren(childrenPlan);
+        // need to clear current group expression info by using withGroupExpression
+        // this plan would copy into memo, if with group expression, would cause err
+        return groupExpression.getPlan().withChildren(childrenPlan).withGroupExpression(Optional.empty());
     }
 
     /**

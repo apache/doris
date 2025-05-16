@@ -105,7 +105,7 @@ public class CascadesContext implements ScheduleContext {
     private final Optional<CTEId> currentTree;
     private final Optional<CascadesContext> parent;
 
-    private final Set<MaterializationContext> materializationContexts;
+    private final Map<List<String>, MaterializationContext> materializationContexts;
     private final Set<List<String>> materializationRewrittenSuccessSet = new HashSet<>();
     private boolean isLeadingJoin = false;
 
@@ -144,7 +144,7 @@ public class CascadesContext implements ScheduleContext {
         this.currentJobContext = new JobContext(this, requireProperties, Double.MAX_VALUE);
         this.subqueryExprIsAnalyzed = new HashMap<>();
         this.runtimeFilterContext = new RuntimeFilterContext(getConnectContext().getSessionVariable());
-        this.materializationContexts = new HashSet<>();
+        this.materializationContexts = new HashMap<>();
         if (statementContext.getConnectContext() != null) {
             ConnectContext connectContext = statementContext.getConnectContext();
             SessionVariable sessionVariable = connectContext.getSessionVariable();
@@ -221,8 +221,25 @@ public class CascadesContext implements ScheduleContext {
         return isTimeout;
     }
 
+    /**
+     * Init memo with plan
+     */
     public void toMemo() {
         this.memo = new Memo(getConnectContext(), plan);
+        List<Plan> rewrittenPlansByMv = this.getStatementContext().getRewrittenPlansByMv();
+        // only consider result sink to avoid Insert a plan into targetGroup but differ in logical properties
+        boolean initMultiPlanMemo = Memo.needInitMultiPlanMemo(this, plan);
+        if (initMultiPlanMemo) {
+            // copy tmp plan for mv rewrite firstly
+            for (Plan rewrittenPlan : rewrittenPlansByMv) {
+                // aggregate_without_roll_up query_13_0 cause error into targetGroup but differ in logical properties
+                // tmp rewritten plan output is different from final rewritten plan output
+                if (!rewrittenPlan.getLogicalProperties().equals(plan.getLogicalProperties())) {
+                    continue;
+                }
+                this.memo.copyIn(rewrittenPlan, this.memo.getRoot(), false);
+            }
+        }
     }
 
     public TableCollectAndHookInitializer newTableCollector() {
@@ -345,13 +362,37 @@ public class CascadesContext implements ScheduleContext {
     }
 
     public List<MaterializationContext> getMaterializationContexts() {
-        return materializationContexts.stream()
+        return materializationContexts.values().stream()
                 .filter(MaterializationContext::isAvailable)
                 .collect(Collectors.toList());
     }
 
     public void addMaterializationContext(MaterializationContext materializationContext) {
-        this.materializationContexts.add(materializationContext);
+        this.materializationContexts.put(materializationContext.generateMaterializationIdentifier(),
+                materializationContext);
+    }
+
+    /**
+     * Update materializationContext rewrite status, if once rewrite success, doesn't record
+     * fail info, or would record fail info append
+     */
+    public void updateMaterializationContext(MaterializationContext materializationContext) {
+        List<String> identifier = materializationContext.generateMaterializationIdentifier();
+        MaterializationContext existContext = materializationContexts.get(identifier);
+        if (existContext != null) {
+            if (existContext.isSuccess()) {
+                return;
+            }
+            if (materializationContext.isSuccess()) {
+                existContext.setSuccess(true);
+            } else {
+                existContext.setSuccess(false);
+                materializationContext.getFailReason().forEach((key, value) ->
+                        existContext.getFailReason().put(key, value));
+            }
+        } else {
+            this.materializationContexts.put(identifier, materializationContext);
+        }
     }
 
     public Set<List<String>> getMaterializationRewrittenSuccessSet() {
