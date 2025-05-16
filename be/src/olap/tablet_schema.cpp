@@ -502,6 +502,9 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
     _col_name = column.name();
     _col_name_lower_case = to_lower(_col_name);
     _type = TabletColumn::get_field_type_by_string(column.type());
+    if (column.has_encoding()) {
+        _encoding_type = column.encoding();
+    }
     _is_key = column.is_key();
     _is_nullable = column.is_nullable();
     _is_auto_increment = column.is_auto_increment();
@@ -601,6 +604,7 @@ void TabletColumn::to_schema_pb(ColumnPB* column) const {
     column->set_type(get_string_by_field_type(_type));
     column->set_is_key(_is_key);
     column->set_is_nullable(_is_nullable);
+    column->set_encoding(_encoding_type);
     if (_has_default_value) {
         column->set_default_value(_default_value);
     }

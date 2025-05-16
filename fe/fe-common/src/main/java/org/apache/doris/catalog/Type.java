@@ -44,6 +44,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 /**
  * Abstract class describing an Impala data type (scalar/complex type).
@@ -404,10 +405,23 @@ public abstract class Type {
         return toSql(0);
     }
 
+    public final String toSql(EncodingTree encodingTree) {
+        if (encodingTree == null) {
+            return toSql();
+        } else {
+            return toSql(0, encodingTree);
+        }
+    }
+
+    protected String toSql(int depth, @Nullable EncodingTree encodingTree) {
+        return toSql(depth);
+    }
+
     /**
      * Recursive helper for toSql() to be implemented by subclasses. Keeps track of the
      * nesting depth and terminates the recursion if MAX_NESTING_DEPTH is reached.
      */
+
     protected abstract String toSql(int depth);
 
     /**
@@ -466,44 +480,55 @@ public abstract class Type {
     }
 
     public String hideVersionForVersionColumn(Boolean isToSql) {
+        return hideVersionForVersionColumn(isToSql, null);
+    }
+
+    public String hideVersionForVersionColumn(Boolean isToSql, EncodingTree encodingTree) {
         if (isDatetime() || isDatetimeV2()) {
             StringBuilder typeStr = new StringBuilder("datetime");
             if (((ScalarType) this).getScalarScale() > 0) {
                 typeStr.append("(").append(((ScalarType) this).getScalarScale()).append(")");
             }
+            typeStr.append(EncodingTree.toSql(encodingTree));
             return typeStr.toString();
         } else if (isDate() || isDateV2()) {
-            return "date";
+            return "date" + EncodingTree.toSql(encodingTree);
         } else if (isDecimalV2() || isDecimalV3()) {
             StringBuilder typeStr = new StringBuilder("decimal");
             ScalarType sType = (ScalarType) this;
             int scale = sType.getScalarScale();
             int precision = sType.getScalarPrecision();
             typeStr.append("(").append(precision).append(",").append(scale).append(")");
+            typeStr.append(EncodingTree.toSql(encodingTree));
             return typeStr.toString();
         } else if (isTime() || isTimeV2()) {
             StringBuilder typeStr = new StringBuilder("time");
             if (((ScalarType) this).getScalarScale() > 0) {
                 typeStr.append("(").append(((ScalarType) this).getScalarScale()).append(")");
             }
+            typeStr.append(EncodingTree.toSql(encodingTree));
             return typeStr.toString();
         } else if (isArrayType()) {
-            String nestedDesc = ((ArrayType) this).getItemType().hideVersionForVersionColumn(isToSql);
+            String nestedDesc = ((ArrayType) this).getItemType().hideVersionForVersionColumn(isToSql,
+                    encodingTree == null ? null : encodingTree.child(0));
             return "array<" + nestedDesc + ">";
         } else if (isMapType()) {
-            String keyDesc = ((MapType) this).getKeyType().hideVersionForVersionColumn(isToSql);
-            String valueDesc = ((MapType) this).getValueType().hideVersionForVersionColumn(isToSql);
+            String keyDesc = ((MapType) this).getKeyType().hideVersionForVersionColumn(isToSql,
+                    encodingTree == null ? null : encodingTree.child(0));
+            String valueDesc = ((MapType) this).getValueType().hideVersionForVersionColumn(isToSql,
+                    encodingTree == null ? null : encodingTree.child(1));
             return "map<" + keyDesc + "," + valueDesc + ">";
         } else if (isStructType()) {
             List<String> fieldDesc = new ArrayList<>();
             StructType structType = (StructType) this;
             for (int i = 0; i < structType.getFields().size(); i++) {
                 StructField field = structType.getFields().get(i);
-                fieldDesc.add(field.getName() + ":" + field.getType().hideVersionForVersionColumn(isToSql));
+                fieldDesc.add(field.getName() + ":" + field.getType().hideVersionForVersionColumn(isToSql,
+                        encodingTree == null ? null : encodingTree.child(i)));
             }
             return "struct<" + StringUtils.join(fieldDesc, ",") + ">";
         } else if (isToSql) {
-            return this.toSql();
+            return this.toSql(encodingTree);
         }
         return this.toString();
     }
