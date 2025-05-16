@@ -58,13 +58,27 @@ suite("test_base_rename_on_commit_mtmv","mtmv") {
             REFRESH MATERIALIZED VIEW ${mvName} auto
         """
     waitingMTMVTaskFinishedByMvName(mvName)
-    order_qt_select_init "select * from ${mvName}"
+    run_on_follower_and_master({ jdbc_url ->
+        connect(context.config.jdbcUser, context.config.jdbcPassword, jdbc_url) {
+            sql "sync"
+            sql """set enable_materialized_view_nest_rewrite = true;"""
+            sql "use ${dbName}"
+            order_qt_select_init "select * from ${mvName}"
+        }
+    })
 
     // rename and recreate
     sql """
         ALTER TABLE ${tableName1} rename ${tableName2};
         """
-    order_qt_rename "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
+    run_on_follower_and_master({ jdbc_url ->
+        connect(context.config.jdbcUser, context.config.jdbcPassword, jdbc_url) {
+            sql "sync"
+            sql """set enable_materialized_view_nest_rewrite = true;"""
+            sql "use ${dbName}"
+            order_qt_rename "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
+        }
+    })
 
     sql """
             INSERT INTO ${tableName2} VALUES(2,2);
@@ -72,8 +86,15 @@ suite("test_base_rename_on_commit_mtmv","mtmv") {
 
     // after rename, should not refresh auto
     waitingMTMVTaskFinishedByMvName(mvName)
-    order_qt_rename "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
-    order_qt_select_rename "select * from ${mvName}"
+    run_on_follower_and_master({ jdbc_url ->
+        connect(context.config.jdbcUser, context.config.jdbcPassword, jdbc_url) {
+            sql "sync"
+            sql """set enable_materialized_view_nest_rewrite = true;"""
+            sql "use ${dbName}"
+            order_qt_rename "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
+            order_qt_select_rename "select * from ${mvName}"
+        }
+    })
 
     // create t1
     sql """
@@ -92,14 +113,30 @@ suite("test_base_rename_on_commit_mtmv","mtmv") {
          """
 
     waitingMTMVTaskFinishedByMvName(mvName)
-    order_qt_recreate_auto "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
-    order_qt_select_recreate_auto "select * from ${mvName}"
+    run_on_follower_and_master({ jdbc_url ->
+        connect(context.config.jdbcUser, context.config.jdbcPassword, jdbc_url) {
+            sql "sync"
+            sql """set enable_materialized_view_nest_rewrite = true;"""
+            sql "use ${dbName}"
+            order_qt_recreate_auto "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
+            order_qt_select_recreate_auto "select * from ${mvName}"
 
-    // t2 should not trigger refresh
-    order_qt_before_trigger "select count(*)  from tasks('type'='mv') where MvName='${mvName}'"
+            // t2 should not trigger refresh
+            order_qt_before_trigger "select count(*)  from tasks('type'='mv') where MvName='${mvName}'"
+        }
+    })
+
     sql """
              INSERT INTO ${tableName2} VALUES(4,4);
          """
     waitingMTMVTaskFinishedByMvName(mvName)
-    order_qt_after_trigger "select count(*)  from tasks('type'='mv') where MvName='${mvName}'"
+
+    run_on_follower_and_master({ jdbc_url ->
+        connect(context.config.jdbcUser, context.config.jdbcPassword, jdbc_url) {
+            sql "sync"
+            sql """set enable_materialized_view_nest_rewrite = true;"""
+            sql "use ${dbName}"
+            order_qt_after_trigger "select count(*)  from tasks('type'='mv') where MvName='${mvName}'"
+        }
+    })
 }
