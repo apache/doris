@@ -113,6 +113,10 @@ public class MTMVRewriteUtilTest {
                 MTMVUtil.mtmvContainsExternalTable((MTMV) any);
                 minTimes = 0;
                 result = false;
+
+                mtmv.canBeCandidate();
+                minTimes = 0;
+                result = true;
             }
         };
     }
@@ -263,9 +267,9 @@ public class MTMVRewriteUtilTest {
     public void testGetMTMVCanRewritePartitionsStateAbnormal() {
         new Expectations() {
             {
-                status.getState();
+                mtmv.canBeCandidate();
                 minTimes = 0;
-                result = MTMVState.SCHEMA_CHANGE;
+                result = false;
             }
         };
         Collection<Partition> mtmvCanRewritePartitions = MTMVRewriteUtil
@@ -291,9 +295,9 @@ public class MTMVRewriteUtilTest {
     public void testGetMTMVCanRewritePartitionsRefreshStateInit() {
         new Expectations() {
             {
-                status.getRefreshState();
+                mtmv.canBeCandidate();
                 minTimes = 0;
-                result = MTMVRefreshState.INIT;
+                result = false;
             }
         };
         Collection<Partition> mtmvCanRewritePartitions = MTMVRewriteUtil
