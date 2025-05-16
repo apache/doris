@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterialize;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
@@ -98,6 +99,14 @@ public class MaterializeProbeVisitor extends DefaultPlanVisitor<Optional<Materia
                     || hmsExternalTable.getDlaType() == DLAType.ICEBERG;
         }
         return true;
+    }
+
+    @Override
+    public Optional<MaterializeSource> visitPhysicalOlapScan(PhysicalOlapScan scan, ProbeContext context) {
+        if (scan.getSelectedIndexId() == scan.getTable().getBaseIndexId()) {
+            return visitPhysicalCatalogRelation(scan, context);
+        }
+        return Optional.empty();
     }
 
     @Override
