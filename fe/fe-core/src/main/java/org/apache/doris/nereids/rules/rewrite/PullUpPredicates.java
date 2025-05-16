@@ -21,8 +21,8 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
+import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -137,8 +137,8 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
             Set<Expression> predicates = new LinkedHashSet<>();
             for (NamedExpression expr : r.getProjects()) {
                 if (expr instanceof Alias && expr.child(0) instanceof Literal) {
-                    if (nullSafe) {
-                        predicates.add(new NullSafeEqual(expr.toSlot(), expr.child(0)));
+                    if (nullSafe && expr.child(0) instanceof NullLiteral) {
+                        predicates.add(new IsNull(expr.toSlot()));
                     } else {
                         predicates.add(new EqualTo(expr.toSlot(), expr.child(0)));
                     }
@@ -269,8 +269,8 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
             }
             for (NamedExpression expr : project.getProjects()) {
                 if (expr instanceof Alias && expr.child(0) instanceof Literal) {
-                    if (nullSafe) {
-                        allPredicates.add(new NullSafeEqual(expr.toSlot(), expr.child(0)));
+                    if (nullSafe && expr.child(0) instanceof NullLiteral) {
+                        allPredicates.add(new IsNull(expr.toSlot()));
                     } else {
                         allPredicates.add(new EqualTo(expr.toSlot(), expr.child(0)));
                     }
