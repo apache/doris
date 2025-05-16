@@ -362,7 +362,8 @@ void ExchangeSinkOperatorX::_handle_eof_channel(RuntimeState* state, ChannelPtrT
 
 Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block, bool eos) {
     auto& local_state = get_local_state(state);
-    COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)block->rows());
+    COUNTER_UPDATE(local_state.rows_input_counter(),
+                   (int64_t)block->rows()); // for auto-partition, may decease when do_partitioning
     SCOPED_TIMER(local_state.exec_time_counter());
     bool all_receiver_eof = true;
     for (auto& channel : local_state.channels) {

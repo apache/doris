@@ -16,6 +16,7 @@
 // under the License.
 
 #include "writer.h"
+#include <algorithm>
 
 #include "common/logging.h"
 #include "pipeline/exec/exchange_sink_operator.h"
@@ -39,9 +40,11 @@ Status Writer::write(ExchangeSinkLocalState* local_state, RuntimeState* state,
     }
     {
         SCOPED_TIMER(local_state->distribute_rows_into_channels_timer());
-        const auto channel_filed = local_state->partitioner()->get_channel_ids();
+        const auto channel_field = local_state->partitioner()->get_channel_ids();
         const std::vector<bool> skipped =
                 local_state->partitioner()->get_skipped(cast_set<int>(rows));
+        // decrease not sinked rows this time FIXME: rows affected is still wrong
+        COUNTER_UPDATE(local_state->rows_input_counter(), -1LL * std::ranges::count(skipped, true));
 
         // must before do _channel_add_rows() with `eos == true`
         // must after visit local_state->partitioner() because send_last_batched_block() will change it stats.
@@ -50,14 +53,14 @@ Status Writer::write(ExchangeSinkLocalState* local_state, RuntimeState* state,
             RETURN_IF_ERROR(local_state->partitioner()->send_last_batched_block(state));
         }
 
-        if (channel_filed.len == sizeof(uint32_t)) {
+        if (channel_field.len == sizeof(uint32_t)) {
             RETURN_IF_ERROR(
                     _channel_add_rows(state, local_state->channels, local_state->channels.size(),
-                                      channel_filed.get<uint32_t>(), rows, block, skipped, eos));
+                                      channel_field.get<uint32_t>(), rows, block, skipped, eos));
         } else {
             RETURN_IF_ERROR(
                     _channel_add_rows(state, local_state->channels, local_state->channels.size(),
-                                      channel_filed.get<int64_t>(), rows, block, skipped, eos));
+                                      channel_field.get<int64_t>(), rows, block, skipped, eos));
         }
     }
     return Status::OK();

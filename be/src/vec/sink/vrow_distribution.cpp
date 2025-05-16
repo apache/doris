@@ -475,20 +475,13 @@ void VRowDistribution::_reset_row_part_tablet_ids(
 }
 
 Status VRowDistribution::generate_rows_distribution(
-        Block& input_block, std::shared_ptr<Block>& block, int64_t& filtered_rows,
-        bool& has_filtered_rows, std::vector<RowPartTabletIds>& row_part_tablet_ids,
-        int64_t& rows_stat_val, bool reentry) {
+        Block& input_block, std::shared_ptr<Block>& block,
+        std::vector<RowPartTabletIds>& row_part_tablet_ids, int64_t& rows_stat_val) {
     auto input_rows = input_block.rows();
     _reset_row_part_tablet_ids(row_part_tablet_ids, input_rows);
 
-    int64_t prev_filtered_rows =
-            _block_convertor->num_filtered_rows() + _tablet_finder->num_filtered_rows();
-
-    if (reentry) {
-        // if reentry, means the block is batching block which has been converted. dont convert again.
-        VLOG_DEBUG << "Reentry! block is:\n" << block->dump_data();
-    }
     // we store the batching block with value of `input_block`. so just do all of these again.
+    bool has_filtered_rows = false;
     RETURN_IF_ERROR(_block_convertor->validate_and_convert_block(
             _state, &input_block, block, *_vec_output_expr_ctxs, input_rows, has_filtered_rows));
 
@@ -537,8 +530,6 @@ Status VRowDistribution::generate_rows_distribution(
                                                                 row_part_tablet_ids);
     }
 
-    filtered_rows = _block_convertor->num_filtered_rows() + _tablet_finder->num_filtered_rows() -
-                    prev_filtered_rows;
     return st;
 }
 

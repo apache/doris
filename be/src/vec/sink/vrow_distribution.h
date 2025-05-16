@@ -132,9 +132,8 @@ public:
     // v2 needs index,tablet->rowids
     // reentry means this block is batched block. so skip some transform.
     Status generate_rows_distribution(Block& input_block, std::shared_ptr<Block>& block,
-                                      int64_t& filtered_rows, bool& has_filtered_rows,
                                       std::vector<RowPartTabletIds>& row_part_tablet_ids,
-                                      int64_t& rows_stat_val, bool reentry = false);
+                                      int64_t& rows_stat_val);
     bool need_deal_batching() const { return _deal_batched && _batching_rows > 0; }
     // create partitions when need for auto-partition table using #_partitions_need_create.
     Status automatic_create_partition();
@@ -144,15 +143,6 @@ public:
     // for auto partition
     std::unique_ptr<MutableBlock> _batching_block; // same structure with input_block
     bool _deal_batched = false; // If true, send batched block before any block's append.
-    void store_reentry_flag() {
-        DCHECK_EQ(_reentry_flag, false);
-        _reentry_flag = true;
-    }
-    bool consume_reentry_flag() {
-        bool flag = _reentry_flag;
-        _reentry_flag = false;
-        return flag;
-    }
 
 private:
     std::pair<VExprContextSPtrs, VExprSPtrs> _get_partition_function();
@@ -218,7 +208,6 @@ private:
     std::vector<std::vector<TNullableStringLiteral>> _partitions_need_create;
     size_t _batching_rows = 0, _batching_bytes = 0;
     std::unordered_set<std::vector<TNullableStringLiteral>, NullableStringListHash> _deduper;
-    bool _reentry_flag = false; // for skipping block convert for batching block.
 
     OlapTableBlockConvertor* _block_convertor = nullptr;
     OlapTabletFinder* _tablet_finder = nullptr;
