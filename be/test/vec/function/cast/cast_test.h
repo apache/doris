@@ -51,7 +51,8 @@ struct FunctionCastTest : public testing::Test {
     void TearDown() override {}
 
     // we always need return nullable=true for cast function because of its' get_return_type weird
-    template <typename ResultDataType, int ResultScale = -1, int ResultPrecision = -1>
+    template <typename ResultDataType, int ResultScale = -1, int ResultPrecision = -1,
+              bool enable_strict_cast = false>
     void check_function_for_cast(InputTypeSet input_types, DataSet data_set,
                                  bool datetime_is_string_format = true,
                                  bool expect_execute_fail = false, bool expect_result_ne = false) {
@@ -77,12 +78,12 @@ struct FunctionCastTest : public testing::Test {
                 static_cast<void>(
                         check_function<ResultDataType, true, ResultScale, ResultPrecision, true>(
                                 func_name, add_input_types, const_dataset, expect_execute_fail,
-                                expect_result_ne));
+                                expect_result_ne, enable_strict_cast));
             } else {
                 static_cast<void>(
                         check_function<ResultDataType, true, ResultScale, ResultPrecision, false>(
                                 func_name, add_input_types, const_dataset, expect_execute_fail,
-                                expect_result_ne));
+                                expect_result_ne, enable_strict_cast));
             }
         }
     }

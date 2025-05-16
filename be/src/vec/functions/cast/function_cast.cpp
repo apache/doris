@@ -29,26 +29,26 @@
 namespace doris::vectorized {
 
 namespace CastWrapper {
-template <typename DataType>
-WrapperType create_wrapper(const DataTypePtr& from_type, const DataType* const,
+template <typename ToDataType>
+WrapperType create_wrapper(const DataTypePtr& from_type, const ToDataType* const,
                            bool requested_result_is_nullable) {
     if (requested_result_is_nullable && check_and_get_data_type<DataTypeString>(from_type.get())) {
         /// In case when converting to Nullable type, we apply different parsing rule,
         /// that will not throw an exception but return NULL in case of malformed input.
         FunctionPtr function;
-        function = FunctionConvertFromString<DataType, NameCast>::create();
+        function = FunctionConvertFromString<ToDataType, NameCast>::create();
         return [function](FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           const uint32_t result, size_t input_rows_count) {
             return function->execute(context, block, arguments, result, input_rows_count);
         };
     } else if (requested_result_is_nullable &&
-               (IsDatelikeV1Types<DataType> || IsDatelikeV2Types<DataType>)&&!(
+               (IsDatelikeV1Types<ToDataType> || IsDatelikeV2Types<ToDataType>)&&!(
                        check_and_get_data_type<DataTypeDateTime>(from_type.get()) ||
                        check_and_get_data_type<DataTypeDate>(from_type.get()) ||
                        check_and_get_data_type<DataTypeDateV2>(from_type.get()) ||
                        check_and_get_data_type<DataTypeDateTimeV2>(from_type.get()))) {
         FunctionPtr function;
-        function = FunctionConvertToTimeType<DataType, NameCast>::create();
+        function = FunctionConvertToTimeType<ToDataType, NameCast>::create();
         return [function](FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           const uint32_t result, size_t input_rows_count) {
             return function->execute(context, block, arguments, result, input_rows_count);
@@ -56,7 +56,7 @@ WrapperType create_wrapper(const DataTypePtr& from_type, const DataType* const,
     } else {
         return [](FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                   const uint32_t result, size_t input_rows_count) {
-            typename FunctionTo<DataType>::Type function;
+            typename FunctionTo<ToDataType>::Type function;
             return function.execute_impl(context, block, arguments, result, input_rows_count);
         };
     }

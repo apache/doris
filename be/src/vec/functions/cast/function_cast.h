@@ -36,6 +36,7 @@
 
 #include "cast_base.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/exception.h"
 #include "common/status.h"
 #include "runtime/runtime_state.h"
 #include "runtime/type_limit.h"
@@ -599,30 +600,43 @@ struct StringParsing {
         }
 
         size_t current_offset = 0;
+        bool enable_strict_cast = context->enable_strict_mode();
+        std::visit(
+                [&](auto enable_strict_cast) {
+                    for (size_t i = 0; i < row; ++i) {
+                        size_t next_offset = (*offsets)[i];
+                        size_t string_size = next_offset - current_offset;
 
-        for (size_t i = 0; i < row; ++i) {
-            size_t next_offset = (*offsets)[i];
-            size_t string_size = next_offset - current_offset;
+                        ReadBuffer read_buffer(&(*chars)[current_offset], string_size);
 
-            ReadBuffer read_buffer(&(*chars)[current_offset], string_size);
-
-            bool parsed;
-            if constexpr (IsDataTypeDecimal<ToDataType>) {
-                ToDataType::check_type_precision((PrecisionScaleArg(additions).precision));
-                StringParser::ParseResult res = try_parse_decimal_impl<ToDataType>(
-                        vec_to[i], read_buffer, PrecisionScaleArg(additions));
-                parsed = (res == StringParser::PARSE_SUCCESS ||
-                          res == StringParser::PARSE_OVERFLOW ||
-                          res == StringParser::PARSE_UNDERFLOW);
-            } else if constexpr (IsDataTypeDateTimeV2<ToDataType>) {
-                parsed = try_parse_impl<ToDataType>(vec_to[i], read_buffer, context, scale);
-            } else {
-                parsed =
-                        try_parse_impl<ToDataType, DataTypeString>(vec_to[i], read_buffer, context);
-            }
-            (*vec_null_map_to)[i] = !parsed || !is_all_read(read_buffer);
-            current_offset = next_offset;
-        }
+                        bool parsed;
+                        if constexpr (IsDataTypeDecimal<ToDataType>) {
+                            ToDataType::check_type_precision(
+                                    (PrecisionScaleArg(additions).precision));
+                            StringParser::ParseResult res = try_parse_decimal_impl<ToDataType>(
+                                    vec_to[i], read_buffer, PrecisionScaleArg(additions));
+                            parsed = (res == StringParser::PARSE_SUCCESS);
+                        } else if constexpr (IsDataTypeDateTimeV2<ToDataType>) {
+                            parsed = try_parse_impl<ToDataType>(vec_to[i], read_buffer, context,
+                                                                scale);
+                        } else {
+                            parsed = try_parse_impl<ToDataType, DataTypeString>(
+                                    vec_to[i], read_buffer, context);
+                        }
+                        if constexpr (enable_strict_cast) {
+                            if (!parsed) {
+                                throw doris::Exception(
+                                        ErrorCode::INVALID_INPUT_SYNTAX,
+                                        "Invalid input syntax for type {}: \"{}\"",
+                                        block.get_by_position(result).type->get_name(),
+                                        StringRef(&(*chars)[current_offset], string_size));
+                            }
+                        }
+                        (*vec_null_map_to)[i] = !parsed || !is_all_read(read_buffer);
+                        current_offset = next_offset;
+                    }
+                },
+                vectorized::make_bool_variant(enable_strict_cast));
 
         block.get_by_position(result).column =
                 ColumnNullable::create(std::move(col_to), std::move(col_null_map_to));

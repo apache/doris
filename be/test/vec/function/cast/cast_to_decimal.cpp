@@ -16,6 +16,7 @@
 // under the License.
 
 #include "cast_test.h"
+#include "common/exception.h"
 #include "olap/olap_common.h"
 #include "runtime/primitive_type.h"
 #include "vec/core/types.h"
@@ -62,13 +63,16 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
             data_set.push_back({{white_spaces_str + v_str + white_spaces_str}, v});
         } else {
             data_set.push_back({{v_str}, v});
-            dbg_str += fmt::format("({}, {})|", v_str, dt.to_string(v));
+            // dbg_str += fmt::format("({}, {})|", v_str, dt.to_string(v));
         }
     }
-    template <typename T, int Precision, int Scale, int ScientificExpShift = 0>
+    template <typename T, int Precision, int Scale, int ScientificExpShift = 0,
+              bool ForceZeroExp = false>
     void from_string_test_func() {
-        std::cout << fmt::format("===================test cast string to {}({}, {})",
-                                 TypeName<T>::get(), Precision, Scale);
+        auto dbg_str0 = fmt::format(
+                "test cast string to {}({}, {}), ScientificExpShift: {}, ForceZeroExp: {}\n",
+                TypeName<T>::get(), Precision, Scale, ScientificExpShift, ForceZeroExp);
+        std::cout << fmt::format("==================={}\n", dbg_str0);
         InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
 
         auto decimal_ctor = get_decimal_ctor<T>();
@@ -118,8 +122,7 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
                                                             large_fractional3};
         DataTypeDecimal<T> dt(Precision, Scale);
         auto only_int_part_test_func = [&](bool is_negative, bool with_trailing_dot) {
-            std::string dbg_str = fmt::format("test cast string to {}({}, {}), only int part: ",
-                                              TypeName<T>::get(), Precision, Scale);
+            std::string dbg_str = fmt::format("{}, only int part: ", dbg_str0);
             DataSet data_set;
             // only integral part
             for (const auto& i : integral_part) {
@@ -155,19 +158,41 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
                                            false, false);
             }
             std::cout << dbg_str << std::endl;
-            check_function_for_cast<DataTypeDecimal<T>, Scale, Precision>(input_types, data_set);
+            check_function_for_cast<DataTypeDecimal<T>, Scale, Precision, true>(input_types,
+                                                                                data_set);
+            check_function_for_cast<DataTypeDecimal<T>, Scale, Precision, false>(input_types,
+                                                                                 data_set);
+        };
+        auto only_int_part_round_test_func = [&](bool is_negative, bool test_rounding) {
+            std::string dbg_str = fmt::format("{}, only int part, round: ", dbg_str0);
+            DataSet data_set;
+            // only integral part
+            for (auto i : integral_part) {
+                std::string v_str;
+                if (i != max_integral && test_rounding) {
+                    v_str = fmt::format("{}.5", i);
+                    ++i;
+                } else {
+                    v_str = fmt::format("{}.49999", i);
+                }
+                auto v = decimal_ctor(is_negative ? -i : i, 0, Scale);
+                format_decimal_number_func(dt, data_set, dbg_str, v_str, v, is_negative, false,
+                                           false, false);
+            }
+            std::cout << dbg_str << std::endl;
+            check_function_for_cast<DataTypeDecimal<T>, Scale, Precision, true>(input_types,
+                                                                                data_set);
+            check_function_for_cast<DataTypeDecimal<T>, Scale, Precision, false>(input_types,
+                                                                                 data_set);
         };
 
         auto only_fraction_part_test_func = [&](bool is_negative, bool test_rounding) {
-            std::string dbg_str = fmt::format(
-                    "test cast string to {}({}, {}), only fraction part: ", TypeName<T>::get(),
-                    Precision, Scale);
+            std::string dbg_str = fmt::format("{}, only fraction part: ", dbg_str0);
             DataSet data_set;
-            // only integral part
             for (auto f : fractional_part) {
                 std::string v_str;
                 if constexpr (!std::is_same_v<typename T::NativeType, wide::Int256>) {
-                    if (test_rounding) {
+                    if (f != max_fractional && test_rounding) {
                         v_str = fmt::format(".{:0{}}5", f, Scale);
                         ++f;
                     } else {
@@ -180,7 +205,7 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
                     if (pad_count > 0) {
                         num_str.insert(0, pad_count, '0');
                     }
-                    if (test_rounding) {
+                    if (f != max_fractional && test_rounding) {
                         v_str = fmt::format(".{}5", num_str);
                         ++f;
                     } else {
@@ -213,7 +238,10 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
                                            false, false);
             }
             std::cout << dbg_str << std::endl;
-            check_function_for_cast<DataTypeDecimal<T>, Scale, Precision>(input_types, data_set);
+            check_function_for_cast<DataTypeDecimal<T>, Scale, Precision, true>(input_types,
+                                                                                data_set);
+            check_function_for_cast<DataTypeDecimal<T>, Scale, Precision, false>(input_types,
+                                                                                 data_set);
         };
 
         if constexpr (Scale == 0) {
@@ -222,6 +250,11 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
             only_int_part_test_func(false, true);
             only_int_part_test_func(true, false);
             only_int_part_test_func(true, true);
+
+            only_int_part_round_test_func(false, false);
+            only_int_part_round_test_func(false, true);
+            only_int_part_round_test_func(true, false);
+            only_int_part_round_test_func(true, true);
             return;
         } else if constexpr (Scale == Precision) {
             // e.g. Decimal(9, 9), only fraction part
@@ -245,12 +278,10 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
         only_fraction_part_test_func(true, true);
 
         auto both_int_and_fraction_part_test_func = [&](bool is_negative, bool test_rounding) {
-            std::string dbg_str0 =
-                    fmt::format("test cast string to {}({}, {}), both int and fraction part: ",
-                                TypeName<T>::get(), Precision, Scale);
+            std::string dbg_str1 = fmt::format("{}, both int and fraction part: ", dbg_str0);
             for (const auto& i : integral_part) {
                 DataSet data_set;
-                std::string dbg_str = dbg_str0;
+                std::string dbg_str = dbg_str1;
                 for (auto f : fractional_part) {
                     std::string v_str, fraction_str;
                     auto int_str = fmt::format("{}", i);
@@ -306,7 +337,11 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
                         v_str = fmt::format("{}{}e{}", int_str, new_fraction_str,
                                             ScientificExpShift);
                     } else {
-                        v_str = fmt::format("{}.{}", int_str, fraction_str);
+                        if constexpr (ForceZeroExp) {
+                            v_str = fmt::format("{}.{}e0", int_str, fraction_str);
+                        } else {
+                            v_str = fmt::format("{}.{}", int_str, fraction_str);
+                        }
                     }
                     auto v = decimal_ctor(is_negative ? -i : i, is_negative ? -f : f, Scale);
                     format_decimal_number_func(dt, data_set, dbg_str, v_str, v, is_negative, true,
@@ -334,8 +369,10 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
                                                false, false);
                 }
                 std::cout << dbg_str << std::endl;
-                check_function_for_cast<DataTypeDecimal<T>, Scale, Precision>(input_types,
-                                                                              data_set);
+                check_function_for_cast<DataTypeDecimal<T>, Scale, Precision, true>(input_types,
+                                                                                    data_set);
+                check_function_for_cast<DataTypeDecimal<T>, Scale, Precision, false>(input_types,
+                                                                                     data_set);
             }
         };
         both_int_and_fraction_part_test_func(false, false);
@@ -343,6 +380,172 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
 
         both_int_and_fraction_part_test_func(true, false);
         both_int_and_fraction_part_test_func(true, true);
+    }
+
+    template <typename T, int Precision, int Scale>
+    void from_string_overflow_test_func() {
+        auto dbg_str0 = fmt::format("test cast string to {}({}, {}) overflow\n", TypeName<T>::get(),
+                                    Precision, Scale);
+        std::cout << fmt::format("==================={}\n", dbg_str0);
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
+
+        constexpr auto max_integral =
+                decimal_scale_multiplier<typename T::NativeType>(Precision - Scale) - 1;
+        std::cout << "max_integral:\t" << fmt::format("{}", max_integral) << std::endl;
+
+        // max_fractional:    99999999
+        constexpr auto max_fractional = decimal_scale_multiplier<typename T::NativeType>(Scale) - 1;
+        std::cout << "max_fractional:\t" << fmt::format("{}", max_fractional) << std::endl;
+
+        auto test_func = [&](bool is_negative, bool strict_cast) {
+            DataSet data_set;
+            std::string v_str;
+            if constexpr (Scale == 0) {
+                if (is_negative) {
+                    v_str = fmt::format("-{}.5", max_integral);
+                } else {
+                    v_str = fmt::format("{}.5", max_integral);
+                }
+            } else if constexpr (Scale == Precision) {
+                if (is_negative) {
+                    v_str = fmt::format("-.{}5", max_fractional);
+                } else {
+                    v_str = fmt::format(".{}5", max_fractional);
+                }
+            } else {
+                if (is_negative) {
+                    v_str = fmt::format("-{}.{}5", max_integral, max_fractional);
+                } else {
+                    v_str = fmt::format("{}.{}5", max_integral, max_fractional);
+                }
+            }
+            std::visit(
+                    [&](auto enable_strict_cast) {
+                        if constexpr (enable_strict_cast) {
+                            data_set.push_back({{v_str}, T {}});
+                            EXPECT_THROW((check_function_for_cast<DataTypeDecimal<T>, Scale,
+                                                                  Precision, enable_strict_cast>(
+                                                 input_types, data_set)),
+                                         Exception);
+                        } else {
+                            data_set.push_back({{v_str}, Null()});
+                            check_function_for_cast<DataTypeDecimal<T>, Scale, Precision,
+                                                    enable_strict_cast>(input_types, data_set);
+                        }
+                    },
+                    vectorized::make_bool_variant(strict_cast));
+        };
+        test_func(false, true);
+        test_func(false, false);
+
+        test_func(true, true);
+        test_func(true, false);
+    }
+
+    template <typename T, int Precision, int Scale>
+    void from_string_abnormal_input_test_func() {
+        // PG error msg: invalid input syntax for type double precision: "++123.456"
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
+        std::vector<std::string> abnormal_inputs = {
+                "",
+                ".",
+                " ",
+                "\t",
+                "\n",
+                "\r",
+                "\f",
+                "\v",
+                "abc",
+                // Space between digits
+                "1 23",
+                "1\t23",
+                "1\n23",
+                "1\r23",
+                "1\v23",
+                "1\f23",
+                // Multiple decimal points
+                "1.2.3",
+                // invalid leading and trailing characters
+                "a123.456",
+                " a123.456",
+                "\ta123.456",
+                "\na123.456",
+                "\ra123.456",
+                "\fa123.456",
+                "\va123.456",
+                "123.456a",
+                "123.456a\t",
+                "123.456a\n",
+                "123.456a\r",
+                "123.456a\f",
+                "123.456a\v",
+                "123.456\ta",
+                "123.456\na",
+                "123.456\ra",
+                "123.456\fa",
+                "123.456\va",
+                // invalid char between numbers
+                "12a3.456",
+                "123a.456",
+                "123.a456",
+                "123.4a56",
+                // multiple positive/negative signs
+                "+-123.456",
+                "+- 123.456", // sign with following spaces
+                "-+123.456",
+                "++123.456",
+                "--123.456",
+                "+-.456",
+                "-+.456",
+                "++.456",
+                "--.456",
+                // hexadecimal
+                "0x123",
+                "0x123.456",
+                // invalid scientific notation
+                "e",
+                "-e",
+                "+e",
+                "e+",
+                "e-",
+                "e1",
+                "e+1",
+                "e-1",
+                ".e",
+                "+.e",
+                "-.e",
+                ".e+",
+                ".e-",
+                ".e+",
+                "1e",
+                "1e+",
+                "1e-",
+                "1e1a",
+                "1ea1",
+                "1e1.1",
+                "1e+1.1",
+                "1e-1.1",
+                // Multiple exponents
+                "1e2e3",
+        };
+        // non-strict mode
+        {
+            DataSet data_set;
+            for (const auto& input : abnormal_inputs) {
+                data_set.push_back({{input}, Null()});
+            }
+            check_function_for_cast<DataTypeDecimal<T>, Scale, Precision, false>(input_types,
+                                                                                 data_set);
+        }
+
+        // strict mode
+        for (const auto& input : abnormal_inputs) {
+            DataSet data_set;
+            data_set.push_back({{input}, Null()});
+            EXPECT_THROW((check_function_for_cast<DataTypeDecimal<T>, Scale, Precision, true>(
+                                 input_types, data_set)),
+                         Exception);
+        }
     }
 
     template <typename T, int Precision, int Scale>
@@ -923,39 +1126,194 @@ select cast('+0009999999999999999040000000.e-9' as decimal(18,1));
 |                                        99999999999999999.9 |
 +------------------------------------------------------------+
 1 row in set (0.65 sec)
+
+PG:
+e1
+postgres=# select cast('1e' as decimal(18,6));
+ERROR:  invalid input syntax for type numeric: "1e"
+LINE 1: select cast('1e' as decimal(18,6));
+
+postgres=# select cast('.e1' as decimal(18,6));
+ERROR:  invalid input syntax for type numeric: ".e1"
+LINE 1: select cast('.e1' as decimal(18,6));
+                    ^
+postgres=# select cast('.1e1' as decimal(18,6));
+ numeric  
+----------
+ 1.000000
+(1 row)
+
+edge cases:
+1000 digits
+postgres=# select cast('1151111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111e-999' as decimal(38, 1));
+ numeric 
+---------
+     1.2
+(1 row)
+
+MySQL 8.0
+ysql> select cast('1111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111e-980' as decimal(38, 1));
++-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| cast('111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111 |
++-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+|                                                                                                                                                                                                                         9999999999999999999999999999999999999.9 |
++-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+1 row in set, 3 warnings (0.00 sec)
+
 */
 TEST_F(FunctionCastToDecimalTest, test_from_string) {
+    from_string_test_func<Decimal32, 1, 0>();
+    from_string_test_func<Decimal32, 1, 1>();
     from_string_test_func<Decimal32, 9, 0>();
-    from_string_test_func<Decimal32, 9, 0, 3>();
-    // from_string_test_func<Decimal32, 9, 0, -3>();
 
     from_string_test_func<Decimal32, 9, 1>();
+    from_string_test_func<Decimal32, 9, 1, 0, true>();
+    from_string_test_func<Decimal32, 9, 1, 1>();
+    from_string_test_func<Decimal32, 9, 1, 100>();
+    from_string_test_func<Decimal32, 9, 1, -1>();
+    from_string_test_func<Decimal32, 9, 1, -8>();
+    from_string_test_func<Decimal32, 9, 1, -100>();
+
     from_string_test_func<Decimal32, 9, 3>();
+    from_string_test_func<Decimal32, 9, 3, 0, true>();
+    from_string_test_func<Decimal32, 9, 3, 1>();
     from_string_test_func<Decimal32, 9, 3, 3>();
-    // from_string_test_func<Decimal32, 9, 3, -3>();
+    from_string_test_func<Decimal32, 9, 3, 100>();
+    from_string_test_func<Decimal32, 9, 3, -1>();
+    from_string_test_func<Decimal32, 9, 3, -6>();
+    from_string_test_func<Decimal32, 9, 3, -100>();
+
     from_string_test_func<Decimal32, 9, 8>();
+    from_string_test_func<Decimal32, 9, 8, 0, true>();
+    from_string_test_func<Decimal32, 9, 8, 1>();
+    from_string_test_func<Decimal32, 9, 8, 8>();
+    from_string_test_func<Decimal32, 9, 8, 100>();
+    from_string_test_func<Decimal32, 9, 8, -1>();
+    from_string_test_func<Decimal32, 9, 8, -100>();
+
     from_string_test_func<Decimal32, 9, 9>();
+    from_string_test_func<Decimal32, 9, 9, 0, true>();
+    from_string_test_func<Decimal32, 9, 9, 1>();
+    from_string_test_func<Decimal32, 9, 9, 9>();
+    from_string_test_func<Decimal32, 9, 9, 100>();
+    from_string_test_func<Decimal32, 9, 9, -1>();
+    from_string_test_func<Decimal32, 9, 9, -9>();
+    from_string_test_func<Decimal32, 9, 9, -100>();
 
     from_string_test_func<Decimal64, 18, 0>();
+
     from_string_test_func<Decimal64, 18, 1>();
-    from_string_test_func<Decimal64, 18, 1, 9>();
-    // from_string_test_func<Decimal64, 18, 1, -9>();
-    // from_string_test_func<Decimal64, 18, 1, -18>();
+    from_string_test_func<Decimal64, 18, 1, 0, true>();
+    from_string_test_func<Decimal64, 18, 1, 1>();
+    from_string_test_func<Decimal64, 18, 1, 100>();
+    from_string_test_func<Decimal64, 18, 1, -1>();
+    from_string_test_func<Decimal64, 18, 1, -17>();
+    from_string_test_func<Decimal64, 18, 1, -100>();
+
     from_string_test_func<Decimal64, 18, 9>();
+    from_string_test_func<Decimal64, 18, 9, 0, true>();
+    from_string_test_func<Decimal64, 18, 9, 1>();
+    from_string_test_func<Decimal64, 18, 9, 9>();
+    from_string_test_func<Decimal64, 18, 9, 100>();
+    from_string_test_func<Decimal64, 18, 9, -11>();
+    from_string_test_func<Decimal64, 18, 9, -9>();
+    from_string_test_func<Decimal64, 18, 9, -100>();
+
     from_string_test_func<Decimal64, 18, 17>();
+    from_string_test_func<Decimal64, 18, 17, 0, true>();
+    from_string_test_func<Decimal64, 18, 17, 1>();
+    from_string_test_func<Decimal64, 18, 17, 17>();
+    from_string_test_func<Decimal64, 18, 17, 100>();
+    from_string_test_func<Decimal64, 18, 17, -1>();
+    from_string_test_func<Decimal64, 18, 17, -100>();
+
     from_string_test_func<Decimal64, 18, 18>();
 
     from_string_test_func<Decimal128V3, 38, 0>();
+
     from_string_test_func<Decimal128V3, 38, 1>();
+    from_string_test_func<Decimal128V3, 38, 1, 0, true>();
+    from_string_test_func<Decimal128V3, 38, 1, 1>();
+    from_string_test_func<Decimal128V3, 38, 1, 100>();
+    from_string_test_func<Decimal128V3, 38, 1, -1>();
+    from_string_test_func<Decimal128V3, 38, 1, -37>();
+    from_string_test_func<Decimal128V3, 38, 1, -100>();
+
     from_string_test_func<Decimal128V3, 38, 19>();
+    from_string_test_func<Decimal128V3, 38, 19, 0, true>();
+    from_string_test_func<Decimal128V3, 38, 19, 1>();
+    from_string_test_func<Decimal128V3, 38, 19, 19>();
+    from_string_test_func<Decimal128V3, 38, 19, 100>();
+    from_string_test_func<Decimal128V3, 38, 19, -1>();
+    from_string_test_func<Decimal128V3, 38, 19, -19>();
+    from_string_test_func<Decimal128V3, 38, 19, -100>();
+
     from_string_test_func<Decimal128V3, 38, 37>();
+    from_string_test_func<Decimal128V3, 38, 37, 0, true>();
+    from_string_test_func<Decimal128V3, 38, 37, 1>();
+    from_string_test_func<Decimal128V3, 38, 37, 37>();
+    from_string_test_func<Decimal128V3, 38, 37, 100>();
+    from_string_test_func<Decimal128V3, 38, 37, -1>();
+    from_string_test_func<Decimal128V3, 38, 37, -100>();
+
     from_string_test_func<Decimal128V3, 38, 38>();
 
     from_string_test_func<Decimal256, 76, 0>();
+
     from_string_test_func<Decimal256, 76, 1>();
+    from_string_test_func<Decimal256, 76, 1, 0, true>();
+    from_string_test_func<Decimal256, 76, 1, 1>();
+    from_string_test_func<Decimal256, 76, 1, 100>();
+    from_string_test_func<Decimal256, 76, 1, -1>();
+    from_string_test_func<Decimal256, 76, 1, -75>();
+    from_string_test_func<Decimal256, 76, 1, -100>();
+
     from_string_test_func<Decimal256, 76, 38>();
+    from_string_test_func<Decimal256, 76, 38, 0, true>();
+    from_string_test_func<Decimal256, 76, 38, 1>();
+    from_string_test_func<Decimal256, 76, 38, 38>();
+    from_string_test_func<Decimal256, 76, 38, 100>();
+    from_string_test_func<Decimal256, 76, 38, -1>();
+    from_string_test_func<Decimal256, 76, 38, -38>();
+    from_string_test_func<Decimal256, 76, 38, -100>();
+
     from_string_test_func<Decimal256, 76, 75>();
+    from_string_test_func<Decimal256, 76, 75, 0, true>();
+    from_string_test_func<Decimal256, 76, 75, 1>();
+    from_string_test_func<Decimal256, 76, 75, 75>();
+    from_string_test_func<Decimal256, 76, 75, 100>();
+    from_string_test_func<Decimal256, 76, 75, -1>();
+    from_string_test_func<Decimal256, 76, 75, -100>();
+
     from_string_test_func<Decimal256, 76, 76>();
+}
+TEST_F(FunctionCastToDecimalTest, test_from_string_overflow) {
+    from_string_overflow_test_func<Decimal32, 1, 0>();
+    from_string_overflow_test_func<Decimal32, 1, 1>();
+    from_string_overflow_test_func<Decimal32, 9, 0>();
+    from_string_overflow_test_func<Decimal32, 9, 1>();
+    from_string_overflow_test_func<Decimal32, 9, 4>();
+    from_string_overflow_test_func<Decimal32, 9, 9>();
+
+    from_string_overflow_test_func<Decimal64, 18, 0>();
+    from_string_overflow_test_func<Decimal64, 18, 1>();
+    from_string_overflow_test_func<Decimal64, 18, 9>();
+    from_string_overflow_test_func<Decimal64, 18, 18>();
+
+    from_string_overflow_test_func<Decimal128V2, 27, 9>();
+
+    from_string_overflow_test_func<Decimal128V3, 38, 0>();
+    from_string_overflow_test_func<Decimal128V3, 38, 1>();
+    from_string_overflow_test_func<Decimal128V3, 38, 19>();
+    from_string_overflow_test_func<Decimal128V3, 38, 38>();
+
+    from_string_overflow_test_func<Decimal256, 76, 0>();
+    from_string_overflow_test_func<Decimal256, 76, 1>();
+    from_string_overflow_test_func<Decimal256, 76, 38>();
+    from_string_overflow_test_func<Decimal256, 76, 76>();
+}
+TEST_F(FunctionCastToDecimalTest, test_from_string_abnormal_input) {
+    from_string_abnormal_input_test_func<Decimal32, 9, 3>();
 }
 TEST_F(FunctionCastToDecimalTest, test_from_bool) {
     from_bool_test_func<Decimal32, 9, 0>();
