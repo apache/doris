@@ -36,7 +36,7 @@ import java.util.Optional;
  */
 public interface MTMVHookService {
     /**
-     * triggered when create mtmv, only once
+     * triggered after create mtmv, only once
      *
      * @param mtmv
      */
