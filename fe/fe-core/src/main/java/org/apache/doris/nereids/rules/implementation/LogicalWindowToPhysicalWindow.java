@@ -100,10 +100,12 @@ public class LogicalWindowToPhysicalWindow extends OneImplementationRuleFactory 
 
         Plan newRoot = logicalWindow.child();
         for (PartitionKeyGroup partitionKeyGroup : partitionKeyGroupList) {
-            for (OrderKeyGroup orderKeyGroup : partitionKeyGroup.groups) {
+            boolean isSkew = partitionKeyGroup.isSkew();
+            for (int i = 0; i < partitionKeyGroup.groups.size(); ++i) {
+                OrderKeyGroup orderKeyGroup = partitionKeyGroup.groups.get(i);
                 // in OrderKeyGroup, create PhysicalWindow for each WindowFrameGroup;
                 // each PhysicalWindow contains the same windowExpressions as WindowFrameGroup.groups
-                newRoot = createPhysicalPlanNodeForWindowFrameGroup(newRoot, orderKeyGroup);
+                newRoot = createPhysicalPlanNodeForWindowFrameGroup(newRoot, orderKeyGroup, 0 == i && isSkew);
             }
         }
         return (PhysicalWindow) newRoot;
@@ -113,7 +115,7 @@ public class LogicalWindowToPhysicalWindow extends OneImplementationRuleFactory 
      * create PhysicalWindow and PhysicalSort
      * ******************************************************************************************** */
 
-    private Plan createPhysicalPlanNodeForWindowFrameGroup(Plan root, OrderKeyGroup orderKeyGroup) {
+    private Plan createPhysicalPlanNodeForWindowFrameGroup(Plan root, OrderKeyGroup orderKeyGroup, boolean isSkew) {
         // PhysicalSort node for orderKeys; if there exists no orderKey, newRoot = root
         // Plan newRoot = createPhysicalSortNode(root, orderKeyGroup, ctx);
         Plan newRoot = root;
@@ -124,7 +126,7 @@ public class LogicalWindowToPhysicalWindow extends OneImplementationRuleFactory 
 
         // PhysicalWindow nodes for each different window frame, so at least one PhysicalWindow node will be added
         for (WindowFrameGroup windowFrameGroup : orderKeyGroup.groups) {
-            newRoot = createPhysicalWindow(newRoot, windowFrameGroup, requiredOrderKeys);
+            newRoot = createPhysicalWindow(newRoot, windowFrameGroup, requiredOrderKeys, isSkew);
         }
 
         return newRoot;
@@ -153,7 +155,7 @@ public class LogicalWindowToPhysicalWindow extends OneImplementationRuleFactory 
     }
 
     private PhysicalWindow<Plan> createPhysicalWindow(Plan root, WindowFrameGroup windowFrameGroup,
-                                                      List<OrderKey> requiredOrderKeys) {
+                                                      List<OrderKey> requiredOrderKeys, boolean isSkew) {
         // requiredProperties:
         //  Distribution: partitionKeys
         //  Order: requiredOrderKeys
@@ -175,7 +177,7 @@ public class LogicalWindowToPhysicalWindow extends OneImplementationRuleFactory 
             properties = PhysicalProperties.GATHER.withOrderSpec(new OrderSpec(requiredOrderKeys));
         } else {
             properties = PhysicalProperties.createHash(
-                windowFrameGroup.partitionKeys, ShuffleType.REQUIRE);
+                windowFrameGroup.partitionKeys, ShuffleType.REQUIRE, isSkew);
             // requiredOrderKeys contain partitionKeys, so there is no need to check if requiredOrderKeys.isEmpty()
             properties = properties.withOrderSpec(new OrderSpec(requiredOrderKeys));
         }
@@ -436,6 +438,17 @@ public class LogicalWindowToPhysicalWindow extends OneImplementationRuleFactory 
             return windowFrame;
         }
 
+        /**isSkew*/
+        public boolean isSkew() {
+            for (NamedExpression windowAlias : groups) {
+                WindowExpression window = (WindowExpression) (windowAlias.child(0));
+                if (window.isSkew()) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
     }
 
     /**
@@ -488,6 +501,14 @@ public class LogicalWindowToPhysicalWindow extends OneImplementationRuleFactory 
                 .sum());
         }
 
+        public boolean isSkew() {
+            for (WindowFrameGroup windowFrameGroup : groups) {
+                if (windowFrameGroup.isSkew()) {
+                    return true;
+                }
+            }
+            return false;
+        }
     }
 
     /**
@@ -516,6 +537,15 @@ public class LogicalWindowToPhysicalWindow extends OneImplementationRuleFactory 
                     .filter(expression -> otherPkg.partitionKeys.contains(expression))
                     .collect(ImmutableSet.toImmutableSet());
             groups.addAll(otherPkg.groups);
+        }
+
+        public boolean isSkew() {
+            for (OrderKeyGroup orderKeyGroup : groups) {
+                if (orderKeyGroup.isSkew()) {
+                    return true;
+                }
+            }
+            return false;
         }
     }
 
