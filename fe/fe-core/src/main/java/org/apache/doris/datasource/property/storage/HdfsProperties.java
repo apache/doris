@@ -74,6 +74,8 @@ public class HdfsProperties extends HdfsCompatibleProperties {
      */
     private Map<String, String> userOverriddenHdfsConfig;
 
+    public static final String HDFS_DEFAULT_FS_NAME = "fs.defaultFS";
+
     private static final List<String> HDFS_PROPERTIES_KEYS = Arrays.asList("hdfs.authentication.type",
             "hadoop.security.authentication", "hadoop.username",
             "hdfs.authentication.kerberos.principal", "hadoop.kerberos.principal", "dfs.nameservices");
@@ -152,7 +154,7 @@ public class HdfsProperties extends HdfsCompatibleProperties {
             userOverriddenHdfsConfig.forEach(conf::set);
         }
         if (StringUtils.isNotBlank(fsDefaultFS)) {
-            conf.set("fs.defaultFS", fsDefaultFS);
+            conf.set(HDFS_DEFAULT_FS_NAME, fsDefaultFS);
         }
         if (StringUtils.isNotBlank(allowFallbackToSimpleAuth)) {
             conf.set("ipc.client.fallback-to-simple-auth-allowed", allowFallbackToSimpleAuth);

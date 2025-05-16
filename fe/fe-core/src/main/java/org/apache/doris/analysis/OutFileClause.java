@@ -34,6 +34,8 @@ import org.apache.doris.common.util.ParseUtil;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
+import org.apache.doris.datasource.property.storage.HdfsProperties;
+import org.apache.doris.datasource.property.storage.HdfsPropertiesUtils;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TParquetDataType;
 import org.apache.doris.thrift.TParquetRepetitionType;
@@ -514,7 +516,7 @@ public class OutFileClause {
 
         if (copiedProps.containsKey(PROP_DELETE_EXISTING_FILES)) {
             deleteExistingFiles = Boolean.parseBoolean(copiedProps.get(PROP_DELETE_EXISTING_FILES))
-                                    & Config.enable_delete_existing_files;
+                    & Config.enable_delete_existing_files;
             copiedProps.remove(PROP_DELETE_EXISTING_FILES);
         }
 
@@ -559,6 +561,38 @@ public class OutFileClause {
         }
         String brokerName = copiedProps.get(PROP_BROKER_NAME);
         brokerDesc = new BrokerDesc(brokerName, copiedProps);
+        /*
+         * Note on HDFS export behavior and URI handling:
+         *
+         * 1. Currently, URI extraction from user input supports case-insensitive key matching
+         *    (e.g., "URI", "Uri", "uRI", etc.), to tolerate non-standard input from users.
+         *
+         * 2. In OUTFILE scenarios, if FE  fails to pass 'fs.defaultFS' to the BE ,
+         *    it may lead to data export failure *without* triggering an actual error (appears as success),
+         *    which is misleading and can cause silent data loss or inconsistencies.
+         *
+         * 3. As a temporary safeguard, the following logic forcibly extracts the default FS from the provided
+         *    file path and injects it into the broker descriptor config:
+         *
+         *      if (brokerDesc.getStorageType() == HDFS) {
+         *          extract default FS from file path
+         *          and put into BE config as 'fs.defaultFS'
+         *      }
+         *
+         * 4. Long-term solution: We should define and enforce a consistent parameter specification
+         *    across all user-facing entry points (including FE input validation, broker desc normalization, etc.),
+         *    to prevent missing critical configs like 'fs.defaultFS'.
+         *
+         * 5. Suggested improvements:
+         *    - Normalize all parameter keys (e.g., to lowercase)
+         *    - Centralize HDFS URI parsing logic
+         *    - Add validation in FE to reject incomplete or malformed configs
+         */
+        if (null != brokerDesc.getStorageType() && brokerDesc.getStorageType()
+                .equals(StorageBackend.StorageType.HDFS)) {
+            String defaultFs = HdfsPropertiesUtils.extractDefaultFsFromPath(filePath);
+            brokerDesc.getBackendConfigProperties().put(HdfsProperties.HDFS_DEFAULT_FS_NAME, defaultFs);
+        }
     }
 
     /**
