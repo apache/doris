@@ -522,6 +522,16 @@ private:
                             const UInt128Wrapper hash, const size_t offset, const size_t size);
     void replay_queue_event(CacheLRULogQueue& log_queue, LRUQueue& shadown_queue);
 
+    Status check_ofstream_status(std::ofstream& out, std::string& filename);
+    Status dump_one_lru_entry(std::ofstream& out, std::string& filename, const UInt128Wrapper& hash,
+                              size_t offset, size_t size);
+    Status finalize_dump(std::ofstream& out, size_t entry_num, std::string& tmp_filename,
+                         std::string& final_filename, size_t& file_size);
+    Status check_ifstream_status(std::ifstream& in, std::string& filename);
+    Status parse_dump_footer(std::ifstream& in, std::string& filename, size_t& entry_num);
+    Status parse_one_lru_entry(std::ifstream& in, std::string& filename, UInt128Wrapper& hash,
+                               size_t& offset, size_t& size);
+
     // info
     std::string _cache_base_path;
     size_t _capacity = 0;

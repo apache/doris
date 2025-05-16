@@ -1,4 +1,3 @@
-#include <fstream>
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -19,11 +18,13 @@
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/Interpreters/Cache/FileCache.cpp
 // and modified by Doris
 
+#include "io/cache/block_file_cache.h"
+
 #include <cstdio>
+#include <fstream>
 
 #include "common/status.h"
 #include "cpp/sync_point.h"
-#include "io/cache/block_file_cache.h"
 
 #if defined(__APPLE__)
 #include <sys/mount.h>
@@ -889,22 +890,6 @@ const BlockFileCache::LRUQueue& BlockFileCache::get_queue(FileCacheType type) co
         DCHECK(false);
     }
     return _normal_queue;
-}
-
-BlockFileCache::CacheLRULogQueue& BlockFileCache::get_lru_log_queue(FileCacheType type) {
-    switch (type) {
-    case FileCacheType::INDEX:
-        return _index_lru_log_queue;
-    case FileCacheType::DISPOSABLE:
-        return _disposable_lru_log_queue;
-    case FileCacheType::NORMAL:
-        return _normal_lru_log_queue;
-    case FileCacheType::TTL:
-        return _ttl_lru_log_queue;
-    default:
-        DCHECK(false);
-    }
-    return _normal_lru_log_queue;
 }
 
 void BlockFileCache::remove_file_blocks(std::vector<FileBlockCell*>& to_evict,
@@ -1940,184 +1925,6 @@ void BlockFileCache::run_background_gc() {
     }
 }
 
-void BlockFileCache::run_background_lru_dump() {
-    while (!_close) {
-        int64_t interval_ms = config::file_cache_background_lru_dump_interval_ms;
-        {
-            std::unique_lock close_lock(_close_mtx);
-            _close_cv.wait_for(close_lock, std::chrono::milliseconds(interval_ms));
-            if (_close) {
-                break;
-            }
-        }
-
-        // Dump each queue
-        auto dump_queue = [&](LRUQueue& queue, const std::string& queue_name) {
-            std::vector<std::tuple<UInt128Wrapper, size_t, size_t>> elements;
-            elements.reserve(config::file_cache_background_lru_dump_tail_record_num);
-
-            // Acquire mutex and copy elements
-
-            {
-                std::lock_guard<std::mutex> lru_log_lock(_mutex_lru_log);
-
-                size_t count = 0;
-                for (const auto& [hash, offset, size] : queue) {
-                    if (count++ >= config::file_cache_background_lru_dump_tail_record_num) break;
-                    elements.emplace_back(hash, offset, size);
-                }
-            }
-
-            // Write to disk
-            // TODO(zhengyu): use compatible and compact format like protobuf and add version & magic check
-            // TODO(zhengyu): add ttl expiration time, currently use fixed expiration time 3h
-            int64_t duration_ns = 0;
-            std::uintmax_t file_size = 0;
-            {
-                SCOPED_RAW_TIMER(&duration_ns);
-                std::string tmp_filename =
-                        fmt::format("{}/lru_dump_{}.bin.tmp", _cache_base_path, queue_name);
-                std::string final_filename =
-                        fmt::format("{}/lru_dump_{}.bin", _cache_base_path, queue_name);
-                std::ofstream out(tmp_filename, std::ios::binary);
-                if (out) {
-                    for (const auto& [hash, offset, size] : elements) {
-                        out.write(reinterpret_cast<const char*>(&hash), sizeof(hash));
-                        out.write(reinterpret_cast<const char*>(&offset), sizeof(offset));
-                        out.write(reinterpret_cast<const char*>(&size), sizeof(size));
-                    }
-                    // write footer: size_t entry_num, version, magic, totally 12 bytes
-                    size_t entry_num = elements.size();
-                    int8_t version = 1;
-                    std::string magic_str = "DOR";
-                    out.write(reinterpret_cast<const char*>(&entry_num), sizeof(entry_num));
-                    out.write(reinterpret_cast<const char*>(&version), sizeof(version));
-                    out.write(magic_str.c_str(), magic_str.size());
-                    out.close();
-                    if (std::rename(tmp_filename.c_str(), final_filename.c_str()) != 0) {
-                        std::remove(tmp_filename.c_str());
-                        file_size = std::filesystem::file_size(final_filename);
-                    }
-                }
-            }
-            *_lru_dump_latency_us << (duration_ns / 1000);
-            LOG(INFO) << fmt::format("lru dump for {} size={} time={}us", queue_name, file_size,
-                                     duration_ns / 1000);
-        }; // end of lambda
-
-        if (config::file_cache_background_lru_dump_tail_record_num > 0) {
-            dump_queue(_shadow_disposable_queue, "disposable");
-            dump_queue(_shadow_index_queue, "index");
-            dump_queue(_shadow_normal_queue, "normal");
-            dump_queue(_shadow_ttl_queue, "ttl");
-        }
-    }
-}
-
-void BlockFileCache::run_background_lru_log_replay() {
-    while (!_close) {
-        int64_t interval_ms = config::file_cache_background_lru_log_replay_interval_ms;
-        {
-            std::unique_lock close_lock(_close_mtx);
-            _close_cv.wait_for(close_lock, std::chrono::milliseconds(interval_ms));
-            if (_close) {
-                break;
-            }
-        }
-
-        replay_queue_event(_ttl_lru_log_queue, _shadow_ttl_queue);
-        replay_queue_event(_index_lru_log_queue, _shadow_index_queue);
-        replay_queue_event(_normal_lru_log_queue, _shadow_normal_queue);
-        replay_queue_event(_disposable_lru_log_queue, _shadow_disposable_queue);
-
-        //TODO(zhengyu): add debug facilities to check diff between real and shadow queue
-    }
-}
-
-void BlockFileCache::restore_lru_queues_from_disk(std::lock_guard<std::mutex>& cache_lock) {
-    auto restore_queue = [&](LRUQueue& queue, const std::string& queue_name) {
-        std::string filename = fmt::format("{}/lru_dump_{}.bin", _cache_base_path, queue_name);
-        std::ifstream in(filename, std::ios::binary);
-        int64_t duration_ns = 0;
-        if (in) {
-            LOG(INFO) << "lru dump file is founded for " << queue_name << ". starting lru restore.";
-            // TODO(zhengyu): abstract these file format operations to seperate files
-
-            // why we are not using protobuf here?
-            // AFAIK, current protobuf version dose not support streaming mode,
-            // so that we need to store all the message in memory which will
-            // consume loads of RAMs. Even if we use delimited/streaming mode,
-            // extra space for delimiters is needed which enlarges file size.
-            // on the contrary, using this simple format not only supports
-            // streaming by its nature, but is also convinient to upgrade use
-            // the version field in the footer.
-
-            size_t file_size = std::filesystem::file_size(filename);
-            size_t entry_num;
-            int8_t version;
-            char magic_str[3];
-            size_t footer_size =
-                    static_cast<int64_t>(sizeof(entry_num) + sizeof(version) + sizeof(magic_str));
-            if (file_size < footer_size) {
-                LOG(WARNING) << "lru dump file is shorter than footer, skip restore";
-                return;
-            }
-            SCOPED_RAW_TIMER(&duration_ns);
-            in.seekg(-footer_size, std::ios::end);
-            in.read(reinterpret_cast<char*>(&entry_num), sizeof(entry_num));
-            in.read(reinterpret_cast<char*>(&version), sizeof(version));
-            in.read(magic_str, sizeof(magic_str));
-
-            if (version != 1 || std::string(magic_str, 3) != "DOR") {
-                LOG(WARNING) << "Invalid footer: version=" << static_cast<int>(version)
-                             << ", magic=" << std::string(magic_str, 3);
-                return;
-            }
-            LOG(INFO) << "Footer parsed successfully: entry_num=" << entry_num
-                      << ", version=" << static_cast<int>(version)
-                      << ", magic=" << std::string(magic_str, 3);
-
-            in.seekg(0, std::ios::beg);
-            UInt128Wrapper hash;
-            size_t offset, size;
-            for (int i = 0; i < entry_num; ++i) {
-                if (in.read(reinterpret_cast<char*>(&hash), sizeof(hash)) &&
-                    in.read(reinterpret_cast<char*>(&offset), sizeof(offset)) &&
-                    in.read(reinterpret_cast<char*>(&size), sizeof(size))) {
-                    CacheContext ctx;
-                    if (queue_name == "ttl") {
-                        ctx.cache_type = FileCacheType::TTL;
-                        // TODO(zhengyu): we haven't persist expiration time yet, use 3h default
-                        ctx.expiration_time = 10800;
-                        // TODO(zhengyu): we don't use stats yet, see if this will cause any problem
-                    } else if (queue_name == "index") {
-                        ctx.cache_type = FileCacheType::INDEX;
-                    } else if (queue_name == "normal") {
-                        ctx.cache_type = FileCacheType::NORMAL;
-                    } else if (queue_name == "disposable") {
-                        ctx.cache_type = FileCacheType::DISPOSABLE;
-                    } else {
-                        LOG_WARNING("unknown queue type");
-                        DCHECK(false);
-                        return;
-                    }
-                    add_cell(hash, ctx, offset, size, FileBlock::State::DOWNLOADED, cache_lock);
-                } else {
-                    LOG(WARNING) << "read lru dump failure for " << queue_name;
-                }
-            }
-        } else {
-            LOG(INFO) << "no lru dump file is founded for " << queue_name;
-        }
-        LOG(INFO) << "lru restore time costs: " << (duration_ns / 1000 / 1000) << "ms.";
-    };
-
-    restore_queue(_disposable_queue, "disposable");
-    restore_queue(_index_queue, "index");
-    restore_queue(_normal_queue, "normal");
-    restore_queue(_ttl_queue, "ttl");
-}
-
 void BlockFileCache::run_background_evict_in_advance() {
     LOG(INFO) << "Starting background evict in advance thread";
     int64_t batch = 0;
@@ -2350,6 +2157,22 @@ void BlockFileCache::update_ttl_atime(const UInt128Wrapper& hash) {
     };
 }
 
+BlockFileCache::CacheLRULogQueue& BlockFileCache::get_lru_log_queue(FileCacheType type) {
+    switch (type) {
+    case FileCacheType::INDEX:
+        return _index_lru_log_queue;
+    case FileCacheType::DISPOSABLE:
+        return _disposable_lru_log_queue;
+    case FileCacheType::NORMAL:
+        return _normal_lru_log_queue;
+    case FileCacheType::TTL:
+        return _ttl_lru_log_queue;
+    default:
+        DCHECK(false);
+    }
+    return _normal_lru_log_queue;
+}
+
 void BlockFileCache::record_queue_event(CacheLRULogQueue& log_queue, CacheLRULogType log_type,
                                         const UInt128Wrapper hash, const size_t offset,
                                         const size_t size) {
@@ -2394,6 +2217,259 @@ void BlockFileCache::replay_queue_event(CacheLRULogQueue& log_queue, LRUQueue& s
             LOG(WARNING) << "Failed to replay queue event: " << e.what();
         }
     }
+}
+
+void BlockFileCache::run_background_lru_log_replay() {
+    while (!_close) {
+        int64_t interval_ms = config::file_cache_background_lru_log_replay_interval_ms;
+        {
+            std::unique_lock close_lock(_close_mtx);
+            _close_cv.wait_for(close_lock, std::chrono::milliseconds(interval_ms));
+            if (_close) {
+                break;
+            }
+        }
+
+        replay_queue_event(_ttl_lru_log_queue, _shadow_ttl_queue);
+        replay_queue_event(_index_lru_log_queue, _shadow_index_queue);
+        replay_queue_event(_normal_lru_log_queue, _shadow_normal_queue);
+        replay_queue_event(_disposable_lru_log_queue, _shadow_disposable_queue);
+
+        //TODO(zhengyu): add debug facilities to check diff between real and shadow queue
+    }
+}
+
+Status BlockFileCache::check_ofstream_status(std::ofstream& out, std::string& filename) {
+    if (!out.good()) {
+        std::ios::iostate state = out.rdstate();
+        std::stringstream err_msg;
+        if (state & std::ios::eofbit) {
+            err_msg << "End of file reached.";
+        }
+        if (state & std::ios::failbit) {
+            err_msg << "Input/output operation failed, err_code: " << strerror(errno);
+        }
+        if (state & std::ios::badbit) {
+            err_msg << "Serious I/O error occurred, err_code: " << strerror(errno);
+        }
+        out.close();
+        std::string warn_msg = fmt::format("dump lru writing failed, file={}, {}", filename,
+                                           err_msg.str().c_str());
+        LOG(WARNING) << warn_msg;
+        return Status::InternalError<false>(warn_msg);
+    }
+
+    return Status::OK();
+}
+
+Status BlockFileCache::dump_one_lru_entry(std::ofstream& out, std::string& filename,
+                                          const UInt128Wrapper& hash, size_t offset, size_t size) {
+    // why we are not using protobuf format here?
+    // AFAIK, current protobuf version dose not support streaming mode,
+    // so that we need to store all the message in memory which will
+    // consume loads of RAMs. Even if we use delimited/streaming mode,
+    // extra space for delimiters is needed which enlarges file size.
+    // on the contrary, using this simple format not only supports
+    // streaming by its nature, but is also convinient to upgrade use
+    // the version field in the footer.
+    out.write(reinterpret_cast<const char*>(&hash), sizeof(hash));
+    out.write(reinterpret_cast<const char*>(&offset), sizeof(offset));
+    out.write(reinterpret_cast<const char*>(&size), sizeof(size));
+    return check_ofstream_status(out, filename);
+}
+
+Status BlockFileCache::finalize_dump(std::ofstream& out, size_t entry_num,
+                                     std::string& tmp_filename, std::string& final_filename,
+                                     size_t& file_size) {
+    // write footer: size_t entry_num, version, magic, totally 12 bytes
+    int8_t version = 1;
+    std::string magic_str = "DOR";
+    out.write(reinterpret_cast<const char*>(&entry_num), sizeof(entry_num));
+    out.write(reinterpret_cast<const char*>(&version), sizeof(version));
+    out.write(magic_str.c_str(), magic_str.size());
+    RETURN_IF_ERROR(check_ofstream_status(out, tmp_filename));
+    out.close();
+
+    // rename tmp to formal file
+    if (std::rename(tmp_filename.c_str(), final_filename.c_str()) != 0) {
+        std::remove(tmp_filename.c_str());
+        file_size = std::filesystem::file_size(final_filename);
+    }
+    return Status::OK();
+}
+
+void BlockFileCache::run_background_lru_dump() {
+    while (!_close) {
+        int64_t interval_ms = config::file_cache_background_lru_dump_interval_ms;
+        {
+            std::unique_lock close_lock(_close_mtx);
+            _close_cv.wait_for(close_lock, std::chrono::milliseconds(interval_ms));
+            if (_close) {
+                break;
+            }
+        }
+
+        auto dump_queue = [&](LRUQueue& queue, const std::string& queue_name) {
+            Status st;
+            std::vector<std::tuple<UInt128Wrapper, size_t, size_t>> elements;
+            elements.reserve(config::file_cache_background_lru_dump_tail_record_num);
+
+            {
+                std::lock_guard<std::mutex> lru_log_lock(_mutex_lru_log);
+                size_t count = 0;
+                for (const auto& [hash, offset, size] : queue) {
+                    if (count++ >= config::file_cache_background_lru_dump_tail_record_num) break;
+                    elements.emplace_back(hash, offset, size);
+                }
+            }
+
+            // Write to disk
+            int64_t duration_ns = 0;
+            std::uintmax_t file_size = 0;
+            {
+                SCOPED_RAW_TIMER(&duration_ns);
+                std::string tmp_filename =
+                        fmt::format("{}/lru_dump_{}.bin.tmp", _cache_base_path, queue_name);
+                std::string final_filename =
+                        fmt::format("{}/lru_dump_{}.bin", _cache_base_path, queue_name);
+                std::ofstream out(tmp_filename, std::ios::binary);
+                if (out) {
+                    for (const auto& [hash, offset, size] : elements) {
+                        RETURN_IF_STATUS_ERROR(
+                                st, dump_one_lru_entry(out, tmp_filename, hash, offset, size));
+                    }
+                    RETURN_IF_STATUS_ERROR(st, finalize_dump(out, elements.size(), tmp_filename,
+                                                             final_filename, file_size));
+                } else {
+                    LOG(WARNING) << "open lru dump file failed";
+                }
+            }
+            *_lru_dump_latency_us << (duration_ns / 1000);
+            LOG(INFO) << fmt::format("lru dump for {} size={} time={}us", queue_name, file_size,
+                                     duration_ns / 1000);
+        }; // end of lambda
+
+        if (config::file_cache_background_lru_dump_tail_record_num > 0) {
+            dump_queue(_shadow_disposable_queue, "disposable");
+            dump_queue(_shadow_index_queue, "index");
+            dump_queue(_shadow_normal_queue, "normal");
+            dump_queue(_shadow_ttl_queue, "ttl");
+        }
+    }
+}
+
+Status BlockFileCache::check_ifstream_status(std::ifstream& in, std::string& filename) {
+    if (!in.good()) {
+        std::ios::iostate state = in.rdstate();
+        std::stringstream err_msg;
+        if (state & std::ios::eofbit) {
+            err_msg << "End of file reached.";
+        }
+        if (state & std::ios::failbit) {
+            err_msg << "Input/output operation failed, err_code: " << strerror(errno);
+        }
+        if (state & std::ios::badbit) {
+            err_msg << "Serious I/O error occurred, err_code: " << strerror(errno);
+        }
+        in.close();
+        std::string warn_msg = std::string(
+                fmt::format("dump lru reading failed, file={}, {}", filename, err_msg.str()));
+        LOG(WARNING) << warn_msg;
+        return Status::InternalError<false>(warn_msg);
+    }
+
+    return Status::OK();
+}
+
+Status BlockFileCache::parse_dump_footer(std::ifstream& in, std::string& filename,
+                                         size_t& entry_num) {
+    size_t file_size = std::filesystem::file_size(filename);
+    int8_t version;
+    char magic_str[3];
+    size_t footer_size =
+            static_cast<int64_t>(sizeof(entry_num) + sizeof(version) + sizeof(magic_str));
+    if (file_size < footer_size) {
+        std::string warn_msg = std::string(fmt::format(
+                "lru dump file is shorter than footer, file={}, skip restore", filename));
+        LOG(WARNING) << warn_msg;
+        return Status::InternalError<false>(warn_msg);
+    }
+    in.seekg(-footer_size, std::ios::end);
+    in.read(reinterpret_cast<char*>(&entry_num), sizeof(entry_num));
+    in.read(reinterpret_cast<char*>(&version), sizeof(version));
+    in.read(magic_str, sizeof(magic_str));
+
+    RETURN_IF_ERROR(check_ifstream_status(in, filename));
+
+    if (version != 1 || std::string(magic_str, 3) != "DOR") {
+        std::string warn_msg =
+                std::string(fmt::format("Invalid footer: file={} version={} magic={}", filename,
+                                        static_cast<int>(version), std::string(magic_str, 3)));
+        LOG(WARNING) << warn_msg;
+        return Status::InternalError<false>(warn_msg);
+    }
+
+    LOG(INFO) << "Footer parsed successfully: entry_num=" << entry_num
+              << ", version=" << static_cast<int>(version)
+              << ", magic=" << std::string(magic_str, 3);
+    return Status::OK();
+}
+
+Status BlockFileCache::parse_one_lru_entry(std::ifstream& in, std::string& filename,
+                                           UInt128Wrapper& hash, size_t& offset, size_t& size) {
+    in.read(reinterpret_cast<char*>(&hash), sizeof(hash));
+    in.read(reinterpret_cast<char*>(&offset), sizeof(offset));
+    in.read(reinterpret_cast<char*>(&size), sizeof(size));
+    return check_ifstream_status(in, filename);
+}
+
+void BlockFileCache::restore_lru_queues_from_disk(std::lock_guard<std::mutex>& cache_lock) {
+    auto restore_queue = [&](LRUQueue& queue, const std::string& queue_name) {
+        Status st;
+        std::string filename = fmt::format("{}/lru_dump_{}.bin", _cache_base_path, queue_name);
+        std::ifstream in(filename, std::ios::binary);
+        int64_t duration_ns = 0;
+        if (in) {
+            LOG(INFO) << "lru dump file is founded for " << queue_name << ". starting lru restore.";
+
+            SCOPED_RAW_TIMER(&duration_ns);
+            size_t entry_num = 0;
+            RETURN_IF_STATUS_ERROR(st, parse_dump_footer(in, filename, entry_num));
+            in.seekg(0, std::ios::beg);
+            UInt128Wrapper hash;
+            size_t offset, size;
+            for (int i = 0; i < entry_num; ++i) {
+                RETURN_IF_STATUS_ERROR(st, parse_one_lru_entry(in, filename, hash, offset, size));
+                CacheContext ctx;
+                if (queue_name == "ttl") {
+                    ctx.cache_type = FileCacheType::TTL;
+                    // TODO(zhengyu): we haven't persist expiration time yet, use 3h default
+                    // TODO(zhengyu): we don't use stats yet, see if this will cause any problem
+                    ctx.expiration_time = 10800;
+                } else if (queue_name == "index") {
+                    ctx.cache_type = FileCacheType::INDEX;
+                } else if (queue_name == "normal") {
+                    ctx.cache_type = FileCacheType::NORMAL;
+                } else if (queue_name == "disposable") {
+                    ctx.cache_type = FileCacheType::DISPOSABLE;
+                } else {
+                    LOG_WARNING("unknown queue type");
+                    DCHECK(false);
+                    return;
+                }
+                add_cell(hash, ctx, offset, size, FileBlock::State::DOWNLOADED, cache_lock);
+            }
+            in.close();
+        } else {
+            LOG(INFO) << "no lru dump file is founded for " << queue_name;
+        }
+        LOG(INFO) << "lru restore time costs: " << (duration_ns / 1000 / 1000) << "ms.";
+    };
+
+    restore_queue(_disposable_queue, "disposable");
+    restore_queue(_index_queue, "index");
+    restore_queue(_normal_queue, "normal");
+    restore_queue(_ttl_queue, "ttl");
 }
 
 std::map<std::string, double> BlockFileCache::get_stats() {
