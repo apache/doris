@@ -38,6 +38,7 @@ import org.apache.doris.job.common.JobType;
 import org.apache.doris.job.common.TaskType;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.insert.InsertJob;
+import org.apache.doris.job.extensions.mtmv.MTMVJob;
 import org.apache.doris.job.scheduler.JobScheduler;
 import org.apache.doris.load.loadv2.JobState;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -47,6 +48,7 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
 import lombok.extern.log4j.Log4j2;
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -323,8 +325,21 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
      * Replay update load job.
      **/
     public void replayUpdateJob(T job) {
-        jobMap.put(job.getJobId(), job);
-        log.info(new LogBuilder(LogKey.SCHEDULER_JOB, job.getJobId())
+        Long jobId = job.getJobId();
+        // In previous versions, the job ID in MTMV was not fixed (a new ID would be generated each time the editLog
+        // was replayed), but the name was constant and unique. However, since job updates use jobId as the key,
+        // it is possible that this jobId no longer exists. Therefore, we now look up the ID based on the name.
+        if (!jobMap.contains(jobId) && job instanceof MTMVJob) {
+            List<T> jobs = queryJobs(JobType.MV, job.getJobName());
+            if (CollectionUtils.isEmpty(jobs) || jobs.size() != 1) {
+                LOG.warn("jobs by name: {} not normal,should have one job,but job num is: {}", job.getJobName(),
+                        jobs.size());
+                return;
+            }
+            jobId = jobs.get(0).getJobId();
+        }
+        jobMap.put(jobId, job);
+        log.info(new LogBuilder(LogKey.SCHEDULER_JOB, jobId)
                 .add("msg", "replay update scheduler job").build());
     }
 

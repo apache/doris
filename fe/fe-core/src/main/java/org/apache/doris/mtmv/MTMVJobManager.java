@@ -129,7 +129,8 @@ public class MTMVJobManager implements MTMVHookService {
 
     public void createJob(MTMV mtmv) {
         MTMVJob job = new MTMVJob(mtmv.getDatabase().getId(), mtmv.getId());
-        job.setJobId(Env.getCurrentEnv().getNextId());
+        // The jobId should remain constant, as it serves as the unique identifier when updating the job.
+        job.setJobId(mtmv.getId());
         job.setJobName(mtmv.getJobInfo().getJobName());
         job.setCreateUser(UserIdentity.ADMIN);
         job.setJobStatus(JobStatus.RUNNING);
