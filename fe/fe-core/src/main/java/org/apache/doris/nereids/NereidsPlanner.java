@@ -275,6 +275,11 @@ public class NereidsPlanner extends Planner {
         rewrite(showRewriteProcess(explainLevel, showPlanProcess));
         // pre rewrite by materialized view based CBO
         preRewriteByMv(showPlanProcess);
+
+        //if (PreMaterializedViewRewriter.needPreRewrite(cascadesContext.getStatementContext().getRuleMasks())) {
+        //    preRewriteByMv(showPlanProcess);
+        //}
+
         if (explainLevel == ExplainLevel.REWRITTEN_PLAN || explainLevel == ExplainLevel.ALL_PLAN) {
             rewrittenPlan = cascadesContext.getRewritePlan();
             if (explainLevel == ExplainLevel.REWRITTEN_PLAN) {
@@ -455,7 +460,7 @@ public class NereidsPlanner extends Planner {
                             plansWhichContainMv.addAll(childContext.getStatementContext().getRewrittenPlansByMv());
                             // copy the child's materialization context to root cascades for showing explain message
                             childContext.getMaterializationContexts()
-                                    .forEach(cascadesContext::addMaterializationContext);
+                                    .forEach(cascadesContext::updateMaterializationContext);
                             return childContext.getRewritePlan();
                         }, planForRewrite, planForRewrite, false, true);
             } catch (Exception e) {

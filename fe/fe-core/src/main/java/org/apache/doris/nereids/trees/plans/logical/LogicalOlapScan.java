@@ -280,18 +280,14 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
                 && Objects.equals(manuallySpecifiedTabletIds, that.manuallySpecifiedTabletIds)
                 && Objects.equals(selectedPartitionIds, that.selectedPartitionIds)
                 && Objects.equals(hints, that.hints)
-                && Objects.equals(tableSample, that.tableSample)
-                // when sub path pushed down or not, should not think the same scan
-                // because there are two plan which is sub path pushed and the other is not sub path pushed,
-                // if think they are the same group expression would cause column not found err
-                && Objects.equals(colToSubPathsMap, that.colToSubPathsMap);
+                && Objects.equals(tableSample, that.tableSample);
     }
 
     @Override
     public int hashCode() {
         return Objects.hash(super.hashCode(), selectedIndexId, indexSelected, preAggStatus, cacheSlotWithSlotName,
                 selectedTabletIds, partitionPruned, manuallySpecifiedTabletIds, manuallySpecifiedPartitions,
-                selectedPartitionIds, hints, tableSample, colToSubPathsMap);
+                selectedPartitionIds, hints, tableSample);
     }
 
     @Override

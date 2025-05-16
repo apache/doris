@@ -21,27 +21,20 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.executor.Rewriter;
-import org.apache.doris.nereids.jobs.rewrite.RewriteJob;
-import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 
-import com.google.common.collect.ImmutableSet;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-
-import java.util.ArrayList;
-import java.util.List;
 
 /**
  * Record plan for later mv rewrite
  * */
-public class RecordPlanForMvRewrite extends DefaultPlanRewriter<Void> implements CustomRewriter {
+public class RecordPlanForMvPreRewrite extends DefaultPlanRewriter<Void> implements CustomRewriter {
 
-    public static final Logger LOG = LogManager.getLogger(RecordPlanForMvRewrite.class);
+    public static final Logger LOG = LogManager.getLogger(RecordPlanForMvPreRewrite.class);
 
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
@@ -54,38 +47,16 @@ public class RecordPlanForMvRewrite extends DefaultPlanRewriter<Void> implements
                 || !MaterializedViewUtils.containMaterializedViewHook(cascadesContext.getStatementContext()))) {
             return plan;
         }
-        List<RewriteJob> recordMvBeforeJobs =
-                new ArrayList<>(Rewriter.CTE_CHILDREN_REWRITE_JOBS_MV_REWRITE_USED);
-        recordMvBeforeJobs.addAll(
-                Rewriter.notTraverseChildrenOf(
-                        ImmutableSet.of(LogicalCTEAnchor.class),
-                        () -> Rewriter.jobs(
-                                Rewriter.topic("Push project and filter on cte consumer to cte producer",
-                                        Rewriter.topDown(
-                                                new CollectFilterAboveConsumer(),
-                                                new CollectCteConsumerOutput())
-                                ),
-                                Rewriter.topic("Table/Physical optimization",
-                                        Rewriter.topDown(
-                                                new PruneOlapScanPartition(),
-                                                new PruneEmptyPartition(),
-                                                new PruneFileScanPartition(),
-                                                new PushDownFilterIntoSchemaScan()
-                                        )
-                                ),
-                                Rewriter.topic("necessary rules before record mv",
-                                        Rewriter.topDown(new SplitLimit()),
-                                        Rewriter.custom(RuleType.SET_PREAGG_STATUS, SetPreAggStatus::new),
-                                        Rewriter.custom(RuleType.OPERATIVE_COLUMN_DERIVE, OperativeColumnDerive::new),
-                                        Rewriter.custom(RuleType.ADJUST_NULLABLE, AdjustNullable::new)
-                                )
-                        )));
+        if (!cascadesContext.getConnectContext().getSessionVariable().isEnablePreMaterializedViewRewrite()) {
+            return plan;
+        }
         // plan pre normalize
         Plan finalPlan;
         try {
             finalPlan = MaterializedViewUtils.rewriteByRules(cascadesContext,
                     childContext -> {
-                        Rewriter.getCteChildrenRewriter(childContext, recordMvBeforeJobs).execute();
+                        Rewriter.getCteChildrenRewriter(childContext,
+                                Rewriter.CTE_CHILDREN_REWRITE_JOBS_MV_REWRITE_USED).execute();
                         return childContext.getRewritePlan();
                     }, plan, plan, false, false);
             statementContext.addTmpPlanForMvRewrite(finalPlan);

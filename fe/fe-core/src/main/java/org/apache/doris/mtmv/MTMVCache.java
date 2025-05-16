@@ -106,9 +106,6 @@ public class MTMVCache {
         Optional<StructInfo> structInfoOptional;
         boolean originalRewriteFlag = createCacheContext.getSessionVariable().enableMaterializedViewRewrite;
         createCacheContext.getSessionVariable().enableMaterializedViewRewrite = false;
-        boolean originalPreRewriteFlag = createCacheContext.getSessionVariable().enablePreMaterializedViewRewrite;
-        createCacheContext.getSessionVariable().enablePreMaterializedViewRewrite = currentContext != null
-                && currentContext.getSessionVariable().enablePreMaterializedViewRewrite;
         try {
             // Can not convert to table sink, because use the same column from different table when self join
             // the out slot is wrong
@@ -147,7 +144,6 @@ public class MTMVCache {
                     planner.getCascadesContext(), new BitSet());
         } finally {
             createCacheContext.getSessionVariable().enableMaterializedViewRewrite = originalRewriteFlag;
-            createCacheContext.getSessionVariable().enablePreMaterializedViewRewrite = originalPreRewriteFlag;
             if (currentContext != null) {
                 currentContext.setThreadLocalInfo();
             }

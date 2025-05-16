@@ -24,6 +24,7 @@ import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.PlannerHook;
 import org.apache.doris.nereids.jobs.executor.Optimizer;
 import org.apache.doris.nereids.memo.Group;
+import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
@@ -37,15 +38,32 @@ import java.util.Set;
  */
 public class PreMaterializedViewRewriter {
 
+    public static BitSet NEED_PRE_REWRITE_RULE_TYPES = new BitSet();
+
+    static {
+        NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.PUSH_DOWN_TOP_N_THROUGH_JOIN.ordinal());
+        NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.PUSH_DOWN_TOP_N_THROUGH_PROJECT_JOIN.ordinal());
+        NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.PUSH_DOWN_TOP_N_DISTINCT_THROUGH_JOIN.ordinal());
+        NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.PUSH_DOWN_TOP_N_DISTINCT_THROUGH_PROJECT_JOIN.ordinal());
+        NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.PUSH_DOWN_TOP_N_THROUGH_PROJECT_WINDOW.ordinal());
+        NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.PUSH_DOWN_TOP_N_THROUGH_WINDOW.ordinal());
+        NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.PUSH_DOWN_TOP_N_THROUGH_UNION.ordinal());
+        NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.PUSH_DOWN_TOP_N_DISTINCT_THROUGH_UNION.ordinal());
+        NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.PUSH_DOWN_LIMIT_DISTINCT_THROUGH_JOIN.ordinal());
+        NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.PUSH_DOWN_LIMIT_DISTINCT_THROUGH_PROJECT_JOIN.ordinal());
+        NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.PUSH_DOWN_LIMIT_DISTINCT_THROUGH_UNION.ordinal());
+    }
+
     /**
      * Materialize view pre rewrite
      */
     public static void rewrite(CascadesContext cascadesContext) {
         for (PlannerHook hook : cascadesContext.getStatementContext().getPlannerHooks()) {
             // call hook manually to generate materialization context
-            hook.afterRewrite(cascadesContext);
+            hook.afterAnalyze(cascadesContext);
         }
         if (cascadesContext.getMaterializationContexts().isEmpty()
+                || !cascadesContext.getConnectContext().getSessionVariable().isEnablePreMaterializedViewRewrite()
                 || !MaterializedViewUtils.containMaterializedViewHook(cascadesContext.getStatementContext())) {
             return;
         }
@@ -83,8 +101,18 @@ public class PreMaterializedViewRewriter {
         // Extract logical plan by table id set by the corresponding best physical plan
         StructInfo structInfo = root.getstructInfoMap().getStructInfo(cascadesContext,
                 collectTableContext.second, root, null);
-        if (structInfo != null) {
+        if (structInfo != null && !usedMv.isEmpty()) {
             cascadesContext.getStatementContext().addRewrittenPlanByMv(structInfo.getOriginalPlan());
         }
+    }
+
+    public static BitSet getNeedPreRewriteRule() {
+        return NEED_PRE_REWRITE_RULE_TYPES;
+    }
+
+    public static boolean needPreRewrite(BitSet appliedRules) {
+        BitSet needPreRewriteRuleTypes = (BitSet) getNeedPreRewriteRule().clone();
+        needPreRewriteRuleTypes.and(appliedRules);
+        return !needPreRewriteRuleTypes.isEmpty();
     }
 }
