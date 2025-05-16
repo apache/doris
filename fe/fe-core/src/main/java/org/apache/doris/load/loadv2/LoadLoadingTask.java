@@ -232,7 +232,7 @@ public class LoadLoadingTask extends LoadTask {
         Env.getCurrentProgressManager().registerProgressSimple(String.valueOf(callback.getCallbackId()));
     }
 
-    void settWorkloadGroups(List<TPipelineWorkloadGroup> tWorkloadGroups) {
+    public void settWorkloadGroups(List<TPipelineWorkloadGroup> tWorkloadGroups) {
         this.tWorkloadGroups = tWorkloadGroups;
     }
 

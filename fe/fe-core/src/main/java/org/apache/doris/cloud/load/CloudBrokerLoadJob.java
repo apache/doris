@@ -166,6 +166,7 @@ public class CloudBrokerLoadJob extends BrokerLoadJob {
         try (AutoCloseConnectContext r = buildConnectContext()) {
             task.init(loadId, attachment.getFileStatusByTable(aggKey),
                     attachment.getFileNumByTable(aggKey), getUserInfo());
+            task.settWorkloadGroups(tWorkloadGroups);
         } catch (UserException e) {
             throw e;
         }
