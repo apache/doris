@@ -177,6 +177,10 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> implements 
         return Sets.newLinkedHashSet(plan.accept(pullUpAllPredicates, null));
     }
 
+    private Set<Expression> pullUpNullSafePredicates(Plan plan) {
+        return Sets.newLinkedHashSet(plan.accept(pullUpNullSafePredicates, null));
+    }
+
     private Plan inferNewPredicate(Plan plan, Set<Expression> expressions) {
         Set<Expression> predicates = new LinkedHashSet<>();
         Set<Slot> planOutputs = plan.getOutputSet();
