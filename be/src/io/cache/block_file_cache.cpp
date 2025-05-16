@@ -585,6 +585,7 @@ FileBlocks BlockFileCache::get_impl(const UInt128Wrapper& hash, const CacheConte
 std::string BlockFileCache::clear_file_cache_async() {
     // TODO(zhengyu): rm lru dump file before and after clear file cache
     LOG(INFO) << "start clear_file_cache_async, path=" << _cache_base_path;
+    remove_lru_dump_files();
     int64_t num_cells_all = 0;
     int64_t num_cells_to_delete = 0;
     int64_t num_cells_wait_recycle = 0;
@@ -626,6 +627,7 @@ std::string BlockFileCache::clear_file_cache_async() {
        << " num_cells_wait_recycle=" << num_cells_wait_recycle;
     auto msg = ss.str();
     LOG(INFO) << msg;
+    remove_lru_dump_files();
     return msg;
 }
 
@@ -2092,7 +2094,7 @@ bool BlockFileCache::try_reserve_during_async_load(size_t size,
 }
 
 std::string BlockFileCache::clear_file_cache_directly() {
-    //TODO(zhengyu): rm lru dump file before and after clear file cache
+    remove_lru_dump_files();
     using namespace std::chrono;
     std::stringstream ss;
     auto start = steady_clock::now();
@@ -2126,9 +2128,9 @@ std::string BlockFileCache::clear_file_cache_directly() {
        << " num_files=" << num_files << " cache_size=" << cache_size
        << " index_queue_size=" << index_queue_size << " normal_queue_size=" << normal_queue_size
        << " disposible_queue_size=" << disposible_queue_size << "ttl_queue_size=" << ttl_queue_size;
-
     auto msg = ss.str();
     LOG(INFO) << msg;
+    remove_lru_dump_files();
     return msg;
 }
 
@@ -2470,6 +2472,16 @@ void BlockFileCache::restore_lru_queues_from_disk(std::lock_guard<std::mutex>& c
     restore_queue(_index_queue, "index");
     restore_queue(_normal_queue, "normal");
     restore_queue(_ttl_queue, "ttl");
+}
+
+void BlockFileCache::remove_lru_dump_files() {
+    std::vector<std::string> queue_names = {"disposable", "index", "normal", "ttl"};
+    for (const auto& queue_name : queue_names) {
+        std::string filename = fmt::format("{}/lru_dump_{}.bin", _cache_base_path, queue_name);
+        if (std::filesystem::exists(filename)) {
+            std::filesystem::remove(filename);
+        }
+    }
 }
 
 std::map<std::string, double> BlockFileCache::get_stats() {

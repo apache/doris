@@ -531,6 +531,7 @@ private:
     Status parse_dump_footer(std::ifstream& in, std::string& filename, size_t& entry_num);
     Status parse_one_lru_entry(std::ifstream& in, std::string& filename, UInt128Wrapper& hash,
                                size_t& offset, size_t& size);
+    void remove_lru_dump_files();
 
     // info
     std::string _cache_base_path;
