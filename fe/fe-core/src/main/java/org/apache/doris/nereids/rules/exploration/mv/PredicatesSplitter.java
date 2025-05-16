@@ -25,7 +25,6 @@ import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -111,16 +110,10 @@ public class PredicatesSplitter {
             return true;
         }
         if (allowCast && expression instanceof Cast) {
-            return containOnlyColumnRef(((Cast) expression).child(), allowCast);
+            return containOnlyColumnRef(((Cast) expression).child(), true);
         }
         if (expression instanceof Alias) {
-            return containOnlyColumnRef(((Alias) expression).child(), allowCast);
-        }
-        // plan used is before sub path pushed, variant is represented by elementAt expression
-        if (expression instanceof ElementAt) {
-            ElementAt elementAt = (ElementAt) expression;
-            return containOnlyColumnRef(elementAt.child(0), allowCast)
-                    && elementAt.child(1) instanceof Literal;
+            return containOnlyColumnRef(((Alias) expression).child(), true);
         }
         return false;
     }

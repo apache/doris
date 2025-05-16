@@ -37,7 +37,6 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.hint.UseMvHint;
 import org.apache.doris.nereids.memo.Group;
-import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.analysis.ColumnAliasGenerator;
 import org.apache.doris.nereids.rules.exploration.mv.InitMaterializationContextHook;
@@ -910,12 +909,16 @@ public class StatementContext implements Closeable {
         this.forceRecordTmpPlan = forceRecordTmpPlan;
     }
 
-    public boolean hasApplied(Rule rule) {
-        return ruleMasks.get(rule.getRuleType().ordinal());
+    public boolean ruleHasApplied(RuleType ruleType) {
+        return ruleMasks.get(ruleType.ordinal());
     }
 
-    public void setApplied(Rule rule) {
-        ruleMasks.set(rule.getRuleType().ordinal());
+    public void ruleSetApplied(RuleType ruleType) {
+        ruleMasks.set(ruleType.ordinal());
+    }
+
+    public BitSet getRuleMasks() {
+        return ruleMasks;
     }
 
     public Multimap<List<String>, Pair<RelationId, Set<String>>> getTableUsedPartitionNameMap() {

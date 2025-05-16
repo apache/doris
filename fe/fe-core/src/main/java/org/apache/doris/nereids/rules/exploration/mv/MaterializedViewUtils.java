@@ -255,8 +255,9 @@ public class MaterializedViewUtils {
         List<ExprId> originalRewrittenPlanExprIds =
                 rewrittenPlan.getOutput().stream().map(Slot::getExprId).collect(Collectors.toList());
         // run rbo job on mv rewritten plan
-        CascadesContext rewrittenPlanContext = CascadesContext.initContext(cascadesContext.getStatementContext(),
-                rewrittenPlan, cascadesContext.getCurrentJobContext().getRequiredProperties());
+        CascadesContext rewrittenPlanContext = CascadesContext.initContext(
+                cascadesContext.getStatementContext(), rewrittenPlan,
+                cascadesContext.getCurrentJobContext().getRequiredProperties());
         // Tmp old disable rule variable
         Set<String> oldDisableRuleNames = rewrittenPlanContext.getStatementContext().getConnectContext()
                 .getSessionVariable()

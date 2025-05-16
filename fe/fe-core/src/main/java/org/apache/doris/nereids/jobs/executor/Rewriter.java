@@ -136,7 +136,7 @@ import org.apache.doris.nereids.rules.rewrite.PushFilterInsideJoin;
 import org.apache.doris.nereids.rules.rewrite.PushProjectIntoOneRowRelation;
 import org.apache.doris.nereids.rules.rewrite.PushProjectIntoUnion;
 import org.apache.doris.nereids.rules.rewrite.PushProjectThroughUnion;
-import org.apache.doris.nereids.rules.rewrite.RecordPlanForMvRewrite;
+import org.apache.doris.nereids.rules.rewrite.RecordPlanForMvPreRewrite;
 import org.apache.doris.nereids.rules.rewrite.ReduceAggregateChildOutputRows;
 import org.apache.doris.nereids.rules.rewrite.ReorderJoin;
 import org.apache.doris.nereids.rules.rewrite.RewriteCteChildren;
@@ -371,6 +371,26 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                     // which will affect predicate inference with cast. So put this rule
                                     // behind the INFER_PREDICATES
                                     topDown(new ProjectOtherJoinConditionForNestedLoopJoin())
+                            ),
+                            // Add necessary rules from mv pre rewrite
+                            Rewriter.topic("Push project and filter on cte consumer to cte producer",
+                                    Rewriter.topDown(
+                                            new CollectFilterAboveConsumer(),
+                                            new CollectCteConsumerOutput())
+                            ),
+                            Rewriter.topic("Table/Physical optimization",
+                                    Rewriter.topDown(
+                                            new PruneOlapScanPartition(),
+                                            new PruneEmptyPartition(),
+                                            new PruneFileScanPartition(),
+                                            new PushDownFilterIntoSchemaScan()
+                                    )
+                            ),
+                            Rewriter.topic("necessary rules before record mv",
+                                    Rewriter.topDown(new SplitLimit()),
+                                    Rewriter.custom(RuleType.SET_PREAGG_STATUS, SetPreAggStatus::new),
+                                    Rewriter.custom(RuleType.OPERATIVE_COLUMN_DERIVE, OperativeColumnDerive::new),
+                                    Rewriter.custom(RuleType.ADJUST_NULLABLE, AdjustNullable::new)
                             )
                     )
             );
@@ -755,8 +775,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
      * only
      */
     public static Rewriter getWholeTreeRewriterWithCustomJobs(CascadesContext cascadesContext, List<RewriteJob> jobs) {
-        return new Rewriter(cascadesContext, getWholeTreeRewriteJobs(false, false,
-                jobs, ImmutableList.of()));
+        return new Rewriter(cascadesContext, getWholeTreeRewriteJobs(false, false, jobs, ImmutableList.of()));
     }
 
     private static List<RewriteJob> getWholeTreeRewriteJobs(boolean withCostBased) {
@@ -787,8 +806,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         topic("process limit session variables",
                                 custom(RuleType.ADD_DEFAULT_LIMIT, AddDefaultLimit::new)
                         ),
-                        topic("record mv plan for mv rewrite",
-                                custom(RuleType.RECORD_PLAN_FOR_MV_REWRITE, RecordPlanForMvRewrite::new)
+                        topic("record query tmp plan for mv pre rewrite",
+                                custom(RuleType.RECORD_PLAN_FOR_MV_PRE_REWRITE, RecordPlanForMvPreRewrite::new)
                         ),
                         topic("rewrite cte sub-tree before sub path push down",
                                 custom(RuleType.REWRITE_CTE_CHILDREN, () -> new RewriteCteChildren(beforePushDownJobs))

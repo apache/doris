@@ -215,7 +215,7 @@ public abstract class MaterializationContext {
     /**
      * Get materialization unique identifier which identify it
      */
-    abstract List<String> generateMaterializationIdentifier();
+    public abstract List<String> generateMaterializationIdentifier();
 
     /**
      * Common method for generating materialization identifier
