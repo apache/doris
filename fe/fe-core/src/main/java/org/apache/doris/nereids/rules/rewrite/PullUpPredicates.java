@@ -69,11 +69,9 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
 
     Map<Plan, ImmutableSet<Expression>> cache = new IdentityHashMap<>();
     private final boolean getAllPredicates;
-    private final boolean nullSafe;
 
-    public PullUpPredicates(boolean getAllPredicates, boolean nullSafe) {
-        this.getAllPredicates = getAllPredicates;
-        this.nullSafe = nullSafe;
+    public PullUpPredicates(boolean all) {
+        getAllPredicates = all;
     }
 
     @Override
@@ -137,11 +135,7 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
             Set<Expression> predicates = new LinkedHashSet<>();
             for (NamedExpression expr : r.getProjects()) {
                 if (expr instanceof Alias && expr.child(0) instanceof Literal) {
-                    if (nullSafe && expr.child(0) instanceof NullLiteral) {
-                        predicates.add(new IsNull(expr.toSlot()));
-                    } else {
-                        predicates.add(new EqualTo(expr.toSlot(), expr.child(0)));
-                    }
+                    predicates.add(generateEqual(expr));
                 }
             }
             return ImmutableSet.copyOf(predicates);
@@ -269,11 +263,7 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
             }
             for (NamedExpression expr : project.getProjects()) {
                 if (expr instanceof Alias && expr.child(0) instanceof Literal) {
-                    if (nullSafe && expr.child(0) instanceof NullLiteral) {
-                        allPredicates.add(new IsNull(expr.toSlot()));
-                    } else {
-                        allPredicates.add(new EqualTo(expr.toSlot(), expr.child(0)));
-                    }
+                    allPredicates.add(generateEqual(expr));
                 }
             }
             return getAvailableExpressions(allPredicates, project);
@@ -389,5 +379,14 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
             }
         }
         return ImmutableSet.copyOf(filtersFromConstExprs);
+    }
+
+    private Expression generateEqual(NamedExpression expr) {
+        // IsNull have better performance and compatibility than NullSafeEqualTo
+        if (expr.child(0) instanceof NullLiteral) {
+            return new IsNull(expr.toSlot());
+        } else {
+            return new EqualTo(expr.toSlot(), expr.child(0));
+        }
     }
 }

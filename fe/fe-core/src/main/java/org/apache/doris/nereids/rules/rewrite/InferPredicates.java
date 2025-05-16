@@ -62,13 +62,9 @@ import java.util.Set;
  * </pre>
  */
 public class InferPredicates extends DefaultPlanRewriter<JobContext> implements CustomRewriter {
-    private final PullUpPredicates pullUpPredicates = new PullUpPredicates(false, false);
+    private final PullUpPredicates pullUpPredicates = new PullUpPredicates(false);
     // The role of pullUpAllPredicates is to prevent inference of redundant predicates
-    private final PullUpPredicates pullUpAllPredicates = new PullUpPredicates(true, false);
-    // intersect/except's pullUpPredicates role are null safe
-    // (select null) intersect (select null) => null
-    // (select null) except (select null) => empty result
-    private final PullUpPredicates pullUpNullSafePredicates = new PullUpPredicates(false, true);
+    private final PullUpPredicates pullUpAllPredicates = new PullUpPredicates(true);
 
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
@@ -126,7 +122,7 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> implements 
     @Override
     public Plan visitLogicalExcept(LogicalExcept except, JobContext context) {
         except = visitChildren(this, except, context);
-        Set<Expression> baseExpressions = pullUpNullSafePredicates(except);
+        Set<Expression> baseExpressions = pullUpPredicates(except);
         if (baseExpressions.isEmpty()) {
             return except;
         }
@@ -146,7 +142,7 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> implements 
     @Override
     public Plan visitLogicalIntersect(LogicalIntersect intersect, JobContext context) {
         intersect = visitChildren(this, intersect, context);
-        Set<Expression> baseExpressions = pullUpNullSafePredicates(intersect);
+        Set<Expression> baseExpressions = pullUpPredicates(intersect);
         if (baseExpressions.isEmpty()) {
             return intersect;
         }
@@ -175,10 +171,6 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> implements 
 
     private Set<Expression> pullUpAllPredicates(Plan plan) {
         return Sets.newLinkedHashSet(plan.accept(pullUpAllPredicates, null));
-    }
-
-    private Set<Expression> pullUpNullSafePredicates(Plan plan) {
-        return Sets.newLinkedHashSet(plan.accept(pullUpNullSafePredicates, null));
     }
 
     private Plan inferNewPredicate(Plan plan, Set<Expression> expressions) {
