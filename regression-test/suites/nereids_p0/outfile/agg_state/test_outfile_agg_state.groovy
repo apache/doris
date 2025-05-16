@@ -61,7 +61,7 @@ suite("test_outfile_agg_state") {
 
     def filePath=path.getAbsolutePath()+"/tmp*"
     cmd """
-    curl --location-trusted -u ${context.config.jdbcUser}:${context.config.jdbcPassword} -H "format:PARQUET" -H "Expect:100-continue" -T ${filePath} http://${context.config.feHttpAddress}/api/regression_test_nereids_p0_outfile/a_table2/_stream_load
+    curl --location-trusted -u ${context.config.jdbcUser}:${context.config.jdbcPassword} -H "format:PARQUET" -H "Expect:100-continue" -T ${filePath} http://${context.config.feHttpAddress}/api/regression_test_nereids_p0_outfile_agg_state/a_table2/_stream_load
     """
 
     qt_test "select k1,max_by_merge(k2),group_concat_merge(k3) from a_table2 group by k1 order by k1;"
