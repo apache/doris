@@ -274,6 +274,7 @@ public class MasterImpl {
                 createReplicaTask.countDownToZero(task.getBackendId() + ": "
                         + request.getTaskStatus().getErrorMsgs().toString());
             } else {
+                createReplicaTask.setFinished(true);
                 long tabletId = createReplicaTask.getTabletId();
 
                 if (request.isSetFinishTabletInfos()) {
@@ -612,6 +613,7 @@ public class MasterImpl {
 
     private void finishMakeSnapshot(AgentTask task, TFinishTaskRequest request) {
         SnapshotTask snapshotTask = (SnapshotTask) task;
+        task.setFinished(true);
         if (snapshotTask.isCopyTabletTask()) {
             snapshotTask.setResultSnapshotPath(request.getSnapshotPath());
             snapshotTask.countDown(task.getBackendId(), task.getTabletId());
@@ -631,6 +633,7 @@ public class MasterImpl {
 
     private void finishDownloadTask(AgentTask task, TFinishTaskRequest request) {
         DownloadTask downloadTask = (DownloadTask) task;
+        task.setFinished(true);
         if (Env.getCurrentEnv().getBackupHandler().handleDownloadSnapshotTask(downloadTask, request)) {
             AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.DOWNLOAD, task.getSignature());
         }
@@ -638,6 +641,7 @@ public class MasterImpl {
 
     private void finishMoveDirTask(AgentTask task, TFinishTaskRequest request) {
         DirMoveTask dirMoveTask = (DirMoveTask) task;
+        task.setFinished(true);
         if (Env.getCurrentEnv().getBackupHandler().handleDirMoveTask(dirMoveTask, request)) {
             AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.MOVE, task.getSignature());
         }

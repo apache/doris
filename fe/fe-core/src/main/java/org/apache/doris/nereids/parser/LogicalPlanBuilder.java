@@ -344,6 +344,7 @@ import org.apache.doris.nereids.DorisParser.ShowGlobalFunctionsContext;
 import org.apache.doris.nereids.DorisParser.ShowGrantsContext;
 import org.apache.doris.nereids.DorisParser.ShowGrantsForUserContext;
 import org.apache.doris.nereids.DorisParser.ShowLastInsertContext;
+import org.apache.doris.nereids.DorisParser.ShowLoadContext;
 import org.apache.doris.nereids.DorisParser.ShowLoadProfileContext;
 import org.apache.doris.nereids.DorisParser.ShowPartitionIdContext;
 import org.apache.doris.nereids.DorisParser.ShowPluginsContext;
@@ -464,7 +465,6 @@ import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Like;
-import org.apache.doris.nereids.trees.expressions.ListQuery;
 import org.apache.doris.nereids.trees.expressions.MatchAll;
 import org.apache.doris.nereids.trees.expressions.MatchAny;
 import org.apache.doris.nereids.trees.expressions.MatchPhrase;
@@ -537,11 +537,14 @@ import org.apache.doris.nereids.trees.plans.algebra.OneRowRelation;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.commands.AddConstraintCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminCancelRebalanceDiskCommand;
+import org.apache.doris.nereids.trees.plans.commands.AdminCancelRepairTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminCheckTabletsCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminCleanTrashCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminCompactTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminCopyTabletCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminRebalanceDiskCommand;
+import org.apache.doris.nereids.trees.plans.commands.AdminRepairTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.AdminSetReplicaStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetTableStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminShowReplicaStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterCatalogCommentCommand;
@@ -682,6 +685,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowFunctionsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowGrantsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowIndexStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLastInsertCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLoadProfileCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPartitionIdCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPluginsCommand;
@@ -726,6 +730,7 @@ import org.apache.doris.nereids.trees.plans.commands.SyncCommand;
 import org.apache.doris.nereids.trees.plans.commands.TransactionBeginCommand;
 import org.apache.doris.nereids.trees.plans.commands.TransactionCommitCommand;
 import org.apache.doris.nereids.trees.plans.commands.TransactionRollbackCommand;
+import org.apache.doris.nereids.trees.plans.commands.TruncateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnlockTablesCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsetDefaultStorageVaultCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsetVariableCommand;
@@ -890,6 +895,10 @@ import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DateTimeType;
+import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.DateType;
+import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.StructField;
@@ -2941,19 +2950,37 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-    public Literal visitTypeConstructor(TypeConstructorContext ctx) {
+    public Expression visitTypeConstructor(TypeConstructorContext ctx) {
         String value = ctx.STRING_LITERAL().getText();
         value = value.substring(1, value.length() - 1);
         String type = ctx.type.getText().toUpperCase();
         switch (type) {
             case "DATE":
-                return Config.enable_date_conversion ? new DateV2Literal(value) : new DateLiteral(value);
+                try {
+                    return Config.enable_date_conversion ? new DateV2Literal(value) : new DateLiteral(value);
+                } catch (Exception e) {
+                    return new Cast(new StringLiteral(value),
+                            Config.enable_date_conversion ? DateV2Type.INSTANCE : DateType.INSTANCE);
+                }
             case "TIMESTAMP":
-                return Config.enable_date_conversion ? new DateTimeV2Literal(value) : new DateTimeLiteral(value);
+                try {
+                    return Config.enable_date_conversion ? new DateTimeV2Literal(value) : new DateTimeLiteral(value);
+                } catch (Exception e) {
+                    return new Cast(new StringLiteral(value),
+                            Config.enable_date_conversion ? DateTimeV2Type.MAX : DateTimeType.INSTANCE);
+                }
             case "DATEV2":
-                return new DateV2Literal(value);
+                try {
+                    return new DateV2Literal(value);
+                } catch (Exception e) {
+                    return new Cast(new StringLiteral(value), DateV2Type.INSTANCE);
+                }
             case "DATEV1":
-                return new DateLiteral(value);
+                try {
+                    return new DateLiteral(value);
+                } catch (Exception e) {
+                    return new Cast(new StringLiteral(value), DateType.INSTANCE);
+                }
             default:
                 throw new ParseException("Unsupported data type : " + type, ctx);
         }
@@ -4075,7 +4102,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     } else {
                         outExpression = new InSubquery(
                                 valueExpression,
-                                new ListQuery(typedVisit(ctx.query())),
+                                typedVisit(ctx.query()),
                                 ctx.NOT() != null
                         );
                     }
@@ -4698,6 +4725,40 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     public LogicalPlan visitShowLastInsert(ShowLastInsertContext ctx) {
         return new ShowLastInsertCommand();
+    }
+
+    @Override
+    public LogicalPlan visitShowLoad(ShowLoadContext ctx) {
+        String dbName = null;
+        Expression wildWhere = null;
+        List<OrderKey> orderKeys = null;
+        long limit = -1L;
+        long offset = 0L;
+        if (ctx.database != null) {
+            dbName = ctx.database.getText();
+        }
+        if (ctx.sortClause() != null) {
+            orderKeys = visit(ctx.sortClause().sortItem(), OrderKey.class);
+        }
+        if (ctx.wildWhere() != null) {
+            wildWhere = getWildWhere(ctx.wildWhere());
+        }
+        if (ctx.limitClause() != null) {
+            limit = ctx.limitClause().limit != null
+                    ? Long.parseLong(ctx.limitClause().limit.getText())
+                    : 0;
+            if (limit < 0) {
+                throw new ParseException("Limit requires non-negative number", ctx.limitClause());
+            }
+            offset = ctx.limitClause().offset != null
+                    ? Long.parseLong(ctx.limitClause().offset.getText())
+                    : 0;
+            if (offset < 0) {
+                throw new ParseException("Offset requires non-negative number", ctx.limitClause());
+            }
+        }
+        boolean isStreamLoad = ctx.STREAM() != null;
+        return new ShowLoadCommand(wildWhere, orderKeys, limit, offset, dbName, isStreamLoad);
     }
 
     @Override
@@ -6100,6 +6161,19 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
+    public LogicalPlan visitTruncateTable(DorisParser.TruncateTableContext ctx) {
+        TableNameInfo tableName = new TableNameInfo(visitMultipartIdentifier(ctx.multipartIdentifier()));
+        Optional<PartitionNamesInfo> partitionNamesInfo = ctx.specifiedPartition() == null
+                ? Optional.empty() : Optional.of(visitSpecifiedPartitionContext(ctx.specifiedPartition()));
+
+        return new TruncateTableCommand(
+            tableName,
+            partitionNamesInfo,
+            ctx.FORCE() != null
+        );
+    }
+
+    @Override
     public LogicalPlan visitShowConvertLsc(ShowConvertLscContext ctx) {
         if (ctx.database == null) {
             return new ShowConvertLSCCommand(null);
@@ -6689,6 +6763,24 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             index,
             columnName,
             properties);
+    }
+
+    @Override
+    public LogicalPlan visitAdminSetReplicaStatus(DorisParser.AdminSetReplicaStatusContext ctx) {
+        Map<String, String> properties = visitPropertyItemList(ctx.propertyItemList());
+        return new AdminSetReplicaStatusCommand(properties);
+    }
+
+    @Override
+    public LogicalPlan visitAdminRepairTable(DorisParser.AdminRepairTableContext ctx) {
+        TableRefInfo tableRefInfo = visitBaseTableRefContext(ctx.baseTableRef());
+        return new AdminRepairTableCommand(tableRefInfo);
+    }
+
+    @Override
+    public LogicalPlan visitAdminCancelRepairTable(DorisParser.AdminCancelRepairTableContext ctx) {
+        TableRefInfo tableRefInfo = visitBaseTableRefContext(ctx.baseTableRef());
+        return new AdminCancelRepairTableCommand(tableRefInfo);
     }
 
     @Override

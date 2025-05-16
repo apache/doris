@@ -548,6 +548,8 @@ public class CloudTabletRebalancer extends MasterDaemon {
             for (Tablet tablet : index.getTablets()) {
                 for (Replica r : tablet.getReplicas()) {
                     CloudReplica replica = (CloudReplica) r;
+                    // clean secondary map
+                    replica.checkAndClearSecondaryClusterToBe(cluster, needRehashDeadTime);
                     InfightTablet taskKey = new InfightTablet(tablet.getId(), cluster);
                     // colocate table no need to update primary backends
                     if (isColocated) {

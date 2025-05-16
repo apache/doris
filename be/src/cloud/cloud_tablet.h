@@ -206,7 +206,8 @@ public:
                                              ReaderType compaction_type, int64_t merged_rows,
                                              int64_t filtered_rows, int64_t initiator,
                                              DeleteBitmapPtr& output_rowset_delete_bitmap,
-                                             bool allow_delete_in_cumu_compaction);
+                                             bool allow_delete_in_cumu_compaction,
+                                             int64_t& get_delete_bitmap_lock_start_time);
 
     // Find the missed versions until the spec_version.
     //
@@ -285,6 +286,9 @@ private:
 
     std::mutex _base_compaction_lock;
     std::mutex _cumulative_compaction_lock;
+
+    // To avoid multiple calc delete bitmap tasks on same (txn_id, tablet_id) with different
+    // signatures being executed concurrently, we use _rowset_update_lock to serialize them
     mutable std::mutex _rowset_update_lock;
 
     // Schema will be merged from all rowsets when sync_rowsets
