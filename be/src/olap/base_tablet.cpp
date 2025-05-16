@@ -1811,6 +1811,8 @@ void BaseTablet::agg_delete_bitmap_for_stale_rowsets(
             remove_delete_bitmap_key_ranges.emplace_back(start_key, end_key);
         }
     }
+    DBUG_EXECUTE_IF("BaseTablet.agg_delete_bitmap_for_stale_rowsets.merge_delete_bitmap.block",
+                    DBUG_BLOCK);
     tablet_meta()->delete_bitmap().merge(*new_delete_bitmap);
 }
 

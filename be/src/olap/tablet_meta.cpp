@@ -455,6 +455,19 @@ void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tco
     }
 }
 
+void TabletMeta::remove_rowset_delete_bitmap(const RowsetId& rowset_id) {
+    if (_enable_unique_key_merge_on_write) {
+        delete_bitmap().remove({rowset_id, 0, 0}, {rowset_id, UINT32_MAX, 0});
+        if (config::enable_mow_verbose_log) {
+            LOG_INFO("delete rowset delete bitmap. tablet={}, rowset={}", tablet_id(),
+                     rowset_id.to_string());
+        }
+        size_t rowset_cache_version_size =
+                delete_bitmap().remove_rowset_cache_version(rowset_id);
+        _check_mow_rowset_cache_version_size(rowset_cache_version_size);
+    }
+}
+
 Status TabletMeta::create_from_file(const string& file_path) {
     TabletMetaPB tablet_meta_pb;
     RETURN_IF_ERROR(load_from_file(file_path, &tablet_meta_pb));
@@ -945,28 +958,14 @@ void TabletMeta::revise_delete_bitmap_unlocked(const DeleteBitmap& delete_bitmap
 }
 
 void TabletMeta::delete_stale_rs_meta_by_version(const Version& version) {
-    size_t rowset_cache_version_size = 0;
     auto it = _stale_rs_metas.begin();
     while (it != _stale_rs_metas.end()) {
         if ((*it)->version() == version) {
-            if (_enable_unique_key_merge_on_write) {
-                // remove rowset delete bitmap
-                delete_bitmap().remove({(*it)->rowset_id(), 0, 0},
-                                       {(*it)->rowset_id(), UINT32_MAX, 0});
-                rowset_cache_version_size =
-                        delete_bitmap().remove_rowset_cache_version((*it)->rowset_id());
-                if (config::enable_mow_verbose_log) {
-                    LOG_INFO(
-                            "delete stale rowset's delete bitmap. tablet={}, version={}, rowset={}",
-                            tablet_id(), version.to_string(), (*it)->rowset_id().to_string());
-                }
-            }
             it = _stale_rs_metas.erase(it);
         } else {
             it++;
         }
     }
-    _check_mow_rowset_cache_version_size(rowset_cache_version_size);
 }
 
 RowsetMetaSharedPtr TabletMeta::acquire_rs_meta_by_version(const Version& version) const {
