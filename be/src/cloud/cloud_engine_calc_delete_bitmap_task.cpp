@@ -152,6 +152,11 @@ Status CloudTabletCalcDeleteBitmapTask::handle() const {
         return Status::Error<ErrorCode::PUSH_TABLE_NOT_EXIST>(
                 "can't get tablet when calculate delete bitmap. tablet_id={}", _tablet_id);
     }
+    // After https://github.com/apache/doris/pull/50417, there may be multiple calc delete bitmap tasks
+    // with different signatures on the same (txn_id, tablet_id) load in same BE. We use _rowset_update_lock
+    // to avoid them being executed concurrently to avoid correctness problem.
+    std::unique_lock wrlock(tablet->get_rowset_update_lock());
+
     int64_t max_version = tablet->max_version_unlocked();
     int64_t t2 = MonotonicMicros();
 
