@@ -389,7 +389,7 @@ StringRef UrlParser::extract_url(StringRef url, StringRef name) {
         and_pod = sub_url.find_first_of('&');
         if (and_pod != -1) {
             key_url = sub_url.substring(0, and_pod);
-            sub_url = sub_url.substring(and_pod + 1, len - and_pod);
+            sub_url = sub_url.substring(and_pod + 1, len - and_pod - 1);
         } else {
             auto end_pos = sub_url.find_first_of('#');
             key_url = end_pos == -1 ? sub_url : sub_url.substring(0, end_pos);
