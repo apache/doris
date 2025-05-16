@@ -24,6 +24,7 @@
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_struct.h"
 #include "vec/common/string_ref.h"
+#include "vec/data_types/data_type_struct.h"
 
 namespace doris {
 
@@ -34,7 +35,7 @@ class Arena;
 std::optional<size_t> DataTypeStructSerDe::try_get_position_by_name(const String& name) const {
     size_t size = elem_serdes_ptrs.size();
     for (size_t i = 0; i < size; ++i) {
-        if (elem_names[i] == name) {
+        if (DataTypeStruct::case_insensitive_equals(elem_names[i], name)) {
             return {i};
         }
     }
@@ -138,7 +139,7 @@ Status DataTypeStructSerDe::deserialize_one_cell_from_json(IColumn& column, Slic
             next.trim_prefix();
             next.trim_quote();
             // check field_name
-            if (elem_names[field_pos] != next) {
+            if (!DataTypeStruct::case_insensitive_equals(elem_names[field_pos], next.to_string())) {
                 // we should do column revert if error
                 for (size_t j = 0; j < field_pos; j++) {
                     struct_column.get_column(j).pop_back(1);

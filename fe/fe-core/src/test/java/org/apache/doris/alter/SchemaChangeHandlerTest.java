@@ -240,7 +240,7 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
     private void testDuplicateSubColumnName(String defaultValue, String tableName) {
         String alterStmt = "ALTER TABLE test." + tableName + " MODIFY COLUMN c_s STRUCT<col:VARCHAR(10), col:INT> "
                 + defaultValue;
-        expectException(alterStmt, "Duplicate field name");
+        expectException(alterStmt, "Duplicate field");
     }
 
     private void testChangeExistingSubColumnName(String defaultValue, String tableName) {
