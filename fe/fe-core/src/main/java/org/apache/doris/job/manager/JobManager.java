@@ -131,6 +131,8 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
         }
     }
 
+    // For internal calls by other modules, parameter validation and persistence are handled by other components.
+    // Since this method may be invoked by replay threads, it must not throw exceptions.
     public boolean createJobInternal(T job) {
         writeLock();
         try {

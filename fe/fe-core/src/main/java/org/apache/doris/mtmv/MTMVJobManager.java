@@ -62,12 +62,7 @@ public class MTMVJobManager implements MTMVHookService {
 
     public static final String MTMV_JOB_PREFIX = "inner_mtmv_";
 
-    /**
-     * create MTMVJob
-     *
-     * @param mtmv
-     * @throws DdlException
-     */
+    // if immediate, triggerJob after create MTMT
     @Override
     public void createMTMV(MTMV mtmv) {
         if (!mtmv.getRefreshInfo().getBuildMode().equals(BuildMode.IMMEDIATE)) {
@@ -92,6 +87,8 @@ public class MTMVJobManager implements MTMVHookService {
     private JobExecutionConfiguration getJobConfig(MTMV mtmv) {
         JobExecutionConfiguration jobExecutionConfiguration = new JobExecutionConfiguration();
         RefreshTrigger refreshTrigger = mtmv.getRefreshInfo().getRefreshTriggerInfo().getRefreshTrigger();
+        // if immediate, mtmv will trigger it, not need job manager deal this
+        jobExecutionConfiguration.setImmediate(false);
         if (refreshTrigger.equals(RefreshTrigger.SCHEDULE)) {
             setScheduleJobConfig(jobExecutionConfiguration, mtmv);
         } else if (refreshTrigger.equals(RefreshTrigger.MANUAL) || refreshTrigger.equals(RefreshTrigger.COMMIT)) {
@@ -102,11 +99,6 @@ public class MTMVJobManager implements MTMVHookService {
 
     private void setManualJobConfig(JobExecutionConfiguration jobExecutionConfiguration, MTMV mtmv) {
         jobExecutionConfiguration.setExecuteType(JobExecuteType.MANUAL);
-        if (mtmv.getRefreshInfo().getBuildMode().equals(BuildMode.IMMEDIATE)) {
-            jobExecutionConfiguration.setImmediate(true);
-        } else {
-            jobExecutionConfiguration.setImmediate(false);
-        }
     }
 
     private void setScheduleJobConfig(JobExecutionConfiguration jobExecutionConfiguration, MTMV mtmv) {
@@ -121,9 +113,6 @@ public class MTMVJobManager implements MTMVHookService {
                 .isEmpty(refreshMTMVInfo.getRefreshTriggerInfo().getIntervalTrigger().getStartTime())) {
             timerDefinition.setStartTimeMs(TimeUtils.timeStringToLong(
                     refreshMTMVInfo.getRefreshTriggerInfo().getIntervalTrigger().getStartTime()));
-        }
-        if (refreshMTMVInfo.getBuildMode().equals(BuildMode.IMMEDIATE)) {
-            jobExecutionConfiguration.setImmediate(true);
         }
         jobExecutionConfiguration.setTimerDefinition(timerDefinition);
     }
@@ -143,7 +132,7 @@ public class MTMVJobManager implements MTMVHookService {
         job.setJobId(Env.getCurrentEnv().getNextId());
         job.setJobName(mtmv.getJobInfo().getJobName());
         job.setCreateUser(UserIdentity.ADMIN);
-        job.setJobStatus(mtmv.getJobInfo().getJobStatus());
+        job.setJobStatus(JobStatus.RUNNING);
         job.setJobConfig(getJobConfig(mtmv));
         Env.getCurrentEnv().getJobManager().createJobInternal(job);
     }
