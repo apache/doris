@@ -137,7 +137,7 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
             Set<Expression> predicates = new LinkedHashSet<>();
             for (NamedExpression expr : r.getProjects()) {
                 if (expr instanceof Alias && expr.child(0) instanceof Literal) {
-                    if(nullSafe) {
+                    if (nullSafe) {
                         predicates.add(new NullSafeEqual(expr.toSlot(), expr.child(0)));
                     } else {
                         predicates.add(new EqualTo(expr.toSlot(), expr.child(0)));

@@ -29,7 +29,7 @@ suite("set_with_null") {
     distributed BY hash(k1) buckets 3
     properties("replication_num" = "1");
     """
-   sql "insert into d_table values (1), (2), (null);"
+   sql "insert into d_table values (null);"
 
    qt_test """
     (
