@@ -144,4 +144,15 @@ public class LikeToEqualRewriteTest extends ExpressionRewriteTestHelper {
         VarcharLiteral str = new VarcharLiteral("abc\\\\\\\\%");
         assertRewrite(new Like(slot, str), new Like(slot, str));
     }
+
+    @Test
+    public void testLikeWithEscape1() {
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+            bottomUp(LikeToEqualRewrite.INSTANCE)
+        ));
+        SlotReference left = new SlotReference("name", StringType.INSTANCE, true);
+        VarcharLiteral right = new VarcharLiteral("%\\_\\%");
+        VarcharLiteral escape = new VarcharLiteral("\\");
+        assertRewrite(new Like(left, right, escape), new Like(left, right, escape));
+    }
 }
