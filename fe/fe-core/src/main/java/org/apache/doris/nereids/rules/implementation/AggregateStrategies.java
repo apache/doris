@@ -2225,9 +2225,9 @@ public class AggregateStrategies implements ImplementationRuleFactory {
     }
 
     private Alias getShuffleExpr(Count count, CascadesContext cascadesContext) {
-        int bucketNum = cascadesContext.getConnectContext().getSessionVariable().aggDistinctSkewBucketNum;
-        DataType type = bucketNum <= 256 ? TinyIntType.INSTANCE : SmallIntType.INSTANCE;
+        int bucketNum = cascadesContext.getConnectContext().getSessionVariable().aggDistinctSkewRewriteBucketNum;
         int bucket = bucketNum / 2;
+        DataType type = bucket <= 128 ? TinyIntType.INSTANCE : SmallIntType.INSTANCE;
         Mod mod = new Mod(new XxHash32(TypeCoercionUtils.castIfNotSameType(
                 count.child(0), StringType.INSTANCE)), new SmallIntLiteral((short) bucket));
         Cast cast = new Cast(mod, type);

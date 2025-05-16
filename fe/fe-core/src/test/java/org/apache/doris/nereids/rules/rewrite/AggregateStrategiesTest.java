@@ -504,7 +504,7 @@ public class AggregateStrategiesTest implements MemoPatternMatchSupported {
 
         // select count(distinct id) group by age;
         ConnectContext ctx = MemoTestUtils.createConnectContext();
-        ctx.getSessionVariable().setAggDistinctSkewBucketNum(65536);
+        ctx.getSessionVariable().setAggDistinctSkewRewriteBucketNum(65536);
         PlanChecker.from(ctx, root)
                 .applyImplementation(skewRewriteRule())
                 .matches(
@@ -526,7 +526,7 @@ public class AggregateStrategiesTest implements MemoPatternMatchSupported {
 
         // select count(distinct id) group by age;
         ConnectContext ctx = MemoTestUtils.createConnectContext();
-        ctx.getSessionVariable().setAggDistinctSkewBucketNum(65536);
+        ctx.getSessionVariable().setAggDistinctSkewRewriteBucketNum(65536);
         PlanChecker.from(ctx, root)
                 .applyImplementation(skewRewriteRule())
                 .matches(

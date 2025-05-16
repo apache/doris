@@ -153,7 +153,7 @@ public class Analyzer extends AbstractBatchJobExecutor {
                     new CollectJoinConstraint()
             ),
             topDown(new LeadingJoin()),
-            bottomUp(new BindSkewExpr()),
+            topDown(new BindSkewExpr()),
             bottomUp(new NormalizeGenerate()),
             bottomUp(new SubqueryToApply())
         /*

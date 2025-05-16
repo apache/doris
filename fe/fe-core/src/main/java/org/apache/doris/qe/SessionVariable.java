@@ -736,7 +736,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String JOIN_SKEW_ADD_SALT_EXPLODE_FACTOR = "join_skew_add_salt_explode_factor";
 
-    public static final String AGG_DISTINCT_SKEW_BUCKET_NUM = "agg_distinct_skew_bucket_num";
+    public static final String AGG_DISTINCT_SKEW_REWRITE_BUCKET_NUM = "agg_distinct_skew_rewrite_bucket_num";
 
     /**
      * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
@@ -2280,12 +2280,12 @@ public class SessionVariable implements Serializable, Writable {
             needForward = true)
     public boolean enableExternalTableBatchMode = true;
 
-    @VariableMgr.VarAttr(name = AGG_DISTINCT_SKEW_BUCKET_NUM, needForward = true,
-            description = {"agg distinct 倾斜场景的聚合分桶数"})
-    public int aggDistinctSkewBucketNum = 1024;
+    @VariableMgr.VarAttr(name = AGG_DISTINCT_SKEW_REWRITE_BUCKET_NUM, needForward = true,
+            description = {"agg distinct 倾斜场景的聚合分桶数"}, checker = "checkAggDistinctSkewRewriteBucketNum")
+    public int aggDistinctSkewRewriteBucketNum = 1024;
 
-    public void setAggDistinctSkewBucketNum(int num) {
-        this.aggDistinctSkewBucketNum = num;
+    public void setAggDistinctSkewRewriteBucketNum(int num) {
+        this.aggDistinctSkewRewriteBucketNum = num;
     }
 
     public Set<Integer> getIgnoredRuntimeFilterIds() {
@@ -4629,6 +4629,19 @@ public class SessionVariable implements Serializable, Writable {
         Long batchSizeValue = Long.valueOf(batchSize);
         if (batchSizeValue < 1 || batchSizeValue > 65535) {
             throw new InvalidParameterException("batch_size should be between 1 and 65535)");
+        }
+    }
+
+    public void checkAggDistinctSkewRewriteBucketNum(String bucketNumStr) {
+        try {
+            long bucketNum = Long.parseLong(bucketNumStr);
+            if (bucketNum <= 0 || bucketNum >= 65536) {
+                throw new InvalidParameterException(
+                        "agg_distinct_skew_rewrite_bucket_num should be between 1 and 65535");
+            }
+        } catch (NumberFormatException e) {
+            throw new InvalidParameterException(
+                    "agg_distinct_skew_rewrite_bucket_num must be a valid number between 1 and 65535");
         }
     }
 

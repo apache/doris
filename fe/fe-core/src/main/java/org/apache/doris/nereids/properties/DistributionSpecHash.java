@@ -327,7 +327,6 @@ public class DistributionSpecHash extends DistributionSpec {
         STORAGE_BUCKETED,
     }
 
-    /**isSkew*/
     public boolean isSkew() {
         return isSkew;
     }

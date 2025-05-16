@@ -26,7 +26,6 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.UnaryPlan;
 import org.apache.doris.nereids.trees.plans.logical.OutputPrunable;
 import org.apache.doris.nereids.util.ExpressionUtils;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableSet;
 
@@ -112,20 +111,12 @@ public interface Aggregate<CHILD_TYPE extends Plan> extends UnaryPlan<CHILD_TYPE
 
     /**canSkewRewrite*/
     default boolean canSkewRewrite() {
-        ConnectContext connectContext = ConnectContext.get();
-        int bucketNum = connectContext.getSessionVariable().aggDistinctSkewBucketNum;
-        if (bucketNum <= 0 || bucketNum >= 65536) {
-            return false;
-        }
         Set<Expression> distinctArguments = getDistinctArguments();
-        if (distinctArguments.size() == 1
+        return distinctArguments.size() == 1
                 && getAggregateFunctions().size() == 1
                 && getAggregateFunctions().iterator().next() instanceof Count
                 && getAggregateFunctions().iterator().next().arity() == 1
                 && ((Count) getAggregateFunctions().iterator().next()).isSkew()
-                && !(new HashSet<>(getGroupByExpressions()).containsAll(distinctArguments))) {
-            return true;
-        }
-        return false;
+                && !(new HashSet<>(getGroupByExpressions()).containsAll(distinctArguments));
     }
 }

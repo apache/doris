@@ -41,6 +41,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Random;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -212,7 +213,7 @@ public class SaltJoin extends OneRewriteRuleFactory {
         Expression ifCondition = getIfCondition(skewExpr, skewValues, skewValuesExceptNull);
         Random random = new Random(new BigIntLiteral(0), new BigIntLiteral(factor - 1));
         Cast cast = new Cast(random, type);
-        If ifExpr = new If(ifCondition, cast, DataType.promoteLiteral(DEFAULT_SALT_VALUE, type));
+        If ifExpr = new If(ifCondition, cast, Literal.convertToTypedLiteral(DEFAULT_SALT_VALUE, type));
         ImmutableList.Builder<NamedExpression> namedExpressionsBuilder = ImmutableList.builderWithExpectedSize(
                 originPlan.getOutput().size() + 1);
         namedExpressionsBuilder.addAll(originPlan.getOutput());
@@ -250,7 +251,7 @@ public class SaltJoin extends OneRewriteRuleFactory {
             ImmutableList.Builder<NamedExpression> namedExpressionsBuilder = ImmutableList.builderWithExpectedSize(
                     originPlan.getOutput().size() + 1);
             namedExpressionsBuilder.addAll(originPlan.getOutput());
-            namedExpressionsBuilder.add(new Alias(DataType.promoteLiteral(DEFAULT_SALT_VALUE, type),
+            namedExpressionsBuilder.add(new Alias(Literal.convertToTypedLiteral(DEFAULT_SALT_VALUE, type),
                     RANDOM_COLUMN_NAME_RIGHT));
             return new LogicalProject<>(namedExpressionsBuilder.build(), originPlan);
         }
@@ -297,7 +298,7 @@ public class SaltJoin extends OneRewriteRuleFactory {
                 originPlan.getOutput().size() + 1);
         namedExpressionsBuilder.addAll(originPlan.getOutput());
         Slot castGeneratedSlot = projects.get(1).toSlot();
-        If ifExpr = new If(new IsNull(castGeneratedSlot), DataType.promoteLiteral(DEFAULT_SALT_VALUE, type),
+        If ifExpr = new If(new IsNull(castGeneratedSlot), Literal.convertToTypedLiteral(DEFAULT_SALT_VALUE, type),
                 castGeneratedSlot);
         namedExpressionsBuilder.add(new Alias(ifExpr, RANDOM_COLUMN_NAME_RIGHT));
         return new LogicalProject<>(namedExpressionsBuilder.build(), rightJoin);
