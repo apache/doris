@@ -358,6 +358,9 @@ private:
     int64_t _build_side_last_mem_used = 0;
     MutableBlock _build_side_mutable_block;
 
+    // Index of column(slot) from right table in the `_intermediate_row_desc`.
+    size_t _right_col_idx;
+
     SharedHashTableContextPtr _shared_hash_table_context = nullptr;
 
     Status _materialize_build_side(RuntimeState* state) override;

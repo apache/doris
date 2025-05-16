@@ -138,6 +138,9 @@ private:
     std::unique_ptr<HashTableCtxVariants> _process_hashtable_ctx_variants =
             std::make_unique<HashTableCtxVariants>();
 
+    // Index of column(slot) from right table in the `_intermediate_row_desc`.
+    size_t _right_col_idx;
+
     RuntimeProfile::Counter* _probe_expr_call_timer = nullptr;
     RuntimeProfile::Counter* _probe_next_timer = nullptr;
     RuntimeProfile::Counter* _probe_side_output_timer = nullptr;
@@ -213,6 +216,9 @@ private:
     std::vector<bool> _right_output_slot_flags;
     std::vector<std::string> _right_table_column_names;
     const std::vector<TExpr> _partition_exprs;
+
+    // Index of column(slot) from right table in the `_intermediate_row_desc`.
+    size_t _right_col_idx;
 };
 
 } // namespace pipeline
