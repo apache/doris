@@ -22,7 +22,8 @@ set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/olap")
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/olap")
 
 file(GLOB_RECURSE SRC_FILES CONFIGURE_DEPENDS *.cpp)
-add_library(Olap STATIC ${SRC_FILES})
+add_library(Olap STATIC ${SRC_FILES}
+        id_manager.h)
 
 if (OS_MACOSX)
     target_compile_options(Olap PRIVATE -Wno-unused-lambda-capture)
