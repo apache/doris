@@ -493,8 +493,9 @@ void WorkloadGroup::create_cgroup_cpu_ctl_no_lock() {
     }
 }
 
-void WorkloadGroup::upsert_thread_pool_no_lock(WorkloadGroupInfo* wg_info,
-                                               std::shared_ptr<CgroupCpuCtl> cg_cpu_ctl_ptr) {
+Status WorkloadGroup::upsert_thread_pool_no_lock(WorkloadGroupInfo* wg_info,
+                                                 std::shared_ptr<CgroupCpuCtl> cg_cpu_ctl_ptr) {
+    Status upsert_ret = Status::OK();
     uint64_t wg_id = wg_info->id;
     std::string wg_name = wg_info->name;
     int scan_thread_num = wg_info->scan_thread_num;
@@ -512,6 +513,7 @@ void WorkloadGroup::upsert_thread_pool_no_lock(WorkloadGroupInfo* wg_info,
         if (ret.ok()) {
             _task_sched = std::move(pipeline_task_scheduler);
         } else {
+            upsert_ret = ret;
             LOG(INFO) << "[upsert wg thread pool] task scheduler start failed, gid= " << wg_id;
         }
     }
@@ -526,6 +528,7 @@ void WorkloadGroup::upsert_thread_pool_no_lock(WorkloadGroupInfo* wg_info,
         if (ret.ok()) {
             _scan_task_sched = std::move(scan_scheduler);
         } else {
+            upsert_ret = ret;
             LOG(INFO) << "[upsert wg thread pool] scan scheduler start failed, gid=" << wg_id;
         }
     }
@@ -546,6 +549,7 @@ void WorkloadGroup::upsert_thread_pool_no_lock(WorkloadGroupInfo* wg_info,
         if (ret.ok()) {
             _remote_scan_task_sched = std::move(remote_scan_scheduler);
         } else {
+            upsert_ret = ret;
             LOG(INFO) << "[upsert wg thread pool] remote scan scheduler start failed, gid="
                       << wg_id;
         }
@@ -575,17 +579,20 @@ void WorkloadGroup::upsert_thread_pool_no_lock(WorkloadGroupInfo* wg_info,
                                .set_max_threads(max_threads)
                                .set_cgroup_cpu_ctl(cg_cpu_ctl_ptr)
                                .build(&thread_pool);
-            if (!ret.ok()) {
-                LOG(INFO) << "[upsert wg thread pool] create " + pool_name + " failed, gid="
-                          << wg_id;
-            } else {
+            if (ret.ok()) {
                 _memtable_flush_pool = std::move(thread_pool);
                 LOG(INFO) << "[upsert wg thread pool] create " + pool_name + " succ, gid=" << wg_id
                           << ", max thread num=" << max_threads
                           << ", min thread num=" << min_threads;
+            } else {
+                upsert_ret = ret;
+                LOG(INFO) << "[upsert wg thread pool] create " + pool_name + " failed, gid="
+                          << wg_id;
             }
         }
     }
+
+    return upsert_ret;
 }
 
 void WorkloadGroup::upsert_cgroup_cpu_ctl_no_lock(WorkloadGroupInfo* wg_info) {
@@ -616,13 +623,15 @@ void WorkloadGroup::upsert_cgroup_cpu_ctl_no_lock(WorkloadGroupInfo* wg_info) {
     }
 }
 
-void WorkloadGroup::upsert_task_scheduler(WorkloadGroupInfo* wg_info) {
+Status WorkloadGroup::upsert_task_scheduler(WorkloadGroupInfo* wg_info) {
     std::lock_guard<std::shared_mutex> wlock(_task_sched_lock);
     upsert_cgroup_cpu_ctl_no_lock(wg_info);
 
     if (_need_create_query_thread_pool) {
-        upsert_thread_pool_no_lock(wg_info, _cgroup_cpu_ctl);
+        return upsert_thread_pool_no_lock(wg_info, _cgroup_cpu_ctl);
     }
+
+    return Status::OK();
 }
 
 void WorkloadGroup::get_query_scheduler(doris::pipeline::TaskScheduler** exec_sched,
@@ -644,7 +653,7 @@ std::string WorkloadGroup::thread_debug_info() {
 
     if (_scan_task_sched != nullptr) {
         std::vector<int> exec_t_info = _scan_task_sched->thread_debug_info();
-        str += fmt::format("[l_scan num:{}, real_num:{}, min_num:{}, max_num{}],", exec_t_info[0],
+        str += fmt::format("[l_scan num:{}, real_num:{}, min_num:{}, max_num:{}],", exec_t_info[0],
                            exec_t_info[1], exec_t_info[2], exec_t_info[3]);
     }
 

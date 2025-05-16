@@ -671,8 +671,16 @@ TEST_F(PipelineTaskTest, TEST_RESERVE_MEMORY) {
                                      true, fe_address, QuerySource::INTERNAL_FRONTEND);
         _task_queue = std::make_unique<DummyTaskQueue>(1);
         _build_fragment_context();
+
+        TWorkloadGroupInfo twg_info;
+        twg_info.__set_id(0);
+        twg_info.__set_name("_dummpy_workload_group");
+        twg_info.__set_version(0);
+
+        WorkloadGroupInfo workload_group_info = WorkloadGroupInfo::parse_topic_info(twg_info);
+
         ((MockRuntimeState*)_runtime_state.get())->_workload_group =
-                std::make_shared<DummyWorkloadGroup>();
+                std::make_shared<WorkloadGroup>(workload_group_info);
         ((MockThreadMemTrackerMgr*)thread_context()->thread_mem_tracker_mgr.get())
                 ->_test_low_memory = true;
     }
@@ -796,8 +804,16 @@ TEST_F(PipelineTaskTest, TEST_RESERVE_MEMORY_FAIL) {
                                      true, fe_address, QuerySource::INTERNAL_FRONTEND);
         _task_queue = std::make_unique<DummyTaskQueue>(1);
         _build_fragment_context();
+
+        TWorkloadGroupInfo twg_info;
+        twg_info.__set_id(0);
+        twg_info.__set_name("_dummpy_workload_group");
+        twg_info.__set_version(0);
+
+        WorkloadGroupInfo workload_group_info = WorkloadGroupInfo::parse_topic_info(twg_info);
+
         ((MockRuntimeState*)_runtime_state.get())->_workload_group =
-                std::make_shared<DummyWorkloadGroup>();
+                std::make_shared<WorkloadGroup>(workload_group_info);
         ((MockThreadMemTrackerMgr*)thread_context()->thread_mem_tracker_mgr.get())
                 ->_test_low_memory = true;
 
