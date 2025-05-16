@@ -129,6 +129,7 @@ public class LogicalWindowToPhysicalWindow extends OneImplementationRuleFactory 
                 windowFrameGroup,
                 RequireProperties.followParent(),
                 tempLogicalWindow.getWindowExpressions(),
+                isSkew,
                 tempLogicalWindow.getLogicalProperties(),
                 root);
         return (PhysicalWindow) physicalWindow.withChildren(ImmutableList.of(root));
