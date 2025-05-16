@@ -22,6 +22,7 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.executor.Rewriter;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
+import org.apache.doris.nereids.rules.exploration.mv.PreMaterializedViewRewriter.PreRewriteStrategy;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
@@ -40,14 +41,12 @@ public class RecordPlanForMvPreRewrite extends DefaultPlanRewriter<Void> impleme
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
         CascadesContext cascadesContext = jobContext.getCascadesContext();
         StatementContext statementContext = cascadesContext.getStatementContext();
-        if (!cascadesContext.getConnectContext().getSessionVariable().isEnablePreMaterializedViewRewrite()) {
+        if (PreRewriteStrategy.NOT_IN_RBO.toString().equals(
+                cascadesContext.getConnectContext().getSessionVariable().getPreMaterializedViewRewriteStrategy())) {
             return plan;
         }
         if (!statementContext.isForceRecordTmpPlan() && (statementContext.getCandidateMTMVs().isEmpty()
                 || !MaterializedViewUtils.containMaterializedViewHook(cascadesContext.getStatementContext()))) {
-            return plan;
-        }
-        if (!cascadesContext.getConnectContext().getSessionVariable().isEnablePreMaterializedViewRewrite()) {
             return plan;
         }
         // plan pre normalize

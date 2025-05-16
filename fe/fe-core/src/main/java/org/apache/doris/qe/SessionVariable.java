@@ -2185,9 +2185,15 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableMaterializedViewRewrite = true;
 
     @VariableMgr.VarAttr(name = ENABLE_PRE_MATERIALIZED_VIEW_REWRITE, needForward = true,
-            description = {"是否开启在RBO阶段基于结构信息的物化视图透明改写",
-                    "Whether to enable pre materialized view rewriting based on struct info"})
-    public boolean enablePreMaterializedViewRewrite = true;
+            description = {"在RBO阶段基于结构信息的物化视图透明改写的策略，FORCE_IN_ROB ：强制在 RBO 阶段透明改写，"
+                    + "TRY_IN_RBO ：如果在NEED_PRE_REWRITE_RULE_TYPES中的规则改写成功了，那么就会尝试在 RBO 阶段透明改写"
+                    + "NOT_IN_RBO ：不尝试在 RBO 阶段改写，只在 CBO 阶段改写",
+                    "Whether to enable pre materialized view rewriting based on struct info,"
+                            + "FORCE_IN_RBO : Force transparent rewriting in the RBO phase,"
+                            + "TRY_IN_RBO : Attempt transparent rewriting in the RBO phase "
+                            + "if rules in NEED_PRE_REWRITE_RULE_TYPES, NOT_IN_RBO : "
+                            + "Do not attempt rewriting in the RBO phase; apply only during the CBO phase"})
+    public String preMaterializedViewRewriteStrategy = "FORCE_IN_RBO";
 
     @VariableMgr.VarAttr(name = ALLOW_MODIFY_MATERIALIZED_VIEW_DATA, needForward = true,
             description = {"是否允许修改物化视图的数据",
@@ -4668,12 +4674,13 @@ public class SessionVariable implements Serializable, Writable {
         this.enableMaterializedViewRewrite = enableMaterializedViewRewrite;
     }
 
-    public boolean isEnablePreMaterializedViewRewrite() {
-        return enablePreMaterializedViewRewrite;
+
+    public String getPreMaterializedViewRewriteStrategy() {
+        return preMaterializedViewRewriteStrategy;
     }
 
-    public void setEnablePreMaterializedViewRewrite(boolean enablePreMaterializedViewRewrite) {
-        this.enablePreMaterializedViewRewrite = enablePreMaterializedViewRewrite;
+    public void setPreMaterializedViewRewriteStrategy(String preMaterializedViewRewriteStrategy) {
+        this.preMaterializedViewRewriteStrategy = preMaterializedViewRewriteStrategy;
     }
 
     public boolean isEnableDmlMaterializedViewRewrite() {

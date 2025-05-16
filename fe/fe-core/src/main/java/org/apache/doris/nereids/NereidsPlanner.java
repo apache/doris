@@ -53,6 +53,7 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializationContext;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
 import org.apache.doris.nereids.rules.exploration.mv.PreMaterializedViewRewriter;
+import org.apache.doris.nereids.rules.exploration.mv.PreMaterializedViewRewriter.PreRewriteStrategy;
 import org.apache.doris.nereids.stats.StatsCalculator;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -89,6 +90,7 @@ import org.apache.doris.thrift.TQueryCacheParam;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
 import org.apache.commons.codec.binary.Hex;
+import org.apache.commons.lang3.EnumUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -274,11 +276,12 @@ public class NereidsPlanner extends Planner {
         // rule-based optimize
         rewrite(showRewriteProcess(explainLevel, showPlanProcess));
         // pre rewrite by materialized view based CBO
-        preRewriteByMv(showPlanProcess);
-
-        //if (PreMaterializedViewRewriter.needPreRewrite(cascadesContext.getStatementContext().getRuleMasks())) {
-        //    preRewriteByMv(showPlanProcess);
-        //}
+        if (PreMaterializedViewRewriter.needPreRewrite(
+                cascadesContext.getStatementContext().getRuleMasks(),
+                EnumUtils.getEnum(PreRewriteStrategy.class,
+                        getConnectContext().getSessionVariable().getPreMaterializedViewRewriteStrategy()))) {
+            preRewriteByMv(showPlanProcess);
+        }
 
         if (explainLevel == ExplainLevel.REWRITTEN_PLAN || explainLevel == ExplainLevel.ALL_PLAN) {
             rewrittenPlan = cascadesContext.getRewritePlan();
