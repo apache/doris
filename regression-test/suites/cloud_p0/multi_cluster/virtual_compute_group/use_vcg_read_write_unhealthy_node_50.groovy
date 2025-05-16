@@ -25,7 +25,7 @@ import groovy.json.JsonOutput
 // 4 stop a backend of c1
 // 5 stop another backend of c1
 
-suite('use_default_vcg_read_write', 'multi_cluster,docker') {
+suite('use_vcg_read_write_unhealthy_node_50', 'multi_cluster,docker') {
     def options = new ClusterOptions()
     String tableName = "test_all_vcluster"
     String tbl = "test_virtual_compute_group_tbl"
@@ -75,7 +75,7 @@ suite('use_default_vcg_read_write', 'multi_cluster,docker') {
             def normalVclusterName = "normalVirtualClusterName"
             def normalVclusterId = "normalVirtualClusterId"
             def vcgClusterNames = [clusterName1, clusterName2]
-            def clusterPolicy = [type: "ActiveStandby", active_cluster_name: "${clusterName1}", standby_cluster_names: ["${clusterName2}"]]
+            def clusterPolicy = [type: "ActiveStandby", active_cluster_name: "${clusterName1}", standby_cluster_names: ["${clusterName2}"], unhealthyNodeThresholdPercent: 50]
             clusterMap = [cluster_name: "${normalVclusterName}", cluster_id:"${normalVclusterId}", type:"VIRTUAL", cluster_names:vcgClusterNames, cluster_policy:clusterPolicy]
             def normalInstance = [instance_id: "${instance_id}", cluster: clusterMap]
             jsonOutput = new JsonOutput()
@@ -124,27 +124,7 @@ suite('use_default_vcg_read_write', 'multi_cluster,docker') {
             }
             log.info("backends of cluster2: ${clusterName2} ${cluster2Ips}".toString())
 
-            sql """ SET PROPERTY 'default_cloud_cluster' = 'normalVirtualClusterName' """
-
-            def reconnectFe = {
-                sleep(10000)
-                logger.info("Reconnecting to a new frontend...")
-                def newFe = cluster.getMasterFe()
-                if (newFe) {
-                    logger.info("New frontend found: ${newFe.host}:${newFe.httpPort}")
-                    def url = String.format(
-                            "jdbc:mysql://%s:%s/?useLocalSessionState=true&allowLoadLocalInfile=false",
-                            newFe.host, newFe.queryPort)
-                    url = context.config.buildUrlWithDb(url, context.dbName)
-                    context.connectTo(url, context.config.jdbcUser, context.config.jdbcPassword)
-                    logger.info("Successfully reconnected to the new frontend")
-                } else {
-                    logger.error("No new frontend found to reconnect")
-                }
-            }
-
-            reconnectFe()
-
+            sql """use @${normalVclusterName}"""
             sql """ drop table if exists ${tableName} """
 
             sql """
@@ -206,6 +186,7 @@ suite('use_default_vcg_read_write', 'multi_cluster,docker') {
                 table "${tableName}"
 
                 set 'column_separator', ','
+                set 'cloud_cluster', 'normalVirtualClusterName'
 
                 file 'all_types.csv'
                 time 10000 // limit inflight 10s
@@ -265,8 +246,6 @@ suite('use_default_vcg_read_write', 'multi_cluster,docker') {
             checkProfileNew.call(set)
 
             cluster.stopBackends(4)
-            sleep(6000)
-
             showResult = sql "show backends"
             for (row : showResult) {
                 println row
@@ -303,6 +282,7 @@ suite('use_default_vcg_read_write', 'multi_cluster,docker') {
                 table "${tableName}"
 
                 set 'column_separator', ','
+                set 'cloud_cluster', 'normalVirtualClusterName'
 
                 file 'all_types.csv'
                 time 10000 // limit inflight 10s
@@ -344,17 +324,27 @@ suite('use_default_vcg_read_write', 'multi_cluster,docker') {
             after_cluster2_be1_flush = get_be_metric(cluster2Ips[1], "8040", "memtable_flush_total");
             log.info("after_cluster2_be1_flush : ${after_cluster2_be1_flush}".toString())
 
-            assertTrue(before_cluster1_be0_load_rows < after_cluster1_be0_load_rows || before_cluster1_be1_load_rows < after_cluster1_be1_load_rows)
-            assertTrue(before_cluster1_be0_flush < after_cluster1_be0_flush || before_cluster1_be1_flush < after_cluster1_be1_flush)
+            assertTrue(before_cluster2_be0_load_rows < after_cluster2_be0_load_rows || before_cluster2_be1_load_rows < after_cluster2_be1_load_rows)
+            assertTrue(before_cluster2_be0_flush < after_cluster2_be0_flush || before_cluster2_be1_flush < after_cluster2_be1_flush)
 
-            assertTrue(before_cluster2_be0_load_rows == after_cluster2_be0_load_rows)
-            assertTrue(before_cluster2_be0_flush == after_cluster2_be0_flush)
-            assertTrue(before_cluster2_be1_load_rows == after_cluster2_be1_load_rows)
-            assertTrue(before_cluster2_be1_flush == after_cluster2_be1_flush)
+            assertTrue(before_cluster1_be0_load_rows == after_cluster1_be0_load_rows)
+            assertTrue(before_cluster1_be0_flush == after_cluster1_be0_flush)
 
-            set = [cluster1Ips[0] + ":" + "8060"] as Set
+            set = [cluster2Ips[0] + ":" + "8060", cluster2Ips[1] + ":" + "8060"] as Set
             sql """ select count(k2) AS theCount, k3 from test_all_vcluster group by k3 order by theCount limit 1 """
             checkProfileNew.call(set)
+
+            sleep(16000)
+            sql """
+                insert into ${tbl} (k1, k2) values (1, "10");
+            """
+
+            // show cluster
+            showComputeGroup = sql_return_maparray """ SHOW COMPUTE GROUPS """
+            log.info("show compute group {}", showComputeGroup)
+            vcgInShow = showComputeGroup.find { it.Name == normalVclusterName }
+            assertNotNull(vcgInShow)
+            assertTrue(vcgInShow.Policy.contains("activeComputeGroup='newcluster2', standbyComputeGroup='newcluster1'"))
 
             cluster.stopBackends(5)
 
@@ -373,6 +363,7 @@ suite('use_default_vcg_read_write', 'multi_cluster,docker') {
                 table "${tableName}"
 
                 set 'column_separator', ','
+                set 'cloud_cluster', 'normalVirtualClusterName'
 
                 file 'all_types.csv'
                 time 10000 // limit inflight 10s
@@ -417,17 +408,13 @@ suite('use_default_vcg_read_write', 'multi_cluster,docker') {
             checkProfileNew.call(set)
 
             sleep(16000)
-
-            sql """
-                insert into ${tbl} (k1, k2) values (1, "10");
-            """
-
             // show cluster
             showComputeGroup = sql_return_maparray """ SHOW COMPUTE GROUPS """
             log.info("show compute group {}", showComputeGroup)
             vcgInShow = showComputeGroup.find { it.Name == normalVclusterName }
             assertNotNull(vcgInShow)
             assertTrue(vcgInShow.Policy.contains("activeComputeGroup='newcluster2', standbyComputeGroup='newcluster1'"))
+
         }
         // connect to follower, run again
         //options.connectToFollower = true

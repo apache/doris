@@ -20,10 +20,10 @@ import groovy.json.JsonSlurper
 import groovy.json.JsonOutput
 
 // 1 create two physical cluster c1, c2, every cluster contains 2 be
-// 2 stop a backend of c1
-// 3 stop a backend of c1
-// 4 start 2 backends of c1
-// 5 long-term stop 2 backends of c1
+// 2 create vcg, c1, c2 are sub compute group of vcg, adn c1 is active cg
+// 3 use vcg
+// 4 stop a backend of c1
+// 5 stop another backend of c1
 
 suite('use_vcg_read_write', 'multi_cluster,docker') {
     def options = new ClusterOptions()
@@ -191,6 +191,7 @@ suite('use_vcg_read_write', 'multi_cluster,docker') {
 
                 file 'all_types.csv'
                 time 10000 // limit inflight 10s
+                setFeAddr cluster.getAllFrontends().get(0).host, cluster.getAllFrontends().get(0).httpPort
 
                 check { loadResult, exception, startTime, endTime ->
                     if (exception != null) {
@@ -288,6 +289,7 @@ suite('use_vcg_read_write', 'multi_cluster,docker') {
 
                 file 'all_types.csv'
                 time 10000 // limit inflight 10s
+                setFeAddr cluster.getAllFrontends().get(0).host, cluster.getAllFrontends().get(0).httpPort
 
                 check { loadResult, exception, startTime, endTime ->
                     if (exception != null) {
@@ -358,6 +360,7 @@ suite('use_vcg_read_write', 'multi_cluster,docker') {
 
                 file 'all_types.csv'
                 time 10000 // limit inflight 10s
+                setFeAddr cluster.getAllFrontends().get(0).host, cluster.getAllFrontends().get(0).httpPort
 
                 check { loadResult, exception, startTime, endTime ->
                     if (exception != null) {
@@ -398,54 +401,17 @@ suite('use_vcg_read_write', 'multi_cluster,docker') {
             checkProfileNew.call(set)
 
             sleep(16000)
+
+            sql """
+                insert into ${tbl} (k1, k2) values (1, "10");
+            """
+
             // show cluster
             showComputeGroup = sql_return_maparray """ SHOW COMPUTE GROUPS """
             log.info("show compute group {}", showComputeGroup)
             vcgInShow = showComputeGroup.find { it.Name == normalVclusterName }
             assertNotNull(vcgInShow)
             assertTrue(vcgInShow.Policy.contains("activeComputeGroup='newcluster2', standbyComputeGroup='newcluster1'"))
-
-            //// use vcg
-            //sql """use @${normalVclusterName}"""
-            //sql """
-            //CREATE TABLE ${tbl} (
-            //`k1` int(11) NULL,
-            //`k2` char(5) NULL
-            //)
-            //DUPLICATE KEY(`k1`, `k2`)
-            //COMMENT 'OLAP'
-            //DISTRIBUTED BY HASH(`k1`) BUCKETS 1
-            //PROPERTIES (
-            //"replication_num"="1"
-            //);
-            //"""
-
-            //sql """
-            //    insert into ${tbl} (k1, k2) values (1, "10");
-            //"""
-
-            //result = sql """select count(*) from ${tbl}"""
-            //log.info("result = {}", result)
-            //assertEquals(result.size(), 1)
-
-            // alter cluster info, change standbyComputeGroup to newcluster1, activeComputeGroup to newcluster2
-            //clusterPolicy = [type: "ActiveStandby", active_cluster_name: "${clusterName2}", standby_cluster_names: ["${clusterName1}"]]
-            //clusterMap = [cluster_name: "${normalVclusterName}", cluster_id:"${normalVclusterId}", type:"VIRTUAL", cluster_policy:clusterPolicy]
-            //normalInstance = [instance_id: "${instance_id}", cluster: clusterMap]
-            //jsonOutput = new JsonOutput()
-            //normalVcgBody = jsonOutput.toJson(normalInstance)
-            //alter_cluster_info_api(msHttpPort, normalVcgBody) {
-            //    respCode, body ->
-            //        log.info("alter virtual cluster result: ${body} ${respCode}".toString())
-            //        def json = parseJson(body)
-            //        assertTrue(json.code.equalsIgnoreCase("OK"))
-            //}
-            //sleep(5000)
-            //showComputeGroup = sql_return_maparray """ SHOW COMPUTE GROUPS """
-            //log.info("show compute group after alter {}", showComputeGroup)
-            //vcgInShow = showComputeGroup.find { it.Name == normalVclusterName }
-            //assertNotNull(vcgInShow)
-            //assertTrue(vcgInShow.Policy.contains("activeComputeGroup='newcluster2', standbyComputeGroup='newcluster1'"))
         }
         // connect to follower, run again
         //options.connectToFollower = true

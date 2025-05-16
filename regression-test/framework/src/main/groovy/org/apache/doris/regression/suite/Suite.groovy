@@ -2854,10 +2854,12 @@ class Suite implements GroovyInterceptable {
     }
 
     def checkProfileNew = { addrSet  ->
+        def fe = cluster.getAllFrontends().get(0)
+        def feEndPoint = fe.host + ":" + fe.httpPort
         def query_profile_api = { check_func ->
             httpTest {
                 op "get"
-                endpoint context.config.feHttpAddress
+                endpoint feEndPoint
                 uri "/rest/v1/query_profile"
                 check check_func
                 basicAuthorization "${context.config.feCloudHttpUser}","${context.config.feCloudHttpPassword}"
@@ -2866,7 +2868,7 @@ class Suite implements GroovyInterceptable {
 
         query_profile_api.call() {
             respCode, body ->
-                log.info("query profile resp: ${body} ${respCode}".toString())
+                //log.info("query profile resp: ${body} ${respCode}".toString())
                 def json = parseJson(body)
                 assertTrue(json.msg.equalsIgnoreCase("success"))
                 log.info("lw query profile resp: ${json.data.rows[0]}".toString())
@@ -2876,10 +2878,12 @@ class Suite implements GroovyInterceptable {
     }
 
     def checkProfileNew1 = {addrSet, query_id  ->
+        def fe = cluster.getAllFrontends().get(0)
+        def feEndPoint = fe.host + ":" + fe.httpPort
         def query_profile_api = { check_func ->
             httpTest {
                 op "get"
-                endpoint context.config.feHttpAddress
+                endpoint feEndPoint
                 uri "/api/profile?query_id=${query_id}"
                 check check_func
                 basicAuthorization "${context.config.feCloudHttpUser}","${context.config.feCloudHttpPassword}"
@@ -2917,8 +2921,9 @@ class Suite implements GroovyInterceptable {
                     }
  
                     // 输出解析结果
-                    println "提取的IP和端口："
+                    println "actual ip port："
                     result.each { println it }
+                    println "expect ip port："
                     addrSet.each { println it }
                     //result.each { assertTrue(addrSet.contains(it)) }
                     assertTrue(addrSet.containsAll(result))

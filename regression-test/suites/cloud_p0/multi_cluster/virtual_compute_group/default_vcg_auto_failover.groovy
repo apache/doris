@@ -20,10 +20,11 @@ import groovy.json.JsonSlurper
 import groovy.json.JsonOutput
 
 // 1 create two physical cluster c1, c2, every cluster contains 2 be
-// 2 stop a backend of c1
-// 3 stop a backend of c1
-// 4 start 2 backends of c1
-// 5 long-term stop 2 backends of c1
+// 2 create vcg, c1, c2 are sub compute group of vcg, adn c1 is active cg
+// 3 set vcg as default cluster
+// 4 stop 2 bes of c1
+// 5 start 2 bes of c1
+// 6 long-term stop 2 bes of c1
 
 suite('default_vcg_auto_failover', 'multi_cluster,docker') {
     def options = new ClusterOptions()
@@ -126,6 +127,25 @@ suite('default_vcg_auto_failover', 'multi_cluster,docker') {
 
             sql """ SET PROPERTY 'default_cloud_cluster' = 'normalVirtualClusterName' """
 
+            def reconnectFe = {
+                sleep(10000)
+                logger.info("Reconnecting to a new frontend...")
+                def newFe = cluster.getMasterFe()
+                if (newFe) {
+                    logger.info("New frontend found: ${newFe.host}:${newFe.httpPort}")
+                    def url = String.format(
+                            "jdbc:mysql://%s:%s/?useLocalSessionState=true&allowLoadLocalInfile=false",
+                            newFe.host, newFe.queryPort)
+                    url = context.config.buildUrlWithDb(url, context.dbName)
+                    context.connectTo(url, context.config.jdbcUser, context.config.jdbcPassword)
+                    logger.info("Successfully reconnected to the new frontend")
+                } else {
+                    logger.error("No new frontend found to reconnect")
+                }
+            }
+
+            reconnectFe()
+
             sql """ drop table if exists ${tableName} """
 
             sql """
@@ -182,6 +202,7 @@ suite('default_vcg_auto_failover', 'multi_cluster,docker') {
 
                 file 'all_types.csv'
                 time 10000 // limit inflight 10s
+                setFeAddr cluster.getAllFrontends().get(0).host, cluster.getAllFrontends().get(0).httpPort
 
                 check { loadResult, exception, startTime, endTime ->
                     if (exception != null) {
@@ -260,6 +281,7 @@ suite('default_vcg_auto_failover', 'multi_cluster,docker') {
 
                 file 'all_types.csv'
                 time 10000 // limit inflight 10s
+                setFeAddr cluster.getAllFrontends().get(0).host, cluster.getAllFrontends().get(0).httpPort
 
                 check { loadResult, exception, startTime, endTime ->
                     if (exception != null) {
@@ -334,6 +356,7 @@ suite('default_vcg_auto_failover', 'multi_cluster,docker') {
 
                 file 'all_types.csv'
                 time 10000 // limit inflight 10s
+                setFeAddr cluster.getAllFrontends().get(0).host, cluster.getAllFrontends().get(0).httpPort
 
                 check { loadResult, exception, startTime, endTime ->
                     if (exception != null) {

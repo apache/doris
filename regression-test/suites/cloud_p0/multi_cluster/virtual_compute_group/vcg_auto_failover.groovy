@@ -20,12 +20,13 @@ import groovy.json.JsonSlurper
 import groovy.json.JsonOutput
 
 // 1 create two physical cluster c1, c2, every cluster contains 2 be
-// 2 stop a backend of c1
-// 3 stop a backend of c1
-// 4 start 2 backends of c1
-// 5 long-term stop 2 backends of c1
+// 2 create vcg, c1, c2 are sub compute group of vcg, adn c1 is active cg
+// 3 use vcg
+// 4 stop 2 bes of c1
+// 5 start 2 bes of c1
+// 6 long-term stop 2 bes of c1
 
-suite('vcg_failover_1', 'multi_cluster,docker') {
+suite('vcg_auto_failover', 'multi_cluster,docker') {
     def options = new ClusterOptions()
     String tableName = "test_all_vcluster"
     String tbl = "test_virtual_compute_group_tbl"
@@ -182,6 +183,7 @@ suite('vcg_failover_1', 'multi_cluster,docker') {
 
                 file 'all_types.csv'
                 time 10000 // limit inflight 10s
+                setFeAddr cluster.getAllFrontends().get(0).host, cluster.getAllFrontends().get(0).httpPort
 
                 check { loadResult, exception, startTime, endTime ->
                     if (exception != null) {
@@ -261,6 +263,7 @@ suite('vcg_failover_1', 'multi_cluster,docker') {
 
                 file 'all_types.csv'
                 time 10000 // limit inflight 10s
+                setFeAddr cluster.getAllFrontends().get(0).host, cluster.getAllFrontends().get(0).httpPort
 
                 check { loadResult, exception, startTime, endTime ->
                     if (exception != null) {
@@ -336,6 +339,7 @@ suite('vcg_failover_1', 'multi_cluster,docker') {
 
                 file 'all_types.csv'
                 time 10000 // limit inflight 10s
+                setFeAddr cluster.getAllFrontends().get(0).host, cluster.getAllFrontends().get(0).httpPort
 
                 check { loadResult, exception, startTime, endTime ->
                     if (exception != null) {
