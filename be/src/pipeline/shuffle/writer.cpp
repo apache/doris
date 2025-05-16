@@ -104,7 +104,7 @@ Status Writer::_channel_add_rows(RuntimeState* state,
         uint32_t start = partition_rows_histogram[i + 1];
         uint32_t size = partition_rows_histogram[i + 2] - start;
         if (!channels[i]->is_receiver_eof() && size > 0) {
-            VLOG_DEBUG << fmt::format("partition {} of {}, block:\n{}\n, start: {}, size: {}", i,
+            VLOG_DEBUG << fmt::format("partition {} of {}, block:\n{}, start: {}, size: {}", i,
                                       partition_count, block->dump_data(), start, size);
             status = channels[i]->add_rows(block, row_idx.data(), start, size, false);
             HANDLE_CHANNEL_STATUS(state, channels[i], status);

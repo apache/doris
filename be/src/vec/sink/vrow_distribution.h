@@ -131,8 +131,7 @@ public:
     // v1 needs index->node->row_ids - tabletids
     // v2 needs index,tablet->rowids
     // reentry means this block is batched block. so skip some transform.
-    Status generate_rows_distribution(vectorized::Block& input_block,
-                                      std::shared_ptr<vectorized::Block>& block,
+    Status generate_rows_distribution(Block& input_block, std::shared_ptr<Block>& block,
                                       int64_t& filtered_rows, bool& has_filtered_rows,
                                       std::vector<RowPartTabletIds>& row_part_tablet_ids,
                                       int64_t& rows_stat_val, bool reentry = false);
@@ -156,39 +155,38 @@ public:
     }
 
 private:
-    std::pair<vectorized::VExprContextSPtrs, vectorized::VExprSPtrs> _get_partition_function();
+    std::pair<VExprContextSPtrs, VExprSPtrs> _get_partition_function();
 
-    Status _save_missing_values(std::vector<std::vector<std::string>>& col_strs, int col_size,
+    Status _save_missing_values(const Block& input_block,
+                                std::vector<std::vector<std::string>>& col_strs, int col_size,
                                 Block* block, const std::vector<int64_t>& filter,
                                 const std::vector<const NullMap*>& col_null_maps);
 
-    void _get_tablet_ids(vectorized::Block* block, int32_t index_idx,
-                         std::vector<int64_t>& tablet_ids);
+    void _get_tablet_ids(Block* block, int32_t index_idx, std::vector<int64_t>& tablet_ids);
 
-    void _filter_block_by_skip(vectorized::Block* block, RowPartTabletIds& row_part_tablet_id);
+    void _filter_block_by_skip(Block* block, RowPartTabletIds& row_part_tablet_id);
 
-    Status _filter_block_by_skip_and_where_clause(vectorized::Block* block,
-                                                  const vectorized::VExprContextSPtr& where_clause,
+    Status _filter_block_by_skip_and_where_clause(Block* block,
+                                                  const VExprContextSPtr& where_clause,
                                                   RowPartTabletIds& row_part_tablet_id);
 
-    Status _filter_block(vectorized::Block* block,
-                         std::vector<RowPartTabletIds>& row_part_tablet_ids);
+    Status _filter_block(Block* block, std::vector<RowPartTabletIds>& row_part_tablet_ids);
 
     Status _generate_rows_distribution_for_auto_partition(
-            vectorized::Block* block, const std::vector<uint16_t>& partition_col_idx,
+            const Block& input_block, Block* block, const std::vector<uint16_t>& partition_col_idx,
             bool has_filtered_rows, std::vector<RowPartTabletIds>& row_part_tablet_ids,
             int64_t& rows_stat_val);
     // the whole process to deal missing rows. will call _save_missing_values
-    Status _deal_missing_map(vectorized::Block* block,
+    Status _deal_missing_map(const Block& input_block, Block* block,
                              const std::vector<uint16_t>& partition_cols_idx,
                              int64_t& rows_stat_val);
 
     Status _generate_rows_distribution_for_non_auto_partition(
-            vectorized::Block* block, bool has_filtered_rows,
+            Block* block, bool has_filtered_rows,
             std::vector<RowPartTabletIds>& row_part_tablet_ids);
 
     Status _generate_rows_distribution_for_auto_overwrite(
-            vectorized::Block* block, const std::vector<uint16_t>& partition_cols_idx,
+            const Block& input_block, Block* block, const std::vector<uint16_t>& partition_cols_idx,
             bool has_filtered_rows, std::vector<RowPartTabletIds>& row_part_tablet_ids,
             int64_t& rows_stat_val);
     Status _replace_overwriting_partition();
