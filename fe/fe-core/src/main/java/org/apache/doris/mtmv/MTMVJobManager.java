@@ -30,7 +30,6 @@ import org.apache.doris.job.base.JobExecuteType;
 import org.apache.doris.job.base.JobExecutionConfiguration;
 import org.apache.doris.job.base.TimerDefinition;
 import org.apache.doris.job.common.JobStatus;
-import org.apache.doris.job.common.JobType;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.mtmv.MTMVJob;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
@@ -46,12 +45,10 @@ import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.persist.AlterMTMV;
 
 import com.google.common.collect.Lists;
-import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.List;
 import java.util.Optional;
 
 /**
@@ -65,15 +62,10 @@ public class MTMVJobManager implements MTMVHookService {
     // if immediate, triggerJob after create MTMT
     @Override
     public void postCreateMTMV(MTMV mtmv) {
+        MTMVJob job = getJobByMTMV(mtmv);
+        Env.getCurrentEnv().getJobManager().scheduleJob(job);
         if (!mtmv.getRefreshInfo().getBuildMode().equals(BuildMode.IMMEDIATE)) {
             return;
-        }
-        MTMVJob job = null;
-        try {
-            job = getJobByMTMV(mtmv);
-        } catch (DdlException e) {
-            // should not happen
-            LOG.warn("get job failed by mvName: {}", mtmv.getName(), e);
         }
         MTMVTaskContext mtmvTaskContext = new MTMVTaskContext(MTMVTaskTriggerMode.SYSTEM, null, true);
         try {
@@ -139,14 +131,7 @@ public class MTMVJobManager implements MTMVHookService {
     }
 
     public void dropJob(MTMV mtmv) {
-        MTMVJob job;
-        try {
-            job = getJobByMTMV(mtmv);
-        } catch (DdlException e) {
-            // should not happen
-            LOG.warn("unregisterMTMV failed by mvName: {}", mtmv.getName(), e);
-            return;
-        }
+        MTMVJob job = getJobByMTMV(mtmv);
         Env.getCurrentEnv().getJobManager().dropJobInternal(job);
     }
 
@@ -233,13 +218,8 @@ public class MTMVJobManager implements MTMVHookService {
         return getJobByMTMV(mtmv);
     }
 
-    private MTMVJob getJobByMTMV(MTMV mtmv) throws DdlException {
-        List<MTMVJob> jobs = Env.getCurrentEnv().getJobManager()
-                .queryJobs(JobType.MV, mtmv.getJobInfo().getJobName());
-        if (CollectionUtils.isEmpty(jobs) || jobs.size() != 1) {
-            throw new DdlException("jobs not normal,should have one job,but job num is: " + jobs.size());
-        }
-        return jobs.get(0);
+    private MTMVJob getJobByMTMV(MTMV mtmv) {
+        return (MTMVJob) Env.getCurrentEnv().getJobManager().getJob(mtmv.getId());
     }
 
 }

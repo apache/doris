@@ -148,6 +148,11 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
         }
     }
 
+    public void scheduleJob(T job) {
+        // if it's timer job and trigger last window already start, we will scheduler it immediately
+        jobScheduler.cycleTimerJobScheduler(job, System.currentTimeMillis());
+    }
+
     private void checkJobNameExist(String jobName) throws JobException {
         if (jobMap.values().stream().anyMatch(a -> a.getJobName().equals(jobName))) {
             throw new JobException("job name exist, jobName:" + jobName);
