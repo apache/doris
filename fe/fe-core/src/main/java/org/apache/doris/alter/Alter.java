@@ -836,6 +836,9 @@ public class Alter {
                 Env.getCurrentRecycleBin().recycleTable(db.getId(), origTable, isReplay, isForce, 0);
             }
             Env.getCurrentEnv().getAnalysisManager().removeTableStats(origTable.getId());
+            if (origTable instanceof MTMV) {
+                Env.getCurrentEnv().getMtmvService().dropJob((MTMV) origTable);
+            }
         }
     }
 

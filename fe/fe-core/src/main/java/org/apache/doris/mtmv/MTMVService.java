@@ -219,4 +219,12 @@ public class MTMVService implements EventListener {
         }
         return mtmv.getRefreshInfo().getRefreshTriggerInfo().getRefreshTrigger().equals(RefreshTrigger.COMMIT);
     }
+
+    public void createJob(MTMV mtmv) {
+        jobManager.createJob(mtmv);
+    }
+
+    public void dropJob(MTMV mtmv) {
+        jobManager.dropJob(mtmv);
+    }
 }

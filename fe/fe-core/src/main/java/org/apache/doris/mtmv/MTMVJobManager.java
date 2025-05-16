@@ -130,7 +130,16 @@ public class MTMVJobManager implements MTMVHookService {
 
     @Override
     public void registerMTMV(MTMV mtmv, Long dbId) {
-        MTMVJob job = new MTMVJob(dbId, mtmv.getId());
+
+    }
+
+    @Override
+    public void unregisterMTMV(MTMV mtmv) {
+
+    }
+
+    public void createJob(MTMV mtmv) {
+        MTMVJob job = new MTMVJob(mtmv.getDatabase().getId(), mtmv.getId());
         job.setJobId(Env.getCurrentEnv().getNextId());
         job.setJobName(mtmv.getJobInfo().getJobName());
         job.setCreateUser(UserIdentity.ADMIN);
@@ -139,8 +148,7 @@ public class MTMVJobManager implements MTMVHookService {
         Env.getCurrentEnv().getJobManager().createJobInternal(job);
     }
 
-    @Override
-    public void unregisterMTMV(MTMV mtmv) {
+    public void dropJob(MTMV mtmv) {
         MTMVJob job;
         try {
             job = getJobByMTMV(mtmv);
@@ -162,8 +170,8 @@ public class MTMVJobManager implements MTMVHookService {
     @Override
     public void alterMTMV(MTMV mtmv, AlterMTMV alterMTMV) throws DdlException {
         if (alterMTMV.isNeedRebuildJob()) {
-            unregisterMTMV(mtmv);
-            registerMTMV(mtmv, mtmv.getDatabase().getId());
+            dropJob(mtmv);
+            createJob(mtmv);
         }
     }
 
