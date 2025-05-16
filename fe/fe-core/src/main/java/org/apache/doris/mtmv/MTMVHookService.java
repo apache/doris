@@ -36,27 +36,18 @@ import java.util.Optional;
  */
 public interface MTMVHookService {
     /**
-     * triggered when create mtmv, only once
+     * triggered after create mtmv, only once
      *
      * @param mtmv
-     * @throws DdlException
      */
-    void createMTMV(MTMV mtmv) throws DdlException;
-
-    /**
-     * triggered when drop mtmv, only once
-     *
-     * @param mtmv
-     * @throws DdlException
-     */
-    void dropMTMV(MTMV mtmv) throws DdlException;
+    void postCreateMTMV(MTMV mtmv);
 
     /**
      * triggered when playing `create mtmv` logs
      * When triggered, db has not completed playback yet, so use dbId as param
      *
      * @param mtmv
-     * @param dbId
+     * @param dbId when load from image, table.getDatabase() will be null, so need dbId as param
      */
     void registerMTMV(MTMV mtmv, Long dbId);
 

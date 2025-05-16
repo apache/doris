@@ -204,12 +204,7 @@ public class MTMVRelationManager implements MTMVHookService {
     }
 
     @Override
-    public void createMTMV(MTMV mtmv) throws DdlException {
-
-    }
-
-    @Override
-    public void dropMTMV(MTMV mtmv) throws DdlException {
+    public void postCreateMTMV(MTMV mtmv) {
 
     }
 

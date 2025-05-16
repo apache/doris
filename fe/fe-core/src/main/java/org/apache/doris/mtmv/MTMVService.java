@@ -92,19 +92,11 @@ public class MTMVService implements EventListener {
         }
     }
 
-    public void createMTMV(MTMV mtmv) throws DdlException, AnalysisException {
+    public void postCreateMTMV(MTMV mtmv) {
         Objects.requireNonNull(mtmv, "mtmv can not be null");
-        LOG.info("createMTMV: " + mtmv.getName());
+        LOG.info("postCreateMTMV: " + mtmv.getName());
         for (MTMVHookService mtmvHookService : hooks.values()) {
-            mtmvHookService.createMTMV(mtmv);
-        }
-    }
-
-    public void dropMTMV(MTMV mtmv) throws DdlException {
-        Objects.requireNonNull(mtmv, "mtmv can not be null");
-        LOG.info("dropMTMV: " + mtmv.getName());
-        for (MTMVHookService mtmvHookService : hooks.values()) {
-            mtmvHookService.dropMTMV(mtmv);
+            mtmvHookService.postCreateMTMV(mtmv);
         }
     }
 
@@ -226,5 +218,13 @@ public class MTMVService implements EventListener {
             return false;
         }
         return mtmv.getRefreshInfo().getRefreshTriggerInfo().getRefreshTrigger().equals(RefreshTrigger.COMMIT);
+    }
+
+    public void createJob(MTMV mtmv) {
+        jobManager.createJob(mtmv);
+    }
+
+    public void dropJob(MTMV mtmv) {
+        jobManager.dropJob(mtmv);
     }
 }
