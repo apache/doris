@@ -42,8 +42,8 @@ suite("test_hive_read_parquet_complex_type", "external,hive,external_docker") {
         // It's okay to use random `hdfsUser`, but can not be empty.
         def hdfsUserName = "doris"
         def format = "parquet"
-        def defaultFS = "hdfs://${externalEnvIp}:${hdfs_port}"
-        def defaultFS_with_postfix = "hdfs://${externalEnvIp}:${hdfs_port}/"
+        def defaultFS = "hdfs://178.12.0.18:${hdfs_port}"
+        def defaultFS_with_postfix = "hdfs://178.12.0.18:${hdfs_port}/"
         def outfile_path = "/user/doris/tmp_data"
         def uri = "${defaultFS}" + "${outfile_path}/exp_"
 
