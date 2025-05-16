@@ -1306,9 +1306,9 @@ public class Alter {
                 default:
                     throw new RuntimeException("Unknown type value: " + alterMTMV.getOpType());
             }
+            Env.getCurrentEnv().getMtmvService().alterMTMV(mtmv, alterMTMV);
             // 4. log it and replay it in the follower
             if (!isReplay) {
-                Env.getCurrentEnv().getMtmvService().alterMTMV(mtmv, alterMTMV);
                 Env.getCurrentEnv().getEditLog().logAlterMTMV(alterMTMV);
             }
         } catch (UserException e) {
