@@ -377,7 +377,8 @@ Status CloudFullCompaction::_cloud_full_compaction_calc_delete_bitmap(
             segments.begin(), segments.end(), 0,
             [](size_t sum, const segment_v2::SegmentSharedPtr& s) { return sum += s->num_rows(); });
     for (const auto& [k, v] : tmp_delete_bitmap->delete_bitmap) {
-        if (std::get<1>(k) != DeleteBitmap::INVALID_SEGMENT_ID) {
+        if (std::get<0>(k) == _output_rowset->rowset_id() &&
+            std::get<1>(k) != DeleteBitmap::INVALID_SEGMENT_ID) {
             delete_bitmap->merge({std::get<0>(k), std::get<1>(k), cur_version}, v);
         }
     }
