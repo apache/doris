@@ -105,9 +105,6 @@ public class CsvFileFormatProperties extends FileFormatProperties {
                     throw new AnalysisException("enclose should not be longer than one byte.");
                 }
                 enclose = (byte) enclosedString.charAt(0);
-                if (enclose == 0) {
-                    throw new AnalysisException("enclose should not be byte [0].");
-                }
             }
 
             String escapeStr = getOrDefault(formatProperties, PROP_ESCAPE,
@@ -151,9 +148,7 @@ public class CsvFileFormatProperties extends FileFormatProperties {
         TFileTextScanRangeParams fileTextScanRangeParams = new TFileTextScanRangeParams();
         fileTextScanRangeParams.setColumnSeparator(this.columnSeparator);
         fileTextScanRangeParams.setLineDelimiter(this.lineDelimiter);
-        if (this.enclose != 0) {
-            fileTextScanRangeParams.setEnclose(this.enclose);
-        }
+        fileTextScanRangeParams.setEnclose(this.enclose);
         fileTextScanRangeParams.setEscape(this.escape);
         fileAttributes.setTextParams(fileTextScanRangeParams);
         fileAttributes.setHeaderType(headerType);

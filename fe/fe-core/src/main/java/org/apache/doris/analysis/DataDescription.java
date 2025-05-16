@@ -148,8 +148,11 @@ public class DataDescription implements InsertStmt.DataDesc {
 
     TUniqueKeyUpdateMode uniquekeyUpdateMode = TUniqueKeyUpdateMode.UPSERT;
 
-    FileFormatProperties fileFormatProperties;
-    Map<String, String> analysisMap = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+    private FileFormatProperties fileFormatProperties;
+
+    // This map is used to collect information of file format properties.
+    // The map should be only used in `constructor` and `analyzeWithoutCheckPriv` method.
+    private Map<String, String> analysisMap = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
 
     public DataDescription(String tableName,
                            PartitionNames partitionNames,

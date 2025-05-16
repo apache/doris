@@ -82,7 +82,7 @@ public class JsonFileFormatProperties extends FileFormatProperties {
                     "UNKNOWN", isRemoveOriginProperty);
             compressionType = Util.getFileCompressType(compressTypeStr);
         } catch (org.apache.doris.common.AnalysisException e) {
-            throw new AnalysisException(e.getMessage());
+            throw new AnalysisException("Analyze file format failed: " + e.getMessage());
         }
     }
 

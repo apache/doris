@@ -347,8 +347,8 @@ public class NereidsDataDescription {
             putAnalysisMapIfNonNull(CsvFileFormatProperties.PROP_LINE_DELIMITER,
                     taskInfo.getLineDelimiter().getOriSeparator());
         }
-        putAnalysisMapIfNonNull(CsvFileFormatProperties.PROP_ENCLOSE, String.valueOf(taskInfo.getEnclose()));
-        putAnalysisMapIfNonNull(CsvFileFormatProperties.PROP_ESCAPE, String.valueOf(taskInfo.getEscape()));
+        putAnalysisMapIfNonNull(CsvFileFormatProperties.PROP_ENCLOSE, new String(new byte[]{taskInfo.getEnclose()}));
+        putAnalysisMapIfNonNull(CsvFileFormatProperties.PROP_ESCAPE, new String(new byte[]{taskInfo.getEscape()}));
         putAnalysisMapIfNonNull(CsvFileFormatProperties.PROP_TRIM_DOUBLE_QUOTES,
                 String.valueOf(taskInfo.getTrimDoubleQuotes()));
         putAnalysisMapIfNonNull(CsvFileFormatProperties.PROP_SKIP_LINES,
