@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap/rowset/segment_v2/x_index_file_reader.h"
+#include "olap/rowset/segment_v2/index_file_reader.h"
 
 #include <memory>
 #include <utility>

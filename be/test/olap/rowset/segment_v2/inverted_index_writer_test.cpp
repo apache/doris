@@ -34,11 +34,11 @@
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/local_file_system.h"
 #include "olap/field.h"
+#include "olap/rowset/segment_v2/index_file_reader.h"
+#include "olap/rowset/segment_v2/index_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
-#include "olap/rowset/segment_v2/x_index_file_reader.h"
-#include "olap/rowset/segment_v2/x_index_file_writer.h"
 #include "olap/tablet_schema.h"
 #include "olap/tablet_schema_helper.h"
 #include "runtime/runtime_state.h"
@@ -48,7 +48,7 @@
 #include "vec/olap/olap_data_convertor.h"
 
 using namespace lucene::index;
-using doris::segment_v2::XIndexFileWriter;
+using doris::segment_v2::IndexFileWriter;
 
 namespace doris::segment_v2 {
 
@@ -322,7 +322,7 @@ public:
         auto fs = io::global_local_filesystem();
         Status sts = fs->create_file(index_path, &file_writer, &opts);
         ASSERT_TRUE(sts.ok()) << sts;
-        auto index_file_writer = std::make_unique<XIndexFileWriter>(
+        auto index_file_writer = std::make_unique<IndexFileWriter>(
                 fs, index_path_prefix, std::string {rowset_id}, seg_id,
                 InvertedIndexStorageFormatPB::V2, std::move(file_writer));
 
@@ -333,9 +333,9 @@ public:
         ASSERT_NE(field.get(), nullptr);
 
         // Create column writer
-        std::unique_ptr<IndexColumnWriter> column_writer;
-        auto status = IndexColumnWriter::create(field.get(), &column_writer,
-                                                index_file_writer.get(), &idx_meta);
+        std::unique_ptr<IndexWriter> column_writer;
+        auto status = IndexWriter::create(field.get(), &column_writer, index_file_writer.get(),
+                                          &idx_meta);
         EXPECT_TRUE(status.ok()) << status;
 
         // Add string values
@@ -384,7 +384,7 @@ public:
         auto fs = io::global_local_filesystem();
         Status sts = fs->create_file(index_path, &file_writer, &opts);
         ASSERT_TRUE(sts.ok()) << sts;
-        auto index_file_writer = std::make_unique<XIndexFileWriter>(
+        auto index_file_writer = std::make_unique<IndexFileWriter>(
                 fs, index_path_prefix, std::string {rowset_id}, seg_id,
                 InvertedIndexStorageFormatPB::V2, std::move(file_writer));
 
@@ -395,9 +395,9 @@ public:
         ASSERT_NE(field.get(), nullptr);
 
         // Create column writer
-        std::unique_ptr<IndexColumnWriter> column_writer;
-        auto status = IndexColumnWriter::create(field.get(), &column_writer,
-                                                index_file_writer.get(), &idx_meta);
+        std::unique_ptr<IndexWriter> column_writer;
+        auto status = IndexWriter::create(field.get(), &column_writer, index_file_writer.get(),
+                                          &idx_meta);
         EXPECT_TRUE(status.ok()) << status;
 
         // Add null values
@@ -458,7 +458,7 @@ public:
         auto fs = io::global_local_filesystem();
         Status sts = fs->create_file(index_path, &file_writer, &opts);
         ASSERT_TRUE(sts.ok()) << sts;
-        auto index_file_writer = std::make_unique<XIndexFileWriter>(
+        auto index_file_writer = std::make_unique<IndexFileWriter>(
                 fs, index_path_prefix, std::string {rowset_id}, seg_id,
                 InvertedIndexStorageFormatPB::V2, std::move(file_writer));
 
@@ -469,9 +469,9 @@ public:
         ASSERT_NE(field.get(), nullptr);
 
         // Create column writer
-        std::unique_ptr<IndexColumnWriter> column_writer;
-        auto status = IndexColumnWriter::create(field.get(), &column_writer,
-                                                index_file_writer.get(), &idx_meta);
+        std::unique_ptr<IndexWriter> column_writer;
+        auto status = IndexWriter::create(field.get(), &column_writer, index_file_writer.get(),
+                                          &idx_meta);
         EXPECT_TRUE(status.ok()) << status;
 
         // Add integer values
@@ -519,7 +519,7 @@ public:
         auto fs = io::global_local_filesystem();
         Status sts = fs->create_file(index_path, &file_writer, &opts);
         ASSERT_TRUE(sts.ok()) << sts;
-        auto index_file_writer = std::make_unique<XIndexFileWriter>(
+        auto index_file_writer = std::make_unique<IndexFileWriter>(
                 fs, index_path_prefix, std::string {rowset_id}, seg_id,
                 InvertedIndexStorageFormatPB::V2, std::move(file_writer));
 
@@ -536,9 +536,9 @@ public:
         config::enable_inverted_index_correct_term_write = enable_correct_term_write;
 
         // Create column writer
-        std::unique_ptr<IndexColumnWriter> column_writer;
-        auto status = IndexColumnWriter::create(field.get(), &column_writer,
-                                                index_file_writer.get(), &idx_meta);
+        std::unique_ptr<IndexWriter> column_writer;
+        auto status = IndexWriter::create(field.get(), &column_writer, index_file_writer.get(),
+                                          &idx_meta);
         EXPECT_TRUE(status.ok()) << status;
 
         // Add string values with Unicode characters above 0xFFFF
@@ -693,11 +693,11 @@ TEST_F(InvertedIndexWriterTest, CompareUnicodeStringWriteResults) {
     sts = fs->create_file(index_path_disabled, &file_writer_disabled, &opts);
     ASSERT_TRUE(sts.ok()) << sts;
 
-    auto index_file_writer_enabled = std::make_unique<XIndexFileWriter>(
+    auto index_file_writer_enabled = std::make_unique<IndexFileWriter>(
             fs, index_path_prefix_enabled, "test_rowset_compare", 1,
             InvertedIndexStorageFormatPB::V2, std::move(file_writer_enabled));
 
-    auto index_file_writer_disabled = std::make_unique<XIndexFileWriter>(
+    auto index_file_writer_disabled = std::make_unique<IndexFileWriter>(
             fs, index_path_prefix_disabled, "test_rowset_compare", 2,
             InvertedIndexStorageFormatPB::V2, std::move(file_writer_disabled));
 
@@ -711,18 +711,18 @@ TEST_F(InvertedIndexWriterTest, CompareUnicodeStringWriteResults) {
     bool original_config_value = config::enable_inverted_index_correct_term_write;
 
     // Create column writers with different settings
-    std::unique_ptr<IndexColumnWriter> column_writer_enabled, column_writer_disabled;
+    std::unique_ptr<IndexWriter> column_writer_enabled, column_writer_disabled;
 
     // Set config to enabled for first writer
     config::enable_inverted_index_correct_term_write = true;
-    auto status = IndexColumnWriter::create(field.get(), &column_writer_enabled,
-                                            index_file_writer_enabled.get(), &idx_meta);
+    auto status = IndexWriter::create(field.get(), &column_writer_enabled,
+                                      index_file_writer_enabled.get(), &idx_meta);
     EXPECT_TRUE(status.ok()) << status;
 
     // Set config to disabled for second writer
     config::enable_inverted_index_correct_term_write = false;
-    status = IndexColumnWriter::create(field.get(), &column_writer_disabled,
-                                       index_file_writer_disabled.get(), &idx_meta);
+    status = IndexWriter::create(field.get(), &column_writer_disabled,
+                                 index_file_writer_disabled.get(), &idx_meta);
     EXPECT_TRUE(status.ok()) << status;
 
     // Add string values with Unicode characters above 0xFFFF

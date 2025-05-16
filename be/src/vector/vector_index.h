@@ -17,57 +17,73 @@
 
 #pragma once
 
+#include <memory>
+#include <roaring/roaring.hh>
+
 #include "common/status.h"
+#include "gutil/integral_types.h"
 
-struct SearchResult {
-    int rows;
-    std::vector<float> distances;
-    std::vector<int64_t> ids;
-    void* stat; //统计分析
+namespace lucene::store {
+class Directory;
+}
+namespace doris::segment_v2 {
+/*
+This struct is used to wrap the search result of a vector index.
+roaring is a bitmap that contains the row ids that satisfy the search condition.
+row_ids is a vector of row ids that are returned by the search, it could be used by virtual_column_iterator to do column filter.
+distances is a vector of distances that are returned by the search.
+For range search, is condition is not le_or_lt, the row_ids and distances will be nullptr.
+*/
+struct IndexSearchResult {
+    IndexSearchResult() = default;
 
-    SearchResult() {
-        rows = 0;
-        stat = nullptr;
-    }
-    float get_distance(int idx) {
-        if (idx < 0 || idx >= static_cast<int>(distances.size())) {
-            throw std::out_of_range("Invalid distance index");
-        }
-        return distances[idx];
-    }
-    int64_t get_id(int idx) {
-        if (idx < 0 || idx >= static_cast<int>(ids.size())) {
-            throw std::out_of_range("Invalid ID index");
-        }
-        return ids[idx];
-    }
-    void reset() {
-        rows = 0;
-        distances.clear();
-        ids.clear();
-    }
-    bool has_rows() { return rows > 0; }
-    int row_count() { return rows; }
+    std::unique_ptr<float[]> distances = nullptr;
+    std::unique_ptr<std::vector<uint64_t>> row_ids = nullptr;
+    std::shared_ptr<roaring::Roaring> roaring = nullptr;
 };
 
-struct SearchParameters {
-    virtual ~SearchParameters() {}
+struct IndexSearchParameters {
+    roaring::Roaring* roaring = nullptr;
+    bool is_le_or_lt = true;
+    virtual ~IndexSearchParameters() = default;
+};
+
+struct HNSWSearchParameters : public IndexSearchParameters {
+    int ef_search = 16;
 };
 
 class VectorIndex {
 public:
     enum class Metric { L2, COSINE, INNER_PRODUCT, UNKNOWN };
 
-    virtual doris::Status add(int n, const float* vec) = 0;
+    /** Add n vectors of dimension d to the index.
+     *
+     * Vectors are implicitly assigned labels ntotal .. ntotal + n - 1
+     * This function slices the input vectors in chunks smaller than
+     * blocksize_add and calls add_core.
+     * @param n      number of vectors
+     * @param x      input matrix, size n * d
+     */
+    virtual doris::Status add(int n, const float* x) = 0;
 
-    virtual doris::Status search(const float* query_vec, int k, SearchResult* result,
-                                 const SearchParameters* params = nullptr) = 0;
-    //virtual Status save(FileWriter* writer);
-    virtual doris::Status save() = 0;
+    virtual doris::Status ann_topn_search(const float* query_vec, int k,
+                                          const IndexSearchParameters& params,
+                                          IndexSearchResult& result) = 0;
+    /**
+        * Search for the nearest neighbors of a query vector within a given radius.
+        * @param query_vec  input vector, size d
+        * @param radius  search radius
+        * @param result  output search result
+        * @return       status of the operation
+        */
+    virtual doris::Status range_search(const float* query_vec, const float& radius,
+                                       const IndexSearchParameters& params,
+                                       IndexSearchResult& result) = 0;
 
-    //virtual Status load(FileReader* reader);
-    virtual doris::Status load(Metric type) = 0;
-    //void reset();
+    virtual doris::Status save(lucene::store::Directory*) = 0;
+
+    virtual doris::Status load(lucene::store::Directory*) = 0;
+
     static std::string metric_to_string(Metric metric) {
         switch (metric) {
         case Metric::L2:
@@ -92,4 +108,11 @@ public:
         }
     }
     virtual ~VectorIndex() = default;
+
+    size_t get_dimension() const { return _dimension; }
+
+protected:
+    size_t _dimension = 0;
 };
+
+} // namespace doris::segment_v2

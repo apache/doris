@@ -31,6 +31,8 @@
 #include <vector>
 
 #include "common/status.h"
+#include "olap/rowset/segment_v2/column_reader.h"
+#include "olap/rowset/segment_v2/index_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/large_int_value.h"
@@ -54,6 +56,11 @@ class HybridSetBase;
 class ObjectPool;
 class RowDescriptor;
 class RuntimeState;
+
+namespace segment_v2 {
+class IndexIterator;
+class ColumnIterator;
+}; // namespace segment_v2
 
 namespace vectorized {
 #include "common/compile_check_begin.h"
@@ -268,6 +275,19 @@ public:
         }
     }
 
+#ifdef BE_TEST
+    void set_node_type(TExprNodeType::type node_type) { _node_type = node_type; }
+#endif
+    virtual Status evaluate_ann_range_search(
+            const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& cid_to_index_iterators,
+            const std::vector<ColumnId>& idx_to_cid,
+            const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
+            roaring::Roaring& row_bitmap);
+
+    virtual Status prepare_ann_range_search();
+
+    bool has_been_executed();
+
 protected:
     /// Simple debug string that provides no expr subclass-specific information
     std::string debug_string(const std::string& expr_name) const {
@@ -337,6 +357,8 @@ protected:
     // ensuring uniqueness during index traversal
     uint32_t _index_unique_id = 0;
     bool _enable_inverted_index_query = true;
+
+    bool _has_been_executed = false;
 };
 
 } // namespace vectorized

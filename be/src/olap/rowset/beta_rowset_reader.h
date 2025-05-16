@@ -41,6 +41,7 @@ class Schema;
 struct RowLocation;
 struct RowsetReaderContext;
 
+// BetaRowsetReader is actually RowsetReaderV2..
 class BetaRowsetReader : public RowsetReader {
 public:
     BetaRowsetReader(BetaRowsetSharedPtr rowset);

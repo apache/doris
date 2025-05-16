@@ -69,7 +69,7 @@ struct ColumnWriterOptions {
     std::vector<const TabletIndex*> indexes; // unused
     const TabletIndex* inverted_index = nullptr;
     const TabletIndex* ann_index = nullptr;
-    XIndexFileWriter* x_index_file_writer;
+    IndexFileWriter* _index_file_writer;
     std::string to_string() const {
         std::stringstream ss;
         ss << std::boolalpha << "meta=" << meta->DebugString()
@@ -280,7 +280,7 @@ private:
     std::unique_ptr<OrdinalIndexWriter> _ordinal_index_builder;
     std::unique_ptr<ZoneMapIndexWriter> _zone_map_index_builder;
     std::unique_ptr<BitmapIndexWriter> _bitmap_index_builder;
-    std::unique_ptr<IndexColumnWriter> _inverted_index_builder;
+    std::unique_ptr<IndexWriter> _inverted_index_builder;
     std::unique_ptr<BloomFilterIndexWriter> _bloom_filter_index_builder;
 
     // call before flush data page.
@@ -410,8 +410,8 @@ private:
     std::unique_ptr<OffsetColumnWriter> _offset_writer;
     std::unique_ptr<ScalarColumnWriter> _null_writer;
     std::unique_ptr<ColumnWriter> _item_writer;
-    std::unique_ptr<IndexColumnWriter> _inverted_index_builder;
-    std::unique_ptr<IndexColumnWriter> _ann_index_builder;
+    std::unique_ptr<IndexWriter> _inverted_index_builder;
+    std::unique_ptr<IndexWriter> _ann_index_builder;
     ColumnWriterOptions _opts;
 };
 
@@ -465,7 +465,7 @@ private:
     // we need null writer to make sure a row is null or not
     std::unique_ptr<ScalarColumnWriter> _null_writer;
     std::unique_ptr<OffsetColumnWriter> _offsets_writer;
-    std::unique_ptr<IndexColumnWriter> _inverted_index_builder;
+    std::unique_ptr<IndexWriter> _inverted_index_builder;
     ColumnWriterOptions _opts;
 };
 

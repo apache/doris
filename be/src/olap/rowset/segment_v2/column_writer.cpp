@@ -451,7 +451,7 @@ Status ScalarColumnWriter::init() {
     if (_opts.need_inverted_index) {
         do {
             DBUG_EXECUTE_IF("column_writer.init", {
-                class IndexColumnWriterEmptyImpl final : public IndexColumnWriter {
+                class IndexColumnWriterEmptyImpl final : public IndexWriter {
                 public:
                     Status init() override { return Status::OK(); }
                     Status add_values(const std::string name, const void* values,
@@ -481,9 +481,8 @@ Status ScalarColumnWriter::init() {
                 break;
             });
 
-            RETURN_IF_ERROR(IndexColumnWriter::create(get_field(), &_inverted_index_builder,
-                                                      _opts.x_index_file_writer,
-                                                      _opts.inverted_index));
+            RETURN_IF_ERROR(IndexWriter::create(get_field(), &_inverted_index_builder,
+                                                _opts._index_file_writer, _opts.inverted_index));
         } while (false);
     }
     if (_opts.need_bloom_filter) {
@@ -896,16 +895,15 @@ Status ArrayColumnWriter::init() {
     if (_opts.need_inverted_index) {
         auto* writer = dynamic_cast<ScalarColumnWriter*>(_item_writer.get());
         if (writer != nullptr) {
-            RETURN_IF_ERROR(IndexColumnWriter::create(get_field(), &_inverted_index_builder,
-                                                      _opts.x_index_file_writer,
-                                                      _opts.inverted_index));
+            RETURN_IF_ERROR(IndexWriter::create(get_field(), &_inverted_index_builder,
+                                                _opts._index_file_writer, _opts.inverted_index));
         }
     }
     if (_opts.need_ann_index) {
         auto* writer = dynamic_cast<ScalarColumnWriter*>(_item_writer.get());
         if (writer != nullptr) {
-            RETURN_IF_ERROR(IndexColumnWriter::create(get_field(), &_ann_index_builder,
-                                                      _opts.x_index_file_writer, _opts.ann_index));
+            RETURN_IF_ERROR(IndexWriter::create(get_field(), &_ann_index_builder,
+                                                _opts._index_file_writer, _opts.ann_index));
         }
     }
     return Status::OK();
