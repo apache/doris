@@ -57,7 +57,7 @@ suite("query84") {
     qt_ds_shape_84 '''
     explain shape plan
     select 
-    /*+ leading(store_returns {customer_demographics {customer customer_address {household_demographics income_band}}}) */
+    /*+ leading(store_returns (customer_demographics (customer customer_address (household_demographics income_band)))) */
      c_customer_id as customer_id
        , concat(concat(coalesce(c_last_name,''), ','), coalesce(c_first_name,'')) as customername
  from customer

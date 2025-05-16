@@ -84,7 +84,7 @@ suite("query25") {
     qt_ds_shape_25 '''
     explain shape plan
     select  
-    /*+ leading(catalog_sales d3 {store_sales d1 {store_returns d2} item store}) */
+    /*+ leading(catalog_sales d3 (store_sales d1 (store_returns d2) item store)) */
  i_item_id
  ,i_item_desc
  ,s_store_id

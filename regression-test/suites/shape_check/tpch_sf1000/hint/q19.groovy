@@ -41,7 +41,7 @@ sql 'set be_number_for_test=3'
     qt_select """
     explain shape plan
         select
-        /*+ leading(lineitem broadcast part) */
+        /*+ leading(lineitem [broadcast] part) */
                 sum(l_extendedprice* (1 - l_discount)) as revenue
         from
                 lineitem,
