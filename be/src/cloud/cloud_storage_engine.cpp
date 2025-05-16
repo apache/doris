@@ -740,9 +740,12 @@ Status CloudStorageEngine::_submit_cumulative_compaction_task(const CloudTabletS
                            std::chrono::system_clock::now().time_since_epoch())
                            .count();
         if (!st.is<ErrorCode::CUMULATIVE_MEET_DELETE_VERSION>()) {
-            // Backoff strategy if no suitable version
-            tablet->last_cumu_no_suitable_version_ms = now;
-            tablet->set_last_cumu_compaction_failure_time(now);
+            if (st.is<ErrorCode::CUMULATIVE_NO_SUITABLE_VERSION>()) {
+                // Backoff strategy if no suitable version
+                tablet->last_cumu_no_suitable_version_ms = now;
+            } else {
+                tablet->set_last_cumu_compaction_failure_time(now);
+            }
         }
         std::lock_guard lock(_compaction_mtx);
         _tablet_preparing_cumu_compaction.erase(tablet->tablet_id());
