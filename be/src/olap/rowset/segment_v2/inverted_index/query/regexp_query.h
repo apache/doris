@@ -27,6 +27,8 @@ namespace doris::segment_v2 {
 
 class RegexpQuery : public Query {
 public:
+    using RegexBounds = std::pair<std::string, std::string>;
+
     RegexpQuery(const std::shared_ptr<lucene::search::IndexSearcher>& searcher,
                 const TQueryOptions& query_options, const io::IOContext* io_ctx);
     ~RegexpQuery() override = default;
@@ -35,6 +37,11 @@ public:
     void search(roaring::Roaring& roaring) override;
 
 private:
+    std::optional<RegexBounds> get_regex_bounds(const std::string& pattern);
+    void collect_matching_terms(const std::wstring& field_name, std::vector<std::string>& terms,
+                                hs_database_t* database, hs_scratch_t* scratch,
+                                const std::optional<RegexBounds>& bounds);
+
     std::shared_ptr<lucene::search::IndexSearcher> _searcher;
 
     int32_t _max_expansions = 50;
