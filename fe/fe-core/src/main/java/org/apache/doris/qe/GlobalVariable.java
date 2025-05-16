@@ -65,6 +65,10 @@ public final class GlobalVariable {
     public static final String AUDIT_PLUGIN_MAX_BATCH_INTERVAL_SEC = "audit_plugin_max_batch_interval_sec";
     public static final String AUDIT_PLUGIN_MAX_SQL_LENGTH = "audit_plugin_max_sql_length";
     public static final String AUDIT_PLUGIN_LOAD_TIMEOUT = "audit_plugin_load_timeout";
+    public static final String AUDIT_PLUGIN_COMPUTE_GROUP = "audit_plugin_compute_group";
+
+    public static final String WARM_UP_CACHE_QUERY_COMPUTE_GROUP = "warm_up_cache_query_compute_group";
+    public static final String STATISTICS_QUERY_COMPUTE_GROUP = "statistics_query_compute_group";
 
     public static final String ENABLE_GET_ROW_COUNT_FROM_FILE_LIST = "enable_get_row_count_from_file_list";
     public static final String READ_ONLY = "read_only";
@@ -153,6 +157,15 @@ public final class GlobalVariable {
 
     @VariableMgr.VarAttr(name = AUDIT_PLUGIN_LOAD_TIMEOUT, flag = VariableMgr.GLOBAL)
     public static int auditPluginLoadTimeoutS = 600;
+
+    @VariableMgr.VarAttr(name = AUDIT_PLUGIN_COMPUTE_GROUP, flag = VariableMgr.GLOBAL)
+    public static String auditPluginComputeGroup = "";
+
+    @VariableMgr.VarAttr(name = WARM_UP_CACHE_QUERY_COMPUTE_GROUP, flag = VariableMgr.GLOBAL)
+    public static String warmUpCacheQueryComputeGroup = "";
+
+    @VariableMgr.VarAttr(name = STATISTICS_QUERY_COMPUTE_GROUP, flag = VariableMgr.GLOBAL)
+    public static String statisticsQueryComputeGroup = "";
 
     @VariableMgr.VarAttr(name = ENABLE_GET_ROW_COUNT_FROM_FILE_LIST, flag = VariableMgr.GLOBAL,
             description = {
