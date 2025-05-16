@@ -372,14 +372,16 @@ Status FSFileCacheStorage::upgrade_cache_dir_if_necessary() const {
                     }
                     if (!exists) {
                         auto create_status = fs->create_directory(key_prefix);
-                        if (!create_status.ok()) {
+                        if (!create_status.ok() &&
+                            create_status.code() != TStatusCode::type::ALREADY_EXIST) {
                             LOG(WARNING) << "Failed to create directory: " << key_prefix
                                          << ", error: " << create_status.to_string();
                             return create_status;
                         }
                     }
                     auto rename_status = fs->rename(key_it->path(), key_prefix / cache_key);
-                    if (rename_status.ok()) {
+                    if (rename_status.ok() ||
+                        rename_status.code() == TStatusCode::type::DIRECTORY_NOT_EMPTY) {
                         ++rename_count;
                     } else {
                         LOG(WARNING)
