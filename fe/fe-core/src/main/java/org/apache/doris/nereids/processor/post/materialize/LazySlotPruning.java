@@ -235,7 +235,7 @@ public class LazySlotPruning extends DefaultPlanRewriter<LazySlotPruning.Context
                     context.updateRowIdSlot(rowIdSlot.withNullable(true));
                 } else if (join.getJoinType().isLeftOuterJoin() && plan.child(1).getOutput().contains(rowIdSlot)) {
                     context.updateRowIdSlot(rowIdSlot.withNullable(true));
-                } else if (join.getJoinType().isRightOuterJoin() && join.left().getOutput().contains(rowIdSlot)) {
+                } else if (join.getJoinType().isRightOuterJoin() && plan.child(0).getOutput().contains(rowIdSlot)) {
                     context.updateRowIdSlot(rowIdSlot.withNullable(true));
                 }
             }
