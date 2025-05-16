@@ -274,12 +274,14 @@ public class Dictionary extends Table {
         if (tableIf instanceof MTMVRelatedTableIf) { // include OlapTable and some External tables
             long tableVersionNow = ((MTMVRelatedTableIf) tableIf).getNewestUpdateVersionOrTime();
             if (LOG.isDebugEnabled()) {
-                LOG.debug("src's now version is " + tableVersionNow + ", old is " + srcVersion);
+                LOG.debug("Dictionary " + getName() + " src's now version is " + tableVersionNow + ", old is "
+                        + srcVersion);
             }
             if (tableVersionNow < srcVersion) {
                 // maybe drop and recreate. but if so, this dictionary should be dropped as well.
                 // so should not happen.
-                throw new RuntimeException("source table's version is smaller than dictionary's");
+                throw new RuntimeException(
+                    "source table's version " + tableVersionNow + " is smaller than dictionary's " + srcVersion);
             } else if (tableVersionNow > srcVersion && tableVersionNow != latestInvalidVersion) {
                 // if src is a illegal version, we can skip it.
                 return true;
@@ -315,7 +317,8 @@ public class Dictionary extends Table {
         if (tableIf instanceof MTMVRelatedTableIf) { // include OlapTable and some External tables
             long tableVersionNow = ((MTMVRelatedTableIf) tableIf).getNewestUpdateVersionOrTime();
             if (LOG.isDebugEnabled()) {
-                LOG.debug("src's now version is " + tableVersionNow + ", old is " + srcVersion);
+                LOG.debug("Dictionary " + getName() + ": src's now version is " + tableVersionNow + ", old is "
+                        + srcVersion);
             }
             // if not the known invalid version, maybe valid. so return true. otherwise we skip it.
             return tableVersionNow != latestInvalidVersion;

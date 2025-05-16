@@ -72,6 +72,7 @@ suite("test_invalid_skip_load") {
 
     sql "delete from test_duplicate_argument where k0 = 1;"
     sql """insert into test_duplicate_argument values (1, 'abc'), (2, 'def');"""
+    sleep(5000) // avoid get data after delete and before insert
     waitAllDictionariesReady()
     qt_sql """
         select dict_get("regression_test_dictionary_p0.dic_test_duplicate_argument", "k1", 1),

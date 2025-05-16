@@ -76,8 +76,7 @@ public:
             // parse ipv6 in little-endian
             if (!vectorized::parse_ipv6_whole(address_str.begin(), address_str.end(),
                                               std::get<IPv6AddrType>(_addr).data())) {
-                throw Exception(ErrorCode::INVALID_ARGUMENT,
-                                "[INVALID_DICT_MARK]Neither IPv4 nor IPv6 address: '{}'",
+                throw Exception(ErrorCode::INVALID_ARGUMENT, "Neither IPv4 nor IPv6 address: '{}'",
                                 address_str);
             }
         }
@@ -163,14 +162,12 @@ inline IPAddressCIDR parse_ip_with_cidr(std::string_view cidr_str) {
     size_t pos_slash = cidr_str.find('/');
 
     if (pos_slash == 0) {
-        throw Exception(ErrorCode::INVALID_ARGUMENT,
-                        "[INVALID_DICT_MARK]Error parsing IP address with prefix: {}",
+        throw Exception(ErrorCode::INVALID_ARGUMENT, "Error parsing IP address with prefix: {}",
                         std::string(cidr_str));
     }
 
     if (pos_slash == std::string_view::npos) {
-        throw Exception(ErrorCode::INVALID_ARGUMENT,
-                        "[INVALID_DICT_MARK]The text does not contain '/': {}",
+        throw Exception(ErrorCode::INVALID_ARGUMENT, "The text does not contain '/': {}",
                         std::string(cidr_str));
     }
 
@@ -185,8 +182,7 @@ inline IPAddressCIDR parse_ip_with_cidr(std::string_view cidr_str) {
     uint8_t max_prefix = (addr.as_v6() ? IPV6_BINARY_LENGTH : IPV4_BINARY_LENGTH) * 8;
 
     if (parse_error != std::errc() || parse_end != prefix_str_end || prefix > max_prefix) {
-        throw Exception(ErrorCode::INVALID_ARGUMENT,
-                        "[INVALID_DICT_MARK]The CIDR has a malformed prefix bits: {}",
+        throw Exception(ErrorCode::INVALID_ARGUMENT, "The CIDR has a malformed prefix bits: {}",
                         std::string(cidr_str));
     }
 

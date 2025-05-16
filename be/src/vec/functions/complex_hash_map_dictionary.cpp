@@ -84,9 +84,10 @@ void ComplexHashMapDictionary::load_data(const ColumnPtrs& key_columns, const Da
                                dict_method.lazy_emplace(state, i, creator, creator_for_null_key);
                            }
                            if (input_rows < rows) {
-                               throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-                                                      "[INVALID_DICT_MARK]The key has duplicate "
-                                                      "data in HashMapDictionary");
+                               throw doris::Exception(
+                                       ErrorCode::INVALID_ARGUMENT,
+                                       DICT_DATA_ERROR_TAG +
+                                               "The key has duplicate data in HashMapDictionary");
                            }
                        }},
                _hash_map_method.method_variant);

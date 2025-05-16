@@ -440,6 +440,8 @@ public class DictionaryManager extends MasterDaemon implements Writable {
             dictionary.setLastUpdateResult(ctx.getState().getErrorMessage());
             // for must failed refresh, we can skip it at next time. this mark is tricky but we have to do now.
             if (ctx.getState().getErrorMessage().contains("[INVALID_DICT_MARK]")) {
+                LOG.warn("Dictionary {} load failed with src version {}, mark it invalid", dictionary.getName(),
+                        ctx.getStatementContext().getDictionaryUsedSrcVersion());
                 dictionary.updateLatestInvalidVersion(ctx.getStatementContext().getDictionaryUsedSrcVersion());
             }
             throw new RuntimeException(ctx.getState().getErrorMessage());
@@ -494,7 +496,8 @@ public class DictionaryManager extends MasterDaemon implements Writable {
         } else {
             dictionary.setLastUpdateResult("succeed");
         }
-        LOG.info("Dictionary {} refresh succeed", dictionary.getName());
+        LOG.info("Dictionary {} refresh succeed. used src version {}", dictionary.getName(),
+                ctx.getStatementContext().getDictionaryUsedSrcVersion());
     }
 
     private boolean commitNextVersion(ConnectContext ctx, Dictionary dictionary) {

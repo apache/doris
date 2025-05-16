@@ -24,8 +24,8 @@
 #include <ranges>
 #include <vector>
 
+#include "common/exception.h"
 #include "common/status.h"
-#include "runtime/thread_context.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/columns_number.h"
@@ -210,7 +210,12 @@ void IPAddressDictionary::load_data(const ColumnPtr& key_column,
     auto load_key_str = [&](const auto* str_column) {
         for (size_t i = 0; i < str_column->size(); i++) {
             auto ip_str = str_column->get_data_at(i);
-            ip_records.push_back(IPRecord {parse_ip_with_cidr(ip_str), i});
+            try {
+                ip_records.push_back(IPRecord {parse_ip_with_cidr(ip_str), i});
+            } catch (Exception& e) {
+                // add data unqualified error tag to the error message
+                throw Exception(e.code(), DICT_DATA_ERROR_TAG + e.message());
+            }
         }
     };
     if (key_column->is_column_string64()) {
@@ -240,7 +245,7 @@ void IPAddressDictionary::load_data(const ColumnPtr& key_column,
     if (ip_records.size() < key_column->size()) {
         throw doris::Exception(
                 ErrorCode::INVALID_ARGUMENT,
-                "[INVALID_DICT_MARK]The CIDR has duplicate data in IpAddressDictionary");
+                DICT_DATA_ERROR_TAG + "The CIDR has duplicate data in IpAddressDictionary");
     }
 
     // Step 3: Process the data needed for the Trie.

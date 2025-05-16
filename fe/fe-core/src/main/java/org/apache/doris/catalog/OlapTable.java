@@ -3443,7 +3443,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         // return version rather than time because:
         //  1. they are all incremental
         //  2. more reasonable for UnassignedAllBEJob to compare version this time we plan and last succeed refresh.
-        return tableAttributes.getVisibleVersion();
+        return getVisibleVersion(); // for both cloud and non-cloud mode
     }
 
     @Override

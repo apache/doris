@@ -85,10 +85,11 @@ inline DictionaryPtr create_ip_trie_dict_from_column(const std::string& name,
     auto key_column = key_data.column;
     auto key_type = key_data.type;
     if (!is_string_type(key_type->get_primitive_type())) {
-        throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-                               "[INVALID_DICT_MARK]IPAddressDictionary only support string in key "
-                               ", input key type is {} ",
-                               key_type->get_name());
+        throw doris::Exception(
+                ErrorCode::INVALID_ARGUMENT,
+                DICT_DATA_ERROR_TAG +
+                        "IPAddressDictionary only support string in key , input key type is {} ",
+                key_type->get_name());
     }
 
     DictionaryPtr dict = IPAddressDictionary::create_ip_trie_dict(name, key_column, values_data);
