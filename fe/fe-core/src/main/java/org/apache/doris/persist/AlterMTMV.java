@@ -19,7 +19,6 @@ package org.apache.doris.persist;
 
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
 import org.apache.doris.mtmv.MTMVAlterOpType;
 import org.apache.doris.mtmv.MTMVRefreshInfo;
@@ -56,8 +55,6 @@ public class AlterMTMV implements Writable {
     private MTMVRelation relation;
     @SerializedName("ps")
     private Map<String, MTMVRefreshPartitionSnapshot> partitionSnapshots;
-    @SerializedName("js")
-    private JobStatus jobStatus;
 
     public AlterMTMV(TableNameInfo mvName, MTMVRefreshInfo refreshInfo, MTMVAlterOpType opType) {
         this.mvName = Objects.requireNonNull(mvName, "require mvName object");
@@ -140,14 +137,6 @@ public class AlterMTMV implements Writable {
         this.partitionSnapshots = partitionSnapshots;
     }
 
-    public JobStatus getJobStatus() {
-        return jobStatus;
-    }
-
-    public void setJobStatus(JobStatus jobStatus) {
-        this.jobStatus = jobStatus;
-    }
-
     @Override
     public String toString() {
         return "AlterMTMV{"
@@ -158,7 +147,6 @@ public class AlterMTMV implements Writable {
                 + ", mvProperties=" + mvProperties
                 + ", task=" + task
                 + ", relation=" + relation
-                + ", jobStatus=" + jobStatus
                 + '}';
     }
 
