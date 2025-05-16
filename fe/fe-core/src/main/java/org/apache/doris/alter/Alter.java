@@ -1300,9 +1300,6 @@ public class Alter {
                     mtmv.addTaskResult(alterMTMV.getTask(), alterMTMV.getRelation(), alterMTMV.getPartitionSnapshots(),
                             isReplay);
                     break;
-                case ALTER_JOB_STATUS:
-                    mtmv.alterJobStatus(alterMTMV.getJobStatus());
-                    break;
                 default:
                     throw new RuntimeException("Unknown type value: " + alterMTMV.getOpType());
             }

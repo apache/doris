@@ -159,7 +159,6 @@ import org.apache.doris.httpv2.meta.MetaBaseAction;
 import org.apache.doris.httpv2.rest.RestApiStatusCode;
 import org.apache.doris.insertoverwrite.InsertOverwriteManager;
 import org.apache.doris.job.base.AbstractJob;
-import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
 import org.apache.doris.job.manager.JobManager;
 import org.apache.doris.journal.JournalCursor;
@@ -7001,12 +7000,6 @@ public class Env {
         alter.setTask(task);
         alter.setRelation(relation);
         alter.setPartitionSnapshots(partitionSnapshots);
-        this.alter.processAlterMTMV(alter, false);
-    }
-
-    public void alterMTMVJobStatus(TableNameInfo mvName, JobStatus status) {
-        AlterMTMV alter = new AlterMTMV(mvName, MTMVAlterOpType.ALTER_JOB_STATUS);
-        alter.setJobStatus(status);
         this.alter.processAlterMTMV(alter, false);
     }
 

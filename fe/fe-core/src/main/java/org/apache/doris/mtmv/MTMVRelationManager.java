@@ -23,12 +23,14 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.job.common.TaskStatus;
+import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
 import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVState;
 import org.apache.doris.nereids.trees.plans.commands.info.CancelMTMVTaskInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.PauseMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.ResumeMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.persist.AlterMTMV;
 import org.apache.doris.qe.ConnectContext;
@@ -261,12 +263,17 @@ public class MTMVRelationManager implements MTMVHookService {
     }
 
     @Override
-    public void cancelMTMVTask(CancelMTMVTaskInfo info) {
+    public void pauseMTMV(PauseMTMVInfo info) throws MetaNotFoundException, DdlException, JobException {
 
     }
 
     @Override
-    public void alterJobStatus(MTMV mtmv, JobStatus jobStatus) {
+    public void resumeMTMV(ResumeMTMVInfo info) throws MetaNotFoundException, DdlException, JobException {
+
+    }
+
+    @Override
+    public void cancelMTMVTask(CancelMTMVTaskInfo info) {
 
     }
 

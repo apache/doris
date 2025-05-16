@@ -21,11 +21,12 @@ import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
 import org.apache.doris.nereids.trees.plans.commands.info.CancelMTMVTaskInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.PauseMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.ResumeMTMVInfo;
 import org.apache.doris.persist.AlterMTMV;
 
 import java.util.Optional;
@@ -101,17 +102,23 @@ public interface MTMVHookService {
     void alterTable(BaseTableInfo oldTableInfo, Optional<BaseTableInfo> newTableInfo, boolean isReplace);
 
     /**
+     * Triggered when pause mtmv
+     *
+     * @param info
+     */
+    void pauseMTMV(PauseMTMVInfo info) throws MetaNotFoundException, DdlException, JobException;
+
+    /**
+     * Triggered when resume mtmv
+     *
+     * @param info
+     */
+    void resumeMTMV(ResumeMTMVInfo info) throws MetaNotFoundException, DdlException, JobException;
+
+    /**
      * cancel mtmv task
      *
      * @param info
      */
     void cancelMTMVTask(CancelMTMVTaskInfo info) throws DdlException, MetaNotFoundException, JobException;
-
-    /**
-     * for pause and resume MTMV
-     *
-     * @param mtmv
-     * @param jobStatus
-     */
-    void alterJobStatus(MTMV mtmv, JobStatus jobStatus);
 }

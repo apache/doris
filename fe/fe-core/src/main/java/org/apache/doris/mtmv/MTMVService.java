@@ -30,12 +30,13 @@ import org.apache.doris.event.Event;
 import org.apache.doris.event.EventException;
 import org.apache.doris.event.EventListener;
 import org.apache.doris.event.TableEvent;
-import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshTrigger;
 import org.apache.doris.nereids.trees.plans.commands.info.CancelMTMVTaskInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.PauseMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.ResumeMTMVInfo;
 import org.apache.doris.persist.AlterMTMV;
 
 import com.google.common.collect.Maps;
@@ -143,12 +144,19 @@ public class MTMVService implements EventListener {
         }
     }
 
-    public void alterJobStatus(MTMV mtmv, JobStatus jobStatus) {
-        Objects.requireNonNull(mtmv, "mtmv can not be null");
-        Objects.requireNonNull(jobStatus, "jobStatus can not be null");
-        LOG.info("alterJobStatus, mvName: {},jobStatus: {}", mtmv.getName(), jobStatus);
+    public void pauseMTMV(PauseMTMVInfo info) throws DdlException, MetaNotFoundException, JobException {
+        Objects.requireNonNull(info, "info can not be null");
+        LOG.info("pauseMTMV, PauseMTMVInfo: {}", info);
         for (MTMVHookService mtmvHookService : hooks.values()) {
-            mtmvHookService.alterJobStatus(mtmv, jobStatus);
+            mtmvHookService.pauseMTMV(info);
+        }
+    }
+
+    public void resumeMTMV(ResumeMTMVInfo info) throws MetaNotFoundException, DdlException, JobException {
+        Objects.requireNonNull(info, "info can not be null");
+        LOG.info("resumeMTMV, ResumeMTMVInfo: {}", info);
+        for (MTMVHookService mtmvHookService : hooks.values()) {
+            mtmvHookService.resumeMTMV(info);
         }
     }
 

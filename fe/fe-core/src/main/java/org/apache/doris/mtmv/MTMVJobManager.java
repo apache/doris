@@ -39,7 +39,9 @@ import org.apache.doris.job.extensions.mtmv.MTMVTaskContext;
 import org.apache.doris.mtmv.MTMVRefreshEnum.BuildMode;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshTrigger;
 import org.apache.doris.nereids.trees.plans.commands.info.CancelMTMVTaskInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.PauseMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.ResumeMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.persist.AlterMTMV;
 
@@ -196,29 +198,21 @@ public class MTMVJobManager implements MTMVHookService {
     }
 
     @Override
-    public void cancelMTMVTask(CancelMTMVTaskInfo info) throws DdlException, MetaNotFoundException, JobException {
+    public void pauseMTMV(PauseMTMVInfo info) throws MetaNotFoundException, DdlException, JobException {
         MTMVJob job = getJobByTableNameInfo(info.getMvName());
-        job.cancelTaskById(info.getTaskId());
+        Env.getCurrentEnv().getJobManager().alterJobStatus(job.getJobId(), JobStatus.PAUSED);
     }
 
     @Override
-    public void alterJobStatus(MTMV mtmv, JobStatus jobStatus) {
-        MTMVJob job = null;
-        try {
-            job = getJobByMTMV(mtmv);
-        } catch (DdlException e) {
-            // should not happen
-            LOG.warn("alterJobStatus failed by mvName: {}", mtmv.getName(), e);
-            return;
-        }
+    public void resumeMTMV(ResumeMTMVInfo info) throws MetaNotFoundException, DdlException, JobException {
+        MTMVJob job = getJobByTableNameInfo(info.getMvName());
+        Env.getCurrentEnv().getJobManager().alterJobStatus(job.getJobId(), JobStatus.RUNNING);
+    }
 
-        try {
-            Env.getCurrentEnv().getJobManager().alterJobStatusInternal(job, jobStatus);
-        } catch (JobException e) {
-            // should not happen
-            LOG.warn("alterJobStatus failed by mvName: {}", mtmv.getName(), e);
-            return;
-        }
+    @Override
+    public void cancelMTMVTask(CancelMTMVTaskInfo info) throws DdlException, MetaNotFoundException, JobException {
+        MTMVJob job = getJobByTableNameInfo(info.getMvName());
+        job.cancelTaskById(info.getTaskId());
     }
 
     public void onCommit(MTMV mtmv) throws DdlException, JobException {

@@ -19,7 +19,6 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.info.PauseMTMVInfo;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -42,7 +41,7 @@ public class PauseMTMVCommand extends Command implements ForwardWithSync {
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         pauseMTMVInfo.analyze(ctx);
-        Env.getCurrentEnv().alterMTMVJobStatus(pauseMTMVInfo.getMvName(), JobStatus.PAUSED);
+        Env.getCurrentEnv().getMtmvService().pauseMTMV(pauseMTMVInfo);
     }
 
     @Override

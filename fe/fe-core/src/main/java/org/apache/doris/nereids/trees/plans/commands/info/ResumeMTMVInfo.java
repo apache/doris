@@ -19,12 +19,10 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
@@ -57,11 +55,7 @@ public class ResumeMTMVInfo {
         }
         try {
             Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(mvName.getDb());
-            MTMV mtmv = (MTMV) db.getTableOrMetaException(mvName.getTbl(), TableType.MATERIALIZED_VIEW);
-            JobStatus currentJobStatus = mtmv.getJobInfo().getJobStatus();
-            if (!currentJobStatus.equals(JobStatus.PAUSED)) {
-                throw new AnalysisException("can not resume, because current job status is: " + currentJobStatus);
-            }
+            db.getTableOrMetaException(mvName.getTbl(), TableType.MATERIALIZED_VIEW);
         } catch (MetaNotFoundException | DdlException e) {
             throw new AnalysisException(e.getMessage());
         }
