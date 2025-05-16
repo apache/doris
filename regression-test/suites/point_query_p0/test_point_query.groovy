@@ -336,7 +336,14 @@ suite("test_point_query", "nonConcurrent") {
     } 
     qt_sql "select * from table_3821461 where col1 = 10 and col2 = 20 and loc3 = 'aabc';"
     sql "delete from table_3821461 where col1 = 10 and col2 = 20 and loc3 = 'aabc';"
+    // read delete sign
     qt_sql "select * from table_3821461 where col1 = 10 and col2 = 20 and loc3 = 'aabc';"
+
+    // skip delete sign
+    sql """set skip_delete_bitmap=true; set skip_delete_sign=true;"""
+    qt_sql "select * from table_3821461 where col1 = 10 and col2 = 20 and loc3 = 'aabc';"
+    sql """set skip_delete_bitmap=false; set skip_delete_sign=false;"""
+
     sql "update table_3821461 set value = 'update value' where col1 = -10 or col1 = 20;"
     qt_sql """select * from table_3821461 where col1 = -10 and col2 = 20 and loc3 = 'aabc'"""
 
