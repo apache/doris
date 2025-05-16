@@ -52,6 +52,13 @@ public class PreMaterializedViewRewriter {
         NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.PUSH_DOWN_LIMIT_DISTINCT_THROUGH_JOIN.ordinal());
         NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.PUSH_DOWN_LIMIT_DISTINCT_THROUGH_PROJECT_JOIN.ordinal());
         NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.PUSH_DOWN_LIMIT_DISTINCT_THROUGH_UNION.ordinal());
+        NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.PUSH_LIMIT_THROUGH_JOIN.ordinal());
+        NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.PUSH_LIMIT_THROUGH_PROJECT_JOIN.ordinal());
+        NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.PUSH_LIMIT_THROUGH_PROJECT_WINDOW.ordinal());
+        NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.PUSH_LIMIT_THROUGH_UNION.ordinal());
+        NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.PUSH_LIMIT_THROUGH_WINDOW.ordinal());
+        NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.LIMIT_SORT_TO_TOP_N.ordinal());
+        NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.LIMIT_AGG_TO_TOPN_AGG.ordinal());
     }
 
     /**
@@ -63,7 +70,8 @@ public class PreMaterializedViewRewriter {
             hook.afterAnalyze(cascadesContext);
         }
         if (cascadesContext.getMaterializationContexts().isEmpty()
-                || !cascadesContext.getConnectContext().getSessionVariable().isEnablePreMaterializedViewRewrite()
+                || PreRewriteStrategy.NOT_IN_RBO.toString().equals(
+                cascadesContext.getConnectContext().getSessionVariable().getPreMaterializedViewRewriteStrategy())
                 || !MaterializedViewUtils.containMaterializedViewHook(cascadesContext.getStatementContext())) {
             return;
         }
@@ -110,9 +118,21 @@ public class PreMaterializedViewRewriter {
         return NEED_PRE_REWRITE_RULE_TYPES;
     }
 
-    public static boolean needPreRewrite(BitSet appliedRules) {
+    public static boolean needPreRewrite(BitSet appliedRules, PreRewriteStrategy preRewriteStrategy) {
         BitSet needPreRewriteRuleTypes = (BitSet) getNeedPreRewriteRule().clone();
         needPreRewriteRuleTypes.and(appliedRules);
-        return !needPreRewriteRuleTypes.isEmpty();
+        return !needPreRewriteRuleTypes.isEmpty() || PreRewriteStrategy.FORCE_IN_ROB.equals(preRewriteStrategy);
+    }
+
+    /**
+     * PreRewriteStrategy from materialized view rewrite
+     */
+    public enum PreRewriteStrategy {
+        // Force transparent rewriting in the RBO phase
+        FORCE_IN_ROB,
+        // Attempt transparent rewriting in the RBO phase
+        TRY_IN_RBO,
+        // Do not attempt rewriting in the RBO phase; apply only during the CBO phase
+        NOT_IN_RBO
     }
 }
