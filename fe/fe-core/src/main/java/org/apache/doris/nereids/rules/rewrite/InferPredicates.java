@@ -62,9 +62,13 @@ import java.util.Set;
  * </pre>
  */
 public class InferPredicates extends DefaultPlanRewriter<JobContext> implements CustomRewriter {
-    private final PullUpPredicates pullUpPredicates = new PullUpPredicates(false);
+    private final PullUpPredicates pullUpPredicates = new PullUpPredicates(false, false);
     // The role of pullUpAllPredicates is to prevent inference of redundant predicates
-    private final PullUpPredicates pullUpAllPredicates = new PullUpPredicates(true);
+    private final PullUpPredicates pullUpAllPredicates = new PullUpPredicates(true, false);
+    // intersect/except's pullUpPredicates role are null safe
+    // (select null) intersect (select null) => null
+    // (select null) except (select null) => empty result
+    private final PullUpPredicates pullUpNullSafePredicates = new PullUpPredicates(false, true);
 
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
@@ -122,7 +126,7 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> implements 
     @Override
     public Plan visitLogicalExcept(LogicalExcept except, JobContext context) {
         except = visitChildren(this, except, context);
-        Set<Expression> baseExpressions = pullUpPredicates(except);
+        Set<Expression> baseExpressions = pullUpNullSafePredicates(except);
         if (baseExpressions.isEmpty()) {
             return except;
         }
@@ -142,7 +146,7 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> implements 
     @Override
     public Plan visitLogicalIntersect(LogicalIntersect intersect, JobContext context) {
         intersect = visitChildren(this, intersect, context);
-        Set<Expression> baseExpressions = pullUpPredicates(intersect);
+        Set<Expression> baseExpressions = pullUpNullSafePredicates(intersect);
         if (baseExpressions.isEmpty()) {
             return intersect;
         }

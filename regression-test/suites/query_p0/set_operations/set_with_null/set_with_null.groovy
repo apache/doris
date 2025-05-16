@@ -41,4 +41,15 @@ suite("set_with_null") {
         select null
     )
    """
+
+    qt_test """
+    (
+        select k1
+        from d_table
+    )
+    except
+    (
+        select null
+    )
+   """
 }

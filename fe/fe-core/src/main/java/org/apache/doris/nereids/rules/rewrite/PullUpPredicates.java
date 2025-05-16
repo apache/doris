@@ -69,9 +69,11 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
 
     Map<Plan, ImmutableSet<Expression>> cache = new IdentityHashMap<>();
     private final boolean getAllPredicates;
+    private final boolean nullSafe;
 
-    public PullUpPredicates(boolean all) {
-        getAllPredicates = all;
+    public PullUpPredicates(boolean getAllPredicates, boolean nullSafe) {
+        this.getAllPredicates = getAllPredicates;
+        this.nullSafe = nullSafe;
     }
 
     @Override
@@ -135,7 +137,11 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
             Set<Expression> predicates = new LinkedHashSet<>();
             for (NamedExpression expr : r.getProjects()) {
                 if (expr instanceof Alias && expr.child(0) instanceof Literal) {
-                    predicates.add(new NullSafeEqual(expr.toSlot(), expr.child(0)));
+                    if(nullSafe) {
+                        predicates.add(new NullSafeEqual(expr.toSlot(), expr.child(0)));
+                    } else {
+                        predicates.add(new EqualTo(expr.toSlot(), expr.child(0)));
+                    }
                 }
             }
             return ImmutableSet.copyOf(predicates);
@@ -263,7 +269,11 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
             }
             for (NamedExpression expr : project.getProjects()) {
                 if (expr instanceof Alias && expr.child(0) instanceof Literal) {
-                    allPredicates.add(new NullSafeEqual(expr.toSlot(), expr.child(0)));
+                    if (nullSafe) {
+                        allPredicates.add(new NullSafeEqual(expr.toSlot(), expr.child(0)));
+                    } else {
+                        allPredicates.add(new EqualTo(expr.toSlot(), expr.child(0)));
+                    }
                 }
             }
             return getAvailableExpressions(allPredicates, project);
