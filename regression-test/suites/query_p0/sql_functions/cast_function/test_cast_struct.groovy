@@ -40,6 +40,9 @@ suite("test_cast_struct") {
     // struct type cast to struct
     qt_sql14 "select cast(cast({1,'2022-10-10'} as struct<f1:int,f2:date>) as struct<f1:double,f2:datetime>)"
 
+    // struct type cast to struct with different field name
+    qt_sql15 """select cast('{"a":1,"b":"1","c":"1","d":"1"}' as struct<a:int, b:int>)"""
+
     // basic types except string can not cast to struct 
     test {
         sql "select cast(cast(1 as int) as struct<f1:int>)"
