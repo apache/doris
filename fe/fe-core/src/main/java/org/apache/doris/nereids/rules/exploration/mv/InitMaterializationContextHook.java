@@ -31,7 +31,6 @@ import org.apache.doris.mtmv.MTMVCache;
 import org.apache.doris.mtmv.MTMVPlanUtil;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.PlannerHook;
 import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.hint.UseMvHint;
@@ -63,8 +62,8 @@ public class InitMaterializationContextHook implements PlannerHook {
     public static final InitMaterializationContextHook INSTANCE = new InitMaterializationContextHook();
 
     @Override
-    public void afterAnalyze(NereidsPlanner planner) {
-        initMaterializationContext(planner.getCascadesContext());
+    public void afterAnalyze(CascadesContext context) {
+        initMaterializationContext(context);
     }
 
     @VisibleForTesting

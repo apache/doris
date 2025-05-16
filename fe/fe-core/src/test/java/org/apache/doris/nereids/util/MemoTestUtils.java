@@ -82,9 +82,13 @@ public class MemoTestUtils {
         PhysicalProperties requestProperties = NereidsPlanner.buildInitRequireProperties();
         CascadesContext cascadesContext = CascadesContext.initContext(
                 statementContext, initPlan, requestProperties);
-        cascadesContext.toMemo();
-        MemoValidator.validateInitState(cascadesContext.getMemo(), initPlan);
+        initMemoAndValidState(cascadesContext);
         return cascadesContext;
+    }
+
+    public static MemoValidator initMemoAndValidState(CascadesContext cascadesContext) {
+        cascadesContext.toMemo();
+        return MemoValidator.validateInitState(cascadesContext.getMemo(), cascadesContext.getRewritePlan());
     }
 
     public static LogicalPlan analyze(String sql) {

@@ -271,6 +271,7 @@ public class NereidsPlanner extends Planner {
 
         // rule-based optimize
         rewrite(showRewriteProcess(explainLevel, showPlanProcess));
+        this.cascadesContext.getStatementContext().clearMaterializedHooks();
         if (explainLevel == ExplainLevel.REWRITTEN_PLAN || explainLevel == ExplainLevel.ALL_PLAN) {
             rewrittenPlan = cascadesContext.getRewritePlan();
             if (explainLevel == ExplainLevel.REWRITTEN_PLAN) {
@@ -376,7 +377,6 @@ public class NereidsPlanner extends Planner {
             LOG.debug("Start analyze plan");
         }
         keepOrShowPlanProcess(showPlanProcess, () -> cascadesContext.newAnalyzer().analyze());
-        this.statementContext.getPlannerHooks().forEach(hook -> hook.afterAnalyze(this));
         NereidsTracer.logImportantTime("EndAnalyzePlan");
         if (LOG.isDebugEnabled()) {
             LOG.debug("End analyze plan");
@@ -622,7 +622,7 @@ public class NereidsPlanner extends Planner {
             cost = rootGroup.getLowestCostPlan(physicalProperties).orElseThrow(
                     () -> new AnalysisException("lowestCostPlans with physicalProperties("
                             + physicalProperties + ") doesn't exist in root group")).first.getValue();
-            return chooseBestPlan(rootGroup, physicalProperties);
+            return chooseBestPlan(rootGroup, physicalProperties, cascadesContext);
         }
         Memo memo = cascadesContext.getMemo();
 
@@ -631,7 +631,11 @@ public class NereidsPlanner extends Planner {
         return memo.unrank(idCost.first);
     }
 
-    private PhysicalPlan chooseBestPlan(Group rootGroup, PhysicalProperties physicalProperties)
+    /**
+     * Doc
+     */
+    public static PhysicalPlan chooseBestPlan(Group rootGroup, PhysicalProperties physicalProperties,
+            CascadesContext cascadesContext)
             throws AnalysisException {
         try {
             GroupExpression groupExpression = rootGroup.getLowestCostPlan(physicalProperties).orElseThrow(
@@ -647,7 +651,7 @@ public class NereidsPlanner extends Planner {
             List<PhysicalProperties> inputPropertiesList = groupExpression.getInputPropertiesList(physicalProperties);
             List<Plan> planChildren = Lists.newArrayList();
             for (int i = 0; i < groupExpression.arity(); i++) {
-                planChildren.add(chooseBestPlan(groupExpression.child(i), inputPropertiesList.get(i)));
+                planChildren.add(chooseBestPlan(groupExpression.child(i), inputPropertiesList.get(i), cascadesContext));
             }
 
             Plan plan = groupExpression.getPlan().withChildren(planChildren);

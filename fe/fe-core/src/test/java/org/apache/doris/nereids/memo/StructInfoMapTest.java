@@ -33,6 +33,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.BitSet;
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -199,7 +200,9 @@ class StructInfoMapTest extends SqlTestBase {
         BitSet mvMap = structInfoMap.getTableMaps().stream()
                 .filter(b -> b.cardinality() == 2)
                 .collect(Collectors.toList()).get(0);
-        StructInfo structInfo = structInfoMap.getStructInfo(c1, mvMap, root, null);
+        Collection<StructInfo> structInfos = structInfoMap.getStructInfo(c1, mvMap, root, null);
+        Assertions.assertFalse(structInfos.isEmpty());
+        StructInfo structInfo = structInfos.iterator().next();
         System.out.println(structInfo.getOriginalPlan().treeString());
         BitSet bitSet = new BitSet();
         for (CatalogRelation relation : structInfo.getRelations()) {

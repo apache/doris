@@ -35,6 +35,7 @@ import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.hint.UseMvHint;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.rules.analysis.ColumnAliasGenerator;
+import org.apache.doris.nereids.rules.exploration.mv.InitMaterializationContextHook;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -44,6 +45,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.PlaceholderId;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.TableId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
@@ -206,7 +208,7 @@ public class StatementContext implements Closeable {
 
     private FormatOptions formatOptions = FormatOptions.getDefault();
 
-    private final Set<PlannerHook> plannerHooks = new HashSet<>();
+    private Set<PlannerHook> plannerHooks = new HashSet<>();
 
     private String disableJoinReorderReason;
 
@@ -222,6 +224,9 @@ public class StatementContext implements Closeable {
     private boolean partialLoadDictionary = false; // really used partial load.
 
     private boolean prepareStage = false;
+
+    private final List<Plan> rewrittenPlansByMv = new ArrayList<>();
+    private final List<Plan> tmpPlanForMvRewrite = new ArrayList<>();
 
     public StatementContext() {
         this(ConnectContext.get(), null, 0);
@@ -668,6 +673,20 @@ public class StatementContext implements Closeable {
         return plannerHooks;
     }
 
+    /**
+     * Clear hooks to control not rewritten by mv
+     */
+    public void clearMaterializedHooks() {
+        Set<PlannerHook> plannerHooks = new HashSet<>();
+        for (PlannerHook hook : this.plannerHooks) {
+            if (hook instanceof InitMaterializationContextHook) {
+                continue;
+            }
+            plannerHooks.add(hook);
+        }
+        this.plannerHooks = plannerHooks;
+    }
+
     public void addPlannerHook(PlannerHook plannerHook) {
         this.plannerHooks.add(plannerHook);
     }
@@ -814,6 +833,22 @@ public class StatementContext implements Closeable {
 
     public void setPartialLoadDictionary(boolean partialLoadDictionary) {
         this.partialLoadDictionary = partialLoadDictionary;
+    }
+
+    public List<Plan> getRewrittenPlansByMv() {
+        return rewrittenPlansByMv;
+    }
+
+    public void addRewrittenPlanByMv(Plan rewrittenPlanByMv) {
+        this.rewrittenPlansByMv.add(rewrittenPlanByMv);
+    }
+
+    public List<Plan> getTmpPlanForMvRewrite() {
+        return tmpPlanForMvRewrite;
+    }
+
+    public void addTmpPlanForMvRewrite(Plan tmpPlan) {
+        this.tmpPlanForMvRewrite.add(tmpPlan);
     }
 
     public void setPrepareStage(boolean isPrepare) {
