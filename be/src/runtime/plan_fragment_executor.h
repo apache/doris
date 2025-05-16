@@ -266,6 +266,9 @@ private:
     void _collect_node_statistics();
 
     std::shared_ptr<QueryStatistics> _query_statistics = nullptr;
+
+    std::shared_ptr<vectorized::TaskExecutor> _task_executor = nullptr;
+    std::shared_ptr<vectorized::TaskHandle> _task_handle = nullptr;
 };
 
 } // namespace doris
