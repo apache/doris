@@ -206,9 +206,10 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
         }
     }
 
+    // For internal calls by other modules, parameter validation and persistence are handled by other components.
+    // Since this method may be invoked by replay threads, it must not throw exceptions.
     public T dropJobInternal(T job) {
         // set to stop status avoid create new tasks
-        // todo if we can remove it from trigger map?
         job.setJobStatus(JobStatus.STOPPED);
         // cancel tasks that has been created
         try {

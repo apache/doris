@@ -40,7 +40,7 @@ public interface MTMVHookService {
      *
      * @param mtmv
      */
-    void createMTMV(MTMV mtmv);
+    void postCreateMTMV(MTMV mtmv);
 
     /**
      * triggered when playing `create mtmv` logs

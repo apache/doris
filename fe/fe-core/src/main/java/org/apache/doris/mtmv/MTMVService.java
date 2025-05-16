@@ -92,11 +92,11 @@ public class MTMVService implements EventListener {
         }
     }
 
-    public void createMTMV(MTMV mtmv) {
+    public void postCreateMTMV(MTMV mtmv) {
         Objects.requireNonNull(mtmv, "mtmv can not be null");
-        LOG.info("createMTMV: " + mtmv.getName());
+        LOG.info("postCreateMTMV: " + mtmv.getName());
         for (MTMVHookService mtmvHookService : hooks.values()) {
-            mtmvHookService.createMTMV(mtmv);
+            mtmvHookService.postCreateMTMV(mtmv);
         }
     }
 

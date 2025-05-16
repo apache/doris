@@ -64,7 +64,7 @@ public class MTMVJobManager implements MTMVHookService {
 
     // if immediate, triggerJob after create MTMT
     @Override
-    public void createMTMV(MTMV mtmv) {
+    public void postCreateMTMV(MTMV mtmv) {
         if (!mtmv.getRefreshInfo().getBuildMode().equals(BuildMode.IMMEDIATE)) {
             return;
         }

@@ -188,7 +188,7 @@ public class MTMVRelationManager implements MTMVHookService {
     }
 
     @Override
-    public void createMTMV(MTMV mtmv) {
+    public void postCreateMTMV(MTMV mtmv) {
 
     }
 
