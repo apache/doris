@@ -111,6 +111,7 @@ Status DataTypeStructSerDe::deserialize_one_cell_from_json(IColumn& column, Slic
     char quote_char = 0;
 
     auto elem_size = elem_serdes_ptrs.size();
+    DCHECK_EQ(elem_size, elem_names.size());
     int field_pos = 0;
 
     for (; idx < slice_size; ++idx) {
@@ -138,6 +139,15 @@ Status DataTypeStructSerDe::deserialize_one_cell_from_json(IColumn& column, Slic
             next.trim_prefix();
             next.trim_quote();
             // check field_name
+            if (field_pos >= elem_size) {
+                // we should do column revert if error
+                for (size_t j = 0; j < field_pos; j++) {
+                    struct_column.get_column(j).pop_back(1);
+                }
+                return Status::InvalidArgument(
+                        "Actual struct field number is more than schema field number {}.",
+                        field_pos, elem_size);
+            }
             if (elem_names[field_pos] != next) {
                 // we should do column revert if error
                 for (size_t j = 0; j < field_pos; j++) {
