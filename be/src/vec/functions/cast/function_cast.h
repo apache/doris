@@ -36,6 +36,7 @@
 
 #include "cast_base.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/exception.h"
 #include "common/status.h"
 #include "runtime/runtime_state.h"
 #include "runtime/type_limit.h"
@@ -48,12 +49,11 @@
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_map.h"
 #include "vec/columns/column_nullable.h"
-#include "vec/columns/column_object.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_struct.h"
+#include "vec/columns/column_variant.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_common.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_buffer.hpp"
 #include "vec/common/string_ref.h"
@@ -78,7 +78,6 @@
 #include "vec/data_types/data_type_map.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
-#include "vec/data_types/data_type_object.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/data_types/data_type_struct.h"
 #include "vec/data_types/data_type_time.h"
@@ -94,7 +93,7 @@ class DateLUTImpl;
 
 namespace doris {
 namespace vectorized {
-template <typename T>
+template <PrimitiveType T>
 class ColumnDecimal;
 } // namespace vectorized
 } // namespace doris
@@ -105,10 +104,7 @@ namespace doris::vectorized {
   */
 inline UInt32 extract_to_decimal_scale(const ColumnWithTypeAndName& named_column) {
     const auto* arg_type = named_column.type.get();
-    bool ok = check_and_get_data_type<DataTypeUInt64>(arg_type) ||
-              check_and_get_data_type<DataTypeUInt32>(arg_type) ||
-              check_and_get_data_type<DataTypeUInt16>(arg_type) ||
-              check_and_get_data_type<DataTypeUInt8>(arg_type);
+    bool ok = check_and_get_data_type<DataTypeUInt8>(arg_type);
     if (!ok) {
         throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "Illegal type of toDecimal() scale {}",
                                named_column.type->get_name());
@@ -118,11 +114,6 @@ inline UInt32 extract_to_decimal_scale(const ColumnWithTypeAndName& named_column
     named_column.column->get(0, field);
     return field.get<UInt32>();
 }
-
-struct PrecisionScaleArg {
-    UInt32 precision;
-    UInt32 scale;
-};
 
 /** Conversion of number types to each other, enums to numbers, dates and datetimes to numbers and back: done by straight assignment.
   *  (Date is represented internally as number of days from some day; DateTime - as unix timestamp)
@@ -153,11 +144,12 @@ struct ConvertImpl {
                           Additions additions = Additions()) {
         const ColumnWithTypeAndName& named_from = block.get_by_position(arguments[0]);
 
-        using ColVecFrom =
-                std::conditional_t<IsDecimalNumber<FromFieldType>, ColumnDecimal<FromFieldType>,
-                                   ColumnVector<FromFieldType>>;
-        using ColVecTo = std::conditional_t<IsDecimalNumber<ToFieldType>,
-                                            ColumnDecimal<ToFieldType>, ColumnVector<ToFieldType>>;
+        using ColVecFrom = std::conditional_t<IsDecimalNumber<FromFieldType>,
+                                              ColumnDecimal<FromDataType::PType>,
+                                              ColumnVector<FromDataType::PType>>;
+        using ColVecTo =
+                std::conditional_t<IsDecimalNumber<ToFieldType>, ColumnDecimal<ToDataType::PType>,
+                                   ColumnVector<ToDataType::PType>>;
 
         if constexpr (IsDataTypeDecimal<FromDataType> || IsDataTypeDecimal<ToDataType>) {
             if constexpr (!(IsDataTypeDecimalOrNumber<FromDataType> ||
@@ -227,7 +219,7 @@ struct ConvertImpl {
                             (from_precision + to_scale - from_scale) >= to_max_digits;
                 }
 
-                std::visit(
+                RETURN_IF_ERROR(std::visit(
                         [&](auto multiply_may_overflow, auto narrow_integral) {
                             if constexpr (IsDataTypeDecimal<FromDataType> &&
                                           IsDataTypeDecimal<ToDataType>) {
@@ -237,18 +229,21 @@ struct ConvertImpl {
                                         vec_from.get_scale(), to_precision, vec_to.get_scale(),
                                         vec_from.size());
                             } else if constexpr (IsDataTypeDecimal<FromDataType>) {
-                                convert_from_decimal<FromDataType, ToDataType, narrow_integral>(
+                                return (convert_from_decimal<FromDataType, ToDataType,
+                                                             narrow_integral, false>(
                                         vec_to.data(), vec_from.data(), from_precision,
-                                        vec_from.get_scale(), min_result, max_result, size);
+                                        vec_from.get_scale(), min_result, max_result, size,
+                                        nullptr));
                             } else {
                                 convert_to_decimal<FromDataType, ToDataType, multiply_may_overflow,
                                                    narrow_integral>(
                                         vec_to.data(), vec_from.data(), from_scale, to_precision,
                                         to_scale, min_result, max_result, size);
                             }
+                            return Status::OK();
                         },
                         make_bool_variant(multiply_may_overflow),
-                        make_bool_variant(narrow_integral));
+                        make_bool_variant(narrow_integral)));
 
                 block.replace_by_position(result, std::move(col_to));
 
@@ -371,16 +366,16 @@ struct ConvertImplToTimeType {
                           uint32_t result, size_t /*input_rows_count*/) {
         const ColumnWithTypeAndName& named_from = block.get_by_position(arguments[0]);
 
-        using ColVecFrom =
-                std::conditional_t<IsDecimalNumber<FromFieldType>, ColumnDecimal<FromFieldType>,
-                                   ColumnVector<FromFieldType>>;
+        using ColVecFrom = std::conditional_t<IsDecimalNumber<FromFieldType>,
+                                              ColumnDecimal<FromDataType::PType>,
+                                              ColumnVector<FromDataType::PType>>;
 
         using DateValueType = std::conditional_t<
                 IsDatelikeV2Types<ToDataType>,
                 std::conditional_t<IsDateV2Type<ToDataType>, DateV2Value<DateV2ValueType>,
                                    DateV2Value<DateTimeV2ValueType>>,
                 VecDateTimeValue>;
-        using ColVecTo = ColumnVector<ToFieldType>;
+        using ColVecTo = ColumnVector<ToDataType::PType>;
 
         if (const ColVecFrom* col_from =
                     check_and_get_column<ColVecFrom>(named_from.column.get())) {
@@ -463,7 +458,7 @@ struct ConvertImpl<DataTypeString, ToDataType> {
     }
 };
 
-template <typename DataType, typename FromDataType = void*>
+template <typename DataType, bool enable_strict_cast, typename FromDataType = void*>
 bool try_parse_impl(typename DataType::FieldType& x, ReadBuffer& rb, FunctionContext* context,
                     UInt32 scale [[maybe_unused]] = 0) {
     if constexpr (IsDateTimeType<DataType>) {
@@ -509,7 +504,7 @@ bool try_parse_impl(typename DataType::FieldType& x, ReadBuffer& rb, FunctionCon
     }
 
     if constexpr (std::is_integral_v<typename DataType::FieldType>) {
-        return try_read_int_text(x, rb);
+        return try_read_int_text<typename DataType::FieldType, enable_strict_cast>(x, rb);
     }
 }
 
@@ -523,13 +518,13 @@ StringParser::ParseResult try_parse_decimal_impl(typename DataType::FieldType& x
         return try_read_decimal_text<TYPE_DECIMALV2>(x, rb, precision, scale);
     }
 
-    if constexpr (std::is_same_v<DataTypeDecimal<Decimal32>, DataType>) {
+    if constexpr (std::is_same_v<DataTypeDecimal32, DataType>) {
         UInt32 scale = ((PrecisionScaleArg)additions).scale;
         UInt32 precision = ((PrecisionScaleArg)additions).precision;
         return try_read_decimal_text<TYPE_DECIMAL32>(x, rb, precision, scale);
     }
 
-    if constexpr (std::is_same_v<DataTypeDecimal<Decimal64>, DataType>) {
+    if constexpr (std::is_same_v<DataTypeDecimal64, DataType>) {
         UInt32 scale = ((PrecisionScaleArg)additions).scale;
         UInt32 precision = ((PrecisionScaleArg)additions).precision;
         return try_read_decimal_text<TYPE_DECIMAL64>(x, rb, precision, scale);
@@ -559,8 +554,9 @@ struct StringParsing {
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           uint32_t result, size_t input_rows_count,
                           Additions additions [[maybe_unused]] = Additions()) {
-        using ColVecTo = std::conditional_t<IsDecimalNumber<ToFieldType>,
-                                            ColumnDecimal<ToFieldType>, ColumnVector<ToFieldType>>;
+        using ColVecTo =
+                std::conditional_t<IsDecimalNumber<ToFieldType>, ColumnDecimal<ToDataType::PType>,
+                                   ColumnVector<ToDataType::PType>>;
 
         const IColumn* col_from = block.get_by_position(arguments[0]).column.get();
         const auto* col_from_string = check_and_get_column<ColumnString>(col_from);
@@ -599,30 +595,43 @@ struct StringParsing {
         }
 
         size_t current_offset = 0;
+        bool enable_strict_cast = context->enable_strict_mode();
+        std::visit(
+                [&](auto enable_strict_cast) {
+                    for (size_t i = 0; i < row; ++i) {
+                        size_t next_offset = (*offsets)[i];
+                        size_t string_size = next_offset - current_offset;
 
-        for (size_t i = 0; i < row; ++i) {
-            size_t next_offset = (*offsets)[i];
-            size_t string_size = next_offset - current_offset;
+                        ReadBuffer read_buffer(&(*chars)[current_offset], string_size);
 
-            ReadBuffer read_buffer(&(*chars)[current_offset], string_size);
-
-            bool parsed;
-            if constexpr (IsDataTypeDecimal<ToDataType>) {
-                ToDataType::check_type_precision((PrecisionScaleArg(additions).precision));
-                StringParser::ParseResult res = try_parse_decimal_impl<ToDataType>(
-                        vec_to[i], read_buffer, PrecisionScaleArg(additions));
-                parsed = (res == StringParser::PARSE_SUCCESS ||
-                          res == StringParser::PARSE_OVERFLOW ||
-                          res == StringParser::PARSE_UNDERFLOW);
-            } else if constexpr (IsDataTypeDateTimeV2<ToDataType>) {
-                parsed = try_parse_impl<ToDataType>(vec_to[i], read_buffer, context, scale);
-            } else {
-                parsed =
-                        try_parse_impl<ToDataType, DataTypeString>(vec_to[i], read_buffer, context);
-            }
-            (*vec_null_map_to)[i] = !parsed || !is_all_read(read_buffer);
-            current_offset = next_offset;
-        }
+                        bool parsed;
+                        if constexpr (IsDataTypeDecimal<ToDataType>) {
+                            ToDataType::check_type_precision(
+                                    (PrecisionScaleArg(additions).precision));
+                            StringParser::ParseResult res = try_parse_decimal_impl<ToDataType>(
+                                    vec_to[i], read_buffer, PrecisionScaleArg(additions));
+                            parsed = (res == StringParser::PARSE_SUCCESS);
+                        } else if constexpr (IsDataTypeDateTimeV2<ToDataType>) {
+                            parsed = try_parse_impl<ToDataType, enable_strict_cast>(
+                                    vec_to[i], read_buffer, context, scale);
+                        } else {
+                            parsed = try_parse_impl<ToDataType, enable_strict_cast, DataTypeString>(
+                                    vec_to[i], read_buffer, context);
+                        }
+                        if constexpr (enable_strict_cast) {
+                            if (!parsed) {
+                                throw doris::Exception(
+                                        ErrorCode::INVALID_INPUT_SYNTAX,
+                                        "Invalid input syntax for type {}: \"{}\"",
+                                        block.get_by_position(result).type->get_name(),
+                                        StringRef(&(*chars)[current_offset], string_size));
+                            }
+                        }
+                        (*vec_null_map_to)[i] = !parsed || !is_all_read(read_buffer);
+                        current_offset = next_offset;
+                    }
+                },
+                vectorized::make_bool_variant(enable_strict_cast));
 
         block.get_by_position(result).column =
                 ColumnNullable::create(std::move(col_to), std::move(col_null_map_to));
@@ -630,59 +639,19 @@ struct StringParsing {
     }
 };
 template <>
-struct ConvertImpl<DataTypeString, DataTypeDecimal<Decimal32>>
-        : StringParsing<DataTypeDecimal<Decimal32>> {};
-template <>
-struct ConvertImpl<DataTypeString, DataTypeDecimal<Decimal64>>
-        : StringParsing<DataTypeDecimal<Decimal64>> {};
-template <>
-struct ConvertImpl<DataTypeString, DataTypeDecimal<Decimal128V2>>
-        : StringParsing<DataTypeDecimal<Decimal128V2>> {};
-template <>
-struct ConvertImpl<DataTypeString, DataTypeDecimal<Decimal128V3>>
-        : StringParsing<DataTypeDecimal<Decimal128V3>> {};
-template <>
-struct ConvertImpl<DataTypeString, DataTypeDecimal<Decimal256>>
-        : StringParsing<DataTypeDecimal<Decimal256>> {};
-template <>
 struct ConvertImpl<DataTypeString, DataTypeIPv4> : StringParsing<DataTypeIPv4> {};
 template <>
 struct ConvertImpl<DataTypeString, DataTypeIPv6> : StringParsing<DataTypeIPv6> {};
 
-struct NameCast {
-    static constexpr auto name = "CAST";
-};
-
-template <typename ToDataType, typename Name>
-class FunctionConvertFromString : public IFunction {
+template <typename ToDataType>
+class FunctionConvertFromString {
 public:
-    static constexpr auto name = Name::name;
-    static FunctionPtr create() { return std::make_shared<FunctionConvertFromString>(); }
-    String get_name() const override { return name; }
-
-    bool is_variadic() const override { return true; }
-    size_t get_number_of_arguments() const override { return 0; }
-
-    ColumnNumbers get_arguments_that_are_always_constant() const override { return {1}; }
-
-    // This function should not be called for get DateType Ptr
-    // using the FunctionCast::get_return_type_impl
-    DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
-        DataTypePtr res;
-        if constexpr (IsDataTypeDecimal<ToDataType>) {
-            auto error_type = std::make_shared<ToDataType>();
-            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-                                   "something wrong type in function {}.", get_name(),
-                                   error_type->get_name());
-        } else {
-            res = std::make_shared<ToDataType>();
-        }
-
-        return res;
+    static std::shared_ptr<FunctionConvertFromString> create() {
+        return std::make_shared<FunctionConvertFromString>();
     }
 
-    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        uint32_t result, size_t input_rows_count) const override {
+    Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                   uint32_t result, size_t input_rows_count) const {
         const IDataType* from_type = block.get_by_position(arguments[0]).type.get();
 
         if (check_and_get_data_type<DataTypeString>(from_type)) {
@@ -691,10 +660,10 @@ public:
         }
 
         return Status::RuntimeError(
-                "Illegal type {} of argument of function {} . Only String or FixedString "
+                "Illegal type {} of argument of function cast. Only String or FixedString "
                 "argument is accepted for try-conversion function. For other arguments, use "
                 "function without 'orZero' or 'orNull'.",
-                block.get_by_position(arguments[0]).type->get_name(), get_name());
+                block.get_by_position(arguments[0]).type->get_name());
     }
 };
 
@@ -794,126 +763,5 @@ public:
         }
         return ret_status;
     }
-};
-
-using FunctionToUInt8 = FunctionConvert<DataTypeUInt8>;
-using FunctionToUInt16 = FunctionConvert<DataTypeUInt16>;
-using FunctionToUInt32 = FunctionConvert<DataTypeUInt32>;
-using FunctionToUInt64 = FunctionConvert<DataTypeUInt64>;
-using FunctionToInt8 = FunctionConvert<DataTypeInt8>;
-using FunctionToInt16 = FunctionConvert<DataTypeInt16>;
-using FunctionToInt32 = FunctionConvert<DataTypeInt32>;
-using FunctionToInt64 = FunctionConvert<DataTypeInt64>;
-using FunctionToInt128 = FunctionConvert<DataTypeInt128>;
-using FunctionToFloat32 = FunctionConvert<DataTypeFloat32>;
-using FunctionToFloat64 = FunctionConvert<DataTypeFloat64>;
-
-using FunctionToTimeV2 = FunctionConvert<DataTypeTimeV2>;
-using FunctionToDecimal32 = FunctionConvert<DataTypeDecimal<Decimal32>>;
-using FunctionToDecimal64 = FunctionConvert<DataTypeDecimal<Decimal64>>;
-using FunctionToDecimal128 = FunctionConvert<DataTypeDecimal<Decimal128V2>>;
-using FunctionToDecimal128V3 = FunctionConvert<DataTypeDecimal<Decimal128V3>>;
-using FunctionToDecimal256 = FunctionConvert<DataTypeDecimal<Decimal256>>;
-using FunctionToIPv4 = FunctionConvert<DataTypeIPv4>;
-using FunctionToIPv6 = FunctionConvert<DataTypeIPv6>;
-using FunctionToDate = FunctionConvert<DataTypeDate>;
-using FunctionToDateTime = FunctionConvert<DataTypeDateTime>;
-using FunctionToDateV2 = FunctionConvert<DataTypeDateV2>;
-using FunctionToDateTimeV2 = FunctionConvert<DataTypeDateTimeV2>;
-
-template <typename DataType>
-struct FunctionTo;
-
-template <>
-struct FunctionTo<DataTypeUInt8> {
-    using Type = FunctionToUInt8;
-};
-template <>
-struct FunctionTo<DataTypeUInt16> {
-    using Type = FunctionToUInt16;
-};
-template <>
-struct FunctionTo<DataTypeUInt32> {
-    using Type = FunctionToUInt32;
-};
-template <>
-struct FunctionTo<DataTypeUInt64> {
-    using Type = FunctionToUInt64;
-};
-template <>
-struct FunctionTo<DataTypeInt8> {
-    using Type = FunctionToInt8;
-};
-template <>
-struct FunctionTo<DataTypeInt16> {
-    using Type = FunctionToInt16;
-};
-template <>
-struct FunctionTo<DataTypeInt32> {
-    using Type = FunctionToInt32;
-};
-template <>
-struct FunctionTo<DataTypeInt64> {
-    using Type = FunctionToInt64;
-};
-template <>
-struct FunctionTo<DataTypeInt128> {
-    using Type = FunctionToInt128;
-};
-template <>
-struct FunctionTo<DataTypeFloat32> {
-    using Type = FunctionToFloat32;
-};
-template <>
-struct FunctionTo<DataTypeFloat64> {
-    using Type = FunctionToFloat64;
-};
-template <>
-struct FunctionTo<DataTypeDecimal<Decimal32>> {
-    using Type = FunctionToDecimal32;
-};
-template <>
-struct FunctionTo<DataTypeDecimal<Decimal64>> {
-    using Type = FunctionToDecimal64;
-};
-template <>
-struct FunctionTo<DataTypeDecimal<Decimal128V2>> {
-    using Type = FunctionToDecimal128;
-};
-template <>
-struct FunctionTo<DataTypeDecimal<Decimal128V3>> {
-    using Type = FunctionToDecimal128V3;
-};
-template <>
-struct FunctionTo<DataTypeDecimal<Decimal256>> {
-    using Type = FunctionToDecimal256;
-};
-template <>
-struct FunctionTo<DataTypeIPv4> {
-    using Type = FunctionToIPv4;
-};
-template <>
-struct FunctionTo<DataTypeIPv6> {
-    using Type = FunctionToIPv6;
-};
-template <>
-struct FunctionTo<DataTypeDate> {
-    using Type = FunctionToDate;
-};
-template <>
-struct FunctionTo<DataTypeDateTime> {
-    using Type = FunctionToDateTime;
-};
-template <>
-struct FunctionTo<DataTypeDateV2> {
-    using Type = FunctionToDateV2;
-};
-template <>
-struct FunctionTo<DataTypeDateTimeV2> {
-    using Type = FunctionToDateTimeV2;
-};
-template <>
-struct FunctionTo<DataTypeTimeV2> {
-    using Type = FunctionToTimeV2;
 };
 } // namespace doris::vectorized

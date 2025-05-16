@@ -121,6 +121,9 @@ public:
     Status read_one_cell_from_json(IColumn& column, const rapidjson::Value& result) const override;
 
 private:
+    template <bool is_strict_mode>
+    static Status _from_string_batch_common(const ColumnString& str, ColumnNullable& column,
+                                            const FormatOptions& options);
     template <bool is_binary_format>
     Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,
                                   int64_t row_idx, bool col_const,

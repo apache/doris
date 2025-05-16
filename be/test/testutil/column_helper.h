@@ -43,6 +43,15 @@ public:
         return std::move(column);
     }
 
+    template <typename Offset>
+    static ColumnPtr create_column_offsets(const std::vector<Offset>& data) {
+        auto column = ColumnVector<Offset>::create();
+        for (const auto& datum : data) {
+            column->insert_value(datum);
+        }
+        return std::move(column);
+    }
+
     template <typename DataType>
     static ColumnPtr create_nullable_column(
             const std::vector<typename DataType::FieldType>& data,

@@ -19,8 +19,7 @@
 
 #include "cast_base.h"
 #include "cast_to_string.h"
-#include "vec/columns/column_object.h"
-#include "vec/data_types/data_type_object.h"
+#include "vec/data_types/data_type_variant.h"
 namespace doris::vectorized::CastWrapper {
 
 struct CastFromVariant {

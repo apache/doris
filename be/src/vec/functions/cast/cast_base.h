@@ -32,7 +32,31 @@
 #include "vec/functions/function_helpers.h"
 namespace doris::vectorized {
 
+struct NameCast {
+    static constexpr auto name = "CAST";
+};
+
+struct PrecisionScaleArg {
+    UInt32 precision;
+    UInt32 scale;
+};
+
 namespace CastUtil {
+// `static_cast_set` is introduced to wrap `static_cast` and handle special cases.
+// Doris uses `uint8` to represent boolean values internally.
+// Directly `static_cast` to `uint8` can result in non-0/1 values,
+// To address this, `static_cast_set` performs an additional check:
+//  For `uint8` types, it explicitly uses `static_cast<bool>` to ensure
+//  the result is either 0 or 1.
+template <typename FromFieldType, typename ToFieldType>
+void static_cast_set(ToFieldType& to, const FromFieldType& from) {
+    // uint8_t now use as boolean in doris
+    if constexpr (std::is_same_v<uint8_t, ToFieldType>) {
+        to = static_cast<bool>(from);
+    } else {
+        to = static_cast<ToFieldType>(from);
+    }
+}
 template <typename T>
 constexpr static bool is_signed_integer = false;
 template <>
@@ -47,18 +71,12 @@ template <>
 inline constexpr bool is_signed_integer<DataTypeInt128> = true;
 
 template <typename T>
-constexpr static bool is_unsigned_integer = false;
+constexpr static bool is_bool = false;
 template <>
-inline constexpr bool is_unsigned_integer<DataTypeUInt8> = true;
-template <>
-inline constexpr bool is_unsigned_integer<DataTypeUInt16> = true;
-template <>
-inline constexpr bool is_unsigned_integer<DataTypeUInt32> = true;
-template <>
-inline constexpr bool is_unsigned_integer<DataTypeUInt64> = true;
+inline constexpr bool is_bool<DataTypeUInt8> = true;
 
 template <typename T>
-constexpr static bool is_integer = is_signed_integer<T> || is_unsigned_integer<T>;
+constexpr static bool is_integer_or_bool = is_signed_integer<T> || is_bool<T>;
 
 template <typename T>
 constexpr static bool is_floating_point = false;
@@ -68,20 +86,20 @@ template <>
 inline constexpr bool is_floating_point<DataTypeFloat64> = true;
 
 template <typename T>
-constexpr static bool is_number = is_integer<T> || is_floating_point<T>;
+constexpr static bool is_number = is_integer_or_bool<T> || is_floating_point<T>;
 
 template <typename T>
 constexpr static bool is_decimal = false;
 template <>
-inline constexpr bool is_decimal<DataTypeDecimal<Decimal32>> = true;
+inline constexpr bool is_decimal<DataTypeDecimal<TYPE_DECIMAL32>> = true;
 template <>
-inline constexpr bool is_decimal<DataTypeDecimal<Decimal64>> = true;
+inline constexpr bool is_decimal<DataTypeDecimal<TYPE_DECIMAL64>> = true;
 template <>
-inline constexpr bool is_decimal<DataTypeDecimal<Decimal128V2>> = true;
+inline constexpr bool is_decimal<DataTypeDecimal<TYPE_DECIMALV2>> = true;
 template <>
-inline constexpr bool is_decimal<DataTypeDecimal<Decimal128V3>> = true;
+inline constexpr bool is_decimal<DataTypeDecimal<TYPE_DECIMAL128I>> = true;
 template <>
-inline constexpr bool is_decimal<DataTypeDecimal<Decimal256>> = true;
+inline constexpr bool is_decimal<DataTypeDecimal<TYPE_DECIMAL256>> = true;
 
 template <typename T>
 constexpr static bool is_date_time = false;
@@ -109,8 +127,8 @@ template <>
 inline constexpr bool is_string<DataTypeString> = true;
 
 template <typename T>
-constexpr static bool is_base_cast_to_type =
-        is_integer<T> || is_floating_point<T> || is_decimal<T> || is_date_time<T> || is_ip<T>;
+constexpr static bool is_base_cast_to_type = is_integer_or_bool<T> || is_floating_point<T> ||
+                                             is_decimal<T> || is_date_time<T> || is_ip<T>;
 
 template <typename T>
 constexpr static bool is_base_cast_from_type = is_base_cast_to_type<T> || is_string<T>;
@@ -198,4 +216,13 @@ public:
                                          block.get_by_position(result).type));
     }
 };
+
+#ifdef BE_TEST
+inline CastWrapper::WrapperType get_cast_wrapper(FunctionContext* context,
+                                                 const DataTypePtr& from_type,
+                                                 const DataTypePtr& to_type) {
+    return CastWrapper::prepare_unpack_dictionaries(context, from_type, to_type);
+}
+#endif
+
 } // namespace doris::vectorized

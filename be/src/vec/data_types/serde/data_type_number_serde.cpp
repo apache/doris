@@ -26,6 +26,7 @@
 #include "gutil/strings/numbers.h"
 #include "util/mysql_global.h"
 #include "vec/core/types.h"
+#include "vec/functions/cast/function_cast.h"
 #include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
@@ -396,9 +397,9 @@ Status DataTypeNumberSerDe<T>::write_column_to_orc(const std::string& timezone,
     return Status::OK();
 }
 
-template <typename T, bool is_strict_mode>
-bool read_number_text_impl(StringRef& str, T& val) {
-    if constexpr (std::is_same_v<T, uint8_t>) {
+template <PrimitiveType PT, bool is_strict_mode>
+bool read_number_text_impl(StringRef& str, typename PrimitiveTypeTraits<PT>::ColumnItemType& val) {
+    if constexpr (PT == TYPE_BOOLEAN) {
         return try_read_bool_text(val, str);
     }
     // else if constexpr (){
@@ -409,11 +410,11 @@ bool read_number_text_impl(StringRef& str, T& val) {
     return false;
 }
 
-template <typename T>
+template <PrimitiveType T>
 Status DataTypeNumberSerDe<T>::from_string(StringRef& str, IColumn& column,
                                            const FormatOptions& options) const {
     auto& column_data = assert_cast<ColumnType&, TypeCheckOnRelease::DISABLE>(column);
-    T val;
+    typename PrimitiveTypeTraits<T>::ColumnItemType val;
     if (!read_number_text_impl<T, false>(str, val)) {
         return Status::InvalidArgument("parse number fail, string: '{}'", str.to_string());
     }
@@ -421,11 +422,11 @@ Status DataTypeNumberSerDe<T>::from_string(StringRef& str, IColumn& column,
     return Status::OK();
 }
 
-template <typename T>
+template <PrimitiveType T>
 Status DataTypeNumberSerDe<T>::from_string_strict_mode(StringRef& str, IColumn& column,
                                                        const FormatOptions& options) const {
     auto& column_data = assert_cast<ColumnType&, TypeCheckOnRelease::DISABLE>(column);
-    T val;
+    typename PrimitiveTypeTraits<T>::ColumnItemType val;
     if (!read_number_text_impl<T, true>(str, val)) {
         return Status::InvalidArgument("parse number fail, string: '{}'", str.to_string());
     }
@@ -433,36 +434,53 @@ Status DataTypeNumberSerDe<T>::from_string_strict_mode(StringRef& str, IColumn& 
     return Status::OK();
 }
 
-template <typename T>
-Status DataTypeNumberSerDe<T>::from_string_batch(const ColumnString& str, ColumnNullable& column,
-                                                 const FormatOptions& options) const {
+template <PrimitiveType T>
+template <bool is_strict_mode>
+Status DataTypeNumberSerDe<T>::_from_string_batch_common(const ColumnString& str,
+                                                         ColumnNullable& column,
+                                                         const FormatOptions& options) {
     const auto size = str.size();
     column.resize(size);
+
     auto& column_to = assert_cast<ColumnType&>(column.get_nested_column());
     auto& null_map = column.get_null_map_data();
+
+    size_t current_offset = 0;
+    const ColumnString::Chars* chars = &str.get_chars();
+    const IColumn::Offsets* offsets = &str.get_offsets();
+
     for (size_t i = 0; i < size; ++i) {
-        StringRef from_str = str.get_data_at(i);
-        null_map[i] = !read_number_text_impl<T, false>(from_str, column_to.get_data()[i]);
+        size_t next_offset = (*offsets)[i];
+        size_t string_size = next_offset - current_offset;
+
+        ReadBuffer read_buffer(&(*chars)[current_offset], string_size);
+        if constexpr (is_strict_mode) {
+            null_map[i] = false;
+            if (!try_parse_impl<DataTypeNumber<T>, true>(column_to.get_data()[i], read_buffer,
+                                                         nullptr)) {
+                return Status::InvalidArgument(
+                        "parse number fail, string: '{}'",
+                        std::string((char*)&(*chars)[current_offset], string_size));
+            }
+        } else {
+            null_map[i] = !try_parse_impl<DataTypeNumber<T>, false>(column_to.get_data()[i],
+                                                                    read_buffer, nullptr);
+        }
+        current_offset = next_offset;
     }
     return Status::OK();
 }
+template <PrimitiveType T>
+Status DataTypeNumberSerDe<T>::from_string_batch(const ColumnString& str, ColumnNullable& column,
+                                                 const FormatOptions& options) const {
+    return _from_string_batch_common<false>(str, column, options);
+}
 
-template <typename T>
+template <PrimitiveType T>
 Status DataTypeNumberSerDe<T>::from_string_strict_mode_batch(const ColumnString& str,
                                                              ColumnNullable& column,
                                                              const FormatOptions& options) const {
-    const auto size = str.size();
-    column.resize(size);
-    auto& column_to = assert_cast<ColumnType&>(column.get_nested_column());
-    auto& null_map = column.get_null_map_data();
-    for (size_t i = 0; i < size; ++i) {
-        StringRef from_str = str.get_data_at(i);
-        null_map[i] = false;
-        if (!read_number_text_impl<T, true>(from_str, column_to.get_data()[i])) {
-            return Status::InvalidArgument("parse number fail, string: '{}'", from_str.to_string());
-        }
-    }
-    return Status::OK();
+    return _from_string_batch_common<true>(str, column, options);
 }
 
 /// Explicit template instantiations - to avoid code bloat in headers.

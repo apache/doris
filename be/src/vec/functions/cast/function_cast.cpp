@@ -19,6 +19,9 @@
 
 #include "cast_to_array.h"
 #include "cast_to_boolean.h"
+#include "cast_to_decimal.h"
+#include "cast_to_float.h"
+#include "cast_to_int.h"
 #include "cast_to_jsonb.h"
 #include "cast_to_map.h"
 #include "cast_to_string.h"
@@ -29,26 +32,25 @@
 namespace doris::vectorized {
 
 namespace CastWrapper {
-template <typename DataType>
-WrapperType create_wrapper(const DataTypePtr& from_type, const DataType* const,
+template <typename ToDataType>
+WrapperType create_wrapper(const DataTypePtr& from_type, const ToDataType* const,
                            bool requested_result_is_nullable) {
     if (requested_result_is_nullable && check_and_get_data_type<DataTypeString>(from_type.get())) {
         /// In case when converting to Nullable type, we apply different parsing rule,
         /// that will not throw an exception but return NULL in case of malformed input.
-        FunctionPtr function;
-        function = FunctionConvertFromString<DataType, NameCast>::create();
+        auto function = FunctionConvertFromString<ToDataType>::create();
         return [function](FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           const uint32_t result, size_t input_rows_count) {
             return function->execute(context, block, arguments, result, input_rows_count);
         };
     } else if (requested_result_is_nullable &&
-               (IsDatelikeV1Types<DataType> || IsDatelikeV2Types<DataType>)&&!(
+               (IsDatelikeV1Types<ToDataType> || IsDatelikeV2Types<ToDataType>)&&!(
                        check_and_get_data_type<DataTypeDateTime>(from_type.get()) ||
                        check_and_get_data_type<DataTypeDate>(from_type.get()) ||
                        check_and_get_data_type<DataTypeDateV2>(from_type.get()) ||
                        check_and_get_data_type<DataTypeDateTimeV2>(from_type.get()))) {
         FunctionPtr function;
-        function = FunctionConvertToTimeType<DataType, NameCast>::create();
+        function = FunctionConvertToTimeType<ToDataType, NameCast>::create();
         return [function](FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           const uint32_t result, size_t input_rows_count) {
             return function->execute(context, block, arguments, result, input_rows_count);
@@ -56,52 +58,10 @@ WrapperType create_wrapper(const DataTypePtr& from_type, const DataType* const,
     } else {
         return [](FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                   const uint32_t result, size_t input_rows_count) {
-            typename FunctionTo<DataType>::Type function;
+            FunctionConvert<ToDataType> function;
             return function.execute_impl(context, block, arguments, result, input_rows_count);
         };
     }
-}
-
-template <typename FieldType>
-WrapperType create_decimal_wrapper(const DataTypePtr& from_type,
-                                   const DataTypeDecimal<FieldType>* to_type) {
-    using ToDataType = DataTypeDecimal<FieldType>;
-
-    auto type = from_type->get_primitive_type();
-    UInt32 precision = to_type->get_precision();
-    UInt32 scale = to_type->get_scale();
-
-    bool ok = is_int_or_bool(type) || is_decimal(type) || is_float_or_double(type) ||
-              is_date_type(type) || is_string_type(type);
-    if (!ok) {
-        return create_unsupport_wrapper(from_type->get_name(), to_type->get_name());
-    }
-
-    return [type, precision, scale](FunctionContext* context, Block& block,
-                                    const ColumnNumbers& arguments, const uint32_t result,
-                                    size_t input_rows_count) {
-        auto res = call_on_index_and_data_type<ToDataType>(type, [&](const auto& types) -> bool {
-            using Types = std::decay_t<decltype(types)>;
-            using LeftDataType = typename Types::LeftType;
-            using RightDataType = typename Types::RightType;
-
-            auto state = ConvertImpl<LeftDataType, RightDataType>::execute(
-                    context, block, arguments, result, input_rows_count,
-                    PrecisionScaleArg {precision, scale});
-            if (!state) {
-                throw Exception(state.code(), state.to_string());
-            }
-            return true;
-        });
-
-        /// Additionally check if call_on_index_and_data_type wasn't called at all.
-        if (!res) {
-            auto to = DataTypeDecimal<FieldType>(precision, scale);
-            return Status::RuntimeError("Conversion from {} to {} is not supported",
-                                        type_to_string(type), to.get_name());
-        }
-        return Status::OK();
-    };
 }
 
 WrapperType create_hll_wrapper(FunctionContext* context, const DataTypePtr& from_type_untyped,
@@ -328,17 +288,13 @@ WrapperType prepare_impl(FunctionContext* context, const DataTypePtr& origin_fro
         if constexpr (std::is_same_v<ToDataType, DataTypeUInt8>) {
             ret = create_boolean_wrapper(context, from_type);
             return true;
-        } else if constexpr (std::is_same_v<ToDataType, DataTypeUInt16> ||
-                             std::is_same_v<ToDataType, DataTypeUInt32> ||
-                             std::is_same_v<ToDataType, DataTypeUInt64> ||
-                             std::is_same_v<ToDataType, DataTypeInt8> ||
-                             std::is_same_v<ToDataType, DataTypeInt16> ||
-                             std::is_same_v<ToDataType, DataTypeInt32> ||
-                             std::is_same_v<ToDataType, DataTypeInt64> ||
-                             std::is_same_v<ToDataType, DataTypeInt128> ||
-                             std::is_same_v<ToDataType, DataTypeFloat32> ||
-                             std::is_same_v<ToDataType, DataTypeFloat64> ||
-                             std::is_same_v<ToDataType, DataTypeDate> ||
+        } else if constexpr (IsDataTypeInt<ToDataType>) {
+            ret = create_int_wrapper<ToDataType>(context, from_type);
+            return true;
+        } else if constexpr (IsDataTypeFloat<ToDataType>) {
+            ret = create_float_wrapper<ToDataType>(context, from_type);
+            return true;
+        } else if constexpr (std::is_same_v<ToDataType, DataTypeDate> ||
                              std::is_same_v<ToDataType, DataTypeDateTime> ||
                              std::is_same_v<ToDataType, DataTypeDateV2> ||
                              std::is_same_v<ToDataType, DataTypeDateTimeV2> ||
@@ -350,13 +306,8 @@ WrapperType prepare_impl(FunctionContext* context, const DataTypePtr& origin_fro
             return true;
         }
 
-        if constexpr (std::is_same_v<ToDataType, DataTypeDecimal<Decimal32>> ||
-                      std::is_same_v<ToDataType, DataTypeDecimal<Decimal64>> ||
-                      std::is_same_v<ToDataType, DataTypeDecimal<Decimal128V2>> ||
-                      std::is_same_v<ToDataType, DataTypeDecimal<Decimal128V3>> ||
-                      std::is_same_v<ToDataType, DataTypeDecimal<Decimal256>>) {
-            ret = create_decimal_wrapper(from_type,
-                                         check_and_get_data_type<ToDataType>(to_type.get()));
+        if constexpr (IsDataTypeDecimal<ToDataType>) {
+            ret = create_decimal_wrapper<ToDataType>(context, from_type);
             return true;
         }
 
@@ -382,7 +333,7 @@ WrapperType prepare_impl(FunctionContext* context, const DataTypePtr& origin_fro
         return create_map_wrapper(context, from_type, static_cast<const DataTypeMap&>(*to_type));
     case PrimitiveType::TYPE_HLL:
         return create_hll_wrapper(context, from_type, static_cast<const DataTypeHLL&>(*to_type));
-    case PrimitiveType::TYPE_OBJECT:
+    case PrimitiveType::TYPE_BITMAP:
         return create_bitmap_wrapper(context, from_type,
                                      static_cast<const DataTypeBitMap&>(*to_type));
     case PrimitiveType::TYPE_JSONB:
