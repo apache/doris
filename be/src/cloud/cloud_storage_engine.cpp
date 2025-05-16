@@ -739,7 +739,9 @@ Status CloudStorageEngine::_submit_cumulative_compaction_task(const CloudTabletS
         long now = duration_cast<std::chrono::milliseconds>(
                            std::chrono::system_clock::now().time_since_epoch())
                            .count();
-        if (st.msg() != "_last_delete_version.first not equal to -1") {
+        if (!st.is<ErrorCode::CUMULATIVE_MEET_DELETE_VERSION>()) {
+            // Backoff strategy if no suitable version
+            tablet->last_cumu_no_suitable_version_ms = now;
             tablet->set_last_cumu_compaction_failure_time(now);
         }
         std::lock_guard lock(_compaction_mtx);
@@ -829,10 +831,9 @@ Status CloudStorageEngine::_submit_cumulative_compaction_task(const CloudTabletS
                 if (_should_delay_large_task()) {
                     long now = duration_cast<milliseconds>(system_clock::now().time_since_epoch())
                                        .count();
+                    // sleep 5s for this tablet
                     tablet->set_last_cumu_compaction_failure_time(now);
                     erase_executing_cumu_compaction();
-                    // sleep 5s for this tablet
-                    tablet->last_cumu_no_suitable_version_ms = now;
                     LOG_WARNING(
                             "failed to do CloudCumulativeCompaction, cumu thread pool is "
                             "intensive, delay large task.")
