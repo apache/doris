@@ -442,22 +442,11 @@ Status VExpr::check_expr_output_type(const VExprContextSPtrs& ctxs,
                 "output type size not match expr size {} , expected output size {} ", ctxs.size(),
                 name_and_types.size());
     }
-    auto check_type_can_be_converted = [](DataTypePtr from, DataTypePtr to) -> bool {
-        if (to->is_nullable() && !from->is_nullable()) {
-            to = remove_nullable(to);
-        }
-        if (const auto* typed = typeid_cast<const DataTypeAggState*>(from.get()); typed) {
-            from = typed->get_serialized_type();
-        }
-        if (const auto* typed = typeid_cast<const DataTypeAggState*>(to.get()); typed) {
-            to = typed->get_serialized_type();
-        }
-        return to->equals(*from);
-    };
+
     for (int i = 0; i < ctxs.size(); i++) {
         auto real_expr_type = get_data_type_with_default_argument(ctxs[i]->root()->data_type());
         auto&& [name, expected_type] = name_and_types[i];
-        if (!check_type_can_be_converted(real_expr_type, expected_type)) {
+        if (!(real_expr_type->equals(*expected_type))) {
             return Status::InternalError(
                     "output type not match expr type, col name {}, expected type {}, real type {}",
                     name, expected_type->get_name(), real_expr_type->get_name());
