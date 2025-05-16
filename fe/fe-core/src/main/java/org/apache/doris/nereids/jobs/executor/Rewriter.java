@@ -284,6 +284,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 new InferFilterNotNull(),
                                 new InferJoinNotNull()
                         ),
+                        bottomUp(RuleSet.PUSH_DOWN_FILTERS),
                         custom(RuleType.CONSTANT_PROPAGATION, ConstantPropagation::new),
                         // ReorderJoin depends PUSH_DOWN_FILTERS
                         // the PUSH_DOWN_FILTERS depends on lots of rules, e.g. merge project, eliminate outer,
