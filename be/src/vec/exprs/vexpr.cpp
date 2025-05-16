@@ -37,7 +37,6 @@
 #include "runtime/define_primitive_type.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
-#include "vec/data_types/data_type_agg_state.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_nullable.h"
@@ -442,13 +441,22 @@ Status VExpr::check_expr_output_type(const VExprContextSPtrs& ctxs,
                 "output type size not match expr size {} , expected output size {} ", ctxs.size(),
                 name_and_types.size());
     }
-
+    auto check_type_can_be_converted = [](DataTypePtr& from, DataTypePtr& to) -> bool {
+        if (to->equals(*from)) {
+            return true;
+        }
+        if (to->is_nullable() && !from->is_nullable()) {
+            return remove_nullable(to)->equals(*from);
+        }
+        return false;
+    };
     for (int i = 0; i < ctxs.size(); i++) {
         auto real_expr_type = get_data_type_with_default_argument(ctxs[i]->root()->data_type());
         auto&& [name, expected_type] = name_and_types[i];
-        if (!(real_expr_type->equals(*expected_type))) {
+        if (!check_type_can_be_converted(real_expr_type, expected_type)) {
             return Status::InternalError(
-                    "output type not match expr type, col name {}, expected type {}, real type {}",
+                    "output type not match expr type  , col name {} , expected type {} , real type "
+                    "{}",
                     name, expected_type->get_name(), real_expr_type->get_name());
         }
     }
