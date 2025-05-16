@@ -18,12 +18,14 @@
 package org.apache.doris.cloud.load;
 
 import org.apache.doris.analysis.BrokerDesc;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.Profile;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.loadv2.LoadLoadingTask;
 import org.apache.doris.load.loadv2.LoadTaskCallback;
@@ -31,6 +33,7 @@ import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -41,7 +44,7 @@ public class CloudLoadLoadingTask extends LoadLoadingTask {
 
     private String cloudClusterId;
 
-    public CloudLoadLoadingTask(Database db, OlapTable table,
+    public CloudLoadLoadingTask(UserIdentity userinfo, Database db, OlapTable table,
             BrokerDesc brokerDesc, List<BrokerFileGroup> fileGroups,
             long jobDeadlineMs, long execMemLimit, boolean strictMode, boolean isPartialUpdate,
             long txnId, LoadTaskCallback callback, String timezone,
@@ -49,7 +52,7 @@ public class CloudLoadLoadingTask extends LoadLoadingTask {
             boolean loadZeroTolerance, Profile jobProfile, boolean singleTabletLoadPerSink,
             Priority priority, boolean enableMemTableOnSinkNode, int batchSize,
             String clusterId) {
-        super(db, table, brokerDesc, fileGroups, jobDeadlineMs, execMemLimit, strictMode, isPartialUpdate,
+        super(userinfo, db, table, brokerDesc, fileGroups, jobDeadlineMs, execMemLimit, strictMode, isPartialUpdate,
                 txnId, callback, timezone, timeoutS, loadParallelism, sendBatchParallelism, loadZeroTolerance,
                 jobProfile, singleTabletLoadPerSink, priority, enableMemTableOnSinkNode, batchSize);
         this.cloudClusterId = clusterId;
@@ -66,9 +69,13 @@ public class CloudLoadLoadingTask extends LoadLoadingTask {
         if (ConnectContext.get() == null) {
             ConnectContext connectContext = new ConnectContext();
             connectContext.setCloudCluster(clusterName);
+            connectContext.setCurrentUserIdentity(this.userInfo);
+            connectContext.setQualifiedUser(this.userInfo.getQualifiedUser());
             return new AutoCloseConnectContext(connectContext);
         } else {
             ConnectContext.get().setCloudCluster(clusterName);
+            ConnectContext.get().setCurrentUserIdentity(this.userInfo);
+            ConnectContext.get().setQualifiedUser(this.userInfo.getQualifiedUser());
             return null;
         }
     }
@@ -76,6 +83,11 @@ public class CloudLoadLoadingTask extends LoadLoadingTask {
     @Override
     protected void executeOnce() throws Exception {
         try (AutoCloseConnectContext r = buildConnectContext()) {
+            if (ConnectContext.get().getCurrentUserIdentity() == null || StringUtils.isEmpty(
+                    ConnectContext.get().getCurrentUserIdentity().getQualifiedUser())) {
+                LOG.warn("user is empty for cloud load job {}, job user is {} ", DebugUtil.printId(this.getLoadId()),
+                        this.userInfo.getQualifiedUser());
+            }
             super.executeOnce();
         }
     }
