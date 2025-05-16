@@ -46,9 +46,23 @@ import java.util.Set;
  * post rule to do lazy materialize
  */
 public class LazyMaterializeTopN extends PlanPostProcessor {
-
+    /* BE do not support pattern:
+       union
+          -->materialize
+                   -->topn
+                        -->scan1
+          -->materialize
+                   -->topn
+                        -->scan2
+       when we create materializeNode for the first union child, set hasMaterialized=true
+       to avoid generating materializeNode for other union's children
+    */
+    private boolean hasMaterialized = false;
     @Override
     public Plan visitPhysicalTopN(PhysicalTopN topN, CascadesContext ctx) {
+        if (hasMaterialized) {
+            return topN;
+        }
         /*
          topn(output=[x] orderkey=[b])
              ->project(a as x)
@@ -114,6 +128,7 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
             result = new PhysicalLazyMaterialize(result, result.getOutput(),
                     materializedSlots, relationToLazySlotMap, relationToRowId, materializeMap,
                     null, ((AbstractPlan) result).getStats());
+            hasMaterialized = true;
         } else {
             /*
             topn
@@ -136,6 +151,7 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
             result = new PhysicalLazyMaterialize(result, materializeInput,
                     reOrderedMaterializedSlots, relationToLazySlotMap, relationToRowId, materializeMap,
                     null, ((AbstractPlan) result).getStats());
+            hasMaterialized = true;
         }
         result = new PhysicalProject(originOutput, null, result);
         return result;
