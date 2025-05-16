@@ -22,7 +22,7 @@ suite("test_ik_analyzer", "p0") {
     sql "DROP TABLE IF EXISTS ${tableNameSmart}"
     sql "DROP TABLE IF EXISTS ${tableNameMaxWord}"
 
-    // 创建smart模式测试表
+    // Create test table for smart mode
     sql """
       CREATE TABLE ${tableNameSmart} (
       `id` int(11) NULL COMMENT "",
@@ -37,7 +37,7 @@ suite("test_ik_analyzer", "p0") {
       );
     """
 
-    // 创建max_word模式测试表
+    // Create test table for max_word mode
     sql """
       CREATE TABLE ${tableNameMaxWord} (
       `id` int(11) NULL COMMENT "",
@@ -52,7 +52,7 @@ suite("test_ik_analyzer", "p0") {
       );
     """
 
-    // 插入测试数据
+    // Insert test data
     def insertData = { table ->
         sql """ INSERT INTO ${table} VALUES (1, "我爱北京天安门"); """
         sql """ INSERT INTO ${table} VALUES (2, "Apache Doris是一个现代化的MPP数据库"); """
@@ -68,14 +68,14 @@ suite("test_ik_analyzer", "p0") {
         sql "sync"
         sql """ set enable_common_expr_pushdown = true; """
 
-        // 测试smart模式
+        // Testing ik smart mode
         println "Testing ik smart mode:"
         qt_sql """ select * from ${tableNameSmart} where content match_phrase '北京'; """
         qt_sql """ select * from ${tableNameSmart} where content match_phrase '计算机科学'; """
         qt_sql """ select * from ${tableNameSmart} where content match_phrase '数据库管理系统'; """
         qt_sql """ select * from ${tableNameSmart} where content match_phrase '中华人民共和国'; """
 
-        // 测试max_word模式
+        // Testing ik max_word mode
         println "Testing ik max_word mode:"
         qt_sql """ select * from ${tableNameMaxWord} where content match_phrase '北京'; """
         qt_sql """ select * from ${tableNameMaxWord} where content match_phrase '计算机科学'; """
