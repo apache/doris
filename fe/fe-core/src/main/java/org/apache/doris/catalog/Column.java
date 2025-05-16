@@ -818,6 +818,7 @@ public class Column implements GsonPostProcessable {
         builder.setUniqueId(uniqueId);
         builder.setType(this.getDataType().toThrift().name());
         builder.setIsKey(this.isKey);
+        builder.setEncoding(encoding);
         if (null != this.aggregationType) {
             if (type.isAggStateType()) {
                 AggStateType aggState = (AggStateType) type;
