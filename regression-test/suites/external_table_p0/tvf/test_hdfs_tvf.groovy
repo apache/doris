@@ -381,7 +381,7 @@ suite("test_hdfs_tvf","external,hive,tvf,external_docker") {
             """
 
         // check exception
-        exception """Invalid uri: xx, extract schema is null"""
+        exception """Invalid uri: xx"""
     }
 
     // test exception
