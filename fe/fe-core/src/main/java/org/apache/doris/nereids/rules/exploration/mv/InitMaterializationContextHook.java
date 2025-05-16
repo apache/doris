@@ -61,7 +61,7 @@ public class InitMaterializationContextHook implements PlannerHook {
     public static final InitMaterializationContextHook INSTANCE = new InitMaterializationContextHook();
 
     @Override
-    public void afterAnalyze(NereidsPlanner planner) {
+    public void afterRewrite(NereidsPlanner planner) {
         initMaterializationContext(planner.getCascadesContext());
     }
 
@@ -123,13 +123,13 @@ public class InitMaterializationContextHook implements PlannerHook {
         try {
             availableMTMVs = getAvailableMTMVs(usedTables, cascadesContext);
         } catch (Exception e) {
-            LOG.warn(String.format("MaterializationContext getAvailableMTMVs generate fail, current queryId is %s",
-                    cascadesContext.getConnectContext().getQueryIdentifier()), e);
+            LOG.warn(String.format("MaterializationContext getAvailableMTMVs generate fail, current sqlHash is %s",
+                    cascadesContext.getConnectContext().getSqlHash()), e);
             return ImmutableList.of();
         }
         if (CollectionUtils.isEmpty(availableMTMVs)) {
-            LOG.debug("Enable materialized view rewrite but availableMTMVs is empty, current queryId "
-                    + "is {}", cascadesContext.getConnectContext().getQueryIdentifier());
+            LOG.debug("Enable materialized view rewrite but availableMTMVs is empty, current sqlHash "
+                    + "is {}", cascadesContext.getConnectContext().getSqlHash());
             return ImmutableList.of();
         }
         List<MaterializationContext> asyncMaterializationContext = new ArrayList<>();
@@ -137,13 +137,6 @@ public class InitMaterializationContextHook implements PlannerHook {
             MTMVCache mtmvCache = null;
             try {
                 mtmvCache = materializedView.getOrGenerateCache(cascadesContext.getConnectContext());
-                // If mv property use_for_rewrite is set false, should not partition in
-                // query rewrite by materialized view
-                if (!materializedView.isUseForRewrite()) {
-                    LOG.debug("mv doesn't part in query rewrite process because "
-                            + "use_for_rewrite is false, mv is {}", materializedView.getName());
-                    continue;
-                }
                 if (mtmvCache == null) {
                     continue;
                 }
