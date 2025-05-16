@@ -172,7 +172,7 @@ PhysicalResultSink
 
 -- !pushdown_inner_join_subquery --
 PhysicalResultSink
---NestedLoopJoin[INNER_JOIN]
+--NestedLoopJoin[CROSS_JOIN]
 ----filter((t1.id = 1))
 ------PhysicalOlapScan[t1]
 ----filter((sum(id) = 1))
