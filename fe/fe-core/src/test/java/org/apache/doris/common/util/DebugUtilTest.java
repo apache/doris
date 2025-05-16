@@ -108,7 +108,7 @@ public class DebugUtilTest {
         try {
             nullTUniqueId = DebugUtil.parseTUniqueIdFromString(null);
         } catch (NumberFormatException e) {
-            Assert.assertTrue("invalid query id: null".equals(e.getMessage()));
+            Assert.assertEquals("query id null or empty", e.getMessage());
         }
         Assert.assertTrue(nullTUniqueId == null);
 
@@ -116,7 +116,7 @@ public class DebugUtilTest {
         try {
             nullTUniqueId = DebugUtil.parseTUniqueIdFromString("");
         } catch (NumberFormatException e) {
-            Assert.assertTrue("invalid query id: ".equals(e.getMessage()));
+            Assert.assertEquals("query id null or empty", e.getMessage());
         }
         Assert.assertTrue(nullTUniqueId == null);
 
