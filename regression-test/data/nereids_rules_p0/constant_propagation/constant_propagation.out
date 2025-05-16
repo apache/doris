@@ -119,6 +119,90 @@ PhysicalResultSink
 1	\N
 10	\N
 
+-- !join_4_shape --
+PhysicalResultSink
+--NestedLoopJoin[CROSS_JOIN]
+----PhysicalProject[t1.a]
+------filter((t1.a = 10))
+--------PhysicalOlapScan[t1]
+----PhysicalProject[t2.x]
+------filter((t2.x = 1))
+--------PhysicalOlapScan[t2]
+
+-- !join_4_result --
+10	1
+
+-- !join_5_shape --
+PhysicalResultSink
+--PhysicalProject[t1.a, t2.x]
+----NestedLoopJoin[LEFT_OUTER_JOIN](a = 10)
+------PhysicalProject[t1.a, (a = 10) AS `(a = 10)`]
+--------PhysicalOlapScan[t1]
+------PhysicalProject[t2.x]
+--------filter((t2.x = 1))
+----------PhysicalOlapScan[t2]
+
+-- !join_5_result --
+1	\N
+10	1
+
+-- !join_6_shape --
+PhysicalResultSink
+--PhysicalProject[t1.a, t2.x]
+----NestedLoopJoin[FULL_OUTER_JOIN](a = 10)(x = 1)
+------PhysicalProject[t1.a, (a = 10) AS `(a = 10)`]
+--------PhysicalOlapScan[t1]
+------PhysicalProject[t2.x, (x = 1) AS `(x = 1)`]
+--------PhysicalOlapScan[t2]
+
+-- !join_6_result --
+\N	10
+1	\N
+10	1
+
+-- !join_7_shape --
+PhysicalResultSink
+--NestedLoopJoin[LEFT_SEMI_JOIN]
+----PhysicalProject[t1.a]
+------filter((t1.a = 10))
+--------PhysicalOlapScan[t1]
+----PhysicalProject[1 AS `1`]
+------filter((t2.x = 1))
+--------PhysicalOlapScan[t2]
+
+-- !join_7_result --
+10
+
+-- !join_8_shape --
+PhysicalResultSink
+--PhysicalProject[t1.a]
+----NestedLoopJoin[LEFT_ANTI_JOIN](a = 10)
+------PhysicalProject[t1.a, (a = 10) AS `(a = 10)`]
+--------PhysicalOlapScan[t1]
+------PhysicalProject[1 AS `1`]
+--------filter((t2.x = 1))
+----------PhysicalOlapScan[t2]
+
+-- !join_8_result --
+1
+
+-- !join_9_shape --
+PhysicalResultSink
+--hashJoin[INNER_JOIN] hashCondition=((t2.x = t3.a)) otherCondition=() build RFs:RF0 a->[x];RF1 a->[x]
+----NestedLoopJoin[CROSS_JOIN]
+------PhysicalProject[t2.x]
+--------filter(((t2.x * 10) = 10))
+----------PhysicalOlapScan[t2] apply RFs: RF0 RF1
+------PhysicalProject[t1.a]
+--------filter((t1.a = 10))
+----------PhysicalOlapScan[t1]
+----PhysicalProject[t3.a]
+------filter(((t3.a * 10) = 10) and (t3.__DORIS_DELETE_SIGN__ = 0))
+--------PhysicalOlapScan[t3]
+
+-- !join_9_result --
+10	1	1
+
 -- !subquery_1_shape --
 PhysicalResultSink
 --PhysicalEmptyRelation
@@ -176,6 +260,147 @@ PhysicalResultSink
 -- !subquery_6_result --
 1	2	3
 
+-- !subquery_7_shape --
+PhysicalResultSink
+--NestedLoopJoin[CROSS_JOIN]
+----PhysicalProject[t2.x]
+------filter(((t2.x * 10) = 10))
+--------PhysicalOlapScan[t2]
+----PhysicalProject[t.a]
+------filter((t1.a = 10))
+--------PhysicalOlapScan[t1]
+
+-- !subquery_7_result --
+10	1
+
+-- !subquery_8_shape --
+PhysicalResultSink
+--NestedLoopJoin[CROSS_JOIN]
+----PhysicalUnion
+------PhysicalProject[(a * 10) AS `k`, t1.b]
+--------filter(((t1.a * 10) = 10))
+----------PhysicalOlapScan[t1]
+------PhysicalProject[cast(x as BIGINT) AS `k`, y AS `b`]
+--------filter((t2.x = 10))
+----------PhysicalOlapScan[t2]
+----PhysicalProject[t3.a]
+------filter((t3.__DORIS_DELETE_SIGN__ = 0) and (t3.a = 2))
+--------PhysicalOlapScan[t3]
+
+-- !subquery_8_result --
+10	2	2
+10	20	2
+
+-- !subquery_9_shape --
+PhysicalResultSink
+--NestedLoopJoin[CROSS_JOIN]
+----PhysicalExcept
+------PhysicalProject[(a * 10) AS `k`, t1.b]
+--------filter(((t1.a * 10) = 10))
+----------PhysicalOlapScan[t1]
+------PhysicalProject[cast(x as BIGINT) AS `k`, y AS `b`]
+--------filter((t2.x = 10))
+----------PhysicalOlapScan[t2]
+----PhysicalProject[t3.a]
+------filter((t3.__DORIS_DELETE_SIGN__ = 0) and (t3.a = 2))
+--------PhysicalOlapScan[t3]
+
+-- !subquery_9_result --
+10	2	2
+
+-- !subquery_10_shape --
+PhysicalResultSink
+--NestedLoopJoin[CROSS_JOIN]
+----PhysicalIntersect
+------PhysicalProject[cast(x as BIGINT) AS `k`, y AS `b`]
+--------filter((t2.x = 10))
+----------PhysicalOlapScan[t2]
+------PhysicalProject[(a * 10) AS `k`, t1.b]
+--------filter(((t1.a * 10) = 10))
+----------PhysicalOlapScan[t1]
+----PhysicalProject[t3.a]
+------filter((t3.__DORIS_DELETE_SIGN__ = 0) and (t3.a = 2))
+--------PhysicalOlapScan[t3]
+
+-- !subquery_10_result --
+
+-- !subquery_10_shape --
+PhysicalResultSink
+--NestedLoopJoin[LEFT_SEMI_JOIN]
+----PhysicalProject[t1.a]
+------filter((t1.a = 10))
+--------PhysicalOlapScan[t1]
+----PhysicalProject[1 AS `1`]
+------filter((t2.x = 1))
+--------PhysicalOlapScan[t2]
+
+-- !subquery_10_result --
+10
+
+-- !subquery_11_shape --
+PhysicalResultSink
+--NestedLoopJoin[LEFT_SEMI_JOIN]
+----PhysicalProject[t1.a]
+------filter((t1.a = 10))
+--------PhysicalOlapScan[t1]
+----PhysicalProject[1 AS `1`]
+------filter((t2.x = 20))
+--------PhysicalOlapScan[t2]
+
+-- !subquery_11_result --
+
+-- !subquery_12_shape --
+PhysicalResultSink
+--NestedLoopJoin[LEFT_SEMI_JOIN]
+----PhysicalProject[t1.a]
+------filter((t1.a = 10))
+--------PhysicalOlapScan[t1]
+----PhysicalProject[1 AS `1`]
+------filter((t2.x = 1))
+--------PhysicalOlapScan[t2]
+
+-- !subquery_12_result --
+10
+
+-- !subquery_13_shape --
+PhysicalResultSink
+--NestedLoopJoin[LEFT_SEMI_JOIN]
+----PhysicalProject[t1.a]
+------filter((t1.a = 10))
+--------PhysicalOlapScan[t1]
+----PhysicalProject[1 AS `1`]
+------filter((t2.x = 20))
+--------PhysicalOlapScan[t2]
+
+-- !subquery_13_result --
+
+-- !subquery_14_shape --
+PhysicalResultSink
+--PhysicalProject[t1.a]
+----NestedLoopJoin[LEFT_ANTI_JOIN](a = 10)
+------PhysicalProject[t1.a, (a = 10) AS `(a = 10)`]
+--------PhysicalOlapScan[t1]
+------PhysicalProject[1 AS `1`]
+--------filter((t2.x = 1))
+----------PhysicalOlapScan[t2]
+
+-- !subquery_14_result --
+1
+
+-- !subquery_15_shape --
+PhysicalResultSink
+--PhysicalProject[t1.a]
+----NestedLoopJoin[LEFT_ANTI_JOIN](a = 10)
+------PhysicalProject[t1.a, (a = 10) AS `(a = 10)`]
+--------PhysicalOlapScan[t1]
+------PhysicalProject[1 AS `1`]
+--------filter((t2.x = 20))
+----------PhysicalOlapScan[t2]
+
+-- !subquery_15_result --
+1
+10
+
 -- !agg_1_shape --
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
@@ -225,6 +450,25 @@ PhysicalResultSink
 --PhysicalEmptyRelation
 
 -- !agg_5_result --
+
+-- !agg_6_shape --
+PhysicalResultSink
+--PhysicalProject[10 AS `a`, count(a)]
+----filter((sum(b) > 10))
+------hashAgg[GLOBAL, groupByExpr=(t1.a), outputExpr=(count(*) AS `count(*)`, sum(b) AS `sum(b)`, t1.a)]
+--------hashAgg[LOCAL, groupByExpr=(t1.a), outputExpr=(partial_count(*) AS `partial_count(*)`, partial_sum(b) AS `partial_sum(b)`, t1.a)]
+----------PhysicalProject[t1.a, t1.b]
+------------filter((t1.a = 10))
+--------------PhysicalOlapScan[t1]
+
+-- !agg_6_result --
+10	1
+
+-- !agg_7_shape --
+PhysicalResultSink
+--PhysicalEmptyRelation
+
+-- !agg_7_result --
 
 -- !union_1_shape --
 PhysicalResultSink
