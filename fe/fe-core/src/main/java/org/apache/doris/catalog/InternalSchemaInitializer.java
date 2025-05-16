@@ -323,7 +323,6 @@ public class InternalSchemaInitializer extends Thread {
         return createTableStmt;
     }
 
-
     private boolean created() {
         // 1. check database exist
         Optional<Database> optionalDatabase =
