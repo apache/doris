@@ -65,7 +65,8 @@ class StructInfoMapTest extends SqlTestBase {
         Assertions.assertEquals(1, tableMaps.size());
         new MockUp<MTMVRelationManager>() {
             @Mock
-            public boolean isMVPartitionValid(MTMV mtmv, ConnectContext ctx, boolean forceConsistent) {
+            public boolean isMVPartitionValid(MTMV mtmv, ConnectContext ctx, boolean forceConsistent,
+                    Set<String> relatedPartitions) {
                 return true;
             }
         };
@@ -123,7 +124,8 @@ class StructInfoMapTest extends SqlTestBase {
         Assertions.assertEquals(1, tableMaps.size());
         new MockUp<MTMVRelationManager>() {
             @Mock
-            public boolean isMVPartitionValid(MTMV mtmv, ConnectContext ctx, boolean isMVPartitionValid) {
+            public boolean isMVPartitionValid(MTMV mtmv, ConnectContext ctx, boolean forceConsistent,
+                    Set<String> relatedPartitions) {
                 return true;
             }
         };
@@ -146,7 +148,6 @@ class StructInfoMapTest extends SqlTestBase {
                 .optimize()
                 .printlnBestPlanTree();
         root = c1.getMemo().getRoot();
-        root.getstructInfoMap().refresh(root, c1, new HashSet<>());
         root.getstructInfoMap().refresh(root, c1, new HashSet<>());
         tableMaps = root.getstructInfoMap().getTableMaps();
         Assertions.assertEquals(2, tableMaps.size());
@@ -171,7 +172,8 @@ class StructInfoMapTest extends SqlTestBase {
         );
         new MockUp<MTMVRelationManager>() {
             @Mock
-            public boolean isMVPartitionValid(MTMV mtmv, ConnectContext ctx, boolean isMVPartitionValid) {
+            public boolean isMVPartitionValid(MTMV mtmv, ConnectContext ctx, boolean forceConsistent,
+                    Set<String> relatedPartitions) {
                 return true;
             }
         };
