@@ -81,8 +81,8 @@ public class InitMaterializationContextHook implements PlannerHook {
      */
     protected void doInitMaterializationContext(CascadesContext cascadesContext) {
         if (cascadesContext.getConnectContext().getSessionVariable().isInDebugMode()) {
-            LOG.info("MaterializationContext init return because is in debug mode, current queryId is {}",
-                    cascadesContext.getConnectContext().getQueryIdentifier());
+            LOG.info("MaterializationContext init return because is in debug mode, current sql hash is {}",
+                    cascadesContext.getConnectContext().getSqlHash());
             return;
         }
         Set<TableIf> collectedTables = Sets.newHashSet(cascadesContext.getStatementContext().getTables().values());
@@ -177,13 +177,13 @@ public class InitMaterializationContextHook implements PlannerHook {
         try {
             availableMTMVs = getAvailableMTMVs(usedTables, cascadesContext);
         } catch (Exception e) {
-            LOG.warn(String.format("MaterializationContext getAvailableMTMVs generate fail, current queryId is %s",
-                    cascadesContext.getConnectContext().getQueryIdentifier()), e);
+            LOG.warn(String.format("MaterializationContext getAvailableMTMVs generate fail, current sql hash is %s",
+                    cascadesContext.getConnectContext().getSqlHash()), e);
             return ImmutableList.of();
         }
         if (CollectionUtils.isEmpty(availableMTMVs)) {
-            LOG.debug("Enable materialized view rewrite but availableMTMVs is empty, current queryId "
-                    + "is {}", cascadesContext.getConnectContext().getQueryIdentifier());
+            LOG.debug("Enable materialized view rewrite but availableMTMVs is empty, current sql hash "
+                    + "is {}", cascadesContext.getConnectContext().getSqlHash());
             return ImmutableList.of();
         }
         List<MaterializationContext> asyncMaterializationContext = new ArrayList<>();
@@ -213,8 +213,8 @@ public class InitMaterializationContextHook implements PlannerHook {
                         ImmutableList.of(), cascadesContext,
                         mtmvCache.getStructInfo().withTableBitSet(tableBitSetInCurrentCascadesContext)));
             } catch (Exception e) {
-                LOG.warn(String.format("MaterializationContext init mv cache generate fail, current queryId is %s",
-                        cascadesContext.getConnectContext().getQueryIdentifier()), e);
+                LOG.warn(String.format("MaterializationContext init mv cache generate fail, current sql hash is %s",
+                        cascadesContext.getConnectContext().getSqlHash()), e);
             }
         }
         return getMaterializationContextByHint(asyncMaterializationContext);
