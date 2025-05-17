@@ -272,7 +272,7 @@ public class HMSTransaction implements Transaction {
                                 Maps.newHashMap(),
                                 sd.getOutputFormat(),
                                 sd.getSerdeInfo().getSerializationLib(),
-                                getTableColumns(tableInfo)
+                                sd.getCols()
                         );
                         if (updateMode == TUpdateMode.OVERWRITE) {
                             dropPartition(tableInfo, hivePartition.getPartitionValues(), true);
@@ -429,7 +429,7 @@ public class HMSTransaction implements Transaction {
                         partition.getParameters(),
                         sd.getOutputFormat(),
                         sd.getSerdeInfo().getSerializationLib(),
-                        getTableColumns(tableInfo)
+                        sd.getCols()
                 );
 
                 partitionActionsForTable.put(
@@ -912,11 +912,6 @@ public class HMSTransaction implements Transaction {
         throw new RuntimeException("Not Found table: " + tableInfo);
     }
 
-    public synchronized List<FieldSchema> getTableColumns(SimpleTableInfo tableInfo) {
-        return tableColumns.computeIfAbsent(tableInfo,
-                key -> hiveOps.getClient().getSchema(tableInfo.getDbName(), tableInfo.getTbName()));
-    }
-
     public synchronized void finishChangingExistingTable(
             ActionType actionType,
             SimpleTableInfo tableInfo,
@@ -1275,7 +1270,7 @@ public class HMSTransaction implements Transaction {
                     Maps.newHashMap(),
                     sd.getOutputFormat(),
                     sd.getSerdeInfo().getSerializationLib(),
-                    getTableColumns(tableInfo)
+                    sd.getCols()
             );
 
             HivePartitionWithStatistics partitionWithStats =
@@ -1630,4 +1625,3 @@ public class HMSTransaction implements Transaction {
         }
     }
 }
-
