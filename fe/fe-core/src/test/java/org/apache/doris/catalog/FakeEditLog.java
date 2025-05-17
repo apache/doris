@@ -100,6 +100,10 @@ public class FakeEditLog extends MockUp<EditLog> {
 
     }
 
+    @Mock
+    public void logAddBackend(Backend be) {
+    }
+
     public TransactionState getTransaction(long transactionId) {
         return allTransactionState.get(transactionId);
     }
