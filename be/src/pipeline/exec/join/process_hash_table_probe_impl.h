@@ -493,6 +493,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_mark_join_conjuncts(vectorized::Blo
 
     if constexpr (is_right_half_join) {
         if (mark_join_flags.empty() && _build_block != nullptr) {
+            _build_block->check_number_of_rows(true);
             mark_join_flags.resize(_build_block->rows(), 0);
         }
     }
@@ -547,7 +548,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_mark_join_conjuncts(vectorized::Blo
             }
         }
         // For right semi/anti join, no rows will be output in probe phase.
-        output_block->clear_column_data();
+        output_block->clear();
         return Status::OK();
     } else {
         if constexpr (is_anti_join) {
@@ -722,6 +723,7 @@ Status ProcessHashTableProbe<JoinOpType>::finish_probing(HashTableType& hash_tab
                       JoinOpType == TJoinOp::RIGHT_SEMI_JOIN) {
             if (is_mark_join) {
                 if (mark_join_flags.empty() && _build_block != nullptr) {
+                    _build_block->check_number_of_rows(true);
                     mark_join_flags.resize(_build_block->rows(), 0);
                 }
 
