@@ -19,6 +19,7 @@
 
 #include <CLucene/config/repl_wchar.h>
 #include <hs/hs.h>
+#include <re2/re2.h>
 
 #include "common/logging.h"
 
@@ -37,6 +38,9 @@ void RegexpQuery::add(const InvertedIndexQueryInfo& query_info) {
 
     const std::string& pattern = query_info.terms[0];
 
+    auto bounds = get_regex_bounds(pattern);
+    // LOG(ERROR) << "prefix: " << pair.first << ", suffix: " << pair.second;
+
     hs_database_t* database = nullptr;
     hs_compile_error_t* compile_err = nullptr;
     hs_scratch_t* scratch = nullptr;
@@ -54,47 +58,12 @@ void RegexpQuery::add(const InvertedIndexQueryInfo& query_info) {
         return;
     }
 
-    auto on_match = [](unsigned int id, unsigned long long from, unsigned long long to,
-                       unsigned int flags, void* context) -> int {
-        *((bool*)context) = true;
-        return 0;
-    };
-
-    Term* term = nullptr;
-    TermEnum* enumerator = nullptr;
     std::vector<std::string> terms;
-    int32_t count = 0;
 
     try {
-        enumerator = _searcher->getReader()->terms();
-        while (enumerator->next()) {
-            term = enumerator->term();
-            std::string input = lucene_wcstoutf8string(term->text(), term->textLength());
-
-            bool is_match = false;
-            if (hs_scan(database, input.data(), input.size(), 0, scratch, on_match,
-                        (void*)&is_match) != HS_SUCCESS) {
-                LOG(ERROR) << "hyperscan match failed: " << input;
-                break;
-            }
-
-            if (is_match) {
-                if (_max_expansions > 0 && count >= _max_expansions) {
-                    break;
-                }
-
-                terms.emplace_back(std::move(input));
-                count++;
-            }
-
-            _CLDECDELETE(term);
-        }
+        collect_matching_terms(field_name, terms, database, scratch, bounds);
     }
     _CLFINALLY({
-        _CLDECDELETE(term);
-        enumerator->close();
-        _CLDELETE(enumerator);
-
         hs_free_scratch(scratch);
         hs_free_database(database);
     })
@@ -111,6 +80,88 @@ void RegexpQuery::add(const InvertedIndexQueryInfo& query_info) {
 
 void RegexpQuery::search(roaring::Roaring& roaring) {
     _query.search(roaring);
+}
+
+std::optional<RegexpQuery::RegexBounds> RegexpQuery::get_regex_bounds(const std::string& pattern) {
+    if (pattern.empty() || pattern[0] != '^') {
+        return std::nullopt;
+    }
+
+    re2::RE2 re(pattern);
+    if (!re.ok()) {
+        return std::nullopt;
+    }
+
+    std::string min_prefix, max_prefix;
+    if (!re.PossibleMatchRange(&min_prefix, &max_prefix, 256)) {
+        return std::nullopt;
+    }
+
+    return {RegexBounds {min_prefix, max_prefix}};
+}
+
+void RegexpQuery::collect_matching_terms(const std::wstring& field_name,
+                                         std::vector<std::string>& terms, hs_database_t* database,
+                                         hs_scratch_t* scratch,
+                                         const std::optional<RegexBounds>& bounds) {
+    auto on_match = [](unsigned int id, unsigned long long from, unsigned long long to,
+                       unsigned int flags, void* context) -> int {
+        *((bool*)context) = true;
+        return 0;
+    };
+
+    int32_t count = 0;
+    Term* term = nullptr;
+    TermEnum* enumerator = nullptr;
+    try {
+        if (bounds) {
+            LOG(ERROR) << "regexp query prefix bounds: " << bounds->first;
+            std::wstring ws_prefix = StringUtil::string_to_wstring(bounds->first);
+            Term prefix(field_name.c_str(), ws_prefix.c_str());
+            enumerator = _searcher->getReader()->terms(&prefix);
+        } else {
+            enumerator = _searcher->getReader()->terms();
+            enumerator->next();
+        }
+        do {
+            term = enumerator->term();
+            if (term != nullptr) {
+                std::string input = lucene_wcstoutf8string(term->text(), term->textLength());
+
+                if (bounds) {
+                    if (input > bounds->second) {
+                        LOG(ERROR) << "regexp query suffix bounds: " << bounds->second << ", "
+                                   << input;
+                        break;
+                    }
+                }
+
+                bool is_match = false;
+                if (hs_scan(database, input.data(), input.size(), 0, scratch, on_match,
+                            (void*)&is_match) != HS_SUCCESS) {
+                    LOG(ERROR) << "hyperscan match failed: " << input;
+                    break;
+                }
+
+                if (is_match) {
+                    if (_max_expansions > 0 && count >= _max_expansions) {
+                        break;
+                    }
+
+                    terms.emplace_back(std::move(input));
+                    count++;
+                }
+            } else {
+                break;
+            }
+            _CLDECDELETE(term);
+        } while (enumerator->next());
+    }
+    _CLFINALLY({
+        _CLDECDELETE(term);
+        enumerator->close();
+        _CLDELETE(enumerator);
+    })
 }
 
 } // namespace doris::segment_v2
