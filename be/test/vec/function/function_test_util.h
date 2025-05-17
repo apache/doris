@@ -285,7 +285,7 @@ struct Consted {
 // NOLINTBEGIN(readability-function-size)
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 template <typename ResultType, bool ResultNullable = false, int ResultScale = -1,
-          int ResultPrecision = -1>
+          int ResultPrecision = -1, typename ResultNestedType = void>
 Status check_function(const std::string& func_name, const InputTypeSet& input_types,
                       const DataSet& data_set, bool expect_execute_fail = false,
                       bool expect_result_ne = false) {
@@ -342,6 +342,12 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
         } else if constexpr (ResultScale != -1) { // datetimev2
             return ResultNullable ? make_nullable(std::make_shared<ResultType>(ResultScale))
                                   : std::make_shared<ResultType>(ResultScale);
+        } else if constexpr (!std::is_same_v<ResultNestedType, void>) {
+            auto nested_type = std::is_same_v<ResultType, DataTypeArray>
+                                       ? make_nullable(std::make_shared<ResultNestedType>())
+                                       : std::make_shared<ResultNestedType>();
+            return ResultNullable ? make_nullable(std::make_shared<ResultType>(nested_type))
+                                  : std::make_shared<ResultType>(nested_type);
         } else {
             return ResultNullable ? make_nullable(std::make_shared<ResultType>())
                                   : std::make_shared<ResultType>();
@@ -376,19 +382,7 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
     static_cast<void>(func->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
 
     // 3.0. create expected result column in block
-    DataTypePtr result_type_ptr;
-    if constexpr (ResultPrecision != -1) { // decimal
-        result_type_ptr =
-                ResultNullable
-                        ? make_nullable(std::make_shared<ResultType>(ResultPrecision, ResultScale))
-                        : std::make_shared<ResultType>(ResultPrecision, ResultScale);
-    } else if constexpr (ResultScale != -1) { // datetimev2
-        result_type_ptr = ResultNullable ? make_nullable(std::make_shared<ResultType>(ResultScale))
-                                         : std::make_shared<ResultType>(ResultScale);
-    } else {
-        result_type_ptr = ResultNullable ? make_nullable(std::make_shared<ResultType>())
-                                         : std::make_shared<ResultType>();
-    }
+    DataTypePtr result_type_ptr = return_type;
     MutableColumnPtr expected_col_ptr = result_type_ptr->create_column();
     for (int i = 0; i < row_size; i++) {
         EXPECT_TRUE(insert_cell(expected_col_ptr, result_type_ptr, data_set[i].second));
