@@ -26,6 +26,10 @@ import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
 
+import com.google.common.collect.Lists;
+
+import java.util.List;
+
 /**
  * base class for all show commands
  */
@@ -52,6 +56,27 @@ public abstract class ShowCommand extends Command implements Redirect {
     }
 
     public abstract ShowResultSetMetaData getMetaData();
+
+    /**
+     * apply limit and offset in show command
+     */
+    public List<List<String>> applyLimit(long limit, long offset, List<List<String>> showResult) {
+        if (showResult == null) {
+            return Lists.newArrayList();
+        }
+
+        long offsetValue = offset == -1L ? 0 : offset;
+        if (offsetValue >= showResult.size()) {
+            showResult = Lists.newArrayList();
+        } else if (limit != -1L) {
+            if ((limit + offsetValue) < showResult.size()) {
+                showResult = showResult.subList((int) offsetValue, (int) (limit + offsetValue));
+            } else {
+                showResult = showResult.subList((int) offsetValue, showResult.size());
+            }
+        }
+        return showResult;
+    }
 
     @Override
     public ResultSetMetaData getResultSetMetaData() {

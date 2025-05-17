@@ -251,16 +251,7 @@ public class ShowLoadCommand extends ShowCommand {
         }
 
         // filter by limit
-        long offsetValue = offset == -1L ? 0 : offset;
-        if (offsetValue >= rows.size()) {
-            rows = Lists.newArrayList();
-        } else if (limit != -1L) {
-            if ((limit + offsetValue) < rows.size()) {
-                rows = rows.subList((int) offsetValue, (int) (limit + offsetValue));
-            } else {
-                rows = rows.subList((int) offsetValue, rows.size());
-            }
-        }
+        rows = applyLimit(limit, offset, rows);
 
         return new ShowResultSet(getMetaData(), rows);
     }
