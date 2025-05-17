@@ -74,7 +74,7 @@ void DataTypeNumberBase<T>::to_string(const IColumn& column, size_t row_num,
 }
 
 template <typename T>
-std::string DataTypeNumberBase<T>::to_string(const T& value) const {
+std::string DataTypeNumberBase<T>::to_string(const T& value) {
     if constexpr (std::is_same<T, int128_t>::value || std::is_same<T, uint128_t>::value ||
                   std::is_same<T, UInt128>::value) {
         return int128_to_string(value);

@@ -56,6 +56,8 @@ public:
     using ColumnType = ColumnVector<T>;
     using FieldType = T;
 
+    static std::string to_string(const T& value);
+
     const char* get_family_name() const override { return TypeName<T>::get(); }
     PrimitiveType get_primitive_type() const override {
         // Doris does not support uint8 at present, use uint8 as boolean type
@@ -140,7 +142,6 @@ public:
 
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
     std::string to_string(const IColumn& column, size_t row_num) const override;
-    std::string to_string(const T& value) const;
     Status from_string(ReadBuffer& rb, IColumn* column) const override;
     bool is_null_literal() const override { return _is_null_literal; }
     void set_null_literal(bool flag) { _is_null_literal = flag; }
