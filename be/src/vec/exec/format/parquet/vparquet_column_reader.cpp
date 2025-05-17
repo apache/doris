@@ -796,6 +796,7 @@ Status MapColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr& t
     // fill offset and null map
     fill_array_offset(_field_schema, map.get_offsets(), null_map_ptr, _key_reader->get_rep_level(),
                       _key_reader->get_def_level());
+    RETURN_IF_ERROR(map.deduplicate_keys());
     DCHECK_EQ(key_column->size(), map.get_offsets().back());
 
     return Status::OK();
