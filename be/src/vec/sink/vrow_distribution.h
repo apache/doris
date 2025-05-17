@@ -134,6 +134,9 @@ public:
     Status generate_rows_distribution(Block& input_block, std::shared_ptr<Block>& block,
                                       std::vector<RowPartTabletIds>& row_part_tablet_ids,
                                       int64_t& rows_stat_val);
+    // have 2 ways remind to deal batching block:
+    // 1. in row_distribution, _batching_rows reaches the threshold, this class set _deal_batched = true.
+    // 2. in caller, after last block and before close, set _deal_batched = true.
     bool need_deal_batching() const { return _deal_batched && _batching_rows > 0; }
     // create partitions when need for auto-partition table using #_partitions_need_create.
     Status automatic_create_partition();

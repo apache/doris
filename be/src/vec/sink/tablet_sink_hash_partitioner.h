@@ -47,7 +47,9 @@ public:
     Status open(RuntimeState* state) override;
 
     Status do_partitioning(RuntimeState* state, Block* block) const override;
-    Status send_last_batched_block(RuntimeState* state) const override;
+    Status try_cut_in_line(Block& prior_block) const override;
+    void finish_cut_in_line() const override;
+    void mark_last_block() const override { _row_distribution._deal_batched = true; }
 
     ChannelField get_channel_ids() const override;
     std::vector<bool> get_skipped(int size) const override { return _skipped; }
@@ -60,8 +62,6 @@ private:
     static Status empty_callback_function(void* sender, TCreatePartitionResult* result) {
         return Status::OK();
     }
-
-    Status _send_new_partition_batch(RuntimeState* state) const;
 
     const int64_t _txn_id = -1;
     const TOlapTableSchemaParam _tablet_sink_schema;

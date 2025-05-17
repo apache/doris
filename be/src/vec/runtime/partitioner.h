@@ -18,6 +18,7 @@
 #pragma once
 
 #include "util/runtime_profile.h"
+#include "vec/core/block.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 
@@ -48,7 +49,10 @@ public:
     virtual Status close(RuntimeState* state) = 0;
 
     virtual Status do_partitioning(RuntimeState* state, Block* block) const = 0;
-    virtual Status send_last_batched_block(RuntimeState* state) const { return Status::OK(); }
+    /// those for auto-partitiion in TabletSinkHashPartitioner
+    virtual Status try_cut_in_line(Block& prior_block) const { return Status::OK(); }
+    virtual void finish_cut_in_line() const {}
+    virtual void mark_last_block() const {}
 
     virtual ChannelField get_channel_ids() const = 0;
 

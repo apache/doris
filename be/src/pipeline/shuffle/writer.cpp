@@ -16,9 +16,11 @@
 // under the License.
 
 #include "writer.h"
+
 #include <algorithm>
 
 #include "common/logging.h"
+#include "common/status.h"
 #include "pipeline/exec/exchange_sink_operator.h"
 #include "vec/core/block.h"
 
@@ -32,7 +34,15 @@ void Writer::_handle_eof_channel(RuntimeState* state, ChannelPtrType channel, St
 }
 
 Status Writer::write(ExchangeSinkLocalState* local_state, RuntimeState* state,
-                     vectorized::Block* block, bool eos) const {
+                     vectorized::Block* block) const {
+    vectorized::Block* store_block = block;
+    vectorized::Block prior_block;
+    RETURN_IF_ERROR(local_state->partitioner()->try_cut_in_line(prior_block));
+    if (!prior_block.empty()) {
+        // prior_block cuts in line. deal it first.
+        block = &prior_block;
+    }
+
     auto rows = block->rows();
     {
         SCOPED_TIMER(local_state->split_block_hash_compute_timer());
@@ -43,26 +53,57 @@ Status Writer::write(ExchangeSinkLocalState* local_state, RuntimeState* state,
         const auto channel_field = local_state->partitioner()->get_channel_ids();
         const std::vector<bool> skipped =
                 local_state->partitioner()->get_skipped(cast_set<int>(rows));
-        // decrease not sinked rows this time FIXME: rows affected is still wrong
+        // decrease not sinked rows this time
         COUNTER_UPDATE(local_state->rows_input_counter(), -1LL * std::ranges::count(skipped, true));
-
-        // must before do _channel_add_rows() with `eos == true`
-        // must after visit local_state->partitioner() because send_last_batched_block() will change it stats.
-        if (eos) { // send the last batched block(if has)
-            // send_last_batched_block use `eos` as `false`.
-            RETURN_IF_ERROR(local_state->partitioner()->send_last_batched_block(state));
-        }
 
         if (channel_field.len == sizeof(uint32_t)) {
             RETURN_IF_ERROR(
                     _channel_add_rows(state, local_state->channels, local_state->channels.size(),
-                                      channel_field.get<uint32_t>(), rows, block, skipped, eos));
+                                      channel_field.get<uint32_t>(), rows, block, skipped, false));
         } else {
             RETURN_IF_ERROR(
                     _channel_add_rows(state, local_state->channels, local_state->channels.size(),
-                                      channel_field.get<int64_t>(), rows, block, skipped, eos));
+                                      channel_field.get<int64_t>(), rows, block, skipped, false));
         }
     }
+
+    if (!prior_block.empty()) {
+        // swap back the input data and caller will call with it again.
+        block = store_block;
+        local_state->partitioner()->finish_cut_in_line();
+        return Status::NeedSendAgain("");
+    }
+    return Status::OK();
+}
+
+Status Writer::write_last(ExchangeSinkLocalState* local_state, RuntimeState* state,
+                          vectorized::Block* block) const {
+    // get all batched rows
+    local_state->partitioner()->mark_last_block();
+    RETURN_IF_ERROR(local_state->partitioner()->try_cut_in_line(*block));
+    // if no batched rows, block is empty but has legal structure.
+
+    auto rows = block->rows();
+    {
+        SCOPED_TIMER(local_state->split_block_hash_compute_timer());
+        RETURN_IF_ERROR(local_state->partitioner()->do_partitioning(state, block));
+    }
+    {
+        SCOPED_TIMER(local_state->distribute_rows_into_channels_timer());
+        const auto channel_field = local_state->partitioner()->get_channel_ids();
+        const std::vector<bool> skipped = std::vector<bool>(rows, false);
+
+        if (channel_field.len == sizeof(uint32_t)) {
+            RETURN_IF_ERROR(
+                    _channel_add_rows(state, local_state->channels, local_state->channels.size(),
+                                      channel_field.get<uint32_t>(), rows, block, skipped, true));
+        } else {
+            RETURN_IF_ERROR(
+                    _channel_add_rows(state, local_state->channels, local_state->channels.size(),
+                                      channel_field.get<int64_t>(), rows, block, skipped, true));
+        }
+    }
+
     return Status::OK();
 }
 

@@ -35,8 +35,11 @@ class Writer {
 public:
     Writer() = default;
 
-    Status write(ExchangeSinkLocalState* local_state, RuntimeState* state, vectorized::Block* block,
-                 bool eos) const;
+    Status write(ExchangeSinkLocalState* local_state, RuntimeState* state,
+                 vectorized::Block* block) const;
+    // write batched data(if exists)
+    Status write_last(ExchangeSinkLocalState* local_state, RuntimeState* state,
+                      vectorized::Block* block) const;
 
 private:
     template <typename ChannelIdType>

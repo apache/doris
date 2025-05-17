@@ -18,6 +18,7 @@
 #include "vec/sink/tablet_sink_hash_partitioner.h"
 
 #include <memory>
+#include <utility>
 
 #include "pipeline/exec/operator.h"
 
@@ -85,9 +86,6 @@ Status TabletSinkHashPartitioner::open(RuntimeState* state) {
 }
 
 Status TabletSinkHashPartitioner::do_partitioning(RuntimeState* state, Block* block) const {
-    // check if we need send batching block first
-    RETURN_IF_ERROR(_send_new_partition_batch(state));
-
     _hash_vals.resize(block->rows());
     if (block->empty()) {
         return Status::OK();
@@ -96,7 +94,7 @@ Status TabletSinkHashPartitioner::do_partitioning(RuntimeState* state, Block* bl
     int64_t ___ = 0; // _local_state->rows_input_counter() updated in sink and write.
     std::shared_ptr<vectorized::Block> convert_block = std::make_shared<vectorized::Block>();
     // add local_exchange before this node to deal row distribution
-    RETURN_IF_ERROR(_row_distribution.generate_rows_distribution(*block, convert_block, 
+    RETURN_IF_ERROR(_row_distribution.generate_rows_distribution(*block, convert_block,
                                                                  _row_part_tablet_ids, ___));
     _skipped = _row_distribution.get_skipped();
     const auto& row_ids = _row_part_tablet_ids[0].row_ids;
@@ -109,6 +107,26 @@ Status TabletSinkHashPartitioner::do_partitioning(RuntimeState* state, Block* bl
     }
 
     return Status::OK();
+}
+
+Status TabletSinkHashPartitioner::try_cut_in_line(Block& prior_block) const {
+    // check if we need send batching block first
+    if (_row_distribution.need_deal_batching()) {
+        {
+            SCOPED_TIMER(_local_state->send_new_partition_timer());
+            RETURN_IF_ERROR(_row_distribution.automatic_create_partition());
+        }
+
+        prior_block = _row_distribution._batching_block->to_block(); // Borrow out, for lval ref
+        _row_distribution._batching_block.reset(); // clear. vrow_distribution will re-construct it
+        _row_distribution.clear_batching_stats();
+        VLOG_DEBUG << "sinking batched block:\n" << prior_block.dump_data();
+    }
+    return Status::OK();
+}
+
+void TabletSinkHashPartitioner::finish_cut_in_line() const {
+    _row_distribution._deal_batched = false;
 }
 
 ChannelField TabletSinkHashPartitioner::get_channel_ids() const {
@@ -135,29 +153,4 @@ Status TabletSinkHashPartitioner::close(RuntimeState* state) {
     }
     return Status::OK();
 }
-
-Status TabletSinkHashPartitioner::_send_new_partition_batch(RuntimeState* state) const {
-    if (_row_distribution.need_deal_batching()) {
-        SCOPED_TIMER(_local_state->send_new_partition_timer());
-        RETURN_IF_ERROR(_row_distribution.automatic_create_partition());
-        auto& p = _local_state->parent()->cast<pipeline::ExchangeSinkOperatorX>();
-
-        Block tmp_block = _row_distribution._batching_block->to_block(); // Borrow out, for lval ref
-        _row_distribution.clear_batching_stats();
-        VLOG_DEBUG << "sinking batched block:\n" << tmp_block.dump_data();
-        RETURN_IF_ERROR(p.sink(state, &tmp_block, false));
-        // finished. recovery back
-        _row_distribution._batching_block->set_mutable_columns(tmp_block.mutate_columns());
-        _row_distribution._batching_block->clear_column_data();
-        _row_distribution._deal_batched = false;
-    }
-    return Status::OK();
-}
-
-Status TabletSinkHashPartitioner::send_last_batched_block(RuntimeState* state) const {
-    _row_distribution._deal_batched = true;
-    VLOG_DEBUG << "send last batched block!";
-    return _send_new_partition_batch(state);
-}
-
 } // namespace doris::vectorized
