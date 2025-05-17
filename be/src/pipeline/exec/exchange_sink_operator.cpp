@@ -362,7 +362,8 @@ void ExchangeSinkOperatorX::_handle_eof_channel(RuntimeState* state, ChannelPtrT
 
 Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block, bool eos) {
     auto& local_state = get_local_state(state);
-    COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)block->rows());
+    COUNTER_UPDATE(local_state.rows_input_counter(),
+                   (int64_t)block->rows()); // for auto-partition, may decease when do_partitioning
     SCOPED_TIMER(local_state.exec_time_counter());
     bool all_receiver_eof = true;
     for (auto& channel : local_state.channels) {
@@ -475,7 +476,17 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
                _part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED ||
                _part_type == TPartitionType::OLAP_TABLE_SINK_HASH_PARTITIONED ||
                _part_type == TPartitionType::HIVE_TABLE_SINK_HASH_PARTITIONED) {
-        RETURN_IF_ERROR(local_state._writer->write(&local_state, state, block, eos));
+        Status st = local_state._writer->write(&local_state, state, block);
+        // auto partition's batched block cut in line. send this unprocessed block again.
+        if (st.is<ErrorCode::NEED_SEND_AGAIN>()) {
+            RETURN_IF_ERROR(local_state._writer->write(&local_state, state, block));
+        } else if (!st.ok()) {
+            return st;
+        }
+        if (eos) {
+            vectorized::Block empty_block = block->clone_empty();
+            RETURN_IF_ERROR(local_state._writer->write_last(&local_state, state, &empty_block));
+        }
     } else if (_part_type == TPartitionType::HIVE_TABLE_SINK_UNPARTITIONED) {
         // Control the number of channels according to the flow, thereby controlling the number of table sink writers.
         // 1. select channel

@@ -18,6 +18,7 @@
 #pragma once
 
 #include "util/runtime_profile.h"
+#include "vec/core/block.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 
@@ -47,10 +48,16 @@ public:
 
     virtual Status close(RuntimeState* state) = 0;
 
-    virtual Status do_partitioning(RuntimeState* state, Block* block, bool eos = false,
-                                   bool* already_sent = nullptr) const = 0;
+    virtual Status do_partitioning(RuntimeState* state, Block* block) const = 0;
+    /// those for auto-partitiion in TabletSinkHashPartitioner
+    virtual Status try_cut_in_line(Block& prior_block) const { return Status::OK(); }
+    virtual void finish_cut_in_line() const {}
+    virtual void mark_last_block() const {}
 
     virtual ChannelField get_channel_ids() const = 0;
+
+    // default skip nothing
+    virtual std::vector<bool> get_skipped(int size) const { return std::vector<bool>(size, false); }
 
     virtual Status clone(RuntimeState* state, std::unique_ptr<PartitionerBase>& partitioner) = 0;
 
@@ -78,8 +85,7 @@ public:
 
     Status close(RuntimeState* state) override { return Status::OK(); }
 
-    Status do_partitioning(RuntimeState* state, Block* block, bool eos,
-                           bool* already_sent) const override;
+    Status do_partitioning(RuntimeState* state, Block* block) const override;
 
     ChannelField get_channel_ids() const override { return {_hash_vals.data(), sizeof(uint32_t)}; }
 
