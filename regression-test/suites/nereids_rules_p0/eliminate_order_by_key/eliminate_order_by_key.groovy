@@ -191,4 +191,28 @@ suite("eliminate_order_by_key") {
     sql """INSERT INTO test_unique_order_by2 (a, b, c, d)
     VALUES(1, 2, 3, 4),(2, 3, 3, 5),(3, 4, 5, 6),(4, 5, 6, 7),(5, 6, 7, 8),(6, 7, 8, 9),(7, 8, 9, 10),(8, 9, 10, 11),(9, 10, 11, 12),(10, 11, 12, 13);"""
     qt_composite_key """select * from test_unique_order_by2 order by a,'abc',d,b,d,c;"""
+
+    //eliminate by monotonic
+    qt_basic_add1 "select * from eliminate_order_by_constant_t order by a+1,4,b,a,id;"
+    qt_basic_add2 "select * from eliminate_order_by_constant_t order by 1+a,4,b,a,id;"
+    qt_basic_substract1 "select * from eliminate_order_by_constant_t order by a-1,4,b,a,id;"
+    qt_basic_substract2 "select * from eliminate_order_by_constant_t order by 1-a,4,b,a,id;"
+    qt_basic_multiply1 "select * from eliminate_order_by_constant_t order by 3*a,4,b,a,id;"
+    qt_basic_multiply2 "select * from eliminate_order_by_constant_t order by a*3,4,b,a,id;"
+    qt_positive "select * from eliminate_order_by_constant_t order by positive(a),4,b,a,id;"
+    qt_negative "select * from eliminate_order_by_constant_t order by negative(a),4,b,a,id;"
+    qt_add_sub "select * from eliminate_order_by_constant_t order by a+1,1-a,4,b,a,id;"
+    qt_complex1 "select * from eliminate_order_by_constant_t order by 1-a,1+a,a,a,1+a,a-1,4,b,a,id;"
+    qt_complex2 "select * from eliminate_order_by_constant_t order by 1+a-1-a,b,a,id;"
+    qt_complex3 "select * from eliminate_order_by_constant_t order by a-1+a-a,b,a,id;"
+    qt_complex4 "select * from eliminate_order_by_constant_t order by 1-(1+a),b,a,id;"
+    qt_complex5 "select * from eliminate_order_by_constant_t order by 2-(1+3*a),2+(3*a+100),b,a,id;"
+    qt_cast1 "select * from eliminate_order_by_constant_t order by cast(d as datetime) ,d,id;"
+    qt_cast2 "select * from eliminate_order_by_constant_t order by cast(dt as datetimev2(6)) ,dt,id;"
+    qt_date_add1 "select * from eliminate_order_by_constant_t order by days_add(dt,3) ,dt,id;"
+    qt_date_sub1 "select * from eliminate_order_by_constant_t order by days_sub(dt,3) ,dt,id;"
+    qt_date_add2 "select * from eliminate_order_by_constant_t order by months_sub(dt,3) ,dt,id;"
+    qt_coverttz1 "select * from eliminate_order_by_constant_t order by convert_tz(dt,'Europe/Paris','Asia/ShangHai') ,dt,id;"
+    qt_coverttz2 "select * from eliminate_order_by_constant_t order by years_add(convert_tz(dt,'Europe/Paris','Asia/ShangHai'),3) ,dt,id;"
+    qt_coverttz3 "select * from eliminate_order_by_constant_t order by years_add(convert_tz(dt,'Europe/Paris','Asia/ShangHai'),3) ,convert_tz(dt,'Europe/Paris','Asia/ShangHai'),dt,id;"
 }
