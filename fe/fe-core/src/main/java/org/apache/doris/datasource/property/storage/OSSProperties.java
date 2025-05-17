@@ -25,6 +25,7 @@ import lombok.Setter;
 
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
@@ -78,12 +79,17 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
                 .findFirst()
                 .orElse(null);
         if (!Strings.isNullOrEmpty(value)) {
-            return ENDPOINT_PATTERN.matcher(value).matches();
+            return value.contains("aliyuncs.com");
         }
-        if (!origProps.containsKey("uri")) {
+        Optional<String> uriValue = origProps.entrySet().stream()
+                .filter(e -> e.getKey().equalsIgnoreCase("uri"))
+                .map(Map.Entry::getValue)
+                .findFirst();
+        if (!uriValue.isPresent()) {
             return false;
         }
-        return origProps.get("uri").contains("aliyuncs.com");
+        String uri = uriValue.get();
+        return uri.contains("aliyuncs.com") && (!uri.contains("oss-dls.aliyuncs.com"));
     }
 
     @Override

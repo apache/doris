@@ -56,11 +56,14 @@ import software.amazon.awssdk.services.s3.model.S3Object;
 import java.io.File;
 import java.io.InputStream;
 import java.net.URI;
+import java.nio.file.FileSystems;
+import java.nio.file.PathMatcher;
+import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 public class S3ObjStorage implements ObjStorage<S3Client> {
@@ -101,58 +104,113 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
             CloudCredential credential = new CloudCredential();
             credential.setAccessKey(s3Properties.getAccessKey());
             credential.setSecretKey(s3Properties.getSecretKey());
-
-            /* if (properties.containsKey(S3Properties.SESSION_TOKEN)) {
-                credential.setSessionToken(properties.get(S3Properties.SESSION_TOKEN));
-            }*/
+            if (StringUtils.isNotBlank(s3Properties.getSessionToken())) {
+                credential.setSessionToken(s3Properties.getSessionToken());
+            }
             client = S3Util.buildS3Client(endpoint, s3Properties.getRegion(), credential, isUsePathStyle);
         }
         return client;
     }
 
-
-
     public Status globList(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
+        long roundCnt = 0;
+        long elementCnt = 0;
+        long matchCnt = 0;
+        long startTime = System.nanoTime();
         try {
-            remotePath = s3Properties.validateAndNormalizeUri(remotePath);
-            URI uri = new URI(remotePath);
-            String bucketName = uri.getHost();
-            String prefix = uri.getPath().substring(1);
-            int wildcardIndex = prefix.indexOf('*');
-            String searchPrefix = wildcardIndex > 0 ? prefix.substring(0, wildcardIndex) : prefix;
-            try (S3Client s3 = getClient()) {
-                ListObjectsV2Request listRequest = ListObjectsV2Request.builder()
-                        .bucket(bucketName)
-                        .prefix(searchPrefix)
-                        .build();
+            S3URI uri = S3URI.create(remotePath, isUsePathStyle, forceParsingByStandardUri);
+            String bucket = uri.getBucket();
+            String globPath = uri.getKey(); // eg: path/to/*.csv
 
-                ListObjectsV2Response listResponse = s3.listObjectsV2(listRequest);
-                String regex = prefix.replace(".", "\\.")
-                        .replace("*", ".*")
-                        .replace("?", ".");
-                Pattern pattern = Pattern.compile(regex);
-                List<RemoteFile> matchedFiles = listResponse.contents().stream()
-                        .filter(obj -> pattern.matcher(obj.key()).matches())
-                        .map(obj -> {
-                            String fullKey = obj.key();
-                            String fullPath = "s3://" + bucketName + "/" + fullKey;
-                            return new RemoteFile(
-                                    fileNameOnly ? fullPath.substring(fullPath.lastIndexOf('/') + 1) : fullPath,
-                                    true,
-                                    obj.size(),
-                                    -1,
-                                    obj.lastModified().toEpochMilli()
-                            );
-                        })
-                        .collect(Collectors.toList());
+            LOG.info("globList globPath:{}, remotePath:{}", globPath, remotePath);
 
-                result.addAll(matchedFiles);
+            java.nio.file.Path pathPattern = Paths.get(globPath);
+            PathMatcher matcher = FileSystems.getDefault().getPathMatcher("glob:" + pathPattern);
+            HashSet<String> directorySet = new HashSet<>();
+
+            String listPrefix = getLongestPrefix(globPath); // similar to Azure
+            LOG.info("globList listPrefix: {}", listPrefix);
+
+            ListObjectsV2Request request = ListObjectsV2Request.builder()
+                    .bucket(bucket)
+                    .prefix(listPrefix)
+                    .build();
+
+            boolean isTruncated = false;
+            do {
+                roundCnt++;
+                ListObjectsV2Response response = getClient().listObjectsV2(request);
+                for (S3Object obj : response.contents()) {
+                    elementCnt++;
+                    java.nio.file.Path objPath = Paths.get(obj.key());
+
+                    boolean isPrefix = false;
+                    while (objPath != null && objPath.normalize().toString().startsWith(listPrefix)) {
+                        if (!matcher.matches(objPath)) {
+                            isPrefix = true;
+                            objPath = objPath.getParent();
+                            continue;
+                        }
+                        if (directorySet.contains(objPath.normalize().toString())) {
+                            break;
+                        }
+                        if (isPrefix) {
+                            directorySet.add(objPath.normalize().toString());
+                        }
+
+                        matchCnt++;
+                        RemoteFile remoteFile = new RemoteFile(
+                                fileNameOnly ? objPath.getFileName().toString() :
+                                        "s3://" + bucket + "/" + objPath,
+                                !isPrefix,
+                                isPrefix ? -1 : obj.size(),
+                                isPrefix ? -1 : obj.size(),
+                                isPrefix ? 0 : obj.lastModified().toEpochMilli()
+                        );
+                        result.add(remoteFile);
+                        objPath = objPath.getParent();
+                        isPrefix = true;
+                    }
+                }
+
+                isTruncated = response.isTruncated();
+                if (isTruncated) {
+                    request = request.toBuilder()
+                            .continuationToken(response.nextContinuationToken())
+                            .build();
+                }
+            } while (isTruncated);
+
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("remotePath:{}, result:{}", remotePath, result);
             }
             return Status.OK;
         } catch (Exception e) {
             LOG.warn("Errors while getting file status", e);
             return new Status(Status.ErrCode.COMMON_ERROR, "Errors while getting file status " + e.getMessage());
+        } finally {
+            long endTime = System.nanoTime();
+            long duration = endTime - startTime;
+            LOG.info("process {} elements under prefix {} for {} round, match {} elements, take {} ms",
+                    elementCnt, remotePath, roundCnt, matchCnt,
+                    duration / 1000);
         }
+    }
+
+    public static String getLongestPrefix(String globPattern) {
+        int length = globPattern.length();
+        int earliestSpecialCharIndex = length;
+
+        char[] specialChars = {'*', '?', '[', '{', '\\'};
+
+        for (char specialChar : specialChars) {
+            int index = globPattern.indexOf(specialChar);
+            if (index != -1 && index < earliestSpecialCharIndex) {
+                earliestSpecialCharIndex = index;
+            }
+        }
+
+        return globPattern.substring(0, earliestSpecialCharIndex);
     }
 
     @Override

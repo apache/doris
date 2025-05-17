@@ -81,8 +81,6 @@ public class AzurePropertiesTest {
         Assertions.assertEquals(HdfsProperties.class, storagePropertiesList.get(1).getClass());
         Assertions.assertEquals(AzureProperties.class, storagePropertiesList.get(0).getClass());
         origProps.put("s3.endpoint", "https://mystorageaccount.net");
-        Assertions.assertThrows(RuntimeException.class, () ->
-                StorageProperties.createPrimary(origProps), "No supported storage type found.");
         // Expect an exception due to missing provider
         origProps.put("provider", "azure");
         Assertions.assertThrows(IllegalArgumentException.class, () ->

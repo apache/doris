@@ -103,6 +103,10 @@ under the License.
             <artifactId>commons-pool</artifactId>
         </dependency>
         <dependency>
+            <groupId>com.google.re2j</groupId>
+            <artifactId>re2j</artifactId>
+        </dependency>
+        <dependency>
             <groupId>org.apache.commons</groupId>
             <artifactId>commons-text</artifactId>
         </dependency>
