@@ -37,4 +37,12 @@ CredProviderType cred_provider_type_from_pb(cloud::CredProviderTypePB cred_provi
     }
 }
 
+std::string get_valid_ca_cert_path(const std::vector<std::string>& ca_cert_file_paths) {
+    for (const auto& path : ca_cert_file_paths) {
+        if (std::filesystem::exists(path)) {
+            return path;
+        }
+    }
+    return "";
+}
 }
