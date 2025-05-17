@@ -56,7 +56,7 @@ public class KillConnectionCommandTest extends TestWithFeService {
             }
         };
         connectContext.setConnectScheduler(scheduler);
-        scheduler.registerConnection(connectContext);
+        scheduler.getConnectPoolMgr().registerConnection(connectContext);
     }
 
     @Test
