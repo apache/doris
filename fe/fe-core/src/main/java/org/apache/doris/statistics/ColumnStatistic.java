@@ -190,6 +190,26 @@ public class ColumnStatistic {
         return columnStatisticBuilder.build();
     }
 
+    public boolean isValid() {
+        if (ndv > 10 * count) {
+            String message = String.format("Ndv too large. %s", this);
+            LOG.warn(message);
+            return false;
+        }
+        if (ndv == 0 && (!Double.isInfinite(maxValue) || !Double.isInfinite(minValue))) {
+            String message = String.format("Ndv 0 but min/max is not null. %s", this);
+            LOG.warn(message);
+            return false;
+        }
+        if (count > 0 && ndv == 0 && Double.isInfinite(maxValue)
+                && Double.isInfinite(minValue) && (count > numNulls * 10)) {
+            LOG.warn("Count {}, ndv is 0, min and max are all null, null count {} is too small. {}",
+                    count, numNulls, this);
+            return false;
+        }
+        return true;
+    }
+
     public static boolean isAlmostUnique(double ndv, double rowCount) {
         return rowCount * ALMOST_UNIQUE_FACTOR < ndv;
     }
