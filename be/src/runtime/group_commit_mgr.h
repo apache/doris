@@ -73,7 +73,8 @@ public:
     Status add_block(RuntimeState* runtime_state, std::shared_ptr<vectorized::Block> block,
                      bool write_wal, UniqueId& load_id);
     Status get_block(RuntimeState* runtime_state, vectorized::Block* block, bool* find_block,
-                     bool* eos, std::shared_ptr<pipeline::Dependency> get_block_dep);
+                     bool* eos, std::shared_ptr<pipeline::Dependency> get_block_dep,
+                     std::shared_ptr<pipeline::Dependency> timer_dependency);
     bool contain_load_id(const UniqueId& load_id);
     Status add_load_id(const UniqueId& load_id,
                        const std::shared_ptr<pipeline::Dependency> put_block_dep);
@@ -88,6 +89,7 @@ public:
     bool has_enough_wal_disk_space(size_t estimated_wal_bytes);
     void append_dependency(std::shared_ptr<pipeline::Dependency> finish_dep);
     void append_read_dependency(std::shared_ptr<pipeline::Dependency> read_dep);
+    int64_t get_group_commit_interval_ms() { return _group_commit_interval_ms; };
 
     std::string debug_string() const {
         fmt::memory_buffer debug_string_buffer;
