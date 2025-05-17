@@ -336,6 +336,7 @@ public class JdbcExternalCatalog extends ExternalCatalog {
     }
 
     public void configureJdbcTable(JdbcTable jdbcTable, String tableName) {
+        makeSureInitialized();
         jdbcTable.setCatalogId(this.getId());
         jdbcTable.setExternalTableName(tableName);
         jdbcTable.setJdbcTypeName(this.getDatabaseTypeName());
