@@ -97,7 +97,7 @@ public abstract class ExpressionRewriteTestHelper extends ExpressionRewrite {
         Assertions.assertEquals(expectedExpression.toSql(), rewrittenExpression.toSql());
     }
 
-    protected Expression replaceUnboundSlot(Expression expression, Map<String, Slot> mem) {
+    public static Expression replaceUnboundSlot(Expression expression, Map<String, Slot> mem) {
         List<Expression> children = Lists.newArrayList();
         boolean hasNewChildren = false;
         for (Expression child : expression.children()) {
@@ -109,8 +109,9 @@ public abstract class ExpressionRewriteTestHelper extends ExpressionRewrite {
         }
         if (expression instanceof UnboundSlot) {
             ExprId exprId = StatementScopeIdGenerator.newExprId();
-            String name = ((UnboundSlot) expression).getName();
-            List<String> qualifier = ImmutableList.of();
+            UnboundSlot slot = (UnboundSlot) expression;
+            String name = slot.getNameParts().get(slot.getNameParts().size() - 1);
+            List<String> qualifier = slot.getQualifier();
             DataType dataType = getType(name.charAt(0));
             Column column = new Column(name, dataType.toCatalogDataType());
             mem.putIfAbsent(name, new SlotReference(exprId, name, dataType, true, qualifier, null, column));
@@ -119,11 +120,11 @@ public abstract class ExpressionRewriteTestHelper extends ExpressionRewrite {
         return hasNewChildren ? expression.withChildren(children) : expression;
     }
 
-    protected Expression typeCoercion(Expression expression) {
+    public static Expression typeCoercion(Expression expression) {
         return ExpressionAnalyzer.FUNCTION_ANALYZER_RULE.rewrite(expression, null);
     }
 
-    protected DataType getType(char t) {
+    private static DataType getType(char t) {
         switch (t) {
             case 'T':
                 return TinyIntType.INSTANCE;
