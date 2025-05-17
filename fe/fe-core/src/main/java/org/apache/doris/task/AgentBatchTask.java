@@ -69,10 +69,10 @@ import java.util.stream.Collectors;
 public class AgentBatchTask implements Runnable {
     private static final Logger LOG = LogManager.getLogger(AgentBatchTask.class);
 
-    private int batchSize = Integer.MAX_VALUE;
+    protected int batchSize = Integer.MAX_VALUE;
 
     // backendId -> AgentTask List
-    private Map<Long, List<AgentTask>> backendIdToTasks;
+    protected Map<Long, List<AgentTask>> backendIdToTasks;
 
     public AgentBatchTask() {
         this.backendIdToTasks = new HashMap<Long, List<AgentTask>>();
@@ -246,7 +246,7 @@ public class AgentBatchTask implements Runnable {
         }
     }
 
-    private TAgentTaskRequest toAgentTaskRequest(AgentTask task) {
+    protected TAgentTaskRequest toAgentTaskRequest(AgentTask task) {
         TAgentTaskRequest tAgentTaskRequest = new TAgentTaskRequest();
         tAgentTaskRequest.setProtocolVersion(TAgentServiceVersion.V1);
         tAgentTaskRequest.setSignature(task.getSignature());
