@@ -885,21 +885,27 @@ public:
     [[nodiscard]] OperatorPtr get_child() { return _child; }
 
     [[nodiscard]] vectorized::VExprContextSPtrs& conjuncts() { return _conjuncts; }
-    [[nodiscard]] virtual RowDescriptor& row_descriptor() { return _row_descriptor; }
+
+    // row_descriptor() is used to describe an operator's input.
+    [[nodiscard]] virtual const RowDescriptor& row_descriptor() { return _row_descriptor; }
+
+    // row_desc() is used to describe an operator's output ,
+    // if there's no _output_row_descriptor, it means the operator's input and output are the same.
+    [[nodiscard]] const RowDescriptor& row_desc() const override {
+        return _output_row_descriptor ? *_output_row_descriptor : _row_descriptor;
+    }
+
+    // output_row_descriptor() method is used to return the output descriptor.
+    // It may return a nullptr, so operators need to check for this internally.
+    [[nodiscard]] const RowDescriptor* output_row_descriptor() {
+        return _output_row_descriptor.get();
+    }
 
     [[nodiscard]] int operator_id() const { return _operator_id; }
     [[nodiscard]] int node_id() const override { return _node_id; }
     [[nodiscard]] int nereids_id() const { return _nereids_id; }
 
     [[nodiscard]] int64_t limit() const { return _limit; }
-
-    [[nodiscard]] const RowDescriptor& row_desc() const override {
-        return _output_row_descriptor ? *_output_row_descriptor : _row_descriptor;
-    }
-
-    [[nodiscard]] const RowDescriptor* output_row_descriptor() {
-        return _output_row_descriptor.get();
-    }
 
     bool has_output_row_desc() const { return _output_row_descriptor != nullptr; }
 

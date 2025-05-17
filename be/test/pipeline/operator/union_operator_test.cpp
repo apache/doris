@@ -37,7 +37,7 @@ using namespace vectorized;
 struct MockUnionSourceOperator : public UnionSourceOperatorX {
     MockUnionSourceOperator(int32_t child_size, DataTypes types, ObjectPool* pool)
             : UnionSourceOperatorX(child_size), _mock_row_descriptor(types, pool) {}
-    RowDescriptor& row_descriptor() override { return _mock_row_descriptor; }
+    const RowDescriptor& row_descriptor() override { return _mock_row_descriptor; }
     MockRowDescriptor _mock_row_descriptor;
 };
 
@@ -47,7 +47,7 @@ struct MockUnionSinkOperator : public UnionSinkOperatorX {
             : UnionSinkOperatorX(child_size, cur_child_id, first_materialized_child_idx),
               _mock_row_descriptor(types, pool) {}
 
-    RowDescriptor& row_descriptor() override { return _mock_row_descriptor; }
+    const RowDescriptor& row_descriptor() override { return _mock_row_descriptor; }
     MockRowDescriptor _mock_row_descriptor;
 };
 
