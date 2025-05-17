@@ -169,6 +169,10 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
         return originStatement;
     }
 
+    public MVColumnItem getWhereClauseItem() {
+        return whereClauseItem;
+    }
+
     public Column getWhereClauseItemColumn(OlapTable olapTable) throws DdlException {
         if (whereClauseItem == null) {
             return null;
@@ -176,7 +180,10 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
         return whereClauseItem.toMVColumn(olapTable);
     }
 
-    private void validate(ConnectContext ctx) throws Exception {
+    /**
+     * Valid create mv info
+     */
+    public void validate(ConnectContext ctx) throws Exception {
         name.analyze(ctx);
         Pair<LogicalPlan, CascadesContext> result = analyzeLogicalPlan(logicalPlan, ctx);
         CheckPrivileges checkPrivileges = new CheckPrivileges();
