@@ -170,6 +170,7 @@ import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableComma
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.OlapGroupCommitInsertExecutor;
 import org.apache.doris.nereids.trees.plans.commands.insert.OlapInsertExecutor;
+import org.apache.doris.nereids.trees.plans.commands.utils.KillUtils;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSqlCache;
 import org.apache.doris.planner.GroupCommitPlanner;
@@ -244,7 +245,6 @@ import java.io.IOException;
 import java.io.StringReader;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -1686,57 +1686,9 @@ public class StmtExecutor {
     // Handle kill statement.
     private void handleKill() throws UserException {
         KillStmt killStmt = (KillStmt) parsedStmt;
-        ConnectContext killCtx = null;
-        int id = killStmt.getConnectionId();
         String queryId = killStmt.getQueryId();
-        if (id == -1) {
-            // when killCtx == null, this means the query not in FE,
-            // then we just send kill signal to BE
-            killCtx = context.getConnectScheduler().getContextWithQueryId(queryId);
-        } else {
-            killCtx = context.getConnectScheduler().getContext(id);
-            if (killCtx == null) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_NO_SUCH_THREAD, id);
-            }
-        }
-
-        if (killCtx == null) {
-            TUniqueId tQueryId = null;
-            try {
-                tQueryId = DebugUtil.parseTUniqueIdFromString(queryId);
-            } catch (NumberFormatException e) {
-                throw new UserException(e.getMessage());
-            }
-            LOG.info("kill query {}", queryId);
-            Collection<Backend> nodesToPublish = Env.getCurrentSystemInfo()
-                    .getAllBackendsByAllCluster().values();
-            for (Backend be : nodesToPublish) {
-                if (be.isAlive()) {
-                    try {
-                        Status cancelReason = new Status(TStatusCode.CANCELLED, "user kill query");
-                        BackendServiceProxy.getInstance()
-                                .cancelPipelineXPlanFragmentAsync(be.getBrpcAddress(), tQueryId,
-                                        cancelReason);
-                    } catch (Throwable t) {
-                        LOG.info("send kill query {} rpc to be {} failed", queryId, be);
-                    }
-                }
-            }
-        } else if (context == killCtx) {
-            // Suicide
-            context.setKilled();
-        } else {
-            // Check auth
-            // Only user itself and user with admin priv can kill connection
-            if (!killCtx.getQualifiedUser().equals(ConnectContext.get().getQualifiedUser())
-                    && !Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(),
-                    PrivPredicate.ADMIN)) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_KILL_DENIED_ERROR, id);
-            }
-
-            killCtx.kill(killStmt.isConnectionKill());
-        }
-        context.getState().setOk();
+        int id = killStmt.getConnectionId();
+        KillUtils.kill(context, killStmt.isConnectionKill(), queryId, id, parsedStmt.getOrigStmt());
     }
 
     // Process set statement.
