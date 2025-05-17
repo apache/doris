@@ -38,6 +38,7 @@
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/beta_rowset_writer_v2.h"
+#include "olap/rowset/rowset_fwd.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_writer.h"
 #include "olap/rowset/rowset_writer_context.h"
@@ -236,13 +237,24 @@ Status DeltaWriterV2::_build_current_tablet_schema(int64_t index_id,
     }
     // set partial update columns info
     _partial_update_info = std::make_shared<PartialUpdateInfo>();
+
+    auto res = ExecEnv::get_tablet(_req.tablet_id);
+    TabletSharedPtr tablet =
+            res.has_value() ? std::dynamic_pointer_cast<Tablet>(res.value()) : nullptr;
+    if (tablet == nullptr) {
+        return Status::InternalError("failed to find tablet for {}", _req.tablet_id);
+    }
+    std::vector<RowsetSharedPtr> rowsets;
+    RETURN_IF_ERROR(tablet->capture_consistent_rowsets_unlocked(
+            Version(0, tablet->get_rowset_with_max_version()->end_version()), &rowsets));
+
     RETURN_IF_ERROR(_partial_update_info->init(
             _req.tablet_id, _req.txn_id, *_tablet_schema,
             table_schema_param->unique_key_update_mode(),
             table_schema_param->partial_update_input_columns(),
             table_schema_param->is_strict_mode(), table_schema_param->timestamp_ms(),
             table_schema_param->nano_seconds(), table_schema_param->timezone(),
-            table_schema_param->auto_increment_coulumn()));
+            table_schema_param->auto_increment_coulumn(), rowsets));
     return Status::OK();
 }
 
