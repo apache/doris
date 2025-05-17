@@ -381,7 +381,8 @@ void AnalyticSinkLocalState::_insert_result_info(int64_t start, int64_t end) {
             } else {
                 auto* dst =
                         assert_cast<vectorized::ColumnNullable*>(_result_window_columns[i].get());
-                dst->get_null_map_data().add_num_element(0, static_cast<uint32_t>(end - start));
+                dst->get_null_map_data().resize_fill(
+                        dst->get_null_map_data().size() + static_cast<uint32_t>(end - start), 0);
                 _agg_functions[i]->function()->insert_result_into_range(
                         _fn_place_ptr + _offsets_of_aggregate_states[i], dst->get_nested_column(),
                         start, end);
