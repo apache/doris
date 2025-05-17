@@ -49,12 +49,21 @@ public:
     // Returns false if we were shut down prior to getting the element, and there
     // are no more elements available.
     bool blocking_get(T* out) {
+        return _blocking_get(out, std::chrono::steady_clock::duration::max());
+    }
+
+    // Condition timeout is the timeout of the condition variable, not the timeout of the blocking_get.
+    bool blocking_get(T* out, int64_t condition_timeout_ms) {
+        return _blocking_get(out, std::chrono::milliseconds(condition_timeout_ms));
+    }
+
+    bool _blocking_get(T* out, std::chrono::steady_clock::duration timeout) {
         MonotonicStopWatch timer;
         timer.start();
         std::unique_lock<std::mutex> unique_lock(_lock);
         while (!(_shutdown || !_list.empty())) {
             ++_get_waiting;
-            _get_cv.wait(unique_lock);
+            _get_cv.wait_for(unique_lock, timeout);
         }
         _total_get_wait_time += timer.elapsed_time();
 
@@ -76,12 +85,21 @@ public:
     // Puts an element into the queue, waiting indefinitely until there is space.
     // If the queue is shut down, returns false.
     bool blocking_put(const T& val) {
+        return _blocking_put(val, std::chrono::steady_clock::duration::max());
+    }
+
+    // Condition timeout is the timeout of the condition variable, not the timeout of the blocking_put.
+    bool blocking_put(const T& val, int64_t condition_timeout_ms) {
+        return _blocking_put(val, std::chrono::milliseconds(condition_timeout_ms));
+    }
+
+    bool _blocking_put(const T& val, std::chrono::steady_clock::duration timeout) {
         MonotonicStopWatch timer;
         timer.start();
         std::unique_lock<std::mutex> unique_lock(_lock);
         while (!(_shutdown || _list.size() < _max_elements)) {
             ++_put_waiting;
-            _put_cv.wait(unique_lock);
+            _put_cv.wait_for(unique_lock, timeout);
         }
         _total_put_wait_time += timer.elapsed_time();
 
