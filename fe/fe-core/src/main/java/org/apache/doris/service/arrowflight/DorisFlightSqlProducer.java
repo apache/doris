@@ -174,7 +174,7 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
                 String executedPeerIdentity = handleParts[0];
                 String preparedStatementId = handleParts[1];
                 flightSessionsManager.getConnectContext(executedPeerIdentity).removePreparedQuery(preparedStatementId);
-            } catch (final Exception e) {
+            } catch (final Throwable e) {
                 listener.onError(e);
                 return;
             }
@@ -469,7 +469,7 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
                 listener.putNext();
                 listener.completed();
             }
-        } catch (final Exception e) {
+        } catch (final Throwable e) {
             handleStreamException(e, "", listener);
         }
     }
@@ -496,7 +496,7 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
                 listener.putNext();
                 listener.completed();
             }
-        } catch (final Exception e) {
+        } catch (final Throwable e) {
             handleStreamException(e, "", listener);
         }
     }
@@ -528,7 +528,7 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
                 listener.putNext();
                 listener.completed();
             }
-        } catch (final Exception e) {
+        } catch (final Throwable e) {
             handleStreamException(e, "", listener);
         }
     }
@@ -602,7 +602,7 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
         // Neither C++ nor Java seem to have similar behavior.
         try {
             flightSessionsManager.closeConnectContext(context.peerIdentity());
-        } catch (final Exception e) {
+        } catch (final Throwable e) {
             LOG.error("closeSession failed", e);
             listener.onError(
                     CallStatus.INTERNAL.withDescription("closeSession failed").withCause(e).toRuntimeException());
@@ -619,7 +619,7 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
         return new FlightInfo(schema, descriptor, endpoints, -1, -1);
     }
 
-    private static void handleStreamException(Exception e, String errMsg, ServerStreamListener listener) {
+    private static void handleStreamException(Throwable e, String errMsg, ServerStreamListener listener) {
         LOG.error(errMsg, e);
         listener.error(CallStatus.INTERNAL.withDescription(errMsg).withCause(e).toRuntimeException());
         throw CallStatus.INTERNAL.withDescription(errMsg).withCause(e).toRuntimeException();
