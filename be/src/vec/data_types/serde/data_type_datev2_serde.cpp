@@ -41,9 +41,7 @@ Status DataTypeDateV2SerDe::serialize_column_to_json(const IColumn& column, int6
 Status DataTypeDateV2SerDe::serialize_one_cell_to_json(const IColumn& column, int64_t row_num,
                                                        BufferWritable& bw,
                                                        FormatOptions& options) const {
-    if (_nesting_level > 1) {
-        bw.write('"');
-    }
+    bw.write('"');
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
     row_num = result.second;
@@ -55,9 +53,7 @@ Status DataTypeDateV2SerDe::serialize_one_cell_to_json(const IColumn& column, in
     char* pos = val.to_string(buf);
     // DateTime to_string the end is /0
     bw.write(buf, pos - buf - 1);
-    if (_nesting_level > 1) {
-        bw.write('"');
-    }
+    bw.write('"');
     return Status::OK();
 }
 
