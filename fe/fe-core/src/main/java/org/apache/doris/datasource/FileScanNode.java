@@ -22,6 +22,7 @@ import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.Scope;
@@ -30,7 +31,9 @@ import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapEmpty;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
@@ -80,12 +83,12 @@ public abstract class FileScanNode extends ExternalScanNode {
     protected long tableLevelRowCount = -1;
 
     public FileScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName,
-            ScanContext scanContext, boolean needCheckColumnPriv) {
+                        ScanContext scanContext, boolean needCheckColumnPriv) {
         this(id, desc, planNodeName, StatisticalType.DEFAULT, scanContext, needCheckColumnPriv);
     }
 
     public FileScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName,
-            StatisticalType statisticalType, ScanContext scanContext, boolean needCheckColumnPriv) {
+                        StatisticalType statisticalType, ScanContext scanContext, boolean needCheckColumnPriv) {
         super(id, desc, planNodeName, statisticalType, scanContext, needCheckColumnPriv);
         this.needCheckColumnPriv = needCheckColumnPriv;
     }
@@ -145,9 +148,9 @@ public abstract class FileScanNode extends ExternalScanNode {
             output.append("(approximate)");
         }
         output.append("inputSplitNum=").append(selectedSplitNum).append(", totalFileSize=")
-                .append(totalFileSize).append(", scanRanges=").append(scanRangeLocations.size()).append("\n");
+            .append(totalFileSize).append(", scanRanges=").append(scanRangeLocations.size()).append("\n");
         output.append(prefix).append("partition=").append(selectedPartitionNum).append("/").append(totalPartitionNum)
-                .append("\n");
+            .append("\n");
 
         if (detailLevel == TExplainLevel.VERBOSE && !isBatch) {
             output.append(prefix).append("backends:").append("\n");
@@ -187,30 +190,30 @@ public abstract class FileScanNode extends ExternalScanNode {
                 if (size <= 4) {
                     for (TFileRangeDesc file : fileRangeDescs) {
                         output.append(prefix).append("    ").append(file.getPath())
-                                .append(" start: ").append(file.getStartOffset())
-                                .append(" length: ").append(file.getSize())
-                                .append("\n");
+                            .append(" start: ").append(file.getStartOffset())
+                            .append(" length: ").append(file.getSize())
+                            .append("\n");
                     }
                 } else {
                     for (int i = 0; i < 3; i++) {
                         TFileRangeDesc file = fileRangeDescs.get(i);
                         output.append(prefix).append("    ").append(file.getPath())
-                                .append(" start: ").append(file.getStartOffset())
-                                .append(" length: ").append(file.getSize())
-                                .append("\n");
+                            .append(" start: ").append(file.getStartOffset())
+                            .append(" length: ").append(file.getSize())
+                            .append("\n");
                     }
                     int other = size - 4;
                     output.append(prefix).append("    ... other ").append(other).append(" files ...\n");
                     TFileRangeDesc file = fileRangeDescs.get(size - 1);
                     output.append(prefix).append("    ").append(file.getPath())
-                            .append(" start: ").append(file.getStartOffset())
-                            .append(" length: ").append(file.getSize())
-                            .append("\n");
+                        .append(" start: ").append(file.getStartOffset())
+                        .append(" length: ").append(file.getSize())
+                        .append("\n");
                 }
                 output.append(prefix).append("    ").append("dataFileNum=").append(dataFilesSet.size())
-                        .append(", deleteFileNum=").append(deleteFilesSet.size())
-                        .append(", deleteSplitNum=").append(deleteSplitNum)
-                        .append("\n");
+                    .append(", deleteFileNum=").append(deleteFilesSet.size())
+                    .append(", deleteSplitNum=").append(deleteSplitNum)
+                    .append("\n");
             }
         }
 
@@ -235,17 +238,17 @@ public abstract class FileScanNode extends ExternalScanNode {
         if (useTopnFilter()) {
             String topnFilterSources = String.join(",",
                     topnFilterSortNodes.stream()
-                            .map(node -> node.getId().asInt() + "").collect(Collectors.toList()));
+                        .map(node -> node.getId().asInt() + "").collect(Collectors.toList()));
             output.append(prefix).append("TOPN OPT:").append(topnFilterSources).append("\n");
         }
         return output.toString();
     }
 
     protected void setDefaultValueExprs(TableIf tbl,
-            Map<String, SlotDescriptor> slotDescByName,
-            Map<String, Expr> exprByName,
-            TFileScanRangeParams params,
-            boolean useVarcharAsNull) throws UserException {
+                                        Map<String, SlotDescriptor> slotDescByName,
+                                        Map<String, Expr> exprByName,
+                                        TFileScanRangeParams params,
+                                        boolean useVarcharAsNull) throws UserException {
         Preconditions.checkNotNull(tbl);
         TExpr tExpr = new TExpr();
         tExpr.setNodes(Lists.newArrayList());
@@ -297,10 +300,14 @@ public abstract class FileScanNode extends ExternalScanNode {
             // and if z is not nullable, the load will fail.
             if (slotDesc != null) {
                 if (expression != null) {
-                    expression = TypeCoercionUtils.castIfNotSameType(expression,
-                            DataType.fromCatalogType(slotDesc.getType()));
+                    if (expression instanceof BitmapEmpty && slotDesc.getType().equals(Type.VARCHAR)) {
+                        expression = new StringLiteral("");
+                    } else {
+                        expression = TypeCoercionUtils.castIfNotSameType(expression,
+                                DataType.fromCatalogType(slotDesc.getType()));
+                    }
                     expr = ExpressionTranslator.translate(expression,
-                            new PlanTranslatorContext(CascadesContext.initTempContext()));
+                        new PlanTranslatorContext(CascadesContext.initTempContext()));
                     params.putToDefaultValueOfSrcSlot(slotDesc.getId().asInt(), expr.treeToThrift());
                 } else {
                     params.putToDefaultValueOfSrcSlot(slotDesc.getId().asInt(), tExpr);

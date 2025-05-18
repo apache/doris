@@ -205,6 +205,7 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         // bitmap
         allowedTypes = Sets.newHashSet();
         allowedTypes.add(BitmapType.class);
+        allowToStringLikeType(allowedTypes);
         strictCastWhiteList.put(BitmapType.class, allowedTypes);
 
         // hll
@@ -329,16 +330,16 @@ public class CheckCast implements ExpressionPatternRuleFactory {
     @Override
     public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
         return ImmutableList.of(
-                matchesType(Cast.class).thenApply(ctx -> {
-                    Cast cast = ctx.expr;
-                    DataType originalType = cast.child().getDataType();
-                    DataType targetType = cast.getDataType();
-                    if (!check(originalType, targetType, SessionVariable.enableStrictCast())) {
-                        throw new AnalysisException("cannot cast " + originalType.toSql()
-                                + " to " + targetType.toSql());
-                    }
-                    return cast;
-                }).toRule(ExpressionRuleType.CHECK_CAST)
+            matchesType(Cast.class).thenApply(ctx -> {
+                Cast cast = ctx.expr;
+                DataType originalType = cast.child().getDataType();
+                DataType targetType = cast.getDataType();
+                if (!check(originalType, targetType, SessionVariable.enableStrictCast())) {
+                    throw new AnalysisException("cannot cast " + originalType.toSql()
+                        + " to " + targetType.toSql());
+                }
+                return cast;
+            }).toRule(ExpressionRuleType.CHECK_CAST)
         );
     }
 
@@ -354,7 +355,7 @@ public class CheckCast implements ExpressionPatternRuleFactory {
      * check cast valid or not.
      */
     public static boolean check(DataType originalType, DataType targetType,
-            boolean isStrictMode, boolean looseAggState) {
+                                boolean isStrictMode, boolean looseAggState) {
         if (originalType.isVariantType() && targetType.isVariantType()) {
             return originalType.equals(targetType);
         }
@@ -394,19 +395,22 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         if (originalType instanceof CharacterType && !(targetType instanceof PrimitiveType)) {
             // CharacterType couldn't cast to Object type which contains HllType, BitmapType or QuantileStateType
             return !checkTypeContainsType(targetType, HllType.class)
-                    && !checkTypeContainsType(targetType, BitmapType.class)
-                    && !checkTypeContainsType(targetType, QuantileStateType.class);
+                && !checkTypeContainsType(targetType, BitmapType.class)
+                && !checkTypeContainsType(targetType, QuantileStateType.class);
+        }
+        if (originalType instanceof BitmapType && (targetType instanceof VarcharType)) {
+            return true;
         }
         if (originalType instanceof AggStateType && targetType instanceof CharacterType) {
             return true;
         }
         if (originalType instanceof ArrayType && targetType instanceof ArrayType) {
             return check(((ArrayType) originalType).getItemType(), ((ArrayType) targetType).getItemType(),
-                    isStrictMode);
+                isStrictMode);
         } else if (originalType instanceof MapType && targetType instanceof MapType) {
             return check(((MapType) originalType).getKeyType(), ((MapType) targetType).getKeyType(), isStrictMode)
-                    && check(((MapType) originalType).getValueType(), ((MapType) targetType).getValueType(),
-                    isStrictMode);
+                && check(((MapType) originalType).getValueType(), ((MapType) targetType).getValueType(),
+                isStrictMode);
         } else if (originalType instanceof StructType && targetType instanceof StructType) {
             List<StructField> targetFields = ((StructType) targetType).getFields();
             List<StructField> originalFields = ((StructType) originalType).getFields();
@@ -444,7 +448,7 @@ public class CheckCast implements ExpressionPatternRuleFactory {
             return checkTypeContainsType(((ArrayType) sourceType).getItemType(), targetType);
         } else if (sourceType.isMapType()) {
             return checkTypeContainsType(((MapType) sourceType).getKeyType(), targetType)
-                    || checkTypeContainsType(((MapType) sourceType).getValueType(), targetType);
+                || checkTypeContainsType(((MapType) sourceType).getValueType(), targetType);
         } else if (sourceType.isStructType()) {
             for (StructField f : ((StructType) sourceType).getFields()) {
                 if (checkTypeContainsType(f.getDataType(), targetType)) {
