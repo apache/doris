@@ -24,6 +24,7 @@ import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.qe.ConnectContext.ThreadInfo;
 import org.apache.doris.service.arrowflight.sessions.FlightSqlConnectPoolMgr;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
@@ -32,7 +33,6 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.TimerTask;
 import java.util.concurrent.ScheduledExecutorService;
@@ -132,7 +132,7 @@ public class ConnectScheduler {
 
     public String getQueryIdByTraceId(String traceId) {
         String queryId = connectPoolMgr.getQueryIdByTraceId(traceId);
-        if (Objects.equals(queryId, "")) {
+        if (Strings.isNullOrEmpty(queryId)) {
             queryId = flightSqlConnectPoolMgr.getQueryIdByTraceId(traceId);
         }
         return queryId;

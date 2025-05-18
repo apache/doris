@@ -112,7 +112,7 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
         this.flightSessionsManager = flightSessionsManager;
         sqlInfoBuilder = new SqlInfoBuilder();
         sqlInfoBuilder.withFlightSqlServerName("DorisFE").withFlightSqlServerVersion("1.0")
-                .withFlightSqlServerArrowVersion("13.0").withFlightSqlServerReadOnly(false)
+                .withFlightSqlServerArrowVersion("18.2.0").withFlightSqlServerReadOnly(false)
                 .withSqlIdentifierQuoteChar("`").withSqlDdlCatalog(true).withSqlDdlSchema(false).withSqlDdlTable(false)
                 .withSqlIdentifierCase(SqlSupportedCaseSensitivity.SQL_CASE_SENSITIVITY_CASE_INSENSITIVE)
                 .withSqlQuotedIdentifierCase(SqlSupportedCaseSensitivity.SQL_CASE_SENSITIVITY_CASE_INSENSITIVE);
@@ -141,7 +141,7 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
             final VectorSchemaRoot vectorSchemaRoot = flightSqlResultCacheEntry.getVectorSchemaRoot();
             listener.start(vectorSchemaRoot);
             listener.putNext();
-        } catch (Exception e) {
+        } catch (Throwable e) {
             String errMsg = "get stream statement failed, " + e.getMessage() + ", " + Util.getRootCauseMessage(e)
                     + ", error code: " + connectContext.getState().getErrorCode() + ", error msg: "
                     + connectContext.getState().getErrorMessage();
@@ -276,7 +276,7 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
                     return new FlightInfo(flightSQLConnectProcessor.getArrowSchema(), descriptor, endpoints, -1, -1);
                 }
             }
-        } catch (Exception e) {
+        } catch (Throwable e) {
             String errMsg = "get flight info statement failed, " + e.getMessage() + ", " + Util.getRootCauseMessage(e)
                     + ", error code: " + connectContext.getState().getErrorCode() + ", error msg: "
                     + connectContext.getState().getErrorMessage();
@@ -293,7 +293,7 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
         try {
             ConnectContext connectContext = flightSessionsManager.getConnectContext(context.peerIdentity());
             return executeQueryStatement(context.peerIdentity(), connectContext, request.getQuery(), descriptor);
-        } catch (Exception e) {
+        } catch (Throwable e) {
             String errMsg = "get flight info statement failed, " + e.getMessage();
             LOG.error(errMsg, e);
             throw CallStatus.INTERNAL.withDescription(errMsg).withCause(e).toRuntimeException();
@@ -363,7 +363,7 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
                         .createOneOneSchemaRoot("ResultMeta", "UNIMPLEMENTED").getSchema();
                 listener.onNext(new Result(
                         Any.pack(buildCreatePreparedStatementResult(handle, parameterSchema, metaData)).toByteArray()));
-            } catch (Exception e) {
+            } catch (Throwable e) {
                 String errMsg = "create prepared statement failed, " + e.getMessage() + ", " + Util.getRootCauseMessage(
                         e) + ", error code: " + connectContext.getState().getErrorCode() + ", error msg: "
                         + connectContext.getState().getErrorMessage();
@@ -410,7 +410,7 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
                     }
                 }
                 ackStream.onCompleted();
-            } catch (Exception e) {
+            } catch (Throwable e) {
                 String errMsg = "acceptPutPreparedStatementUpdate failed, " + e.getMessage() + ", "
                         + Util.getRootCauseMessage(e);
                 LOG.error(errMsg, e);

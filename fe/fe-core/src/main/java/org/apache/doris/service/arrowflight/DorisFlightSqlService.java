@@ -50,15 +50,16 @@ public class DorisFlightSqlService {
         // bearer token is evict from the cache will unregister ConnectContext.
         this.flightTokenManager = new FlightTokenManagerImpl(
                 Math.min(Config.arrow_flight_max_connections, Config.arrow_flight_token_cache_size),
-                Config.arrow_flight_token_alive_time_minute);
+                Config.arrow_flight_token_alive_time_second);
         this.flightSessionsManager = new FlightSessionsWithTokenManager(flightTokenManager);
 
         DorisFlightSqlProducer producer = new DorisFlightSqlProducer(
                 Location.forGrpcInsecure(FrontendOptions.getLocalHostAddress(), port), flightSessionsManager);
         flightServer = FlightServer.builder(allocator, Location.forGrpcInsecure("0.0.0.0", port), producer)
                 .headerAuthenticator(new FlightBearerTokenAuthenticator(flightTokenManager)).build();
-        LOG.info("Arrow Flight SQL service is created, port: {}, max_connections: {}，token_alive_time: {}",
-                port, Config.arrow_flight_max_connections, Config.arrow_flight_token_alive_time_minute);
+        LOG.info("Arrow Flight SQL service is created, port: {}, arrow_flight_max_connections: {}，"
+                        + "arrow_flight_token_alive_time_second: {}", port, Config.arrow_flight_max_connections,
+                Config.arrow_flight_token_alive_time_second);
     }
 
     // start Arrow Flight SQL service, return true if success, otherwise false

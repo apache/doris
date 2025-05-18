@@ -67,7 +67,7 @@ public class FlightTokenManagerImpl implements FlightTokenManager {
         this.cacheExpiration = cacheExpiration;
 
         this.tokenCache = CacheBuilder.newBuilder().maximumSize(cacheSize)
-                .expireAfterWrite(cacheExpiration, TimeUnit.MINUTES)
+                .expireAfterWrite(cacheExpiration, TimeUnit.SECONDS)
                 .removalListener(new RemovalListener<String, FlightTokenDetails>() {
                     @Override
                     public void onRemoval(@NotNull RemovalNotification<String, FlightTokenDetails> notification) {
@@ -152,12 +152,12 @@ public class FlightTokenManagerImpl implements FlightTokenManager {
             throw new IllegalArgumentException("invalid bearer token: " + token
                     + ", try reconnect, bearer token may not be created, or may have been evict, search for this "
                     + "token in fe.log to see the evict reason. currently in fe.conf, `arrow_flight_max_connections`="
-                    + this.cacheSize + ", `arrow_flight_token_alive_time_minute`=" + this.cacheExpiration);
+                    + this.cacheSize + ", `arrow_flight_token_alive_time_second`=" + this.cacheExpiration);
         }
         if (System.currentTimeMillis() >= value.getExpiresAt()) {
             tokenCache.invalidate(token);
             throw new IllegalArgumentException("bearer token expired: " + token + ", try reconnect, "
-                    + "currently in fe.conf, `arrow_flight_token_alive_time_minute`=" + this.cacheExpiration);
+                    + "currently in fe.conf, `arrow_flight_token_alive_time_second`=" + this.cacheExpiration);
         }
         if (usersTokenLRU.containsKey(value.getUsername())) {
             try {
