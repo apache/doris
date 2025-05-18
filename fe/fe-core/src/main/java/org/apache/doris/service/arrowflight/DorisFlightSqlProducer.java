@@ -363,7 +363,7 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
                         .createOneOneSchemaRoot("ResultMeta", "UNIMPLEMENTED").getSchema();
                 listener.onNext(new Result(
                         Any.pack(buildCreatePreparedStatementResult(handle, parameterSchema, metaData)).toByteArray()));
-            } catch (Throwable e) {
+            } catch (Exception e) {
                 String errMsg = "create prepared statement failed, " + e.getMessage() + ", " + Util.getRootCauseMessage(
                         e) + ", error code: " + connectContext.getState().getErrorCode() + ", error msg: "
                         + connectContext.getState().getErrorMessage();
