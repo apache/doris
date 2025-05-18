@@ -17,6 +17,9 @@
 
 #pragma once
 
+#include <mutex>
+
+#include "common/status.h"
 #include "io/cache/file_cache_common.h"
 #include "util/slice.h"
 
@@ -67,6 +70,10 @@ public:
     virtual FileCacheStorageType get_type() = 0;
     // get local cached file
     virtual std::string get_local_file(const FileCacheKey& key) = 0;
+    virtual Status get_file_cache_infos(std::vector<FileCacheInfo>& infos,
+                                        std::lock_guard<std::mutex>& cache_lock) const {
+        return Status::OK();
+    };
 };
 
 } // namespace doris::io
