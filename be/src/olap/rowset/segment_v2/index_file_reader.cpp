@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap/rowset/segment_v2/x_index_file_reader.h"
+#include "olap/rowset/segment_v2/index_file_reader.h"
 
 #include <memory>
 #include <utility>
@@ -27,7 +27,7 @@
 
 namespace doris::segment_v2 {
 
-Status XIndexFileReader::init(int32_t read_buffer_size, const io::IOContext* io_ctx) {
+Status IndexFileReader::init(int32_t read_buffer_size, const io::IOContext* io_ctx) {
     std::unique_lock<std::shared_mutex> lock(_mutex); // Lock for writing
     if (!_inited) {
         _read_buffer_size = read_buffer_size;
@@ -39,7 +39,7 @@ Status XIndexFileReader::init(int32_t read_buffer_size, const io::IOContext* io_
     return Status::OK();
 }
 
-Status XIndexFileReader::_init_from(int32_t read_buffer_size, const io::IOContext* io_ctx) {
+Status IndexFileReader::_init_from(int32_t read_buffer_size, const io::IOContext* io_ctx) {
     auto index_file_full_path = InvertedIndexDescriptor::get_index_file_path_v2(_index_path_prefix);
 
     try {
@@ -135,7 +135,7 @@ Status XIndexFileReader::_init_from(int32_t read_buffer_size, const io::IOContex
     return Status::OK();
 }
 
-Result<InvertedIndexDirectoryMap> XIndexFileReader::get_all_directories() {
+Result<InvertedIndexDirectoryMap> IndexFileReader::get_all_directories() {
     InvertedIndexDirectoryMap res;
     std::shared_lock<std::shared_mutex> lock(_mutex); // Lock for reading
     for (auto& [index, _] : _indices_entries) {
@@ -150,7 +150,7 @@ Result<InvertedIndexDirectoryMap> XIndexFileReader::get_all_directories() {
     return res;
 }
 
-Result<std::unique_ptr<DorisCompoundReader>> XIndexFileReader::_open(
+Result<std::unique_ptr<DorisCompoundReader>> IndexFileReader::_open(
         int64_t index_id, const std::string& index_suffix, const io::IOContext* io_ctx) const {
     std::unique_ptr<DorisCompoundReader> compound_reader;
 
@@ -226,19 +226,19 @@ Result<std::unique_ptr<DorisCompoundReader>> XIndexFileReader::_open(
     return compound_reader;
 }
 
-Result<std::unique_ptr<DorisCompoundReader>> XIndexFileReader::open(
+Result<std::unique_ptr<DorisCompoundReader>> IndexFileReader::open(
         const TabletIndex* index_meta, const io::IOContext* io_ctx) const {
     auto index_id = index_meta->index_id();
     auto index_suffix = index_meta->get_index_suffix();
     return _open(index_id, index_suffix, io_ctx);
 }
 
-std::string XIndexFileReader::get_index_file_cache_key(const TabletIndex* index_meta) const {
+std::string IndexFileReader::get_index_file_cache_key(const TabletIndex* index_meta) const {
     return InvertedIndexDescriptor::get_index_file_cache_key(
             _index_path_prefix, index_meta->index_id(), index_meta->get_index_suffix());
 }
 
-std::string XIndexFileReader::get_index_file_path(const TabletIndex* index_meta) const {
+std::string IndexFileReader::get_index_file_path(const TabletIndex* index_meta) const {
     if (_storage_format == InvertedIndexStorageFormatPB::V1) {
         return InvertedIndexDescriptor::get_index_file_path_v1(
                 _index_path_prefix, index_meta->index_id(), index_meta->get_index_suffix());
@@ -246,7 +246,7 @@ std::string XIndexFileReader::get_index_file_path(const TabletIndex* index_meta)
     return InvertedIndexDescriptor::get_index_file_path_v2(_index_path_prefix);
 }
 
-Status XIndexFileReader::index_file_exist(const TabletIndex* index_meta, bool* res) const {
+Status IndexFileReader::index_file_exist(const TabletIndex* index_meta, bool* res) const {
     if (_storage_format == InvertedIndexStorageFormatPB::V1) {
         auto index_file_path = InvertedIndexDescriptor::get_index_file_path_v1(
                 _index_path_prefix, index_meta->index_id(), index_meta->get_index_suffix());
@@ -271,7 +271,7 @@ Status XIndexFileReader::index_file_exist(const TabletIndex* index_meta, bool* r
     return Status::OK();
 }
 
-Status XIndexFileReader::has_null(const TabletIndex* index_meta, bool* res) const {
+Status IndexFileReader::has_null(const TabletIndex* index_meta, bool* res) const {
     if (_storage_format == InvertedIndexStorageFormatPB::V1) {
         *res = true;
         return Status::OK();
@@ -305,7 +305,7 @@ Status XIndexFileReader::has_null(const TabletIndex* index_meta, bool* res) cons
     return Status::OK();
 }
 
-void XIndexFileReader::debug_file_entries() {
+void IndexFileReader::debug_file_entries() {
     std::shared_lock<std::shared_mutex> lock(_mutex); // Lock for reading
     for (auto& index : _indices_entries) {
         LOG(INFO) << "index_id:" << index.first.first;

@@ -69,7 +69,7 @@ struct ColumnWriterOptions {
     std::vector<const TabletIndex*> indexes; // unused
     const TabletIndex* inverted_index = nullptr;
     const TabletIndex* ann_index = nullptr;
-    XIndexFileWriter* x_index_file_writer;
+    IndexFileWriter* x_index_file_writer;
     std::string to_string() const {
         std::stringstream ss;
         ss << std::boolalpha << "meta=" << meta->DebugString()

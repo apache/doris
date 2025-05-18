@@ -34,7 +34,7 @@
 #include "gutil/strings/substitute.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/segment_v2/column_writer.h"
-#include "olap/rowset/segment_v2/x_index_file_writer.h"
+#include "olap/rowset/segment_v2/index_file_writer.h"
 #include "olap/tablet.h"
 #include "olap/tablet_schema.h"
 #include "util/faststring.h"
@@ -83,8 +83,7 @@ class SegmentWriter {
 public:
     explicit SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
                            TabletSchemaSPtr tablet_schema, BaseTabletSPtr tablet, DataDir* data_dir,
-                           const SegmentWriterOptions& opts,
-                           XIndexFileWriter* inverted_file_writer);
+                           const SegmentWriterOptions& opts, IndexFileWriter* inverted_file_writer);
     ~SegmentWriter();
 
     Status init();
@@ -215,7 +214,7 @@ private:
     // Not owned. owned by RowsetWriter or SegmentFlusher
     io::FileWriter* _file_writer = nullptr;
     // Not owned. owned by RowsetWriter or SegmentFlusher
-    XIndexFileWriter* _x_index_file_writer = nullptr;
+    IndexFileWriter* _x_index_file_writer = nullptr;
 
     SegmentFooterPB _footer;
     // for mow tables with cluster key, the sort key is the cluster keys not unique keys

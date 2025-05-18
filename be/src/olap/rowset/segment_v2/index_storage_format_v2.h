@@ -17,29 +17,40 @@
 
 #pragma once
 
-#include "x_index_storage_format.h"
+#include "index_storage_format.h"
 
 namespace doris::segment_v2 {
 
-class XIndexStorageFormatV1 : public XIndexStorageFormat {
+struct FileMetadata {
+    int64_t index_id;
+    std::string index_suffix;
+    std::string filename;
+    int64_t offset;
+    int64_t length;
+    lucene::store::Directory* directory;
+
+    FileMetadata(int64_t id, std::string suffix, std::string file, int64_t off, int64_t len,
+                 lucene::store::Directory* dir);
+};
+
+class IndexStorageFormatV2 : public IndexStorageFormat {
 public:
-    XIndexStorageFormatV1(XIndexFileWriter* file_writer);
-    ~XIndexStorageFormatV1() override = default;
+    IndexStorageFormatV2(IndexFileWriter* file_writer);
+    ~IndexStorageFormatV2() override = default;
 
     Status write() override;
 
 private:
-    std::pair<int64_t, int32_t> calculate_header_length(const std::vector<FileInfo>& sorted_files,
-                                                        lucene::store::Directory* directory);
+    int64_t header_length();
+    std::vector<FileMetadata> prepare_file_metadata(int64_t& current_offset);
     std::pair<std::unique_ptr<lucene::store::Directory, DirectoryDeleter>,
               std::unique_ptr<lucene::store::IndexOutput>>
-    create_output_stream(int64_t index_id, const std::string& index_suffix);
-    void write_header_and_data(lucene::store::IndexOutput* output,
-                               const std::vector<FileInfo>& sorted_files,
-                               lucene::store::Directory* directory, int64_t header_length,
-                               int32_t header_file_count);
-    void add_index_info(int64_t index_id, const std::string& index_suffix,
-                        int64_t compound_file_size);
+    create_output_stream();
+    void write_version_and_indices_count(lucene::store::IndexOutput* output);
+    void write_index_headers_and_metadata(lucene::store::IndexOutput* output,
+                                          const std::vector<FileMetadata>& file_metadata);
+    void copy_files_data(lucene::store::IndexOutput* output,
+                         const std::vector<FileMetadata>& file_metadata);
 };
 
 } // namespace doris::segment_v2

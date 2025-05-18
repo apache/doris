@@ -57,11 +57,11 @@
 #include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_writer.h"
 #include "olap/rowset/rowset_writer_context.h"
+#include "olap/rowset/segment_v2/index_file_reader.h"
+#include "olap/rowset/segment_v2/index_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_compaction.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
-#include "olap/rowset/segment_v2/x_index_file_reader.h"
-#include "olap/rowset/segment_v2/x_index_file_writer.h"
 #include "olap/storage_engine.h"
 #include "olap/storage_policy.h"
 #include "olap/tablet.h"
@@ -634,7 +634,7 @@ Status Compaction::do_inverted_index_compaction() {
     }
 
     // src index dirs
-    std::vector<std::unique_ptr<XIndexFileReader>> index_file_readers(src_segment_num);
+    std::vector<std::unique_ptr<IndexFileReader>> index_file_readers(src_segment_num);
     for (const auto& m : src_seg_to_id_map) {
         const auto& [rowset_id, seg_id] = m.first;
 
@@ -675,7 +675,7 @@ Status Compaction::do_inverted_index_compaction() {
                     "get segment path failed. tablet_id={} rowset_id={} seg_id={}",
                     _tablet->tablet_id(), rowset_id.to_string(), seg_id);
         }
-        auto index_file_reader = std::make_unique<XIndexFileReader>(
+        auto index_file_reader = std::make_unique<IndexFileReader>(
                 fs,
                 std::string {InvertedIndexDescriptor::get_index_file_path_prefix(seg_path.value())},
                 _cur_tablet_schema->get_inverted_index_storage_format(),
@@ -703,19 +703,19 @@ Status Compaction::do_inverted_index_compaction() {
 
     // dest index files
     // format: rowsetId_segmentId
-    auto& x_index_file_writers =
-            dynamic_cast<BaseBetaRowsetWriter*>(_output_rs_writer.get())->x_index_file_writers();
-    DBUG_EXECUTE_IF("Compaction::do_inverted_index_compaction_x_index_file_writers_size_error",
-                    { x_index_file_writers.clear(); })
-    if (x_index_file_writers.size() != dest_segment_num) {
+    auto& index_file_writers =
+            dynamic_cast<BaseBetaRowsetWriter*>(_output_rs_writer.get())->index_file_writers();
+    DBUG_EXECUTE_IF("Compaction::do_inverted_index_compaction_index_file_writers_size_error",
+                    { index_file_writers.clear(); })
+    if (index_file_writers.size() != dest_segment_num) {
         LOG(WARNING) << "failed to do index compaction, dest segment num not match. tablet_id="
                      << _tablet->tablet_id() << " dest_segment_num=" << dest_segment_num
-                     << " x_index_file_writers.size()=" << x_index_file_writers.size();
+                     << " index_file_writers.size()=" << index_file_writers.size();
         mark_skip_index_compaction(ctx, error_handler);
         return Status::Error<INVERTED_INDEX_COMPACTION_ERROR>(
                 "dest segment num not match. tablet_id={} dest_segment_num={} "
-                "x_index_file_writers.size()={}",
-                _tablet->tablet_id(), dest_segment_num, x_index_file_writers.size());
+                "index_file_writers.size()={}",
+                _tablet->tablet_id(), dest_segment_num, index_file_writers.size());
     }
 
     // use tmp file dir to store index files
@@ -761,7 +761,7 @@ Status Compaction::do_inverted_index_compaction() {
                 src_idx_dirs[src_segment_id] = std::move(res.value());
             }
             for (int dest_segment_id = 0; dest_segment_id < dest_segment_num; dest_segment_id++) {
-                auto res = x_index_file_writers[dest_segment_id]->open(index_meta);
+                auto res = index_file_writers[dest_segment_id]->open(index_meta);
                 DBUG_EXECUTE_IF("Compaction::open_x_index_file_writer", {
                     res = ResultError(Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                             "debug point: Compaction::open_x_index_file_writer error"));
@@ -775,7 +775,7 @@ Status Compaction::do_inverted_index_compaction() {
                     throw Exception(ErrorCode::INVERTED_INDEX_COMPACTION_ERROR, res.error().msg());
                 }
                 // Destination directories in dest_index_dirs do not need to be deconstructed,
-                // but their lifecycle must be managed by x_index_file_writers.
+                // but their lifecycle must be managed by index_file_writers.
                 dest_index_dirs[dest_segment_id] = res.value().get();
             }
             auto st = compact_column(index_meta->index_id(), src_idx_dirs, dest_index_dirs,
@@ -913,7 +913,7 @@ void Compaction::construct_index_compaction_columns(RowsetWriterContext& ctx) {
 
                 std::string index_file_path;
                 try {
-                    auto index_file_reader = std::make_unique<XIndexFileReader>(
+                    auto index_file_reader = std::make_unique<IndexFileReader>(
                             fs,
                             std::string {InvertedIndexDescriptor::get_index_file_path_prefix(
                                     seg_path.value())},
