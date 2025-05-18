@@ -1356,15 +1356,33 @@ void Tablet::get_compaction_status(std::string* json_result) {
     format_str = ToStringFromUnixMillis(_last_full_compaction_success_millis.load());
     full_success_value.SetString(format_str.c_str(), format_str.length(), root.GetAllocator());
     root.AddMember("last full success time", full_success_value, root.GetAllocator());
+    rapidjson::Value cumu_schedule_value;
+    format_str = ToStringFromUnixMillis(_last_cumu_compaction_schedule_millis.load());
+    cumu_schedule_value.SetString(format_str.c_str(), format_str.length(), root.GetAllocator());
+    root.AddMember("last cumulative schedule time", cumu_schedule_value, root.GetAllocator());
     rapidjson::Value base_schedule_value;
     format_str = ToStringFromUnixMillis(_last_base_compaction_schedule_millis.load());
     base_schedule_value.SetString(format_str.c_str(), format_str.length(), root.GetAllocator());
     root.AddMember("last base schedule time", base_schedule_value, root.GetAllocator());
+    rapidjson::Value full_schedule_value;
+    format_str = ToStringFromUnixMillis(_last_full_compaction_schedule_millis.load());
+    full_schedule_value.SetString(format_str.c_str(), format_str.length(), root.GetAllocator());
+    root.AddMember("last full schedule time", full_schedule_value, root.GetAllocator());
+    rapidjson::Value cumu_compaction_status_value;
+    cumu_compaction_status_value.SetString(_last_cumu_compaction_status.c_str(),
+                                           _last_cumu_compaction_status.length(),
+                                           root.GetAllocator());
+    root.AddMember("last cumulative status", cumu_compaction_status_value, root.GetAllocator());
     rapidjson::Value base_compaction_status_value;
     base_compaction_status_value.SetString(_last_base_compaction_status.c_str(),
                                            _last_base_compaction_status.length(),
                                            root.GetAllocator());
     root.AddMember("last base status", base_compaction_status_value, root.GetAllocator());
+    rapidjson::Value full_compaction_status_value;
+    full_compaction_status_value.SetString(_last_full_compaction_status.c_str(),
+                                           _last_full_compaction_status.length(),
+                                           root.GetAllocator());
+    root.AddMember("last full status", full_compaction_status_value, root.GetAllocator());
 
     // last single replica compaction status
     // "single replica compaction status": {
