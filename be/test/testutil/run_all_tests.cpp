@@ -15,6 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <gflags/gflags.h>
+#include <unistd.h>
+
 #include <memory>
 #include <string>
 
@@ -38,6 +41,8 @@
 #include "util/cpu_info.h"
 #include "util/disk_info.h"
 #include "util/mem_info.h"
+
+DEFINE_bool(wait, false, "Wait user to start test");
 
 int main(int argc, char** argv) {
     doris::ThreadLocalHandle::create_thread_local_if_not_exits();
@@ -98,6 +103,10 @@ int main(int argc, char** argv) {
     doris::ExecEnv::set_tracking_memory(false);
 
     google::ParseCommandLineFlags(&argc, &argv, false);
+
+    while (FLAGS_wait) {
+        sleep(1);
+    }
 
     updatePHDRCache();
     try {
