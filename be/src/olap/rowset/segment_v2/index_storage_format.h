@@ -22,7 +22,7 @@
 
 namespace doris::segment_v2 {
 
-class XIndexFileWriter;
+class IndexFileWriter;
 
 class FileInfo {
 public:
@@ -30,10 +30,10 @@ public:
     int64_t filesize;
 };
 
-class XIndexStorageFormat {
+class IndexStorageFormat {
 public:
-    XIndexStorageFormat(XIndexFileWriter* x_file_writer);
-    virtual ~XIndexStorageFormat() = default;
+    IndexStorageFormat(IndexFileWriter* x_file_writer);
+    virtual ~IndexStorageFormat() = default;
 
     virtual Status write() = 0;
 
@@ -43,8 +43,8 @@ public:
                    lucene::store::IndexOutput* output, uint8_t* buffer, int64_t bufferLength);
 
 protected:
-    XIndexFileWriter* _x_file_writer = nullptr;
+    IndexFileWriter* _index_file_writer = nullptr;
 };
-using XIndexStorageFormatPtr = std::unique_ptr<XIndexStorageFormat>;
+using IndexStorageFormatPtr = std::unique_ptr<IndexStorageFormat>;
 
 } // namespace doris::segment_v2

@@ -34,11 +34,11 @@
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/local_file_system.h"
 #include "olap/field.h"
+#include "olap/rowset/segment_v2/index_file_reader.h"
+#include "olap/rowset/segment_v2/index_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
-#include "olap/rowset/segment_v2/x_index_file_reader.h"
-#include "olap/rowset/segment_v2/x_index_file_writer.h"
 #include "olap/tablet_schema.h"
 #include "olap/tablet_schema_helper.h"
 #include "runtime/runtime_state.h"
@@ -48,7 +48,7 @@
 #include "vec/olap/olap_data_convertor.h"
 
 using namespace lucene::index;
-using doris::segment_v2::XIndexFileWriter;
+using doris::segment_v2::IndexFileWriter;
 
 namespace doris::segment_v2 {
 
@@ -73,7 +73,7 @@ public:
         } else if (format == InvertedIndexStorageFormatPB::V2) {
             file_str = InvertedIndexDescriptor::get_index_file_path_v2(index_prefix);
         }
-        std::unique_ptr<XIndexFileReader> reader = std::make_unique<XIndexFileReader>(
+        std::unique_ptr<IndexFileReader> reader = std::make_unique<IndexFileReader>(
                 io::global_local_filesystem(), index_prefix, format);
         auto st = reader->init();
         EXPECT_EQ(st, Status::OK());
@@ -160,8 +160,8 @@ public:
         query_options.enable_inverted_index_searcher_cache = false;
         runtime_state.set_query_options(query_options);
         // Create a BkdIndexReader to verify the index
-        auto reader = std::make_shared<XIndexFileReader>(
-                io::global_local_filesystem(), index_prefix, InvertedIndexStorageFormatPB::V2);
+        auto reader = std::make_shared<IndexFileReader>(io::global_local_filesystem(), index_prefix,
+                                                        InvertedIndexStorageFormatPB::V2);
         auto st = reader->init();
         EXPECT_EQ(st, Status::OK());
         auto result = reader->open(index_meta);
@@ -322,7 +322,7 @@ public:
         auto fs = io::global_local_filesystem();
         Status sts = fs->create_file(index_path, &file_writer, &opts);
         ASSERT_TRUE(sts.ok()) << sts;
-        auto index_file_writer = std::make_unique<XIndexFileWriter>(
+        auto index_file_writer = std::make_unique<IndexFileWriter>(
                 fs, index_path_prefix, std::string {rowset_id}, seg_id,
                 InvertedIndexStorageFormatPB::V2, std::move(file_writer));
 
@@ -384,7 +384,7 @@ public:
         auto fs = io::global_local_filesystem();
         Status sts = fs->create_file(index_path, &file_writer, &opts);
         ASSERT_TRUE(sts.ok()) << sts;
-        auto index_file_writer = std::make_unique<XIndexFileWriter>(
+        auto index_file_writer = std::make_unique<IndexFileWriter>(
                 fs, index_path_prefix, std::string {rowset_id}, seg_id,
                 InvertedIndexStorageFormatPB::V2, std::move(file_writer));
 
@@ -458,7 +458,7 @@ public:
         auto fs = io::global_local_filesystem();
         Status sts = fs->create_file(index_path, &file_writer, &opts);
         ASSERT_TRUE(sts.ok()) << sts;
-        auto index_file_writer = std::make_unique<XIndexFileWriter>(
+        auto index_file_writer = std::make_unique<IndexFileWriter>(
                 fs, index_path_prefix, std::string {rowset_id}, seg_id,
                 InvertedIndexStorageFormatPB::V2, std::move(file_writer));
 
@@ -519,7 +519,7 @@ public:
         auto fs = io::global_local_filesystem();
         Status sts = fs->create_file(index_path, &file_writer, &opts);
         ASSERT_TRUE(sts.ok()) << sts;
-        auto index_file_writer = std::make_unique<XIndexFileWriter>(
+        auto index_file_writer = std::make_unique<IndexFileWriter>(
                 fs, index_path_prefix, std::string {rowset_id}, seg_id,
                 InvertedIndexStorageFormatPB::V2, std::move(file_writer));
 
@@ -581,7 +581,7 @@ public:
         runtime_state.set_query_options(query_options);
 
         // Create a reader to verify the index
-        auto reader = std::make_shared<XIndexFileReader>(
+        auto reader = std::make_shared<IndexFileReader>(
                 io::global_local_filesystem(), index_path_prefix, InvertedIndexStorageFormatPB::V2);
         status = reader->init();
         EXPECT_EQ(status, Status::OK());
@@ -693,11 +693,11 @@ TEST_F(InvertedIndexWriterTest, CompareUnicodeStringWriteResults) {
     sts = fs->create_file(index_path_disabled, &file_writer_disabled, &opts);
     ASSERT_TRUE(sts.ok()) << sts;
 
-    auto index_file_writer_enabled = std::make_unique<XIndexFileWriter>(
+    auto index_file_writer_enabled = std::make_unique<IndexFileWriter>(
             fs, index_path_prefix_enabled, "test_rowset_compare", 1,
             InvertedIndexStorageFormatPB::V2, std::move(file_writer_enabled));
 
-    auto index_file_writer_disabled = std::make_unique<XIndexFileWriter>(
+    auto index_file_writer_disabled = std::make_unique<IndexFileWriter>(
             fs, index_path_prefix_disabled, "test_rowset_compare", 2,
             InvertedIndexStorageFormatPB::V2, std::move(file_writer_disabled));
 
@@ -765,18 +765,18 @@ TEST_F(InvertedIndexWriterTest, CompareUnicodeStringWriteResults) {
     io::IOContext io_ctx;
 
     // Create readers for both indexes
-    auto reader_enabled = std::make_shared<XIndexFileReader>(io::global_local_filesystem(),
-                                                             index_path_prefix_enabled,
-                                                             InvertedIndexStorageFormatPB::V2);
+    auto reader_enabled = std::make_shared<IndexFileReader>(io::global_local_filesystem(),
+                                                            index_path_prefix_enabled,
+                                                            InvertedIndexStorageFormatPB::V2);
     status = reader_enabled->init();
     EXPECT_EQ(status, Status::OK());
     auto result_enabled = reader_enabled->open(&idx_meta);
     EXPECT_TRUE(result_enabled.has_value())
             << "Failed to open compound reader" << result_enabled.error();
 
-    auto reader_disabled = std::make_shared<XIndexFileReader>(io::global_local_filesystem(),
-                                                              index_path_prefix_disabled,
-                                                              InvertedIndexStorageFormatPB::V2);
+    auto reader_disabled = std::make_shared<IndexFileReader>(io::global_local_filesystem(),
+                                                             index_path_prefix_disabled,
+                                                             InvertedIndexStorageFormatPB::V2);
     status = reader_disabled->init();
     EXPECT_EQ(status, Status::OK());
     auto result_disabled = reader_disabled->open(&idx_meta);

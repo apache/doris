@@ -170,9 +170,9 @@ Status VerticalBetaRowsetWriter<T>::_create_segment_writer(
     RETURN_IF_ERROR(BaseBetaRowsetWriter::create_file_writer(seg_id, segment_file_writer));
     DCHECK(segment_file_writer != nullptr);
 
-    XIndexFileWriterPtr x_index_file_writer;
+    IndexFileWriterPtr x_index_file_writer;
     if (context.tablet_schema->has_inverted_index()) {
-        RETURN_IF_ERROR(RowsetWriter::create_x_index_file_writer(seg_id, &x_index_file_writer));
+        RETURN_IF_ERROR(RowsetWriter::create_index_file_writer(seg_id, &x_index_file_writer));
     }
 
     segment_v2::SegmentWriterOptions writer_options;
@@ -218,7 +218,7 @@ Status VerticalBetaRowsetWriter<T>::final_flush() {
 template <class T>
     requires std::is_base_of_v<BaseBetaRowsetWriter, T>
 Status VerticalBetaRowsetWriter<T>::_close_file_writers() {
-    RETURN_IF_ERROR(BaseBetaRowsetWriter::_close_x_index_file_writers());
+    RETURN_IF_ERROR(BaseBetaRowsetWriter::_close_index_file_writers());
     return this->_seg_files.close();
 }
 

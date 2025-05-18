@@ -33,8 +33,8 @@
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/beta_rowset_writer.h"
 #include "olap/rowset/rowset_factory.h"
+#include "olap/rowset/segment_v2/index_file_reader.h"
 #include "olap/rowset/segment_v2/inverted_index/query/query_factory.h"
-#include "olap/rowset/segment_v2/x_index_file_reader.h"
 #include "olap/storage_engine.h"
 
 namespace doris {
@@ -146,7 +146,7 @@ class IndexCompactionUtils {
     }
 
     static bool query_bkd(const TabletIndex* index,
-                          std::shared_ptr<XIndexFileReader>& index_file_reader,
+                          std::shared_ptr<IndexFileReader>& index_file_reader,
                           const std::vector<int>& query_data,
                           const std::vector<int>& query_result) {
         const auto& idx_reader = BkdIndexReader::create_shared(index, index_file_reader);
@@ -179,7 +179,7 @@ class IndexCompactionUtils {
     }
 
     static bool query_string(const TabletIndex* index,
-                             std::shared_ptr<XIndexFileReader>& index_file_reader,
+                             std::shared_ptr<IndexFileReader>& index_file_reader,
                              const std::string& column_name,
                              const std::vector<std::string>& query_data,
                              const std::vector<int>& query_result) {
@@ -211,7 +211,7 @@ class IndexCompactionUtils {
     }
 
     static bool query_fulltext(const TabletIndex* index,
-                               std::shared_ptr<XIndexFileReader>& index_file_reader,
+                               std::shared_ptr<IndexFileReader>& index_file_reader,
                                const std::string& column_name,
                                const std::vector<std::string>& query_data,
                                const std::vector<int>& query_result) {
@@ -459,7 +459,7 @@ class IndexCompactionUtils {
     }
 
     static void check_idx_file_writer_closed(BaseBetaRowsetWriter* writer, bool closed) {
-        for (const auto& [seg_id, idx_file_writer] : writer->x_index_file_writers()) {
+        for (const auto& [seg_id, idx_file_writer] : writer->index_file_writers()) {
             EXPECT_EQ(idx_file_writer->_closed, closed);
         }
     }
@@ -563,7 +563,7 @@ class IndexCompactionUtils {
         EXPECT_TRUE(seg_path.has_value());
         const auto& index_file_path_prefix =
                 InvertedIndexDescriptor::get_index_file_path_prefix(seg_path.value());
-        auto index_file_reader = std::make_shared<XIndexFileReader>(
+        auto index_file_reader = std::make_shared<IndexFileReader>(
                 fs, std::string(index_file_path_prefix),
                 tablet_schema->get_inverted_index_storage_format(), index_info);
         EXPECT_TRUE(index_file_reader->init().ok());
@@ -707,7 +707,7 @@ class IndexCompactionUtils {
                 EXPECT_TRUE(seg_path.has_value());
                 const auto& index_file_path_prefix =
                         InvertedIndexDescriptor::get_index_file_path_prefix(seg_path.value());
-                auto index_file_reader = std::make_shared<XIndexFileReader>(
+                auto index_file_reader = std::make_shared<IndexFileReader>(
                         fs, std::string(index_file_path_prefix),
                         schema->get_inverted_index_storage_format(), index_info);
                 st = index_file_reader->init();
@@ -721,12 +721,12 @@ class IndexCompactionUtils {
         }
     }
 
-    static std::shared_ptr<XIndexFileReader> init_index_file_reader(
+    static std::shared_ptr<IndexFileReader> init_index_file_reader(
             const RowsetSharedPtr& output_rowset, const std::string& seg_path,
             const InvertedIndexStorageFormatPB& index_storage_format) {
         const auto& index_file_path_prefix =
                 InvertedIndexDescriptor::get_index_file_path_prefix(seg_path);
-        auto index_file_reader = std::make_shared<XIndexFileReader>(
+        auto index_file_reader = std::make_shared<IndexFileReader>(
                 output_rowset->_rowset_meta->fs(), std::string(index_file_path_prefix),
                 index_storage_format);
         auto st = index_file_reader->init();

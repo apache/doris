@@ -67,7 +67,7 @@ namespace segment_v2 {
 class BitmapIndexIterator;
 class Segment;
 class InvertedIndexIterator;
-class XIndexFileReader;
+class IndexFileReader;
 class IndexIterator;
 
 using SegmentSharedPtr = std::shared_ptr<Segment>;
@@ -305,7 +305,7 @@ private:
     std::unique_ptr<PrimaryKeyIndexReader> _pk_index_reader;
     std::mutex _open_lock;
     // inverted index file reader
-    std::shared_ptr<XIndexFileReader> _index_file_reader;
+    std::shared_ptr<IndexFileReader> _index_file_reader;
     DorisCallOnce<Status> _index_file_reader_open;
 
     InvertedIndexFileInfo _idx_file_info;

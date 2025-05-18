@@ -15,11 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "x_index_storage_format_v2.h"
+#include "index_storage_format_v2.h"
 
+#include "olap/rowset/segment_v2/index_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
-#include "olap/rowset/segment_v2/x_index_file_writer.h"
 #include "util/debug_points.h"
 
 namespace doris::segment_v2 {
@@ -33,10 +33,10 @@ FileMetadata::FileMetadata(int64_t id, std::string suffix, std::string file, int
           length(len),
           directory(dir) {}
 
-XIndexStorageFormatV2::XIndexStorageFormatV2(XIndexFileWriter* x_file_writer)
-        : XIndexStorageFormat(x_file_writer) {}
+IndexStorageFormatV2::IndexStorageFormatV2(IndexFileWriter* x_file_writer)
+        : IndexStorageFormat(x_file_writer) {}
 
-Status XIndexStorageFormatV2::write() {
+Status IndexStorageFormatV2::write() {
     std::unique_ptr<lucene::store::Directory, DirectoryDeleter> out_dir = nullptr;
     std::unique_ptr<lucene::store::IndexOutput> compound_file_output = nullptr;
     ErrorContext error_context;
@@ -60,12 +60,12 @@ Status XIndexStorageFormatV2::write() {
         // Copy file data
         copy_files_data(compound_file_output.get(), file_metadata);
 
-        _x_file_writer->_total_file_size = compound_file_output->getFilePointer();
-        _x_file_writer->_file_info.set_index_size(_x_file_writer->_total_file_size);
+        _index_file_writer->_total_file_size = compound_file_output->getFilePointer();
+        _index_file_writer->_file_info.set_index_size(_index_file_writer->_total_file_size);
     } catch (CLuceneError& err) {
         error_context.eptr = std::current_exception();
-        auto index_path =
-                InvertedIndexDescriptor::get_index_file_path_v2(_x_file_writer->_index_path_prefix);
+        auto index_path = InvertedIndexDescriptor::get_index_file_path_v2(
+                _index_file_writer->_index_path_prefix);
         error_context.err_msg.append("CLuceneError occur when close idx file: ");
         error_context.err_msg.append(index_path);
         error_context.err_msg.append(", error msg: ");
@@ -80,12 +80,12 @@ Status XIndexStorageFormatV2::write() {
     return Status::OK();
 }
 
-int64_t XIndexStorageFormatV2::header_length() {
+int64_t IndexStorageFormatV2::header_length() {
     int64_t header_size = 0;
     header_size +=
             sizeof(int32_t) * 2; // Account for the size of the version number and number of indices
 
-    for (const auto& entry : _x_file_writer->_indices_dirs) {
+    for (const auto& entry : _index_file_writer->_indices_dirs) {
         const auto& suffix = entry.first.second;
         header_size += sizeof(int64_t); // index id
         header_size += sizeof(int32_t); // index suffix name size
@@ -105,11 +105,11 @@ int64_t XIndexStorageFormatV2::header_length() {
     return header_size;
 }
 
-std::vector<FileMetadata> XIndexStorageFormatV2::prepare_file_metadata(int64_t& current_offset) {
+std::vector<FileMetadata> IndexStorageFormatV2::prepare_file_metadata(int64_t& current_offset) {
     std::vector<FileMetadata> file_metadata;
     std::vector<FileMetadata> meta_files;
     std::vector<FileMetadata> normal_files;
-    for (const auto& entry : _x_file_writer->_indices_dirs) {
+    for (const auto& entry : _index_file_writer->_indices_dirs) {
         const int64_t index_id = entry.first.first;
         const auto& index_suffix = entry.first.second;
         auto* dir = entry.second.get();
@@ -176,32 +176,33 @@ std::vector<FileMetadata> XIndexStorageFormatV2::prepare_file_metadata(int64_t& 
 
 std::pair<std::unique_ptr<lucene::store::Directory, DirectoryDeleter>,
           std::unique_ptr<lucene::store::IndexOutput>>
-XIndexStorageFormatV2::create_output_stream() {
-    io::Path index_path {
-            InvertedIndexDescriptor::get_index_file_path_v2(_x_file_writer->_index_path_prefix)};
+IndexStorageFormatV2::create_output_stream() {
+    io::Path index_path {InvertedIndexDescriptor::get_index_file_path_v2(
+            _index_file_writer->_index_path_prefix)};
 
-    auto* out_dir = DorisFSDirectoryFactory::getDirectory(_x_file_writer->_fs,
+    auto* out_dir = DorisFSDirectoryFactory::getDirectory(_index_file_writer->_fs,
                                                           index_path.parent_path().c_str());
-    out_dir->set_file_writer_opts(_x_file_writer->_opts);
+    out_dir->set_file_writer_opts(_index_file_writer->_opts);
     std::unique_ptr<lucene::store::Directory, DirectoryDeleter> out_dir_ptr(out_dir);
 
-    DCHECK(_x_file_writer->_idx_v2_writer != nullptr) << "inverted index file writer v2 is nullptr";
+    DCHECK(_index_file_writer->_idx_v2_writer != nullptr)
+            << "inverted index file writer v2 is nullptr";
     auto compound_file_output = std::unique_ptr<lucene::store::IndexOutput>(
-            out_dir->createOutputV2(_x_file_writer->_idx_v2_writer.get()));
+            out_dir->createOutputV2(_index_file_writer->_idx_v2_writer.get()));
 
     return {std::move(out_dir_ptr), std::move(compound_file_output)};
 }
 
-void XIndexStorageFormatV2::write_version_and_indices_count(lucene::store::IndexOutput* output) {
+void IndexStorageFormatV2::write_version_and_indices_count(lucene::store::IndexOutput* output) {
     // Write the version number
-    output->writeInt(_x_file_writer->_storage_format);
+    output->writeInt(_index_file_writer->_storage_format);
 
     // Write the number of indices
-    const auto num_indices = static_cast<uint32_t>(_x_file_writer->_indices_dirs.size());
+    const auto num_indices = static_cast<uint32_t>(_index_file_writer->_indices_dirs.size());
     output->writeInt(num_indices);
 }
 
-void XIndexStorageFormatV2::write_index_headers_and_metadata(
+void IndexStorageFormatV2::write_index_headers_and_metadata(
         lucene::store::IndexOutput* output, const std::vector<FileMetadata>& file_metadata) {
     // Group files by index_id and index_suffix
     std::map<std::pair<int64_t, std::string>, std::vector<FileMetadata>> indices;
@@ -233,8 +234,8 @@ void XIndexStorageFormatV2::write_index_headers_and_metadata(
     }
 }
 
-void XIndexStorageFormatV2::copy_files_data(lucene::store::IndexOutput* output,
-                                            const std::vector<FileMetadata>& file_metadata) {
+void IndexStorageFormatV2::copy_files_data(lucene::store::IndexOutput* output,
+                                           const std::vector<FileMetadata>& file_metadata) {
     const int64_t buffer_length = 16384;
     uint8_t buffer[buffer_length];
 
