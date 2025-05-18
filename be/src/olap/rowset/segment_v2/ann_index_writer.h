@@ -29,9 +29,9 @@
 
 #include "common/config.h"
 #include "olap/rowset/segment_v2/common.h"
+#include "olap/rowset/segment_v2/index_file_writer.h"
 #include "olap/rowset/segment_v2/index_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
-#include "olap/rowset/segment_v2/x_index_file_writer.h"
 #include "olap/tablet_schema.h"
 #include "runtime/collection_value.h"
 #include "vector/diskann_vector_index.h"
@@ -53,8 +53,7 @@ public:
     static constexpr const char* DIM = "dim";
     static constexpr const char* MAX_DEGREE = "max_degree";
 
-    explicit AnnIndexColumnWriter(const std::string& field_name,
-                                  XIndexFileWriter* index_file_writer,
+    explicit AnnIndexColumnWriter(const std::string& field_name, IndexFileWriter* index_file_writer,
                                   const TabletIndex* index_meta, const bool single_field = true);
 
     ~AnnIndexColumnWriter() override;
@@ -80,7 +79,7 @@ private:
     // bool _single_field = true;
     std::shared_ptr<DorisFSDirectory> _dir = nullptr;
     std::shared_ptr<VectorIndex> _vector_index_writer;
-    XIndexFileWriter* _index_file_writer;
+    IndexFileWriter* _index_file_writer;
     // uint32_t _ignore_above;
     std::wstring _field_name;
     const TabletIndex* _index_meta;

@@ -24,7 +24,7 @@
 namespace doris::segment_v2 {
 
 AnnIndexColumnWriter::AnnIndexColumnWriter(const std::string& field_name,
-                                           XIndexFileWriter* index_file_writer,
+                                           IndexFileWriter* index_file_writer,
                                            const TabletIndex* index_meta, const bool single_field)
         : _index_file_writer(index_file_writer), _index_meta(index_meta) {
     _field_name = StringUtil::string_to_wstring(field_name);

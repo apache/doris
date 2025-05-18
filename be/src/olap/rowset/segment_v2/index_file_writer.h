@@ -28,10 +28,10 @@
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
+#include "olap/rowset/segment_v2/index_storage_format.h"
 #include "olap/rowset/segment_v2/inverted_index_common.h"
 #include "olap/rowset/segment_v2/inverted_index_compound_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_searcher.h"
-#include "olap/rowset/segment_v2/x_index_storage_format.h"
 
 namespace doris {
 class TabletIndex;
@@ -42,15 +42,15 @@ class DorisFSDirectory;
 using InvertedIndexDirectoryMap =
         std::map<std::pair<int64_t, std::string>, std::shared_ptr<lucene::store::Directory>>;
 
-class XIndexFileWriter;
-using XIndexFileWriterPtr = std::unique_ptr<XIndexFileWriter>;
+class IndexFileWriter;
+using IndexFileWriterPtr = std::unique_ptr<IndexFileWriter>;
 
-class XIndexFileWriter {
+class IndexFileWriter {
 public:
-    XIndexFileWriter(io::FileSystemSPtr fs, std::string index_path_prefix, std::string rowset_id,
-                     int64_t seg_id, InvertedIndexStorageFormatPB storage_format,
-                     io::FileWriterPtr file_writer = nullptr, bool can_use_ram_dir = true);
-    virtual ~XIndexFileWriter() = default;
+    IndexFileWriter(io::FileSystemSPtr fs, std::string index_path_prefix, std::string rowset_id,
+                    int64_t seg_id, InvertedIndexStorageFormatPB storage_format,
+                    io::FileWriterPtr file_writer = nullptr, bool can_use_ram_dir = true);
+    virtual ~IndexFileWriter() = default;
 
     Result<std::shared_ptr<DorisFSDirectory>> open(const TabletIndex* index_meta);
     Status delete_index(const TabletIndex* index_meta);
@@ -99,10 +99,10 @@ private:
     bool _closed = false;
     bool _can_use_ram_dir = true;
 
-    XIndexStorageFormatPtr _index_storage_format;
+    IndexStorageFormatPtr _index_storage_format;
 
-    friend class XIndexStorageFormatV1;
-    friend class XIndexStorageFormatV2;
+    friend class IndexStorageFormatV1;
+    friend class IndexStorageFormatV2;
 };
 
 } // namespace segment_v2

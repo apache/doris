@@ -47,12 +47,12 @@
 #include "io/fs/local_file_system.h"
 #include "olap/options.h"
 #include "olap/rowset/segment_v2/ann_index_writer.h"
+#include "olap/rowset/segment_v2/index_file_reader.h"
+#include "olap/rowset/segment_v2/index_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index/query/conjunction_query.h"
 #include "olap/rowset/segment_v2/inverted_index_compound_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
-#include "olap/rowset/segment_v2/x_index_file_reader.h"
-#include "olap/rowset/segment_v2/x_index_file_writer.h"
 #include "olap/tablet_schema.h"
 #include "util/disk_info.h"
 #include "util/mem_info.h"
@@ -61,9 +61,9 @@
 
 using doris::segment_v2::DorisCompoundReader;
 using doris::segment_v2::DorisFSDirectoryFactory;
-using doris::segment_v2::XIndexFileWriter;
+using doris::segment_v2::IndexFileWriter;
 using doris::segment_v2::InvertedIndexDescriptor;
-using doris::segment_v2::XIndexFileReader;
+using doris::segment_v2::IndexFileReader;
 using doris::io::FileInfo;
 using doris::TabletIndex;
 using namespace doris::segment_v2;
@@ -96,7 +96,7 @@ void test_add() {
     if (!st.ok()) {
         std::cerr << "failed create_file" << file_dir << std::endl;
     }
-    std::unique_ptr<XIndexFileWriter> index_file_writer = std::make_unique<XIndexFileWriter>(
+    std::unique_ptr<IndexFileWriter> index_file_writer = std::make_unique<IndexFileWriter>(
             fs, index_data_path.parent_path(), rowset_id, seg_id,
             doris::InvertedIndexStorageFormatPB::V2, std::move(file_writer));
 
@@ -287,8 +287,8 @@ void init_env() {
 void test_search() {
     auto fs = get_local_file_filesystem();
     auto index_file_reader =
-            std::make_unique<XIndexFileReader>(fs, "/home/users/clz/run/test_diskann/123456_0",
-                                               doris::InvertedIndexStorageFormatPB::V2);
+            std::make_unique<IndexFileReader>(fs, "/home/users/clz/run/test_diskann/123456_0",
+                                              doris::InvertedIndexStorageFormatPB::V2);
     auto st = index_file_reader->init(4096);
     if (!st.ok()) {
         std::cout << "failed to index_file_reader->init" << st << std::endl;
@@ -301,7 +301,7 @@ void test_search() {
 
     auto ret = index_file_reader->open(&index_meta);
     if (!ret.has_value()) {
-        std::cerr << "XIndexFileReader open error:" << ret.error() << std::endl;
+        std::cerr << "IndexFileReader open error:" << ret.error() << std::endl;
         return;
     }
     using T = std::decay_t<decltype(ret)>;

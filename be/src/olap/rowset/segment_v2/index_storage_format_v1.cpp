@@ -15,24 +15,24 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "x_index_storage_format_v1.h"
+#include "index_storage_format_v1.h"
 
+#include "olap/rowset/segment_v2/index_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
-#include "olap/rowset/segment_v2/x_index_file_writer.h"
 #include "util/debug_points.h"
 
 namespace doris::segment_v2 {
 
-XIndexStorageFormatV1::XIndexStorageFormatV1(XIndexFileWriter* file_writer)
-        : XIndexStorageFormat(file_writer) {}
+IndexStorageFormatV1::IndexStorageFormatV1(IndexFileWriter* file_writer)
+        : IndexStorageFormat(file_writer) {}
 
-Status XIndexStorageFormatV1::write() {
+Status IndexStorageFormatV1::write() {
     int64_t total_size = 0;
     std::unique_ptr<lucene::store::Directory, DirectoryDeleter> out_dir = nullptr;
     std::unique_ptr<lucene::store::IndexOutput> output = nullptr;
     ErrorContext error_context;
-    for (const auto& entry : _x_file_writer->_indices_dirs) {
+    for (const auto& entry : _index_file_writer->_indices_dirs) {
         const int64_t index_id = entry.first.first;
         const auto& index_suffix = entry.first.second;
         try {
@@ -62,7 +62,7 @@ Status XIndexStorageFormatV1::write() {
         } catch (CLuceneError& err) {
             error_context.eptr = std::current_exception();
             auto index_path = InvertedIndexDescriptor::get_index_file_path_v1(
-                    _x_file_writer->_index_path_prefix, index_id, index_suffix);
+                    _index_file_writer->_index_path_prefix, index_id, index_suffix);
             error_context.err_msg.append("CLuceneError occur when write_v1 idx file: ");
             error_context.err_msg.append(index_path);
             error_context.err_msg.append(", error msg: ");
@@ -75,19 +75,19 @@ Status XIndexStorageFormatV1::write() {
         })
     }
 
-    _x_file_writer->_total_file_size = total_size;
+    _index_file_writer->_total_file_size = total_size;
     return Status::OK();
 }
 
-std::pair<int64_t, int32_t> XIndexStorageFormatV1::calculate_header_length(
+std::pair<int64_t, int32_t> IndexStorageFormatV1::calculate_header_length(
         const std::vector<FileInfo>& sorted_files, lucene::store::Directory* directory) {
     // Use RAMDirectory to calculate header length
     lucene::store::RAMDirectory ram_dir;
     auto* out_idx = ram_dir.createOutput("temp_idx");
-    DBUG_EXECUTE_IF("XIndexFileWriter::calculate_header_length_ram_output_is_nullptr",
+    DBUG_EXECUTE_IF("IndexFileWriter::calculate_header_length_ram_output_is_nullptr",
                     { out_idx = nullptr; })
     if (out_idx == nullptr) {
-        LOG(WARNING) << "XIndexFileWriter::calculate_header_length error: RAMDirectory "
+        LOG(WARNING) << "IndexFileWriter::calculate_header_length error: RAMDirectory "
                         "output is nullptr.";
         _CLTHROWA(CL_ERR_IO, "Create RAMDirectory output error");
     }
@@ -120,20 +120,21 @@ std::pair<int64_t, int32_t> XIndexStorageFormatV1::calculate_header_length(
 
 std::pair<std::unique_ptr<lucene::store::Directory, DirectoryDeleter>,
           std::unique_ptr<lucene::store::IndexOutput>>
-XIndexStorageFormatV1::create_output_stream(int64_t index_id, const std::string& index_suffix) {
+IndexStorageFormatV1::create_output_stream(int64_t index_id, const std::string& index_suffix) {
     io::Path cfs_path(InvertedIndexDescriptor::get_index_file_path_v1(
-            _x_file_writer->_index_path_prefix, index_id, index_suffix));
+            _index_file_writer->_index_path_prefix, index_id, index_suffix));
     auto idx_path = cfs_path.parent_path();
     std::string idx_name = cfs_path.filename();
 
-    auto* out_dir = DorisFSDirectoryFactory::getDirectory(_x_file_writer->_fs, idx_path.c_str());
-    out_dir->set_file_writer_opts(_x_file_writer->_opts);
+    auto* out_dir =
+            DorisFSDirectoryFactory::getDirectory(_index_file_writer->_fs, idx_path.c_str());
+    out_dir->set_file_writer_opts(_index_file_writer->_opts);
     std::unique_ptr<lucene::store::Directory, DirectoryDeleter> out_dir_ptr(out_dir);
 
     auto* out = out_dir->createOutput(idx_name.c_str());
-    DBUG_EXECUTE_IF("XIndexFileWriter::write_v1_out_dir_createOutput_nullptr", { out = nullptr; });
+    DBUG_EXECUTE_IF("IndexFileWriter::write_v1_out_dir_createOutput_nullptr", { out = nullptr; });
     if (out == nullptr) {
-        LOG(WARNING) << "XIndexFileWriter::create_output_stream_v1 error: CompoundDirectory "
+        LOG(WARNING) << "IndexFileWriter::create_output_stream_v1 error: CompoundDirectory "
                         "output is nullptr.";
         _CLTHROWA(CL_ERR_IO, "Create CompoundDirectory output error");
     }
@@ -142,11 +143,10 @@ XIndexStorageFormatV1::create_output_stream(int64_t index_id, const std::string&
     return {std::move(out_dir_ptr), std::move(output)};
 }
 
-void XIndexStorageFormatV1::write_header_and_data(lucene::store::IndexOutput* output,
-                                                  const std::vector<FileInfo>& sorted_files,
-                                                  lucene::store::Directory* directory,
-                                                  int64_t header_length,
-                                                  int32_t header_file_count) {
+void IndexStorageFormatV1::write_header_and_data(lucene::store::IndexOutput* output,
+                                                 const std::vector<FileInfo>& sorted_files,
+                                                 lucene::store::Directory* directory,
+                                                 int64_t header_length, int32_t header_file_count) {
     output->writeVInt(sorted_files.size());
     int64_t data_offset = header_length;
     const int64_t buffer_length = 16384;
@@ -177,13 +177,13 @@ void XIndexStorageFormatV1::write_header_and_data(lucene::store::IndexOutput* ou
     }
 }
 
-void XIndexStorageFormatV1::add_index_info(int64_t index_id, const std::string& index_suffix,
-                                           int64_t compound_file_size) {
+void IndexStorageFormatV1::add_index_info(int64_t index_id, const std::string& index_suffix,
+                                          int64_t compound_file_size) {
     InvertedIndexFileInfo_IndexInfo index_info;
     index_info.set_index_id(index_id);
     index_info.set_index_suffix(index_suffix);
     index_info.set_index_file_size(compound_file_size);
-    auto* new_index_info = _x_file_writer->_file_info.add_index_info();
+    auto* new_index_info = _index_file_writer->_file_info.add_index_info();
     *new_index_info = index_info;
 }
 

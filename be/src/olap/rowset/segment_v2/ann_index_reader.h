@@ -24,13 +24,13 @@ namespace doris::segment_v2 {
 
 struct AnnIndexParam;
 
-class XIndexFileReader;
+class IndexFileReader;
 class IndexIterator;
 
 class AnnIndexReader : public IndexReader {
 public:
     AnnIndexReader(const TabletIndex* index_meta,
-                   std::shared_ptr<XIndexFileReader> index_file_reader);
+                   std::shared_ptr<IndexFileReader> index_file_reader);
     ~AnnIndexReader() override = default;
 
     Status query(AnnIndexParam* param) { return Status::OK(); }
@@ -43,7 +43,7 @@ public:
 
 private:
     TabletIndex _index_meta;
-    std::shared_ptr<XIndexFileReader> _index_file_reader;
+    std::shared_ptr<IndexFileReader> _index_file_reader;
 };
 
 } // namespace doris::segment_v2

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "x_index_storage_format.h"
+#include "index_storage_format.h"
 
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
@@ -23,10 +23,10 @@
 
 namespace doris::segment_v2 {
 
-XIndexStorageFormat::XIndexStorageFormat(XIndexFileWriter* x_file_writer)
-        : _x_file_writer(x_file_writer) {}
+IndexStorageFormat::IndexStorageFormat(IndexFileWriter* index_file_writer)
+        : _index_file_writer(index_file_writer) {}
 
-void XIndexStorageFormat::sort_files(std::vector<FileInfo>& file_infos) {
+void IndexStorageFormat::sort_files(std::vector<FileInfo>& file_infos) {
     auto file_priority = [](const std::string& filename) {
         for (const auto& entry : InvertedIndexDescriptor::index_file_info_map) {
             if (filename.find(entry.first) != std::string::npos) {
@@ -46,7 +46,7 @@ void XIndexStorageFormat::sort_files(std::vector<FileInfo>& file_infos) {
     });
 }
 
-std::vector<FileInfo> XIndexStorageFormat::prepare_sorted_files(
+std::vector<FileInfo> IndexStorageFormat::prepare_sorted_files(
         lucene::store::Directory* directory) {
     std::vector<std::string> files;
     directory->list(&files);
@@ -68,13 +68,13 @@ std::vector<FileInfo> XIndexStorageFormat::prepare_sorted_files(
     return sorted_files;
 }
 
-void XIndexStorageFormat::copy_file(const char* fileName, lucene::store::Directory* dir,
-                                    lucene::store::IndexOutput* output, uint8_t* buffer,
-                                    int64_t bufferLength) {
+void IndexStorageFormat::copy_file(const char* fileName, lucene::store::Directory* dir,
+                                   lucene::store::IndexOutput* output, uint8_t* buffer,
+                                   int64_t bufferLength) {
     lucene::store::IndexInput* tmp = nullptr;
     CLuceneError err;
     auto open = dir->openInput(fileName, tmp, err);
-    DBUG_EXECUTE_IF("XIndexFileWriter::copyFile_openInput_error", {
+    DBUG_EXECUTE_IF("IndexFileWriter::copyFile_openInput_error", {
         open = false;
         err.set(CL_ERR_IO, "debug point: copyFile_openInput_error");
     });
@@ -94,7 +94,7 @@ void XIndexStorageFormat::copy_file(const char* fileName, lucene::store::Directo
         output->writeBytes(buffer, len);
         remainder -= len;
     }
-    DBUG_EXECUTE_IF("XIndexFileWriter::copyFile_remainder_is_not_zero", { remainder = 10; });
+    DBUG_EXECUTE_IF("IndexFileWriter::copyFile_remainder_is_not_zero", { remainder = 10; });
     if (remainder != 0) {
         std::ostringstream errMsg;
         errMsg << "Non-zero remainder length after copying: " << remainder << " (id: " << fileName
@@ -105,7 +105,7 @@ void XIndexStorageFormat::copy_file(const char* fileName, lucene::store::Directo
 
     int64_t end_ptr = output->getFilePointer();
     int64_t diff = end_ptr - start_ptr;
-    DBUG_EXECUTE_IF("XIndexFileWriter::copyFile_diff_not_equals_length", { diff = length - 10; });
+    DBUG_EXECUTE_IF("IndexFileWriter::copyFile_diff_not_equals_length", { diff = length - 10; });
     if (diff != length) {
         std::ostringstream errMsg;
         errMsg << "Difference in the output file offsets " << diff

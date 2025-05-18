@@ -39,9 +39,9 @@
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset_reader.h"
+#include "olap/rowset/segment_v2/index_file_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_cache.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
-#include "olap/rowset/segment_v2/x_index_file_reader.h"
 #include "olap/segment_loader.h"
 #include "olap/tablet_schema.h"
 #include "olap/utils.h"
@@ -760,7 +760,7 @@ Status BetaRowset::show_nested_index_file(rapidjson::Value* rowset_value,
 
         auto seg_path = DORIS_TRY(segment_path(seg_id));
         auto index_file_path_prefix = InvertedIndexDescriptor::get_index_file_path_prefix(seg_path);
-        auto index_file_reader = std::make_unique<XIndexFileReader>(
+        auto index_file_reader = std::make_unique<IndexFileReader>(
                 fs, std::string(index_file_path_prefix), storage_format);
         RETURN_IF_ERROR(index_file_reader->init());
         auto dirs = index_file_reader->get_all_directories();
@@ -788,8 +788,8 @@ Status BetaRowset::show_nested_index_file(rapidjson::Value* rowset_value,
             std::vector<std::string> files;
             auto ret = index_file_reader->open(&index_meta);
             if (!ret.has_value()) {
-                LOG(INFO) << "XIndexFileReader open error:" << ret.error();
-                return Status::InternalError("XIndexFileReader open error");
+                LOG(INFO) << "IndexFileReader open error:" << ret.error();
+                return Status::InternalError("IndexFileReader open error");
             }
             using T = std::decay_t<decltype(ret)>;
             auto reader = std::forward<T>(ret).value();

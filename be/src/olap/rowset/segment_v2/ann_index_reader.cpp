@@ -22,7 +22,7 @@
 namespace doris::segment_v2 {
 
 AnnIndexReader::AnnIndexReader(const TabletIndex* index_meta,
-                               std::shared_ptr<XIndexFileReader> index_file_reader)
+                               std::shared_ptr<IndexFileReader> index_file_reader)
         : _index_meta(*index_meta), _index_file_reader(std::move(index_file_reader)) {}
 
 Status AnnIndexReader::new_iterator(const io::IOContext& io_ctx, OlapReaderStatistics* stats,
