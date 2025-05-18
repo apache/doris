@@ -402,6 +402,19 @@ Status BetaRowsetWriter::_find_longest_consecutive_small_segment(
     segments = std::make_shared<SegCompactionCandidates>();
     // skip last (maybe active) segment
     int32_t last_segment = _num_segment - 1;
+    std::unordered_set<uint32_t> flushed_segments;
+    {
+        std::lock_guard<std::mutex> lock(_segid_statistics_map_mutex);
+        for (auto& iter : _segid_statistics_map) {
+            flushed_segments.emplace(iter.first);
+        }
+    }
+    for (auto seg_id = _segcompacted_point.load(); seg_id < last_segment; ++seg_id) {
+        if (flushed_segments.find(seg_id) == flushed_segments.end()) {
+            last_segment = seg_id;
+            break;
+        }
+    }
     size_t task_bytes = 0;
     uint32_t task_rows = 0;
     int32_t segid;
