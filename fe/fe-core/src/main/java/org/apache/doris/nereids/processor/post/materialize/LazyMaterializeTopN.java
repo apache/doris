@@ -58,6 +58,7 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
        to avoid generating materializeNode for other union's children
     */
     private boolean hasMaterialized = false;
+
     @Override
     public Plan visitPhysicalTopN(PhysicalTopN topN, CascadesContext ctx) {
         if (hasMaterialized) {
