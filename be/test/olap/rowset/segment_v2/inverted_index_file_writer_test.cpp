@@ -21,7 +21,7 @@
 // #include <gtest/gtest.h>
 
 // #include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
-// #include "olap/rowset/segment_v2/x_index_file_writer.h"
+// #include "olap/rowset/segment_v2/index_file_writer.h"
 // #include "olap/storage_engine.h"
 
 // namespace doris::segment_v2 {
@@ -112,7 +112,7 @@
 // };
 
 // TEST_F(InvertedIndexFileWriterTest, InitializeTest) {
-//     XIndexFileWriter writer(_fs, _index_path_prefix, _rowset_id, _seg_id,
+//     IndexFileWriter writer(_fs, _index_path_prefix, _rowset_id, _seg_id,
 //                             InvertedIndexStorageFormatPB::V2);
 
 //     InvertedIndexDirectoryMap indices_dirs;
@@ -126,7 +126,7 @@
 // }
 
 // TEST_F(InvertedIndexFileWriterTest, OpenTest) {
-//     XIndexFileWriter writer(_fs, _index_path_prefix, _rowset_id, _seg_id,
+//     IndexFileWriter writer(_fs, _index_path_prefix, _rowset_id, _seg_id,
 //                             InvertedIndexStorageFormatPB::V2);
 
 //     int64_t index_id = 1;
@@ -146,9 +146,9 @@
 
 // TEST_F(InvertedIndexFileWriterTest, OpenWithoutRamDirTest) {
 //     // This test verifies that when _can_use_ram_dir is set to false,
-//     // the directory created by XIndexFileWriter::open is not a RAM directory
+//     // the directory created by IndexFileWriter::open is not a RAM directory
 //     config::inverted_index_ram_dir_enable_when_base_compaction = false;
-//     XIndexFileWriter writer(_fs, _index_path_prefix, _rowset_id, _seg_id,
+//     IndexFileWriter writer(_fs, _index_path_prefix, _rowset_id, _seg_id,
 //                             InvertedIndexStorageFormatPB::V2, nullptr, false);
 
 //     int64_t index_id = 1;
@@ -178,7 +178,7 @@
 //     // Note: In a test environment, whether a RAM directory is actually used depends on
 //     // various factors like available memory, file size, etc.
 //     config::inverted_index_ram_dir_enable_when_base_compaction = true;
-//     XIndexFileWriter writer(_fs, _index_path_prefix, _rowset_id, _seg_id,
+//     IndexFileWriter writer(_fs, _index_path_prefix, _rowset_id, _seg_id,
 //                             InvertedIndexStorageFormatPB::V2, nullptr, true);
 
 //     int64_t index_id = 1;
@@ -200,7 +200,7 @@
 // }
 
 // TEST_F(InvertedIndexFileWriterTest, DeleteIndexTest) {
-//     XIndexFileWriter writer(_fs, _index_path_prefix, _rowset_id, _seg_id,
+//     IndexFileWriter writer(_fs, _index_path_prefix, _rowset_id, _seg_id,
 //                             InvertedIndexStorageFormatPB::V2);
 
 //     InvertedIndexDirectoryMap indices_dirs;
@@ -228,7 +228,7 @@
 // }
 
 // TEST_F(InvertedIndexFileWriterTest, WriteV1Test) {
-//     XIndexFileWriter writer(_fs, _index_path_prefix, _rowset_id, _seg_id,
+//     IndexFileWriter writer(_fs, _index_path_prefix, _rowset_id, _seg_id,
 //                             InvertedIndexStorageFormatPB::V1);
 
 //     int64_t index_id = 1;
@@ -267,7 +267,7 @@
 //     io::FileWriterOptions opts;
 //     Status st = _fs->create_file(index_path, &file_writer, &opts);
 //     ASSERT_TRUE(st.ok());
-//     XIndexFileWriter writer(_fs, _index_path_prefix, _rowset_id, _seg_id,
+//     IndexFileWriter writer(_fs, _index_path_prefix, _rowset_id, _seg_id,
 //                             InvertedIndexStorageFormatPB::V2, std::move(file_writer));
 
 //     int64_t index_id_1 = 1;
@@ -337,7 +337,7 @@
 //         out_file_2->writeString("test2");
 //         out_file_2->close();
 //     }
-//     auto insertDirectory = [&](XIndexFileWriter& writer, int64_t index_id,
+//     auto insertDirectory = [&](IndexFileWriter& writer, int64_t index_id,
 //                                const std::string& suffix,
 //                                std::shared_ptr<DorisFSDirectory>& mock_dir) {
 //         Status st = writer._insert_directory_into_map(index_id, suffix, mock_dir);
@@ -349,7 +349,7 @@
 //         }
 //     };
 
-//     XIndexFileWriter writer(_fs, _index_path_prefix, _rowset_id, _seg_id,
+//     IndexFileWriter writer(_fs, _index_path_prefix, _rowset_id, _seg_id,
 //                             InvertedIndexStorageFormatPB::V2);
 //     insertDirectory(writer, 1, "suffix1", mock_dir1);
 //     insertDirectory(writer, 2, "suffix2", mock_dir2);
@@ -406,7 +406,7 @@
 //     EXPECT_CALL(*mock_dir, fileLength(testing::StrEq("null_bitmap")))
 //             .WillOnce(testing::Return(500));
 
-//     XIndexFileWriter writer(_fs, _index_path_prefix, _rowset_id, _seg_id,
+//     IndexFileWriter writer(_fs, _index_path_prefix, _rowset_id, _seg_id,
 //                             InvertedIndexStorageFormatPB::V2);
 //     auto st = writer._insert_directory_into_map(1, "suffix1", mock_dir);
 //     if (!st.ok()) {
@@ -475,7 +475,7 @@
 //     EXPECT_CALL(*mock_dir, fileLength(testing::StrEq("1.fnm"))).WillOnce(testing::Return(2500));
 //     EXPECT_CALL(*mock_dir, fileLength(testing::StrEq("1.tii"))).WillOnce(testing::Return(2200));
 
-//     XIndexFileWriter writer(_fs, _index_path_prefix, _rowset_id, _seg_id,
+//     IndexFileWriter writer(_fs, _index_path_prefix, _rowset_id, _seg_id,
 //                             InvertedIndexStorageFormatPB::V2);
 //     auto st = writer._insert_directory_into_map(1, "suffix1", mock_dir);
 //     if (!st.ok()) {
@@ -487,7 +487,7 @@
 
 //     int64_t current_offset = 0;
 
-//     std::vector<XIndexFileWriter::FileMetadata> file_metadata =
+//     std::vector<IndexFileWriter::FileMetadata> file_metadata =
 //             writer.prepare_file_metadata(current_offset);
 
 //     ASSERT_EQ(file_metadata.size(), 7); // Adjusted size after adding new files
@@ -541,7 +541,7 @@
 //         out_file_1->writeString("test1");
 //         out_file_1->close();
 //     }
-//     XIndexFileWriter writer(_fs, _index_path_prefix, _rowset_id, _seg_id,
+//     IndexFileWriter writer(_fs, _index_path_prefix, _rowset_id, _seg_id,
 //                                    InvertedIndexStorageFormatPB::V2);
 //     auto st = writer._insert_directory_into_map(1, "suffix1", mock_dir);
 //     if (!st.ok()) {
@@ -568,12 +568,12 @@
 //     }
 //     ASSERT_EQ(error_message, "Could not open file, file is 0.segments");
 // }*/
-// class InvertedIndexFileWriterMock : public XIndexFileWriter {
+// class InvertedIndexFileWriterMock : public IndexFileWriter {
 // public:
 //     InvertedIndexFileWriterMock(const io::FileSystemSPtr& fs, const std::string& index_path_prefix,
 //                                 const std::string& rowset_id, int32_t segment_id,
 //                                 InvertedIndexStorageFormatPB storage_format)
-//             : XIndexFileWriter(fs, index_path_prefix, rowset_id, segment_id, storage_format) {}
+//             : IndexFileWriter(fs, index_path_prefix, rowset_id, segment_id, storage_format) {}
 
 //     MOCK_METHOD(void, write_header_and_data_v1,
 //                 (lucene::store::IndexOutput * output, const std::vector<FileInfo>& files,
@@ -605,14 +605,14 @@
 //     ASSERT_FALSE(status.ok());
 //     ASSERT_EQ(status.code(), ErrorCode::INVERTED_INDEX_CLUCENE_ERROR);
 // }
-// class InvertedIndexFileWriterMockV2 : public XIndexFileWriter {
+// class InvertedIndexFileWriterMockV2 : public IndexFileWriter {
 // public:
 //     InvertedIndexFileWriterMockV2(const io::FileSystemSPtr& fs,
 //                                   const std::string& index_path_prefix,
 //                                   const std::string& rowset_id, int32_t segment_id,
 //                                   InvertedIndexStorageFormatPB storage_format,
 //                                   io::FileWriterPtr file_writer)
-//             : XIndexFileWriter(fs, index_path_prefix, rowset_id, segment_id, storage_format,
+//             : IndexFileWriter(fs, index_path_prefix, rowset_id, segment_id, storage_format,
 //                                std::move(file_writer)) {}
 
 //     MOCK_METHOD(void, write_index_headers_and_metadata,
@@ -653,28 +653,28 @@
 //     ASSERT_EQ(status.code(), ErrorCode::INVERTED_INDEX_CLUCENE_ERROR);
 // }
 
-// class InvertedIndexFileWriterMockCreateOutputStreamV2 : public XIndexFileWriter {
+// class InvertedIndexFileWriterMockCreateOutputStreamV2 : public IndexFileWriter {
 // public:
 //     InvertedIndexFileWriterMockCreateOutputStreamV2(const io::FileSystemSPtr& fs,
 //                                                     const std::string& index_path_prefix,
 //                                                     const std::string& rowset_id,
 //                                                     int32_t segment_id,
 //                                                     InvertedIndexStorageFormatPB storage_format)
-//             : XIndexFileWriter(fs, index_path_prefix, rowset_id, segment_id, storage_format) {}
+//             : IndexFileWriter(fs, index_path_prefix, rowset_id, segment_id, storage_format) {}
 
 //     MOCK_METHOD((std::pair<std::unique_ptr<lucene::store::Directory, DirectoryDeleter>,
 //                            std::unique_ptr<lucene::store::IndexOutput>>),
 //                 create_output_stream, (), (override));
 // };
 
-// class InvertedIndexFileWriterMockCreateOutputStreamV1 : public XIndexFileWriter {
+// class InvertedIndexFileWriterMockCreateOutputStreamV1 : public IndexFileWriter {
 // public:
 //     InvertedIndexFileWriterMockCreateOutputStreamV1(const io::FileSystemSPtr& fs,
 //                                                     const std::string& index_path_prefix,
 //                                                     const std::string& rowset_id,
 //                                                     int32_t segment_id,
 //                                                     InvertedIndexStorageFormatPB storage_format)
-//             : XIndexFileWriter(fs, index_path_prefix, rowset_id, segment_id, storage_format) {}
+//             : IndexFileWriter(fs, index_path_prefix, rowset_id, segment_id, storage_format) {}
 
 //     MOCK_METHOD((std::pair<std::unique_ptr<lucene::store::Directory, DirectoryDeleter>,
 //                            std::unique_ptr<lucene::store::IndexOutput>>),
@@ -892,7 +892,7 @@
 //     ASSERT_EQ(status.code(), ErrorCode::INVERTED_INDEX_CLUCENE_ERROR);
 // }
 
-// class MockInvertedIndexFileWriter : public XIndexFileWriter {
+// class MockInvertedIndexFileWriter : public IndexFileWriter {
 // public:
 //     MOCK_METHOD(Result<std::unique_ptr<IndexSearcherBuilder>>, _construct_index_searcher_builder,
 //                 (const DorisCompoundReader* dir), (override));
@@ -900,7 +900,7 @@
 //                                 const std::string& rowset_id, int64_t seg_id,
 //                                 InvertedIndexStorageFormatPB storage_format,
 //                                 io::FileWriterPtr file_writer)
-//             : XIndexFileWriter(fs, index_path_prefix, rowset_id, seg_id, storage_format,
+//             : IndexFileWriter(fs, index_path_prefix, rowset_id, seg_id, storage_format,
 //                                std::move(file_writer)) {}
 // };
 

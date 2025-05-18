@@ -47,13 +47,13 @@
 #include "olap/key_coder.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/common.h"
+#include "olap/rowset/segment_v2/index_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index/analyzer/analyzer.h"
 #include "olap/rowset/segment_v2/inverted_index/char_filter/char_filter_factory.h"
 #include "olap/rowset/segment_v2/inverted_index_common.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
 #include "olap/rowset/segment_v2/inverted_index_writer.h"
-#include "olap/rowset/segment_v2/x_index_file_writer.h"
 #include "olap/tablet_schema.h"
 #include "olap/types.h"
 #include "runtime/collection_value.h"
@@ -71,9 +71,10 @@ const float MAXMBSortInHeap = 512.0 * 8;
 const int DIMS = 1;
 
 template <FieldType field_type>
-InvertedIndexColumnWriter<field_type>::InvertedIndexColumnWriter(
-        const std::string& field_name, XIndexFileWriter* index_file_writer,
-        const TabletIndex* index_meta, const bool single_field)
+InvertedIndexColumnWriter<field_type>::InvertedIndexColumnWriter(const std::string& field_name,
+                                                                 IndexFileWriter* index_file_writer,
+                                                                 const TabletIndex* index_meta,
+                                                                 const bool single_field)
         : _single_field(single_field),
           _index_meta(index_meta),
           _index_file_writer(index_file_writer) {

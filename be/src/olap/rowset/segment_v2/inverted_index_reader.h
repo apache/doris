@@ -72,7 +72,7 @@ namespace segment_v2 {
 
 class InvertedIndexIterator;
 class InvertedIndexQueryCacheHandle;
-class XIndexFileReader;
+class IndexFileReader;
 struct InvertedIndexQueryInfo;
 class IndexIterator;
 
@@ -177,7 +177,7 @@ public:
 class InvertedIndexReader : public IndexReader {
 public:
     explicit InvertedIndexReader(const TabletIndex* index_meta,
-                                 std::shared_ptr<XIndexFileReader> index_file_reader)
+                                 std::shared_ptr<IndexFileReader> index_file_reader)
             : _index_file_reader(std::move(index_file_reader)), _index_meta(*index_meta) {}
     virtual ~InvertedIndexReader() = default;
 
@@ -233,7 +233,7 @@ protected:
                               const std::shared_ptr<roaring::Roaring>& term_match_bitmap);
 
     friend class InvertedIndexIterator;
-    std::shared_ptr<XIndexFileReader> _index_file_reader;
+    std::shared_ptr<IndexFileReader> _index_file_reader;
     TabletIndex _index_meta;
     bool _has_null = true;
 };
@@ -244,7 +244,7 @@ class FullTextIndexReader : public InvertedIndexReader {
 
 public:
     explicit FullTextIndexReader(const TabletIndex* index_meta,
-                                 std::shared_ptr<XIndexFileReader>& index_file_reader)
+                                 std::shared_ptr<IndexFileReader>& index_file_reader)
             : InvertedIndexReader(index_meta, index_file_reader) {}
     ~FullTextIndexReader() override = default;
 
@@ -271,7 +271,7 @@ class StringTypeInvertedIndexReader : public InvertedIndexReader {
 
 public:
     explicit StringTypeInvertedIndexReader(const TabletIndex* index_meta,
-                                           std::shared_ptr<XIndexFileReader>& index_file_reader)
+                                           std::shared_ptr<IndexFileReader>& index_file_reader)
             : InvertedIndexReader(index_meta, index_file_reader) {}
     ~StringTypeInvertedIndexReader() override = default;
 
@@ -332,7 +332,7 @@ class BkdIndexReader : public InvertedIndexReader {
 
 public:
     explicit BkdIndexReader(const TabletIndex* index_meta,
-                            std::shared_ptr<XIndexFileReader>& index_file_reader)
+                            std::shared_ptr<IndexFileReader>& index_file_reader)
             : InvertedIndexReader(index_meta, index_file_reader) {}
     ~BkdIndexReader() override = default;
 
