@@ -277,6 +277,9 @@ private:
 
     std::mutex _base_compaction_lock;
     std::mutex _cumulative_compaction_lock;
+
+    // To avoid multiple calc delete bitmap tasks on same (txn_id, tablet_id) with different
+    // signatures being executed concurrently, we use _rowset_update_lock to serialize them
     mutable std::mutex _rowset_update_lock;
 
     // Schema will be merged from all rowsets when sync_rowsets

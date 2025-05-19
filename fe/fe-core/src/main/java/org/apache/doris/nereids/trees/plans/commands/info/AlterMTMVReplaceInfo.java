@@ -25,12 +25,14 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
 
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * replace
@@ -90,7 +92,8 @@ public class AlterMTMVReplaceInfo extends AlterMTMVInfo {
         MTMV mtmv = (MTMV) db.getTableOrDdlException(mvName.getTbl(), TableType.MATERIALIZED_VIEW);
         MTMV newMtmv = (MTMV) db.getTableOrDdlException(newName, TableType.MATERIALIZED_VIEW);
         Env.getCurrentEnv().getAlterInstance().processReplaceTable(db, mtmv, newName, swapTable, true);
-        Env.getCurrentEnv().getMtmvService().alterTable(newMtmv, mvName.getTbl());
+        Env.getCurrentEnv().getMtmvService()
+                .alterTable(new BaseTableInfo(mtmv), Optional.of(new BaseTableInfo(newMtmv)), true);
         if (swapTable) {
             Env.getCurrentEnv().getMtmvService().alterTable(mtmv, newName);
         } else {

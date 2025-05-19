@@ -31,6 +31,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableMap;
 
 import java.util.Map;
 
@@ -42,7 +43,7 @@ public class CreateResourceStmt extends DdlStmt implements NotFallbackInParser {
     private final boolean isExternal;
     private final boolean ifNotExists;
     private final String resourceName;
-    private final Map<String, String> properties;
+    private final ImmutableMap<String, String> properties;
     private ResourceType resourceType;
 
     public CreateResourceStmt(boolean isExternal, boolean ifNotExists, String resourceName,
@@ -50,7 +51,7 @@ public class CreateResourceStmt extends DdlStmt implements NotFallbackInParser {
         this.isExternal = isExternal;
         this.ifNotExists = ifNotExists;
         this.resourceName = resourceName;
-        this.properties = properties;
+        this.properties = ImmutableMap.copyOf(properties);
         this.resourceType = ResourceType.UNKNOWN;
     }
 
@@ -62,7 +63,7 @@ public class CreateResourceStmt extends DdlStmt implements NotFallbackInParser {
         return resourceName;
     }
 
-    public Map<String, String> getProperties() {
+    public ImmutableMap<String, String> getProperties() {
         return properties;
     }
 

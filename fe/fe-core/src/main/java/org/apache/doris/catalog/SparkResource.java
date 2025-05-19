@@ -29,6 +29,7 @@ import org.apache.doris.load.loadv2.SparkRepository;
 import org.apache.doris.load.loadv2.SparkYarnConfigFiles;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
@@ -281,7 +282,7 @@ public class SparkResource extends Resource {
     }
 
     @Override
-    protected void setProperties(Map<String, String> properties) throws DdlException {
+    protected void setProperties(ImmutableMap<String, String> properties) throws DdlException {
         Preconditions.checkState(properties != null);
 
         // get spark configs

@@ -45,7 +45,6 @@ import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
@@ -236,10 +235,11 @@ public class HdfsStorageVaultTest {
             Assumptions.assumeTrue(!Strings.isNullOrEmpty(hadoopFsName), "HADOOP_FS_NAME isNullOrEmpty.");
             Assumptions.assumeTrue(!Strings.isNullOrEmpty(hadoopUser), "HADOOP_USER isNullOrEmpty.");
 
-            Map<String, String> properties = new HashMap<>();
-            properties.put(HdfsStorageVault.PropertyKey.HADOOP_FS_NAME, hadoopFsName);
-            properties.put(HdfsStorageVault.PropertyKey.HADOOP_USER_NAME, hadoopUser);
-            properties.put(HdfsStorageVault.PropertyKey.VAULT_PATH_PREFIX, "testCheckConnectivityUtPrefix");
+            ImmutableMap<String, String> properties = ImmutableMap.of(
+                    HdfsStorageVault.PropertyKey.HADOOP_FS_NAME, hadoopFsName,
+                    HdfsStorageVault.PropertyKey.HADOOP_USER_NAME, hadoopUser,
+                    HdfsStorageVault.PropertyKey.VAULT_PATH_PREFIX, "testCheckConnectivityUtPrefix"
+            );
 
             HdfsStorageVault vault = new HdfsStorageVault("testHdfsVault", false, false);
             vault.modifyProperties(properties);
@@ -251,10 +251,11 @@ public class HdfsStorageVaultTest {
 
     @Test
     public void testCheckConnectivityException() {
-        Map<String, String> properties = new HashMap<>();
-        properties.put(HdfsStorageVault.PropertyKey.HADOOP_FS_NAME, "hdfs://localhost:10000");
-        properties.put(HdfsStorageVault.PropertyKey.HADOOP_USER_NAME, "notExistUser");
-        properties.put(HdfsStorageVault.PropertyKey.VAULT_PATH_PREFIX, "testCheckConnectivityUtPrefix");
+        ImmutableMap<String, String> properties = ImmutableMap.of(
+                HdfsStorageVault.PropertyKey.HADOOP_FS_NAME, "hdfs://localhost:10000",
+                HdfsStorageVault.PropertyKey.HADOOP_USER_NAME, "notExistUser",
+                HdfsStorageVault.PropertyKey.VAULT_PATH_PREFIX, "testCheckConnectivityUtPrefix"
+        );
 
         HdfsStorageVault vault = new HdfsStorageVault("testHdfsVault", false, false);
         Assertions.assertThrows(DdlException.class, () -> {
@@ -264,11 +265,12 @@ public class HdfsStorageVaultTest {
 
     @Test
     public void testIgnoreCheckConnectivity() throws DdlException {
-        Map<String, String> properties = new HashMap<>();
-        properties.put(HdfsStorageVault.PropertyKey.HADOOP_FS_NAME, "hdfs://localhost:10000");
-        properties.put(HdfsStorageVault.PropertyKey.HADOOP_USER_NAME, "notExistUser");
-        properties.put(HdfsStorageVault.PropertyKey.VAULT_PATH_PREFIX, "testCheckConnectivityUtPrefix");
-        properties.put(S3Properties.VALIDITY_CHECK, "false");
+        ImmutableMap<String, String> properties = ImmutableMap.of(
+                HdfsStorageVault.PropertyKey.HADOOP_FS_NAME, "hdfs://localhost:10000",
+                HdfsStorageVault.PropertyKey.HADOOP_USER_NAME, "notExistUser",
+                HdfsStorageVault.PropertyKey.VAULT_PATH_PREFIX, "testCheckConnectivityUtPrefix",
+                S3Properties.VALIDITY_CHECK, "false"
+        );
 
         HdfsStorageVault vault = new HdfsStorageVault("testHdfsVault", false, false);
         vault.modifyProperties(properties);

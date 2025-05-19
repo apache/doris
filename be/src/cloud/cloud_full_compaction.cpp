@@ -333,7 +333,6 @@ Status CloudFullCompaction::_cloud_full_compaction_update_delete_bitmap(int64_t 
     RETURN_IF_ERROR(
             _engine.meta_mgr().get_delete_bitmap_update_lock(*cloud_tablet(), -1, initiator));
     RETURN_IF_ERROR(_engine.meta_mgr().sync_tablet_rowsets(cloud_tablet()));
-    std::lock_guard rowset_update_lock(cloud_tablet()->get_rowset_update_lock());
     std::lock_guard header_lock(_tablet->get_header_lock());
     for (const auto& it : cloud_tablet()->rowset_map()) {
         int64_t cur_version = it.first.first;
@@ -378,7 +377,8 @@ Status CloudFullCompaction::_cloud_full_compaction_calc_delete_bitmap(
             segments.begin(), segments.end(), 0,
             [](size_t sum, const segment_v2::SegmentSharedPtr& s) { return sum += s->num_rows(); });
     for (const auto& [k, v] : tmp_delete_bitmap->delete_bitmap) {
-        if (std::get<1>(k) != DeleteBitmap::INVALID_SEGMENT_ID) {
+        if (std::get<0>(k) == _output_rowset->rowset_id() &&
+            std::get<1>(k) != DeleteBitmap::INVALID_SEGMENT_ID) {
             delete_bitmap->merge({std::get<0>(k), std::get<1>(k), cur_version}, v);
         }
     }

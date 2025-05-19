@@ -300,7 +300,7 @@ Status JniUtil::GetJniExceptionMsg(JNIEnv* env, bool log_stack, const string& pr
             env->ExceptionClear();
             string oom_msg = strings::Substitute(oom_msg_template, "throwableToStackTrace");
             LOG(WARNING) << oom_msg;
-            return Status::InternalError(oom_msg);
+            return Status::RuntimeError(oom_msg);
         }
         JniUtfCharGuard c_stack_guard;
         RETURN_IF_ERROR(JniUtfCharGuard::create(env, stack, &c_stack_guard));
@@ -308,7 +308,7 @@ Status JniUtil::GetJniExceptionMsg(JNIEnv* env, bool log_stack, const string& pr
     }
 
     env->DeleteLocalRef(exc);
-    return Status::InternalError("{}{}", prefix, msg_str_guard.get());
+    return Status::RuntimeError("{}{}", prefix, msg_str_guard.get());
 }
 
 jobject JniUtil::convert_to_java_map(JNIEnv* env, const std::map<std::string, std::string>& map) {
