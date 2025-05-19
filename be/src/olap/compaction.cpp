@@ -1127,7 +1127,8 @@ Status CompactionMixin::modify_rowsets() {
         DeleteBitmap output_rowset_delete_bitmap(_tablet->tablet_id());
         std::unique_ptr<RowLocationSet> missed_rows;
         if ((config::enable_missing_rows_correctness_check ||
-             config::enable_mow_compaction_correctness_check_core) &&
+             config::enable_mow_compaction_correctness_check_core ||
+             config::enable_mow_compaction_correctness_check_fail) &&
             !_allow_delete_in_cumu_compaction &&
             compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION) {
             missed_rows = std::make_unique<RowLocationSet>();
@@ -1205,12 +1206,14 @@ Status CompactionMixin::modify_rowsets() {
                         " tablet_id: {}, table_id:{}",
                         _stats.merged_rows, _stats.filtered_rows, missed_rows_size,
                         _tablet->tablet_id(), _tablet->table_id());
+                LOG(WARNING) << err_msg;
                 if (config::enable_mow_compaction_correctness_check_core) {
                     CHECK(false) << err_msg;
+                } else if (config::enable_mow_compaction_correctness_check_fail) {
+                    return Status::InternalError<false>(err_msg);
                 } else {
                     DCHECK(false) << err_msg;
                 }
-                LOG(WARNING) << err_msg;
             }
         }
 

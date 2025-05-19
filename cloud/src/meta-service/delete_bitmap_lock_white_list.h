@@ -15,30 +15,33 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap/selection_vector.h"
+#pragma once
 
-#include <gtest/gtest-message.h>
-#include <gtest/gtest-test-part.h>
+#include <chrono>
+#include <random>
+#include <set>
+#include <shared_mutex>
+#include <string>
+#include <thread>
 
-#include "gtest/gtest_pred_impl.h"
+#include "common/config.h"
+#include "common/logging.h"
+#include "common/string_util.h"
 
-namespace doris {
+namespace doris::cloud {
+class DeleteBitmapLockWhiteList;
+class DeleteBitmapLockWhiteList {
+public:
+    DeleteBitmapLockWhiteList();
+    ~DeleteBitmapLockWhiteList();
+    void init();
+    void update_white_list(std::string white_list);
+    std::string get_delete_bitmap_lock_version(std::string instance_id);
 
-class SelectionVectorTest : public testing::Test {};
+private:
+    std::set<std::string> _delete_bitmap_lock_v2_white_list_set;
+    std::string _last_white_list_value;
+    std::shared_mutex _rw_mutex;
+};
 
-TEST_F(SelectionVectorTest, Normal) {
-    SelectionVector sel_vel(10);
-    EXPECT_EQ(10, sel_vel.nrows());
-    sel_vel.set_all_true();
-    EXPECT_EQ("   0: 11111111 11 \n", sel_vel.to_string());
-    sel_vel.set_all_false();
-    EXPECT_EQ("   0: 00000000 00 \n", sel_vel.to_string());
-    sel_vel.set_row_selected(7);
-    EXPECT_TRUE(sel_vel.is_row_selected(7));
-    EXPECT_TRUE(sel_vel.any_selected());
-    EXPECT_EQ("   0: 00000001 00 \n", sel_vel.to_string());
-    sel_vel.clear_bit(7);
-    EXPECT_EQ("   0: 00000000 00 \n", sel_vel.to_string());
-}
-
-} // namespace doris
+} // namespace doris::cloud

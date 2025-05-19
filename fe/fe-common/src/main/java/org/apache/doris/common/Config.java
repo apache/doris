@@ -2821,21 +2821,23 @@ public class Config extends ConfigBase {
     })
     public static int autobucket_max_buckets = 128;
 
-    @ConfField(description = {"Arrow Flight Server中所有用户token的缓存上限，超过后LRU淘汰，默认值为512, "
-            + "并强制限制小于 qe_max_connection/2, 避免`Reach limit of connections`, "
-            + "因为arrow flight sql是无状态的协议，连接通常不会主动断开，"
-            + "bearer token 从 cache 淘汰的同时会 unregister Connection.",
-            "The cache limit of all user tokens in Arrow Flight Server. which will be eliminated by"
-            + "LRU rules after exceeding the limit, the default value is 512, the mandatory limit is "
-            + "less than qe_max_connection/2 to avoid `Reach limit of connections`, "
-            + "because arrow flight sql is a stateless protocol, the connection is usually not actively "
-            + "disconnected, bearer token is evict from the cache will unregister ConnectContext."})
-    public static int arrow_flight_token_cache_size = 512;
+    @ConfField(description = {"单个 FE 的 Arrow Flight Server 的最大连接数。",
+            "Maximal number of connections of Arrow Flight Server per FE."})
+    public static int arrow_flight_max_connections = 4096;
 
-    @ConfField(description = {"Arrow Flight Server中用户token的存活时间，自上次写入后过期时间，单位分钟，默认值为4320，即3天",
-            "The alive time of the user token in Arrow Flight Server, expire after write, unit minutes,"
-            + "the default value is 4320, which is 3 days"})
-    public static int arrow_flight_token_alive_time = 4320;
+    @ConfField(description = {"(已弃用，被 arrow_flight_max_connection 替代) Arrow Flight Server中所有用户token的缓存上限，"
+            + "超过后LRU淘汰, arrow flight sql是无状态的协议，连接通常不会主动断开，"
+            + "bearer token 从 cache 淘汰的同时会 unregister Connection.",
+            "(Deprecated, replaced by arrow_flight_max_connection) The cache limit of all user tokens in "
+            + "Arrow Flight Server. which will be eliminated by LRU rules after exceeding the limit, "
+            + "arrow flight sql is a stateless protocol, the connection is usually not actively disconnected, "
+            + "bearer token is evict from the cache will unregister ConnectContext."})
+    public static int arrow_flight_token_cache_size = 4096;
+
+    @ConfField(description = {"Arrow Flight Server中用户token的存活时间，自上次写入后过期时间，单位秒，默认值为86400，即1天",
+            "The alive time of the user token in Arrow Flight Server, expire after write, unit second,"
+            + "the default value is 86400, which is 1 days"})
+    public static int arrow_flight_token_alive_time_second = 86400;
 
     @ConfField(mutable = true, description = {
             "Doris 为了兼用 mysql 周边工具生态，会内置一个名为 mysql 的数据库，如果该数据库与用户自建数据库冲突，"
@@ -2907,6 +2909,9 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true)
     public static int workload_sched_policy_interval_ms = 10000; // 10s
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static int workload_group_check_interval_ms = 30000; // 30s
 
     @ConfField(mutable = true, masterOnly = true)
     public static int workload_max_policy_num = 25;
@@ -3579,4 +3584,8 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true, description = {"是否允许 variant 类型的列使用倒排索引格式 v1",
             "Whether to allow the use of inverted index v1 for variant"})
     public static boolean enable_inverted_index_v1_for_variant = false;
+
+    @ConfField(mutable = true, description = {"Prometheus 输出表维度指标的个数限制",
+            "Prometheus output table dimension metric count limit"})
+    public static int prom_output_table_metrics_limit = 10000;
 }
