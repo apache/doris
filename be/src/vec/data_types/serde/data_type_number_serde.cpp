@@ -387,6 +387,73 @@ Status DataTypeNumberSerDe<T>::write_column_to_orc(const std::string& timezone,
     return Status::OK();
 }
 
+template <typename T, bool is_strict_mode>
+bool read_number_text_impl(StringRef& str, T& val) {
+    if constexpr (std::is_same_v<T, uint8_t>) {
+        return try_read_bool_text(val, str);
+    }
+    // else if constexpr (){
+
+    // }
+
+    DCHECK(false);
+    return false;
+}
+
+template <typename T>
+Status DataTypeNumberSerDe<T>::from_string(StringRef& str, IColumn& column,
+                                           const FormatOptions& options) const {
+    auto& column_data = assert_cast<ColumnType&, TypeCheckOnRelease::DISABLE>(column);
+    T val;
+    if (!read_number_text_impl<T, false>(str, val)) {
+        return Status::InvalidArgument("parse number fail, string: '{}'", str.to_string());
+    }
+    column_data.insert_value(val);
+    return Status::OK();
+}
+
+template <typename T>
+Status DataTypeNumberSerDe<T>::from_string_strict_mode(StringRef& str, IColumn& column,
+                                                       const FormatOptions& options) const {
+    auto& column_data = assert_cast<ColumnType&, TypeCheckOnRelease::DISABLE>(column);
+    T val;
+    if (!read_number_text_impl<T, true>(str, val)) {
+        return Status::InvalidArgument("parse number fail, string: '{}'", str.to_string());
+    }
+    column_data.insert_value(val);
+    return Status::OK();
+}
+
+template <typename T>
+Status DataTypeNumberSerDe<T>::from_string_batch(const ColumnString& str, ColumnNullable& column,
+                                                 const FormatOptions& options) const {
+    const auto size = str.size();
+    column.resize(size);
+    auto& column_to = assert_cast<ColumnType&>(column.get_nested_column());
+    auto& null_map = column.get_null_map_data();
+    for (size_t i = 0; i < size; ++i) {
+        StringRef from_str = str.get_data_at(i);
+        null_map[i] = !read_number_text_impl<T, false>(from_str, column_to.get_data()[i]);
+    }
+    return Status::OK();
+}
+
+template <typename T>
+Status DataTypeNumberSerDe<T>::from_string_strict_mode_batch(const ColumnString& str,
+                                                             ColumnNullable& column,
+                                                             const FormatOptions& options) const {
+    const auto size = str.size();
+    column.resize(size);
+    auto& column_to = assert_cast<ColumnType&>(column.get_nested_column());
+    for (size_t i = 0; i < size; ++i) {
+        StringRef from_str = str.get_data_at(i);
+        if (!read_number_text_impl<T, true>(from_str, column_to.get_data()[i])) {
+            return Status::InvalidArgument("parse number fail, string: '{}'", from_str.to_string());
+        }
+    }
+    return Status::OK();
+}
+
 /// Explicit template instantiations - to avoid code bloat in headers.
 template class DataTypeNumberSerDe<UInt8>;
 template class DataTypeNumberSerDe<UInt16>;
