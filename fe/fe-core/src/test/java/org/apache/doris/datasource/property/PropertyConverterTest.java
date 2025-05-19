@@ -581,7 +581,7 @@ public class PropertyConverterTest extends TestWithFeService {
         Assertions.assertEquals("obs://abc/aaa",
                 PropertyConverter.s3SchemaConvertToFileSystem("obs://abc/aaa", "OBS"));
         Assertions.assertEquals("s3://abc/aaa",
-            PropertyConverter.fileSystemSchemaConvertTos3("obs://abc/aaa", "OBS"));
+                PropertyConverter.fileSystemSchemaConvertTos3("obs://abc/aaa", "OBS"));
     }
 
     @Test
