@@ -223,7 +223,6 @@ public class ShowColumnsCommand extends ShowCommand {
             table.readUnlock();
         }
 
-        rows.sort(Comparator.comparing(x -> x.get(0)));
         return new ShowResultSet(metaData, rows);
     }
 
