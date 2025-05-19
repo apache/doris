@@ -89,6 +89,10 @@ public:
 private:
     void remove_old_version_directories();
 
+    Status collect_directory_entries(
+            const std::filesystem::path& dir_path,
+            std::vector<std::filesystem::directory_iterator>& file_list) const;
+
     Status upgrade_cache_dir_if_necessary() const;
 
     Status read_file_cache_version(std::string* buffer) const;
