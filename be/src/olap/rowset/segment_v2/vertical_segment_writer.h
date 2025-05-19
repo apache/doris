@@ -125,12 +125,12 @@ public:
 
     Status close_inverted_index(int64_t* inverted_index_file_size) {
         // no inverted index
-        if (_x_index_file_writer == nullptr) {
+        if (_index_file_writer == nullptr) {
             *inverted_index_file_size = 0;
             return Status::OK();
         }
-        RETURN_IF_ERROR(_x_index_file_writer->close());
-        *inverted_index_file_size = _x_index_file_writer->get_index_file_total_size();
+        RETURN_IF_ERROR(_index_file_writer->close());
+        *inverted_index_file_size = _index_file_writer->get_index_file_total_size();
         return Status::OK();
     }
 
@@ -224,7 +224,7 @@ private:
     // Not owned. owned by RowsetWriter
     io::FileWriter* _file_writer = nullptr;
     // Not owned. owned by RowsetWriter or SegmentFlusher
-    IndexFileWriter* _x_index_file_writer = nullptr;
+    IndexFileWriter* _index_file_writer = nullptr;
 
     SegmentFooterPB _footer;
     // for mow tables with cluster key, the sort key is the cluster keys not unique keys

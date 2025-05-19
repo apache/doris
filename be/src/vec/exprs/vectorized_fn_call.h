@@ -24,6 +24,7 @@
 #include "common/status.h"
 #include "udf/udf.h"
 #include "vec/core/column_numbers.h"
+#include "vec/exprs/ann_range_search_params.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vliteral.h"
 #include "vec/exprs/vslot_ref.h"
@@ -72,10 +73,19 @@ public:
 
     size_t estimate_memory(const size_t rows) override;
 
+    MOCK_FUNCTION Status evaluate_ann_range_search(
+            const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& cid_to_index_iterators,
+            const std::vector<ColumnId>& idx_to_cid,
+            const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
+            roaring::Roaring& row_bitmap) override;
+
+    Status prepare_ann_range_search() override;
+
 protected:
     FunctionBasePtr _function;
     std::string _expr_name;
     std::string _function_name;
+    AnnRangeSearchParams _ann_range_search_params;
 
 private:
     Status _do_execute(doris::vectorized::VExprContext* context, doris::vectorized::Block* block,

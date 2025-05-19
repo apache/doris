@@ -42,7 +42,3 @@ target_include_directories(vector INTERFACE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
     $<INSTALL_INTERFACE:include>
 )
-
-# If you need to install these headers
-# install(FILES ${HEADER_FILES} DESTINATION include/vector)
-
