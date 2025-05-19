@@ -269,7 +269,10 @@ public class PropertyConverter {
         // remove extra meta properties
         S3Properties.FS_KEYS.forEach(s3Properties::remove);
 
-        LOG.info("s3Properties:{}\nproperties:{}", s3Properties, properties);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("s3Properties:{}\nproperties:{}", s3Properties, properties);
+        }
+
         return s3Properties;
     }
 
