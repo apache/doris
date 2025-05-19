@@ -2215,7 +2215,6 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
                       << " key=" << hex(key);
             if (!check_delete_bitmap_kv_exists(code, msg, txn_kv_, key, instance_id, tablet_id,
                                                request->lock_id())) {
-                CHECK(false) << msg;
                 return;
             }
         }
