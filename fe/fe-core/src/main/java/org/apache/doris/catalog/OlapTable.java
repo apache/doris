@@ -3304,8 +3304,8 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             return getVisibleVersion() + 1;
         } catch (RpcException e) {
             LOG.warn("getNextVersion in Cloud mode in OlapTable {}", getName(), e);
+            throw new RuntimeException(e);
         }
-        return 0;
     }
 
     public long getVisibleVersion() throws RpcException {
