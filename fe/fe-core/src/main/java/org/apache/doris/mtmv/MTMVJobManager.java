@@ -61,8 +61,6 @@ public class MTMVJobManager implements MTMVHookService {
     private JobExecutionConfiguration getJobConfig(MTMV mtmv) {
         JobExecutionConfiguration jobExecutionConfiguration = new JobExecutionConfiguration();
         RefreshTrigger refreshTrigger = mtmv.getRefreshInfo().getRefreshTriggerInfo().getRefreshTrigger();
-        // if immediate, mtmv will trigger it, not need job manager deal this
-        jobExecutionConfiguration.setImmediate(false);
         if (refreshTrigger.equals(RefreshTrigger.SCHEDULE)) {
             setScheduleJobConfig(jobExecutionConfiguration, mtmv);
         } else if (refreshTrigger.equals(RefreshTrigger.MANUAL) || refreshTrigger.equals(RefreshTrigger.COMMIT)) {
