@@ -811,7 +811,11 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
         }
         RETURN_IF_ERROR(_column_writers[id]->append(converted_result.second->get_nullmap(),
                                                     converted_result.second->get_data(), num_rows));
+        // estimate column data size for flush memtable, may be inaccurate at low cardinality
+        _footer.mutable_columns(cid)->set_total_data_size(
+                _column_writers[id]->estimate_buffer_size());
     }
+
     if (_has_key) {
         if (_is_mow_with_cluster_key()) {
             // for now we don't need to query short key index for CLUSTER BY feature,
@@ -1030,9 +1034,14 @@ Status SegmentWriter::finalize_columns_data() {
     }
     _num_rows_written = 0;
 
+    int64_t total_data_size = 0;
     for (auto& column_writer : _column_writers) {
+        // record the data size of each column before page builder reset in finish()
+        total_data_size += column_writer->estimate_buffer_size();
         RETURN_IF_ERROR(column_writer->finish());
     }
+    auto origin_data_footprint = _footer.data_footprint();
+    _footer.set_data_footprint(origin_data_footprint + total_data_size);
     RETURN_IF_ERROR(_write_data());
 
     return Status::OK();

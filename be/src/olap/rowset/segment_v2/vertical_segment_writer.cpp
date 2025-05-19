@@ -1174,6 +1174,7 @@ Status VerticalSegmentWriter::write_batch() {
     vectorized::IOlapColumnDataAccessor* seq_column = nullptr;
     // the key is cluster key column unique id
     std::map<uint32_t, vectorized::IOlapColumnDataAccessor*> cid_to_column;
+    int64_t total_data_size = 0;
     for (uint32_t cid = 0; cid < _tablet_schema->num_columns(); ++cid) {
         RETURN_IF_ERROR(_create_column_writer(cid, _tablet_schema->column(cid), _tablet_schema));
         for (auto& data : _batched_blocks) {
@@ -1200,6 +1201,12 @@ Status VerticalSegmentWriter::write_batch() {
             }
             RETURN_IF_ERROR(_column_writers[cid]->append(column->get_nullmap(), column->get_data(),
                                                          data.num_rows));
+
+            // estimate column data size for flush memtable, may be inaccurate at low cardinality
+            int64_t column_data_size = _column_writers[cid]->estimate_buffer_size();
+            total_data_size += column_data_size;
+            _footer.mutable_columns(cid)->set_total_data_size(column_data_size);
+
             _olap_data_convertor->clear_source_content();
         }
         if (_data_dir != nullptr &&
@@ -1210,6 +1217,8 @@ Status VerticalSegmentWriter::write_batch() {
         RETURN_IF_ERROR(_column_writers[cid]->finish());
         RETURN_IF_ERROR(_column_writers[cid]->write_data());
     }
+    auto origin_data_footprint = _footer.data_footprint();
+    _footer.set_data_footprint(origin_data_footprint + total_data_size);
 
     for (auto& data : _batched_blocks) {
         _olap_data_convertor->set_source_content(data.block, data.row_pos, data.num_rows);
