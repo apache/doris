@@ -46,6 +46,7 @@ import org.apache.doris.nereids.trees.plans.commands.AlterWorkloadGroupCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterWorkloadPolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.CallCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelBackupCommand;
+import org.apache.doris.nereids.trees.plans.commands.CancelBuildIndexCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelExportCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelJobTaskCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelLoadCommand;
@@ -1094,6 +1095,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitCancelBackupCommand(CancelBackupCommand cancelBackupCommand, C context) {
         return visitCommand(cancelBackupCommand, context);
+    }
+
+    default R visitCancelBuildIndexCommand(CancelBuildIndexCommand cancelBuildIndexCommand, C context) {
+        return visitCommand(cancelBuildIndexCommand, context);
     }
 
     default R visitCreateUserCommand(CreateUserCommand createUserCommand, C context) {

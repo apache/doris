@@ -1278,7 +1278,8 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
                                       tnode.agg_node.use_streaming_preaggregation &&
                                       !tnode.agg_node.grouping_exprs.empty();
         const bool can_use_distinct_streaming_agg =
-                is_streaming_agg && tnode.agg_node.aggregate_functions.empty() &&
+                tnode.agg_node.aggregate_functions.empty() &&
+                !tnode.agg_node.__isset.agg_sort_info_by_group_key &&
                 request.query_options.__isset.enable_distinct_streaming_aggregation &&
                 request.query_options.enable_distinct_streaming_aggregation;
 
@@ -1702,6 +1703,8 @@ Status PipelineFragmentContext::submit() {
     for (auto& task : _tasks) {
         for (auto& t : task) {
             st = scheduler->schedule_task(t);
+            DBUG_EXECUTE_IF("PipelineFragmentContext.submit.failed",
+                            { st = Status::Aborted("PipelineFragmentContext.submit.failed"); });
             if (!st) {
                 cancel(Status::InternalError("submit context to executor fail"));
                 std::lock_guard<std::mutex> l(_task_mutex);
