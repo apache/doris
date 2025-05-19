@@ -347,7 +347,7 @@ public class DictionaryManager extends MasterDaemon implements Writable {
                     Dictionary dictionary = idToDictionary.get(id);
                     /// for all dictionaries:
                     // 1. if it's OUT_OF_DATE(maybe update failed or something), try to refresh it.
-                    if (dictionary.getStatus() == DictionaryStatus.OUT_OF_DATE && dictionary.baseDataMaybeValid()) {
+                    if (dictionary.getStatus() == DictionaryStatus.OUT_OF_DATE && dictionary.checkBaseDataValid()) {
                         submitDataLoad(dictionary, false);
                         continue;
                     }

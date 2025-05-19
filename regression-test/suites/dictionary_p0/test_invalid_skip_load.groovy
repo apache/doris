@@ -15,7 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-
 suite("test_invalid_skip_load") {
     sql "drop table if exists test_duplicate_argument;"
     sql " drop dictionary if exists test_duplicate_argument; "
@@ -36,7 +35,7 @@ suite("test_invalid_skip_load") {
             k1 VALUE
         )
         LAYOUT(HASH_MAP)
-        properties('data_lifetime'='600');
+        properties('data_lifetime'='0');
     """
 
     for (int _ = 0; _ < 30 ; _++)

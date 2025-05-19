@@ -183,7 +183,8 @@ public class Dictionary extends Table {
         List<String> qualifiedName = Lists.newArrayList();
         if (Strings.isNullOrEmpty(sourceCtlName) || Strings.isNullOrEmpty(sourceDbName)
                 || Strings.isNullOrEmpty(sourceTableName)) {
-            throw new IllegalArgumentException("dictionary's source name is not completed");
+            throw new IllegalArgumentException(
+                    "dictionary's source name " + qualifiedName.toString() + "is not completed");
         }
         qualifiedName.add(sourceCtlName);
         qualifiedName.add(sourceDbName);
@@ -280,8 +281,8 @@ public class Dictionary extends Table {
             if (tableVersionNow < srcVersion) {
                 // maybe drop and recreate. but if so, this dictionary should be dropped as well.
                 // so should not happen.
-                throw new RuntimeException(
-                    "source table's version " + tableVersionNow + " is smaller than dictionary's " + srcVersion);
+                throw new RuntimeException("Dictionary " + getName() + "'s source table's version " + tableVersionNow
+                        + " is smaller than dictionary's " + srcVersion);
             } else if (tableVersionNow > srcVersion && tableVersionNow != latestInvalidVersion) {
                 // if src is a illegal version, we can skip it.
                 return true;
@@ -303,13 +304,17 @@ public class Dictionary extends Table {
     }
 
     public void updateLatestInvalidVersion(long value) {
-        latestInvalidVersion = Math.max(latestInvalidVersion, value);
+        if (value < latestInvalidVersion) {
+            throw new RuntimeException("latestInvalidVersion of " + getName() + " should be greater than "
+                    + latestInvalidVersion + ", but got " + value);
+        }
+        latestInvalidVersion = value;
     }
 
     /**
      * if has latestInvalidVersion and the base table's data not changed, we can skip update.
      */
-    public boolean baseDataMaybeValid() {
+    public boolean checkBaseDataValid() {
         TableIf tableIf = RelationUtil.getTable(getSourceQualifiedName(), Env.getCurrentEnv());
         if (tableIf == null) {
             throw new RuntimeException(getName() + "'s source table not found");
@@ -417,7 +422,7 @@ public class Dictionary extends Table {
         if (dataDistributions == null || dataDistributions.isEmpty()) {
             // only called when do partial load. it bases on collection of data distributions.
             // so dataDistributions should not be null.
-            LOG.warn("dataDistributions is null or empty. should not happen");
+            LOG.warn("dataDistributions of " + getName() + " is null or empty. should not happen");
             return backends;
         }
         Set<Long> validBEs = Sets.newHashSet();
