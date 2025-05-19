@@ -1476,21 +1476,31 @@ public class MetadataGenerator {
                     trow.addToColumnValue(new TCell().setStringVal("")); // TABLESPACE_NAME (not available)
 
                     Pair<Double, String> sizePair = DebugUtil.getByteUint(partition.getDataSize(false));
-                    String readableDateSize = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(sizePair.first) + " " + sizePair.second;
+                    String readableDateSize = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(sizePair.first) + " "
+                            + sizePair.second;
                     trow.addToColumnValue(new TCell().setStringVal(readableDateSize));  // DATA_SIZE
                     trow.addToColumnValue(new TCell().setStringVal(partition.getState().toString())); // STATE
-                    trow.addToColumnValue(new TCell().setStringVal(partitionInfo.getReplicaAllocation(partitionId).toCreateStmt())); // REPLICA_ALLOCATION
-                    trow.addToColumnValue(new TCell().setIntVal(partitionInfo.getReplicaAllocation(partitionId).getTotalReplicaNum())); // REPLICA_NUM
-                    trow.addToColumnValue(new TCell().setStringVal(partitionInfo.getStoragePolicy(partitionId))); // STORAGE_POLICY
+                    trow.addToColumnValue(new TCell().setStringVal(partitionInfo.getReplicaAllocation(partitionId)
+                            .toCreateStmt())); // REPLICA_ALLOCATION
+                    trow.addToColumnValue(new TCell().setIntVal(partitionInfo.getReplicaAllocation(partitionId)
+                            .getTotalReplicaNum())); // REPLICA_NUM
+                    trow.addToColumnValue(new TCell().setStringVal(partitionInfo
+                            .getStoragePolicy(partitionId))); // STORAGE_POLICY
                     DataProperty dataProperty = partitionInfo.getDataProperty(partitionId);
-                    trow.addToColumnValue(new TCell().setStringVal(dataProperty.getStorageMedium().name())); // STORAGE_MEDIUM
-                    trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(dataProperty.getCooldownTimeMs()))); // COOLDOWN_TIME_MS
-                    trow.addToColumnValue(new TCell().setBoolVal(partitionInfo.getIsInMemory(partitionId))); // IS_IN_MEMORY
-                    trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(partition.getLastCheckTime()))); // LAST_CONSISTENCY_CHECK_TIME
-                    trow.addToColumnValue(new TCell().setIntVal(partition.getDistributionInfo().getBucketNum())); // BUCKET_NUM
+                    trow.addToColumnValue(new TCell().setStringVal(dataProperty.getStorageMedium()
+                            .name())); // STORAGE_MEDIUM
+                    trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(dataProperty
+                            .getCooldownTimeMs()))); // COOLDOWN_TIME_MS
+                    trow.addToColumnValue(new TCell().setBoolVal(partitionInfo
+                            .getIsInMemory(partitionId))); // IS_IN_MEMORY
+                    trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(partition
+                            .getLastCheckTime()))); // LAST_CONSISTENCY_CHECK_TIME
+                    trow.addToColumnValue(new TCell().setIntVal(partition.getDistributionInfo()
+                            .getBucketNum())); // BUCKET_NUM
                     trow.addToColumnValue(new TCell().setLongVal(partition.getCommittedVersion())); // COMMITTED_VERSION
                     trow.addToColumnValue(new TCell().setLongVal(partition.getVisibleVersion())); // VISIBLE_VERSION
-                    if (partitionInfo.getType() == PartitionType.RANGE || partitionInfo.getType() == PartitionType.LIST) {
+                    if (partitionInfo.getType() == PartitionType.RANGE
+                            || partitionInfo.getType() == PartitionType.LIST) {
                         List<Column> partitionColumns = partitionInfo.getPartitionColumns();
                         List<String> colNames = new ArrayList<>();
                         for (Column column : partitionColumns) {
@@ -1498,7 +1508,8 @@ public class MetadataGenerator {
                         }
                         String colNamesStr = joiner.join(colNames);
                         trow.addToColumnValue(new TCell().setStringVal(colNamesStr));  // PARTITION_KEY
-                        trow.addToColumnValue(new TCell().setStringVal(partitionInfo.getPartitionRangeString(partitionId))); // RANGE
+                        trow.addToColumnValue(new TCell().setStringVal(partitionInfo
+                                .getPartitionRangeString(partitionId))); // RANGE
                     } else {
                         trow.addToColumnValue(new TCell().setStringVal(""));  // PARTITION_KEY
                         trow.addToColumnValue(new TCell().setStringVal("")); // RANGE
