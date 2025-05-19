@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 // This file is copied from
-// https://github.com/ClickHouse/ClickHouse/blob/master/src/Columns/ColumnObject.h
+// https://github.com/ClickHouse/ClickHouse/blob/master/src/Columns/ColumnVariant.h
 // and modified by Doris
 
 #pragma once
@@ -78,10 +78,10 @@ struct FieldInfo {
 void get_field_info(const Field& field, FieldInfo* info);
 /** A column that represents object with dynamic set of subcolumns.
  *  Subcolumns are identified by paths in document and are stored in
- *  a trie-like structure. ColumnObject is not suitable for writing into tables
+ *  a trie-like structure. ColumnVariant is not suitable for writing into tables
  *  and it should be converted to Tuple with fixed set of subcolumns before that.
  */
-class ColumnObject final : public COWHelper<IColumn, ColumnObject> {
+class ColumnVariant final : public COWHelper<IColumn, ColumnVariant> {
 public:
     /** Class that represents one subcolumn.
      * It stores values in several parts of column
@@ -179,7 +179,7 @@ public:
 
         void add_new_column_part(DataTypePtr type);
 
-        friend class ColumnObject;
+        friend class ColumnVariant;
 
     private:
         class LeastCommonType {
@@ -256,19 +256,21 @@ private:
 public:
     static constexpr auto COLUMN_NAME_DUMMY = "_dummy";
 
-    explicit ColumnObject(bool is_nullable_, bool create_root = true);
+    explicit ColumnVariant(bool is_nullable_, bool create_root = true);
 
-    explicit ColumnObject(bool is_nullable_, DataTypePtr type, MutableColumnPtr&& column);
+    explicit ColumnVariant(bool is_nullable_, DataTypePtr type, MutableColumnPtr&& column);
 
-    ColumnObject(Subcolumns&& subcolumns_, bool is_nullable_);
+    ColumnVariant(Subcolumns&& subcolumns_, bool is_nullable_);
 
-    ~ColumnObject() override = default;
+    ~ColumnVariant() override = default;
 
     /// Checks that all subcolumns have consistent sizes.
     void check_consistency() const;
 
     MutableColumnPtr get_root() {
-        if (subcolumns.empty() || is_nothing(subcolumns.get_root()->data.get_least_common_type())) {
+        if (subcolumns.empty() ||
+            subcolumns.get_root()->data.get_least_common_type()->get_primitive_type() ==
+                    INVALID_TYPE) {
             return nullptr;
         }
         return subcolumns.get_mutable_root()->data.get_finalized_column_ptr()->assume_mutable();
@@ -363,7 +365,7 @@ public:
 
     MutableColumnPtr clone_finalized() const {
         auto finalized = IColumn::mutate(get_ptr());
-        static_cast<ColumnObject*>(finalized.get())->finalize(FinalizeMode::READ_MODE);
+        static_cast<ColumnVariant*>(finalized.get())->finalize(FinalizeMode::READ_MODE);
         return finalized;
     }
 

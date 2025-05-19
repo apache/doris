@@ -275,13 +275,13 @@ add_compile_options(-g
                     -Wall
                     -Wextra
                     -Werror
+                    -Wundef
                     -pthread
                     -fstrict-aliasing
                     -fno-omit-frame-pointer
                     $<$<COMPILE_LANGUAGE:CXX>:-Wnon-virtual-dtor>)
 
 add_compile_options(-Wno-unused-parameter
-                    $<$<COMPILE_LANGUAGE:CXX>:-Wno-incompatible-pointer-types>
                     -Wno-deprecated-declarations
                     -Wno-sign-compare)
 

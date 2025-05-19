@@ -19,10 +19,14 @@ package org.apache.doris.nereids.trees.plans.visitor;
 
 import org.apache.doris.nereids.trees.plans.commands.AddConstraintCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminCancelRebalanceDiskCommand;
+import org.apache.doris.nereids.trees.plans.commands.AdminCancelRepairTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminCheckTabletsCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminCleanTrashCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminCompactTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.AdminCopyTabletCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminRebalanceDiskCommand;
+import org.apache.doris.nereids.trees.plans.commands.AdminRepairTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.AdminSetReplicaStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetTableStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminShowReplicaStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterCatalogCommentCommand;
@@ -41,6 +45,7 @@ import org.apache.doris.nereids.trees.plans.commands.AlterViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterWorkloadGroupCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterWorkloadPolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.CallCommand;
+import org.apache.doris.nereids.trees.plans.commands.CancelBuildIndexCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelExportCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelJobTaskCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelLoadCommand;
@@ -101,6 +106,9 @@ import org.apache.doris.nereids.trees.plans.commands.DropWorkloadPolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainDictionaryCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExportCommand;
+import org.apache.doris.nereids.trees.plans.commands.GrantResourcePrivilegeCommand;
+import org.apache.doris.nereids.trees.plans.commands.GrantRoleCommand;
+import org.apache.doris.nereids.trees.plans.commands.GrantTablePrivilegeCommand;
 import org.apache.doris.nereids.trees.plans.commands.HelpCommand;
 import org.apache.doris.nereids.trees.plans.commands.KillAnalyzeJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.KillConnectionCommand;
@@ -157,6 +165,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowFunctionsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowGrantsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowIndexStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLastInsertCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLoadProfileCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPartitionIdCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPluginsCommand;
@@ -188,11 +197,8 @@ import org.apache.doris.nereids.trees.plans.commands.ShowTableStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTabletIdCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTabletStorageFormatCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTabletsBelongCommand;
-<<<<<<< HEAD
 import org.apache.doris.nereids.trees.plans.commands.ShowTabletsFromTableCommand;
-=======
 import org.apache.doris.nereids.trees.plans.commands.ShowTransactionCommand;
->>>>>>> 0d4b0caf08 (implement showTransactionCommand in nereids)
 import org.apache.doris.nereids.trees.plans.commands.ShowTrashCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTriggersCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowUserPropertyCommand;
@@ -205,6 +211,7 @@ import org.apache.doris.nereids.trees.plans.commands.SyncCommand;
 import org.apache.doris.nereids.trees.plans.commands.TransactionBeginCommand;
 import org.apache.doris.nereids.trees.plans.commands.TransactionCommitCommand;
 import org.apache.doris.nereids.trees.plans.commands.TransactionRollbackCommand;
+import org.apache.doris.nereids.trees.plans.commands.TruncateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnlockTablesCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsetDefaultStorageVaultCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsetVariableCommand;
@@ -752,6 +759,10 @@ public interface CommandVisitor<R, C> {
         return visitCommand(showBrokerCommand, context);
     }
 
+    default R visitShowLoadCommand(ShowLoadCommand showLoadCommand, C context) {
+        return visitCommand(showLoadCommand, context);
+    }
+
     default R visitShowLoadProfileCommand(ShowLoadProfileCommand showLoadProfileCommand, C context) {
         return visitCommand(showLoadProfileCommand, context);
     }
@@ -1005,6 +1016,23 @@ public interface CommandVisitor<R, C> {
         return visitCommand(alterColumnStatsCommand, context);
     }
 
+    default R visitAdminCancelRepairTableCommand(AdminCancelRepairTableCommand adminCancelRepairTableCommand,
+                                                     C context) {
+        return visitCommand(adminCancelRepairTableCommand, context);
+    }
+
+    default R visitAdminRepairTableCommand(AdminRepairTableCommand adminRepairTableCommand, C context) {
+        return visitCommand(adminRepairTableCommand, context);
+    }
+
+    default R visitAdminSetReplicaStatusCommand(AdminSetReplicaStatusCommand adminSetReplicaStatusCommand, C context) {
+        return visitCommand(adminSetReplicaStatusCommand, context);
+    }
+
+    default R visitAdminCopyTabletCommand(AdminCopyTabletCommand adminCopyTabletCommand, C context) {
+        return visitCommand(adminCopyTabletCommand, context);
+    }
+
     default R visitShowCreateRoutineLoadCommand(ShowCreateRoutineLoadCommand showCreateRoutineLoadCommand, C context) {
         return visitCommand(showCreateRoutineLoadCommand, context);
     }
@@ -1069,6 +1097,10 @@ public interface CommandVisitor<R, C> {
         return visitCommand(dropAnalyzeJobCommand, context);
     }
 
+    default R visitCancelBuildIndexCommand(CancelBuildIndexCommand cancelBuildIndexCommand, C context) {
+        return visitCommand(cancelBuildIndexCommand, context);
+    }
+
     default R visitCreateUserCommand(CreateUserCommand createUserCommand, C context) {
         return visitCommand(createUserCommand, context);
     }
@@ -1087,5 +1119,22 @@ public interface CommandVisitor<R, C> {
 
     default R visitShowTransactionCommand(ShowTransactionCommand showTransactionCommand, C context) {
         return visitCommand(showTransactionCommand, context);
+    }
+
+    default R visitTruncateTableCommand(TruncateTableCommand truncateTableCommand, C context) {
+        return visitCommand(truncateTableCommand, context);
+    }
+
+    default R visitGrantRoleCommand(GrantRoleCommand grantRoleCommand, C context) {
+        return visitCommand(grantRoleCommand, context);
+    }
+
+    default R visitGrantTablePrivilegeCommand(GrantTablePrivilegeCommand grantTablePrivilegeCommand, C context) {
+        return visitCommand(grantTablePrivilegeCommand, context);
+    }
+
+    default R visitGrantResourcePrivilegeCommand(GrantResourcePrivilegeCommand grantResourcePrivilegeCommand,
+            C context) {
+        return visitCommand(grantResourcePrivilegeCommand, context);
     }
 }

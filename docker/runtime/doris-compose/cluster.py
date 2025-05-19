@@ -690,7 +690,7 @@ class CLOUD(Node):
         return cfg
 
     def docker_home_dir(self):
-        return os.path.join(DOCKER_DORIS_PATH, "cloud")
+        return os.path.join(DOCKER_DORIS_PATH, "ms")
 
     def get_default_named_ports(self):
         return {

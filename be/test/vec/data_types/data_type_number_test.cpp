@@ -30,12 +30,11 @@
 #include "agent/be_exec_version_manager.h"
 #include "olap/olap_common.h"
 #include "runtime/define_primitive_type.h"
-#include "runtime/types.h"
+#include "runtime/large_int_value.h"
 #include "testutil/test_util.h"
 #include "vec/columns/column.h"
 #include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
-#include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/common_data_type_serder_test.h"
 #include "vec/data_types/common_data_type_test.h"
@@ -129,7 +128,7 @@ TEST_F(DataTypeNumberTest, MetaInfoTest) {
     auto col_meta = std::make_shared<PColumnMeta>();
     col_meta->set_type(PGenericType_TypeId_INT8);
     CommonDataTypeTest::DataTypeMetaInfo meta_info_to_assert = {
-            .type_id = TypeIndex::Int8,
+            .type_id = PrimitiveType::TYPE_TINYINT,
             .type_as_type_descriptor = type_descriptor,
             .family_name = dt_int8.get_family_name(),
             .has_subtypes = false,
@@ -248,6 +247,7 @@ TEST_F(DataTypeNumberTest, get_field) {
         EXPECT_EQ(dt_float32.get_field(expr_node), value);
     }
 }
+
 TEST_F(DataTypeNumberTest, ser_deser) {
     auto test_func = [](auto dt, const auto& column, int be_exec_version) {
         std::cout << "test serialize/deserialize datatype " << dt.get_family_name()
@@ -387,6 +387,7 @@ TEST_F(DataTypeNumberTest, ser_deser) {
     test_func(DataTypeUInt64(), *column_uint64, USE_CONST_SERDE);
     test_func(DataTypeUInt64(), *column_uint64, AGGREGATION_2_1_VERSION);
 }
+
 TEST_F(DataTypeNumberTest, to_string) {
     auto test_func = [](auto& dt, const auto& source_column) {
         std::cout << "test datatype to string: " << dt.get_family_name() << std::endl;

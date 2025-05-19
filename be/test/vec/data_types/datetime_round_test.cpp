@@ -32,8 +32,8 @@
 #include "util/mysql_row_buffer.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h" // UInt32
+#include "vec/data_types/data_type_date_or_datetime_v2.h"
 #include "vec/data_types/data_type_factory.hpp"
-#include "vec/data_types/data_type_time_v2.h"
 #include "vec/io/reader_buffer.h"
 
 using namespace doris;

@@ -97,7 +97,7 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
                     new TxnCoordinator(TxnSourceType.FE, 0,
                             FrontendOptions.getLocalHostAddress(),
                             ExecuteEnv.getInstance().getStartupTime()),
-                    LoadJobSourceType.INSERT_STREAMING, ctx.getExecTimeout());
+                    LoadJobSourceType.INSERT_STREAMING, ctx.getExecTimeoutS());
         } catch (Exception e) {
             throw new AnalysisException("begin transaction failed. " + e.getMessage(), e);
         }
@@ -306,7 +306,7 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
     }
 
     public long getTimeout() {
-        return ctx.getExecTimeout();
+        return ctx.getExecTimeoutS();
     }
 
     private boolean isGroupCommitHttpStream() {
