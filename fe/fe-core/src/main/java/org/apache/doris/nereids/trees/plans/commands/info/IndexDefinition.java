@@ -54,6 +54,7 @@ public class IndexDefinition {
     private boolean isBuildDeferred = false;
 
     private boolean ifNotExists = false;
+
     /**
      * constructor for IndexDefinition
      */
