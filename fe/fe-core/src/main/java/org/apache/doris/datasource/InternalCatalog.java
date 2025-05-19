@@ -69,6 +69,7 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.DatabaseProperty;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
+import org.apache.doris.catalog.DorisTable;
 import org.apache.doris.catalog.DynamicPartitionProperty;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
@@ -1288,7 +1289,9 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
         if (engineName.equalsIgnoreCase("jdbc")) {
             return createJdbcTable(db, stmt);
-
+        }
+        if (engineName.equals("doris")) {
+            return createDorisTable(db, stmt);
         } else {
             ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_STORAGE_ENGINE, engineName);
         }
@@ -3383,6 +3386,19 @@ public class InternalCatalog implements CatalogIf<Database> {
         jdbcTable.setComment(stmt.getComment());
         // check table if exists
         Pair<Boolean, Boolean> result = db.createTableWithLock(jdbcTable, false, stmt.isSetIfNotExists());
+        return checkCreateTableResult(tableName, tableId, result);
+    }
+
+    private boolean createDorisTable(Database db, CreateTableStmt stmt) throws DdlException {
+        String tableName = stmt.getTableName();
+        List<Column> columns = stmt.getColumns();
+
+        long tableId = Env.getCurrentEnv().getNextId();
+
+        DorisTable dorisTable = new DorisTable(tableId, tableName, columns, stmt.getProperties());
+        dorisTable.setComment(stmt.getComment());
+        // check table if exists
+        Pair<Boolean, Boolean> result = db.createTableWithLock(dorisTable, false, stmt.isSetIfNotExists());
         return checkCreateTableResult(tableName, tableId, result);
     }
 
