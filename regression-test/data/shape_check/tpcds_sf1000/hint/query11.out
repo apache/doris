@@ -53,7 +53,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 
 Hint log:
-Used: leading(t_w_secyear { t_s_secyear t_s_firstyear t_w_firstyear } )
-UnUsed: 
-SyntaxError:
+Used:
+UnUsed:
+SyntaxError: leading(t_w_secyear { t_s_secyear t_s_firstyear t_w_firstyear }) Msg:can not find table: {
 
