@@ -148,9 +148,9 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
         }
     }
 
-    public void scheduleJob(T job) {
+    public void scheduleOneJob(T job) throws JobException {
         // if it's timer job and trigger last window already start, we will scheduler it immediately
-        jobScheduler.cycleTimerJobScheduler(job, System.currentTimeMillis());
+        jobScheduler.scheduleOneJob(job);
     }
 
     private void checkJobNameExist(String jobName) throws JobException {

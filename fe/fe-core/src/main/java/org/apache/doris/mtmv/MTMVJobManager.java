@@ -63,7 +63,12 @@ public class MTMVJobManager implements MTMVHookService {
     @Override
     public void postCreateMTMV(MTMV mtmv) {
         MTMVJob job = getJobByMTMV(mtmv);
-        Env.getCurrentEnv().getJobManager().scheduleJob(job);
+        try {
+            Env.getCurrentEnv().getJobManager().scheduleOneJob(job);
+        } catch (JobException e) {
+            // should not happen
+            LOG.warn("scheduleOneJob failed by mvName: {}", mtmv.getName(), e);
+        }
         if (!mtmv.getRefreshInfo().getBuildMode().equals(BuildMode.IMMEDIATE)) {
             return;
         }
