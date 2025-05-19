@@ -64,7 +64,7 @@ public:
         int64_t version;
         TabletReader::ReadSource read_source;
         int64_t limit;
-        bool aggregation;
+        bool is_pre_aggregation;
     };
 
     OlapScanner(pipeline::ScanLocalStateBase* parent, Params&& params);

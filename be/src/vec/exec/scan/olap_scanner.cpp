@@ -76,7 +76,7 @@ OlapScanner::OlapScanner(pipeline::ScanLocalStateBase* parent, OlapScanner::Para
           _tablet_reader_params({
                   .tablet = std::move(params.tablet),
                   .tablet_schema {},
-                  .aggregation = params.aggregation,
+                  .is_pre_aggregation = params.is_pre_aggregation,
                   .version = {0, params.version},
                   .start_key {},
                   .end_key {},
@@ -259,10 +259,11 @@ Status OlapScanner::_init_tablet_reader_params(
 
     if (_state->skip_storage_engine_merge()) {
         _tablet_reader_params.direct_mode = true;
-        _tablet_reader_params.aggregation = true;
+        _tablet_reader_params.is_pre_aggregation = true;
     } else {
         auto push_down_agg_type = _local_state->get_push_down_agg_type();
-        _tablet_reader_params.direct_mode = _tablet_reader_params.aggregation || single_version ||
+        _tablet_reader_params.direct_mode = _tablet_reader_params.is_pre_aggregation ||
+                                            single_version ||
                                             (push_down_agg_type != TPushAggOp::NONE &&
                                              push_down_agg_type != TPushAggOp::COUNT_ON_INDEX);
     }

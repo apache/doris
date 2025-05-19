@@ -126,7 +126,7 @@ public:
         TabletSchemaSPtr tablet_schema;
         ReaderType reader_type = ReaderType::READER_QUERY;
         bool direct_mode = false;
-        bool aggregation = false;
+        bool is_pre_aggregation = false;
         // for compaction, schema_change, check_sum: we don't use page cache
         // for query and config::disable_storage_page_cache is false, we use page cache
         bool use_page_cache = false;

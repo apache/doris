@@ -124,7 +124,8 @@ Schema::~Schema() {
 }
 
 vectorized::DataTypePtr Schema::get_data_type_ptr(const Field& field) {
-    return vectorized::DataTypeFactory::instance().create_data_type(field);
+    return vectorized::DataTypeFactory::instance().create_data_type(field.get_desc(),
+                                                                    field.is_nullable());
 }
 
 vectorized::IColumn::MutablePtr Schema::get_column_by_field(const Field& field) {

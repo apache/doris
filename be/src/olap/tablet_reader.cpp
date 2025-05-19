@@ -68,7 +68,7 @@ void TabletReader::ReaderParams::check_validation() const {
 std::string TabletReader::ReaderParams::to_string() const {
     std::stringstream ss;
     ss << "tablet=" << tablet->tablet_id() << " reader_type=" << int(reader_type)
-       << " aggregation=" << aggregation << " version=" << version
+       << " is_pre_aggregation=" << is_pre_aggregation << " version=" << version
        << " start_key_include=" << start_key_include << " end_key_include=" << end_key_include;
 
     for (const auto& key : start_key) {
@@ -286,7 +286,7 @@ Status TabletReader::_init_params(const ReaderParams& read_params) {
     read_params.check_validation();
 
     _direct_mode = read_params.direct_mode;
-    _aggregation = read_params.aggregation;
+    _aggregation = read_params.is_pre_aggregation;
     _reader_type = read_params.reader_type;
     _tablet = read_params.tablet;
     _tablet_schema = read_params.tablet_schema;
