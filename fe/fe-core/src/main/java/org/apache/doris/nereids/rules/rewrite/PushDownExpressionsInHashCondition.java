@@ -85,8 +85,8 @@ public class PushDownExpressionsInHashCondition extends OneRewriteRuleFactory {
      */
     public static LogicalJoin<? extends Plan, ? extends Plan> pushDownHashExpression(
             LogicalJoin<? extends Plan, ? extends Plan> join) {
-        Set<NamedExpression> leftProjectExprs = Sets.newHashSet();
-        Set<NamedExpression> rightProjectExprs = Sets.newHashSet();
+        Set<NamedExpression> leftProjectExprs = Sets.newLinkedHashSet();
+        Set<NamedExpression> rightProjectExprs = Sets.newLinkedHashSet();
         Map<Expression, NamedExpression> replaceMap = Maps.newHashMap();
         join.getHashJoinConjuncts().forEach(conjunct -> {
             Preconditions.checkArgument(conjunct instanceof EqualPredicate);

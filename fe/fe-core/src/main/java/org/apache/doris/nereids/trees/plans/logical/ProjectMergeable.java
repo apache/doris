@@ -23,7 +23,6 @@ import org.apache.doris.nereids.util.PlanUtils;
 
 import java.util.List;
 import java.util.Optional;
-import java.util.function.Predicate;
 
 /**
  * ProjectMergeable: merge top projection to current
@@ -36,12 +35,11 @@ import java.util.function.Predicate;
 public interface ProjectMergeable extends ProjectProcessor, OutputPrunable, Plan {
     @Override
     default Optional<Plan> processProject(List<NamedExpression> parentProjects) {
-        return mergeContinuedProjects(parentProjects, this, p -> true);
+        return mergeContinuedProjects(parentProjects, this);
     }
 
     /** merge project until can not merge */
-    static Optional<Plan> mergeContinuedProjects(
-            List<NamedExpression> parentProject, Plan plan, Predicate<Plan> childPredicate) {
+    static Optional<Plan> mergeContinuedProjects(List<NamedExpression> parentProject, Plan plan) {
         if (!(plan instanceof ProjectMergeable)
                 || !((ProjectMergeable) plan).canProcessProject(parentProject)) {
             return Optional.empty();

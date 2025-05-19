@@ -21,6 +21,7 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -34,6 +35,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableSet;
 
 import java.util.ArrayList;
@@ -73,23 +75,39 @@ public class PushDownFilterThroughSetOperation extends OneRewriteRuleFactory {
                             (rowIndex, columnIndex) -> setOperation.getRegularChildOutput(rowIndex).get(columnIndex),
                             Function.identity());
 
+                    List<NamedExpression> setOutputs = setOperation.getOutputs();
                     if (newChildren.isEmpty() && newConstantExprs.isEmpty()) {
                         return new LogicalEmptyRelation(
-                                statementContext.getNextRelationId(), setOperation.getOutputs()
+                                statementContext.getNextRelationId(), setOutputs
                         );
                     } else if (newChildren.isEmpty() && newConstantExprs.size() == 1) {
+                        ImmutableList.Builder<NamedExpression> newOneRowRelationOutput
+                                = ImmutableList.builderWithExpectedSize(newConstantExprs.size());
+                        for (int i = 0; i < newConstantExprs.size(); i++) {
+                            NamedExpression setOutput = setOutputs.get(i);
+                            NamedExpression constantExpr = newConstantExprs.get(0).get(i);
+                            Alias oneRowRelationOutput;
+                            if (constantExpr instanceof Alias) {
+                                oneRowRelationOutput = new Alias(setOutput.getExprId(),
+                                        ((Alias) constantExpr).child(), setOutput.getName());
+                            } else {
+                                oneRowRelationOutput = new Alias(
+                                        setOutput.getExprId(), constantExpr, setOutput.getName());
+                            }
+                            newOneRowRelationOutput.add(oneRowRelationOutput);
+                        }
                         return new LogicalOneRowRelation(
-                                ctx.statementContext.getNextRelationId(), newConstantExprs.get(0)
+                                ctx.statementContext.getNextRelationId(), newOneRowRelationOutput.build()
                         );
                     }
 
-                    ImmutableList.Builder<List<SlotReference>> newChildrenOutput
+                    Builder<List<SlotReference>> newChildrenOutput
                             = ImmutableList.builderWithExpectedSize(newChildren.size());
                     for (Plan newChild : newChildren) {
                         newChildrenOutput.add((List) newChild.getOutput());
                     }
 
-                    return new LogicalUnion(setOperation.getQualifier(), setOperation.getOutputs(),
+                    return new LogicalUnion(setOperation.getQualifier(), setOutputs,
                             newChildrenOutput.build(), newConstantExprs, false, newChildren);
                 }
 
