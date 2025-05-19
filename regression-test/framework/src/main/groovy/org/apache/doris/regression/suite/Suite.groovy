@@ -328,7 +328,7 @@ class Suite implements GroovyInterceptable {
             def user = context.config.jdbcUser
             def password = context.config.jdbcPassword
             Frontend fe = null
-            for (def i=0; fe == null && i<30; i++) {
+            for (def i=0; (fe == null || !fe.alive) && i<30; i++) {
                 if (options.connectToFollower) {
                     fe = cluster.getOneFollowerFe()
                 } else {
@@ -337,7 +337,7 @@ class Suite implements GroovyInterceptable {
                 Thread.sleep(1000)
             }
 
-            logger.info("get fe {}", fe)
+            logger.info("get fe host {} , queryPort {}", fe.host, fe.queryPort)
             assertNotNull(fe)
             if (!isCloud) {
                 for (def be : cluster.getAllBackends()) {
@@ -758,6 +758,55 @@ class Suite implements GroovyInterceptable {
         } else {
             runAction(new ExplainAction(context), actionSupplier)
         }
+    }
+
+    void waitAllDictionariesReady() {
+        logger.info("wait all dictionaries ready")
+        def result
+        for (int _ = 0; _ < 30 ; _++)
+        {
+            result = sql ("show dictionaries")
+            boolean isReady = true
+            for (def i = 0; i < result.size(); i++) {
+                if (result[i][4] != "NORMAL") {
+                    logger.info("dictionary: ${result[i][1]}, status: ${result[i][4]}")
+                    isReady = false
+                    break;
+                }
+            }
+            if (isReady) {
+                logger.info("all dictionaries are ready")
+                return
+            }
+            sleep(1000)
+        }
+        throw new RuntimeException("dictionaries are not ready, status: ${result}")
+    }
+
+    void waitDictionaryReady(String dictName) {
+        logger.info("wait dictionary ${dictName} ready")
+        def result
+        for (int _ = 0; _ < 30 ; _++)
+        {
+            result = sql ("show dictionaries")
+            boolean isReady = true
+            for (def i = 0; i < result.size(); i++) {
+                if (result[i][1] == dictName)
+                {
+                    if (result[i][4] != "NORMAL") {
+                        logger.info("dictionary: ${result[i][1]}, status: ${result[i][4]}")
+                        isReady = false
+                    }
+                    break;
+                }
+            }
+            if (isReady) {
+                logger.info("dictionary ${dictName} are ready")
+                return
+            }
+            sleep(1000)
+        }
+        throw new RuntimeException("dictionary ${dictName} are not ready, status: ${result}")
     }
 
     void flightRecord(Closure actionSupplier) {
@@ -1597,6 +1646,41 @@ class Suite implements GroovyInterceptable {
                     + "see example demo_p0/debugpoint_action.groovy.")
         }
         return debugPoint
+    }
+
+    // get follower ip
+    def get_follower_ip = {
+        def result = sql """show frontends;"""
+        if (result.size() == 1) {
+            return null
+        }
+        for (int i = 0; i < result.size(); i++) {
+            if (result[i][7] == "FOLLOWER" && result[i][8] == "false" && result[i][11] == "true") {
+                return result[i][1]
+            }
+        }
+        return null
+    }
+
+    // get master ip
+    def get_master_ip = {
+        def result = sql """show frontends;"""
+        for (int i = 0; i < result.size(); i++) {
+            if (result[i][7] == "FOLLOWER" && result[i][8] == "true" && result[i][11] == "true") {
+                return result[i][1]
+            }
+        }
+        return null
+    }
+
+    def run_on_follower_and_master = { test_fn ->
+        for (def ip in [get_follower_ip(), get_master_ip()]) {
+            if (ip != null) {
+                def jdbc_url = context.config.jdbcUrl.replaceAll(/\/\/[0-9.]+:/, "//${ip}:")
+                logger.info("jdbc_url: " + jdbc_url)
+                test_fn(jdbc_url)
+            }
+        }
     }
 
     def waitingMTMVTaskFinishedByMvName = { mvName, dbName = context.dbName ->

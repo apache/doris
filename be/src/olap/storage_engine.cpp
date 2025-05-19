@@ -49,14 +49,12 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "gutil/strings/substitute.h"
 #include "io/fs/local_file_system.h"
 #include "olap/binlog.h"
 #include "olap/data_dir.h"
 #include "olap/memtable_flush_executor.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
-#include "olap/olap_meta.h"
 #include "olap/rowset/rowset_fwd.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_meta_manager.h"
@@ -72,7 +70,6 @@
 #include "util/doris_metrics.h"
 #include "util/mem_info.h"
 #include "util/metrics.h"
-#include "util/spinlock.h"
 #include "util/stopwatch.hpp"
 #include "util/thread.h"
 #include "util/threadpool.h"
@@ -246,6 +243,7 @@ static Status load_data_dirs(const std::vector<DataDir*>& data_dirs) {
 
     for (auto* data_dir : data_dirs) {
         st = pool->submit_func([&, data_dir] {
+            SCOPED_INIT_THREAD_CONTEXT();
             {
                 std::lock_guard lock(result_mtx);
                 if (!result.ok()) { // Some data dir has failed
@@ -300,16 +298,17 @@ Status StorageEngine::_open() {
 
 Status StorageEngine::_init_store_map() {
     std::vector<std::thread> threads;
-    SpinLock error_msg_lock;
+    std::mutex error_msg_lock;
     std::string error_msg;
     for (auto& path : _options.store_paths) {
         auto store = std::make_unique<DataDir>(*this, path.path, path.capacity_bytes,
                                                path.storage_medium);
         threads.emplace_back([store = store.get(), &error_msg_lock, &error_msg]() {
+            SCOPED_INIT_THREAD_CONTEXT();
             auto st = store->init();
             if (!st.ok()) {
                 {
-                    std::lock_guard<SpinLock> l(error_msg_lock);
+                    std::lock_guard<std::mutex> l(error_msg_lock);
                     error_msg.append(st.to_string() + ";");
                 }
                 LOG(WARNING) << "Store load failed, status=" << st.to_string()
@@ -1268,7 +1267,7 @@ Status StorageEngine::create_tablet(const TCreateTabletReq& request, RuntimeProf
     return _tablet_manager->create_tablet(request, stores, profile);
 }
 
-Result<BaseTabletSPtr> StorageEngine::get_tablet(int64_t tablet_id) {
+Result<BaseTabletSPtr> StorageEngine::get_tablet(int64_t tablet_id, SyncRowsetStats* sync_stats) {
     BaseTabletSPtr tablet;
     std::string err;
     tablet = _tablet_manager->get_tablet(tablet_id, true, &err);
@@ -1543,7 +1542,7 @@ Status StorageEngine::_persist_broken_paths() {
 
     if (config_value.length() > 0) {
         auto st = config::set_config("broken_storage_path", config_value, true);
-        LOG(INFO) << "persist broken_storae_path " << config_value << st;
+        LOG(INFO) << "persist broken_storage_path " << config_value << st;
         return st;
     }
 

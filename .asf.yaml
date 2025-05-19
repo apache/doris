@@ -52,6 +52,7 @@ github:
           - P0 Regression (Doris Regression)
           - External Regression (Doris External Regression)
           - cloud_p0 (Doris Cloud Regression)
+          - vault_p0 (Doris Cloud Regression)
           - FE UT (Doris FE UT)
           - BE UT (Doris BE UT)
           - Build Broker
@@ -75,7 +76,6 @@ github:
           - CheckStyle
           - Build Broker
           - Build Third Party Libraries (Linux)
-          - Build Third Party Libraries (macOS)
           - FE UT (Doris FE UT)
           - BE UT (Doris BE UT)
           - Cloud UT (Doris Cloud UT)
@@ -83,6 +83,7 @@ github:
           - P0 Regression (Doris Regression)
           - External Regression (Doris External Regression)
           - cloud_p0 (Doris Cloud Regression)
+          - vault_p0 (Doris Cloud Regression)
       required_pull_request_reviews:
         require_code_owner_reviews: true
         required_approving_review_count: 1
@@ -96,7 +97,6 @@ github:
           - CheckStyle
           - Build Broker
           - Build Third Party Libraries (Linux)
-          - Build Third Party Libraries (macOS)
           - COMPILE (DORIS_COMPILE)
           - External Regression (Doris External Regression)
           - FE UT (Doris FE UT)
@@ -129,8 +129,10 @@ github:
     - freemandealer
     - shuke987
     - wm1581066
-    - yujun777
     - doris-robot
-    - LiBinfeng-01
+    - echo-hhj
+    - yuanyuan8983
+    - yz-jayhua
+    - ixzc
 notifications:
   pullrequests_status:  commits@doris.apache.org

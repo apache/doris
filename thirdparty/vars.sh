@@ -253,10 +253,10 @@ GRPC_SOURCE=grpc-1.54.3
 GRPC_MD5SUM="af00a2edeae0f02bb25917cc3473b7de"
 
 # arrow
-ARROW_DOWNLOAD="https://github.com/apache/arrow/archive/refs/tags/apache-arrow-17.0.0.tar.gz"
-ARROW_NAME="apache-arrow-17.0.0.tar.gz"
-ARROW_SOURCE="arrow-apache-arrow-17.0.0"
-ARROW_MD5SUM="ba18bf83e2164abd34b9ac4cb164f0f0"
+ARROW_DOWNLOAD="https://github.com/apache/arrow/archive/refs/tags/apache-arrow-19.0.1.tar.gz"
+ARROW_NAME="apache-arrow-19.0.1.tar.gz"
+ARROW_SOURCE="arrow-apache-arrow-19.0.1"
+ARROW_MD5SUM="8c5091da0f8fb41a47d7f4dad7b712df"
 
 # Abseil
 ABSEIL_DOWNLOAD="https://github.com/abseil/abseil-cpp/archive/refs/tags/20230125.3.tar.gz"
@@ -527,10 +527,10 @@ ICU_SOURCE=icu-release-69-1
 ICU_MD5SUM="135125f633864285d637db5c01e0388b"
 
 # jindofs
-JINDOFS_DOWNLOAD="https://github.com/apache/doris-thirdparty/releases/download/alibabacloud-jindodata-releases/jindofs-6.3.4-libs-0.2.tar.gz"
-JINDOFS_NAME=jindofs-6.3.4-libs-0.2.tar.gz
-JINDOFS_SOURCE=jindofs-6.3.4-libs-0.2
-JINDOFS_MD5SUM="35aa0f6ddf4bf03716f3c88560229cd2"
+JINDOFS_DOWNLOAD="https://github.com/apache/doris-thirdparty/releases/download/alibabacloud-jindodata-releases/jindofs-6.8.2-libs-0.1.tar.gz"
+JINDOFS_NAME=jindofs-6.8.2-libs-0.1.tar.gz
+JINDOFS_SOURCE=jindofs-6.8.2-libs-0.1
+JINDOFS_MD5SUM="0e5b0f71e636b8ed3f09e0bf16208fd1"
 
 # pugixml
 PUGIXML_DOWNLOAD="https://github.com/zeux/pugixml/releases/download/v1.15/pugixml-1.15.tar.gz"

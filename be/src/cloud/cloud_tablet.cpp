@@ -33,6 +33,7 @@
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet_mgr.h"
+#include "common/cast_set.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "io/cache/block_file_cache_downloader.h"
@@ -144,8 +145,8 @@ Status CloudTablet::merge_rowsets_schema() {
 
 // There are only two tablet_states RUNNING and NOT_READY in cloud mode
 // This function will erase the tablet from `CloudTabletMgr` when it can't find this tablet in MS.
-Status CloudTablet::sync_rowsets(const SyncOptions& options) {
-    RETURN_IF_ERROR(sync_if_not_running());
+Status CloudTablet::sync_rowsets(const SyncOptions& options, SyncRowsetStats* stats) {
+    RETURN_IF_ERROR(sync_if_not_running(stats));
 
     if (options.query_version > 0) {
         std::shared_lock rlock(_meta_lock);
@@ -155,7 +156,7 @@ Status CloudTablet::sync_rowsets(const SyncOptions& options) {
     }
 
     // serially execute sync to reduce unnecessary network overhead
-    std::lock_guard lock(_sync_meta_lock);
+    std::unique_lock lock(_sync_meta_lock);
     if (options.query_version > 0) {
         std::shared_lock rlock(_meta_lock);
         if (_max_version >= options.query_version) {
@@ -163,7 +164,7 @@ Status CloudTablet::sync_rowsets(const SyncOptions& options) {
         }
     }
 
-    auto st = _engine.meta_mgr().sync_tablet_rowsets(this, options);
+    auto st = _engine.meta_mgr().sync_tablet_rowsets_unlocked(this, lock, options, stats);
     if (st.is<ErrorCode::NOT_FOUND>()) {
         clear_cache();
     }
@@ -174,13 +175,13 @@ Status CloudTablet::sync_rowsets(const SyncOptions& options) {
 // Sync tablet meta and all rowset meta if not running.
 // This could happen when BE didn't finish schema change job and another BE committed this schema change job.
 // It should be a quite rare situation.
-Status CloudTablet::sync_if_not_running() {
+Status CloudTablet::sync_if_not_running(SyncRowsetStats* stats) {
     if (tablet_state() == TABLET_RUNNING) {
         return Status::OK();
     }
 
     // Serially execute sync to reduce unnecessary network overhead
-    std::lock_guard lock(_sync_meta_lock);
+    std::unique_lock lock(_sync_meta_lock);
 
     {
         std::shared_lock rlock(_meta_lock);
@@ -215,7 +216,7 @@ Status CloudTablet::sync_if_not_running() {
         _max_version = -1;
     }
 
-    st = _engine.meta_mgr().sync_tablet_rowsets(this);
+    st = _engine.meta_mgr().sync_tablet_rowsets_unlocked(this, lock, {}, stats);
     if (st.is<ErrorCode::NOT_FOUND>()) {
         clear_cache();
     }
@@ -261,18 +262,18 @@ void CloudTablet::add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_
                                     ? 0
                                     : rowset_meta->newest_write_timestamp() +
                                               _tablet_meta->ttl_seconds();
-                    _engine.file_cache_block_downloader().submit_download_task(
-                            io::DownloadFileMeta {
-                                    .path = storage_resource.value()->remote_segment_path(
-                                            *rowset_meta, seg_id),
-                                    .file_size = rs->rowset_meta()->segment_file_size(seg_id),
-                                    .file_system = storage_resource.value()->fs,
-                                    .ctx =
-                                            {
-                                                    .expiration_time = expiration_time,
-                                            },
-                                    .download_done {},
-                            });
+                    // clang-format off
+                    _engine.file_cache_block_downloader().submit_download_task(io::DownloadFileMeta {
+                            .path = storage_resource.value()->remote_segment_path(*rowset_meta, seg_id),
+                            .file_size = rs->rowset_meta()->segment_file_size(seg_id),
+                            .file_system = storage_resource.value()->fs,
+                            .ctx =
+                                    {
+                                            .expiration_time = expiration_time,
+                                            .is_dryrun = config::enable_reader_dryrun_when_download_file_cache,
+                                    },
+                            .download_done {},
+                    });
 
                     auto download_idx_file = [&](const io::Path& idx_path) {
                         io::DownloadFileMeta meta {
@@ -282,11 +283,13 @@ void CloudTablet::add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_
                                 .ctx =
                                         {
                                                 .expiration_time = expiration_time,
+                                                .is_dryrun = config::enable_reader_dryrun_when_download_file_cache,
                                         },
                                 .download_done {},
                         };
                         _engine.file_cache_block_downloader().submit_download_task(std::move(meta));
                     };
+                    // clang-format on
                     auto schema_ptr = rowset_meta->tablet_schema();
                     auto idx_version = schema_ptr->get_inverted_index_storage_format();
                     if (idx_version == InvertedIndexStorageFormatPB::V1) {
@@ -386,6 +389,9 @@ void CloudTablet::delete_rowsets(const std::vector<RowsetSharedPtr>& to_delete,
 }
 
 uint64_t CloudTablet::delete_expired_stale_rowsets() {
+    if (config::enable_mow_verbose_log) {
+        LOG_INFO("begin delete_expired_stale_rowset for tablet={}", tablet_id());
+    }
     std::vector<RowsetSharedPtr> expired_rowsets;
     // ATTN: trick, Use stale_rowsets to temporarily increase the reference count of the rowset shared pointer in _stale_rs_version_map so that in the recycle_cached_data function, it checks if the reference count is 2.
     std::vector<RowsetSharedPtr> stale_rowsets;
@@ -437,6 +443,9 @@ uint64_t CloudTablet::delete_expired_stale_rowsets() {
     }
     _tablet_meta->delete_bitmap().remove_stale_delete_bitmap_from_queue(version_to_delete);
     recycle_cached_data(expired_rowsets);
+    if (config::enable_mow_verbose_log) {
+        LOG_INFO("finish delete_expired_stale_rowset for tablet={}", tablet_id());
+    }
     return expired_rowsets.size();
 }
 
@@ -605,6 +614,66 @@ void CloudTablet::get_compaction_status(std::string* json_result) {
     // get snapshot version path json_doc
     _timestamped_version_tracker.get_stale_version_path_json_doc(path_arr);
     root.AddMember("cumulative point", _cumulative_point.load(), root.GetAllocator());
+    rapidjson::Value cumu_value;
+    std::string format_str = ToStringFromUnixMillis(_last_cumu_compaction_failure_millis.load());
+    cumu_value.SetString(format_str.c_str(), cast_set<uint>(format_str.length()),
+                         root.GetAllocator());
+    root.AddMember("last cumulative failure time", cumu_value, root.GetAllocator());
+    rapidjson::Value base_value;
+    format_str = ToStringFromUnixMillis(_last_base_compaction_failure_millis.load());
+    base_value.SetString(format_str.c_str(), cast_set<uint>(format_str.length()),
+                         root.GetAllocator());
+    root.AddMember("last base failure time", base_value, root.GetAllocator());
+    rapidjson::Value full_value;
+    format_str = ToStringFromUnixMillis(_last_full_compaction_failure_millis.load());
+    full_value.SetString(format_str.c_str(), cast_set<uint>(format_str.length()),
+                         root.GetAllocator());
+    root.AddMember("last full failure time", full_value, root.GetAllocator());
+    rapidjson::Value cumu_success_value;
+    format_str = ToStringFromUnixMillis(_last_cumu_compaction_success_millis.load());
+    cumu_success_value.SetString(format_str.c_str(), cast_set<uint>(format_str.length()),
+                                 root.GetAllocator());
+    root.AddMember("last cumulative success time", cumu_success_value, root.GetAllocator());
+    rapidjson::Value base_success_value;
+    format_str = ToStringFromUnixMillis(_last_base_compaction_success_millis.load());
+    base_success_value.SetString(format_str.c_str(), cast_set<uint>(format_str.length()),
+                                 root.GetAllocator());
+    root.AddMember("last base success time", base_success_value, root.GetAllocator());
+    rapidjson::Value full_success_value;
+    format_str = ToStringFromUnixMillis(_last_full_compaction_success_millis.load());
+    full_success_value.SetString(format_str.c_str(), cast_set<uint>(format_str.length()),
+                                 root.GetAllocator());
+    root.AddMember("last full success time", full_success_value, root.GetAllocator());
+    rapidjson::Value cumu_schedule_value;
+    format_str = ToStringFromUnixMillis(_last_cumu_compaction_schedule_millis.load());
+    cumu_schedule_value.SetString(format_str.c_str(), cast_set<uint>(format_str.length()),
+                                  root.GetAllocator());
+    root.AddMember("last cumulative schedule time", cumu_schedule_value, root.GetAllocator());
+    rapidjson::Value base_schedule_value;
+    format_str = ToStringFromUnixMillis(_last_base_compaction_schedule_millis.load());
+    base_schedule_value.SetString(format_str.c_str(), cast_set<uint>(format_str.length()),
+                                  root.GetAllocator());
+    root.AddMember("last base schedule time", base_schedule_value, root.GetAllocator());
+    rapidjson::Value full_schedule_value;
+    format_str = ToStringFromUnixMillis(_last_full_compaction_schedule_millis.load());
+    full_schedule_value.SetString(format_str.c_str(), cast_set<uint>(format_str.length()),
+                                  root.GetAllocator());
+    root.AddMember("last full schedule time", full_schedule_value, root.GetAllocator());
+    rapidjson::Value cumu_compaction_status_value;
+    cumu_compaction_status_value.SetString(_last_cumu_compaction_status.c_str(),
+                                           cast_set<uint>(_last_cumu_compaction_status.length()),
+                                           root.GetAllocator());
+    root.AddMember("last cumulative status", cumu_compaction_status_value, root.GetAllocator());
+    rapidjson::Value base_compaction_status_value;
+    base_compaction_status_value.SetString(_last_base_compaction_status.c_str(),
+                                           cast_set<uint>(_last_base_compaction_status.length()),
+                                           root.GetAllocator());
+    root.AddMember("last base status", base_compaction_status_value, root.GetAllocator());
+    rapidjson::Value full_compaction_status_value;
+    full_compaction_status_value.SetString(_last_full_compaction_status.c_str(),
+                                           cast_set<uint>(_last_full_compaction_status.length()),
+                                           root.GetAllocator());
+    root.AddMember("last full status", full_compaction_status_value, root.GetAllocator());
 
     // print all rowsets' version as an array
     rapidjson::Document versions_arr;
@@ -803,11 +872,12 @@ Status CloudTablet::calc_delete_bitmap_for_compaction(
         const std::vector<RowsetSharedPtr>& input_rowsets, const RowsetSharedPtr& output_rowset,
         const RowIdConversion& rowid_conversion, ReaderType compaction_type, int64_t merged_rows,
         int64_t filtered_rows, int64_t initiator, DeleteBitmapPtr& output_rowset_delete_bitmap,
-        bool allow_delete_in_cumu_compaction) {
+        bool allow_delete_in_cumu_compaction, int64_t& get_delete_bitmap_lock_start_time) {
     output_rowset_delete_bitmap = std::make_shared<DeleteBitmap>(tablet_id());
     std::unique_ptr<RowLocationSet> missed_rows;
     if ((config::enable_missing_rows_correctness_check ||
-         config::enable_mow_compaction_correctness_check_core) &&
+         config::enable_mow_compaction_correctness_check_core ||
+         config::enable_mow_compaction_correctness_check_fail) &&
         !allow_delete_in_cumu_compaction &&
         compaction_type == ReaderType::READER_CUMULATIVE_COMPACTION) {
         missed_rows = std::make_unique<RowLocationSet>();
@@ -840,12 +910,14 @@ Status CloudTablet::calc_delete_bitmap_for_compaction(
                             "not equal to missed rows({}) in rowid conversion, tablet_id: {}, "
                             "table_id:{}",
                             merged_rows, filtered_rows, missed_rows_size, tablet_id(), table_id());
+                    LOG(WARNING) << err_msg;
                     if (config::enable_mow_compaction_correctness_check_core) {
                         CHECK(false) << err_msg;
+                    } else if (config::enable_mow_compaction_correctness_check_fail) {
+                        return Status::InternalError<false>(err_msg);
                     } else {
                         DCHECK(false) << err_msg;
                     }
-                    LOG(WARNING) << err_msg;
                 }
             }
         }
@@ -860,6 +932,7 @@ Status CloudTablet::calc_delete_bitmap_for_compaction(
     RETURN_IF_ERROR(_engine.meta_mgr().get_delete_bitmap_update_lock(
             *this, COMPACTION_DELETE_BITMAP_LOCK_ID, initiator));
     int64_t t2 = MonotonicMicros();
+    get_delete_bitmap_lock_start_time = t2;
     RETURN_IF_ERROR(_engine.meta_mgr().sync_tablet_rowsets(this));
     int64_t t3 = MonotonicMicros();
 

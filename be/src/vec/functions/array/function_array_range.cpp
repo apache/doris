@@ -38,10 +38,10 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_date_or_datetime_v2.h"
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
-#include "vec/data_types/data_type_time_v2.h"
 #include "vec/functions/function.h"
 #include "vec/functions/function_date_or_datetime_computation.h"
 #include "vec/functions/simple_function_factory.h"
@@ -135,8 +135,7 @@ struct RangeImplUtil {
         auto dest_array_column_ptr = ColumnArray::create(return_nested_type->create_column(),
                                                          ColumnArray::ColumnOffsets::create());
         IColumn* dest_nested_column = &dest_array_column_ptr->get_data();
-        ColumnNullable* dest_nested_nullable_col =
-                reinterpret_cast<ColumnNullable*>(dest_nested_column);
+        auto* dest_nested_nullable_col = assert_cast<ColumnNullable*>(dest_nested_column);
         dest_nested_column = dest_nested_nullable_col->get_nested_column_ptr().get();
         auto& dest_nested_null_map = dest_nested_nullable_col->get_null_map_column().get_data();
 
@@ -150,7 +149,8 @@ struct RangeImplUtil {
                 assert_cast<const ColumnVector<SourceDataType>*>(argument_columns[0].get());
         auto end_column =
                 assert_cast<const ColumnVector<SourceDataType>*>(argument_columns[1].get());
-        auto step_column = assert_cast<const ColumnVector<Int32>*>(argument_columns[2].get());
+        const auto* step_column =
+                assert_cast<const ColumnVector<Int32>*>(argument_columns[2].get());
 
         DCHECK(dest_nested_column != nullptr);
         auto& dest_offsets = dest_array_column_ptr->get_offsets();
@@ -188,8 +188,8 @@ private:
                     continue;
                 } else {
                     if (idx < end_row && step_row > 0 &&
-                        ((static_cast<__int128_t>(end_row) - static_cast<__int128_t>(step_row) -
-                          1) / static_cast<__int128_t>(step_row) +
+                        ((static_cast<__int128_t>(end_row) - static_cast<__int128_t>(idx) - 1) /
+                                 static_cast<__int128_t>(step_row) +
                          1) > max_array_size_as_field) {
                         return Status::InvalidArgument("Array size exceeds the limit {}",
                                                        max_array_size_as_field);

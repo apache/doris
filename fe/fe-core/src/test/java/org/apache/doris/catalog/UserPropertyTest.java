@@ -22,6 +22,9 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.CatalogMgr;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.DppConfig;
 import org.apache.doris.mysql.privilege.UserProperty;
 
@@ -95,6 +98,7 @@ public class UserPropertyTest {
         DataInputStream inputStream = new DataInputStream(new ByteArrayInputStream(byteStream.toByteArray()));
         UserProperty newProperty = UserProperty.read(inputStream);
         Assert.assertEquals(qualifiedUser, newProperty.getQualifiedUser());
+        Assert.assertEquals(property.getInitCatalog(), "internal");
     }
 
     @Test
@@ -191,5 +195,45 @@ public class UserPropertyTest {
             Assert.assertTrue(e.getMessage().contains("is not valid"));
         }
         Assert.assertEquals(-1, userProperty.getCpuResourceLimit());
+    }
+
+    @Test
+    public void testUpdateInitCatalog(@Mocked Env env, @Mocked CatalogMgr catalogMgr) throws UserException {
+        CatalogIf internalCatalog = new InternalCatalog();
+        new Expectations() {
+            {
+                Env.getCurrentEnv();
+                minTimes = 1;
+                result = env;
+
+                env.getCatalogMgr();
+                minTimes = 1;
+                result = catalogMgr;
+
+                catalogMgr.getCatalog(anyString);
+                minTimes = 2;
+                result = null;
+                result = internalCatalog;
+            }
+        };
+
+        // for non exist catalog, use internal
+        List<Pair<String, String>> properties = Lists.newArrayList();
+        properties.add(Pair.of("default_init_catalog", "non_exist_catalog"));
+        UserProperty userProperty = new UserProperty();
+        try {
+            userProperty.update(properties);
+            Assert.fail();
+        } catch (Exception e) {
+            Assert.assertTrue(e.getMessage().contains("not exists"));
+        }
+        Assert.assertEquals("internal",  userProperty.getInitCatalog());
+
+        // for exist catalog, use it directly
+        properties = Lists.newArrayList();
+        properties.add(Pair.of("default_init_catalog", "exist_catalog"));
+        userProperty = new UserProperty();
+        userProperty.update(properties);
+        Assert.assertEquals("exist_catalog",  userProperty.getInitCatalog());
     }
 }

@@ -159,17 +159,20 @@ DEFINE_Int64(memtable_limiter_reserved_memory_bytes, "838860800");
 DEFINE_mString(process_minor_gc_size, "5%");
 DEFINE_mString(process_full_gc_size, "10%");
 
-// If true, when the process does not exceed the soft mem limit, the query memory will not be limited;
-// when the process memory exceeds the soft mem limit, the query with the largest ratio between the currently
-// used memory and the exec_mem_limit will be canceled.
-// If false, cancel query when the memory used exceeds exec_mem_limit, same as before.
-DEFINE_mBool(enable_query_memory_overcommit, "true");
-
+// gc will release cache, cancel task, and task will wait for gc to release memory,
+// default gc strategy is conservative, if you want to exclude the interference of gc, let it be true
 DEFINE_mBool(disable_memory_gc, "false");
+
+// for the query being canceled,
+// if (current time - cancel start time) < revoke_memory_max_tolerance_ms, the query memory is counted in `freed_memory`,
+// and the query memory is expected to be released soon.
+// if > revoke_memory_max_tolerance_ms, the query memory will not be counted in `freed_memory`,
+// and the query may be blocked during the cancel process. skip this query and continue to cancel other queries.
+DEFINE_mInt64(revoke_memory_max_tolerance_ms, "3000");
 
 DEFINE_mBool(enable_stacktrace, "true");
 
-DEFINE_mInt64(stacktrace_in_alloc_large_memory_bytes, "2147483648");
+DEFINE_mInt64(stacktrace_in_alloc_large_memory_bytes, "2147483647"); // 2GB -1
 
 DEFINE_mInt64(crash_in_alloc_large_memory_bytes, "-1");
 
@@ -255,7 +258,7 @@ DEFINE_mInt32(download_low_speed_time, "300");
 // whether to download small files in batch
 DEFINE_mBool(enable_batch_download, "true");
 // whether to check md5sum when download
-DEFINE_mBool(enable_download_md5sum_check, "true");
+DEFINE_mBool(enable_download_md5sum_check, "false");
 // download binlog meta timeout, default 30s
 DEFINE_mInt32(download_binlog_meta_timeout_ms, "30000");
 
@@ -287,6 +290,7 @@ DEFINE_Int32(be_service_threads, "64");
 
 // The pipeline task has a high concurrency, therefore reducing its report frequency
 DEFINE_mInt32(pipeline_status_report_interval, "10");
+DEFINE_mInt32(pipeline_task_exec_time_slice, "100");
 // number of scanner thread pool size for olap table
 // and the min thread num of remote scanner thread pool
 DEFINE_Int32(doris_scanner_thread_pool_thread_num, "-1");
@@ -647,8 +651,7 @@ DEFINE_Bool(ignore_broken_disk, "false");
 // Sleep time in milliseconds between memory maintenance iterations
 DEFINE_mInt32(memory_maintenance_sleep_time_ms, "50");
 
-// After full gc, no longer full gc and minor gc during sleep.
-// After minor gc, no minor gc during sleep, but full gc is possible.
+// Memory gc are expensive, wait a while to avoid too frequent.
 DEFINE_mInt32(memory_gc_sleep_time_ms, "500");
 
 // max write buffer size before flush, default 200MB
@@ -657,6 +660,9 @@ DEFINE_mInt64(write_buffer_size, "209715200");
 DEFINE_mInt64(write_buffer_size_for_agg, "419430400");
 // max parallel flush task per memtable writer
 DEFINE_mInt32(memtable_flush_running_count_limit, "2");
+
+// maximum sleep time to wait for memory when writing or flushing memtable.
+DEFINE_mInt32(memtable_wait_for_memory_sleep_time_s, "300");
 
 DEFINE_Int32(load_process_max_memory_limit_percent, "50"); // 50%
 
@@ -875,9 +881,6 @@ DEFINE_Int32(send_batch_thread_pool_queue_size, "102400");
 DEFINE_mInt32(max_segment_num_per_rowset, "1000");
 DEFINE_mInt32(segment_compression_threshold_kb, "256");
 
-// The connection timeout when connecting to external table such as odbc table.
-DEFINE_mInt32(external_table_connect_timeout_sec, "30");
-
 // Time to clean up useless JDBC connection pool cache
 DEFINE_mInt32(jdbc_connection_pool_cache_clear_time_sec, "28800");
 
@@ -919,7 +922,7 @@ DEFINE_Int32(multi_table_max_wait_tables, "5");
 // Doris treats it as a high priority task.
 // high priority tasks use a separate thread pool for flush and do not block rpc by memory cleanup logic.
 // this threshold is mainly used to identify routine load tasks and should not be modified if not necessary.
-DEFINE_mInt32(load_task_high_priority_threshold_second, "120");
+DEFINE_mInt32(load_task_high_priority_threshold_second, "600");
 
 // The min timeout of load rpc (add batch, close, etc.)
 // Because a load rpc may be blocked for a while.
@@ -1090,6 +1093,10 @@ DEFINE_mInt64(cache_lock_held_long_tail_threshold_us, "30000000");
 DEFINE_mBool(enable_file_cache_keep_base_compaction_output, "false");
 DEFINE_mInt64(file_cache_remove_block_qps_limit, "1000");
 DEFINE_mInt64(file_cache_background_gc_interval_ms, "100");
+DEFINE_mBool(enable_reader_dryrun_when_download_file_cache, "true");
+DEFINE_mInt64(file_cache_background_monitor_interval_ms, "5000");
+DEFINE_mInt64(file_cache_background_ttl_gc_interval_ms, "3000");
+DEFINE_mInt64(file_cache_background_ttl_gc_batch, "1000");
 
 DEFINE_mInt32(index_cache_entry_stay_time_after_lookup_s, "1800");
 DEFINE_mInt32(inverted_index_cache_stale_sweep_time_sec, "600");
@@ -1198,6 +1205,9 @@ DEFINE_mBool(enable_merge_on_write_correctness_check, "true");
 // USED FOR DEBUGING
 // core directly if the compaction found there's duplicate key on mow table
 DEFINE_mBool(enable_mow_compaction_correctness_check_core, "false");
+// USED FOR DEBUGING
+// let compaction fail if the compaction found there's duplicate key on mow table
+DEFINE_mBool(enable_mow_compaction_correctness_check_fail, "false");
 // rowid conversion correctness check when compaction for mow table
 DEFINE_mBool(enable_rowid_conversion_correctness_check, "false");
 // missing rows correctness check when compaction for mow table
@@ -1258,8 +1268,6 @@ DEFINE_mBool(enable_be_proc_monitor, "false");
 DEFINE_mInt32(be_proc_monitor_interval_ms, "10000");
 
 DEFINE_Int32(workload_group_metrics_interval_ms, "5000");
-
-DEFINE_mBool(enable_workload_group_memory_gc, "true");
 
 DEFINE_Bool(ignore_always_true_predicate_for_segment, "true");
 
@@ -1327,6 +1335,7 @@ DEFINE_mBool(force_azure_blob_global_endpoint, "false");
 DEFINE_mInt32(max_s3_client_retry, "10");
 DEFINE_mInt32(s3_read_base_wait_time_ms, "100");
 DEFINE_mInt32(s3_read_max_wait_time_ms, "800");
+DEFINE_mBool(enable_s3_object_check_after_upload, "true");
 
 DEFINE_mBool(enable_s3_rate_limiter, "false");
 DEFINE_mInt64(s3_get_bucket_tokens, "1000000000000000000");
@@ -1481,6 +1490,8 @@ DEFINE_mInt32(tablet_sched_delay_time_ms, "5000");
 DEFINE_mInt32(load_trigger_compaction_version_percent, "66");
 DEFINE_mInt64(base_compaction_interval_seconds_since_last_operation, "86400");
 DEFINE_mBool(enable_compaction_pause_on_high_memory, "true");
+
+DEFINE_mBool(enable_calc_delete_bitmap_between_segments_concurrently, "false");
 
 // clang-format off
 #ifdef BE_TEST

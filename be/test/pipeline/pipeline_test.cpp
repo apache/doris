@@ -321,7 +321,7 @@ TEST_F(PipelineTest, HAPPY_PATH) {
     auto& sink_local_state =
             _runtime_states.back().front()->get_sink_local_state()->cast<ExchangeSinkLocalState>();
     EXPECT_EQ(sink_local_state.channels.size(), 1);
-    EXPECT_EQ(sink_local_state.only_local_exchange, true);
+    EXPECT_EQ(sink_local_state._only_local_exchange, true);
 
     EXPECT_EQ(local_state.stream_recvr->sender_queues().size(), 1);
 
@@ -906,9 +906,7 @@ TEST_F(PipelineTest, PLAN_HASH_JOIN) {
         int task_id = 0;
         _runtime_filter_mgrs.resize(parallelism);
         for (int j = 0; j < parallelism; j++) {
-            auto runtime_filter_state = RuntimeFilterParamsContext::create(_query_ctx.get());
-            _runtime_filter_mgrs[j] = std::make_unique<RuntimeFilterMgr>(
-                    _query_id, runtime_filter_state, _query_ctx->query_mem_tracker(), false);
+            _runtime_filter_mgrs[j] = std::make_unique<RuntimeFilterMgr>(false);
         }
         for (size_t i = 0; i < _pipelines.size(); i++) {
             EXPECT_EQ(_pipelines[i]->id(), i);
@@ -932,7 +930,6 @@ TEST_F(PipelineTest, PLAN_HASH_JOIN) {
                 local_runtime_state->set_task_execution_context(
                         std::static_pointer_cast<TaskExecutionContext>(_context.back()));
                 local_runtime_state->set_runtime_filter_mgr(_runtime_filter_mgrs[j].get());
-                _runtime_filter_mgrs[j]->_state->set_state(local_runtime_state.get());
                 std::map<int, std::pair<std::shared_ptr<BasicSharedState>,
                                         std::vector<std::shared_ptr<Dependency>>>>
                         shared_state_map;
@@ -1098,28 +1095,22 @@ TEST_F(PipelineTest, PLAN_HASH_JOIN) {
                               ->_runtime_filter_type,
                       RuntimeFilterType::IN_OR_BLOOM_FILTER);
             EXPECT_EQ(_pipeline_tasks[1][j]->_is_pending_finish(), false);
+            auto wrapper =
+                    sink_local_state._runtime_filter_producer_helper->_producers[0]->_wrapper;
             EXPECT_EQ(_pipeline_tasks[1][j]->close(Status::OK()), Status::OK());
-            EXPECT_EQ(sink_local_state._runtime_filter_producer_helper->_producers[0]
-                              ->_wrapper->get_real_type(),
+            EXPECT_EQ(wrapper->get_real_type(),
                       j == 0 ? RuntimeFilterType::IN_FILTER : RuntimeFilterType::BLOOM_FILTER)
                     << "  " << j << " "
                     << sink_local_state._runtime_filter_producer_helper->_producers[0]
                                ->debug_string();
-            EXPECT_TRUE(sink_local_state._runtime_filter_producer_helper->_producers[0]
-                                ->_wrapper->_state == RuntimeFilterWrapper::State::READY);
+            EXPECT_TRUE(wrapper->_state == RuntimeFilterWrapper::State::READY);
 
             if (j == 0) {
-                EXPECT_EQ(sink_local_state._runtime_filter_producer_helper->_producers[0]
-                                  ->_wrapper->_hybrid_set->size(),
-                          1);
+                EXPECT_EQ(wrapper->_hybrid_set->size(), 1);
             } else {
-                EXPECT_EQ(sink_local_state._runtime_filter_producer_helper->_producers[0]
-                                  ->_wrapper->_bloom_filter_func->build_bf_by_runtime_size(),
-                          false);
+                EXPECT_EQ(wrapper->_bloom_filter_func->build_bf_by_runtime_size(), false);
 
-                EXPECT_EQ(sink_local_state._runtime_filter_producer_helper->_producers[0]
-                                  ->_wrapper->_bloom_filter_func->_bloom_filter_length,
-                          1048576);
+                EXPECT_EQ(wrapper->_bloom_filter_func->_bloom_filter_length, 1048576);
             }
         }
     }

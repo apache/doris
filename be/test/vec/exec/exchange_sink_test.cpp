@@ -47,12 +47,12 @@ TEST_F(ExchangeSInkTest, test_normal_end) {
         EXPECT_EQ(sink3.add_block(dest_ins_id_2, true), Status::OK());
         EXPECT_EQ(sink3.add_block(dest_ins_id_3, true), Status::OK());
 
-        for (auto [id, count] : buffer->_running_sink_count) {
-            EXPECT_EQ(count, 3) << "id : " << id;
+        for (const auto& [id, instance] : buffer->_rpc_instances) {
+            EXPECT_EQ(instance->running_sink_count, 3) << "id : " << id;
         }
 
-        for (auto [id, is_turn_off] : buffer->_rpc_channel_is_turn_off) {
-            EXPECT_EQ(is_turn_off, false) << "id : " << id;
+        for (const auto& [id, instance] : buffer->_rpc_instances) {
+            EXPECT_EQ(instance->rpc_channel_is_turn_off, false) << "id : " << id;
         }
 
         pop_block(dest_ins_id_1, PopState::accept);
@@ -67,12 +67,12 @@ TEST_F(ExchangeSInkTest, test_normal_end) {
         pop_block(dest_ins_id_3, PopState::accept);
         pop_block(dest_ins_id_3, PopState::accept);
 
-        for (auto [id, count] : buffer->_running_sink_count) {
-            EXPECT_EQ(count, 0) << "id : " << id;
+        for (const auto& [id, instance] : buffer->_rpc_instances) {
+            EXPECT_EQ(instance->running_sink_count, 0) << "id : " << id;
         }
 
-        for (auto [id, is_turn_off] : buffer->_rpc_channel_is_turn_off) {
-            EXPECT_EQ(is_turn_off, true) << "id : " << id;
+        for (const auto& [id, instance] : buffer->_rpc_instances) {
+            EXPECT_EQ(instance->rpc_channel_is_turn_off, true) << "id : " << id;
         }
         clear_all_done();
     }
@@ -99,17 +99,17 @@ TEST_F(ExchangeSInkTest, test_eof_end) {
         EXPECT_EQ(sink3.add_block(dest_ins_id_2, true), Status::OK());
         EXPECT_EQ(sink3.add_block(dest_ins_id_3, false), Status::OK());
 
-        for (auto [id, count] : buffer->_running_sink_count) {
-            EXPECT_EQ(count, 3) << "id : " << id;
+        for (const auto& [id, instance] : buffer->_rpc_instances) {
+            EXPECT_EQ(instance->running_sink_count, 3) << "id : " << id;
         }
 
-        for (auto [id, is_turn_off] : buffer->_rpc_channel_is_turn_off) {
-            EXPECT_EQ(is_turn_off, false) << "id : " << id;
+        for (const auto& [id, instance] : buffer->_rpc_instances) {
+            EXPECT_EQ(instance->rpc_channel_is_turn_off, false) << "id : " << id;
         }
 
         pop_block(dest_ins_id_1, PopState::eof);
-        EXPECT_EQ(buffer->_rpc_channel_is_turn_off[dest_ins_id_1], true);
-        EXPECT_TRUE(buffer->_instance_to_package_queue[dest_ins_id_1].empty());
+        EXPECT_EQ(buffer->_rpc_instances[dest_ins_id_1]->rpc_channel_is_turn_off, true);
+        EXPECT_TRUE(buffer->_rpc_instances[dest_ins_id_1]->package_queue.empty());
 
         pop_block(dest_ins_id_2, PopState::accept);
         pop_block(dest_ins_id_2, PopState::accept);
@@ -119,9 +119,11 @@ TEST_F(ExchangeSInkTest, test_eof_end) {
         pop_block(dest_ins_id_3, PopState::accept);
         pop_block(dest_ins_id_3, PopState::accept);
 
-        EXPECT_EQ(buffer->_rpc_channel_is_turn_off[dest_ins_id_1], true);
-        EXPECT_EQ(buffer->_rpc_channel_is_turn_off[dest_ins_id_2], false) << "not all eos";
-        EXPECT_EQ(buffer->_rpc_channel_is_turn_off[dest_ins_id_3], false) << " not all eos";
+        EXPECT_EQ(buffer->_rpc_instances[dest_ins_id_1]->rpc_channel_is_turn_off, true);
+        EXPECT_EQ(buffer->_rpc_instances[dest_ins_id_2]->rpc_channel_is_turn_off, false)
+                << "not all eos";
+        EXPECT_EQ(buffer->_rpc_instances[dest_ins_id_3]->rpc_channel_is_turn_off, false)
+                << " not all eos";
 
         EXPECT_TRUE(sink1.add_block(dest_ins_id_1, true).is<ErrorCode::END_OF_FILE>());
         EXPECT_EQ(sink1.add_block(dest_ins_id_2, true), Status::OK());
@@ -129,10 +131,10 @@ TEST_F(ExchangeSInkTest, test_eof_end) {
         pop_block(dest_ins_id_2, PopState::accept);
         pop_block(dest_ins_id_3, PopState::accept);
 
-        EXPECT_EQ(buffer->_rpc_channel_is_turn_off[dest_ins_id_1], true);
-        EXPECT_EQ(buffer->_rpc_channel_is_turn_off[dest_ins_id_2], true);
-        EXPECT_EQ(buffer->_rpc_channel_is_turn_off[dest_ins_id_3], false);
-        EXPECT_EQ(buffer->_running_sink_count[dest_ins_id_3], 1);
+        EXPECT_EQ(buffer->_rpc_instances[dest_ins_id_1]->rpc_channel_is_turn_off, true);
+        EXPECT_EQ(buffer->_rpc_instances[dest_ins_id_2]->rpc_channel_is_turn_off, true);
+        EXPECT_EQ(buffer->_rpc_instances[dest_ins_id_3]->rpc_channel_is_turn_off, false);
+        EXPECT_EQ(buffer->_rpc_instances[dest_ins_id_3]->running_sink_count, 1);
 
         clear_all_done();
     }
@@ -159,12 +161,12 @@ TEST_F(ExchangeSInkTest, test_error_end) {
         EXPECT_EQ(sink3.add_block(dest_ins_id_2, false), Status::OK());
         EXPECT_EQ(sink3.add_block(dest_ins_id_3, false), Status::OK());
 
-        for (auto [id, count] : buffer->_running_sink_count) {
-            EXPECT_EQ(count, 3) << "id : " << id;
+        for (const auto& [id, instance] : buffer->_rpc_instances) {
+            EXPECT_EQ(instance->running_sink_count, 3) << "id : " << id;
         }
 
-        for (auto [id, is_turn_off] : buffer->_rpc_channel_is_turn_off) {
-            EXPECT_EQ(is_turn_off, false) << "id : " << id;
+        for (const auto& [id, instance] : buffer->_rpc_instances) {
+            EXPECT_EQ(instance->rpc_channel_is_turn_off, false) << "id : " << id;
         }
 
         pop_block(dest_ins_id_2, PopState::error);
@@ -226,9 +228,9 @@ TEST_F(ExchangeSInkTest, test_queue_size) {
 
         std::cout << "each queue size : \n" << buffer->debug_each_instance_queue_size() << "\n";
 
-        EXPECT_EQ(buffer->_rpc_channel_is_turn_off[dest_ins_id_1], false);
-        EXPECT_EQ(buffer->_rpc_channel_is_turn_off[dest_ins_id_2], true);
-        EXPECT_EQ(buffer->_rpc_channel_is_turn_off[dest_ins_id_3], false);
+        EXPECT_EQ(buffer->_rpc_instances[dest_ins_id_1]->rpc_channel_is_turn_off, false);
+        EXPECT_EQ(buffer->_rpc_instances[dest_ins_id_2]->rpc_channel_is_turn_off, true);
+        EXPECT_EQ(buffer->_rpc_instances[dest_ins_id_3]->rpc_channel_is_turn_off, false);
         clear_all_done();
     }
 }

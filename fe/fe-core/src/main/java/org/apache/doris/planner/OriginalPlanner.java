@@ -616,7 +616,7 @@ public class OriginalPlanner extends Planner {
             String columnName = columnLabels.get(i);
             if (expr instanceof LiteralExpr) {
                 columns.add(new Column(columnName, expr.getType()));
-                data.add(((LiteralExpr) expr).getStringValueInFe(options));
+                data.add(((LiteralExpr) expr).getStringValueForQuery(options));
             } else {
                 return Optional.empty();
             }

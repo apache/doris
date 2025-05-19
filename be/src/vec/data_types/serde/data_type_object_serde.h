@@ -34,17 +34,16 @@ namespace vectorized {
 class IColumn;
 class Arena;
 
-class DataTypeObjectSerDe : public DataTypeSerDe {
+class DataTypeVariantSerDe : public DataTypeSerDe {
 public:
-    DataTypeObjectSerDe(int nesting_level = 1) : DataTypeSerDe(nesting_level) {};
+    DataTypeVariantSerDe(int nesting_level = 1) : DataTypeSerDe(nesting_level) {};
 
     Status serialize_one_cell_to_json(const IColumn& column, int64_t row_num, BufferWritable& bw,
                                       FormatOptions& options) const override;
 
     Status serialize_column_to_json(const IColumn& column, int64_t start_idx, int64_t end_idx,
-                                    BufferWritable& bw, FormatOptions& options) const override {
-        return Status::NotSupported("serialize_column_to_json with type [{}]", column.get_name());
-    }
+                                    BufferWritable& bw, FormatOptions& options) const override;
+
     Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                           const FormatOptions& options) const override {
         return Status::NotSupported("deserialize_one_cell_from_text with type " +

@@ -20,12 +20,11 @@
 
 #include "mem_info.h"
 
-#include "gutil/strings/split.h"
-
 #ifdef __APPLE__
 #include <sys/sysctl.h>
 #endif
 
+#include <absl/strings/str_split.h>
 #include <bvar/bvar.h>
 #include <fmt/format.h>
 #include <gen_cpp/Metrics_types.h>
@@ -72,7 +71,7 @@ void MemInfo::refresh_proc_meminfo() {
 
     while (meminfo.good() && !meminfo.eof()) {
         getline(meminfo, line);
-        std::vector<std::string> fields = strings::Split(line, " ", strings::SkipWhitespace());
+        std::vector<std::string> fields = absl::StrSplit(line, " ", absl::SkipWhitespace());
         if (fields.size() < 2) {
             continue;
         }

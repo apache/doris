@@ -1106,7 +1106,8 @@ Status CompactionMixin::modify_rowsets() {
         DeleteBitmap output_rowset_delete_bitmap(_tablet->tablet_id());
         std::unique_ptr<RowLocationSet> missed_rows;
         if ((config::enable_missing_rows_correctness_check ||
-             config::enable_mow_compaction_correctness_check_core) &&
+             config::enable_mow_compaction_correctness_check_core ||
+             config::enable_mow_compaction_correctness_check_fail) &&
             !_allow_delete_in_cumu_compaction &&
             compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION) {
             missed_rows = std::make_unique<RowLocationSet>();
@@ -1184,12 +1185,14 @@ Status CompactionMixin::modify_rowsets() {
                         " tablet_id: {}, table_id:{}",
                         _stats.merged_rows, _stats.filtered_rows, missed_rows_size,
                         _tablet->tablet_id(), _tablet->table_id());
+                LOG(WARNING) << err_msg;
                 if (config::enable_mow_compaction_correctness_check_core) {
                     CHECK(false) << err_msg;
+                } else if (config::enable_mow_compaction_correctness_check_fail) {
+                    return Status::InternalError<false>(err_msg);
                 } else {
                     DCHECK(false) << err_msg;
                 }
-                LOG(WARNING) << err_msg;
             }
         }
 
@@ -1477,7 +1480,8 @@ Status CloudCompactionMixin::execute_compact() {
     HANDLE_EXCEPTION_IF_CATCH_EXCEPTION(
             execute_compact_impl(permits), [&](const doris::Exception& ex) {
                 auto st = garbage_collection();
-                if (!st.ok() && initiator() != INVALID_COMPACTION_INITIATOR_ID) {
+                if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
+                    _tablet->enable_unique_key_merge_on_write() && !st.ok()) {
                     // if compaction fail, be will try to abort compaction, and delete bitmap lock
                     // will release if abort job successfully, but if abort failed, delete bitmap
                     // lock will not release, in this situation, be need to send this rpc to ms

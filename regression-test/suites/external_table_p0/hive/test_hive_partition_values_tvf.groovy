@@ -99,12 +99,12 @@ suite("test_hive_partition_values_tvf", "p0,external,hive,external_docker,extern
         qt_sql102 """select * from internal.partition_values_db.pv_inner1"""
         test {
             sql """desc internal.partition_values_db.pv_inner1\$partitions"""
-            exception """Unknown table 'pv_inner1\$partitions'"""
+            exception """sys table not found: partitions"""
         }
 
         test {
             sql """select * from internal.partition_values_db.pv_inner1\$partitions"""
-            exception """Table [pv_inner1\$partitions] does not exist in database [partition_values_db]"""
+            exception """Unknown sys table 'pv_inner1\$partitions'"""
         }
 
         // 13. test all types of partition columns

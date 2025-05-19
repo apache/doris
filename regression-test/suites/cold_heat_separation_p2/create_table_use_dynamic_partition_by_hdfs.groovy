@@ -19,6 +19,9 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 import java.time.LocalDate;
 
 suite("cold_heat_dynamic_partition_by_hdfs") {
+    if (!enableHdfs()) {
+        logger.info("skip this case because hdfs is not enabled");
+    }
     def fetchBeHttp = { check_func, meta_url ->
         def i = meta_url.indexOf("/api")
         String endPoint = meta_url.substring(0, i)
@@ -48,7 +51,8 @@ suite("cold_heat_dynamic_partition_by_hdfs") {
     }
     // used as passing out parameter to fetchDataSize
     List<Long> sizes = [-1, -1]
-    def tableName = "tbl2"
+    def suffix = UUID.randomUUID().hashCode().abs()
+    def tableName = "tbl2${suffix}"
     sql """ DROP TABLE IF EXISTS ${tableName} """
 
     def check_storage_policy_exist = { name->
@@ -63,8 +67,8 @@ suite("cold_heat_dynamic_partition_by_hdfs") {
         return false;
     }
 
-    def resource_name = "test_dynamic_partition_resource"
-    def policy_name= "test_dynamic_partition_policy"
+    def resource_name = "test_dynamic_partition_resource${suffix}"
+    def policy_name= "test_dynamic_partition_policy${suffix}"
 
     if (check_storage_policy_exist(policy_name)) {
         sql """
@@ -87,12 +91,7 @@ suite("cold_heat_dynamic_partition_by_hdfs") {
             "type"="hdfs",
             "fs.defaultFS"="${getHdfsFs()}",
             "hadoop.username"="${getHdfsUser()}",
-            "hadoop.password"="${getHdfsPasswd()}",
-            "dfs.nameservices" = "my_ha",
-            "dfs.ha.namenodes.my_ha" = "my_namenode1, my_namenode2",
-            "dfs.namenode.rpc-address.my_ha.my_namenode1" = "127.0.0.1:10000",
-            "dfs.namenode.rpc-address.my_ha.my_namenode2" = "127.0.0.1:10000",
-            "dfs.client.failover.proxy.provider" = "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider"
+            "hadoop.password"="${getHdfsPasswd()}"
         );
     """
 
@@ -167,7 +166,8 @@ suite("cold_heat_dynamic_partition_by_hdfs") {
     """
     log.info( "test tablets not empty")
     fetchDataSize(sizes, tablets[0])
-    while (sizes[1] == 0) {
+    def retry = 100
+    while (sizes[1] == 0 && retry --> 0) {
         log.info( "test remote size is zero, sleep 10s")
         sleep(10000)
         tablets = sql_return_maparray """
@@ -175,6 +175,7 @@ suite("cold_heat_dynamic_partition_by_hdfs") {
         """
         fetchDataSize(sizes, tablets[0])
     }
+    assertTrue(sizes[1] != 0, "remote size is still zero, maybe some error occurred")
     assertTrue(tablets.size() > 0)
     LocalDataSize1 = sizes[0]
     RemoteDataSize1 = sizes[1]
@@ -201,57 +202,55 @@ suite("cold_heat_dynamic_partition_by_hdfs") {
         assertTrue(par[12] == "${policy_name}")
     }
 
+    def tmp_policy = "tmp_policy${suffix}"
     try_sql """
-    drop storage policy tmp_policy;
+    drop storage policy ${tmp_policy};
     """
 
+    def tmp_resource = "tmp_resource${suffix}"
     try_sql """
-    drop resource tmp_resource;
+    drop resource ${tmp_resource};
     """
 
     sql """
-        CREATE RESOURCE IF NOT EXISTS "tmp_resource"
+        CREATE RESOURCE IF NOT EXISTS "${tmp_resource}"
         PROPERTIES(
             "type"="hdfs",
             "fs.defaultFS"="${getHdfsFs()}",
             "hadoop.username"="${getHdfsUser()}",
-            "hadoop.password"="${getHdfsPasswd()}",
-            "dfs.nameservices" = "my_ha",
-            "dfs.ha.namenodes.my_ha" = "my_namenode1, my_namenode2",
-            "dfs.namenode.rpc-address.my_ha.my_namenode1" = "127.0.0.1:10000",
-            "dfs.namenode.rpc-address.my_ha.my_namenode2" = "127.0.0.1:10000",
-            "dfs.client.failover.proxy.provider" = "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider"
+            "hadoop.password"="${getHdfsPasswd()}"
         );
     """
 
     try_sql """
-    create storage policy tmp_policy
-    PROPERTIES( "storage_resource" = "tmp_resource", "cooldown_ttl" = "300");
+    create storage policy ${tmp_policy}
+    PROPERTIES( "storage_resource" = "${tmp_resource}", "cooldown_ttl" = "300");
     """
 
     // can not set to one policy with different resource
     try {
-        sql """alter table ${tableName} set ("storage_policy" = "tmp_policy");"""
+        sql """alter table ${tableName} set ("storage_policy" = "${tmp_policy}");"""
     } catch (java.sql.SQLException t) {
         assertTrue(true)
     }
 
+    def tmp_policy1 = "tmp_policy1${suffix}"
     sql """
-        CREATE STORAGE POLICY IF NOT EXISTS tmp_policy1
+        CREATE STORAGE POLICY IF NOT EXISTS ${tmp_policy1}
         PROPERTIES(
             "storage_resource" = "${resource_name}",
             "cooldown_ttl" = "60"
         )
     """
 
-    sql """alter table ${tableName} set ("storage_policy" = "tmp_policy1");"""
+    sql """alter table ${tableName} set ("storage_policy" = "${tmp_policy1}");"""
 
     // wait for report
     sleep(300000)
 
     partitions = sql "show partitions from ${tableName}"
     for (par in partitions) {
-        assertTrue(par[12] == "tmp_policy1")
+        assertTrue(par[12] == "${tmp_policy1}")
     }
 
     sql """
@@ -263,15 +262,15 @@ suite("cold_heat_dynamic_partition_by_hdfs") {
     """
 
     sql """
-    drop storage policy tmp_policy;
+    drop storage policy ${tmp_policy};
     """
 
     sql """
-    drop storage policy tmp_policy1;
+    drop storage policy ${tmp_policy1};
     """
 
     sql """
-    drop resource tmp_resource;
+    drop resource ${tmp_resource};
     """
 
 
