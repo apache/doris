@@ -1703,6 +1703,8 @@ Status PipelineFragmentContext::submit() {
     for (auto& task : _tasks) {
         for (auto& t : task) {
             st = scheduler->schedule_task(t);
+            DBUG_EXECUTE_IF("PipelineFragmentContext.submit.failed",
+                            { st = Status::Aborted("PipelineFragmentContext.submit.failed"); });
             if (!st) {
                 cancel(Status::InternalError("submit context to executor fail"));
                 std::lock_guard<std::mutex> l(_task_mutex);
