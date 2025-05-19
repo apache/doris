@@ -164,6 +164,7 @@ Status VerticalBlockReader::_init_collect_iter(const ReaderParams& read_params,
     if (read_params.batch_size > 0) {
         opts.block_row_max = read_params.batch_size;
     }
+    opts.unique_key_read_by_mor = read_params.unique_key_read_by_mor;
     RETURN_IF_ERROR(_vcollect_iter->init(opts, sample_info));
 
     // In agg keys value columns compact, get first row for _init_agg_state
@@ -238,7 +239,7 @@ Status VerticalBlockReader::init(const ReaderParams& read_params,
         _next_block_func = &VerticalBlockReader::_direct_next_block;
         break;
     case KeysType::UNIQUE_KEYS:
-        if (tablet()->tablet_meta()->tablet_schema()->cluster_key_uids().empty()) {
+        if (read_params.unique_key_read_by_mor) {
             _next_block_func = &VerticalBlockReader::_unique_key_next_block;
             if (_filter_delete) {
                 _delete_filter_column = ColumnUInt8::create();
