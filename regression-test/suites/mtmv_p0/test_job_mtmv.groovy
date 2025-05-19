@@ -52,7 +52,7 @@ suite("test_job_mtmv","mtmv") {
             SELECT * from ${tableName};
             """
 
-    order_qt_deferred_commit "select MvName,ExecuteType,RecurringStrategy,Status from jobs('type'='mv') where MvName='${mvName}'' and MvDatabaseName='${dbName}';"
+    order_qt_deferred_commit "select MvName,ExecuteType,RecurringStrategy,Status from jobs('type'='mv') where MvName='${mvName}' and MvDatabaseName='${dbName}';"
     sql """drop materialized view if exists ${mvName};"""
 
     sql """
@@ -65,7 +65,7 @@ suite("test_job_mtmv","mtmv") {
             AS
             SELECT * from ${tableName};
             """
-    order_qt_deferred_manual "select MvName,ExecuteType,RecurringStrategy,Status from jobs('type'='mv') where MvName='${mvName}'' and MvDatabaseName='${dbName}';"
+    order_qt_deferred_manual "select MvName,ExecuteType,RecurringStrategy,Status from jobs('type'='mv') where MvName='${mvName}' and MvDatabaseName='${dbName}';"
     sql """drop materialized view if exists ${mvName};"""
 
     sql """
@@ -78,7 +78,7 @@ suite("test_job_mtmv","mtmv") {
             AS
             SELECT * from ${tableName};
             """
-    order_qt_immediate_manual "select MvName,ExecuteType,RecurringStrategy,Status from jobs('type'='mv') where MvName='${mvName}'' and MvDatabaseName='${dbName}';"
+    order_qt_immediate_manual "select MvName,ExecuteType,RecurringStrategy,Status from jobs('type'='mv') where MvName='${mvName}' and MvDatabaseName='${dbName}';"
     sql """drop materialized view if exists ${mvName};"""
 
     sql """
@@ -91,7 +91,7 @@ suite("test_job_mtmv","mtmv") {
             AS
             SELECT * from ${tableName};
             """
-    order_qt_deferred_schedule "select MvName,ExecuteType,RecurringStrategy,Status from jobs('type'='mv') where MvName='${mvName}'' and MvDatabaseName='${dbName}';"
+    order_qt_deferred_schedule "select MvName,ExecuteType,RecurringStrategy,Status from jobs('type'='mv') where MvName='${mvName}' and MvDatabaseName='${dbName}';"
     sql """drop materialized view if exists ${mvName};"""
 
     sql """
@@ -104,7 +104,7 @@ suite("test_job_mtmv","mtmv") {
             AS
             SELECT * from ${tableName};
             """
-    order_qt_deferred_schedule_start "select MvName,ExecuteType,RecurringStrategy,Status from jobs('type'='mv') where MvName='${mvName}'' and MvDatabaseName='${dbName}';"
+    order_qt_deferred_schedule_start "select MvName,ExecuteType,RecurringStrategy,Status from jobs('type'='mv') where MvName='${mvName}' and MvDatabaseName='${dbName}';"
     sql """drop materialized view if exists ${mvName};"""
 
     sql """
@@ -117,6 +117,6 @@ suite("test_job_mtmv","mtmv") {
             AS
             SELECT * from ${tableName};
             """
-    order_qt_deferred_schedule_start "select MvName,ExecuteType,RecurringStrategy,Status from jobs('type'='mv') where MvName='${mvName}'' and MvDatabaseName='${dbName}';"
+    order_qt_deferred_schedule_start "select MvName,ExecuteType,RecurringStrategy,Status from jobs('type'='mv') where MvName='${mvName}' and MvDatabaseName='${dbName}';"
     sql """drop materialized view if exists ${mvName};"""
 }
