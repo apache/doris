@@ -1029,6 +1029,51 @@ void MetaServiceImpl::prepare_rowset(::google::protobuf::RpcController* controll
         return;
     }
 
+    // Check if the compaction/sc tablet job has finished
+    if (request->has_tablet_job_id()) {
+        TabletIndexPB tablet_idx;
+        get_tablet_idx(code, msg, txn.get(), instance_id, tablet_id, tablet_idx);
+        if (code != MetaServiceCode::OK) {
+            return;
+        }
+
+        std::string job_key =
+                job_tablet_key({instance_id, tablet_idx.table_id(), tablet_idx.index_id(),
+                                tablet_idx.partition_id(), tablet_id});
+        std::string job_val;
+        err = txn->get(job_key, &job_val);
+        if (err != TxnErrorCode::TXN_OK) {
+            ss << (err == TxnErrorCode::TXN_KEY_NOT_FOUND ? "job not found," : "internal error,")
+               << " instance_id=" << instance_id << " tablet_id=" << tablet_id
+               << " rowset_id=" << request->rowset_meta().rowset_id_v2() << " err=" << err;
+            msg = ss.str();
+            code = err == TxnErrorCode::TXN_KEY_NOT_FOUND ? MetaServiceCode::INVALID_ARGUMENT
+                                                          : cast_as<ErrCategory::READ>(err);
+            return;
+        }
+
+        TabletJobInfoPB job_pb;
+        job_pb.ParseFromString(job_val);
+        bool match = false;
+        if (job_pb.compaction().empty()) {
+            for (auto c : job_pb.compaction()) {
+                if (c.id() == request->tablet_job_id()) {
+                    match = true;
+                }
+            }
+        }
+
+        if (!match) {
+            ss << " stale perpare rowset request,"
+               << " instance_id=" << instance_id << " tablet_id=" << tablet_id
+               << " rowset_id=" << request->rowset_meta().rowset_id_v2()
+               << " txn_id=" << request->txn_id();
+            msg = ss.str();
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            return;
+        }
+    }
+
     // Check if commit key already exists.
     std::string val;
     err = txn->get(tmp_rs_key, &val);
