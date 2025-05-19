@@ -62,7 +62,7 @@ suite("test_unique_schema_key_change_drop", "p0") {
             "               (5, 'David Wilson', 88.9, 'Seattle', 32, 1, 9998887776, false, 50, 5000000000, '2024-06-15', '2024-06-15', '2024-06-15 15:45:00', '2024-06-15 15:45:00');"
 
     //TODO Test the unique model by drop a key type from BOOLEAN
-    errorMessage = "errCode = 2, detailMessage = Can not drop key column in Unique data model table"
+    errorMessage = "errCode = 2, detailMessage = Can not drop key column is_ok in unique data model table"
     expectException({
         sql initTable
         sql initTableData
@@ -76,7 +76,7 @@ suite("test_unique_schema_key_change_drop", "p0") {
 
 
     //TODO Test the unique model by drop a key type from TINYINT
-    errorMessage = "errCode = 2, detailMessage = Can not drop key column in Unique data model table"
+    errorMessage = "errCode = 2, detailMessage = Can not drop key column sex in unique data model table"
     expectException({
         sql initTable
         sql initTableData
@@ -90,7 +90,7 @@ suite("test_unique_schema_key_change_drop", "p0") {
 
 
     //TODO Test the unique model by drop a key type from SMALLINT
-    errorMessage = "errCode = 2, detailMessage = Can not drop key column in Unique data model table"
+    errorMessage = "errCode = 2, detailMessage = Can not drop key column age in unique data model table"
     expectException({
         sql initTable
         sql initTableData
@@ -103,7 +103,7 @@ suite("test_unique_schema_key_change_drop", "p0") {
     }, errorMessage)
 
     //TODO Test the unique model by drop a key type from INT
-    errorMessage = "errCode = 2, detailMessage = Can not drop key column in Unique data model table"
+    errorMessage = "errCode = 2, detailMessage = Can not drop key column t_int in unique data model table"
     expectException({
         sql initTable
         sql initTableData
@@ -117,7 +117,7 @@ suite("test_unique_schema_key_change_drop", "p0") {
 
 
     //TODO Test the unique model by drop a key type from BIGINT
-    errorMessage = "errCode = 2, detailMessage = Can not drop key column in Unique data model table"
+    errorMessage = "errCode = 2, detailMessage = Can not drop key column t_bigint in unique data model table"
     expectException({
         sql initTable
         sql initTableData
@@ -131,7 +131,7 @@ suite("test_unique_schema_key_change_drop", "p0") {
 
 
     //TODO  Test the unique model by drop a key type from LARGEINT
-    errorMessage = "errCode = 2, detailMessage = Can not drop key column in Unique data model table"
+    errorMessage = "errCode = 2, detailMessage = Can not drop key column phone in unique data model table"
     expectException({
         sql initTable
         sql initTableData
@@ -144,7 +144,7 @@ suite("test_unique_schema_key_change_drop", "p0") {
     }, errorMessage)
 
     //TODO  Test the unique model by drop a key type from DATE
-    errorMessage = "errCode = 2, detailMessage = Can not drop key column in Unique data model table"
+    errorMessage = "errCode = 2, detailMessage = Can not drop key column t_date in unique data model table"
     expectException({
         sql initTable
         sql initTableData
@@ -158,7 +158,7 @@ suite("test_unique_schema_key_change_drop", "p0") {
 
 
     //TODO  Test the unique model by drop a key type from DATEV2
-    errorMessage = "errCode = 2, detailMessage = Can not drop key column in Unique data model table"
+    errorMessage = "errCode = 2, detailMessage = Can not drop key column t_datev2 in unique data model table"
     expectException({
         sql initTable
         sql initTableData
@@ -172,7 +172,7 @@ suite("test_unique_schema_key_change_drop", "p0") {
 
 
     //TODO  Test the unique model by drop a key type from t_datetimev2
-    errorMessage = "errCode = 2, detailMessage = Can not drop key column in Unique data model table"
+    errorMessage = "errCode = 2, detailMessage = Can not drop key column t_datetimev2 in unique data model table"
     expectException({
         sql initTable
         sql initTableData
@@ -186,7 +186,7 @@ suite("test_unique_schema_key_change_drop", "p0") {
 
 
     //TODO  Test the unique model by drop a key type from t_datetimev2
-    errorMessage = "errCode = 2, detailMessage = Can not drop key column in Unique data model table"
+    errorMessage = "errCode = 2, detailMessage = Can not drop key column t_datetimev2 in unique data model table"
     expectException({
         sql initTable
         sql initTableData
@@ -200,7 +200,7 @@ suite("test_unique_schema_key_change_drop", "p0") {
 
 
     //TODO  Test the unique model by drop a key type from t_datetime
-    errorMessage = "errCode = 2, detailMessage = Can not drop key column in Unique data model table"
+    errorMessage = "errCode = 2, detailMessage = Can not drop key column t_datetime in unique data model table"
     expectException({
         sql initTable
         sql initTableData
@@ -214,7 +214,7 @@ suite("test_unique_schema_key_change_drop", "p0") {
 
 
     //TODO  Test the unique model by drop a key type from CHAR
-    errorMessage = "errCode = 2, detailMessage = Can not drop key column in Unique data model table"
+    errorMessage = "errCode = 2, detailMessage = Can not drop key column city in unique data model table"
     expectException({
         sql initTable
         sql initTableData
@@ -228,7 +228,7 @@ suite("test_unique_schema_key_change_drop", "p0") {
 
 
     //TODO  Test the unique model by drop a key type from VARCHAR
-    errorMessage = "errCode = 2, detailMessage = Can not drop key column in Unique data model table"
+    errorMessage = "errCode = 2, detailMessage = Can not drop key column username in unique data model table"
     expectException({
         sql initTable
         sql initTableData

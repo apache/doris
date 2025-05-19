@@ -49,7 +49,7 @@ suite("test_schema_change_auto_inc") {
 
     // add auto-increment attribute to a column
     test {
-        sql "alter table ${table1} modify column id2 BIGINT NOT NULL AUTO_INCREMENT"
+        sql """alter table ${table1} modify column id2 BIGINT NOT NULL AUTO_INCREMENT DEFAULT "0" """
         exception "Can't modify the column[id2]'s auto-increment attribute."
     }
 
