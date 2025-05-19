@@ -2640,7 +2640,11 @@ int InstanceRecycler::recycle_expired_txn_label() {
         err = txn->commit();
         if (err != TxnErrorCode::TXN_OK) {
             LOG(WARNING) << "failed to delete expired txn, err=" << err << " key=" << hex(k);
-            return -1;
+            // When TXN_CONFLICT occurs, the txn label key will not be deleted,
+            // but will continue to be deleted during the next recycle.
+            // Therefore, when encountering a TXN_CONFLICT, a warning log is printed,
+            // but the return value is set to 0
+            return err == TxnErrorCode::TXN_CONFLICT ? 0 : -1;
         }
         ++num_recycled;
         LOG(INFO) << "recycle expired txn, key=" << hex(k);
