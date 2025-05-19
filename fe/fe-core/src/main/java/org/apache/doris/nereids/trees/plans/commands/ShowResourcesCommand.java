@@ -150,15 +150,7 @@ public class ShowResourcesCommand extends ShowCommand {
         }
 
         // limit and offset
-        if (offset >= rows.size()) {
-            rows = Lists.newArrayList();
-        } else if (limit != -1L) {
-            if ((limit + offset) < rows.size()) {
-                rows = rows.subList((int) offset, (int) (limit + offset));
-            } else {
-                rows = rows.subList((int) offset, rows.size());
-            }
-        }
+        rows = applyLimit(limit, offset, rows);
 
         // Only success
         return new ShowResultSet(getMetaData(), rows);
