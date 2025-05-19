@@ -73,7 +73,7 @@ suite("test_export_with_role") {
             "s3.region" = "${region}",
             "s3.role_arn" = "${roleArn}",
             "s3.external_id"="${externalId}",
-            "provider" = "AWS"
+            "provider" = "S3"
         );
     """
 
