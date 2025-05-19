@@ -135,13 +135,13 @@ suite("test_job_mtmv","mtmv") {
             SELECT * from ${tableName};
             """
     sql """
-        alter MATERIALIZED VIEW ${mvName} replace with  MATERIALIZED VIEW ${mvNameReplace} PROPERTIES('swap' = 'false');
+        alter MATERIALIZED VIEW ${mvName} replace with  MATERIALIZED VIEW ${mvNameReplace} PROPERTIES('swap' = 'true');
         """
-    order_qt_replace_false_1 "select MvName,ExecuteType,RecurringStrategy,Status from jobs('type'='mv') where MvName='${mvName}' and MvDatabaseName='${dbName}';"
-    order_qt_replace_false_2 "select MvName,ExecuteType,RecurringStrategy,Status from jobs('type'='mv') where MvName='${mvNameReplace}' and MvDatabaseName='${dbName}';"
+    order_qt_replace_true_1 "select MvName,ExecuteType,RecurringStrategy,Status from jobs('type'='mv') where MvName='${mvName}' and MvDatabaseName='${dbName}';"
+    order_qt_replace_true_2 "select MvName,ExecuteType,RecurringStrategy,Status from jobs('type'='mv') where MvName='${mvNameReplace}' and MvDatabaseName='${dbName}';"
 
     sql """
-        alter MATERIALIZED VIEW ${mvName} replace with  MATERIALIZED VIEW ${mvNameReplace} PROPERTIES('swap' = 'true');
+        alter MATERIALIZED VIEW ${mvName} replace with  MATERIALIZED VIEW ${mvNameReplace} PROPERTIES('swap' = 'false');
         """
     order_qt_replace_false_1 "select MvName,ExecuteType,RecurringStrategy,Status from jobs('type'='mv') where MvName='${mvName}' and MvDatabaseName='${dbName}';"
     order_qt_replace_false_2 "select MvName,ExecuteType,RecurringStrategy,Status from jobs('type'='mv') where MvName='${mvNameReplace}' and MvDatabaseName='${dbName}';"
