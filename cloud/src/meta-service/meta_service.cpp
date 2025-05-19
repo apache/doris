@@ -1960,21 +1960,14 @@ static bool check_partition_version_when_update_delete_bitmap(
 
 // return false if the delete bitmap key already exists
 static bool check_delete_bitmap_kv_exists(MetaServiceCode& code, std::string& msg,
-                                          const std::shared_ptr<TxnKv>& txn_kv,
-                                          const std::string& key, std::string& instance_id,
-                                          int64_t tablet_id, int64_t lock_id) {
-    std::unique_ptr<Transaction> tmp_txn;
-    TxnErrorCode err = txn_kv->create_txn(&tmp_txn);
-    if (err != TxnErrorCode::TXN_OK) {
-        code = cast_as<ErrCategory::CREATE>(err);
-        msg = "failed to init txn";
-        return true; // skip to check if failed to create txn
-    }
+                                          std::unique_ptr<Transaction>& txn, const std::string& key,
+                                          std::string& instance_id, int64_t tablet_id,
+                                          int64_t lock_id) {
     std::string start_key {key};
     std::string end_key {start_key};
     encode_int64(INT64_MAX, &end_key);
     std::unique_ptr<RangeGetIterator> it;
-    err = tmp_txn->get(start_key, end_key, &it);
+    TxnErrorCode err = txn->get(start_key, end_key, &it);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::READ>(err);
         msg = fmt::format("failed to get delete bitmap, err={}, tablet_id={}, lock_id={}", err,
@@ -2213,7 +2206,7 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
             LOG(INFO) << "check_delete_bitmap_kv_exists, table_id=" << table_id
                       << " lock_id=" << request->lock_id() << " initiator=" << request->initiator()
                       << " key=" << hex(key);
-            if (!check_delete_bitmap_kv_exists(code, msg, txn_kv_, key, instance_id, tablet_id,
+            if (!check_delete_bitmap_kv_exists(code, msg, txn, key, instance_id, tablet_id,
                                                request->lock_id())) {
                 return;
             }
