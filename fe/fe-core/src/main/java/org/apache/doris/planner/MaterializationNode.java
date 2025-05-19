@@ -202,4 +202,9 @@ public class MaterializationNode extends PlanNode {
     public boolean isTopMaterializeNode() {
         return isTopMaterializeNode;
     }
+
+    @Override
+    public boolean isSerialOperator() {
+        return true;
+    }
 }
