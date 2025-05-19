@@ -128,6 +128,7 @@ public class TablesProcDir implements ProcDirInterface {
                         version = ((OlapTable) table).getVisibleVersion();
                     } catch (RpcException e) {
                         LOG.warn("table {}, in cloud getVisibleVersion exception", table.getName(), e);
+                        throw new AnalysisException(e.getMessage());
                     }
                     replicaCount = olapTable.getReplicaCount();
                     tableInfo.add(table.getId());
