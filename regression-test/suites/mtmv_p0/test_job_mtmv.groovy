@@ -109,7 +109,7 @@ suite("test_job_mtmv","mtmv") {
 
     sql """
             CREATE MATERIALIZED VIEW ${mvName}
-            BUILD DEFERRED REFRESH AUTO ON SCHEDULE EVERY 10 second STARTS '9999-12-13 21:07:09 '
+            BUILD DEFERRED REFRESH AUTO ON SCHEDULE EVERY 10 second STARTS "9999-12-13 21:07:09"
             DISTRIBUTED BY RANDOM BUCKETS 2
             PROPERTIES (
             'replication_num' = '1'
