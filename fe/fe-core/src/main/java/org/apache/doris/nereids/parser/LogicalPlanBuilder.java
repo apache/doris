@@ -5293,7 +5293,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public LogicalPlan visitAlterResource(AlterResourceContext ctx) {
         String resourceName = visitIdentifierOrText(ctx.identifierOrText());
         Map<String, String> properties = visitPropertyClause(ctx.propertyClause()) == null ? Maps.newHashMap()
-                : visitPropertyClause(ctx.propertyClause());
+                : Maps.newHashMap(visitPropertyClause(ctx.propertyClause()));
 
         return new AlterResourceCommand(resourceName, properties);
     }
