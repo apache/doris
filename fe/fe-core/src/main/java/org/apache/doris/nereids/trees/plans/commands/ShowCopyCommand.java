@@ -24,6 +24,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.proc.LoadProcDir;
+import org.apache.doris.load.LoadJob.JobState;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.expressions.And;
