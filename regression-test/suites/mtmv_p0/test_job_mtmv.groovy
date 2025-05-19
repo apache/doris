@@ -106,4 +106,19 @@ suite("test_job_mtmv","mtmv") {
             """
     order_qt_deferred_schedule_start "select MvName,ExecuteType,RecurringStrategy,Status from jobs('type'='mv') where MvName='${mvName}' and MvDatabaseName='${dbName}';"
     sql """drop materialized view if exists ${mvName};"""
+
+    sql """
+            CREATE MATERIALIZED VIEW ${mvName}
+            BUILD DEFERRED REFRESH AUTO ON MANUAL
+            DISTRIBUTED BY RANDOM BUCKETS 2
+            PROPERTIES (
+            'replication_num' = '1'
+            )
+            AS
+            SELECT * from ${tableName};
+            """
+    order_qt_alter "select MvName,ExecuteType,RecurringStrategy,Status from jobs('type'='mv') where MvName='${mvName}' and MvDatabaseName='${dbName}';"
+    sql """drop materialized view if exists ${mvName};"""
+
+    order_qt_drop "select MvName,ExecuteType,RecurringStrategy,Status from jobs('type'='mv') where MvName='${mvName}' and MvDatabaseName='${dbName}';"
 }
