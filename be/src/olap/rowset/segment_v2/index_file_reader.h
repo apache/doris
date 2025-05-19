@@ -27,6 +27,7 @@
 #include <string>
 #include <utility>
 
+#include "common/be_mock_util.h"
 #include "common/config.h"
 #include "io/fs/file_system.h"
 #include "olap/rowset/segment_v2/index_file_writer.h"
@@ -54,11 +55,12 @@ public:
               _index_path_prefix(std::move(index_path_prefix)),
               _storage_format(storage_format),
               _idx_file_info(idx_file_info) {}
+    MOCK_FUNCTION ~IndexFileReader() = default;
 
-    Status init(int32_t read_buffer_size = config::inverted_index_read_buffer_size,
-                const io::IOContext* io_ctx = nullptr);
-    Result<std::unique_ptr<DorisCompoundReader>> open(const TabletIndex* index_meta,
-                                                      const io::IOContext* io_ctx = nullptr) const;
+    MOCK_FUNCTION Status init(int32_t read_buffer_size = config::inverted_index_read_buffer_size,
+                              const io::IOContext* io_ctx = nullptr);
+    MOCK_FUNCTION Result<std::unique_ptr<DorisCompoundReader>> open(
+            const TabletIndex* index_meta, const io::IOContext* io_ctx = nullptr) const;
     void debug_file_entries();
     std::string get_index_file_cache_key(const TabletIndex* index_meta) const;
     std::string get_index_file_path(const TabletIndex* index_meta) const;

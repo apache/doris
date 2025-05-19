@@ -24,6 +24,7 @@
 #include "runtime/descriptors.h"
 #include "util/defer_op.h"
 #include "util/runtime_profile.h"
+#include "vec/columns/column_nothing.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/exec/scan/scan_node.h"
 #include "vec/exprs/vexpr_context.h"
@@ -76,11 +77,11 @@ Status Scanner::get_block_after_projects(RuntimeState* state, vectorized::Block*
     auto& row_descriptor = _local_state->_parent->row_descriptor();
     if (_output_row_descriptor) {
         _origin_block.clear_column_data(row_descriptor.num_materialized_slots());
-        auto status = get_block(state, &_origin_block, eos);
-        if (UNLIKELY(!status.ok())) return status;
+        RETURN_IF_ERROR(get_block(state, &_origin_block, eos));
         return _do_projections(&_origin_block, block);
+    } else {
+        return get_block(state, block, eos);
     }
-    return get_block(state, block, eos);
 }
 
 Status Scanner::get_block(RuntimeState* state, Block* block, bool* eof) {
@@ -99,6 +100,7 @@ Status Scanner::get_block(RuntimeState* state, Block* block, bool* eof) {
                                                 slot_desc->get_data_type_ptr(),
                                                 slot_desc->col_name()));
         }
+        LOG_INFO("Block columns count: {}", block->columns());
     }
 
 #ifndef BE_TEST
@@ -205,6 +207,9 @@ Status Scanner::_do_projections(vectorized::Block* origin_block, vectorized::Blo
             reinterpret_cast<ColumnNullable*>(mutable_columns[i].get())
                     ->insert_range_from_not_nullable(*column_ptr, 0, rows);
         } else {
+            LOG_INFO(" Projections {} insert_range_from {} to {}",
+                     _projections[i]->root()->debug_string(), column_ptr->get_name(),
+                     mutable_columns[i]->get_name());
             mutable_columns[i]->insert_range_from(*column_ptr, 0, rows);
         }
     }

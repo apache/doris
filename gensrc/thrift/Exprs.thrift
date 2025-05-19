@@ -83,6 +83,8 @@ enum TExprNodeType {
   NULL_AWARE_IN_PRED,
   NULL_AWARE_BINARY_PRED,
   TIMEV2_LITERAL,
+
+  VIRTUAL_SLOT_REF,
 }
 
 //enum TAggregationOp {

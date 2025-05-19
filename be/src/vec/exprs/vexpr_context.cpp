@@ -432,6 +432,13 @@ void VExprContext::_reset_memory_usage(const VExprContextSPtrs& contexts) {
                   [](auto&& context) { context->_memory_usage = 0; });
 }
 
+Status VExprContext::prepare_ann_range_search() {
+    if (_root == nullptr) {
+        return Status::OK();
+    }
+    return _root->prepare_ann_range_search();
+}
+
 #include "common/compile_check_end.h"
 
 } // namespace doris::vectorized
