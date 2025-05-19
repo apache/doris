@@ -68,6 +68,7 @@ statementBase
     | supportedKillStatement            #supportedKillStatementAlias
     | supportedStatsStatement           #supportedStatsStatementAlias
     | supportedTransactionStatement     #supportedTransactionStatementAlias
+    | supportedGrantRevokeStatement     #supportedGrantRevokeStatementAlias
     | unsupportedStatement              #unsupported
     ;
 
@@ -625,14 +626,17 @@ supportedTransactionStatement
     | ROLLBACK WORK? (AND NO? CHAIN)? (NO? RELEASE)?                                #transactionRollback
     ;
 
-unsupportedGrantRevokeStatement
+supportedGrantRevokeStatement
     : GRANT privilegeList ON multipartIdentifierOrAsterisk
         TO (userIdentify | ROLE identifierOrText)                                     #grantTablePrivilege
     | GRANT privilegeList ON
         (RESOURCE | CLUSTER | COMPUTE GROUP | STAGE | STORAGE VAULT | WORKLOAD GROUP)
         identifierOrTextOrAsterisk TO (userIdentify | ROLE identifierOrText)          #grantResourcePrivilege
-    | GRANT roles+=identifierOrText (COMMA roles+=identifierOrText)* TO userIdentify    #grantRole
-    | REVOKE privilegeList ON multipartIdentifierOrAsterisk
+    | GRANT roles+=identifierOrText (COMMA roles+=identifierOrText)* TO userIdentify  #grantRole
+    ;
+
+unsupportedGrantRevokeStatement
+    : REVOKE privilegeList ON multipartIdentifierOrAsterisk
         FROM (userIdentify | ROLE identifierOrText)                                   #revokeTablePrivilege
     | REVOKE privilegeList ON
         (RESOURCE | CLUSTER | COMPUTE GROUP | STAGE | STORAGE VAULT | WORKLOAD GROUP)
