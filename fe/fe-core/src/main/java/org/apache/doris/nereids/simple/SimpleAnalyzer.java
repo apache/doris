@@ -30,7 +30,7 @@ import org.apache.doris.nereids.rules.analysis.OneRowRelationExtractAggregate;
 import org.apache.doris.nereids.rules.analysis.ProjectToGlobalAggregate;
 import org.apache.doris.nereids.rules.analysis.ProjectWithDistinctToAggregate;
 import org.apache.doris.nereids.rules.analysis.ReplaceExpressionByChildOutput;
-import org.apache.doris.nereids.rules.rewrite.MergeContinuedProjects;
+import org.apache.doris.nereids.rules.rewrite.MergeProjectable;
 import org.apache.doris.nereids.rules.rewrite.MergeFilters;
 
 import com.google.common.collect.ImmutableList;
@@ -58,7 +58,7 @@ public class SimpleAnalyzer extends AbstractBatchJobExecutor {
                         new CheckAfterBind(),
                         new HavingToFilter(),
                         new NormalizeGenerate(),
-                        new MergeContinuedProjects(),
+                        new MergeProjectable(),
                         new MergeFilters()
                 )
         );

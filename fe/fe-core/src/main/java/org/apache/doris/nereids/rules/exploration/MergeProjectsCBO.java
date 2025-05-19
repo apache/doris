@@ -19,7 +19,7 @@ package org.apache.doris.nereids.rules.exploration;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.rules.rewrite.MergeContinuedProjects;
+import org.apache.doris.nereids.rules.rewrite.MergeProjectable;
 
 /**
  * this rule aims to merge projects.
@@ -29,7 +29,7 @@ public class MergeProjectsCBO extends OneExplorationRuleFactory {
     public Rule build() {
         return logicalProject(logicalProject())
                 .when(project -> project.canMergeChildProjections(project.child()))
-                .then(project -> MergeContinuedProjects.mergeProjects(project))
+                .then(project -> MergeProjectable.mergeProjects(project))
                 .toRule(RuleType.MERGE_PROJECTS);
     }
 }

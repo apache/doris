@@ -92,7 +92,7 @@ import org.apache.doris.nereids.rules.rewrite.LimitAggToTopNAgg;
 import org.apache.doris.nereids.rules.rewrite.LimitSortToTopN;
 import org.apache.doris.nereids.rules.rewrite.LogicalResultSinkToShortCircuitPointQuery;
 import org.apache.doris.nereids.rules.rewrite.MergeAggregate;
-import org.apache.doris.nereids.rules.rewrite.MergeContinuedProjects;
+import org.apache.doris.nereids.rules.rewrite.MergeProjectable;
 import org.apache.doris.nereids.rules.rewrite.MergeFilters;
 import org.apache.doris.nereids.rules.rewrite.MergeOneRowRelationIntoUnion;
 import org.apache.doris.nereids.rules.rewrite.MergePercentileToArray;
@@ -184,7 +184,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         // move MergeProjects rule from analyze phase
                         // because SubqueryToApply and BindSink rule may create extra project node
                         // we need merge them at the beginning of rewrite phase to let later rules happy
-                        topDown(new MergeContinuedProjects()),
+                        topDown(new MergeProjectable()),
                         topDown(
                                 new EliminateOrderByConstant(),
                                 new EliminateSortUnderSubqueryOrView(),
@@ -223,7 +223,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 new EliminateUselessPlanUnderApply(),
                                 // CorrelateApplyToUnCorrelateApply and ApplyToJoin
                                 // and SelectMaterializedIndexWithAggregate depends on this rule
-                                new MergeContinuedProjects(),
+                                new MergeProjectable(),
                                 /*
                                  * Subquery unnesting.
                                  * 1. Adjust the plan in correlated logicalApply
@@ -277,7 +277,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 ),
 
                 topDown(// must behind NormalizeAggregate/NormalizeSort
-                        new MergeContinuedProjects(),
+                        new MergeProjectable(),
                         new PushDownEncodeSlot(),
                         new DecoupleEncodeDecode()
                 ),
@@ -334,7 +334,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 cascadesContext -> cascadesContext.rewritePlanContainsTypes(SetOperation.class),
                                 // Do MergeSetOperation first because we hope to match pattern of Distinct SetOperator.
                                 bottomUp(
-                                        new MergeContinuedProjects(),
+                                        new MergeProjectable(),
                                         new PushProjectThroughUnion(),
                                         new MergeSetOperations(),
                                         new MergeSetOperationsExcept()
@@ -474,7 +474,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 new SelectMaterializedIndexWithoutAggregate(),
                                 new EliminateFilter(),
                                 new PushDownFilterThroughProject(),
-                                new MergeContinuedProjects(),
+                                new MergeProjectable(),
                                 new PruneOlapScanTablet()
                         ),
                         custom(RuleType.COLUMN_PRUNING, ColumnPruning::new),
@@ -499,7 +499,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 // so, we need push project through limit to satisfy translator's assumptions
                                 new PushDownFilterThroughProject(),
                                 new PushDownProjectThroughLimit(),
-                                new MergeContinuedProjects())
+                                new MergeProjectable())
                 ),
                 topic("agg rewrite",
                     // these rules should be put after mv optimization to avoid mv matching fail
@@ -528,7 +528,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 custom(RuleType.COLUMN_PRUNING, ColumnPruning::new),
                 bottomUp(ImmutableList.of(
                         new PushDownFilterThroughProject(),
-                        new MergeContinuedProjects()
+                        new MergeProjectable()
                 )),
                 custom(RuleType.ELIMINATE_UNNECESSARY_PROJECT, EliminateUnnecessaryProject::new),
                 topic("topn optimize",
@@ -536,7 +536,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 ),
                 topic("add projection for join",
                         custom(RuleType.ADD_PROJECT_FOR_JOIN, AddProjectForJoin::new),
-                        topDown(new MergeContinuedProjects())
+                        topDown(new MergeProjectable())
                 ),
                 topic("adjust topN project",
                         topDown(new PullUpProjectBetweenTopNAndAgg())),
@@ -546,7 +546,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 // this rule batch must keep at the end of rewrite to do some plan check
                 topic("final rewrite and check",
                         custom(RuleType.CHECK_DATA_TYPES, CheckDataTypes::new),
-                        topDown(new PushDownFilterThroughProject(), new MergeContinuedProjects()),
+                        topDown(new PushDownFilterThroughProject(), new MergeProjectable()),
                         custom(RuleType.ADJUST_CONJUNCTS_RETURN_TYPE, AdjustConjunctsReturnType::new),
                         bottomUp(
                                 new ExpressionRewrite(CheckLegalityAfterRewrite.INSTANCE),

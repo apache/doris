@@ -19,36 +19,37 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-import org.apache.doris.nereids.trees.plans.logical.ProjectMergeable;
+
+import java.util.List;
 
 /**
  * this rule aims to merge consecutive project. For example:
  * <pre>
  *   project(a)
  *       |
- *   project(a, b)    ->    oneRow(a)
+ *   project(a, b)    ->    project(a)
  *       |
  *   project(a, b, c)
- *       |
- *   oneRow(a, b, c, d)
  * </pre>
  */
-public class MergeContinuedProjects extends OneRewriteRuleFactory {
+public class MergeProjects extends OneRewriteRuleFactory {
 
     @Override
     public Rule build() {
         // TODO modify ExtractAndNormalizeWindowExpression to handle nested window functions
         // here we just don't merge two projects if there is any window function
-        return logicalProject(any().when(ProjectMergeable.class::isInstance))
-                .then(MergeContinuedProjects::mergeProjects)
+        return logicalProject(logicalProject())
+                .then(MergeProjects::mergeProjects)
                 .toRule(RuleType.MERGE_PROJECTS);
     }
 
     /** merge projects */
     public static Plan mergeProjects(LogicalProject<?> project) {
-        ProjectMergeable child = (ProjectMergeable) project.child();
-        return ProjectMergeable.mergeContinuedProjects(project.getProjects(), child).orElse(project);
+        LogicalProject<? extends Plan> childProject = (LogicalProject<?>) project.child();
+        List<NamedExpression> projectExpressions = project.mergeProjections(childProject);
+        return project.withProjectsAndChild(projectExpressions, childProject.child(0));
     }
 }

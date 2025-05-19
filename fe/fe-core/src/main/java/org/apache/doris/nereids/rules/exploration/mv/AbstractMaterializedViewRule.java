@@ -36,7 +36,7 @@ import org.apache.doris.nereids.rules.exploration.mv.mapping.RelationMapping;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
-import org.apache.doris.nereids.rules.rewrite.MergeContinuedProjects;
+import org.apache.doris.nereids.rules.rewrite.MergeProjectable;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -408,7 +408,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             rewrittenPlan = MaterializedViewUtils.rewriteByRules(cascadesContext,
                     childContext -> {
                         Rewriter.getCteChildrenRewriter(childContext,
-                                ImmutableList.of(Rewriter.bottomUp(new MergeContinuedProjects()))).execute();
+                                ImmutableList.of(Rewriter.bottomUp(new MergeProjectable()))).execute();
                         return childContext.getRewritePlan();
                     }, rewrittenPlan, queryPlan);
             if (!isOutputValid(queryPlan, rewrittenPlan)) {

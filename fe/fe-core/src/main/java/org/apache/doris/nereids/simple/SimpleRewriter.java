@@ -23,7 +23,7 @@ import org.apache.doris.nereids.jobs.rewrite.RewriteJob;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.ColumnPruning;
 import org.apache.doris.nereids.rules.rewrite.LimitSortToTopN;
-import org.apache.doris.nereids.rules.rewrite.MergeContinuedProjects;
+import org.apache.doris.nereids.rules.rewrite.MergeProjectable;
 import org.apache.doris.nereids.rules.rewrite.MergeFilters;
 import org.apache.doris.nereids.rules.rewrite.MergeLimits;
 import org.apache.doris.nereids.rules.rewrite.PruneEmptyPartition;
@@ -48,7 +48,7 @@ public class SimpleRewriter extends AbstractBatchJobExecutor {
             bottomUp(
                 new LimitSortToTopN(),
                 new PushDownFilterThroughProject(),
-                new MergeContinuedProjects(),
+                new MergeProjectable(),
                 new MergeFilters(),
                 new MergeLimits(),
                 new PruneOlapScanPartition(),
@@ -61,7 +61,7 @@ public class SimpleRewriter extends AbstractBatchJobExecutor {
             custom(RuleType.COLUMN_PRUNING, ColumnPruning::new),
             bottomUp(
                     new PushDownFilterThroughProject(),
-                    new MergeContinuedProjects(),
+                    new MergeProjectable(),
                     new MergeFilters(),
                     new MergeLimits()
             ),

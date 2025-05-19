@@ -36,7 +36,7 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.analysis.BindExpression;
 import org.apache.doris.nereids.rules.analysis.BindSink;
 import org.apache.doris.nereids.rules.expression.ExpressionNormalization;
-import org.apache.doris.nereids.rules.rewrite.MergeContinuedProjects;
+import org.apache.doris.nereids.rules.rewrite.MergeProjects;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -201,7 +201,26 @@ public class NereidsLoadUtils {
                             new AddPostFilter(
                                     context.fileGroup.getWhereExpr()
                             ),
-                            new MergeContinuedProjects(),
+                            // NOTE: the LogicalOneRowRelation usually not contains slots,
+                            //       but NereidsLoadPlanInfoCollector need to parse the slot list.
+                            //       load only need merge continued LogicalProject, but not want to
+                            //       merge LogicalOneRowRelation by MergeProjectable,
+                            //       for example, select cast(id as int), name
+                            //       will generate:
+                            //
+                            //       LogicalProject(projects=[cast(Alias(id#0 as int), name#1)])
+                            //                          |
+                            //              LogicalOneRowRelation(id#0, name#1)
+                            //
+                            //      then NereidsLoadPlanInfoCollector can generate collect slots by the
+                            //      bottom LogicalOneRowRelation, and provide to upper LogicalProject.
+                            //
+                            //      but if we use MergeProjectable, it will be
+                            //          LogicalOneRowRelation(projects=[Alias(cast(id#0 as int)), name#1)])
+                            //
+                            //      the NereidsLoadPlanInfoCollector will not generate slot by id#0,
+                            //      so we must use MergeProjects here
+                            new MergeProjects(),
                             new ExpressionNormalization())
                     ))
                     .execute();
