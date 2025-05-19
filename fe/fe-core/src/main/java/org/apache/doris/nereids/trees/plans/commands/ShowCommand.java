@@ -68,8 +68,9 @@ public abstract class ShowCommand extends Command implements Redirect {
      */
     public ArrayList<OrderByPair> getOrderByPairs(List<OrderKey> orderKeys,
                                                       ImmutableList<String> titles) throws AnalysisException {
-        ArrayList<OrderByPair> orderByPairs = new ArrayList<>();
+        ArrayList<OrderByPair> orderByPairs = null;
         if (orderKeys != null && !orderKeys.isEmpty()) {
+            orderByPairs = new ArrayList<>();
             for (OrderKey orderKey : orderKeys) {
                 if (!(orderKey.getExpr() instanceof UnboundSlot)) {
                     throw new AnalysisException("Should order by column");
