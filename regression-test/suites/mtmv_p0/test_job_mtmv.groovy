@@ -106,32 +106,11 @@ suite("test_job_mtmv","mtmv") {
             SELECT * from ${tableName};
             """
     order_qt_deferred_schedule_start "select MvName,ExecuteType,RecurringStrategy,Status from jobs('type'='mv') where MvName='${mvName}' and MvDatabaseName='${dbName}';"
-    sql """drop materialized view if exists ${mvName};"""
 
     sql """
-            CREATE MATERIALIZED VIEW ${mvName}
-            BUILD DEFERRED REFRESH AUTO ON MANUAL
-            DISTRIBUTED BY RANDOM BUCKETS 2
-            PROPERTIES (
-            'replication_num' = '1'
-            )
-            AS
-            SELECT * from ${tableName};
-            """
-    order_qt_alter_build "select MvName,ExecuteType,RecurringStrategy,Status from jobs('type'='mv') where MvName='${mvName}' and MvDatabaseName='${dbName}';"
-    sql """drop materialized view if exists ${mvName};"""
-
-    sql """
-            CREATE MATERIALIZED VIEW ${mvName}
-            BUILD immediate REFRESH AUTO ON MANUAL
-            DISTRIBUTED BY RANDOM BUCKETS 2
-            PROPERTIES (
-            'replication_num' = '1'
-            )
-            AS
-            SELECT * from ${tableName};
-            """
-    order_qt_alter_refresh "select MvName,ExecuteType,RecurringStrategy,Status from jobs('type'='mv') where MvName='${mvName}' and MvDatabaseName='${dbName}';"
+        alter MATERIALIZED VIEW ${mvName} build immediate REFRESH AUTO ON manual
+        """
+    order_qt_alter "select MvName,ExecuteType,RecurringStrategy,Status from jobs('type'='mv') where MvName='${mvName}' and MvDatabaseName='${dbName}';"
 
     sql """
         pause MATERIALIZED VIEW job on ${mvName};
