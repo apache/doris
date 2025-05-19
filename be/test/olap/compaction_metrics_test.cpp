@@ -154,21 +154,28 @@ TEST_F(CompactionMetricsTest, TestCompactionProducerSpendTime) {
     EXPECT_TRUE(st.ok());
     bool disable_auto_compaction = config::disable_auto_compaction;
     config::disable_auto_compaction = true;
+
+    auto* sp = SyncPoint::get_instance();
+    sp->enable_processing();
+    sp->set_call_back("StorageEngine::_compaction_tasks_producer_callback",
+                      [](auto&& values) { std::this_thread::sleep_for(std::chrono::seconds(1)); });
+
     Defer defer {[&]() {
         _storage_engine->_stop_background_threads_latch.count_down();
-        std::this_thread::sleep_for(std::chrono::seconds(5));
         config::disable_auto_compaction = disable_auto_compaction;
+        sp->clear_call_back("StorageEngine::_compaction_tasks_producer_callback");
     }};
+
     // compaction tasks producer thread
     st = Thread::create(
             "StorageEngine", "compaction_tasks_producer_thread",
             [this]() { this->_storage_engine->_compaction_tasks_producer_callback(); },
             &_storage_engine->_compaction_tasks_producer_thread);
     EXPECT_TRUE(st.ok());
-    std::this_thread::sleep_for(std::chrono::seconds(10));
-    // the average_compaction_producer_callback_time can't get an accurate value
+    std::this_thread::sleep_for(std::chrono::seconds(2));
+    // the compaction_producer_callback_a_round_time can't get an accurate value
     // just judge it great than 0
-    EXPECT_GT(DorisMetrics::instance()->average_compaction_producer_callback_time->value(), 0);
+    EXPECT_GT(DorisMetrics::instance()->compaction_producer_callback_a_round_time->value(), 0);
 }
 
 TEST_F(CompactionMetricsTest, TestCompactionReadWriteThroughput) {
@@ -235,8 +242,8 @@ TEST_F(CompactionMetricsTest, TestCompactionReadWriteThroughput) {
 
     std::this_thread::sleep_for(std::chrono::seconds(5));
 
-    EXPECT_GT(DorisMetrics::instance()->local_compaction_read_bytes_total->value(), 0);
-    EXPECT_GT(DorisMetrics::instance()->local_compaction_read_rows_total->value(), 0);
+    EXPECT_EQ(DorisMetrics::instance()->local_compaction_read_bytes_total->value(), 1024 * 28);
+    EXPECT_EQ(DorisMetrics::instance()->local_compaction_read_rows_total->value(), 50 * 28);
 }
 
 } // namespace doris

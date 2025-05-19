@@ -130,7 +130,7 @@ DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(stream_receive_bytes_total, MetricUnit::BYT
 DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(stream_load_rows_total, MetricUnit::ROWS, "", stream_load,
                                      Labels({{"type", "load_rows"}}));
 
-DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(average_compaction_producer_callback_time,
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(compaction_producer_callback_a_round_time,
                                      MetricUnit::ROWSETS);
 
 DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(local_compaction_read_rows_total, MetricUnit::ROWS, "",
@@ -251,7 +251,7 @@ DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, push_request_write_bytes);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, push_request_write_rows);
 
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, average_compaction_producer_callback_time);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, compaction_producer_callback_a_round_time);
 
     // engine_requests_total
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, create_tablet_requests_total);

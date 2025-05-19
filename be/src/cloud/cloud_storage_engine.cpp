@@ -58,6 +58,7 @@
 #include "olap/storage_policy.h"
 #include "runtime/memory/cache_manager.h"
 #include "util/parse_util.h"
+#include "util/time.h"
 #include "vec/common/assert_cast.h"
 
 namespace doris {
@@ -443,20 +444,9 @@ void CloudStorageEngine::_compaction_tasks_producer_callback() {
     int64_t last_base_score_update_time = 0;
     static const int64_t check_score_interval_ms = 5000; // 5 secs
 
-    // for average_compaction_producer_callback_time metric
-    int64_t last_producer_callback_time = 0;
-    int64_t total_callback_rounds = 0;
-    int64_t total_producer_callback_time = 0;
-
     int64_t interval = config::generate_compaction_tasks_interval_ms;
     do {
         int64_t cur_time = UnixMillis();
-        if (total_callback_rounds > 0) {
-            total_producer_callback_time += cur_time - last_producer_callback_time;
-            DorisMetrics::instance()->average_compaction_producer_callback_time->set_value(
-                    total_producer_callback_time / total_callback_rounds);
-        }
-        last_producer_callback_time = cur_time;
         if (!config::disable_auto_compaction) {
             Status st = _adjust_compaction_thread_num();
             if (!st.ok()) {
@@ -515,7 +505,9 @@ void CloudStorageEngine::_compaction_tasks_producer_callback() {
         } else {
             interval = config::check_auto_compaction_interval_seconds * 1000;
         }
-        total_callback_rounds++;
+        int64_t end_time = UnixMillis();
+        DorisMetrics::instance()->compaction_producer_callback_a_round_time->set_value(end_time -
+                                                                                       cur_time);
     } while (!_stop_background_threads_latch.wait_for(std::chrono::milliseconds(interval)));
 }
 

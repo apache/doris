@@ -80,7 +80,7 @@ public:
     IntCounter* finish_task_requests_total = nullptr;
     IntCounter* finish_task_requests_failed = nullptr;
 
-    IntCounter* average_compaction_producer_callback_time = nullptr;
+    IntCounter* compaction_producer_callback_a_round_time = nullptr;
 
     IntCounter* base_compaction_request_total = nullptr;
     IntCounter* base_compaction_request_failed = nullptr;

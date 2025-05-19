@@ -136,6 +136,16 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
             _update_stats(stats, &fcache_stats_increment, io_ctx->is_inverted_index);
             io::FileCacheProfile::instance().update(&fcache_stats_increment);
         }
+        // update metrics
+        if (stats.hit_cache) {
+            DorisMetrics::instance()->local_compaction_read_bytes_total->increment(
+                    stats.bytes_read);
+        } else {
+            DorisMetrics::instance()->remote_compaction_read_bytes_total->increment(
+                    stats.bytes_read);
+        }
+        DorisMetrics::instance()->local_compaction_write_bytes_total->increment(
+                stats.bytes_write_into_file_cache);
     };
     std::unique_ptr<int, decltype(defer_func)> defer((int*)0x01, std::move(defer_func));
     stats.bytes_read += bytes_req;
@@ -338,16 +348,12 @@ void CachedRemoteFileReader::_update_stats(const ReadStatistics& read_stats,
     if (read_stats.hit_cache) {
         statis->num_local_io_total++;
         statis->bytes_read_from_local += read_stats.bytes_read;
-        DorisMetrics::instance()->local_compaction_read_bytes_total->increment(
-                read_stats.bytes_read);
     } else {
         if (is_inverted_index) {
             statis->num_inverted_index_remote_io_total++;
         }
         statis->num_remote_io_total++;
         statis->bytes_read_from_remote += read_stats.bytes_read;
-        DorisMetrics::instance()->remote_compaction_read_bytes_total->increment(
-                read_stats.bytes_read);
     }
     statis->remote_io_timer += read_stats.remote_read_timer;
     statis->local_io_timer += read_stats.local_read_timer;
@@ -363,9 +369,6 @@ void CachedRemoteFileReader::_update_stats(const ReadStatistics& read_stats,
 
     g_skip_cache_num << read_stats.skip_cache;
     g_skip_cache_sum << read_stats.skip_cache;
-
-    DorisMetrics::instance()->local_compaction_write_bytes_total->increment(
-            read_stats.bytes_write_into_file_cache);
 }
 
 } // namespace doris::io
