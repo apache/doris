@@ -27,6 +27,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.rpc.RpcException;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
 import org.apache.doris.statistics.AnalysisInfo.ScheduleType;
@@ -226,6 +227,14 @@ public class StatisticsAutoCollector extends MasterDaemon {
         for (Pair<String, String> pair : jobColumns) {
             stringJoiner.add(pair.toString());
         }
+        long version = 0;
+        try {
+            if (table instanceof OlapTable) {
+                version = ((OlapTable) table).getVisibleVersion();
+            }
+        } catch (RpcException e) {
+            LOG.warn("table {}, in cloud getVisibleVersion exception", table.getName(), e);
+        }
         return new AnalysisInfoBuilder()
                 .setJobId(Env.getCurrentEnv().getNextId())
                 .setCatalogId(table.getDatabase().getCatalog().getId())
@@ -246,7 +255,7 @@ public class StatisticsAutoCollector extends MasterDaemon {
                 .setTblUpdateTime(table.getUpdateTime())
                 .setRowCount(rowCount)
                 .setUpdateRows(tableStatsStatus == null ? 0 : tableStatsStatus.updatedRows.get())
-                .setTableVersion(table instanceof OlapTable ? ((OlapTable) table).getVisibleVersion() : 0)
+                .setTableVersion(version)
                 .setPriority(priority)
                 .setPartitionUpdateRows(tableStatsStatus == null ? null : tableStatsStatus.partitionUpdateRows)
                 .setEnablePartition(StatisticsUtil.enablePartitionAnalyze())
