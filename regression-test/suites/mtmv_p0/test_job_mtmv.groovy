@@ -26,6 +26,7 @@ suite("test_job_mtmv","mtmv") {
     String dbName = context.config.getDbNameByFile(context.file)
     String tableName = "${suiteName}_table"
     String mvName = "${suiteName}_mv"
+    String mvNameReplace = "${suiteName}_mv_replace"
     sql """drop table if exists `${tableName}`"""
     sql """drop materialized view if exists ${mvName};"""
 
@@ -121,7 +122,30 @@ suite("test_job_mtmv","mtmv") {
         resume MATERIALIZED VIEW job on ${mvName};
         """
     order_qt_resume "select MvName,ExecuteType,RecurringStrategy,Status from jobs('type'='mv') where MvName='${mvName}' and MvDatabaseName='${dbName}';"
-    sql """drop materialized view if exists ${mvName};"""
 
+
+    sql """
+            CREATE MATERIALIZED VIEW ${mvNameReplace}
+            BUILD DEFERRED REFRESH AUTO ON SCHEDULE EVERY 10 second STARTS "9999-12-13 21:07:09"
+            DISTRIBUTED BY RANDOM BUCKETS 2
+            PROPERTIES (
+            'replication_num' = '1'
+            )
+            AS
+            SELECT * from ${tableName};
+            """
+    sql """
+        alter MATERIALIZED VIEW ${mvName} replace with  MATERIALIZED VIEW ${mvNameReplace} PROPERTIES('swap' = 'false');
+        """
+    order_qt_replace_false_1 "select MvName,ExecuteType,RecurringStrategy,Status from jobs('type'='mv') where MvName='${mvName}' and MvDatabaseName='${dbName}';"
+    order_qt_replace_false_2 "select MvName,ExecuteType,RecurringStrategy,Status from jobs('type'='mv') where MvName='${mvNameReplace}' and MvDatabaseName='${dbName}';"
+
+    sql """
+        alter MATERIALIZED VIEW ${mvName} replace with  MATERIALIZED VIEW ${mvNameReplace} PROPERTIES('swap' = 'true');
+        """
+    order_qt_replace_false_1 "select MvName,ExecuteType,RecurringStrategy,Status from jobs('type'='mv') where MvName='${mvName}' and MvDatabaseName='${dbName}';"
+    order_qt_replace_false_2 "select MvName,ExecuteType,RecurringStrategy,Status from jobs('type'='mv') where MvName='${mvNameReplace}' and MvDatabaseName='${dbName}';"
+
+    sql """drop materialized view if exists ${mvName};"""
     order_qt_drop "select MvName,ExecuteType,RecurringStrategy,Status from jobs('type'='mv') where MvName='${mvName}' and MvDatabaseName='${dbName}';"
 }
