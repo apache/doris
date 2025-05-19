@@ -84,6 +84,8 @@ public:
     }
 
     // All the columns of one table may exist in the columns param, but col_ids is only a subset.
+    // arg 1 columns is the columns of the table
+    // arg 2 col_ids is the columns to read
     Schema(const std::vector<TabletColumnPtr>& columns, const std::vector<ColumnId>& col_ids) {
         size_t num_key_columns = 0;
         _unique_ids.resize(columns.size());

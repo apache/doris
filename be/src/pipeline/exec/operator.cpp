@@ -17,6 +17,8 @@
 
 #include "operator.h"
 
+#include <thrift/protocol/TDebugProtocol.h>
+
 #include "common/status.h"
 #include "pipeline/dependency.h"
 #include "pipeline/exec/aggregation_sink_operator.h"
@@ -190,14 +192,25 @@ Status OperatorXBase::init(const TPlanNode& tnode, RuntimeState* /*state*/) {
     auto substr = node_name.substr(0, node_name.find("_NODE"));
     _op_name = substr + "_OPERATOR";
 
+    LOG_INFO("Conjunct size of {} is {}", _op_name,
+             tnode.__isset.conjuncts ? tnode.conjuncts.size() : 0);
+
     if (tnode.__isset.vconjunct) {
         vectorized::VExprContextSPtr context;
         RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(tnode.vconjunct, context));
+        LOG_INFO("Conjunct of {} is\n{}", _op_name,
+                 apache::thrift::ThriftDebugString(tnode.vconjunct));
         _conjuncts.emplace_back(context);
     } else if (tnode.__isset.conjuncts) {
         for (auto& conjunct : tnode.conjuncts) {
             vectorized::VExprContextSPtr context;
             RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(conjunct, context));
+            LOG_INFO("Conjunct of {} is\n{}", _op_name,
+                     apache::thrift::ThriftDebugString(conjunct));
+            // // Write the conjunct to a file for debugging
+            // doris::vectorized::write_to_json(
+            //         "/mnt/disk4/hezhiqiang/workspace/doris/cmaster/RELEASE/be1", "conjunct.json",
+            //         conjunct);
             _conjuncts.emplace_back(context);
         }
     }

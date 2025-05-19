@@ -25,13 +25,13 @@
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/descriptors.pb.h>
 #include <stddef.h>
+#include <thrift/protocol/TDebugProtocol.h>
 
 #include <algorithm>
 #include <boost/algorithm/string/join.hpp>
-#include <memory>
 
+#include "common/exception.h"
 #include "common/object_pool.h"
-#include "runtime/primitive_type.h"
 #include "util/string_util.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/core/types.h"
@@ -41,6 +41,10 @@
 #include "vec/data_types/data_type_map.h"
 #include "vec/data_types/data_type_struct.h"
 #include "vec/functions/function_helpers.h"
+#include "vec/columns/column_nothing.h"
+#include "vec/data_types/data_type_factory.hpp"
+#include "vec/exprs/vexpr.h"
+#include "vec/utils/util.hpp"
 
 namespace doris {
 
@@ -61,7 +65,11 @@ SlotDescriptor::SlotDescriptor(const TSlotDescriptor& tdesc)
           _is_key(tdesc.is_key),
           _column_paths(tdesc.column_paths),
           _is_auto_increment(tdesc.__isset.is_auto_increment ? tdesc.is_auto_increment : false),
-          _col_default_value(tdesc.__isset.col_default_value ? tdesc.col_default_value : "") {}
+          _col_default_value(tdesc.__isset.col_default_value ? tdesc.col_default_value : "") {
+    if (tdesc.__isset.virtual_column_expr) {
+        this->virtual_column_expr = std::make_shared<doris::TExpr>(tdesc.virtual_column_expr);
+    }
+}
 
 SlotDescriptor::SlotDescriptor(const PSlotDescriptor& pdesc)
         : _id(pdesc.id()),
@@ -118,14 +126,18 @@ vectorized::DataTypePtr SlotDescriptor::get_data_type_ptr() const {
 }
 
 vectorized::MutableColumnPtr SlotDescriptor::get_empty_mutable_column() const {
+    if (this->get_virtual_column_expr() != nullptr) {
+        return vectorized::ColumnNothing::create(0);
+    }
+
     return type()->create_column();
 }
 
 std::string SlotDescriptor::debug_string() const {
-    std::stringstream out;
-    out << "Slot(id=" << _id << " type=" << _type->get_name() << " col=" << _col_pos
-        << ", colname=" << _col_name << ", nullable=" << is_nullable() << ")";
-    return out.str();
+    const bool is_virtual = this->get_virtual_column_expr() != nullptr;
+    return fmt::format(
+            "SlotDescriptor(id={}, type={}, col_pos={}, col_name={}, nullable={}, is_virtual={})",
+            _id, _type->get_name(), _col_pos, _col_name, is_nullable(), is_virtual);
 }
 
 TableDescriptor::TableDescriptor(const TTableDescriptor& tdesc)
@@ -613,6 +625,8 @@ Status DescriptorTbl::create(ObjectPool* pool, const TDescriptorTable& thrift_tb
         entry->second->add_slot(slot_d);
     }
 
+    // vectorized::write_to_json("/mnt/disk4/hezhiqiang/workspace/doris/cmaster/RELEASE/be1",
+    //                           fmt::format("{}.json", pool->size()), thrift_tbl);
     return Status::OK();
 }
 

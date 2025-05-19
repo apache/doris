@@ -21,11 +21,13 @@
 #include <glog/logging.h>
 
 #include <algorithm>
+#include <cstddef>
 #include <iterator>
 #include <memory>
 #include <ostream>
 #include <set>
 #include <utility>
+#include <vector>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
@@ -41,6 +43,7 @@
 #include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
 #include "vec/columns/column.h"
+#include "vec/columns/column_nothing.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/field.h"
 #include "vec/data_types/data_type.h"
@@ -453,6 +456,7 @@ VCollectIterator::Level0Iterator::Level0Iterator(RowsetReaderSharedPtr rs_reader
 
 Status VCollectIterator::Level0Iterator::init(bool get_data_by_ref) {
     _get_data_by_ref = get_data_by_ref && _rs_reader->support_return_data_by_ref();
+    // WHy create a block here?
     if (!_get_data_by_ref) {
         _block = std::make_shared<Block>(_schema.create_block(
                 _reader->_return_columns, _reader->_tablet_columns_convert_to_null_set));
@@ -490,6 +494,7 @@ int64_t VCollectIterator::Level0Iterator::version() const {
 }
 
 Status VCollectIterator::Level0Iterator::refresh_current_row() {
+    LOG_INFO("Level0Iterator refresh current row begin");
     RuntimeState* runtime_state = nullptr;
     if (_reader != nullptr) {
         runtime_state = _reader->_reader_context.runtime_state;
@@ -503,6 +508,7 @@ Status VCollectIterator::Level0Iterator::refresh_current_row() {
         }
 
         if (!_is_empty() && _current_valid()) {
+            LOG_INFO("Level0Iterator refresh current row end");
             return Status::OK();
         } else {
             _reset();
@@ -526,6 +532,7 @@ Status VCollectIterator::Level0Iterator::refresh_current_row() {
     _ref.row_pos = -1;
     _current = -1;
     _rs_reader = nullptr;
+    LOG_INFO("Level0Iterator refresh current row end");
     return Status::Error<END_OF_FILE>("");
 }
 
@@ -551,6 +558,7 @@ Status VCollectIterator::Level0Iterator::next(Block* block) {
     if (_ref.row_pos <= 0 && _ref.block != nullptr && UNLIKELY(_ref.block->rows() > 0)) {
         block->swap(*_ref.block);
         _ref.reset();
+        LOG_INFO("Level0Iterator next block do swap");
         return Status::OK();
     } else {
         if (_rs_reader == nullptr) {
@@ -558,6 +566,33 @@ Status VCollectIterator::Level0Iterator::next(Block* block) {
         }
         auto res = _rs_reader->next_block(block);
         if (!res.ok() && !res.is<END_OF_FILE>()) {
+            // // replace column nothing with real column
+            // const auto idx_to_datatype = _reader->_reader_context.vir_col_idx_to_type;
+            // for (const auto& pair : _reader->_reader_context.vir_cid_to_idx_in_block) {
+            //     size_t idx = pair.second;
+            //     auto type = idx_to_datatype.find(idx)->second;
+
+            //     block->replace_by_position(idx, type->create_column());
+            //     LOG_INFO(
+            //             "Level0Iterator next block replace column nothing with real column "
+            //             "idx {}, type {}",
+            //             idx, type->get_name());
+            // }
+
+            // size_t idx = 0;
+            // for (const auto& entry : *block) {
+            //     if (vectorized::check_and_get_column<vectorized::ColumnNothing>(
+            //                 entry.column.get())) {
+            //         LOG_ERROR(
+            //                 "Column in idx {} is nothing, block columns {}, normal_columns "
+            //                 "{}, ",
+            //                 idx, block->columns(), _reader->_return_columns.size());
+
+            //         throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Column in idx {} is nothing",
+            //                                idx);
+            //     }
+            //     idx++;
+            // }
             return res;
         }
         if (res.is<END_OF_FILE>() && block->rows() == 0) {

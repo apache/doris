@@ -59,9 +59,11 @@
 #include "service/backend_options.h"
 #include "util/doris_metrics.h"
 #include "util/runtime_profile.h"
+#include "vec/columns/column_nothing.h"
 #include "vec/common/schema_util.h"
 #include "vec/core/block.h"
 #include "vec/exec/scan/scan_node.h"
+#include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/json/path_in_data.h"
 #include "vec/olap/block_reader.h"
@@ -76,7 +78,7 @@ OlapScanner::OlapScanner(pipeline::ScanLocalStateBase* parent, OlapScanner::Para
           _tablet_reader_params({
                   .tablet = std::move(params.tablet),
                   .tablet_schema {},
-                  .aggregation = params.aggregation,
+                  .is_pre_aggregation = params.is_pre_aggregation,
                   .version = {0, params.version},
                   .start_key {},
                   .end_key {},
@@ -95,6 +97,10 @@ OlapScanner::OlapScanner(pipeline::ScanLocalStateBase* parent, OlapScanner::Para
                   .topn_filter_source_node_ids {},
                   .filter_block_conjuncts {},
                   .key_group_cluster_key_idxes {},
+                  .virtual_column_exprs {},
+                  .ann_topn_descriptor {},
+                  .vir_cid_to_idx_in_block {},
+                  .vir_col_idx_to_type {},
           }) {
     _tablet_reader_params.set_read_source(std::move(params.read_source));
     _is_init = false;
@@ -125,15 +131,34 @@ static std::string read_columns_to_string(TabletSchemaSPtr tablet_schema,
 }
 
 Status OlapScanner::init() {
+    const TOlapScanNode& olap_scan_node =
+            _local_state->cast<pipeline::OlapScanLocalState>().olap_scan_node();
+    if (olap_scan_node.__isset.keyType) {
+        if (olap_scan_node.keyType != TKeysType::DUP_KEYS) {
+            return Status::InternalError<false>("Currently only support DUP_KEYS, but got {}",
+                                                olap_scan_node.keyType);
+        }
+    }
     _is_init = true;
     auto* local_state = static_cast<pipeline::OlapScanLocalState*>(_local_state);
     auto& tablet = _tablet_reader_params.tablet;
     auto& tablet_schema = _tablet_reader_params.tablet_schema;
-    for (auto& ctx : local_state->_common_expr_ctxs_push_down) {
+    for (auto ctx : local_state->_common_expr_ctxs_push_down) {
         VExprContextSPtr context;
         RETURN_IF_ERROR(ctx->clone(_state, context));
         _common_expr_ctxs_push_down.emplace_back(context);
+        RETURN_IF_ERROR(context->prepare_ann_range_search());
     }
+
+    for (auto pair : local_state->_slot_id_to_virtual_column_expr) {
+        VExprContextSPtr context;
+        RETURN_IF_ERROR(pair.second->clone(_state, context));
+        _slot_id_to_virtual_column_expr[pair.first] = context;
+    }
+
+    _slot_id_to_index_in_block = local_state->_slot_id_to_index_in_block;
+    _slot_id_to_col_type = local_state->_slot_id_to_col_type;
+    _ann_topn_descriptor = local_state->_ann_topn_descriptor;
 
     // set limit to reduce end of rowset and segment mem use
     _tablet_reader = std::make_unique<BlockReader>();
@@ -259,13 +284,20 @@ Status OlapScanner::_init_tablet_reader_params(
 
     if (_state->skip_storage_engine_merge()) {
         _tablet_reader_params.direct_mode = true;
-        _tablet_reader_params.aggregation = true;
+        _tablet_reader_params.is_pre_aggregation = true;
     } else {
         auto push_down_agg_type = _local_state->get_push_down_agg_type();
-        _tablet_reader_params.direct_mode = _tablet_reader_params.aggregation || single_version ||
+        _tablet_reader_params.direct_mode = _tablet_reader_params.is_pre_aggregation ||
+                                            single_version ||
                                             (push_down_agg_type != TPushAggOp::NONE &&
                                              push_down_agg_type != TPushAggOp::COUNT_ON_INDEX);
     }
+    LOG_INFO(
+            "Direct mode {}, pre-aggregation {}, skip_storage_engine_merge: {}, single_version: "
+            "{}, push_down_agg_type {}",
+            _tablet_reader_params.direct_mode, _tablet_reader_params.is_pre_aggregation,
+            _state->skip_storage_engine_merge(), single_version,
+            _local_state->get_push_down_agg_type());
 
     RETURN_IF_ERROR(_init_variant_columns());
     RETURN_IF_ERROR(_init_return_columns());
@@ -285,6 +317,10 @@ Status OlapScanner::_init_tablet_reader_params(
     }
 
     _tablet_reader_params.common_expr_ctxs_push_down = _common_expr_ctxs_push_down;
+    _tablet_reader_params.virtual_column_exprs = _virtual_column_exprs;
+    _tablet_reader_params.ann_topn_descriptor = _ann_topn_descriptor;
+    _tablet_reader_params.vir_cid_to_idx_in_block = _vir_cid_to_idx_in_block;
+    _tablet_reader_params.vir_col_idx_to_type = _vir_col_idx_to_type;
     _tablet_reader_params.output_columns =
             ((pipeline::OlapScanLocalState*)_local_state)->_maybe_read_column_ids;
     for (const auto& ele :
@@ -447,6 +483,15 @@ Status OlapScanner::_init_variant_columns() {
 }
 
 Status OlapScanner::_init_return_columns() {
+    size_t virtual_column_index = 0;
+    std::vector<std::string> debug_strings;
+    for (const auto* slot : _output_tuple_desc->slots()) {
+        debug_strings.push_back(slot->debug_string());
+    }
+
+    LOG_INFO("OlapScanner init return columns, output tuple slots:\n{}",
+             fmt::join(debug_strings, ",\n"));
+
     for (auto* slot : _output_tuple_desc->slots()) {
         if (!slot->is_materialized()) {
             continue;
@@ -455,7 +500,25 @@ Status OlapScanner::_init_return_columns() {
         // variant column using path to index a column
         int32_t index = 0;
         auto& tablet_schema = _tablet_reader_params.tablet_schema;
-        if (slot->type()->get_primitive_type() == PrimitiveType::TYPE_VARIANT) {
+        if (slot->get_virtual_column_expr()) {
+            // 如果这个列是一个虚拟列，那么给它一个特殊的 cid
+            // 这个 cid 是在 tablet_schema 中不存在的
+            size_t virtual_column_cid = tablet_schema->num_columns() + virtual_column_index;
+
+            // 这两个 map 都会向下传递到 segment iterator
+            _virtual_column_exprs[virtual_column_cid] = _slot_id_to_virtual_column_expr[slot->id()];
+            size_t idx_in_block = _slot_id_to_index_in_block[slot->id()];
+            _vir_cid_to_idx_in_block[virtual_column_cid] = idx_in_block;
+            _vir_col_idx_to_type[idx_in_block] = _slot_id_to_col_type[slot->id()];
+
+            virtual_column_index++;
+
+            LOG_INFO("Add virtual column, slot id: {}, cid {}, column index: {}, type: {}",
+                     slot->id(), virtual_column_cid, _vir_cid_to_idx_in_block[virtual_column_cid],
+                     _vir_col_idx_to_type[idx_in_block]->get_name());
+            // Virtual column is not included in columns in read-schema.
+            continue;
+        } else if (slot->type()->get_primitive_type() == PrimitiveType::TYPE_VARIANT) {
             index = tablet_schema->field_index(PathInData(
                     tablet_schema->column_by_uid(slot->col_unique_id()).name_lower_case(),
                     slot->column_paths()));
@@ -469,6 +532,7 @@ Status OlapScanner::_init_return_columns() {
                     "field name is invalid. field={}, field_name_to_index={}, col_unique_id={}",
                     slot->col_name(), tablet_schema->get_all_field_names(), slot->col_unique_id());
         }
+        // _return_columns 中只保留 normal_columns
         _return_columns.push_back(index);
         if (slot->is_nullable() && !tablet_schema->column(index).is_nullable()) {
             _tablet_columns_convert_to_null_set.emplace(index);
@@ -483,7 +547,14 @@ Status OlapScanner::_init_return_columns() {
 
     if (_return_columns.empty()) {
         return Status::InternalError("failed to build storage scanner, no materialized slot!");
+    } else {
+        std::string msg = "";
+        for (auto& column : _return_columns) {
+            msg += fmt::format("{}, ", column);
+        }
+        LOG_INFO("OlapScanner init return columns, return columns cid: [{}]", msg);
     }
+
     return Status::OK();
 }
 

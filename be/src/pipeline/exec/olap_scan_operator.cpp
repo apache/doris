@@ -18,6 +18,7 @@
 #include "pipeline/exec/olap_scan_operator.h"
 
 #include <fmt/format.h>
+#include <thrift/protocol/TDebugProtocol.h>
 
 #include <memory>
 #include <numeric>
@@ -29,19 +30,19 @@
 #include "cloud/config.h"
 #include "olap/parallel_scanner_builder.h"
 #include "olap/storage_engine.h"
-#include "olap/tablet_manager.h"
 #include "pipeline/exec/scan_operator.h"
 #include "pipeline/query_cache/query_cache.h"
 #include "runtime_filter/runtime_filter_consumer_helper.h"
 #include "service/backend_options.h"
 #include "util/runtime_profile.h"
+#include "runtime/runtime_state.h"
 #include "util/to_string.h"
 #include "vec/exec/scan/olap_scanner.h"
+#include "vec/exprs/vann_topn_predicate.h"
 #include "vec/exprs/vectorized_fn_call.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vslot_ref.h"
-#include "vec/functions/in.h"
 
 namespace doris::pipeline {
 #include "common/compile_check_begin.h"
@@ -316,6 +317,10 @@ bool OlapScanLocalState::_storage_no_merge() {
 }
 
 Status OlapScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* scanners) {
+    // auto& p = _parent->cast<OlapScanOperatorX>();
+    // if (p._olap_scan_node.keyType != TKeysType::DUP_KEYS) {
+    //     return Status::NotSupported("Now only dup keys table is supported");
+    // }
     if (_scan_ranges.empty()) {
         _eos = true;
         _scan_dependency->set_ready();
@@ -353,6 +358,7 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* sc
                          state()->query_options().resource_limit.__isset.cpu_limit;
 
     RETURN_IF_ERROR(hold_tablets());
+    LOG_INFO("ScanNode is_preaggregation: {}", p._olap_scan_node.is_preaggregation);
     if (enable_parallel_scan && !p._should_run_serial && !has_cpu_limit &&
         p._push_down_agg_type == TPushAggOp::NONE &&
         (_storage_no_merge() || p._olap_scan_node.is_preaggregation)) {
@@ -550,6 +556,68 @@ Status OlapScanLocalState::hold_tablets() {
     return Status::OK();
 }
 
+Status OlapScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
+    const TOlapScanNode& olap_scan_node = _parent->cast<OlapScanOperatorX>()._olap_scan_node;
+
+    if (olap_scan_node.__isset.ann_sort_info || olap_scan_node.__isset.ann_sort_limit) {
+        DCHECK(olap_scan_node.__isset.ann_sort_info);
+        DCHECK(olap_scan_node.__isset.ann_sort_limit);
+        DCHECK(olap_scan_node.ann_sort_info.ordering_exprs.size() == 1);
+        const doris::TExpr& ordering_expr = olap_scan_node.ann_sort_info.ordering_exprs.front();
+        // order by 的表达式需要是一个 slot_ref，并且类型需要是虚拟列
+        DCHECK(ordering_expr.nodes[0].__isset.slot_ref);
+        DCHECK(ordering_expr.nodes[0].slot_ref.is_virtual_slot);
+        size_t limit = olap_scan_node.ann_sort_limit;
+        std::shared_ptr<vectorized::VExprContext> ordering_expr_ctx;
+        RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(ordering_expr, ordering_expr_ctx));
+        LOG_INFO("Ann thrift expr: {}", apache::thrift::ThriftDebugString(ordering_expr));
+        _ann_topn_descriptor =
+                vectorized::AnnTopNDescriptor::create_shared(limit, ordering_expr_ctx);
+    }
+
+    return ScanLocalState<OlapScanLocalState>::init(state, info);
+}
+
+Status OlapScanLocalState::open(RuntimeState* state) {
+    auto& p = _parent->cast<OlapScanOperatorX>();
+    for (const auto& pair : p._slot_id_to_slot_desc) {
+        const SlotDescriptor* slot_desc = pair.second;
+        std::shared_ptr<doris::TExpr> virtual_col_expr = slot_desc->get_virtual_column_expr();
+        if (virtual_col_expr) {
+            std::shared_ptr<doris::vectorized::VExprContext> virtual_column_expr_ctx;
+            RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(*virtual_col_expr,
+                                                                virtual_column_expr_ctx));
+            RETURN_IF_ERROR(virtual_column_expr_ctx->prepare(state, p.intermediate_row_desc()));
+            RETURN_IF_ERROR(virtual_column_expr_ctx->open(state));
+
+            _slot_id_to_virtual_column_expr[slot_desc->id()] = virtual_column_expr_ctx;
+            _slot_id_to_col_type[slot_desc->id()] = slot_desc->get_data_type_ptr();
+            int cid = p.intermediate_row_desc().get_column_id(slot_desc->id());
+            if (cid < 0) {
+                return Status::InternalError(
+                        "Invalid virtual slot, can not find its information. Slot desc:\n{}\nRow "
+                        "desc:\n{}",
+                        slot_desc->debug_string(), p.row_desc().debug_string());
+            } else {
+                _slot_id_to_index_in_block[slot_desc->id()] = cid;
+            }
+
+            LOG_INFO(
+                    "OlapScanLocalState opening, virtual column expr slot id: {}, cid: {}, expr: "
+                    "{}",
+                    slot_desc->id(), cid, virtual_column_expr_ctx->root()->debug_string());
+        }
+    }
+
+    if (_ann_topn_descriptor) {
+        RETURN_IF_ERROR(_ann_topn_descriptor->prepare(state, p.intermediate_row_desc()));
+    }
+
+    RETURN_IF_ERROR(ScanLocalState<OlapScanLocalState>::open(state));
+
+    return Status::OK();
+}
+
 TOlapScanNode& OlapScanLocalState::olap_scan_node() const {
     return _parent->cast<OlapScanOperatorX>()._olap_scan_node;
 }
@@ -723,6 +791,7 @@ OlapScanOperatorX::OlapScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, i
         : ScanOperatorX<OlapScanLocalState>(pool, tnode, operator_id, descs, parallel_tasks),
           _olap_scan_node(tnode.olap_scan_node),
           _cache_param(param) {
+    // _output_tuple_id of olap scan operator
     _output_tuple_id = tnode.olap_scan_node.tuple_id;
     if (_olap_scan_node.__isset.sort_info && _olap_scan_node.__isset.sort_limit) {
         _limit_per_scanner = _olap_scan_node.sort_limit;

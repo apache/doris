@@ -71,18 +71,14 @@ public:
     Status finish() override;
 
 private:
-    Status open_index_directory();
-    Status init_ann_index();
-
-private:
-    rowid_t _rid = 0;
-    // bool _single_field = true;
-    std::shared_ptr<DorisFSDirectory> _dir = nullptr;
-    std::shared_ptr<VectorIndex> _vector_index_writer;
+    // VectorIndex shoule be managed by some cache.
+    // VectorIndex should be weak shared by AnnIndexWriter and VectorIndexReader
+    // This should be a weak_ptr
+    std::shared_ptr<VectorIndex> _vector_index;
     IndexFileWriter* _index_file_writer;
-    // uint32_t _ignore_above;
     std::wstring _field_name;
     const TabletIndex* _index_meta;
+    std::shared_ptr<DorisFSDirectory> _dir;
 };
 
 } // namespace doris::segment_v2

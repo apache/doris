@@ -231,6 +231,10 @@ vectorized::BlockUPtr ScannerContext::get_free_block(bool force) {
         _newly_create_free_blocks_num->update(1);
         block = vectorized::Block::create_unique(_output_tuple_desc->slots(), 0,
                                                  true /*ignore invalid slots*/);
+        std::vector<size_t> col_sizes;
+        for (const auto& c : block->get_columns()) {
+            col_sizes.push_back(c->size());
+        }
     }
     return block;
 }

@@ -97,7 +97,7 @@ VerticalSegmentWriter::VerticalSegmentWriter(io::FileWriter* file_writer, uint32
           _data_dir(data_dir),
           _opts(opts),
           _file_writer(file_writer),
-          _x_index_file_writer(inverted_file_writer),
+          _index_file_writer(inverted_file_writer),
           _mem_tracker(std::make_unique<MemTracker>(
                   vertical_segment_writer_mem_tracker_name(segment_id))),
           _mow_context(std::move(opts.mow_ctx)) {
@@ -220,16 +220,16 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
         index != nullptr && !skip_inverted_index) {
         opts.inverted_index = index;
         opts.need_inverted_index = true;
-        DCHECK(_x_index_file_writer != nullptr);
-        opts.x_index_file_writer = _x_index_file_writer;
+        DCHECK(_index_file_writer != nullptr);
+        opts._index_file_writer = _index_file_writer;
         // TODO support multiple inverted index
     }
 
     if (const auto& index = tablet_schema->ann_index(column); index != nullptr) {
         opts.ann_index = index;
         opts.need_ann_index = true;
-        DCHECK(_x_index_file_writer != nullptr);
-        opts.x_index_file_writer = _x_index_file_writer;
+        DCHECK(_index_file_writer != nullptr);
+        opts._index_file_writer = _index_file_writer;
         // TODO support multiple inverted index
     }
 
