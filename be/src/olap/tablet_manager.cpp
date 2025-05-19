@@ -1133,6 +1133,39 @@ Status TabletManager::start_trash_sweep() {
     for_each_tablet([](const TabletSharedPtr& tablet) { tablet->delete_expired_stale_rowset(); },
                     filter_all_tablets);
 
+    if (config::enable_check_agg_and_remove_pre_rowsets_delete_bitmap) {
+        int64_t max_useless_rowset_count = 0;
+        int64_t tablet_id_with_max_useless_rowset_count = 0;
+        int64_t max_useless_rowset_version_count = 0;
+        int64_t tablet_id_with_max_useless_rowset_version_count = 0;
+        OlapStopWatch watch;
+        for_each_tablet(
+                [&](const TabletSharedPtr& tablet) {
+                    int64_t useless_rowset_count = 0;
+                    int64_t useless_rowset_version_count = 0;
+                    tablet->check_agg_delete_bitmap_for_stale_rowsets(useless_rowset_count,
+                                                                      useless_rowset_version_count);
+                    if (useless_rowset_count > max_useless_rowset_count) {
+                        max_useless_rowset_count = useless_rowset_count;
+                        tablet_id_with_max_useless_rowset_count = tablet->tablet_id();
+                    }
+                    if (useless_rowset_version_count > max_useless_rowset_version_count) {
+                        max_useless_rowset_version_count = useless_rowset_version_count;
+                        tablet_id_with_max_useless_rowset_version_count = tablet->tablet_id();
+                    }
+                },
+                filter_all_tablets);
+        g_max_rowsets_with_useless_delete_bitmap.set_value(max_useless_rowset_count);
+        g_max_rowsets_with_useless_delete_bitmap_version.set_value(
+                max_useless_rowset_version_count);
+        LOG(INFO) << "finish check_agg_delete_bitmap_for_stale_rowsets, cost(us)="
+                  << watch.get_elapse_time_us()
+                  << ". max useless rowset count=" << max_useless_rowset_count
+                  << ", tablet_id=" << tablet_id_with_max_useless_rowset_count
+                  << ", max useless rowset version count=" << max_useless_rowset_version_count
+                  << ", tablet_id=" << tablet_id_with_max_useless_rowset_version_count;
+    }
+
     std::list<TabletSharedPtr>::iterator last_it;
     {
         std::shared_lock rdlock(_shutdown_tablets_lock);
@@ -1791,17 +1824,17 @@ void TabletManager::get_topn_tablet_delete_bitmap_score(
     }
     std::stringstream ss;
     for (auto& i : buf) {
-        ss << i.first->tablet_id() << ":" << i.second << ",";
+        ss << i.first->tablet_id() << ": " << i.second << ", ";
     }
     LOG(INFO) << "get_topn_tablet_delete_bitmap_score, n=" << n
-              << ",tablet size=" << _tablets_shards.size()
-              << ",total_delete_map_count=" << total_delete_map_count
-              << ",cost(us)=" << watch.get_elapse_time_us()
-              << ",max_delete_bitmap_score=" << *max_delete_bitmap_score
-              << ",max_delete_bitmap_score_tablet_id=" << max_delete_bitmap_score_tablet_id
-              << ",max_base_rowset_delete_bitmap_score=" << *max_base_rowset_delete_bitmap_score
-              << ",max_base_rowset_delete_bitmap_score_tablet_id="
-              << max_base_rowset_delete_bitmap_score_tablet_id << ",tablets=[" << ss.str() << "]";
+              << ", tablet size=" << _tablets_shards.size()
+              << ", total_delete_map_count=" << total_delete_map_count
+              << ", cost(us)=" << watch.get_elapse_time_us()
+              << ", max_delete_bitmap_score=" << *max_delete_bitmap_score
+              << ", max_delete_bitmap_score_tablet_id=" << max_delete_bitmap_score_tablet_id
+              << ", max_base_rowset_delete_bitmap_score=" << *max_base_rowset_delete_bitmap_score
+              << ", max_base_rowset_delete_bitmap_score_tablet_id="
+              << max_base_rowset_delete_bitmap_score_tablet_id << ", tablets=[" << ss.str() << "]";
 }
 
 } // end namespace doris
