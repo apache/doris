@@ -226,6 +226,11 @@ public abstract class ExternalCatalog
         }
     }
 
+    public ExternalMetadataOps getMetadataOps() {
+        makeSureInitialized();
+        return metadataOps;
+    }
+
     // Will be called when creating catalog(so when as replaying)
     // to add some default properties if missing.
     public void setDefaultPropsIfMissing(boolean isReplay) {
@@ -1234,10 +1239,9 @@ public abstract class ExternalCatalog
     }
 
     public PreExecutionAuthenticator getPreExecutionAuthenticator() {
-        if (null != preExecutionAuthenticator) {
-            return preExecutionAuthenticator;
+        if (null == preExecutionAuthenticator) {
+            throw new RuntimeException("PreExecutionAuthenticator is null, please confirm it is initialized.");
         }
-        initPreExecutionAuthenticator();
         return preExecutionAuthenticator;
     }
 
