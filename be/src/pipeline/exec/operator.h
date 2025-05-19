@@ -50,7 +50,8 @@ class RuntimeState;
 class TDataSink;
 namespace vectorized {
 class AsyncResultWriter;
-}
+class AnnTopNDescriptor;
+} // namespace vectorized
 } // namespace doris
 
 namespace doris::pipeline {
@@ -241,6 +242,7 @@ protected:
     RuntimeState* _state = nullptr;
     vectorized::VExprContextSPtrs _conjuncts;
     vectorized::VExprContextSPtrs _projections;
+    std::shared_ptr<vectorized::AnnTopNDescriptor> _ann_topn_descriptor;
     // Used in common subexpression elimination to compute intermediate results.
     std::vector<vectorized::VExprContextSPtrs> _intermediate_projections;
 
@@ -777,8 +779,6 @@ public:
               _limit(tnode.limit) {
         if (tnode.__isset.output_tuple_id) {
             _output_row_descriptor.reset(new RowDescriptor(descs, {tnode.output_tuple_id}, {true}));
-            _output_row_descriptor = std::make_unique<RowDescriptor>(
-                    descs, std::vector {tnode.output_tuple_id}, std::vector {true});
         }
         if (!tnode.intermediate_output_tuple_id_list.empty()) {
             // common subexpression elimination

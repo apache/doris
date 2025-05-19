@@ -28,6 +28,7 @@
 #include "common/status.h"
 #include "vector_index.h"
 
+namespace doris::segment_v2 {
 struct FaissBuildParameter {
     enum class IndexType { BruteForce, IVF, HNSW };
 
@@ -64,21 +65,32 @@ struct FaissBuildParameter {
 
 class FaissVectorIndex : public VectorIndex {
 public:
-    FaissVectorIndex(std::shared_ptr<lucene::store::Directory> dir) : _index(nullptr), _dir(dir) {}
+    static std::unique_ptr<faiss::IDSelector> roaring_to_faiss_selector(
+            const roaring::Roaring& bitmap);
+
+    static void update_roaring(const faiss::idx_t* labels, const size_t n,
+                               roaring::Roaring& roaring);
+
+    FaissVectorIndex() = default;
 
     doris::Status add(int n, const float* vec) override;
 
     void set_build_params(const FaissBuildParameter& params);
 
-    doris::Status search(const float* query_vec, int k, SearchResult* result,
-                         const SearchParameters* params = nullptr) override;
+    doris::Status ann_topn_search(const float* query_vec, int k,
+                                  const IndexSearchParameters& params,
+                                  IndexSearchResult& result) override;
 
-    doris::Status save() override;
+    doris::Status range_search(const float* query_vec, const float& radius,
+                               const IndexSearchParameters& params,
+                               IndexSearchResult& result) override;
 
-    doris::Status load(Metric type) override;
+    doris::Status save(lucene::store::Directory*) override;
+
+    doris::Status load(lucene::store::Directory*) override;
 
 private:
-    std::shared_ptr<faiss::Index> _index;
-
-    std::shared_ptr<lucene::store::Directory> _dir;
+    std::unique_ptr<faiss::Index> _index = nullptr;
 };
+
+} // namespace doris::segment_v2

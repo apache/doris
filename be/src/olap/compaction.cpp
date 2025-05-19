@@ -762,9 +762,9 @@ Status Compaction::do_inverted_index_compaction() {
             }
             for (int dest_segment_id = 0; dest_segment_id < dest_segment_num; dest_segment_id++) {
                 auto res = index_file_writers[dest_segment_id]->open(index_meta);
-                DBUG_EXECUTE_IF("Compaction::open_x_index_file_writer", {
+                DBUG_EXECUTE_IF("Compaction::open_index_file_writer", {
                     res = ResultError(Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
-                            "debug point: Compaction::open_x_index_file_writer error"));
+                            "debug point: Compaction::open_index_file_writer error"));
                 })
                 if (!res.has_value()) {
                     LOG(WARNING) << "failed to do index compaction, open inverted index file "

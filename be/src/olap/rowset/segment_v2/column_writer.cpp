@@ -482,7 +482,7 @@ Status ScalarColumnWriter::init() {
             });
 
             RETURN_IF_ERROR(IndexColumnWriter::create(get_field(), &_inverted_index_builder,
-                                                      _opts.x_index_file_writer,
+                                                      _opts._index_file_writer,
                                                       _opts.inverted_index));
         } while (false);
     }
@@ -897,7 +897,7 @@ Status ArrayColumnWriter::init() {
         auto* writer = dynamic_cast<ScalarColumnWriter*>(_item_writer.get());
         if (writer != nullptr) {
             RETURN_IF_ERROR(IndexColumnWriter::create(get_field(), &_inverted_index_builder,
-                                                      _opts.x_index_file_writer,
+                                                      _opts._index_file_writer,
                                                       _opts.inverted_index));
         }
     }
@@ -905,7 +905,7 @@ Status ArrayColumnWriter::init() {
         auto* writer = dynamic_cast<ScalarColumnWriter*>(_item_writer.get());
         if (writer != nullptr) {
             RETURN_IF_ERROR(IndexColumnWriter::create(get_field(), &_ann_index_builder,
-                                                      _opts.x_index_file_writer, _opts.ann_index));
+                                                      _opts._index_file_writer, _opts.ann_index));
         }
     }
     return Status::OK();

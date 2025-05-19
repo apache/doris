@@ -28,6 +28,7 @@
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
+#include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "file_scanner.h"
@@ -42,6 +43,7 @@
 #include "util/defer_op.h"
 #include "util/thread.h"
 #include "util/threadpool.h"
+#include "vec/columns/column_nothing.h"
 #include "vec/core/block.h"
 #include "vec/exec/scan/olap_scanner.h" // IWYU pragma: keep
 #include "vec/exec/scan/scan_node.h"
@@ -310,6 +312,36 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                 }
                 // We got a new created block or a reused block.
                 status = scanner->get_block_after_projects(state, free_block.get(), &eos);
+                size_t idx = 0;
+                for (const auto& entry : *free_block) {
+                    if (vectorized::check_and_get_column<vectorized::ColumnNothing>(
+                                entry.column.get())) {
+                        std::shared_ptr<OlapScanner> ol_sca =
+                                std::dynamic_pointer_cast<OlapScanner>(scanner);
+                        std::vector<std::string> vcid_to_idx;
+
+                        for (const auto& pair : ol_sca->_vir_cid_to_idx_in_block) {
+                            vcid_to_idx.push_back(fmt::format("{}-{}", pair.first, pair.second));
+                        }
+                        std::string vir_cid_to_idx_in_block_msg = fmt::format(
+                                "_vir_cid_to_idx_in_block:[{}]", fmt::join(vcid_to_idx, ","));
+                        LOG_ERROR(
+                                "Column in idx {} is nothing, block columns {}, normal_columns "
+                                "{}, "
+                                "vir_cid_to_idx_in_block_msg {}",
+                                idx, free_block->columns(), ol_sca->_return_columns.size(),
+                                vir_cid_to_idx_in_block_msg);
+
+                        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                               "Column in idx {} is nothing, block columns {}, "
+                                               "normal_columns {}, "
+                                               "virtual_columns {}",
+                                               idx, free_block->columns(),
+                                               ol_sca->_return_columns.size(),
+                                               ol_sca->_vir_cid_to_idx_in_block.size());
+                    }
+                    idx++;
+                }
                 first_read = false;
                 if (!status.ok()) {
                     LOG(WARNING) << "Scan thread read Scanner failed: " << status.to_string();
