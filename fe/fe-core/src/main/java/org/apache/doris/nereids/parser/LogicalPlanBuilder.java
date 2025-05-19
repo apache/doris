@@ -6151,7 +6151,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (ctx.database != null) {
             dbName = ctx.database.getText();
         }
-        TableNameInfo tableNameInfo = new TableNameInfo(visitMultipartIdentifier(ctx.tableName));
+        TableNameInfo tableNameInfo = null;
+        if (ctx.tableName != null) {
+            tableNameInfo = new TableNameInfo(visitMultipartIdentifier(ctx.tableName));
+        }
         boolean isAll = ctx.ALL() != null;
         boolean isVerbose = ctx.VERBOSE() != null;
         return new ShowQueryStatsCommand(dbName, tableNameInfo, isAll, isVerbose);
