@@ -335,11 +335,13 @@ Status CloudTabletMgr::get_topn_tablets_to_compact(
     auto now = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
     auto skip = [now, compaction_type](CloudTablet* t) {
         if (compaction_type == CompactionType::BASE_COMPACTION) {
-            return now - t->last_base_compaction_success_time_ms < config::base_compaction_freeze_interval_s * 1000;
+            return now - t->last_base_compaction_success_time_ms < config::base_compaction_freeze_interval_s * 1000 ||
+                now - t->last_base_compaction_failure_time() < config::min_compaction_failure_interval_ms;
         }
         // If tablet has too many rowsets but not be compacted for a long time, compaction should be performed
         // regardless of whether there is a load job recently.
-        return now - t->last_cumu_no_suitable_version_ms < config::min_compaction_failure_interval_ms ||
+        return now - t->last_cumu_compaction_failure_time() < config::min_compaction_failure_interval_ms ||
+               now - t->last_cumu_no_suitable_version_ms < config::min_compaction_failure_interval_ms ||
                (now - t->last_load_time_ms > config::cu_compaction_freeze_interval_s * 1000
                && now - t->last_cumu_compaction_success_time_ms < config::cumu_compaction_interval_s * 1000
                && t->fetch_add_approximate_num_rowsets(0) < config::max_tablet_version_num / 2);
@@ -485,4 +487,7 @@ void CloudTabletMgr::get_topn_tablet_delete_bitmap_score(
               << max_base_rowset_delete_bitmap_score_tablet_id << ",tablets=[" << ss.str() << "]";
 }
 
+void CloudTabletMgr::put_tablet_for_UT(std::shared_ptr<CloudTablet> tablet) {
+    _tablet_map->put(tablet);
+}
 } // namespace doris
