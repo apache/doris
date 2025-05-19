@@ -412,13 +412,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
                 result = setIfNotExist;
                 isTableExist = true;
             } else {
-                idToTable.put(table.getId(), table);
-                lowerCaseToTableName.put(tableName.toLowerCase(), tableName);
-                nameToTable.put(table.getName(), table);
-                if (table.isTemporary()) {
-                    Env.getCurrentEnv().registerTempTableAndSession(table);
-                }
-
+                registerTable(table);
                 if (!isReplay) {
                     // Write edit log
                     CreateTableInfo info = new CreateTableInfo(fullQualifiedName, table);
@@ -426,8 +420,6 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
                 }
                 if (table.getType() == TableType.ELASTICSEARCH) {
                     Env.getCurrentEnv().getEsRepository().registerTable((EsTable) table);
-                } else if (table.getType() == TableType.MATERIALIZED_VIEW) {
-                    Env.getCurrentEnv().getMtmvService().registerMTMV((MTMV) table, id);
                 }
             }
             return Pair.of(result, isTableExist);
@@ -451,6 +443,12 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
             idToTable.put(olapTable.getId(), olapTable);
             nameToTable.put(olapTable.getName(), olapTable);
             lowerCaseToTableName.put(tableName.toLowerCase(), tableName);
+            if (olapTable instanceof MTMV) {
+                Env.getCurrentEnv().getMtmvService().registerMTMV((MTMV) olapTable, id);
+            }
+            if (olapTable.isTemporary()) {
+                Env.getCurrentEnv().registerTempTableAndSession(olapTable);
+            }
         }
         olapTable.unmarkDropped();
         return result;
@@ -462,6 +460,9 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         }
         Table table = getTableNullable(tableName);
         if (table != null) {
+            if (table instanceof MTMV) {
+                Env.getCurrentEnv().getMtmvService().unregisterMTMV((MTMV) table);
+            }
             this.nameToTable.remove(tableName);
             this.lowerCaseToTableName.remove(tableName.toLowerCase());
             this.idToTable.remove(table.getId());
@@ -670,14 +671,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         int numTables = in.readInt();
         for (int i = 0; i < numTables; ++i) {
             Table table = Table.read(in);
-            table.setQualifiedDbName(fullQualifiedName);
-            if (table instanceof MTMV) {
-                Env.getCurrentEnv().getMtmvService().registerMTMV((MTMV) table, id);
-            }
-            String tableName = table.getName();
-            nameToTable.put(tableName, table);
-            idToTable.put(table.getId(), table);
-            lowerCaseToTableName.put(tableName.toLowerCase(), tableName);
+            registerTable(table);
         }
     }
 
@@ -686,12 +680,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         Preconditions.checkState(nameToTable.getClass() == ConcurrentHashMap.class,
                                  "nameToTable should be ConcurrentMap");
         nameToTable.forEach((tn, tb) -> {
-            tb.setQualifiedDbName(fullQualifiedName);
-            if (tb instanceof MTMV) {
-                Env.getCurrentEnv().getMtmvService().registerMTMV((MTMV) tb, id);
-            }
-            idToTable.put(tb.getId(), tb);
-            lowerCaseToTableName.put(tn.toLowerCase(), tn);
+            registerTable(tb);
         });
 
         if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_105) {
@@ -765,14 +754,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         int numTables = in.readInt();
         for (int i = 0; i < numTables; ++i) {
             Table table = Table.read(in);
-            table.setQualifiedDbName(fullQualifiedName);
-            if (table instanceof MTMV) {
-                Env.getCurrentEnv().getMtmvService().registerMTMV((MTMV) table, id);
-            }
-            String tableName = table.getName();
-            nameToTable.put(tableName, table);
-            idToTable.put(table.getId(), table);
-            lowerCaseToTableName.put(tableName.toLowerCase(), tableName);
+            registerTable(table);
         }
 
         // read quota

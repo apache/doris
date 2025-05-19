@@ -363,7 +363,7 @@ public class PaimonScanNode extends FileQueryScanNode {
     @Override
     public List<String> getPathPartitionKeys() throws DdlException, MetaNotFoundException {
         // return new ArrayList<>(source.getPaimonTable().partitionKeys());
-        // Paymon is not aware of partitions and bypasses some existing logic by
+        // Paimon is not aware of partitions and bypasses some existing logic by
         // returning an empty list
         return new ArrayList<>();
     }

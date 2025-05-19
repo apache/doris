@@ -154,9 +154,9 @@ public class JavaUdfDataType {
         } else if (c == BigDecimal.class) {
             return Sets.newHashSet(JavaUdfDataType.DECIMALV2, JavaUdfDataType.DECIMAL32, JavaUdfDataType.DECIMAL64,
                     JavaUdfDataType.DECIMAL128);
-        } else if (c == java.util.ArrayList.class) {
+        } else if (Type.ARRAY_SUPPORTED_JAVA_TYPE.contains(c)) {
             return Sets.newHashSet(JavaUdfDataType.ARRAY_TYPE, JavaUdfDataType.STRUCT_TYPE);
-        } else if (c == java.util.HashMap.class) {
+        } else if (Type.MAP_SUPPORTED_JAVA_TYPE.contains(c)) {
             return Sets.newHashSet(JavaUdfDataType.MAP_TYPE);
         }
         return Sets.newHashSet(JavaUdfDataType.INVALID_TYPE);

@@ -97,6 +97,10 @@ Status ObjClientHolder::reset(const S3ClientConf& conf) {
         reset_conf.token = conf.token;
         reset_conf.bucket = conf.bucket;
         reset_conf.use_virtual_addressing = conf.use_virtual_addressing;
+
+        reset_conf.role_arn = conf.role_arn;
+        reset_conf.external_id = conf.external_id;
+        reset_conf.cred_provider_type = conf.cred_provider_type;
         // Should check endpoint here?
     }
 
