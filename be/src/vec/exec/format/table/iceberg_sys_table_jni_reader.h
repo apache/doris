@@ -17,10 +17,12 @@
 
 #pragma once
 
+#include <gen_cpp/PlanNodes_types.h>
+#include <gen_cpp/Types_types.h>
+
 #include <cstddef>
 #include <string>
 #include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
 #include "common/status.h"
@@ -38,32 +40,22 @@ class Block;
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
-/**
- * The demo usage of JniReader, showing how to read data from java scanner.
- * The java side is also a mock reader that provide values for each type.
- * This class will only be retained during the functional testing phase to verify that
- * the communication and data exchange with the jvm are correct.
- */
-class PaimonJniReader : public JniReader {
-    ENABLE_FACTORY_CREATOR(PaimonJniReader);
+
+class IcebergSysTableJniReader : public JniReader {
+    ENABLE_FACTORY_CREATOR(IcebergSysTableJniReader);
 
 public:
-    static const std::string PAIMON_OPTION_PREFIX;
-    static const std::string HADOOP_OPTION_PREFIX;
-    PaimonJniReader(const std::vector<SlotDescriptor*>& file_slot_descs, RuntimeState* state,
-                    RuntimeProfile* profile, const TFileRangeDesc& range,
-                    const TFileScanRangeParams* range_params);
+    IcebergSysTableJniReader(const std::vector<SlotDescriptor*>& file_slot_descs,
+                             RuntimeState* state, RuntimeProfile* profile,
+                             const TIcebergMetadataParams& range_params);
 
-    ~PaimonJniReader() override = default;
-
-    Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
+    ~IcebergSysTableJniReader() override = default;
 
     Status init_reader(
             const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
 
 private:
-    const std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range;
-    int64_t _remaining_table_level_row_count;
+    const TIcebergMetadataParams& _range_params;
 };
 
 #include "common/compile_check_end.h"
