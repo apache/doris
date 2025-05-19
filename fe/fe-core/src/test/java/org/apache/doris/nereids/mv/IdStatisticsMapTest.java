@@ -73,8 +73,10 @@ public class IdStatisticsMapTest extends SqlTestBase {
                 connectContext
         );
         PlanChecker tmpPlanChecker = PlanChecker.from(c1)
+                .setIsQuery()
                 .analyze()
-                .rewrite();
+                .rewrite()
+                .preMvRewrite();
         // scan plan output will be refreshed after mv rewrite successfully, so need tmp store
         Set<Slot> materializationScanOutput = c1.getMaterializationContexts().get(0)
                 .getScanPlan(null, c1).getOutputSet();

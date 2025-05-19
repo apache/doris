@@ -21,13 +21,16 @@ import org.apache.doris.catalog.MTMV;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.NereidsPlanner;
-import org.apache.doris.nereids.PlannerHook;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.jobs.executor.Optimizer;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
+
+import org.apache.commons.lang3.EnumUtils;
 
 import java.util.BitSet;
 import java.util.HashSet;
@@ -64,16 +67,12 @@ public class PreMaterializedViewRewriter {
     /**
      * Materialize view pre rewrite
      */
-    public static void rewrite(CascadesContext cascadesContext) {
-        for (PlannerHook hook : cascadesContext.getStatementContext().getPlannerHooks()) {
-            // call hook manually to generate materialization context
-            hook.afterAnalyze(cascadesContext);
-        }
+    public static Plan rewrite(CascadesContext cascadesContext) {
         if (cascadesContext.getMaterializationContexts().isEmpty()
                 || PreRewriteStrategy.NOT_IN_RBO.toString().equals(
                 cascadesContext.getConnectContext().getSessionVariable().getPreMaterializedViewRewriteStrategy())
                 || !MaterializedViewUtils.containMaterializedViewHook(cascadesContext.getStatementContext())) {
-            return;
+            return null;
         }
         // Do optimize
         new Optimizer(cascadesContext).execute();
@@ -110,18 +109,26 @@ public class PreMaterializedViewRewriter {
         StructInfo structInfo = root.getstructInfoMap().getStructInfo(cascadesContext,
                 collectTableContext.second, root, null);
         if (structInfo != null && !usedMv.isEmpty()) {
-            cascadesContext.getStatementContext().addRewrittenPlanByMv(structInfo.getOriginalPlan());
+            return structInfo.getOriginalPlan();
         }
+        return null;
     }
 
     public static BitSet getNeedPreRewriteRule() {
         return NEED_PRE_REWRITE_RULE_TYPES;
     }
 
-    public static boolean needPreRewrite(BitSet appliedRules, PreRewriteStrategy preRewriteStrategy) {
-        BitSet needPreRewriteRuleTypes = (BitSet) getNeedPreRewriteRule().clone();
-        needPreRewriteRuleTypes.and(appliedRules);
-        return !needPreRewriteRuleTypes.isEmpty() || PreRewriteStrategy.FORCE_IN_ROB.equals(preRewriteStrategy);
+    /**
+     * Calc need pre mv rewrite or not
+     */
+    public static boolean needPreRewrite(StatementContext statementContext) {
+        BitSet appliedRules = statementContext.getRuleMasks();
+        PreRewriteStrategy preRewriteStrategy = PreRewriteStrategy.getEnum(
+                statementContext.getConnectContext().getSessionVariable().getPreMaterializedViewRewriteStrategy());
+        BitSet needPreRewriteRuleSet = (BitSet) getNeedPreRewriteRule().clone();
+        needPreRewriteRuleSet.and(appliedRules);
+        return !statementContext.getTmpPlanForMvRewrite().isEmpty()
+                && (!needPreRewriteRuleSet.isEmpty() || PreRewriteStrategy.FORCE_IN_RBO.equals(preRewriteStrategy));
     }
 
     /**
@@ -129,10 +136,14 @@ public class PreMaterializedViewRewriter {
      */
     public enum PreRewriteStrategy {
         // Force transparent rewriting in the RBO phase
-        FORCE_IN_ROB,
+        FORCE_IN_RBO,
         // Attempt transparent rewriting in the RBO phase
         TRY_IN_RBO,
         // Do not attempt rewriting in the RBO phase; apply only during the CBO phase
-        NOT_IN_RBO
+        NOT_IN_RBO;
+
+        public static PreRewriteStrategy getEnum(String name) {
+            return EnumUtils.getEnum(PreRewriteStrategy.class, name);
+        }
     }
 }

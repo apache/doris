@@ -53,13 +53,13 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializationContext;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
 import org.apache.doris.nereids.rules.exploration.mv.PreMaterializedViewRewriter;
-import org.apache.doris.nereids.rules.exploration.mv.PreMaterializedViewRewriter.PreRewriteStrategy;
 import org.apache.doris.nereids.stats.StatsCalculator;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.ComputeResultSet;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.distribute.DistributePlanner;
@@ -88,9 +88,10 @@ import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.thrift.TQueryCacheParam;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Multimap;
 import org.apache.commons.codec.binary.Hex;
-import org.apache.commons.lang3.EnumUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -102,6 +103,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
@@ -275,14 +277,8 @@ public class NereidsPlanner extends Planner {
 
         // rule-based optimize
         rewrite(showRewriteProcess(explainLevel, showPlanProcess));
-        // pre rewrite by materialized view based CBO
-        if (PreMaterializedViewRewriter.needPreRewrite(
-                cascadesContext.getStatementContext().getRuleMasks(),
-                EnumUtils.getEnum(PreRewriteStrategy.class,
-                        getConnectContext().getSessionVariable().getPreMaterializedViewRewriteStrategy()))) {
-            preRewriteByMv(showPlanProcess);
-        }
-
+        // try to pre mv rewrite
+        preRewriteByMv();
         if (explainLevel == ExplainLevel.REWRITTEN_PLAN || explainLevel == ExplainLevel.ALL_PLAN) {
             rewrittenPlan = cascadesContext.getRewritePlan();
             if (explainLevel == ExplainLevel.REWRITTEN_PLAN) {
@@ -392,21 +388,6 @@ public class NereidsPlanner extends Planner {
         }
     }
 
-    protected void collectTableUsedPartitions(boolean showPlanProcess) {
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("Start to collect table used partition");
-        }
-        keepOrShowPlanProcess(showPlanProcess, () -> cascadesContext.newTablePartitionCollector().execute());
-        NereidsTracer.logImportantTime("EndCollectTablePartitions");
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("Start to collect table used partition");
-        }
-        if (statementContext.getConnectContext().getExecutor() != null) {
-            statementContext.getConnectContext().getExecutor().getSummaryProfile()
-                    .setNereidsCollectTablePartitionFinishTime();
-        }
-    }
-
     protected void analyze(boolean showPlanProcess) {
         if (LOG.isDebugEnabled()) {
             LOG.debug("Start analyze plan");
@@ -438,68 +419,93 @@ public class NereidsPlanner extends Planner {
         if (statementContext.getConnectContext().getExecutor() != null) {
             statementContext.getConnectContext().getExecutor().getSummaryProfile().setNereidsRewriteTime();
         }
-        // collect partitions table used, this is for query rewrite by materialized view
-        // this is needed before init hook
-        // todo how to handle with try_in_rbo
-        collectTableUsedPartitions(showPlanProcess);
-        cascadesContext.getStatementContext().getPlannerHooks().forEach(hook -> hook.afterRewrite(
-                this.getCascadesContext()));
     }
 
-    protected void preRewriteByMv(boolean showPlanProcess) {
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("Start pre rewrite plan by mv");
-        }
-        List<Plan> tmpPlanForMvRewrite = cascadesContext.getStatementContext().getTmpPlanForMvRewrite();
-        if (tmpPlanForMvRewrite.isEmpty()) {
-            return;
-        }
-        List<Plan> plansWhichContainMv = new ArrayList<>();
-        for (Plan planForRewrite : tmpPlanForMvRewrite) {
-            try {
-                MaterializedViewUtils.rewriteByRules(cascadesContext,
-                        childContext -> {
-                            PreMaterializedViewRewriter.rewrite(childContext);
-                            plansWhichContainMv.addAll(childContext.getStatementContext().getRewrittenPlansByMv());
-                            // copy the child's materialization context to root cascades for showing explain message
-                            childContext.getMaterializationContexts()
-                                    .forEach(cascadesContext::updateMaterializationContext);
-                            return childContext.getRewritePlan();
-                        }, planForRewrite, planForRewrite, false, true);
-            } catch (Exception e) {
-                LOG.error("mv rewrite in rbo rewrite fail, sql hash is {}",
-                        cascadesContext.getConnectContext().getSqlHash(), e);
+    protected void preRewriteByMv() {
+        if (PreMaterializedViewRewriter.needPreRewrite(statementContext)) {
+            // collect partitions table used, this is for query rewrite by materialized view
+            // this is needed before init hook
+            Multimap<List<String>, Pair<RelationId, Set<String>>> globalTableUsedPartitions = HashMultimap.create();
+            for (Plan tmpPlanForRewrite : cascadesContext.getStatementContext().getTmpPlanForMvRewrite()) {
+                globalTableUsedPartitions.putAll(MaterializedViewUtils.collectTableUsedPartitions(tmpPlanForRewrite));
+            }
+            cascadesContext.getStatementContext().setTableUsedPartitionNameMap(globalTableUsedPartitions);
+            if (statementContext.getConnectContext().getExecutor() != null) {
+                statementContext.getConnectContext().getExecutor().getSummaryProfile()
+                        .setNereidsCollectTablePartitionFinishTime();
+            }
+            // init materialization context for mv rewrite
+            cascadesContext.getStatementContext().getPlannerHooks().forEach(hook -> hook.afterRewrite(
+                    this.getCascadesContext()));
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Start pre rewrite plan by mv");
+            }
+            List<Plan> tmpPlanForMvRewrite = cascadesContext.getStatementContext().getTmpPlanForMvRewrite();
+            if (tmpPlanForMvRewrite.isEmpty()) {
                 return;
             }
-        }
-        if (plansWhichContainMv.isEmpty()) {
-            return;
-        }
-        List<Plan> plansWhichContainMvOptimized = new ArrayList<>();
-        // plan which contain mv optimize by all rules
-        for (Plan planWhichContainMv : plansWhichContainMv) {
-            plansWhichContainMvOptimized.add(
+            List<Plan> plansWhichContainMv = new ArrayList<>();
+            for (Plan planForRewrite : tmpPlanForMvRewrite) {
+                try {
                     MaterializedViewUtils.rewriteByRules(cascadesContext,
                             childContext -> {
-                                Rewriter.getWholeTreeRewriterWithoutCostBasedJobs(childContext).execute();
-                                return childContext.getRewritePlan();
-                            }, planWhichContainMv, planWhichContainMv, false, false)
-            );
-        }
-        // clear the rewritten plans which are tmp optimized, should be filled by full optimize later
-        statementContext.getRewrittenPlansByMv().clear();
-        plansWhichContainMvOptimized.forEach(statementContext::addRewrittenPlanByMv);
+                                // pre rewrite
+                                Plan rewrittenPlan = PreMaterializedViewRewriter.rewrite(childContext);
+                                if (rewrittenPlan == null) {
+                                    return childContext.getRewritePlan();
+                                }
+                                plansWhichContainMv.add(
+                                        // rewritten plan optimize and normalize
+                                        MaterializedViewUtils.rewriteByRules(cascadesContext,
+                                                childOptContext -> {
+                                                    Rewriter.getWholeTreeRewriterWithoutCostBasedJobs(childOptContext)
+                                                            .execute();
+                                                    return childOptContext.getRewritePlan();
+                                                }, rewrittenPlan, planForRewrite, true, false)
 
-        NereidsTracer.logImportantTime("EndPreRewritePlanByMv");
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("End pre rewrite plan by mv");
+                                );
+                                // copy the child's materialization context to root
+                                // cascades for showing explain message
+                                for (MaterializationContext context : childContext.getMaterializationContexts()) {
+                                    // Mark the rewrite success occurs in RBO
+                                    if (context.isSuccess()) {
+                                        context.setRewrittenInRbo(true);
+                                    }
+                                }
+                                return childContext.getRewritePlan();
+                            }, planForRewrite, planForRewrite, false, true);
+                } catch (Exception e) {
+                    LOG.error("mv rewrite in rbo rewrite fail, sql hash is {}",
+                            cascadesContext.getConnectContext().getSqlHash(), e);
+                }
+            }
+            if (plansWhichContainMv.isEmpty()) {
+                return;
+            }
+            // clear the rewritten plans which are tmp optimized, should be filled by full optimize later
+            statementContext.getRewrittenPlansByMv().clear();
+            plansWhichContainMv.forEach(statementContext::addRewrittenPlanByMv);
+            NereidsTracer.logImportantTime("EndPreRewritePlanByMv");
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("End pre rewrite plan by mv");
+            }
+            // if rule-based optimized, not rewritten by cbo
+            this.cascadesContext.getStatementContext().clearMaterializedHooks();
+        } else {
+            // Collect table for final cbo rewrite and init materialization context for mv rewrite
+            cascadesContext.getStatementContext().setTableUsedPartitionNameMap(
+                    MaterializedViewUtils.collectTableUsedPartitions(cascadesContext.getRewritePlan()));
+            if (statementContext.getConnectContext().getExecutor() != null) {
+                statementContext.getConnectContext().getExecutor().getSummaryProfile()
+                        .setNereidsCollectTablePartitionFinishTime();
+            }
+            cascadesContext.getStatementContext().getPlannerHooks().forEach(hook -> hook.afterRewrite(
+                    this.getCascadesContext()));
         }
         if (statementContext.getConnectContext().getExecutor() != null) {
             statementContext.getConnectContext().getExecutor().getSummaryProfile()
                     .setNereidsPreRewriteByMvFinishTime();
         }
-        // if rule-based optimized, not rewritten by cbo
-        this.cascadesContext.getStatementContext().clearMaterializedHooks();
     }
 
     // DependsRules: EnsureProjectOnTopJoin.class

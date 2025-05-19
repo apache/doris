@@ -68,7 +68,6 @@ import com.google.common.base.Stopwatch;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.base.Throwables;
-import com.google.common.collect.HashMultimap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
@@ -237,8 +236,7 @@ public class StatementContext implements Closeable {
     private long materializedViewRewriteDuration = 0L;
 
     // Record used table and it's used partitions
-    private final Multimap<List<String>, Pair<RelationId, Set<String>>> tableUsedPartitionNameMap =
-            HashMultimap.create();
+    private Multimap<List<String>, Pair<RelationId, Set<String>>> tableUsedPartitionNameMap;
 
     // Record mtmv and valid partitions map because this is time-consuming behavior
     private final Map<BaseTableInfo, Collection<Partition>> mvCanRewritePartitionsMap = new HashMap<>();
@@ -923,6 +921,11 @@ public class StatementContext implements Closeable {
 
     public Multimap<List<String>, Pair<RelationId, Set<String>>> getTableUsedPartitionNameMap() {
         return tableUsedPartitionNameMap;
+    }
+
+    public void setTableUsedPartitionNameMap(
+            Multimap<List<String>, Pair<RelationId, Set<String>>> tableUsedPartitionNameMap) {
+        this.tableUsedPartitionNameMap = tableUsedPartitionNameMap;
     }
 
     public Map<BaseTableInfo, Collection<Partition>> getMvCanRewritePartitionsMap() {

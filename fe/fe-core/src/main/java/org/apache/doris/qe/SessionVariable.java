@@ -2191,8 +2191,9 @@ public class SessionVariable implements Serializable, Writable {
                     "Whether to enable pre materialized view rewriting based on struct info,"
                             + "FORCE_IN_RBO : Force transparent rewriting in the RBO phase,"
                             + "TRY_IN_RBO : Attempt transparent rewriting in the RBO phase "
-                            + "if rules in NEED_PRE_REWRITE_RULE_TYPES, NOT_IN_RBO : "
-                            + "Do not attempt rewriting in the RBO phase; apply only during the CBO phase"})
+                            + "if rules in NEED_PRE_REWRITE_RULE_TYPES, "
+                            + "NOT_IN_RBO : Do not attempt rewriting in the RBO phase; apply only during the CBO phase"
+            })
     public String preMaterializedViewRewriteStrategy = "FORCE_IN_RBO";
 
     @VariableMgr.VarAttr(name = ALLOW_MODIFY_MATERIALIZED_VIEW_DATA, needForward = true,

@@ -41,10 +41,11 @@ public class RecordPlanForMvPreRewrite extends DefaultPlanRewriter<Void> impleme
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
         CascadesContext cascadesContext = jobContext.getCascadesContext();
         StatementContext statementContext = cascadesContext.getStatementContext();
-        if (PreRewriteStrategy.NOT_IN_RBO.toString().equals(
-                cascadesContext.getConnectContext().getSessionVariable().getPreMaterializedViewRewriteStrategy())) {
+        if (PreRewriteStrategy.NOT_IN_RBO.equals(PreRewriteStrategy.getEnum(
+                cascadesContext.getConnectContext().getSessionVariable().getPreMaterializedViewRewriteStrategy()))) {
             return plan;
         }
+        // when sync statementContext.getCandidateMTMVs() is always empty, so sync mv rewrite is in final CBO
         if (!statementContext.isForceRecordTmpPlan() && (statementContext.getCandidateMTMVs().isEmpty()
                 || !MaterializedViewUtils.containMaterializedViewHook(cascadesContext.getStatementContext()))) {
             return plan;

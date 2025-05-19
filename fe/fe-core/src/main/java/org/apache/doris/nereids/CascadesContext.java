@@ -24,7 +24,6 @@ import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.executor.Analyzer;
 import org.apache.doris.nereids.jobs.executor.TableCollectAndHookInitializer;
-import org.apache.doris.nereids.jobs.executor.TablePartitionCollector;
 import org.apache.doris.nereids.jobs.rewrite.RewriteBottomUpJob;
 import org.apache.doris.nereids.jobs.rewrite.RewriteTopDownJob;
 import org.apache.doris.nereids.jobs.rewrite.RootPlanTreeRewriteJob.RootRewriteJobContext;
@@ -235,6 +234,9 @@ public class CascadesContext implements ScheduleContext {
                 // aggregate_without_roll_up query_13_0 cause error into targetGroup but differ in logical properties
                 // tmp rewritten plan output is different from final rewritten plan output
                 if (!rewrittenPlan.getLogicalProperties().equals(plan.getLogicalProperties())) {
+                    LOG.warn("rewritten plan in rbo logical properties are "
+                                    + "different from original plan, query id is {}",
+                            getConnectContext().getQueryIdentifier());
                     continue;
                 }
                 this.memo.copyIn(rewrittenPlan, this.memo.getRoot(), false);
@@ -244,10 +246,6 @@ public class CascadesContext implements ScheduleContext {
 
     public TableCollectAndHookInitializer newTableCollector() {
         return new TableCollectAndHookInitializer(this);
-    }
-
-    public TablePartitionCollector newTablePartitionCollector() {
-        return new TablePartitionCollector(this);
     }
 
     public Analyzer newAnalyzer() {
@@ -370,29 +368,6 @@ public class CascadesContext implements ScheduleContext {
     public void addMaterializationContext(MaterializationContext materializationContext) {
         this.materializationContexts.put(materializationContext.generateMaterializationIdentifier(),
                 materializationContext);
-    }
-
-    /**
-     * Update materializationContext rewrite status, if once rewrite success, doesn't record
-     * fail info, or would record fail info append
-     */
-    public void updateMaterializationContext(MaterializationContext materializationContext) {
-        List<String> identifier = materializationContext.generateMaterializationIdentifier();
-        MaterializationContext existContext = materializationContexts.get(identifier);
-        if (existContext != null) {
-            if (existContext.isSuccess()) {
-                return;
-            }
-            if (materializationContext.isSuccess()) {
-                existContext.setSuccess(true);
-            } else {
-                existContext.setSuccess(false);
-                materializationContext.getFailReason().forEach((key, value) ->
-                        existContext.getFailReason().put(key, value));
-            }
-        } else {
-            this.materializationContexts.put(identifier, materializationContext);
-        }
     }
 
     public Set<List<String>> getMaterializationRewrittenSuccessSet() {

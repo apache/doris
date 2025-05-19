@@ -24,6 +24,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.constraint.TableIdentifier;
+import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
@@ -36,6 +37,7 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.analysis.BindRelation;
 import org.apache.doris.nereids.rules.expression.ExpressionNormalization;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.rewrite.QueryPartitionCollector;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -49,6 +51,7 @@ import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PreAggStatus;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
@@ -268,6 +271,8 @@ public class MaterializedViewUtils {
         List<PlannerHook> removedMaterializedViewHooks = new ArrayList<>();
         if (!mvRewrite) {
             removedMaterializedViewHooks = removeMaterializedViewHooks(rewrittenPlanContext.getStatementContext());
+        } else {
+            cascadesContext.getMaterializationContexts().forEach(rewrittenPlanContext::addMaterializationContext);
         }
         try {
             rewrittenPlanContext.getConnectContext().setSkipAuth(true);
@@ -337,6 +342,12 @@ public class MaterializedViewUtils {
             }
         }
         return false;
+    }
+
+    public static Multimap<List<String>, Pair<RelationId, Set<String>>> collectTableUsedPartitions(Plan plan) {
+        Multimap<List<String>, Pair<RelationId, Set<String>>> tableUsedPartitionNameMap = HashMultimap.create();
+        plan.accept(new QueryPartitionCollector(), tableUsedPartitionNameMap);
+        return tableUsedPartitionNameMap;
     }
 
     /**

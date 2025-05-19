@@ -285,6 +285,11 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             // Rewrite query by view
             rewrittenPlan = rewriteQueryByView(matchMode, queryStructInfo, viewStructInfo, viewToQuerySlotMapping,
                     rewrittenPlan, materializationContext, cascadesContext);
+            rewrittenPlan = MaterializedViewUtils.rewriteByRules(cascadesContext,
+                    childContext -> {
+                        Rewriter.getWholeTreeRewriter(childContext).execute();
+                        return childContext.getRewritePlan();
+                    }, rewrittenPlan, queryPlan, false, false);
             if (rewrittenPlan == null) {
                 continue;
             }

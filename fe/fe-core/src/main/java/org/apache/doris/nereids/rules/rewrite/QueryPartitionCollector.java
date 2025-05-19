@@ -20,17 +20,13 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.ExternalTable;
-import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.rules.exploration.mv.PartitionCompensator;
-import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
-import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
-import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
-import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 
 import com.google.common.collect.Multimap;
 import org.apache.logging.log4j.LogManager;
@@ -43,32 +39,20 @@ import java.util.Set;
 /**
  * Used to collect query partitions, only collect once
  * */
-public class QueryPartitionCollector extends DefaultPlanRewriter<ConnectContext> implements CustomRewriter {
+public class QueryPartitionCollector extends DefaultPlanVisitor<Void,
+        Multimap<List<String>, Pair<RelationId, Set<String>>>> {
 
     public static final Logger LOG = LogManager.getLogger(QueryPartitionCollector.class);
 
     @Override
-    public Plan rewriteRoot(Plan plan, JobContext jobContext) {
-
-        ConnectContext connectContext = ConnectContext.get();
-        if (connectContext != null && connectContext.getSessionVariable().internalSession) {
-            return plan;
-        }
-        plan.accept(this, connectContext);
-        return plan;
-    }
-
-    @Override
-    public Plan visitLogicalCatalogRelation(LogicalCatalogRelation catalogRelation, ConnectContext context) {
-
+    public Void visitLogicalCatalogRelation(LogicalCatalogRelation catalogRelation,
+            Multimap<List<String>, Pair<RelationId, Set<String>>> tableUsedPartitionNameMap) {
         TableIf table = catalogRelation.getTable();
         if (table.getDatabase() == null) {
             LOG.error("QueryPartitionCollector visitLogicalCatalogRelation database is null, table is "
                     + table.getName());
-            return catalogRelation;
+            return null;
         }
-        Multimap<List<String>, Pair<RelationId, Set<String>>> tableUsedPartitionNameMap = context.getStatementContext()
-                .getTableUsedPartitionNameMap();
         Set<String> tablePartitions = new HashSet<>();
         if (catalogRelation instanceof LogicalOlapScan) {
             // Handle olap table
@@ -90,6 +74,6 @@ public class QueryPartitionCollector extends DefaultPlanRewriter<ConnectContext>
             // not support get partition scene, we consider query all partitions from table
             tableUsedPartitionNameMap.put(table.getFullQualifiers(), PartitionCompensator.ALL_PARTITIONS);
         }
-        return catalogRelation;
+        return null;
     }
 }

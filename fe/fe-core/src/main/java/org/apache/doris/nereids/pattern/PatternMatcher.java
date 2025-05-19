@@ -83,23 +83,14 @@ public class PatternMatcher<INPUT_TYPE extends Plan, OUTPUT_TYPE extends Plan> {
                     MatchingContext<INPUT_TYPE> matchingContext =
                             new MatchingContext<>((INPUT_TYPE) originPlan, pattern, context);
                     List<OUTPUT_TYPE> replacePlans = matchedMultiAction.apply(matchingContext);
-                    boolean rewrittenFail = replacePlans == null || replacePlans.isEmpty();
-                    if (!rewrittenFail) {
-                        // if rewrite success, record the rule type
-                        context.getStatementContext().ruleSetApplied(this.getRuleType());
-                    }
-                    return rewrittenFail ? ImmutableList.of(originPlan)
+                    return replacePlans == null || replacePlans.isEmpty()
+                            ? ImmutableList.of(originPlan)
                             : ImmutableList.copyOf(replacePlans);
                 } else {
                     MatchingContext<INPUT_TYPE> matchingContext =
                             new MatchingContext<>((INPUT_TYPE) originPlan, pattern, context);
                     OUTPUT_TYPE replacePlan = matchedAction.apply(matchingContext);
-                    boolean rewrittenFail = replacePlan == null;
-                    if (!rewrittenFail) {
-                        // if rewrite success, record the rule type
-                        context.getStatementContext().ruleSetApplied(this.getRuleType());
-                    }
-                    return ImmutableList.of(rewrittenFail ? originPlan : replacePlan);
+                    return ImmutableList.of(replacePlan == null ? originPlan : replacePlan);
                 }
             }
         };

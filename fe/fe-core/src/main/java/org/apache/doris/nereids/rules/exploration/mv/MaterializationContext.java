@@ -88,6 +88,8 @@ public abstract class MaterializationContext {
     protected boolean available = true;
     // Mark the materialization plan in the context is already rewritten successfully or not
     protected boolean success = false;
+    // Mark the materialization plan in the context is rewritten successfully in RBO or not
+    protected boolean rewrittenInRbo = false;
     // Mark enable record failure detail info or not, because record failure detail info is performance-depleting
     protected final boolean enableRecordFailureDetail;
     // The materialization plan struct info, construct struct info is expensive,
@@ -326,6 +328,14 @@ public abstract class MaterializationContext {
         return success;
     }
 
+    public boolean isRewrittenInRbo() {
+        return rewrittenInRbo;
+    }
+
+    public void setRewrittenInRbo(boolean rewrittenInRbo) {
+        this.rewrittenInRbo = rewrittenInRbo;
+    }
+
     /**
      * Record fail reason when in rewriting by struct info
      */
@@ -377,13 +387,14 @@ public abstract class MaterializationContext {
         Set<MaterializationContext> rewrittenSuccessMaterializationSet = materializationContexts.stream()
                 .filter(MaterializationContext::isSuccess)
                 .collect(Collectors.toSet());
-        Set<List<String>> chosenMaterializationQualifiers = new HashSet<>();
+        Map<List<String>, MaterializationContext> chosenMaterializationMap = new HashMap<>();
         physicalPlan.accept(new DefaultPlanVisitor<Void, Void>() {
             @Override
             public Void visitPhysicalRelation(PhysicalRelation physicalRelation, Void context) {
                 for (MaterializationContext rewrittenContext : rewrittenSuccessMaterializationSet) {
                     if (rewrittenContext.isFinalChosen(physicalRelation)) {
-                        chosenMaterializationQualifiers.add(rewrittenContext.generateMaterializationIdentifier());
+                        chosenMaterializationMap.put(
+                                rewrittenContext.generateMaterializationIdentifier(), rewrittenContext);
                     }
                 }
                 return null;
@@ -394,22 +405,28 @@ public abstract class MaterializationContext {
         builder.append("\nMaterializedView");
         // rewrite success and chosen
         builder.append("\nMaterializedViewRewriteSuccessAndChose:\n");
-        if (!chosenMaterializationQualifiers.isEmpty()) {
-            chosenMaterializationQualifiers.forEach(materializationQualifier ->
-                    builder.append("  ")
+        if (!chosenMaterializationMap.isEmpty()) {
+            chosenMaterializationMap.forEach((materializationQualifier, materializationContext) ->
+                    builder.append(materializationContext.isRewrittenInRbo() ? "   RBO" : "  ")
                             .append(generateIdentifierName(materializationQualifier)).append(" chose, \n"));
         } else {
             builder.append("  chose: none, \n");
         }
         // rewrite success but not chosen
         builder.append("\nMaterializedViewRewriteSuccessButNotChose:\n");
-        Set<List<String>> rewriteSuccessButNotChoseQualifiers = rewrittenSuccessMaterializationSet.stream()
-                .map(MaterializationContext::generateMaterializationIdentifier)
-                .filter(materializationQualifier -> !chosenMaterializationQualifiers.contains(materializationQualifier))
-                .collect(Collectors.toSet());
-        if (!rewriteSuccessButNotChoseQualifiers.isEmpty()) {
-            rewriteSuccessButNotChoseQualifiers.forEach(materializationQualifier ->
-                    builder.append("  ")
+        Set<List<String>> chosenMaterializationQualifiers = chosenMaterializationMap.keySet();
+
+        Map<List<String>, MaterializationContext> rewriteSuccessButNotChoseMap = new HashMap<>();
+        for (MaterializationContext materializationContext : rewrittenSuccessMaterializationSet) {
+            if (!chosenMaterializationQualifiers.contains(
+                    materializationContext.generateMaterializationIdentifier())) {
+                rewriteSuccessButNotChoseMap.put(
+                        materializationContext.generateMaterializationIdentifier(), materializationContext);
+            }
+        }
+        if (!rewriteSuccessButNotChoseMap.isEmpty()) {
+            rewriteSuccessButNotChoseMap.forEach((materializationQualifier, context) ->
+                    builder.append(context.isRewrittenInRbo() ? "   RBO" : "  ")
                             .append(generateIdentifierName(materializationQualifier)).append(" not chose, \n"));
         } else {
             builder.append("  not chose: none, \n");

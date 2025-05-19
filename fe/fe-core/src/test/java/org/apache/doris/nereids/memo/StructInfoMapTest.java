@@ -85,8 +85,10 @@ class StructInfoMapTest extends SqlTestBase {
                 connectContext
         );
         PlanChecker.from(c1)
+                .setIsQuery()
                 .analyze()
                 .rewrite()
+                .preMvRewrite()
                 .optimize()
                 .printlnBestPlanTree();
         root = c1.getMemo().getRoot();
@@ -143,8 +145,10 @@ class StructInfoMapTest extends SqlTestBase {
                 connectContext
         );
         PlanChecker.from(c1)
+                .setIsQuery()
                 .analyze()
                 .rewrite()
+                .preMvRewrite()
                 .optimize()
                 .printlnBestPlanTree();
         root = c1.getMemo().getRoot();
@@ -191,8 +195,10 @@ class StructInfoMapTest extends SqlTestBase {
                 connectContext
         );
         PlanChecker.from(c1)
+                .setIsQuery()
                 .analyze()
                 .rewrite()
+                .preMvRewrite()
                 .optimize();
         Group root = c1.getMemo().getRoot();
         root.getstructInfoMap().refresh(root, c1, new HashSet<>());
