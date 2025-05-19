@@ -87,6 +87,8 @@ public:
     FileCacheStorageType get_type() override { return DISK; }
 
 private:
+    void remove_old_version_directories();
+
     Status upgrade_cache_dir_if_necessary() const;
 
     Status read_file_cache_version(std::string* buffer) const;

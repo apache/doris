@@ -110,9 +110,18 @@ Status FSFileCacheStorage::init(BlockFileCache* _mgr) {
         SCOPED_ATTACH_TASK(mem_tracker);
         Status st = upgrade_cache_dir_if_necessary();
         if (!st.ok()) {
-            LOG_WARNING("file cache {} lazy load done with error. upgrade version failed. st={}",
-                        _cache_base_path, st.to_string());
-            if (!doris::config::ignore_broken_disk) {
+            std::string msg = fmt::format(
+                    "file cache {} lazy load done with error. upgrade version failed. st={}",
+                    _cache_base_path, st.to_string());
+            if (doris::config::ignore_file_cache_dir_upgrade_failure) {
+                LOG(WARNING) << msg << "be conf: `ignore_file_cache_dir_upgrade_failure = true`"
+                             << " so we are ignoring the error (unsuccessful cache files will be "
+                                "removed)";
+                remove_old_version_directories();
+            } else {
+                LOG(WARNING) << msg << ". please fix error and restart BE or"
+                             << " use be conf: `ignore_file_cache_dir_upgrade_failure = true`"
+                             << " to skip the error (unsuccessful cache files will be removed)";
                 throw doris::Exception(Status::InternalError(
                         "file cache {} lazy load done with error. upgrade version failed. st={}",
                         _cache_base_path, st.to_string()));
@@ -321,6 +330,59 @@ std::string FSFileCacheStorage::get_path_in_local_cache(const UInt128Wrapper& va
     }
 }
 
+void FSFileCacheStorage::remove_old_version_directories() {
+    std::error_code ec;
+    std::filesystem::directory_iterator key_it {_cache_base_path, ec};
+    if (ec) {
+        LOG(WARNING) << "Failed to list directory: " << _cache_base_path
+                     << ", error: " << ec.message();
+        return;
+    }
+
+    std::vector<std::filesystem::path> file_list;
+    // the dir is concurrently accessed, so handle invalid iter with retry
+    bool success = false;
+    size_t retry_count = 0;
+    const size_t max_retry = 30;
+    while (!success && retry_count < max_retry) {
+        try {
+            ++retry_count;
+            for (; key_it != std::filesystem::directory_iterator(); ++key_it) {
+                file_list.push_back(key_it->path());
+            }
+            success = true;
+        } catch (const std::filesystem::filesystem_error& e) {
+            LOG(WARNING) << "Error occurred while iterating directory: " << e.what();
+            file_list.clear();
+        }
+    }
+
+    if (!success) {
+        LOG_WARNING("iteration of cache dir still failed after retry {} times.", max_retry);
+    }
+
+    auto path_itr = file_list.begin();
+    for (; path_itr != file_list.end(); ++path_itr) {
+        if (std::filesystem::is_directory(*path_itr)) {
+            std::string cache_key = path_itr->filename().native();
+            if (cache_key.size() > KEY_PREFIX_LENGTH) {
+                // try our best to delete, not care the return
+                (void)fs->delete_directory(*path_itr);
+            }
+        }
+    }
+    auto s = fs->delete_file(get_version_path());
+    if (!s.ok()) {
+        LOG(WARNING) << "deleted old version file failed: " << s.to_string();
+        return;
+    }
+    s = write_file_cache_version();
+    if (!s.ok()) {
+        LOG(WARNING) << "write new version file failed: " << s.to_string();
+        return;
+    }
+}
+
 Status FSFileCacheStorage::upgrade_cache_dir_if_necessary() const {
     /*
      * If use version2 but was version 1, do upgrade:
@@ -355,6 +417,7 @@ Status FSFileCacheStorage::upgrade_cache_dir_if_necessary() const {
             return Status::InternalError("Failed to list dir {}: {}", _cache_base_path,
                                          ec.message());
         }
+        // this directory_iterator should be a problem in concurrent access
         for (; key_it != std::filesystem::directory_iterator(); ++key_it) {
             if (key_it->is_directory()) {
                 std::string cache_key = key_it->path().filename().native();
