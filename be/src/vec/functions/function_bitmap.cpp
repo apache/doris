@@ -389,23 +389,28 @@ public:
             const auto& nested_column = nested_nullable_column.get_nested_column();
             const auto& nested_null_map = nested_nullable_column.get_null_map_column().get_data();
 
-            WhichDataType which_type(argument_type);
-            if (which_type.is_int8()) {
+            switch (argument_type->get_primitive_type()) {
+            case PrimitiveType::TYPE_TINYINT:
                 RETURN_IF_ERROR(Impl::template vector<ColumnInt8>(offset_column_data, nested_column,
                                                                   nested_null_map, res, null_map));
-            } else if (which_type.is_uint8()) {
+                break;
+            case PrimitiveType::TYPE_BOOLEAN:
                 RETURN_IF_ERROR(Impl::template vector<ColumnUInt8>(
                         offset_column_data, nested_column, nested_null_map, res, null_map));
-            } else if (which_type.is_int16()) {
+                break;
+            case PrimitiveType::TYPE_SMALLINT:
                 RETURN_IF_ERROR(Impl::template vector<ColumnInt16>(
                         offset_column_data, nested_column, nested_null_map, res, null_map));
-            } else if (which_type.is_int32()) {
+                break;
+            case PrimitiveType::TYPE_INT:
                 RETURN_IF_ERROR(Impl::template vector<ColumnInt32>(
                         offset_column_data, nested_column, nested_null_map, res, null_map));
-            } else if (which_type.is_int64()) {
+                break;
+            case PrimitiveType::TYPE_BIGINT:
                 RETURN_IF_ERROR(Impl::template vector<ColumnInt64>(
                         offset_column_data, nested_column, nested_null_map, res, null_map));
-            } else {
+                break;
+            default:
                 return Status::RuntimeError("Illegal column {} of argument of function {}",
                                             block.get_by_position(arguments[0]).column->get_name(),
                                             get_name());
@@ -971,7 +976,7 @@ struct NameBitmapToString {
 
 struct BitmapToString {
     using ReturnType = DataTypeString;
-    static constexpr auto TYPE_INDEX = TypeIndex::BitMap;
+    static constexpr auto PrimitiveTypeImpl = PrimitiveType::TYPE_OBJECT;
     using Type = DataTypeBitMap::FieldType;
     using ReturnColumnType = ColumnString;
     using Chars = ColumnString::Chars;
@@ -994,7 +999,7 @@ struct NameBitmapToBase64 {
 
 struct BitmapToBase64 {
     using ReturnType = DataTypeString;
-    static constexpr auto TYPE_INDEX = TypeIndex::BitMap;
+    static constexpr auto PrimitiveTypeImpl = PrimitiveType::TYPE_OBJECT;
     using Type = DataTypeBitMap::FieldType;
     using ReturnColumnType = ColumnString;
     using Chars = ColumnString::Chars;

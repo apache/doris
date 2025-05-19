@@ -1121,19 +1121,19 @@ void OlapBlockDataConvertor::OlapColumnDataConvertorVariant::set_source_column(
     }
     const auto& variant =
             nullable_column == nullptr
-                    ? assert_cast<const vectorized::ColumnObject&>(*typed_column.column)
-                    : assert_cast<const vectorized::ColumnObject&>(
+                    ? assert_cast<const vectorized::ColumnVariant&>(*typed_column.column)
+                    : assert_cast<const vectorized::ColumnVariant&>(
                               nullable_column->get_nested_column());
     if (variant.is_null_root()) {
-        auto root_type = make_nullable(std::make_shared<ColumnObject::MostCommonType>());
+        auto root_type = make_nullable(std::make_shared<ColumnVariant::MostCommonType>());
         auto root_col = root_type->create_column();
         root_col->insert_many_defaults(variant.rows());
-        const_cast<ColumnObject&>(variant).create_root(root_type, std::move(root_col));
+        const_cast<ColumnVariant&>(variant).create_root(root_type, std::move(root_col));
         variant.check_consistency();
     }
     // ensure data finalized
-    _source_column_ptr = &const_cast<ColumnObject&>(variant);
-    _source_column_ptr->finalize(ColumnObject::FinalizeMode::WRITE_MODE);
+    _source_column_ptr = &const_cast<ColumnVariant&>(variant);
+    _source_column_ptr->finalize(ColumnVariant::FinalizeMode::WRITE_MODE);
     _root_data_convertor = std::make_unique<OlapColumnDataConvertorVarChar>(true);
     _root_data_convertor->set_source_column(
             {_source_column_ptr->get_root()->get_ptr(), nullptr, ""}, row_pos, num_rows);

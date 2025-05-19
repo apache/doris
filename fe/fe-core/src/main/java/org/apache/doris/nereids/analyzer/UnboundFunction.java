@@ -46,7 +46,7 @@ public class UnboundFunction extends Function implements Unbound, PropagateNulla
     /**
      * FunctionIndexInSql
      */
-    public static class FunctionIndexInSql implements Comparable<FunctionIndexInSql> {
+    public static class FunctionIndexInSql {
         public final int functionNameBegin;
         public final int functionNameEnd;
         public final int functionExpressionEnd;
@@ -55,11 +55,6 @@ public class UnboundFunction extends Function implements Unbound, PropagateNulla
             this.functionNameBegin = nameBegin;
             this.functionNameEnd = nameEnd;
             this.functionExpressionEnd = expressionEnd;
-        }
-
-        @Override
-        public int compareTo(FunctionIndexInSql functionIndexInSql) {
-            return this.functionNameBegin - functionIndexInSql.functionNameBegin;
         }
 
         public FunctionIndexInSql indexInQueryPart(int offset) {

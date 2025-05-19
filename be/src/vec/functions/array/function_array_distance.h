@@ -175,12 +175,12 @@ public:
 private:
     bool _check_input_type(const DataTypePtr& type) const {
         auto array_type = remove_nullable(type);
-        if (!is_array(array_type)) {
+        if (array_type->get_primitive_type() != TYPE_ARRAY) {
             return false;
         }
         auto nested_type =
                 remove_nullable(assert_cast<const DataTypeArray&>(*array_type).get_nested_type());
-        return WhichDataType(nested_type).is_float64();
+        return nested_type->get_primitive_type() == TYPE_DOUBLE;
     }
 };
 

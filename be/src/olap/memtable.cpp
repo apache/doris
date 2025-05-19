@@ -50,18 +50,19 @@ using namespace ErrorCode;
 
 MemTable::MemTable(int64_t tablet_id, std::shared_ptr<TabletSchema> tablet_schema,
                    const std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
-                   bool enable_unique_key_mow, PartialUpdateInfo* partial_update_info)
+                   bool enable_unique_key_mow, PartialUpdateInfo* partial_update_info,
+                   const std::shared_ptr<ResourceContext>& resource_ctx)
         : _mem_type(MemType::ACTIVE),
           _tablet_id(tablet_id),
           _enable_unique_key_mow(enable_unique_key_mow),
           _keys_type(tablet_schema->keys_type()),
           _tablet_schema(tablet_schema),
+          _resource_ctx(resource_ctx),
           _is_first_insertion(true),
           _agg_functions(tablet_schema->num_columns()),
           _offsets_of_aggregate_states(tablet_schema->num_columns()),
           _total_size_of_aggregate_states(0) {
     g_memtable_cnt << 1;
-    _resource_ctx = thread_context()->resource_ctx();
     _mem_tracker = std::make_shared<MemTracker>();
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
             _resource_ctx->memory_context()->mem_tracker()->write_tracker());

@@ -41,6 +41,7 @@ import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.resource.computegroup.ComputeGroupMgr;
 import org.apache.doris.thrift.TPipelineWorkloadGroup;
 import org.apache.doris.thrift.TUserIdentity;
 import org.apache.doris.thrift.TopicInfo;
@@ -100,7 +101,7 @@ public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPost
         try {
             resetQueryQueueProp();
         } catch (Throwable e) {
-            LOG.warn("reset query queue failed ", e);
+            LOG.warn("reset query queue failed, ", e);
         }
     }
 
@@ -412,9 +413,9 @@ public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPost
 
     public void dropWorkloadGroup(String computeGroup, String workloadGroupName, boolean ifExists)
             throws DdlException {
-        if (Tag.DEFAULT_BACKEND_TAG.value.equals(computeGroup) && DEFAULT_GROUP_NAME.equals(workloadGroupName)) {
+        if (DEFAULT_GROUP_NAME.equals(workloadGroupName)) {
             throw new DdlException(
-                    "Dropping workload group " + workloadGroupName + " for " + computeGroup + "is not allowed.");
+                    "Dropping workload group " + workloadGroupName + " is not allowed.");
         }
 
         // if a workload group exists in user property, it should not be dropped
@@ -475,12 +476,12 @@ public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPost
     private void insertWorkloadGroup(WorkloadGroup workloadGroup) {
         writeLock();
         try {
-            LOG.info("[init_wg] before, {}, id map: {}, name map: {}", "replay",
-                    idToWorkloadGroup, keyToWorkloadGroup);
+            LOG.info("[init_wg] replay before, id size: {}, name size: {}, id map: {}, name map: {}",
+                    idToWorkloadGroup.size(), keyToWorkloadGroup.size(), idToWorkloadGroup, keyToWorkloadGroup);
             idToWorkloadGroup.put(workloadGroup.getId(), workloadGroup);
             keyToWorkloadGroup.put(workloadGroup.getWorkloadGroupKey(), workloadGroup);
-            LOG.info("[init_wg] after, {}, id map: {}, name map: {}", "replay",
-                    idToWorkloadGroup, keyToWorkloadGroup);
+            LOG.info("[init_wg] replay after, id size: {}, name size: {}, id map: {}, name map: {}",
+                    idToWorkloadGroup.size(), keyToWorkloadGroup.size(), idToWorkloadGroup, keyToWorkloadGroup);
         } finally {
             writeUnlock();
         }
@@ -575,13 +576,13 @@ public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPost
 
     @Override
     public void gsonPostProcess() throws IOException {
-        LOG.info("[init_wg] before, {}, id map: {}, name map: {}", "gson",
-                idToWorkloadGroup, keyToWorkloadGroup);
+        LOG.info("[init_wg] gson before, id size: {}, name size: {}, id map: {}, name map: {}",
+                idToWorkloadGroup.size(), keyToWorkloadGroup.size(), idToWorkloadGroup, keyToWorkloadGroup);
         for (Map.Entry<Long, WorkloadGroup> entry : idToWorkloadGroup.entrySet()) {
             keyToWorkloadGroup.put(entry.getValue().getWorkloadGroupKey(), entry.getValue());
         }
-        LOG.info("[init_wg] after, {}, id map: {}, name map: {}", "gson",
-                idToWorkloadGroup, keyToWorkloadGroup);
+        LOG.info("[init_wg] gson before, id size: {}, name size: {}, id map: {}, name map: {}",
+                idToWorkloadGroup.size(), keyToWorkloadGroup.size(), idToWorkloadGroup, keyToWorkloadGroup);
     }
 
     public class ResourceProcNode {
@@ -620,28 +621,66 @@ public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPost
         return oldWgList;
     }
 
-    public void tryCreateNormalWorkloadGroup() {
+    public void checkWorkloadGroup() {
+        try {
+            Set<String> cgIds = Env.getCurrentEnv().getComputeGroupMgr().getAllComputeGroupIds();
+            if (cgIds.size() == 0) {
+                LOG.info("no compute group can be found, skip check workload group.");
+                return;
+            }
+            createNormalWorkloadGroup(cgIds);
+            dropTombstoneNormalWorkloadGroup(cgIds);
+        } catch (Throwable e) {
+            LOG.warn("check workload group failed, ", e);
+        }
+    }
+
+    private void createNormalWorkloadGroup(Set<String> cgIds) {
         writeLock();
         try {
-            LOG.info("[init_wg] before create normal wg, id map: {}, name map: {}", idToWorkloadGroup,
-                    keyToWorkloadGroup);
-            if (idToWorkloadGroup.isEmpty()) {
-                String defaultCgName = Config.isCloudMode() ? Tag.VALUE_DEFAULT_COMPUTE_GROUP_NAME
-                        : Tag.VALUE_DEFAULT_TAG;
-                Map<String, String> properties = Maps.newHashMap();
-                properties.put(WorkloadGroup.ENABLE_MEMORY_OVERCOMMIT, "true");
-                properties.put(WorkloadGroup.COMPUTE_GROUP, defaultCgName);
-                WorkloadGroup defaultWg = new WorkloadGroup(Env.getCurrentEnv().getNextId(), DEFAULT_GROUP_NAME,
-                        properties);
-                idToWorkloadGroup.put(defaultWg.getId(), defaultWg);
-                keyToWorkloadGroup.put(defaultWg.getWorkloadGroupKey(), defaultWg);
-                Env.getCurrentEnv().getEditLog().logCreateWorkloadGroup(defaultWg);
-                LOG.info("[init_wg]Create default workload group success: {}", defaultWg);
-            } else {
-                LOG.info("[init_wg]This is not a new cluster, skip create default wg");
+            for (String cgId : cgIds) {
+                WorkloadGroupKey wgKey = WorkloadGroupKey.get(cgId, DEFAULT_GROUP_NAME);
+                if (!keyToWorkloadGroup.containsKey(wgKey)) {
+                    Map<String, String> properties = Maps.newHashMap();
+                    properties.put(WorkloadGroup.ENABLE_MEMORY_OVERCOMMIT, "true");
+                    properties.put(WorkloadGroup.COMPUTE_GROUP, cgId);
+                    WorkloadGroup normalWg = new WorkloadGroup(Env.getCurrentEnv().getNextId(), DEFAULT_GROUP_NAME,
+                            properties);
+                    idToWorkloadGroup.put(normalWg.getId(), normalWg);
+                    keyToWorkloadGroup.put(normalWg.getWorkloadGroupKey(), normalWg);
+                    Env.getCurrentEnv().getEditLog().logCreateWorkloadGroup(normalWg);
+                    LOG.info("[init_wg]Create default workload group {} for {} success.", normalWg, cgId);
+                }
             }
-            LOG.info("[init_wg] after create normal wg, id map: {}, name map: {}", idToWorkloadGroup,
-                    keyToWorkloadGroup);
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    // tombstone workload means its compute group is dropped.
+    // normal wg is managed by doris, so tombstone normal wg
+    // should be dropped by doris too.
+    private void dropTombstoneNormalWorkloadGroup(Set<String> currentCgIds) {
+        writeLock();
+        try {
+            List<WorkloadGroup> tombstoneWgList = Lists.newArrayList();
+            for (WorkloadGroup wg : idToWorkloadGroup.values()) {
+                WorkloadGroupKey wgKey = wg.getWorkloadGroupKey();
+                if (DEFAULT_GROUP_NAME.equals(wgKey.getWorkloadGroupName())
+                        && !EMPTY_COMPUTE_GROUP.equals(wgKey.getComputeGroup())
+                        && !currentCgIds.contains(wgKey.getComputeGroup())) {
+                    tombstoneWgList.add(wg);
+                }
+            }
+
+            for (WorkloadGroup wg : tombstoneWgList) {
+                keyToWorkloadGroup.remove(wg.getWorkloadGroupKey());
+                idToWorkloadGroup.remove(wg.getId());
+                idToQueryQueue.remove(wg.getId());
+                Env.getCurrentEnv().getEditLog()
+                        .logDropWorkloadGroup(new DropWorkloadGroupOperationLog(wg.getId()));
+                LOG.info("Drop tombstone normal workload group {} success.", wg);
+            }
         } finally {
             writeUnlock();
         }
@@ -702,6 +741,62 @@ public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPost
             return false;
         } finally {
             readUnlock();
+        }
+    }
+
+    public boolean isWorkloadGroupExists(WorkloadGroupKey wgKey) {
+        readLock();
+        try {
+            return keyToWorkloadGroup.containsKey(wgKey);
+        } finally {
+            readUnlock();
+        }
+    }
+
+    public void createNormalWorkloadGroupForUT() {
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put(WorkloadGroup.COMPUTE_GROUP, Tag.VALUE_DEFAULT_TAG);
+        WorkloadGroup normalWg = new WorkloadGroup(DEFAULT_GROUP_ID, DEFAULT_GROUP_NAME,
+                properties);
+        idToWorkloadGroup.put(normalWg.getId(), normalWg);
+        keyToWorkloadGroup.put(normalWg.getWorkloadGroupKey(), normalWg);
+    }
+
+    public void convertOldWgToNewWg() {
+        try {
+            List<WorkloadGroup> oldWgList = getOldWorkloadGroup();
+            if (oldWgList.isEmpty()) {
+                LOG.info("[init_wg]There is no old workload group, just return.");
+                return;
+            }
+
+            ComputeGroupMgr cgMgr = Env.getCurrentEnv().getComputeGroupMgr();
+            Set<String> idSet = cgMgr.getAllComputeGroupIds();
+            if (idSet.size() == 0) {
+                return;
+            }
+
+            readLock();
+            try {
+                LOG.info("[init_wg] bind wg before, id size: {}, name size: {}, id map: {}, name map: {}",
+                        idToWorkloadGroup.size(), keyToWorkloadGroup.size(), idToWorkloadGroup, keyToWorkloadGroup);
+            } finally {
+                readUnlock();
+            }
+
+            for (WorkloadGroup wg : oldWgList) {
+                bindWorkloadGroupToComputeGroup(idSet, wg);
+            }
+
+            readLock();
+            try {
+                LOG.info("[init_wg] bind wg after, id size: {}, name size: {}, id map: {}, name map: {}",
+                        idToWorkloadGroup.size(), keyToWorkloadGroup.size(), idToWorkloadGroup, keyToWorkloadGroup);
+            } finally {
+                readUnlock();
+            }
+        } catch (Throwable t) {
+            LOG.warn("[init_wg]error happens when convert old wg to new wg, ", t);
         }
     }
 

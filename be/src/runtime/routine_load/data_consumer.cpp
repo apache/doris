@@ -418,6 +418,10 @@ Status KafkaDataConsumer::get_offsets_for_times(const std::vector<PIntegerPair>&
 Status KafkaDataConsumer::get_latest_offsets_for_partitions(
         const std::vector<int32_t>& partition_ids, std::vector<PIntegerPair>* offsets,
         int timeout) {
+    DBUG_EXECUTE_IF("KafkaDataConsumer.get_latest_offsets_for_partitions.timeout", {
+        // sleep 60s
+        std::this_thread::sleep_for(std::chrono::seconds(60));
+    });
     MonotonicStopWatch watch;
     watch.start();
     for (int32_t partition_id : partition_ids) {

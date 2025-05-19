@@ -133,6 +133,8 @@ public class ConnectContext {
     protected volatile LoadTaskInfo streamLoadInfo;
 
     protected volatile TUniqueId queryId = null;
+    // only be active one time. tell Coordinator to regenerate instance ids for certain query(when retry).
+    protected volatile TUniqueId needRegenerateInstanceId = null;
     protected volatile AtomicInteger instanceIdGenerator = new AtomicInteger();
     protected volatile String traceId;
     protected volatile TUniqueId lastQueryId = null;
@@ -653,13 +655,14 @@ public class ConnectContext {
         this.isTempUser = isTempUser;
     }
 
-    // for USER() function
-    public UserIdentity getUserIdentity() {
-        return UserIdentity.createAnalyzedUserIdentWithIp(qualifiedUser, remoteIP);
-    }
-
     public UserIdentity getCurrentUserIdentity() {
         return currentUserIdentity;
+    }
+
+    // used for select user(), select session_user();
+    // return string similar with user@127.0.0.1
+    public String getUserWithLoginRemoteIpString() {
+        return UserIdentity.createAnalyzedUserIdentWithIp(qualifiedUser, remoteIP).toString();
     }
 
     public void setCurrentUserIdentity(UserIdentity currentUserIdentity) {
@@ -937,8 +940,12 @@ public class ConnectContext {
         }
         this.queryId = queryId;
         if (connectScheduler != null && !Strings.isNullOrEmpty(traceId)) {
-            connectScheduler.putTraceId2QueryId(traceId, queryId);
+            connectScheduler.getConnectPoolMgr().putTraceId2QueryId(traceId, queryId);
         }
+    }
+
+    public void setNeedRegenerateInstanceId(TUniqueId needRegenerateInstanceId) {
+        this.needRegenerateInstanceId = needRegenerateInstanceId;
     }
 
     public void setTraceId(String traceId) {
@@ -963,6 +970,14 @@ public class ConnectContext {
         } else {
             return new TUniqueId(queryId.hi, queryId.lo + instanceIdGenerator.incrementAndGet());
         }
+    }
+
+    public boolean consumeNeedRegenerateQueryId() {
+        if (needRegenerateInstanceId == queryId) {
+            needRegenerateInstanceId = null; // consume it
+            return true;
+        }
+        return false;
     }
 
     public String getSqlHash() {
@@ -1062,9 +1077,9 @@ public class ConnectContext {
                 timeoutTag = "insert";
             }
             // to ms
-            long timeout = getExecTimeout() * 1000L;
+            long timeout = getExecTimeoutS() * 1000L;
             if (delta > timeout) {
-                LOG.warn("kill {} timeout, remote: {}, query timeout: {}, query id: {}",
+                LOG.warn("kill {} timeout, remote: {}, query timeout: {}ms, query id: {}",
                         timeoutTag, getRemoteHostPortString(), timeout, DebugUtil.printId(queryId));
                 killFlag = true;
             }
@@ -1106,7 +1121,7 @@ public class ConnectContext {
      *
      * @return exact execution timeout
      */
-    public int getExecTimeout() {
+    public int getExecTimeoutS() {
         if (executor != null && executor.isSyncLoadKindStmt()) {
             // particular for insert stmt, we can expand other type of timeout in the same way
             return Math.max(getInsertTimeoutS(), getQueryTimeoutS());
