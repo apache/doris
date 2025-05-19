@@ -7071,6 +7071,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return new CancelBackupCommand(databaseName, isRestore);
     }
 
+    @Override
     public LogicalPlan visitCancelBuildIndex(DorisParser.CancelBuildIndexContext ctx) {
         TableNameInfo tableNameInfo = new TableNameInfo(visitMultipartIdentifier(ctx.tableName));
         List<Long> jobIs = new ArrayList<>();
