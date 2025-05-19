@@ -1100,8 +1100,6 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
 
     @Override
     public void beforeMTMVRefresh(MTMV mtmv) throws DdlException {
-        makeSureInitialized();
-        dlaTable.beforeMTMVRefresh(mtmv);
     }
 
     @Override
