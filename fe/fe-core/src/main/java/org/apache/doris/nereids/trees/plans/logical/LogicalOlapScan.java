@@ -141,9 +141,6 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
     private final Map<String, Set<List<String>>> colToSubPathsMap;
     private final Map<Slot, Map<List<String>, SlotReference>> subPathToSlotMap;
 
-    // use for virtual slot
-    private final List<NamedExpression> virtualColumns;
-
     // use for ann push down
     private final List<OrderKey> annOrderKeys;
     private final Optional<Long> annLimit;
@@ -211,7 +208,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
             Collection<Slot> operativeSlots, List<NamedExpression> virtualColumns,
             List<OrderKey> annOrderKeys, Optional<Long> annLimit) {
         super(id, PlanType.LOGICAL_OLAP_SCAN, table, qualifier,
-                groupExpression, logicalProperties, operativeSlots);
+                operativeSlots, virtualColumns, groupExpression, logicalProperties);
         Preconditions.checkArgument(selectedPartitionIds != null,
                 "selectedPartitionIds can not be null");
         this.selectedTabletIds = Utils.fastToImmutableList(selectedTabletIds);
@@ -241,7 +238,6 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
         this.directMvScan = directMvScan;
         this.colToSubPathsMap = colToSubPathsMap;
         this.subPathToSlotMap = Maps.newHashMap();
-        this.virtualColumns = Utils.fastToImmutableList(virtualColumns);
         this.annOrderKeys = Utils.fastToImmutableList(annOrderKeys);
         this.annLimit = annLimit;
     }
@@ -380,6 +376,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
      * @param virtualColumns generated virtual columns
      * @return scan with virtual columns
      */
+    @Override
     public LogicalOlapScan withVirtualColumns(List<NamedExpression> virtualColumns) {
         LogicalProperties logicalProperties = getLogicalProperties();
         List<Slot> output = Lists.newArrayList(logicalProperties.getOutput());
@@ -554,10 +551,6 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
         return preAggStatus.isUnset();
     }
 
-    public List<NamedExpression> getVirtualColumns() {
-        return virtualColumns;
-    }
-
     public List<OrderKey> getAnnOrderKeys() {
         return annOrderKeys;
     }
@@ -728,7 +721,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
                 manuallySpecifiedTabletIds, operativeSlots, virtualColumns, annOrderKeys, annLimit);
     }
 
-    Map<Slot, Slot> constructReplaceMap(MTMV mtmv) {
+    private Map<Slot, Slot> constructReplaceMap(MTMV mtmv) {
         Map<Slot, Slot> replaceMap = new HashMap<>();
         // Need remove invisible column, and then mapping them
         List<Slot> originOutputs = new ArrayList<>();
@@ -758,10 +751,6 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
         return replaceMap;
     }
 
-    public List<Slot> getOperativeSlots() {
-        return operativeSlots;
-    }
-
     @Override
     public boolean equals(Object o) {
         if (this == o) {
@@ -782,7 +771,6 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
                 && Objects.equals(selectedPartitionIds, that.selectedPartitionIds)
                 && Objects.equals(hints, that.hints)
                 && Objects.equals(tableSample, that.tableSample)
-                && Objects.equals(virtualColumns, that.virtualColumns)
                 && Objects.equals(annOrderKeys, that.annOrderKeys)
                 && Objects.equals(annLimit, that.annLimit);
     }
