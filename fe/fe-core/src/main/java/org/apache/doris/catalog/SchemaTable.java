@@ -500,7 +500,8 @@ public class SchemaTable extends Table {
                             .build()))
             .put("backend_configuration",
                     new SchemaTable(SystemIdGenerator.getNextId(), "backend_configuration", TableType.SCHEMA,
-                            builder().column("CONFIGURATION", ScalarType.createStringType())
+                            builder().column("BE_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("CONFIGURATION", ScalarType.createStringType())
                                     .column("CONFIGURATION_TYPE", ScalarType.createStringType())
                                     .column("CONFIGURATION_VALUE", ScalarType.createStringType())
                                     .column("IS_MUTABLE", ScalarType.createType(PrimitiveType.BOOLEAN))
