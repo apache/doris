@@ -274,6 +274,12 @@ public class ConstantPropagation extends DefaultPlanRewriter<ExpressionRewriteCo
             return join;
         }
 
+        // [TODO]: be will core
+        if (joinType == JoinType.NULL_AWARE_LEFT_ANTI_JOIN && newHashJoinConjuncts.isEmpty()
+                && !newOtherJoinConjuncts.isEmpty()) {
+            return join;
+        }
+
         return new LogicalJoin<>(joinType,
                 newHashJoinConjuncts,
                 newOtherJoinConjuncts,
