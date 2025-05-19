@@ -57,10 +57,11 @@ class MaterializationCallback : public ::doris::DummyBrpcCallback<Response> {
 
 public:
     MaterializationCallback(std::weak_ptr<TaskExecutionContext> tast_exec_ctx,
-                            MaterializationSharedState* shared_state, MonotonicStopWatch& rpc_timer)
+                            MaterializationSharedState* shared_state, MonotonicStopWatch& rpc_timer, std::string&& query_id)
             : _tast_exec_ctx(std::move(tast_exec_ctx)),
               _shared_state(shared_state),
-              _rpc_timer(rpc_timer) {}
+              _rpc_timer(rpc_timer),
+              _query_id(std::move(query_id)) {}
 
     ~MaterializationCallback() override = default;
     MaterializationCallback(const MaterializationCallback& other) = delete;
@@ -83,8 +84,10 @@ public:
                     ::doris::DummyBrpcCallback<Response>::cntl_->latency_us());
             _shared_state->rpc_status = Status::InternalError(err);
         } else {
+            LOG(INFO) << "happen lee call before query id:" << _query_id;
             _shared_state->rpc_status =
                     Status::create(doris::DummyBrpcCallback<Response>::response_->status());
+            LOG(INFO) << "happen lee call after query id:" << _query_id;
         }
         ((CountedFinishDependency*)_shared_state->source_deps.back().get())->sub();
     }
@@ -93,6 +96,7 @@ private:
     std::weak_ptr<TaskExecutionContext> _tast_exec_ctx;
     MaterializationSharedState* _shared_state;
     MonotonicStopWatch& _rpc_timer;
+    std::string _query_id;
 };
 
 Status MaterializationSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block,
@@ -129,7 +133,7 @@ Status MaterializationSinkOperatorX::sink(RuntimeState* state, vectorized::Block
         for (auto& [backend_id, rpc_struct] : local_state._shared_state->rpc_struct_map) {
             auto callback = MaterializationCallback<PMultiGetResponseV2>::create_shared(
                     state->get_task_execution_context(), local_state._shared_state,
-                    rpc_struct.rpc_timer);
+                    rpc_struct.rpc_timer, print_id(rpc_struct.request.query_id()));
             callback->cntl_->set_timeout_ms(config::fetch_rpc_timeout_seconds * 1000);
             auto closure =
                     AutoReleaseClosure<int, ::doris::DummyBrpcCallback<PMultiGetResponseV2>>::
