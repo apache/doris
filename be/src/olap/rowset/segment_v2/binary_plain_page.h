@@ -29,7 +29,6 @@
 #pragma once
 
 #include "common/logging.h"
-#include "gutil/strings/substitute.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/options.h"
 #include "olap/rowset/segment_v2/page_builder.h"

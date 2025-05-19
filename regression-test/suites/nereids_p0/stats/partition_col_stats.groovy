@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("partition_col_stats") {
+suite("partition_col_stats", "p0, nonConcurrent") {
     try {
         multi_sql """
             set global enable_partition_analyze=true;

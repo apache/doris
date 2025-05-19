@@ -74,7 +74,7 @@ public abstract class AbstractUnassignedScanJob extends AbstractUnassignedJob {
             DistributeContext distributeContext) {
 
         ConnectContext context = statementContext.getConnectContext();
-        boolean useLocalShuffleToAddParallel = useLocalShuffleToAddParallel();
+        boolean useLocalShuffleToAddParallel = useLocalShuffleToAddParallel(distributeContext);
         List<AssignedJob> instances = Lists.newArrayList();
         for (Entry<DistributedPlanWorker, UninstancedScanSource> entry : workerToScanRanges.entrySet()) {
             DistributedPlanWorker worker = entry.getKey();
@@ -91,7 +91,7 @@ public abstract class AbstractUnassignedScanJob extends AbstractUnassignedJob {
 
             // now we should compute how many instances to process the data,
             // for example: two instances
-            int instanceNum = degreeOfParallelism(scanSourceMaxParallel);
+            int instanceNum = degreeOfParallelism(scanSourceMaxParallel, useLocalShuffleToAddParallel);
 
             if (useLocalShuffleToAddParallel) {
                 assignLocalShuffleJobs(scanSource, instanceNum, instances, context, worker);
@@ -103,8 +103,8 @@ public abstract class AbstractUnassignedScanJob extends AbstractUnassignedJob {
         return instances;
     }
 
-    protected boolean useLocalShuffleToAddParallel() {
-        return fragment.useSerialSource(ConnectContext.get());
+    protected boolean useLocalShuffleToAddParallel(DistributeContext distributeContext) {
+        return fragment.useSerialSource(distributeContext.isLoadJob ? null : statementContext.getConnectContext());
     }
 
     protected void assignedDefaultJobs(ScanSource scanSource, int instanceNum, List<AssignedJob> instances,
@@ -129,7 +129,7 @@ public abstract class AbstractUnassignedScanJob extends AbstractUnassignedJob {
     protected void assignLocalShuffleJobs(ScanSource scanSource, int instanceNum, List<AssignedJob> instances,
             ConnectContext context, DistributedPlanWorker worker) {
         // only generate one instance to scan all data, in this step
-        List<ScanSource> instanceToScanRanges = scanSource.parallelize(scanNodes, 1);
+        List<ScanSource> assignedJoinBuckets = scanSource.parallelize(scanNodes, instanceNum);
 
         // when data not big, but aggregation too slow, we will use 1 instance to scan data,
         // and use more instances (to ***add parallel***) to process aggregate.
@@ -144,7 +144,7 @@ public abstract class AbstractUnassignedScanJob extends AbstractUnassignedJob {
         // |(share scan node, instance1 will scan all data and local shuffle to other local instances       |
         // |                           to parallel compute this data)                                       |
         // +------------------------------------------------------------------------------------------------+
-        ScanSource shareScanSource = instanceToScanRanges.get(0);
+        ScanSource shareScanSource = assignedJoinBuckets.get(0);
 
         // one scan range generate multiple instances,
         // different instances reference the same scan source
@@ -152,15 +152,15 @@ public abstract class AbstractUnassignedScanJob extends AbstractUnassignedJob {
         ScanSource emptyShareScanSource = shareScanSource.newEmpty();
         for (int i = 0; i < instanceNum; i++) {
             LocalShuffleAssignedJob instance = new LocalShuffleAssignedJob(
-                    instances.size(), shareScanId, i > 0,
-                    context.nextInstanceId(), this, worker,
-                    i == 0 ? shareScanSource : emptyShareScanSource
+                    instances.size(), shareScanId, context.nextInstanceId(), this, worker,
+                    // only first instance need to scan data
+                    i == 0 ? scanSource : emptyShareScanSource
             );
             instances.add(instance);
         }
     }
 
-    protected int degreeOfParallelism(int maxParallel) {
+    protected int degreeOfParallelism(int maxParallel, boolean useLocalShuffleToAddParallel) {
         Preconditions.checkArgument(maxParallel > 0, "maxParallel must be positive");
         if (!fragment.getDataPartition().isPartitioned()) {
             return 1;
@@ -173,10 +173,14 @@ public abstract class AbstractUnassignedScanJob extends AbstractUnassignedJob {
             OlapScanNode olapScanNode = (OlapScanNode) scanNodes.get(0);
             // if the scan node have limit and no conjuncts, only need 1 instance to save cpu and mem resource,
             // e.g. select * from tbl limit 10
-            ConnectContext connectContext = ConnectContext.get();
+            ConnectContext connectContext = statementContext.getConnectContext();
             if (connectContext != null && olapScanNode.shouldUseOneInstance(connectContext)) {
                 return 1;
             }
+        }
+
+        if (useLocalShuffleToAddParallel) {
+            return Math.max(fragment.getParallelExecNum(), 1);
         }
 
         // the scan instance num should not larger than the tablets num
@@ -186,7 +190,7 @@ public abstract class AbstractUnassignedScanJob extends AbstractUnassignedJob {
     protected List<AssignedJob> fillUpSingleEmptyInstance(DistributedPlanWorkerManager workerManager) {
         return ImmutableList.of(
                 assignWorkerAndDataSources(0,
-                        ConnectContext.get().nextInstanceId(),
+                        statementContext.getConnectContext().nextInstanceId(),
                         workerManager.randomAvailableWorker(),
                         DefaultScanSource.empty())
         );

@@ -17,9 +17,9 @@
 
 #include "exec/es/es_scroll_parser.h"
 
+#include <absl/strings/substitute.h>
 #include <cctz/time_zone.h>
 #include <glog/logging.h>
-#include <gutil/strings/substitute.h>
 #include <rapidjson/allocators.h>
 #include <rapidjson/encodings.h>
 #include <stdint.h>
@@ -32,7 +32,6 @@
 #include <string>
 
 #include "common/status.h"
-#include "gutil/integral_types.h"
 #include "rapidjson/document.h"
 #include "rapidjson/rapidjson.h"
 #include "rapidjson/stringbuffer.h"
@@ -48,6 +47,8 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/core/field.h"
+#include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_nullable.h"
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
@@ -401,8 +402,7 @@ Status insert_int_value(const rapidjson::Value& col, PrimitiveType type,
     };
 
     if (pure_doc_value && col.IsArray() && !col.Empty()) {
-        if (col.IsNumber()) {
-            RETURN_ERROR_IF_COL_IS_NOT_NUMBER(col[0], type);
+        if (col[0].IsNumber()) {
             T value = (T)(sizeof(T) < 8 ? col[0].GetInt() : col[0].GetInt64());
             col_ptr->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&value)), 0);
             return Status::OK();
@@ -670,21 +670,21 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
                 nullable_column->insert_data(nullptr, 0);
                 continue;
             } else {
-                std::string details = strings::Substitute(INVALID_NULL_VALUE, col_name);
+                std::string details = absl::Substitute(INVALID_NULL_VALUE, col_name);
                 return Status::RuntimeError(details);
             }
         }
 
         const rapidjson::Value& col = (*line)[col_name];
 
-        PrimitiveType type = slot_desc->type().type;
+        auto type = slot_desc->type()->get_primitive_type();
 
         // when the column value is null, the subsequent type casting will report an error
         if (col.IsNull() && slot_desc->is_nullable()) {
             col_ptr->insert_data(nullptr, 0);
             continue;
         } else if (col.IsNull() && !slot_desc->is_nullable()) {
-            std::string details = strings::Substitute(INVALID_NULL_VALUE, col_name);
+            std::string details = absl::Substitute(INVALID_NULL_VALUE, col_name);
             return Status::RuntimeError(details);
         }
         switch (type) {
@@ -839,7 +839,11 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
         }
         case TYPE_ARRAY: {
             vectorized::Array array;
-            const auto& sub_type = tuple_desc->slots()[i]->type().children[0].type;
+            const auto& sub_type =
+                    assert_cast<const vectorized::DataTypeArray*>(
+                            vectorized::remove_nullable(tuple_desc->slots()[i]->type()).get())
+                            ->get_nested_type()
+                            ->get_primitive_type();
             RETURN_IF_ERROR(parse_column(col, sub_type, pure_doc_value, array, time_zone));
             col_ptr->insert(array);
             break;

@@ -25,6 +25,7 @@
 
 #include "common/config.h"
 #include "common/status.h"
+#include "common/utils.h"
 #include "pipeline/pipeline_task.h"
 #include "runtime/runtime_state.h"
 #include "udf/udf.h"
@@ -91,7 +92,7 @@ Status VectorizedFnCall::prepare(RuntimeState* state, const RowDescriptor& desc,
             if (_data_type->is_nullable()) {
                 return Status::InternalError("State function's return type must be not nullable");
             }
-            if (_data_type->get_type_as_type_descriptor().type != PrimitiveType::TYPE_AGG_STATE) {
+            if (_data_type->get_primitive_type() != PrimitiveType::TYPE_AGG_STATE) {
                 return Status::InternalError(
                         "State function's return type must be agg_state but get {}",
                         _data_type->get_family_name());
@@ -116,6 +117,11 @@ Status VectorizedFnCall::prepare(RuntimeState* state, const RowDescriptor& desc,
     VExpr::register_function_context(state, context);
     _function_name = _fn.name.function_name;
     _prepare_finished = true;
+
+    FunctionContext* fn_ctx = context->fn_context(_fn_context_index);
+    if (fn().__isset.dict_function) {
+        fn_ctx->set_dict_function(fn().dict_function);
+    }
     return Status::OK();
 }
 
@@ -184,10 +190,38 @@ Status VectorizedFnCall::_do_execute(doris::vectorized::VExprContext* context,
     uint32_t num_columns_without_result = block->columns();
     // prepare a column to save result
     block->insert({nullptr, _data_type, _expr_name});
+
+    DBUG_EXECUTE_IF("VectorizedFnCall.wait_before_execute", {
+        auto possibility = DebugPoints::instance()->get_debug_param_or_default<double>(
+                "VectorizedFnCall.wait_before_execute", "possibility", 0);
+        if (random_bool_slow(possibility)) {
+            LOG(WARNING) << "VectorizedFnCall::execute sleep 30s";
+            sleep(30);
+        }
+    });
+
     RETURN_IF_ERROR(_function->execute(context->fn_context(_fn_context_index), *block, args,
                                        num_columns_without_result, block->rows(), false));
     *result_column_id = num_columns_without_result;
     return Status::OK();
+}
+
+size_t VectorizedFnCall::estimate_memory(const size_t rows) {
+    if (is_const_and_have_executed()) { // const have execute in open function
+        return 0;
+    }
+
+    size_t estimate_size = 0;
+    for (auto& child : _children) {
+        estimate_size += child->estimate_memory(rows);
+    }
+
+    if (_data_type->have_maximum_size_of_value()) {
+        estimate_size += rows * _data_type->get_size_of_value_in_memory();
+    } else {
+        estimate_size += rows * 512; /// FIXME: estimated value...
+    }
+    return estimate_size;
 }
 
 Status VectorizedFnCall::execute_runtime_fitler(doris::vectorized::VExprContext* context,

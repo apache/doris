@@ -24,14 +24,17 @@ import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
+import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
+import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
+import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
@@ -48,18 +51,23 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NumericLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
+import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
+import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.SmallIntType;
+import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.coercion.DateLikeType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -99,7 +107,9 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule i
         Expression result;
 
         // process type coercion
-        if (left.getDataType().isFloatLikeType() && right.getDataType().isFloatLikeType()) {
+        if (left.getDataType().isIntegralType() && right.getDataType().isIntegralType()) {
+            result = processIntegerLikeTypeCoercion(cp, left, right);
+        } else if (left.getDataType().isFloatLikeType() && right.getDataType().isFloatLikeType()) {
             result = processFloatLikeTypeCoercion(cp, left, right);
         } else if (left.getDataType() instanceof DecimalV3Type && right.getDataType() instanceof DecimalV3Type) {
             result = processDecimalV3TypeCoercion(cp, left, right);
@@ -117,22 +127,96 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule i
         return result;
     }
 
+    private static Expression processIntegerLikeTypeCoercion(ComparisonPredicate cp,
+            Expression left, Expression right) {
+        // Suppose a is integer type, for expression `a > 500000 + 100000`,
+        // since right type is big int (int plus int is big int),
+        // then will have cast(a as bigint) > cast(500000 + 100000).
+        // After fold constant, will have cast(a as bigint) > big int(600000),
+        // since 600000 can represent as an int type, will rewrite as a > int(600000).
+        if (left instanceof Cast && left.getDataType().isIntegralType()
+                && ((Cast) left).child().getDataType().isIntegralType()
+                && right instanceof IntegerLikeLiteral) {
+            DataType castDataType = left.getDataType();
+            DataType childDataType = ((Cast) left).child().getDataType();
+            boolean castDataTypeWider = false;
+            for (DataType type : TypeCoercionUtils.NUMERIC_PRECEDENCE) {
+                if (type.equals(childDataType)) {
+                    break;
+                }
+                if (type.equals(castDataType)) {
+                    castDataTypeWider = true;
+                    break;
+                }
+            }
+            if (castDataTypeWider) {
+                Optional<Pair<BigDecimal, BigDecimal>> minMaxOpt =
+                        TypeCoercionUtils.getDataTypeMinMaxValue(childDataType);
+                if (minMaxOpt.isPresent()) {
+                    BigDecimal childTypeMinValue = minMaxOpt.get().first;
+                    BigDecimal childTypeMaxValue = minMaxOpt.get().second;
+                    BigDecimal rightValue = ((IntegerLikeLiteral) right).getBigDecimalValue();
+                    if (rightValue.compareTo(childTypeMinValue) >= 0 && rightValue.compareTo(childTypeMaxValue) <= 0) {
+                        Expression newRight = null;
+                        if (childDataType.equals(BigIntType.INSTANCE)) {
+                            newRight = new BigIntLiteral(rightValue.longValue());
+                        } else if (childDataType.equals(IntegerType.INSTANCE)) {
+                            newRight = new IntegerLiteral(rightValue.intValue());
+                        } else if (childDataType.equals(SmallIntType.INSTANCE)) {
+                            newRight = new SmallIntLiteral(rightValue.shortValue());
+                        } else if (childDataType.equals(TinyIntType.INSTANCE)) {
+                            newRight = new TinyIntLiteral(rightValue.byteValue());
+                        }
+                        if (newRight != null) {
+                            return cp.withChildren(((Cast) left).child(), newRight);
+                        }
+                    }
+                }
+            }
+        }
+        return cp;
+    }
+
+    private static Expression processDateLikeTypeCoercion(ComparisonPredicate cp, Expression left, Expression right) {
+        if (left instanceof Cast && right instanceof DateLiteral
+                && ((Cast) left).getDataType().equals(right.getDataType())) {
+            Cast cast = (Cast) left;
+            if (cast.child().getDataType() instanceof DateTimeType
+                    || cast.child().getDataType() instanceof DateTimeV2Type) {
+                // right is datetime
+                if (right instanceof DateTimeV2Literal) {
+                    return processDateTimeLikeComparisonPredicateDateTimeV2Literal(
+                            cp, cast.child(), (DateTimeV2Literal) right);
+                }
+                // right is date, not datetime
+                if (!(right instanceof DateTimeLiteral)) {
+                    return processDateTimeLikeComparisonPredicateDateLiteral(
+                            cp, cast.child(), (DateLiteral) right);
+                }
+            }
+
+            // datetime to datev2
+            if (cast.child().getDataType() instanceof DateType || cast.child().getDataType() instanceof DateV2Type) {
+                return processDateLikeComparisonPredicateDateLiteral(cp, cast.child(), (DateLiteral) right);
+            }
+        }
+
+        return cp;
+    }
+
+    // process cast(datetime as datetime) cmp datetime
     private static Expression processDateTimeLikeComparisonPredicateDateTimeV2Literal(
             ComparisonPredicate comparisonPredicate, Expression left, DateTimeV2Literal right) {
         DataType leftType = left.getDataType();
-        int toScale = 0;
-        if (leftType instanceof DateTimeType) {
-            toScale = 0;
-        } else if (leftType instanceof DateTimeV2Type) {
-            toScale = ((DateTimeV2Type) leftType).getScale();
-        } else {
+        if (!(leftType instanceof DateTimeType) && !(leftType instanceof DateTimeV2Type)) {
             return comparisonPredicate;
         }
+        int toScale = leftType instanceof DateTimeV2Type ? ((DateTimeV2Type) leftType).getScale() : 0;
         DateTimeV2Type rightType = right.getDataType();
         if (toScale < rightType.getScale()) {
             if (comparisonPredicate instanceof EqualTo) {
                 long originValue = right.getMicroSecond();
-                right = right.roundCeiling(toScale);
+                right = right.roundFloor(toScale);
                 if (right.getMicroSecond() != originValue) {
                     // TODO: the ideal way is to return an If expr like:
                     // return new If(new IsNull(left), new NullLiteral(BooleanType.INSTANCE),
@@ -144,7 +228,7 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule i
                 }
             } else if (comparisonPredicate instanceof NullSafeEqual) {
                 long originValue = right.getMicroSecond();
-                right = right.roundCeiling(toScale);
+                right = right.roundFloor(toScale);
                 if (right.getMicroSecond() != originValue) {
                     return BooleanLiteral.of(false);
                 }
@@ -153,76 +237,156 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule i
                 right = right.roundFloor(toScale);
             } else if (comparisonPredicate instanceof LessThan
                     || comparisonPredicate instanceof GreaterThanEqual) {
-                right = right.roundCeiling(toScale);
+                try {
+                    right = right.roundCeiling(toScale);
+                } catch (AnalysisException e) {
+                    // '9999-12-31 23:59:59.9'.roundCeiling(0) overflow
+                    DateTimeLiteral newRight = right.roundFloor(toScale);
+                    if (leftType instanceof DateTimeType) {
+                        newRight = migrateToDateTime((DateTimeV2Literal) newRight);
+                    }
+                    if (comparisonPredicate instanceof LessThan) {
+                        return new LessThanEqual(left, newRight);
+                    } else {
+                        return new GreaterThan(left, newRight);
+                    }
+                }
             } else {
                 return comparisonPredicate;
             }
             Expression newRight = leftType instanceof DateTimeType ? migrateToDateTime(right) : right;
             return comparisonPredicate.withChildren(left, newRight);
-        } else {
-            if (leftType instanceof DateTimeType) {
-                return comparisonPredicate.withChildren(left, migrateToDateTime(right));
-            } else {
-                return comparisonPredicate;
+        } else if (toScale > rightType.getScale()) {
+            // when toScale > right's scale, then left must be datetimev2, not datetimev1
+            Preconditions.checkArgument(leftType instanceof DateTimeV2Type, leftType);
+
+            // for expression cast(left as datetime(2)) = '2020-12-20 01:02:03.45'
+            // then left scale is 5, right = '2020-12-20 01:02:03.45",  right scale is 2,
+            // then left >= '2020-12-20 01:02:03.45000' && left <= '2020-12-20 01:02:03.45999'
+            // for low bound, it add (5-2) '0' to the origin right's tail
+            // for up bound, it add (5-2) '9' to the origin right's tail
+            // when roundFloor to high scale, its microsecond shouldn't change, only change its data type.
+            DateTimeV2Literal lowBound = right.roundFloor(toScale);
+            long upMicroSecond = 0;
+            for (int i = 0; i < toScale - rightType.getScale(); i++) {
+                upMicroSecond = 10 * upMicroSecond + 9;
             }
+            upMicroSecond *= (int) Math.pow(10, 6 - toScale);
+            upMicroSecond += lowBound.getMicroSecond();
+            // left must be a datetimev2
+            DateTimeV2Literal upBound = new DateTimeV2Literal((DateTimeV2Type) leftType,
+                    right.getYear(), right.getMonth(), right.getDay(),
+                    right.getHour(), right.getMinute(), right.getSecond(), upMicroSecond);
+
+            if (comparisonPredicate instanceof GreaterThanEqual || comparisonPredicate instanceof LessThan) {
+                return comparisonPredicate.withChildren(left, lowBound);
+            }
+
+            if (comparisonPredicate instanceof GreaterThan || comparisonPredicate instanceof LessThanEqual) {
+                return comparisonPredicate.withChildren(left, upBound);
+            }
+
+            if (comparisonPredicate instanceof EqualTo || comparisonPredicate instanceof NullSafeEqual) {
+                List<Expression> conjunctions = Lists.newArrayListWithExpectedSize(3);
+                conjunctions.add(new GreaterThanEqual(left, lowBound));
+                conjunctions.add(new LessThanEqual(left, upBound));
+                if (left.nullable() && comparisonPredicate instanceof NullSafeEqual) {
+                    conjunctions.add(new Not(new IsNull(left)));
+                }
+                return new And(conjunctions);
+            }
+        }
+
+        if (leftType instanceof DateTimeType) {
+            return comparisonPredicate.withChildren(left, migrateToDateTime(right));
+        } else {
+            return comparisonPredicate;
         }
     }
 
-    private static Expression processDateLikeTypeCoercion(ComparisonPredicate cp, Expression left, Expression right) {
-        if (left instanceof Cast && right instanceof DateLiteral) {
-            Cast cast = (Cast) left;
-            if (cast.child().getDataType() instanceof DateTimeType
-                    || cast.child().getDataType() instanceof DateTimeV2Type) {
-                if (right instanceof DateTimeV2Literal) {
-                    try {
-                        return processDateTimeLikeComparisonPredicateDateTimeV2Literal(
-                                cp, cast.child(), (DateTimeV2Literal) right);
-                    } catch (AnalysisException e) {
-                        // '9999-12-31 23:59:59.9'.roundCeiling(0) overflow
-                        return cp;
-                    }
-                }
-            }
+    // process cast(datetime as date) cmp date
+    private static Expression processDateTimeLikeComparisonPredicateDateLiteral(
+            ComparisonPredicate comparisonPredicate, Expression left, DateLiteral right) {
+        DataType leftType = left.getDataType();
+        if (!(leftType instanceof DateTimeType) && !(leftType instanceof DateTimeV2Type)) {
+            return comparisonPredicate;
+        }
+        if (right instanceof DateTimeLiteral) {
+            return comparisonPredicate;
+        }
 
-            // datetime to datev2
-            if (cast.child().getDataType() instanceof DateType || cast.child().getDataType() instanceof DateV2Type) {
-                if (right instanceof DateTimeLiteral) {
-                    DateTimeLiteral dateTimeLiteral = (DateTimeLiteral) right;
-                    right = migrateToDateV2(dateTimeLiteral);
-                    if (dateTimeLiteral.getHour() != 0 || dateTimeLiteral.getMinute() != 0
-                            || dateTimeLiteral.getSecond() != 0 || dateTimeLiteral.getMicroSecond() != 0) {
-                        if (cp instanceof EqualTo) {
-                            return ExpressionUtils.falseOrNull(cast.child());
-                        } else if (cp instanceof NullSafeEqual) {
-                            return BooleanLiteral.FALSE;
-                        } else if (cp instanceof GreaterThanEqual || cp instanceof LessThan) {
-                            // '9999-12-31' + 1 will overflow
-                            if (DateLiteral.isDateOutOfRange(((DateV2Literal) right).toJavaDateType().plusDays(1))) {
-                                return cp;
-                            }
-                            right = ((DateV2Literal) right).plusDays(1);
+        DateTimeLiteral lowBound = null;
+        DateTimeLiteral upBound = null;
+        if (leftType instanceof DateTimeType) {
+            lowBound = new DateTimeLiteral(right.getYear(), right.getMonth(), right.getDay(), 0, 0, 0);
+            upBound = new DateTimeLiteral(right.getYear(), right.getMonth(), right.getDay(), 23, 59, 59);
+        } else {
+            long upMicroSecond = 0;
+            for (int i = 0; i < ((DateTimeV2Type) leftType).getScale(); i++) {
+                upMicroSecond = 10 * upMicroSecond + 9;
+            }
+            upMicroSecond *= (int) Math.pow(10, 6 - ((DateTimeV2Type) leftType).getScale());
+            lowBound = new DateTimeV2Literal((DateTimeV2Type) leftType,
+                    right.getYear(), right.getMonth(), right.getDay(), 0, 0, 0, 0);
+            upBound = new DateTimeV2Literal((DateTimeV2Type) leftType,
+                    right.getYear(), right.getMonth(), right.getDay(), 23, 59, 59, upMicroSecond);
+        }
+
+        if (comparisonPredicate instanceof GreaterThanEqual || comparisonPredicate instanceof LessThan) {
+            return comparisonPredicate.withChildren(left, lowBound);
+        }
+        if (comparisonPredicate instanceof GreaterThan || comparisonPredicate instanceof LessThanEqual) {
+            return comparisonPredicate.withChildren(left, upBound);
+        }
+
+        if (comparisonPredicate instanceof EqualTo || comparisonPredicate instanceof NullSafeEqual) {
+            List<Expression> conjunctions = Lists.newArrayListWithExpectedSize(3);
+            conjunctions.add(new GreaterThanEqual(left, lowBound));
+            conjunctions.add(new LessThanEqual(left, upBound));
+            if (left.nullable() && comparisonPredicate instanceof NullSafeEqual) {
+                conjunctions.add(new Not(new IsNull(left)));
+            }
+            return new And(conjunctions);
+        }
+
+        return comparisonPredicate;
+    }
+
+    // process cast(date as datetime/date) cmp datetime/date
+    private static Expression processDateLikeComparisonPredicateDateLiteral(
+            ComparisonPredicate comparisonPredicate, Expression left, DateLiteral right) {
+        if (!(left.getDataType() instanceof DateType) && !(left.getDataType() instanceof DateV2Type)) {
+            return comparisonPredicate;
+        }
+        if (right instanceof DateTimeLiteral) {
+            DateTimeLiteral dateTimeLiteral = (DateTimeLiteral) right;
+            right = migrateToDateV2(dateTimeLiteral);
+            if (dateTimeLiteral.getHour() != 0 || dateTimeLiteral.getMinute() != 0
+                    || dateTimeLiteral.getSecond() != 0 || dateTimeLiteral.getMicroSecond() != 0) {
+                if (comparisonPredicate instanceof EqualTo) {
+                    return ExpressionUtils.falseOrNull(left);
+                } else if (comparisonPredicate instanceof NullSafeEqual) {
+                    return BooleanLiteral.FALSE;
+                } else if (comparisonPredicate instanceof GreaterThanEqual
+                        || comparisonPredicate instanceof LessThan) {
+                    // '9999-12-31' + 1 will overflow
+                    if (DateLiteral.isDateOutOfRange(right.toJavaDateType().plusDays(1))) {
+                        right = convertDateLiteralToDateType(right, left.getDataType());
+                        if (comparisonPredicate instanceof GreaterThanEqual) {
+                            return new GreaterThan(left, right);
+                        } else {
+                            return new LessThanEqual(left, right);
                         }
                     }
-                    if (cast.child().getDataType() instanceof DateV2Type) {
-                        left = cast.child();
-                    }
-                }
-            }
-
-            // datev2 to date
-            if (cast.child().getDataType() instanceof DateType) {
-                if (right instanceof DateV2Literal) {
-                    left = cast.child();
-                    right = migrateToDate((DateV2Literal) right);
+                    right = (DateLiteral) right.plusDays(1);
                 }
             }
         }
-
-        if (left != cp.left() || right != cp.right()) {
-            return cp.withChildren(left, right);
-        } else {
-            return cp;
+        right = convertDateLiteralToDateType(right, left.getDataType());
+        if (right != comparisonPredicate.right()) {
+            return comparisonPredicate.withChildren(left, right);
         }
+        return comparisonPredicate;
     }
 
     private static Expression processFloatLikeTypeCoercion(ComparisonPredicate comparisonPredicate,
@@ -475,15 +639,29 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule i
         }
     }
 
-    private static Expression migrateToDateTime(DateTimeV2Literal l) {
+    private static DateLiteral convertDateLiteralToDateType(DateLiteral l, DataType dateType) {
+        if (dateType instanceof DateType) {
+            if (l instanceof DateV2Literal) {
+                return migrateToDate((DateV2Literal) l);
+            }
+        }
+        if (dateType instanceof DateV2Type) {
+            if (!(l instanceof DateV2Literal)) {
+                return migrateToDateV2(l);
+            }
+        }
+        return l;
+    }
+
+    private static DateTimeLiteral migrateToDateTime(DateTimeV2Literal l) {
         return new DateTimeLiteral(l.getYear(), l.getMonth(), l.getDay(), l.getHour(), l.getMinute(), l.getSecond());
     }
 
-    private static Expression migrateToDateV2(DateTimeLiteral l) {
+    private static DateV2Literal migrateToDateV2(DateLiteral l) {
         return new DateV2Literal(l.getYear(), l.getMonth(), l.getDay());
     }
 
-    private static Expression migrateToDate(DateV2Literal l) {
+    private static DateLiteral migrateToDate(DateV2Literal l) {
         return new DateLiteral(l.getYear(), l.getMonth(), l.getDay());
     }
 }

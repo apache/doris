@@ -22,7 +22,6 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
-import org.apache.doris.nereids.trees.expressions.Exists;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
@@ -81,7 +80,10 @@ public class ExistsApplyToJoin extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalApply().when(LogicalApply::isExist).then(apply -> {
-            if (apply.isCorrelated()) {
+            // apply.isCorrelated() only check if correlated slot exits
+            // but correlation filter may be eliminated by SimplifyConflictCompound rule
+            // so we need check both correlated slot and correlation filter exists before creating LogicalJoin node
+            if (apply.isCorrelated() && apply.getCorrelationFilter().isPresent()) {
                 return correlatedToJoin(apply);
             } else {
                 return unCorrelatedToJoin(apply);
@@ -91,7 +93,7 @@ public class ExistsApplyToJoin extends OneRewriteRuleFactory {
 
     private Plan correlatedToJoin(LogicalApply<?, ?> apply) {
         Optional<Expression> correlationFilter = apply.getCorrelationFilter();
-        if (((Exists) apply.getSubqueryExpr()).isNot()) {
+        if (apply.isNot()) {
             return new LogicalJoin<>(JoinType.LEFT_ANTI_JOIN, ExpressionUtils.EMPTY_CONDITION,
                     correlationFilter.map(ExpressionUtils::extractConjunction).orElse(ExpressionUtils.EMPTY_CONDITION),
                     new DistributeHint(DistributeType.NONE),
@@ -107,7 +109,7 @@ public class ExistsApplyToJoin extends OneRewriteRuleFactory {
     }
 
     private Plan unCorrelatedToJoin(LogicalApply<?, ?> unapply) {
-        if (((Exists) unapply.getSubqueryExpr()).isNot()) {
+        if (unapply.isNot()) {
             return unCorrelatedNotExist(unapply);
         } else {
             return unCorrelatedExist(unapply);

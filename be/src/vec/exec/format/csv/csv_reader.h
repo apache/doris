@@ -19,14 +19,14 @@
 
 #include <gen_cpp/PlanNodes_types.h>
 #include <gen_cpp/internal_service.pb.h>
-#include <stddef.h>
-#include <stdint.h>
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 #include "common/status.h"
@@ -38,6 +38,7 @@
 #include "vec/exec/format/generic_reader.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class LineReader;
 class Decompressor;
@@ -48,10 +49,8 @@ class RuntimeState;
 namespace io {
 struct IOContext;
 } // namespace io
-struct TypeDescriptor;
 
 namespace vectorized {
-
 struct ScannerCounter;
 class Block;
 
@@ -73,7 +72,7 @@ public:
 class CsvProtoFieldSplitter final : public BaseLineFieldSplitter<CsvProtoFieldSplitter> {
 public:
     inline void split_line_impl(const Slice& line, std::vector<Slice>* splitted_values) {
-        PDataRow** row_ptr = reinterpret_cast<PDataRow**>(line.data);
+        auto** row_ptr = reinterpret_cast<PDataRow**>(line.data);
         PDataRow* row = *row_ptr;
         for (const PDataColumn& col : row->col()) {
             splitted_values->emplace_back(col.value());
@@ -142,7 +141,7 @@ public:
             std::shared_ptr<EncloseCsvLineReaderContext> line_reader_ctx, size_t value_sep_len = 1,
             char trimming_char = 0)
             : BaseCsvTextFieldSplitter(trim_tailing_space, trim_ends, value_sep_len, trimming_char),
-              _text_line_reader_ctx(line_reader_ctx) {}
+              _text_line_reader_ctx(std::move(line_reader_ctx)) {}
 
     void do_split(const Slice& line, std::vector<Slice>* splitted_values);
 
@@ -153,10 +152,10 @@ private:
 class PlainCsvTextFieldSplitter : public BaseCsvTextFieldSplitter<PlainCsvTextFieldSplitter> {
 public:
     explicit PlainCsvTextFieldSplitter(bool trim_tailing_space, bool trim_ends,
-                                       const std::string& value_sep, size_t value_sep_len = 1,
+                                       std::string value_sep, size_t value_sep_len = 1,
                                        char trimming_char = 0)
             : BaseCsvTextFieldSplitter(trim_tailing_space, trim_ends, value_sep_len, trimming_char),
-              _value_sep(value_sep) {
+              _value_sep(std::move(value_sep)) {
         is_single_char_delim = (value_sep_len == 1);
     }
 
@@ -173,10 +172,10 @@ private:
 class HiveCsvTextFieldSplitter : public BaseCsvTextFieldSplitter<HiveCsvTextFieldSplitter> {
 public:
     explicit HiveCsvTextFieldSplitter(bool trim_tailing_space, bool trim_ends,
-                                      const string& value_sep, size_t value_sep_len = 1,
+                                      std::string value_sep, size_t value_sep_len = 1,
                                       char trimming_char = 0, char escape_char = 0)
             : BaseCsvTextFieldSplitter(trim_tailing_space, trim_ends, value_sep_len, trimming_char),
-              _value_sep(value_sep),
+              _value_sep(std::move(value_sep)),
               _escape_char(escape_char) {}
 
     void do_split(const Slice& line, std::vector<Slice>* splitted_values);
@@ -201,7 +200,7 @@ public:
 
     Status init_reader(bool is_query);
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
-    Status get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
+    Status get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
                        std::unordered_set<std::string>* missing_cols) override;
 
     // get schema of csv file from first one line or first two lines.
@@ -210,7 +209,7 @@ public:
     // 2. header_type is CSV_WITH_NAMES, get schema from first line.
     // 3. header_type is CSV_WITH_NAMES_AND_TYPES, get schema from first two line.
     Status get_parsed_schema(std::vector<std::string>* col_names,
-                             std::vector<TypeDescriptor>* col_types) override;
+                             std::vector<DataTypePtr>* col_types) override;
 
     Status close() override;
 
@@ -222,7 +221,6 @@ private:
     Status _fill_empty_line(Block* block, std::vector<MutableColumnPtr>& columns, size_t* rows);
     Status _line_split_to_values(const Slice& line, bool* success);
     void _split_line(const Slice& line);
-    Status _check_array_format(std::vector<Slice>& split_values, bool* is_success);
     bool _is_null(const Slice& slice);
     bool _is_array(const Slice& slice);
     void _init_system_properties();
@@ -238,7 +236,7 @@ private:
     Status _parse_col_nums(size_t* col_nums);
     Status _parse_col_names(std::vector<std::string>* col_names);
     // TODO(ftw): parse type
-    Status _parse_col_types(size_t col_nums, std::vector<TypeDescriptor>* col_types);
+    Status _parse_col_types(size_t col_nums, std::vector<DataTypePtr>* col_types);
 
     // check the utf8 encoding of a line.
     // return error status to stop processing.
@@ -296,8 +294,8 @@ private:
     vectorized::DataTypeSerDeSPtrs _serdes;
     vectorized::DataTypeSerDe::FormatOptions _options;
 
-    int _value_separator_length;
-    int _line_delimiter_length;
+    size_t _value_separator_length;
+    size_t _line_delimiter_length;
     bool _trim_double_quotes = false;
     bool _trim_tailing_spaces = false;
     // `should_not_trim` is to manage the case that: user do not expect to trim double quotes but enclose is double quotes
@@ -313,4 +311,5 @@ private:
     std::vector<int> _use_nullable_string_opt;
 };
 } // namespace vectorized
+#include "common/compile_check_end.h"
 } // namespace doris

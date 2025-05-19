@@ -37,6 +37,7 @@ suite ("testCountDistinctToBitmap") {
     sql """insert into user_tags values("2020-01-01",1,"a",2);"""
 
     sql "analyze table user_tags with sync;"
+    sql """alter table user_tags modify column time_col set stats ('row_count'='3');"""
     sql """set enable_stats=false;"""
 
     mv_rewrite_fail("select * from user_tags order by time_col;", "user_tags_mv")

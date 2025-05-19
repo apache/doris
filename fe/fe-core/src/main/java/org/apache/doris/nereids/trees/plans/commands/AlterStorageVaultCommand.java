@@ -53,10 +53,10 @@ public class AlterStorageVaultCommand extends Command implements ForwardWithSync
         }
 
         FeNameFormat.checkStorageVaultName(name);
-        if (properties.containsKey(StorageVault.VAULT_NAME)) {
-            String newName = properties.get(StorageVault.VAULT_NAME);
+        if (properties.containsKey(StorageVault.PropertyKey.VAULT_NAME)) {
+            String newName = properties.get(StorageVault.PropertyKey.VAULT_NAME);
             FeNameFormat.checkStorageVaultName(newName);
-            Preconditions.checkArgument(!name.equalsIgnoreCase(newName), "vault name no change");
+            Preconditions.checkArgument(!name.equalsIgnoreCase(newName), "Vault name has not been changed");
         }
         Env.getCurrentEnv().getStorageVaultMgr().alterStorageVault(vaultType, properties, name);
     }

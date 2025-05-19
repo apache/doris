@@ -153,13 +153,13 @@ suite("test_query_sys_tables", "query,p0") {
 
     // test tables
     // create test dbs
-    sql("CREATE DATABASE IF NOT EXISTS ${dbName1}")
-    sql("CREATE DATABASE IF NOT EXISTS ${dbName2}")
-    sql("CREATE DATABASE IF NOT EXISTS ${dbName3}")
+    sql("DROP DATABASE IF EXISTS ${dbName1}")
+    sql("DROP DATABASE IF EXISTS ${dbName2}")
+    sql("DROP DATABASE IF EXISTS ${dbName3}")
     // create test tbs
-    sql("CREATE DATABASE IF NOT EXISTS ${dbName1}")
-    sql("CREATE DATABASE IF NOT EXISTS ${dbName2}")
-    sql("CREATE DATABASE IF NOT EXISTS ${dbName3}")
+    sql("CREATE DATABASE ${dbName1}")
+    sql("CREATE DATABASE ${dbName2}")
+    sql("CREATE DATABASE ${dbName3}")
     // create test tbs
     sql("use ${dbName1}")
     sql """
@@ -253,4 +253,11 @@ suite("test_query_sys_tables", "query,p0") {
     qt_sql "select * from triggers"
     qt_sql "select * from parameters"
     qt_sql "select * from profiling"
+
+    // test systable is queryable
+    String[][] systabs = sql "USE information_schema;show tables"
+    System.out.println(systabs)
+    for (String[] tab : systabs) {
+        sql "select * from ${tab[0]} limit 10"
+    }
 }

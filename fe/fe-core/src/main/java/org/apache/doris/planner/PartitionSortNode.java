@@ -142,7 +142,10 @@ public class PartitionSortNode extends PlanNode {
         Preconditions.checkState(tupleIds.size() == 1, "Incorrect size for tupleIds in PartitionSortNode");
 
         TopNAlgorithm topNAlgorithm;
-        if (function == WindowFuncType.ROW_NUMBER) {
+        if (hasGlobalLimit) {
+            // only need row number if has global limit, so we change algorithm directly
+            topNAlgorithm = TopNAlgorithm.ROW_NUMBER;
+        } else if (function == WindowFuncType.ROW_NUMBER) {
             topNAlgorithm = TopNAlgorithm.ROW_NUMBER;
         } else if (function == WindowFuncType.RANK) {
             topNAlgorithm = TopNAlgorithm.RANK;

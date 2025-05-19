@@ -20,7 +20,7 @@ package org.apache.doris.nereids.rules.analysis;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.mv.InitConsistentMaterializationContextHook;
-import org.apache.doris.nereids.trees.plans.logical.LogicalTableSink;
+import org.apache.doris.nereids.rules.exploration.mv.InitMaterializationContextHook;
 
 import com.google.common.collect.ImmutableList;
 
@@ -28,7 +28,7 @@ import java.util.List;
 
 /**
  * Add init materialization hook for table sink and file sink
- * */
+ */
 public class AddInitMaterializationHook implements AnalysisRuleFactory {
 
     @Override
@@ -41,11 +41,18 @@ public class AddInitMaterializationHook implements AnalysisRuleFactory {
                             }
                             return ctx.root;
                         })),
-                RuleType.INIT_MATERIALIZATION_HOOK_FOR_TABLE_SINK.build(
-                        any().when(LogicalTableSink.class::isInstance)
+                RuleType.INIT_MATERIALIZATION_HOOK_FOR_TABLE_SINK.build(unboundTableSink()
                         .thenApply(ctx -> {
                             if (ctx.connectContext.getSessionVariable().isEnableDmlMaterializedViewRewrite()) {
                                 ctx.statementContext.addPlannerHook(InitConsistentMaterializationContextHook.INSTANCE);
+                            }
+                            return ctx.root;
+                        })),
+                RuleType.INIT_MATERIALIZATION_HOOK_FOR_RESULT_SINK.build(unboundResultSink()
+                        .thenApply(ctx -> {
+                            if (ctx.connectContext.getSessionVariable().isEnableMaterializedViewRewrite()
+                                    && ctx.connectContext.getState().isQuery()) {
+                                ctx.statementContext.addPlannerHook(InitMaterializationContextHook.INSTANCE);
                             }
                             return ctx.root;
                         }))

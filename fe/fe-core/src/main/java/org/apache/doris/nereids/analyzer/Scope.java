@@ -61,25 +61,42 @@ public class Scope {
 
     private final Optional<Scope> outerScope;
     private final List<Slot> slots;
+    private final List<Slot> asteriskSlots;
     private final Set<Slot> correlatedSlots;
     private final boolean buildNameToSlot;
     private final Supplier<ListMultimap<String, Slot>> nameToSlot;
+    private final Supplier<ListMultimap<String, Slot>> nameToAsteriskSlot;
 
-    public Scope(List<? extends Slot> slots) {
+    public Scope(List<Slot> slots) {
         this(Optional.empty(), slots);
     }
 
+    public Scope(Optional<Scope> outerScope, List<Slot> slots) {
+        this(outerScope, slots, slots);
+    }
+
+    public Scope(List<Slot> slots, List<Slot> asteriskSlots) {
+        this(Optional.empty(), slots, asteriskSlots);
+    }
+
     /** Scope */
-    public Scope(Optional<Scope> outerScope, List<? extends Slot> slots) {
+    public Scope(Optional<Scope> outerScope, List<Slot> slots, List<Slot> asteriskSlots) {
         this.outerScope = Objects.requireNonNull(outerScope, "outerScope can not be null");
         this.slots = Utils.fastToImmutableList(Objects.requireNonNull(slots, "slots can not be null"));
         this.correlatedSlots = Sets.newLinkedHashSet();
         this.buildNameToSlot = slots.size() > 500;
         this.nameToSlot = buildNameToSlot ? Suppliers.memoize(this::buildNameToSlot) : null;
+        this.nameToAsteriskSlot = buildNameToSlot ? Suppliers.memoize(this::buildNameToAsteriskSlot) : null;
+        this.asteriskSlots = Utils.fastToImmutableList(
+                Objects.requireNonNull(asteriskSlots, "asteriskSlots can not be null"));
     }
 
     public List<Slot> getSlots() {
         return slots;
+    }
+
+    public List<Slot> getAsteriskSlots() {
+        return asteriskSlots;
     }
 
     public Optional<Scope> getOuterScope() {
@@ -91,17 +108,18 @@ public class Scope {
     }
 
     /** findSlotIgnoreCase */
-    public List<Slot> findSlotIgnoreCase(String slotName) {
+    public List<Slot> findSlotIgnoreCase(String slotName, boolean all) {
+        List<Slot> slots = all ? this.slots : this.asteriskSlots;
+        Supplier<ListMultimap<String, Slot>> nameToSlot = all ? this.nameToSlot : this.nameToAsteriskSlot;
         if (!buildNameToSlot) {
-            Object[] array = new Object[slots.size()];
+            Slot[] array = new Slot[slots.size()];
             int filterIndex = 0;
-            for (int i = 0; i < slots.size(); i++) {
-                Slot slot = slots.get(i);
+            for (Slot slot : slots) {
                 if (slot.getName().equalsIgnoreCase(slotName)) {
                     array[filterIndex++] = slot;
                 }
             }
-            return (List) Arrays.asList(array).subList(0, filterIndex);
+            return Arrays.asList(array).subList(0, filterIndex);
         } else {
             return nameToSlot.get().get(slotName.toUpperCase(Locale.ROOT));
         }
@@ -110,6 +128,14 @@ public class Scope {
     private ListMultimap<String, Slot> buildNameToSlot() {
         ListMultimap<String, Slot> map = LinkedListMultimap.create(slots.size());
         for (Slot slot : slots) {
+            map.put(slot.getName().toUpperCase(Locale.ROOT), slot);
+        }
+        return map;
+    }
+
+    private ListMultimap<String, Slot> buildNameToAsteriskSlot() {
+        ListMultimap<String, Slot> map = LinkedListMultimap.create(asteriskSlots.size());
+        for (Slot slot : asteriskSlots) {
             map.put(slot.getName().toUpperCase(Locale.ROOT), slot);
         }
         return map;

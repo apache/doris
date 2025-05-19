@@ -17,6 +17,7 @@
 
 #include "olap/page_cache.h"
 
+#include <gen_cpp/segment_v2.pb.h>
 #include <glog/logging.h>
 
 #include <ostream>
@@ -24,31 +25,51 @@
 #include "runtime/exec_env.h"
 
 namespace doris {
-template <typename TAllocator>
-PageBase<TAllocator>::PageBase(size_t b, bool use_cache, segment_v2::PageTypePB page_type)
-        : LRUCacheValueBase(), _size(b), _capacity(b) {
+
+template <typename T>
+MemoryTrackedPageBase<T>::MemoryTrackedPageBase(size_t size, bool use_cache,
+                                                segment_v2::PageTypePB page_type)
+        : _size(size) {
     if (use_cache) {
         _mem_tracker_by_allocator = StoragePageCache::instance()->mem_tracker(page_type);
     } else {
-        _mem_tracker_by_allocator = thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker();
+        _mem_tracker_by_allocator =
+                thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker_sptr();
     }
+}
+
+MemoryTrackedPageWithPageEntity::MemoryTrackedPageWithPageEntity(size_t size, bool use_cache,
+                                                                 segment_v2::PageTypePB page_type)
+        : MemoryTrackedPageBase<char*>(size, use_cache, page_type), _capacity(size) {
     {
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker_by_allocator);
-        _data = reinterpret_cast<char*>(TAllocator::alloc(_capacity, ALLOCATOR_ALIGNMENT_16));
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(this->_mem_tracker_by_allocator);
+        this->_data = reinterpret_cast<char*>(
+                Allocator<false>::alloc(this->_capacity, ALLOCATOR_ALIGNMENT_16));
     }
 }
 
-template <typename TAllocator>
-PageBase<TAllocator>::~PageBase() {
-    if (_data != nullptr) {
-        DCHECK(_capacity != 0 && _size != 0);
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker_by_allocator);
-        TAllocator::free(_data, _capacity);
+MemoryTrackedPageWithPageEntity::~MemoryTrackedPageWithPageEntity() {
+    if (this->_data != nullptr) {
+        DCHECK(this->_capacity != 0 && this->_size != 0);
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(this->_mem_tracker_by_allocator);
+        Allocator<false>::free(this->_data, this->_capacity);
     }
 }
 
-template class PageBase<Allocator<true>>;
-template class PageBase<Allocator<false>>;
+template <typename T>
+MemoryTrackedPageWithPagePtr<T>::MemoryTrackedPageWithPagePtr(size_t size,
+                                                              segment_v2::PageTypePB page_type)
+        : MemoryTrackedPageBase<std::shared_ptr<T>>(size, true, page_type) {
+    DCHECK(this->_size > 0);
+    this->_size = size;
+    this->_mem_tracker_by_allocator->consume(this->_size);
+}
+
+template <typename T>
+MemoryTrackedPageWithPagePtr<T>::~MemoryTrackedPageWithPagePtr() {
+    DCHECK(this->_size > 0);
+    this->_mem_tracker_by_allocator->release(this->_size);
+}
 
 StoragePageCache* StoragePageCache::create_global_cache(size_t capacity,
                                                         int32_t index_cache_percentage,
@@ -97,7 +118,46 @@ void StoragePageCache::insert(const CacheKey& key, DataPage* data, PageCacheHand
 
     auto* cache = _get_page_cache(page_type);
     auto* lru_handle = cache->insert(key.encode(), data, data->capacity(), 0, priority);
+    DCHECK(lru_handle != nullptr);
     *handle = PageCacheHandle(cache, lru_handle);
 }
+
+template <typename T>
+void StoragePageCache::insert(const CacheKey& key, T data, size_t size, PageCacheHandle* handle,
+                              segment_v2::PageTypePB page_type, bool in_memory) {
+    static_assert(std::is_same<typename std::remove_cv<T>::type,
+                               std::shared_ptr<typename T::element_type>>::value,
+                  "Second argument must be a std::shared_ptr");
+    using ValueType = typename T::element_type; // Type that shared_ptr points to
+
+    CachePriority priority = CachePriority::NORMAL;
+    if (in_memory) {
+        priority = CachePriority::DURABLE;
+    }
+
+    auto* cache = _get_page_cache(page_type);
+    // Lify cycle of page will be managed by StoragePageCache
+    auto page = std::make_unique<MemoryTrackedPageWithPagePtr<ValueType>>(size, page_type);
+    // Lify cycle of data will be managed by StoragePageCache and user at the same time.
+    page->set_data(data);
+
+    auto* lru_handle = cache->insert(key.encode(), page.get(), size, 0, priority);
+    DCHECK(lru_handle != nullptr);
+    *handle = PageCacheHandle(cache, lru_handle);
+    // Now page is managed by StoragePageCache.
+    page.release();
+}
+
+Slice PageCacheHandle::data() const {
+    auto* cache_value = (DataPage*)_cache->value(_handle);
+    return {cache_value->data(), cache_value->size()};
+}
+
+template void StoragePageCache::insert(const CacheKey& key,
+                                       std::shared_ptr<segment_v2::SegmentFooterPB> data,
+                                       size_t size, PageCacheHandle* handle,
+                                       segment_v2::PageTypePB page_type, bool in_memory);
+
+template class MemoryTrackedPageWithPagePtr<segment_v2::SegmentFooterPB>;
 
 } // namespace doris

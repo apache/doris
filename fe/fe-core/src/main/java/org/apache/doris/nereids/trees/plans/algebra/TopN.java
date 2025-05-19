@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.trees.plans.algebra;
 
+import org.apache.doris.nereids.trees.plans.ObjectId;
+
 /**
  * Common interface for logical/physical TopN.
  */
@@ -25,4 +27,6 @@ public interface TopN extends Sort {
     long getOffset();
 
     long getLimit();
+
+    ObjectId getObjectId();
 }

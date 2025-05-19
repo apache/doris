@@ -29,6 +29,8 @@ import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.load.loadv2.LoadStatistic;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.qe.ConnectContext;
@@ -48,7 +50,6 @@ import lombok.extern.log4j.Log4j2;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.Optional;
-import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 @Log4j2
@@ -144,28 +145,39 @@ public class InsertTask extends AbstractTask {
         this.loadStatistic = statistic;
     }
 
-    @Override
-    public void before() throws JobException {
-        if (isCanceled.get()) {
-            throw new JobException("Export executor has been canceled, task id: {}", getTaskId());
-        }
-        ctx = new ConnectContext();
+    public static ConnectContext makeConnectContext(UserIdentity userIdentity, String currentDb) {
+        ConnectContext ctx = new ConnectContext();
         ctx.setEnv(Env.getCurrentEnv());
         ctx.setQualifiedUser(userIdentity.getQualifiedUser());
         ctx.setCurrentUserIdentity(userIdentity);
         ctx.getState().reset();
         ctx.setThreadLocalInfo();
+        TUniqueId queryId = generateQueryId();
+        ctx.setQueryId(queryId);
         if (StringUtils.isNotEmpty(currentDb)) {
             ctx.setDatabase(currentDb);
         }
-        TUniqueId queryId = generateQueryId(UUID.randomUUID().toString());
-        stmtExecutor = new StmtExecutor(ctx, (String) null);
-        ctx.setQueryId(queryId);
+        return ctx;
+    }
+
+    public static StmtExecutor makeStmtExecutor(ConnectContext ctx) {
+        return new StmtExecutor(ctx, (String) null);
+    }
+
+    @Override
+    public void before() throws JobException {
+        if (isCanceled.get()) {
+            throw new JobException("Export executor has been canceled, task id: {}", getTaskId());
+        }
+        ctx = makeConnectContext(userIdentity, currentDb);
+        StatementContext statementContext = new StatementContext();
+        ctx.setStatementContext(statementContext);
         if (StringUtils.isNotEmpty(sql)) {
             NereidsParser parser = new NereidsParser();
             this.command = (InsertIntoTableCommand) parser.parseSingle(sql);
             this.command.setLabelName(Optional.of(getJobId() + LABEL_SPLITTER + getTaskId()));
             this.command.setJobId(getTaskId());
+            stmtExecutor = new StmtExecutor(ctx, new LogicalPlanAdapter(command, ctx.getStatementContext()));
         }
 
         super.before();
@@ -182,11 +194,6 @@ public class InsertTask extends AbstractTask {
         if (null != ctx) {
             ctx = null;
         }
-    }
-
-    protected TUniqueId generateQueryId(String taskIdString) {
-        UUID taskId = UUID.fromString(taskIdString);
-        return new TUniqueId(taskId.getMostSignificantBits(), taskId.getLeastSignificantBits());
     }
 
     @Override
@@ -208,18 +215,18 @@ public class InsertTask extends AbstractTask {
     }
 
     @Override
-    public void onFail() throws JobException {
+    public boolean onFail() throws JobException {
         if (isCanceled.get()) {
-            return;
+            return false;
         }
         isFinished.set(true);
-        super.onFail();
+        return super.onFail();
     }
 
     @Override
-    public void onSuccess() throws JobException {
+    public boolean onSuccess() throws JobException {
         isFinished.set(true);
-        super.onSuccess();
+        return super.onSuccess();
     }
 
     @Override

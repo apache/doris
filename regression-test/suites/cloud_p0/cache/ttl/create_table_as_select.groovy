@@ -57,8 +57,8 @@ def clearFileCache = { check_func ->
         |PROPERTIES(
         |"exec_mem_limit" = "8589934592",
         |"load_parallelism" = "3")""".stripMargin()
-    
-    
+
+
     sql new File("""${context.file.parent}/../ddl/customer_ttl_delete.sql""").text
     sql """ DROP TABLE IF EXISTS customer_ttl_as_select """
     sql """
@@ -74,7 +74,7 @@ def clearFileCache = { check_func ->
         )
         DUPLICATE KEY(C_CUSTKEY, C_NAME)
         DISTRIBUTED BY HASH(C_CUSTKEY) BUCKETS 32
-        PROPERTIES("file_cache_ttl_seconds"="180")
+        PROPERTIES("file_cache_ttl_seconds"="180", "disable_auto_compaction" = "true")
     """
 
     def getMetricsMethod = { check_func ->
@@ -89,6 +89,7 @@ def clearFileCache = { check_func ->
     clearFileCache.call() {
         respCode, body -> {}
     }
+    sleep(30000)
 
     def uniqueID = Math.abs(UUID.randomUUID().hashCode()).toString()
     def loadLabel = "customer_ttl_load_" + uniqueID
@@ -130,9 +131,9 @@ def clearFileCache = { check_func ->
             }
             assertTrue(flag1)
     }
-    sql """ CREATE TABLE customer_ttl_as_select DUPLICATE KEY(C_CUSTKEY, C_NAME) 
-            DISTRIBUTED BY HASH(C_CUSTKEY) BUCKETS 32 
-            PROPERTIES("file_cache_ttl_seconds"="120") as select * from customer_ttl"""
+    sql """ CREATE TABLE customer_ttl_as_select DUPLICATE KEY(C_CUSTKEY, C_NAME)
+            DISTRIBUTED BY HASH(C_CUSTKEY) BUCKETS 32
+            PROPERTIES("file_cache_ttl_seconds"="120","disable_auto_compaction" = "true") as select * from customer_ttl"""
 
     sleep(30000) // 30s
     getMetricsMethod.call() {

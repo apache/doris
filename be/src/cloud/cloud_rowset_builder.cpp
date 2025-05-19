@@ -24,6 +24,7 @@
 #include "olap/storage_policy.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 CloudRowsetBuilder::CloudRowsetBuilder(CloudStorageEngine& engine, const WriteRequest& req,
@@ -51,8 +52,8 @@ Status CloudRowsetBuilder::init() {
             duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
 
     // build tablet schema in request level
-    _build_current_tablet_schema(_req.index_id, _req.table_schema_param.get(),
-                                 *_tablet->tablet_schema());
+    RETURN_IF_ERROR(_build_current_tablet_schema(_req.index_id, _req.table_schema_param.get(),
+                                                 *_tablet->tablet_schema()));
 
     RowsetWriterContext context;
     context.txn_id = _req.txn_id;
@@ -87,7 +88,7 @@ Status CloudRowsetBuilder::init() {
 }
 
 Status CloudRowsetBuilder::check_tablet_version_count() {
-    int version_count = cloud_tablet()->fetch_add_approximate_num_rowsets(0);
+    int64_t version_count = cloud_tablet()->fetch_add_approximate_num_rowsets(0);
     // TODO(plat1ko): load backoff algorithm
     if (version_count > config::max_tablet_version_num) {
         return Status::Error<TOO_MANY_VERSION>(
@@ -140,4 +141,5 @@ Status CloudRowsetBuilder::set_txn_related_delete_bitmap() {
     }
     return Status::OK();
 }
+#include "common/compile_check_end.h"
 } // namespace doris

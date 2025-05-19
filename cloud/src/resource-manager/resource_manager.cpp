@@ -140,7 +140,7 @@ std::string ResourceManager::get_node(const std::string& cloud_unique_id,
 }
 
 bool ResourceManager::check_cluster_params_valid(const ClusterPB& cluster, std::string* err,
-                                                 bool check_master_num) {
+                                                 bool check_master_num, bool check_cluster_name) {
     // check
     if (!cluster.has_type()) {
         *err = "cluster must have type arg";
@@ -152,6 +152,11 @@ bool ResourceManager::check_cluster_params_valid(const ClusterPB& cluster, std::
     if (config::enable_cluster_name_check && cluster.has_cluster_name() &&
         !std::regex_match(cluster.cluster_name(), txt_regex)) {
         *err = "cluster name not regex with ^[a-zA-Z][a-zA-Z0-9_]*$, please check it";
+        return false;
+    }
+
+    if (check_cluster_name && (!cluster.has_cluster_name() || cluster.cluster_name() == "")) {
+        *err = "not have cluster name";
         return false;
     }
 
@@ -310,7 +315,8 @@ std::pair<MetaServiceCode, std::string> ResourceManager::add_cluster(const std::
     std::unique_ptr<int, std::function<void(int*)>> defer(
             (int*)0x01, [&msg](int*) { LOG(INFO) << "add_cluster err=" << msg; });
 
-    if (!check_cluster_params_valid(cluster.cluster, &msg, true)) {
+    // just check cluster_name not empty in add_cluster
+    if (!check_cluster_params_valid(cluster.cluster, &msg, true, true)) {
         LOG(WARNING) << msg;
         return std::make_pair(MetaServiceCode::INVALID_ARGUMENT, msg);
     }
@@ -577,7 +583,8 @@ std::pair<MetaServiceCode, std::string> ResourceManager::drop_cluster(
 std::string ResourceManager::update_cluster(
         const std::string& instance_id, const ClusterInfo& cluster,
         std::function<bool(const ClusterPB&)> filter,
-        std::function<std::string(ClusterPB&, std::set<std::string>& cluster_names)> action) {
+        std::function<std::string(ClusterPB&, std::set<std::string>& cluster_names)> action,
+        bool replace_if_existing_empty_target_cluster) {
     std::stringstream ss;
     std::string msg;
 
@@ -642,6 +649,33 @@ std::string ResourceManager::update_cluster(
     }
 
     auto& clusters = const_cast<std::decay_t<decltype(instance.clusters())>&>(instance.clusters());
+
+    // check cluster_name is empty cluster, if empty and replace_if_existing_empty_target_cluster == true, drop it
+    if (replace_if_existing_empty_target_cluster) {
+        auto it = cluster_names.find(cluster_name);
+        if (it != cluster_names.end()) {
+            // found it, if it's an empty cluster, drop it from instance
+            int idx = -1;
+            for (auto& cluster : instance.clusters()) {
+                idx++;
+                if (cluster.cluster_name() == cluster_name) {
+                    // Check if cluster is empty (has no nodes)
+                    if (cluster.nodes_size() == 0) {
+                        // Remove empty cluster from instance
+                        auto& clusters = const_cast<std::decay_t<decltype(instance.clusters())>&>(
+                                instance.clusters());
+                        clusters.DeleteSubrange(idx, 1);
+                        // Remove cluster name from set
+                        cluster_names.erase(cluster_name);
+                        LOG(INFO) << "remove empty cluster due to it is the target of a "
+                                     "rename_cluster, cluster_name="
+                                  << cluster_name;
+                    }
+                    break;
+                }
+            }
+        }
+    }
 
     // do update
     ClusterPB original = clusters[idx];

@@ -90,7 +90,7 @@ public class WhenClause extends Expression implements BinaryExpression, ExpectsI
     }
 
     @Override
-    public int hashCode() {
+    public int computeHashCode() {
         return Objects.hash(left(), right());
     }
 

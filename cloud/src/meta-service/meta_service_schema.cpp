@@ -212,6 +212,10 @@ void process_dictionary(SchemaCloudDictionary& dict,
 // such restored schema in fdb. And also add extra dict key info to RowsetMetaCloudPB.
 void write_schema_dict(MetaServiceCode& code, std::string& msg, const std::string& instance_id,
                        Transaction* txn, RowsetMetaCloudPB* rowset_meta) {
+    // if schema_dict_key_list is not empty, then the schema already replaced in BE side, and no need to update dict
+    if (rowset_meta->has_schema_dict_key_list()) {
+        return;
+    }
     std::stringstream ss;
     // wrtie dict to rowset meta and update dict
     SchemaCloudDictionary dict;
@@ -311,16 +315,18 @@ void write_schema_dict(MetaServiceCode& code, std::string& msg, const std::strin
         cloud::put(txn, dict_key, dict_val, 0);
         LOG(INFO) << "Dictionary saved, key=" << hex(dict_key)
                   << " txn_id=" << rowset_meta->txn_id() << " Dict size=" << dict.column_dict_size()
+                  << ", index_id=" << rowset_meta->index_id()
                   << ", Current column ID=" << dict.current_column_dict_id()
-                  << ", Current index ID=" << dict.current_index_dict_id();
+                  << ", Current index ID=" << dict.current_index_dict_id()
+                  << ", Dict bytes=" << dict_val.size();
     }
 }
 
 void read_schema_dict(MetaServiceCode& code, std::string& msg, const std::string& instance_id,
-                      int64_t index_id, Transaction* txn, GetRowsetResponse* response,
-                      GetRowsetRequest::SchemaOp schema_op) {
+                      int64_t index_id, Transaction* txn,
+                      google::protobuf::RepeatedPtrField<doris::RowsetMetaCloudPB>* rsp_metas,
+                      SchemaCloudDictionary* rsp_dict, GetRowsetRequest::SchemaOp schema_op) {
     std::stringstream ss;
-
     // read dict if any rowset has dict key list
     SchemaCloudDictionary dict;
     std::string column_dict_key = meta_schema_pb_dictionary_key({instance_id, index_id});
@@ -341,8 +347,8 @@ void read_schema_dict(MetaServiceCode& code, std::string& msg, const std::string
               << ", index size=" << dict.index_dict_size();
 
     // Return dict, let backend to fill schema with dict info
-    if (schema_op == GetRowsetRequest::RETURN_DICT) {
-        response->mutable_schema_dict()->Swap(&dict);
+    if (schema_op == GetRowsetRequest::RETURN_DICT && rsp_dict != nullptr) {
+        rsp_dict->Swap(&dict);
         return;
     }
 
@@ -381,7 +387,7 @@ void read_schema_dict(MetaServiceCode& code, std::string& msg, const std::string
     };
 
     // fill rowsets's schema with dict info
-    for (auto& rowset_meta : *response->mutable_rowset_meta()) {
+    for (auto& rowset_meta : *rsp_metas) {
         if (rowset_meta.has_schema_dict_key_list()) {
             fill_schema_with_dict(&rowset_meta);
         }

@@ -51,7 +51,8 @@ suite("test_alter_table_property") {
             sql """
                 alter table ${tableName} set ("file_cache_ttl_seconds" = "86400")
                 """
-            exception "modifying property [file_cache_ttl_seconds] is forbidden"
+            // exception "modifying property [file_cache_ttl_seconds] is forbidden"
+            exception "Cann't modify property 'file_cache_ttl_seconds'"
         }
     } else {
         test {

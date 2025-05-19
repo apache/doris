@@ -58,7 +58,7 @@ class RowGroup;
 } // namespace tparquet
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 // TODO: we need to determine it by test.
 static constexpr uint32_t MAX_DICT_CODE_PREDICATE_TO_REWRITE = std::numeric_limits<uint32_t>::max();
 
@@ -230,4 +230,6 @@ private:
     std::shared_ptr<ObjectPool> _obj_pool;
     bool _is_row_group_filtered = false;
 };
+#include "common/compile_check_end.h"
+
 } // namespace doris::vectorized

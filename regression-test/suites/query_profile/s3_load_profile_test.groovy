@@ -17,23 +17,36 @@
 
 import groovy.json.JsonSlurper
 
-def getProfile = { id ->
-        def dst = 'http://' + context.config.feHttpAddress
-        def conn = new URL(dst + "/rest/v1/query_profile/$id").openConnection()
-        conn.setRequestMethod("GET")
-        def encoding = Base64.getEncoder().encodeToString((context.config.feHttpUser + ":" + 
-                (context.config.feHttpPassword == null ? "" : context.config.feHttpPassword)).getBytes("UTF-8"))
-        conn.setRequestProperty("Authorization", "Basic ${encoding}")
-        return conn.getInputStream().getText()
-    }
+def getProfileList = { masterHTTPAddr ->
+    def dst = 'http://' + masterHTTPAddr
+    def conn = new URL(dst + "/rest/v1/query_profile").openConnection()
+    conn.setRequestMethod("GET")
+    def encoding = Base64.getEncoder().encodeToString((context.config.feHttpUser + ":" + 
+            (context.config.feHttpPassword == null ? "" : context.config.feHttpPassword)).getBytes("UTF-8"))
+    conn.setRequestProperty("Authorization", "Basic ${encoding}")
+    return conn.getInputStream().getText()
+}
+
+
+def getProfile = { masterHTTPAddr, id ->
+    def dst = 'http://' + masterHTTPAddr
+    def conn = new URL(dst + "/api/profile/text/?query_id=$id").openConnection()
+    conn.setRequestMethod("GET")
+    def encoding = Base64.getEncoder().encodeToString((context.config.feHttpUser + ":" + 
+            (context.config.feHttpPassword == null ? "" : context.config.feHttpPassword)).getBytes("UTF-8"))
+    conn.setRequestProperty("Authorization", "Basic ${encoding}")
+    return conn.getInputStream().getText()
+}
 
 // ref https://github.com/apache/doris/blob/3525a03815814f66ec78aa2ad6bbd9225b0e7a6b/regression-test/suites/load_p0/broker_load/test_s3_load.groovy
 suite('s3_load_profile_test') {
+    sql "set enable_profile=true;"   
+    sql "set profile_level=2;"
     def s3Endpoint = getS3Endpoint()
     def s3Region = getS3Region()
-    sql "drop table if exists dup_tbl_basic;"
+    sql "drop table if exists s3_load_profile_test_dup_tbl_basic;"
     sql """
-    CREATE TABLE dup_tbl_basic
+    CREATE TABLE s3_load_profile_test_dup_tbl_basic
 (
     k00 INT             NOT NULL,
     k01 DATE            NOT NULL,
@@ -100,15 +113,14 @@ PROPERTIES (
 );
 """
     def loadAttribute =new LoadAttributes("s3://${getS3BucketName()}/regression/load/data/basic_data.csv",
-                "dup_tbl_basic", "LINES TERMINATED BY \"\n\"", "COLUMNS TERMINATED BY \"|\"", "FORMAT AS \"CSV\"", "(k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18)",
+                "s3_load_profile_test_dup_tbl_basic", "LINES TERMINATED BY \"\n\"", "COLUMNS TERMINATED BY \"|\"", "FORMAT AS \"CSV\"", "(k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18)",
                 "", "", "", "", "")
 
     def ak = getS3AK()
     def sk = getS3SK()
 
-    sql "set enable_profile=true;"    
-    
     def label = "test_s3_load_" + UUID.randomUUID().toString().replace("-", "_")
+    logger.info("s3_load_profile_test_dup_tbl_basic, label: $label")
     loadAttribute.label = label
     def prop = loadAttribute.getPropertiesStr()
 
@@ -167,21 +179,36 @@ PROPERTIES (
             assertTrue(false, "load Timeout: $loadAttribute.label")
         }
     }
-
+    Thread.sleep(500)
     qt_select """ select count(*) from $loadAttribute.dataDesc.tableName """
+    logger.info("jobId: " + jobId)
 
-    def profileString = getProfile(jobId)
-    def profileJson = new JsonSlurper().parseText(profileString)
-    assertEquals(0, profileJson.code)
-    profileDataString = profileJson.data
-    logger.info("profileDataString:" + profileDataString)
-    def taskStateIdx = profileDataString.indexOf("Task&nbsp;&nbsp;State:&nbsp;&nbsp;FINISHED")
-    assertFalse(taskStateIdx == -1)
-    def executionProfileIdx = profileDataString.indexOf("Execution&nbsp;&nbsp;Profile")
-    assertFalse(executionProfileIdx == -1)
-    assertTrue(profileDataString.contains("NumScanners"))
-    assertTrue(profileDataString.contains("RowsProduced"))
-    assertTrue(profileDataString.contains("RowsRead"))
+    def allFrontends = sql """show frontends;"""
+    logger.info("allFrontends: " + allFrontends)
+    /*
+     - allFrontends: [[fe_2457d42b_68ad_43c4_a888_b3558a365be2, 127.0.0.1, 6917, 5937, 6937, 5927, -1, FOLLOWER, true, 1523277282, true, true, 13436, 2025-01-22 16:39:05, 2025-01-22 21:43:49, true, , doris-0.0.0--03faad7da5, Yes]]
+    */
+    def frontendCounts = allFrontends.size()
+    def masterIP = ""
+    def masterHTTPPort = ""
+
+    for (def i = 0; i < frontendCounts; i++) {
+        def currentFrontend = allFrontends[i]
+        def isMaster = currentFrontend[8]
+        if (isMaster == "true") {
+            masterIP = allFrontends[i][1]
+            masterHTTPPort = allFrontends[i][3]
+            break
+        }
+    }
+    def masterAddress = masterIP + ":" + masterHTTPPort
+    logger.info("masterIP:masterHTTPPort is:${masterAddress}")
+
+    def profileString = getProfile(masterAddress, jobId)
+    logger.info("profileDataString:" + profileString)
+    assertTrue(profileString.contains("NumScanners"))
+    assertTrue(profileString.contains("RowsProduced"))
+    assertTrue(profileString.contains("RowsRead"))
 }
 
 class DataDesc {

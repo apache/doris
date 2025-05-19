@@ -56,4 +56,51 @@ TEST_F(BrpcClientCacheTest, invalid) {
     EXPECT_EQ(nullptr, stub1);
 }
 
+TEST_F(BrpcClientCacheTest, failure) {
+    BrpcClientCache<PBackendService_Stub> cache;
+    TNetworkAddress address;
+    address.hostname = "127.0.0.1";
+    address.port = 123;
+    std::shared_ptr<PBackendService_Stub> stub1 = cache.get_client(address);
+    EXPECT_NE(nullptr, stub1);
+    std::shared_ptr<PBackendService_Stub> stub2 = cache.get_client(address);
+    EXPECT_NE(nullptr, stub2);
+    // The channel is ok, so that the stub is the same
+    EXPECT_EQ(stub1, stub2);
+    EXPECT_TRUE(static_cast<FailureDetectChannel*>(stub1->channel())->channel_status()->ok());
+
+    // update channel st to error, will get a new stub
+    static_cast<FailureDetectChannel*>(stub1->channel())
+            ->channel_status()
+            ->update(Status::NetworkError("test brpc error"));
+    std::shared_ptr<PBackendService_Stub> stub3 = cache.get_client(address);
+    EXPECT_NE(nullptr, stub3);
+    EXPECT_TRUE(static_cast<FailureDetectChannel*>(stub3->channel())->channel_status()->ok());
+    // Then will get a new brpc stub not the previous one.
+    EXPECT_NE(stub2, stub3);
+    // The previous channel is not ok.
+    EXPECT_FALSE(static_cast<FailureDetectChannel*>(stub2->channel())->channel_status()->ok());
+
+    // Call handshake method, it will trigger host is down error. It is a sync call, not use closure.
+    cache.available(stub3, address.hostname, address.port);
+    EXPECT_FALSE(static_cast<FailureDetectChannel*>(stub3->channel())->channel_status()->ok());
+
+    std::shared_ptr<PBackendService_Stub> stub4 = cache.get_client(address);
+    EXPECT_NE(nullptr, stub4);
+    EXPECT_TRUE(static_cast<FailureDetectChannel*>(stub4->channel())->channel_status()->ok());
+
+    // Call handshake method, it will trigger host is down error. It is a async all, will use closure.
+    std::string message = "hello doris!";
+    PHandShakeRequest request;
+    request.set_hello(message);
+    PHandShakeResponse response;
+    brpc::Controller cntl4;
+    stub4->hand_shake(&cntl4, &request, &response, brpc::DoNothing());
+    brpc::Join(cntl4.call_id());
+    EXPECT_FALSE(static_cast<FailureDetectChannel*>(stub4->channel())->channel_status()->ok());
+
+    // Check map size is 1
+    EXPECT_EQ(1, cache.size());
+}
+
 } // namespace doris

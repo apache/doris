@@ -20,11 +20,11 @@ package org.apache.doris.fs.obj;
 import org.apache.doris.backup.Status;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.credentials.CloudCredential;
 import org.apache.doris.common.util.S3URI;
 import org.apache.doris.common.util.S3Util;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.constants.S3Properties;
+import org.apache.doris.fs.remote.RemoteFile;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.tuple.Triple;
@@ -34,8 +34,14 @@ import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.AbortMultipartUploadRequest;
+import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
+import software.amazon.awssdk.services.s3.model.CompletedMultipartUpload;
+import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
+import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
+import software.amazon.awssdk.services.s3.model.CreateMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.Delete;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
@@ -52,11 +58,19 @@ import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.model.S3Object;
+import software.amazon.awssdk.services.s3.model.UploadPartRequest;
+import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 
+import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.InputStream;
 import java.net.URI;
+import java.nio.file.FileSystems;
+import java.nio.file.PathMatcher;
+import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
@@ -102,6 +116,11 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                 .equalsIgnoreCase("true");
         forceParsingByStandardUri = this.properties.getOrDefault(PropertyConverter.FORCE_PARSING_BY_STANDARD_URI,
                 "false").equalsIgnoreCase("true");
+
+        String endpoint = this.properties.get(S3Properties.ENDPOINT);
+        String region = this.properties.get(S3Properties.REGION);
+
+        this.properties.put(S3Properties.REGION, PropertyConverter.checkRegion(endpoint, region, S3Properties.REGION));
     }
 
     @Override
@@ -112,13 +131,10 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                 endpointStr = "http://" + endpointStr;
             }
             URI endpoint = URI.create(endpointStr);
-            CloudCredential credential = new CloudCredential();
-            credential.setAccessKey(properties.get(S3Properties.ACCESS_KEY));
-            credential.setSecretKey(properties.get(S3Properties.SECRET_KEY));
-            if (properties.containsKey(S3Properties.SESSION_TOKEN)) {
-                credential.setSessionToken(properties.get(S3Properties.SESSION_TOKEN));
-            }
-            client = S3Util.buildS3Client(endpoint, properties.get(S3Properties.REGION), credential, isUsePathStyle);
+            client = S3Util.buildS3Client(endpoint, properties.get(S3Properties.REGION), isUsePathStyle,
+                    properties.get(S3Properties.ACCESS_KEY), properties.get(S3Properties.SECRET_KEY),
+                    properties.get(S3Properties.SESSION_TOKEN), properties.get(S3Properties.ROLE_ARN),
+                    properties.get(S3Properties.EXTERNAL_ID));
         }
         return client;
     }
@@ -250,6 +266,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
             LOG.info("total delete {} objects for dir {}", totalObjects, absolutePath);
             return Status.OK;
         } catch (DdlException e) {
+            LOG.warn("deleteObjects:", e);
             return new Status(Status.ErrCode.COMMON_ERROR, "list objects for delete objects failed: " + e.getMessage());
         } catch (Exception e) {
             LOG.warn(String.format("delete objects %s failed", absolutePath), e);
@@ -302,6 +319,179 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
         } catch (Exception e) {
             LOG.warn(String.format("Failed to list objects for S3: %s", absolutePath), e);
             throw new DdlException("Failed to list objects for S3, Error message: " + e.getMessage(), e);
+        }
+    }
+
+    public Status multipartUpload(String remotePath, @Nullable InputStream inputStream, long totalBytes) {
+        Status st = Status.OK;
+        long uploadedBytes = 0;
+        int bytesRead = 0;
+        byte[] buffer = new byte[CHUNK_SIZE];
+        int partNumber = 1;
+
+        String uploadId = null;
+        S3URI uri = null;
+        Map<Integer, String> etags = new HashMap<>();
+
+        try {
+            uri = S3URI.create(remotePath, isUsePathStyle, forceParsingByStandardUri);
+            CreateMultipartUploadRequest createMultipartUploadRequest = CreateMultipartUploadRequest.builder()
+                    .bucket(uri.getBucket())
+                    .key(uri.getKey())
+                    .build();
+            CreateMultipartUploadResponse createMultipartUploadResponse = getClient()
+                    .createMultipartUpload(createMultipartUploadRequest);
+
+            uploadId = createMultipartUploadResponse.uploadId();
+
+            while (uploadedBytes < totalBytes && (bytesRead = inputStream.read(buffer)) != -1) {
+                uploadedBytes += bytesRead;
+                UploadPartRequest uploadPartRequest = UploadPartRequest.builder()
+                        .bucket(uri.getBucket())
+                        .key(uri.getKey())
+                        .uploadId(uploadId)
+                        .partNumber(partNumber).build();
+                RequestBody body = RequestBody
+                        .fromInputStream(new ByteArrayInputStream(buffer, 0, bytesRead), bytesRead);
+                UploadPartResponse uploadPartResponse = getClient().uploadPart(uploadPartRequest, body);
+
+                etags.put(partNumber, uploadPartResponse.eTag());
+                partNumber++;
+                uploadedBytes += bytesRead;
+            }
+
+            List<CompletedPart> completedParts = etags.entrySet().stream()
+                    .map(entry -> CompletedPart.builder()
+                            .partNumber(entry.getKey())
+                            .eTag(entry.getValue())
+                            .build())
+                    .collect(Collectors.toList());
+            CompletedMultipartUpload completedMultipartUpload = CompletedMultipartUpload.builder()
+                    .parts(completedParts)
+                    .build();
+
+            CompleteMultipartUploadRequest completeMultipartUploadRequest = CompleteMultipartUploadRequest.builder()
+                    .bucket(uri.getBucket())
+                    .key(uri.getKey())
+                    .uploadId(uploadId)
+                    .multipartUpload(completedMultipartUpload)
+                    .build();
+
+            getClient().completeMultipartUpload(completeMultipartUploadRequest);
+        } catch (Exception e) {
+            LOG.warn("remotePath:{}, ", remotePath, e);
+            st = new Status(Status.ErrCode.COMMON_ERROR, "Failed to multipartUpload " + remotePath
+                    + " reason: " + e.getMessage());
+
+            if (uri != null && uploadId != null) {
+                try {
+                    AbortMultipartUploadRequest abortMultipartUploadRequest = AbortMultipartUploadRequest.builder()
+                            .bucket(uri.getBucket())
+                            .key(uri.getKey())
+                            .uploadId(uploadId)
+                            .build();
+                    getClient().abortMultipartUpload(abortMultipartUploadRequest);
+                } catch (Exception e1) {
+                    LOG.warn("Failed to abort multipartUpload " + remotePath, e1);
+                }
+            }
+        }
+        return st;
+    }
+
+    ListObjectsV2Response listObjectsV2(ListObjectsV2Request request) throws UserException {
+        return getClient().listObjectsV2(request);
+    }
+
+    /**
+     * List all files under the given path with glob pattern.
+     * For example, if the path is "s3://bucket/path/to/*.csv",
+     * it will list all files under "s3://bucket/path/to/" with ".csv" suffix.
+     *
+     * Copy from `AzureObjStorage.GlobList`
+     */
+    public Status globList(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
+        long roundCnt = 0;
+        long elementCnt = 0;
+        long matchCnt = 0;
+        long startTime = System.nanoTime();
+        try {
+            S3URI uri = S3URI.create(remotePath, isUsePathStyle, forceParsingByStandardUri);
+            String bucket = uri.getBucket();
+            String globPath = uri.getKey(); // eg: path/to/*.csv
+
+            LOG.info("globList globPath:{}, remotePath:{}", globPath, remotePath);
+
+            java.nio.file.Path pathPattern = Paths.get(globPath);
+            PathMatcher matcher = FileSystems.getDefault().getPathMatcher("glob:" + pathPattern);
+            HashSet<String> directorySet = new HashSet<>();
+
+            String listPrefix = S3Util.getLongestPrefix(globPath); // similar to Azure
+            LOG.info("globList listPrefix: {}", listPrefix);
+
+            ListObjectsV2Request request = ListObjectsV2Request.builder()
+                    .bucket(bucket)
+                    .prefix(listPrefix)
+                    .build();
+
+            boolean isTruncated = false;
+            do {
+                roundCnt++;
+                ListObjectsV2Response response = listObjectsV2(request);
+                for (S3Object obj : response.contents()) {
+                    elementCnt++;
+                    java.nio.file.Path objPath = Paths.get(obj.key());
+
+                    boolean isPrefix = false;
+                    while (objPath != null && objPath.normalize().toString().startsWith(listPrefix)) {
+                        if (!matcher.matches(objPath)) {
+                            isPrefix = true;
+                            objPath = objPath.getParent();
+                            continue;
+                        }
+                        if (directorySet.contains(objPath.normalize().toString())) {
+                            break;
+                        }
+                        if (isPrefix) {
+                            directorySet.add(objPath.normalize().toString());
+                        }
+
+                        matchCnt++;
+                        RemoteFile remoteFile = new RemoteFile(
+                                fileNameOnly ? objPath.getFileName().toString() :
+                                        "s3://" + bucket + "/" + objPath.toString(),
+                                !isPrefix,
+                                isPrefix ? -1 : obj.size(),
+                                isPrefix ? -1 : obj.size(),
+                                isPrefix ? 0 : obj.lastModified().toEpochMilli()
+                        );
+                        result.add(remoteFile);
+                        objPath = objPath.getParent();
+                        isPrefix = true;
+                    }
+                }
+
+                isTruncated = response.isTruncated();
+                if (isTruncated) {
+                    request = request.toBuilder()
+                        .continuationToken(response.nextContinuationToken())
+                        .build();
+                }
+            } while (isTruncated);
+
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("remotePath:{}, result:{}", remotePath, result);
+            }
+            return Status.OK;
+        } catch (Exception e) {
+            LOG.warn("Errors while getting file status", e);
+            return new Status(Status.ErrCode.COMMON_ERROR, "Errors while getting file status " + e.getMessage());
+        } finally {
+            long endTime = System.nanoTime();
+            long duration = endTime - startTime;
+            LOG.info("process {} elements under prefix {} for {} round, match {} elements, take {} ms",
+                    elementCnt, remotePath, roundCnt, matchCnt,
+                    duration / 1000 / 1000);
         }
     }
 }

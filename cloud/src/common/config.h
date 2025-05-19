@@ -54,11 +54,22 @@ CONF_Int32(log_verbose_level, "5");
 // Only works when starting Cloud with --console.
 CONF_Bool(enable_file_logger, "true");
 
+// Custom conf path is default empty.
+// All mutable configs' modification needed to be persisted will be appended to conf path
+// specified when started.
+//
+// If it is set to equivalent value of conf path specified when started,
+// mutable configs' modification behavior will be the same as the description above.
+//
+// Otherwise, a new custom conf file will be created when mutable configs are modified
+// and persisted, with all modification written to it.
+CONF_String(custom_conf_path, "");
+
 // recycler config
 CONF_mInt64(recycle_interval_seconds, "3600");
 CONF_mInt64(retention_seconds, "259200"); // 72h, global retention time
 CONF_Int32(recycle_concurrency, "16");
-CONF_Int32(recycle_job_lease_expired_ms, "60000");
+CONF_mInt32(recycle_job_lease_expired_ms, "60000");
 CONF_mInt64(compacted_rowset_retention_seconds, "1800");   // 0.5h
 CONF_mInt64(dropped_index_retention_seconds, "10800");     // 3h
 CONF_mInt64(dropped_partition_retention_seconds, "10800"); // 3h
@@ -93,6 +104,9 @@ CONF_mInt64(recycle_task_threshold_seconds, "10800"); // 3h
 // **just for TEST**
 CONF_Bool(force_immediate_recycle, "false");
 
+CONF_mBool(enable_mow_compaction_key_check, "false");
+CONF_mInt64(compaction_key_check_expiration_diff_seconds, "600"); // 10min
+
 CONF_String(test_s3_ak, "");
 CONF_String(test_s3_sk, "");
 CONF_String(test_s3_endpoint, "");
@@ -106,7 +120,7 @@ CONF_String(test_hdfs_fs_name, "");
 // CONF_Bool(b, "true");
 
 // txn config
-CONF_Int32(label_keep_max_second, "259200"); //3 * 24 * 3600 seconds
+CONF_mInt32(label_keep_max_second, "259200"); //3 * 24 * 3600 seconds
 CONF_Int32(expired_txn_scan_key_nums, "1000");
 
 // Maximum number of version of a tablet. If the version num of a tablet exceed limit,
@@ -129,7 +143,7 @@ CONF_String(specific_max_qps_limit, "get_cluster:5000000;begin_txn:5000000");
 CONF_Bool(enable_rate_limit, "true");
 CONF_Int64(bvar_qps_update_second, "5");
 
-CONF_Int32(copy_job_max_retention_second, "259200"); //3 * 24 * 3600 seconds
+CONF_mInt32(copy_job_max_retention_second, "259200"); //3 * 24 * 3600 seconds
 CONF_String(arn_id, "");
 CONF_String(arn_ak, "");
 CONF_String(arn_sk, "");
@@ -186,11 +200,16 @@ CONF_Bool(enable_retry_txn_conflict, "true");
 
 CONF_mBool(enable_s3_rate_limiter, "false");
 CONF_mInt64(s3_get_bucket_tokens, "1000000000000000000");
+CONF_Validator(s3_get_bucket_tokens, [](int64_t config) -> bool { return config > 0; });
+
 CONF_mInt64(s3_get_token_per_second, "1000000000000000000");
+CONF_Validator(s3_get_token_per_second, [](int64_t config) -> bool { return config > 0; });
 CONF_mInt64(s3_get_token_limit, "0");
 
 CONF_mInt64(s3_put_bucket_tokens, "1000000000000000000");
+CONF_Validator(s3_put_bucket_tokens, [](int64_t config) -> bool { return config > 0; });
 CONF_mInt64(s3_put_token_per_second, "1000000000000000000");
+CONF_Validator(s3_put_token_per_second, [](int64_t config) -> bool { return config > 0; });
 CONF_mInt64(s3_put_token_limit, "0");
 
 // The secondary package name of the MetaService.
@@ -219,11 +238,24 @@ CONF_Validator(s3_client_http_scheme, [](const std::string& config) -> bool {
     return config == "http" || config == "https";
 });
 
+CONF_Bool(force_azure_blob_global_endpoint, "false");
+
 // Max retry times for object storage request
 CONF_mInt64(max_s3_client_retry, "10");
 
 // Max byte getting delete bitmap can return, default is 1GB
 CONF_mInt64(max_get_delete_bitmap_byte, "1073741824");
+// retry configs of remove_delete_bitmap_update_lock txn_conflict
+CONF_Bool(delete_bitmap_enable_retry_txn_conflict, "true");
+
+// Max byte txn commit when updating delete bitmap, default is 7MB.
+// Because the size of one fdb transaction can't exceed 10MB, and
+// fdb does not have an accurate way to estimate the size of txn.
+// In my test, when txn->approximate_bytes() bigger than 8MB,
+// it may meet Transaction exceeds byte limit error. We'd better
+// reserve 1MB of buffer, so setting the default value to 7MB is
+// more reasonable.
+CONF_mInt64(max_txn_commit_byte, "7340032");
 
 CONF_Bool(enable_cloud_txn_lazy_commit, "true");
 CONF_Int32(txn_lazy_commit_rowsets_thresold, "1000");
@@ -232,6 +264,8 @@ CONF_Int32(txn_lazy_max_rowsets_per_batch, "1000");
 // max TabletIndexPB num for batch get
 CONF_Int32(max_tablet_index_num_per_batch, "1000");
 
+CONF_Bool(enable_cloud_txn_lazy_commit_fuzzy_test, "false");
+
 // Max aborted txn num for the same label name
 CONF_mInt64(max_num_aborted_txn, "100");
 
@@ -239,4 +273,35 @@ CONF_Bool(enable_check_instance_id, "true");
 
 // Check if ip eq 127.0.0.1, ms/recycler exit
 CONF_Bool(enable_loopback_address_for_ms, "false");
+
+// delete_bitmap_lock version config
+// here is some examples:
+// 1. If instance1,instance2 use v2, config should be
+// delete_bitmap_lock_v2_white_list = instance1;instance2
+// 2. If all instance use v2, config should be
+// delete_bitmap_lock_v2_white_list = *
+CONF_mString(delete_bitmap_lock_v2_white_list, "");
+// FOR DEBUGGING
+CONF_mBool(use_delete_bitmap_lock_random_version, "false");
+
+// Which vaults should be recycled. If empty, recycle all vaults.
+// Comma seprated list: recycler_storage_vault_white_list="aaa,bbb,ccc"
+CONF_Strings(recycler_storage_vault_white_list, "");
+
+// aws sdk log level
+//    Off = 0,
+//    Fatal = 1,
+//    Error = 2,
+//    Warn = 3,
+//    Info = 4,
+//    Debug = 5,
+//    Trace = 6
+CONF_Int32(aws_log_level, "2");
+
+// ca_cert_file is in this path by default, Normally no modification is required
+// ca cert default path is different from different OS
+CONF_mString(ca_cert_file_paths,
+             "/etc/pki/tls/certs/ca-bundle.crt;/etc/ssl/certs/ca-certificates.crt;"
+             "/etc/ssl/ca-bundle.pem");
+
 } // namespace doris::cloud::config

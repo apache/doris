@@ -291,7 +291,6 @@ TEST_F(SegCompactionTest, SegCompactionThenRead) {
     config::segcompaction_candidate_max_rows = 6000; // set threshold above
                                                      // rows_per_segment
     config::segcompaction_batch_size = 10;
-    std::vector<uint32_t> segment_num_rows;
     { // write `num_segments * rows_per_segment` rows to rowset
         RowsetWriterContext writer_context;
         create_rowset_writer_context(10047, tablet_schema, &writer_context);
@@ -387,7 +386,9 @@ TEST_F(SegCompactionTest, SegCompactionThenRead) {
             EXPECT_EQ(Status::Error<END_OF_FILE>(""), s);
             EXPECT_EQ(rowset->rowset_meta()->num_rows(), num_rows_read);
             EXPECT_EQ(num_rows_read, num_segments * rows_per_segment);
-            EXPECT_TRUE(rowset_reader->get_segment_num_rows(&segment_num_rows).ok());
+            auto beta_rowset = std::dynamic_pointer_cast<BetaRowset>(rowset);
+            std::vector<uint32_t> segment_num_rows;
+            EXPECT_TRUE(beta_rowset->get_segment_num_rows(&segment_num_rows).ok());
             size_t total_num_rows = 0;
             for (const auto& i : segment_num_rows) {
                 total_num_rows += i;
@@ -406,7 +407,6 @@ TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
     RowsetSharedPtr rowset;
     config::segcompaction_candidate_max_rows = 6000; // set threshold above
                                                      // rows_per_segment
-    std::vector<uint32_t> segment_num_rows;
     { // write `num_segments * rows_per_segment` rows to rowset
         RowsetWriterContext writer_context;
         create_rowset_writer_context(10048, tablet_schema, &writer_context);
@@ -561,7 +561,6 @@ TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_OoOoO) {
     RowsetSharedPtr rowset;
     config::segcompaction_candidate_max_rows = 6000; // set threshold above
     config::segcompaction_batch_size = 5;
-    std::vector<uint32_t> segment_num_rows;
     { // write `num_segments * rows_per_segment` rows to rowset
         RowsetWriterContext writer_context;
         create_rowset_writer_context(10049, tablet_schema, &writer_context);
@@ -693,7 +692,6 @@ TEST_F(SegCompactionTest, SegCompactionThenReadUniqueTableSmall) {
     config::segcompaction_candidate_max_rows = 6000; // set threshold above
                                                      // rows_per_segment
     config::segcompaction_batch_size = 3;
-    std::vector<uint32_t> segment_num_rows;
     { // write `num_segments * rows_per_segment` rows to rowset
         RowsetWriterContext writer_context;
         create_rowset_writer_context(10051, tablet_schema, &writer_context);
@@ -894,7 +892,9 @@ TEST_F(SegCompactionTest, SegCompactionThenReadUniqueTableSmall) {
             // duplicated keys between segments are counted duplicately
             // so actual read by rowset reader is less or equal to it
             EXPECT_GE(rowset->rowset_meta()->num_rows(), num_rows_read);
-            EXPECT_TRUE(rowset_reader->get_segment_num_rows(&segment_num_rows).ok());
+            auto beta_rowset = std::dynamic_pointer_cast<BetaRowset>(rowset);
+            std::vector<uint32_t> segment_num_rows;
+            EXPECT_TRUE(beta_rowset->get_segment_num_rows(&segment_num_rows).ok());
             size_t total_num_rows = 0;
             for (const auto& i : segment_num_rows) {
                 total_num_rows += i;
@@ -926,7 +926,6 @@ TEST_F(SegCompactionTest, CreateSegCompactionWriter) {
     config::segcompaction_candidate_max_rows = 6000; // set threshold above
     // rows_per_segment
     config::segcompaction_batch_size = 3;
-    std::vector<uint32_t> segment_num_rows;
     {
         RowsetWriterContext writer_context;
         create_rowset_writer_context(10052, tablet_schema, &writer_context);
@@ -956,7 +955,6 @@ TEST_F(SegCompactionTest, SegCompactionThenReadAggTableSmall) {
     config::segcompaction_candidate_max_rows = 6000; // set threshold above
                                                      // rows_per_segment
     config::segcompaction_batch_size = 3;
-    std::vector<uint32_t> segment_num_rows;
     { // write `num_segments * rows_per_segment` rows to rowset
         RowsetWriterContext writer_context;
         create_rowset_writer_context(10052, tablet_schema, &writer_context);
@@ -1159,7 +1157,9 @@ TEST_F(SegCompactionTest, SegCompactionThenReadAggTableSmall) {
             // duplicated keys between segments are counted duplicately
             // so actual read by rowset reader is less or equal to it
             EXPECT_GE(rowset->rowset_meta()->num_rows(), num_rows_read);
-            EXPECT_TRUE(rowset_reader->get_segment_num_rows(&segment_num_rows).ok());
+            auto beta_rowset = std::dynamic_pointer_cast<BetaRowset>(rowset);
+            std::vector<uint32_t> segment_num_rows;
+            EXPECT_TRUE(beta_rowset->get_segment_num_rows(&segment_num_rows).ok());
             size_t total_num_rows = 0;
             for (const auto& i : segment_num_rows) {
                 total_num_rows += i;

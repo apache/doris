@@ -304,6 +304,7 @@ public class CoordinatorContext {
             boolean enableProfile) {
         TQueryOptions queryOptions = new TQueryOptions();
         queryOptions.setEnableProfile(enableProfile);
+        queryOptions.setProfileLevel(2);
         queryOptions.setBeExecVersion(Config.be_exec_version);
 
         TQueryGlobals queryGlobals = new TQueryGlobals();
@@ -327,8 +328,8 @@ public class CoordinatorContext {
     private static TQueryOptions initQueryOptions(ConnectContext context) {
         TQueryOptions queryOptions = context.getSessionVariable().toThrift();
         queryOptions.setBeExecVersion(Config.be_exec_version);
-        queryOptions.setQueryTimeout(context.getExecTimeout());
-        queryOptions.setExecutionTimeout(context.getExecTimeout());
+        queryOptions.setQueryTimeout(context.getExecTimeoutS());
+        queryOptions.setExecutionTimeout(context.getExecTimeoutS());
         if (queryOptions.getExecutionTimeout() < 1) {
             LOG.info("try set timeout less than 1", new RuntimeException(""));
         }
@@ -364,15 +365,10 @@ public class CoordinatorContext {
             queryOptions.setResourceLimit(resourceLimit);
         }
         // set exec mem limit
-        long maxExecMemByte = connectContext.getSessionVariable().getMaxExecMemByte();
-        long memLimit = maxExecMemByte > 0 ? maxExecMemByte :
-                Env.getCurrentEnv().getAuth().getExecMemLimit(qualifiedUser);
+        long memLimit = connectContext.getMaxExecMemByte();
         if (memLimit > 0) {
             // overwrite the exec_mem_limit from session variable;
             queryOptions.setMemLimit(memLimit);
-            queryOptions.setMaxReservation(memLimit);
-            queryOptions.setInitialReservationTotalClaims(memLimit);
-            queryOptions.setBufferPoolLimit(memLimit);
         }
     }
 

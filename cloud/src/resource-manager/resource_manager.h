@@ -88,13 +88,15 @@ public:
      *
      * @param cluster cluster to update, only cluster name and cluster id are concered
      * @param action update operation code snippet
+     * @param replace_if_existing_empty_target_cluster, find cluster.cluster_name is a empty cluster(no node), drop it
      * @filter filter condition
      * @return empty string for success, otherwise failure reason returned
      */
     virtual std::string update_cluster(
             const std::string& instance_id, const ClusterInfo& cluster,
             std::function<bool(const ClusterPB&)> filter,
-            std::function<std::string(ClusterPB&, std::set<std::string>& cluster_names)> action);
+            std::function<std::string(ClusterPB&, std::set<std::string>& cluster_names)> action,
+            bool replace_if_existing_empty_target_cluster = false);
 
     /**
      * Get instance from underlying storage with given transaction.
@@ -106,13 +108,31 @@ public:
     virtual std::pair<TxnErrorCode, std::string> get_instance(std::shared_ptr<Transaction> txn,
                                                               const std::string& instance_id,
                                                               InstanceInfoPB* inst_pb);
-    // return err msg
+    /**
+     * Modifies the nodes associated with a given instance.
+     * This function allows adding and removing nodes from the instance.
+     *
+     * @param instance_id The ID of the instance to modify nodes for.
+     * @param to_add A vector of NodeInfo structures representing nodes to be added.
+     * @param to_del A vector of NodeInfo structures representing nodes to be removed.
+     * @return An error message if the operation fails, or an empty string for success.
+     */
     virtual std::string modify_nodes(const std::string& instance_id,
                                      const std::vector<NodeInfo>& to_add,
                                      const std::vector<NodeInfo>& to_del);
 
+    /**
+     * Checks the validity of the parameters for a cluster.
+     * This function verifies if the provided cluster parameters meet the required conditions.
+     *
+     * @param cluster The ClusterPB structure containing the cluster parameters to validate.
+     * @param err Output parameter to store any error message if validation fails.
+     * @param check_master_num Flag indicating whether to check the number of master nodes.
+     * @param check_cluster_name Flag indicating whether to check the cluster name is empty, just add_cluster need.
+     * @return True if the parameters are valid, false otherwise.
+     */
     bool check_cluster_params_valid(const ClusterPB& cluster, std::string* err,
-                                    bool check_master_num);
+                                    bool check_master_num, bool check_cluster_name);
 
     /**
      * Check cloud_unique_id is degraded format, and get instance_id from cloud_unique_id

@@ -18,6 +18,20 @@
 
 #!/bin/bash
 
+# PR的目标分支
+# 到
+# 可以跑的流水线
+# 的映射
+# 控制哪些分支可以跑哪些流水线
+declare -A targetBranch_to_pipelines
+targetBranch_to_pipelines=(
+    ['master']='feut beut cloudut compile p0 p1 external arm performance cloud_p0 cloud_p1 vault_p0'
+    ['branch-3.1']='feut beut cloudut compile p0 p1 external arm performance cloud_p0 cloud_p1 vault_p0'
+    ['branch-3.0']='feut beut cloudut compile p0 p1 external arm performance cloud_p0 cloud_p1 vault_p0'
+    ['branch-2.1']='feut beut compile p0 p1 external arm performance'
+    ['branch-2.0']='feut beut compile p0 p1 external arm performance'
+)
+
 # github中评论的要触发的流水线名字
 # 到
 # teamcity流水线实际的名称
@@ -259,9 +273,10 @@ trigger_or_skip_build() {
     # 根据相关文件是否修改，来触发or跳过跑流水线
     local FILE_CHANGED="$1" # 默认为"true"
     local PULL_REQUEST_NUM="${PULL_REQUEST_NUM:-$2}"
-    local COMMIT_ID_FROM_TRIGGER="${COMMIT_ID_FROM_TRIGGER:-$3}"
-    local COMMENT_TRIGGER_TYPE="${COMMENT_TRIGGER_TYPE:-$4}"
-    local COMMENT_REPEAT_TIMES="${COMMENT_REPEAT_TIMES:-$5}"
+    local PULL_REQUEST_TARGET_BRANCH="${PULL_REQUEST_TARGET_BRANCH:-$3}"
+    local COMMIT_ID_FROM_TRIGGER="${COMMIT_ID_FROM_TRIGGER:-$4}"
+    local COMMENT_TRIGGER_TYPE="${COMMENT_TRIGGER_TYPE:-$5}"
+    local COMMENT_REPEAT_TIMES="${COMMENT_REPEAT_TIMES:-$6}"
     if [[ -z "${PULL_REQUEST_NUM}" ||
         -z "${COMMIT_ID_FROM_TRIGGER}" ||
         -z "${COMMENT_TRIGGER_TYPE}" ]]; then
@@ -269,14 +284,27 @@ trigger_or_skip_build() {
         return 1
     fi
 
+    # 有些分支不需要某些跑流水线，在targetBranch_to_pipelines中的分支，需要判断
+    if [[ "${!targetBranch_to_pipelines[*]}" =~ ${PULL_REQUEST_TARGET_BRANCH} ]]; then
+        if [[ "${targetBranch_to_pipelines[${PULL_REQUEST_TARGET_BRANCH}]}" =~ ${COMMENT_TRIGGER_TYPE} ]]; then
+            echo "INFO: pr ${PULL_REQUEST_NUM} to branch ${PULL_REQUEST_TARGET_BRANCH} need to run ${COMMENT_TRIGGER_TYPE}"
+        else
+            echo "INFO: pr ${PULL_REQUEST_NUM} to branch ${PULL_REQUEST_TARGET_BRANCH} not need to run ${COMMENT_TRIGGER_TYPE}"
+            skip_build "${COMMIT_ID_FROM_TRIGGER}" "${COMMENT_TRIGGER_TYPE}"
+            return 0
+        fi
+    fi
+
     if [[ "${FILE_CHANGED:-"true"}" == "true" ]]; then
         cancel_running_build "${PULL_REQUEST_NUM}" "${COMMENT_TRIGGER_TYPE}"
         cancel_queue_build "${PULL_REQUEST_NUM}" "${COMMENT_TRIGGER_TYPE}"
         trigger_build "${PULL_REQUEST_NUM}" "${COMMIT_ID_FROM_TRIGGER}" "${COMMENT_TRIGGER_TYPE}" "${COMMENT_REPEAT_TIMES}"
     else
+        cancel_running_build "${PULL_REQUEST_NUM}" "${COMMENT_TRIGGER_TYPE}"
+        cancel_queue_build "${PULL_REQUEST_NUM}" "${COMMENT_TRIGGER_TYPE}"
         skip_build "${COMMIT_ID_FROM_TRIGGER}" "${COMMENT_TRIGGER_TYPE}"
         if [[ ${COMMENT_TRIGGER_TYPE} == "compile" ]]; then
-            # skip compile 的时候，也把 p0 p1 external cloud_p0 cloud_p1 都 skip 了
+            # skip compile 的时候，也把 p0 p1 external cloud_p0 cloud_p1 vault_p0 都 skip 了
             skip_build "${COMMIT_ID_FROM_TRIGGER}" "p0"
             skip_build "${COMMIT_ID_FROM_TRIGGER}" "p1"
             skip_build "${COMMIT_ID_FROM_TRIGGER}" "external"

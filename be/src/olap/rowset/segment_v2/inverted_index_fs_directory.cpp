@@ -211,20 +211,6 @@ void DorisFSDirectory::FSIndexInput::readInternal(uint8_t* b, const int32_t len)
         _handle->_fpos = _pos;
     }
 
-    DBUG_EXECUTE_IF(
-            "DorisFSDirectory::FSIndexInput::readInternal", ({
-                static thread_local std::unordered_map<const TUniqueId*, io::FileCacheStatistics*>
-                        thread_file_cache_map;
-                auto it = thread_file_cache_map.find(_io_ctx.query_id);
-                if (it != thread_file_cache_map.end()) {
-                    if (_io_ctx.file_cache_stats != it->second) {
-                        _CLTHROWA(CL_ERR_IO, "File cache statistics mismatch");
-                    }
-                } else {
-                    thread_file_cache_map[_io_ctx.query_id] = _io_ctx.file_cache_stats;
-                }
-            }));
-
     Slice result {b, (size_t)len};
     size_t bytes_read = 0;
     Status st = _handle->_reader->read_at(_pos, result, &bytes_read, &_io_ctx);

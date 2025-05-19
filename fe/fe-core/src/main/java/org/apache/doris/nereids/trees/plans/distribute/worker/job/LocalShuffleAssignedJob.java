@@ -31,28 +31,17 @@ import java.util.Map;
  */
 public class LocalShuffleAssignedJob extends StaticAssignedJob {
     public final int shareScanId;
-    public final boolean receiveDataFromLocal;
 
     public LocalShuffleAssignedJob(
-            int indexInUnassignedJob, int shareScanId, boolean receiveDataFromLocal, TUniqueId instanceId,
+            int indexInUnassignedJob, int shareScanId, TUniqueId instanceId,
             UnassignedJob unassignedJob,
             DistributedPlanWorker worker, ScanSource scanSource) {
         super(indexInUnassignedJob, instanceId, unassignedJob, worker, scanSource);
         this.shareScanId = shareScanId;
-        this.receiveDataFromLocal = receiveDataFromLocal;
     }
 
     @Override
     protected Map<String, String> extraInfo() {
         return ImmutableMap.of("shareScanIndex", String.valueOf(shareScanId));
-    }
-
-    @Override
-    protected String formatScanSourceString() {
-        if (receiveDataFromLocal) {
-            return "read data from first instance of " + getAssignedWorker();
-        } else {
-            return super.formatScanSourceString();
-        }
     }
 }

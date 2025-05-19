@@ -29,7 +29,6 @@
 #include <vector>
 
 #include "common/status.h"
-#include "gutil/integral_types.h"
 #include "olap/decimal12.h"
 #include "olap/uint24.h"
 #include "runtime/collection_value.h"
@@ -204,7 +203,7 @@ private:
 
     class OlapColumnDataConvertorVarChar : public OlapColumnDataConvertorBase {
     public:
-        OlapColumnDataConvertorVarChar(bool check_length);
+        OlapColumnDataConvertorVarChar(bool check_length, bool is_jsonb = false);
         ~OlapColumnDataConvertorVarChar() override = default;
 
         void set_source_column(const ColumnWithTypeAndName& typed_column, size_t row_pos,
@@ -216,6 +215,8 @@ private:
 
     private:
         bool _check_length;
+        bool _is_jsonb =
+                false; // Make sure that the json binary data written in is the correct jsonb value.
         PaddedPODArray<Slice> _slice;
     };
 
@@ -516,7 +517,7 @@ private:
         // const ColumnString* _root_data_column;
         // // _nullmap contains null info for this variant
         std::unique_ptr<OlapColumnDataConvertorVarChar> _root_data_convertor;
-        ColumnObject* _source_column_ptr;
+        ColumnVariant* _source_column_ptr;
     };
 
 private:

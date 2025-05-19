@@ -153,6 +153,7 @@ suite ("multiple_ssb") {
     qt_select_star "select * from lineorder_flat order by 1,2,LO_ORDERPRIORITY, P_MFGR;"
 
     sql """analyze table lineorder_flat with sync;"""
+    sql """alter table lineorder_flat modify column LO_ORDERDATE set stats ('row_count'='8');"""
     sql """set enable_stats=false;"""
 
     mv_rewrite_success("""SELECT SUM(LO_EXTENDEDPRICE * LO_DISCOUNT) AS revenue
@@ -240,7 +241,6 @@ suite ("multiple_ssb") {
     qt_select_count_3 "select LO_ORDERPRIORITY, count(1) from lineorder_flat where LO_ORDERPRIORITY in ('1','2','3') group by LO_ORDERPRIORITY order by 1,2;"
 
     sql """set enable_stats=true;"""
-    sql """alter table lineorder_flat modify column LO_ORDERDATE set stats ('row_count'='8');"""
     mv_rewrite_success("""SELECT SUM(LO_EXTENDEDPRICE * LO_DISCOUNT) AS revenue
                 FROM lineorder_flat
                 WHERE

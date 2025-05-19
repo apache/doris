@@ -17,7 +17,7 @@
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
-suite("test_cumu_compaction_with_delete") {
+suite("test_cumu_compaction_with_delete", "nonConcurrent") {
     def backendId_to_backendIP = [:]
     def backendId_to_backendHttpPort = [:]
     getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
@@ -69,6 +69,11 @@ suite("test_cumu_compaction_with_delete") {
                 break;
             }
             Thread.sleep(10000)
+
+            def duration = System.currentTimeMillis() - now
+            if(duration > 10 * 60 * 1000) {
+                assertTrue(false)
+            }
         }
         def time_diff = System.currentTimeMillis() - now
         logger.info("time_diff:" + time_diff)
@@ -108,6 +113,11 @@ suite("test_cumu_compaction_with_delete") {
                 break;
             }
             Thread.sleep(10000)
+
+            def duration = System.currentTimeMillis() - now
+            if(duration > 10 * 60 * 1000) {
+                assertTrue(false)
+            }
         }
         def time_diff = System.currentTimeMillis() - now
         logger.info("time_diff:" + time_diff)

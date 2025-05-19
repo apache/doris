@@ -30,6 +30,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -43,6 +44,7 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.query.QueryStatsUtil;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 
 import java.util.List;
@@ -52,6 +54,7 @@ import java.util.List;
  */
 public class ShowTabletIdCommand extends ShowCommand {
     private final long tabletId;
+    private String dbName;
 
     /**
      * constructor
@@ -82,11 +85,23 @@ public class ShowTabletIdCommand extends ShowCommand {
     }
 
     /**
-     * handle show tablet
+     * validate
      */
-    public List<List<String>> handleShowTablet() {
+    private void validate(ConnectContext ctx) throws AnalysisException {
+        // check access first
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "SHOW TABLET");
+        }
 
+        dbName = ctx.getDatabase();
+        if (Strings.isNullOrEmpty(dbName)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
+        }
+    }
+
+    private ShowResultSet handleShowTabletId() {
         List<List<String>> rows = Lists.newArrayList();
+        Env env = Env.getCurrentEnv();
         TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
         TabletMeta tabletMeta = invertedIndex.getTabletMeta(tabletId);
         Long dbId = tabletMeta != null ? tabletMeta.getDbId() : TabletInvertedIndex.NOT_EXIST_VALUE;
@@ -103,7 +118,7 @@ public class ShowTabletIdCommand extends ShowCommand {
         int tabletIdx = -1;
         // check real meta
         do {
-            Database db = Env.getCurrentEnv().getInternalCatalog().getDbNullable(dbId);
+            Database db = env.getInternalCatalog().getDbNullable(dbId);
             if (db == null) {
                 isSync = false;
                 break;
@@ -175,18 +190,13 @@ public class ShowTabletIdCommand extends ShowCommand {
                 dbId.toString(), tableId.toString(),
                 partitionId.toString(), indexId.toString(),
                 isSync.toString(), String.valueOf(tabletIdx), String.valueOf(queryHits), detailCmd));
-        return rows;
+        return new ShowResultSet(getMetaData(), rows);
     }
 
     @Override
     public ShowResultSet doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        // check auth
-        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "SHOW TABLET");
-        }
-
-        // Set the result set and send it using the executor
-        return new ShowResultSet(getMetaData(), handleShowTablet());
+        validate(ctx);
+        return handleShowTabletId();
     }
 
     @Override
@@ -202,5 +212,4 @@ public class ShowTabletIdCommand extends ShowCommand {
             return RedirectStatus.NO_FORWARD;
         }
     }
-
 }

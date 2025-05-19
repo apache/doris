@@ -101,7 +101,8 @@ suite("test_seq_load", "load_p0") {
                 "AWS_ACCESS_KEY" = "$ak",
                 "AWS_SECRET_KEY" = "$sk",
                 "AWS_ENDPOINT" = "${getS3Endpoint()}",
-                "AWS_REGION" = "${getS3Region()}"
+                "AWS_REGION" = "${getS3Region()}",
+                "PROVIDER" = "${getS3Provider()}"
             )
             """
     logger.info("submit sql: ${sql_str}");

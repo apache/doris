@@ -90,7 +90,7 @@ public class WindowFrame extends Expression implements PropagateNullable, LeafEx
     }
 
     @Override
-    public int hashCode() {
+    public int computeHashCode() {
         return Objects.hash(frameUnits, leftBoundary, rightBoundary);
     }
 

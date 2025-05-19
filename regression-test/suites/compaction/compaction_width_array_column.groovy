@@ -88,7 +88,8 @@ suite('compaction_width_array_column', "p2") {
     while (isOverLap && tryCnt < 3) {
         isOverLap = false
 
-        trigger_and_wait_compaction(tableName, "cumulative")
+        // in asan compile, it may cost 30min to compact.
+        trigger_and_wait_compaction(tableName, "cumulative", 40*60)
         for (def tablet in tablets) {
             String tablet_id = tablet.TabletId
             (code, out, err) = curl("GET", tablet.CompactionStatus)

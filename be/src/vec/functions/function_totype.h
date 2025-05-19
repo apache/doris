@@ -70,7 +70,7 @@ private:
     Status execute_impl(Block& block, const ColumnNumbers& arguments, uint32_t result,
                         size_t input_rows_count) const {
         const ColumnPtr column = block.get_by_position(arguments[0]).column;
-        if constexpr (typeindex_is_int(Impl::TYPE_INDEX)) {
+        if constexpr (is_int_or_bool(Impl::PrimitiveTypeImpl)) {
             if (auto* col = check_and_get_column<ColumnVector<typename Impl::Type>>(column.get())) {
                 auto col_res = Impl::ReturnColumnType::create();
                 RETURN_IF_ERROR(Impl::vector(col->get_data(), col_res->get_chars(),
@@ -98,7 +98,7 @@ private:
     Status execute_impl(Block& block, const ColumnNumbers& arguments, uint32_t result,
                         size_t input_rows_count) const {
         const ColumnPtr column = block.get_by_position(arguments[0]).column;
-        if constexpr (Impl::TYPE_INDEX == TypeIndex::String) {
+        if constexpr (Impl::PrimitiveTypeImpl == PrimitiveType::TYPE_STRING) {
             if (const ColumnString* col = check_and_get_column<ColumnString>(column.get())) {
                 auto col_res = Impl::ReturnColumnType::create();
                 RETURN_IF_ERROR(
@@ -106,7 +106,7 @@ private:
                 block.replace_by_position(result, std::move(col_res));
                 return Status::OK();
             }
-        } else if constexpr (typeindex_is_int(Impl::TYPE_INDEX)) {
+        } else if constexpr (is_int_or_bool(Impl::PrimitiveTypeImpl)) {
             if (const auto* col =
                         check_and_get_column<ColumnVector<typename Impl::Type>>(column.get())) {
                 auto col_res = Impl::ReturnColumnType::create();
@@ -462,8 +462,6 @@ public:
         return make_nullable(std::make_shared<typename Impl::ReturnType>());
     }
 
-    bool use_default_implementation_for_nulls() const override { return true; }
-
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
@@ -487,7 +485,7 @@ public:
     }
 };
 
-template <typename Impl>
+template <typename Impl, bool is_allow_null>
 class FunctionStringEncode : public IFunction {
 public:
     static constexpr auto name = Impl::name;
@@ -499,6 +497,9 @@ public:
     size_t get_number_of_arguments() const override { return 1; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        if constexpr (is_allow_null) {
+            return make_nullable(std::make_shared<typename Impl::ReturnType>());
+        }
         return std::make_shared<typename Impl::ReturnType>();
     }
 
@@ -506,19 +507,34 @@ public:
                         uint32_t result, size_t input_rows_count) const override {
         auto& col_ptr = block.get_by_position(arguments[0]).column;
 
-        auto res = Impl::ColumnType::create();
-        if (const auto* col = check_and_get_column<ColumnString>(col_ptr.get())) {
-            auto col_res = Impl::ColumnType::create();
-            static_cast<void>(Impl::vector(col->get_chars(), col->get_offsets(),
-                                           col_res->get_chars(), col_res->get_offsets()));
-            block.replace_by_position(result, std::move(col_res));
+        if constexpr (is_allow_null) {
+            auto null_map = ColumnUInt8::create(input_rows_count, 0);
+            auto& null_map_data = null_map->get_data();
+            if (const auto* col = assert_cast<const ColumnString*>(col_ptr.get())) {
+                auto col_res = Impl::ColumnType::create();
+                static_cast<void>(Impl::vector(col->get_chars(), col->get_offsets(),
+                                               col_res->get_chars(), col_res->get_offsets(),
+                                               &null_map_data));
+                block.get_by_position(result).column =
+                        ColumnNullable::create(std::move(col_res), std::move(null_map));
+            } else {
+                return Status::RuntimeError("Illegal column {} of argument of function {}",
+                                            block.get_by_position(arguments[0]).column->get_name(),
+                                            get_name());
+            }
         } else {
-            return Status::RuntimeError("Illegal column {} of argument of function {}",
-                                        block.get_by_position(arguments[0]).column->get_name(),
-                                        get_name());
+            if (const auto* col = assert_cast<const ColumnString*>(col_ptr.get())) {
+                auto col_res = Impl::ColumnType::create();
+                static_cast<void>(Impl::vector(col->get_chars(), col->get_offsets(),
+                                               col_res->get_chars(), col_res->get_offsets()));
+                block.replace_by_position(result, std::move(col_res));
+            } else {
+                return Status::RuntimeError("Illegal column {} of argument of function {}",
+                                            block.get_by_position(arguments[0]).column->get_name(),
+                                            get_name());
+            }
         }
         return Status::OK();
     }
 };
-
 } // namespace doris::vectorized

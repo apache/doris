@@ -19,13 +19,13 @@
 
 #include <fmt/format.h>
 
-#include "gutil/strings/strip.h"
 #include "olap/olap_common.h"
 
 namespace doris::segment_v2 {
 
 const std::unordered_map<std::string, int32_t> InvertedIndexDescriptor::index_file_info_map = {
-        {"null_bitmap", 1}, {"segments.gen", 2}, {"segments_", 3}, {"fnm", 4}, {"tii", 5}};
+        {"null_bitmap", 1}, {"segments.gen", 2}, {"segments_", 3}, {"fnm", 4},
+        {"tii", 5},         {"bkd_meta", 6},     {"bkd_index", 7}};
 
 const std::unordered_map<std::string, int32_t> InvertedIndexDescriptor::normal_file_info_map = {
         {"tis", 1}, {"frq", 2}, {"prx", 3}};
@@ -74,6 +74,19 @@ std::string InvertedIndexDescriptor::get_index_file_cache_key(std::string_view i
     std::string suffix =
             index_path_suffix.empty() ? "" : std::string {"@"} + index_path_suffix.data();
     return fmt::format("{}_{}{}", index_path_prefix, index_id, suffix);
+}
+
+std::string InvertedIndexDescriptor::get_index_file_name_v1(const std::string& rowset_id,
+                                                            int64_t seg_id, int64_t index_id,
+                                                            std::string_view index_path_suffix) {
+    std::string suffix =
+            index_path_suffix.empty() ? "" : std::string {"@"} + index_path_suffix.data();
+    return fmt::format("{}_{}_{}{}{}", rowset_id, seg_id, index_id, suffix, index_suffix);
+}
+
+std::string InvertedIndexDescriptor::get_index_file_name_v2(const std::string& rowset_id,
+                                                            int64_t seg_id) {
+    return fmt::format("{}_{}{}", rowset_id, seg_id, index_suffix);
 }
 
 } // namespace doris::segment_v2

@@ -25,7 +25,6 @@
 
 #include <cstdint>
 #include <functional>
-#include <ostream>
 #include <string>
 #include <type_traits>
 #include <utility>
@@ -118,7 +117,6 @@ public:
     using ColumnOffsets = ColumnVector<Offset64>;
 
     std::string get_name() const override;
-    bool is_column_array() const override { return true; }
     bool is_variable_length() const override { return true; }
 
     bool is_exclusive() const override {
@@ -130,9 +128,7 @@ public:
     void resize(size_t n) override;
     Field operator[](size_t n) const override;
     void get(size_t n, Field& res) const override;
-    StringRef get_data_at(size_t n) const override;
     bool is_default_at(size_t n) const;
-    void insert_data(const char* pos, size_t length) override;
     StringRef serialize_value_into_arena(size_t n, Arena& arena, char const*& begin) const override;
     const char* deserialize_and_insert_from_arena(const char* pos) override;
     void update_hash_with_value(size_t n, SipHash& hash) const override;
@@ -162,10 +158,9 @@ public:
     void reserve(size_t n) override;
     size_t byte_size() const override;
     size_t allocated_bytes() const override;
+    bool has_enough_capacity(const IColumn& src) const override;
     ColumnPtr replicate(const IColumn::Offsets& replicate_offsets) const override;
     void insert_many_from(const IColumn& src, size_t position, size_t length) override;
-
-    ColumnPtr convert_to_full_column_if_const() const override;
 
     /** More efficient methods of manipulation */
     IColumn& get_data() { return *data; }
@@ -227,6 +222,8 @@ public:
                nested_array
                        ->get_number_of_dimensions(); /// Every modern C++ compiler optimizes tail recursion.
     }
+
+    void erase(size_t start, size_t length) override;
 
 private:
     // [2,1,5,9,1]\n[1,2,4] --> data column [2,1,5,9,1,1,2,4], offset[-1] = 0, offset[0] = 5, offset[1] = 8

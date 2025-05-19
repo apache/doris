@@ -52,7 +52,7 @@ suite("load") {
     println("the brpc port is " + brpcPortList);
 
     for (unique_id : beUniqueIdList) {
-        resp = get_cluster.call(unique_id);
+        def resp = get_cluster.call(unique_id);
         for (cluster : resp) {
             if (cluster.type == "COMPUTE") {
                 drop_cluster.call(cluster.cluster_name, cluster.cluster_id);
@@ -70,9 +70,9 @@ suite("load") {
                      "regression_cluster_name1", "regression_cluster_id1");
     sleep(20000)
 
-    result  = sql "show clusters"
+    def new_res  = sql "show clusters"
     sql """ SET PROPERTY 'default_cloud_cluster' = "regression_cluster_name0"; """
-    assertEquals(result.size(), 2);
+    assertEquals(new_res.size(), 2);
     sql """ set global enable_auto_analyze = false; """
     sql """ drop table if exists __internal_schema.column_statistics; """
     sql """ drop table if exists __internal_schema.histogram_statistics; """

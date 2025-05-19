@@ -67,10 +67,11 @@ run() {
     } >>"${teamcity_build_checkoutDir}"/regression-test/pipeline/vault_p0/conf/regression-conf-custom.groovy
     cp -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/vault_p0/conf/regression-conf-custom.groovy \
         "${teamcity_build_checkoutDir}"/regression-test/conf/
-    # # start kafka docker to run case test_rountine_load
-    # sed -i "s/^CONTAINER_UID=\"doris--\"/CONTAINER_UID=\"doris-external--\"/" "${teamcity_build_checkoutDir}"/docker/thirdparties/custom_settings.env
-    # if bash "${teamcity_build_checkoutDir}"/docker/thirdparties/run-thirdparties-docker.sh --stop; then echo; fi
-    # if bash "${teamcity_build_checkoutDir}"/docker/thirdparties/run-thirdparties-docker.sh -c kafka; then echo; else echo "ERROR: start kafka docker failed"; fi
+
+    # start minio docker to run case test_rountine_load
+    sed -i "s/^CONTAINER_UID=\"doris--\"/CONTAINER_UID=\"doris-external--\"/" "${teamcity_build_checkoutDir}"/docker/thirdparties/custom_settings.env
+    if bash "${teamcity_build_checkoutDir}"/docker/thirdparties/run-thirdparties-docker.sh -c minio; then echo; else echo "ERROR: start minio docker failed"; fi
+
     # used to set up HDFS docker
     docker_compose_hdfs_yaml='
 version: "3"
@@ -155,7 +156,7 @@ if [[ ${exit_flag} != "0" ]] || ${need_collect_log}; then
         print_doris_fe_log
         print_doris_be_log
     fi
-    stop_doris
+    export -f stop_doris_grace && timeout -v 30m bash -cx stop_doris_grace
     if log_file_name=$(archive_doris_logs "${pr_num_from_trigger}_${commit_id_from_trigger}_$(date +%Y%m%d%H%M%S)_doris_logs.tar.gz"); then
         if log_info="$(upload_doris_log_to_oss "${log_file_name}")"; then
             reporting_messages_error "${log_info##*logs.tar.gz to }"

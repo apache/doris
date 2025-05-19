@@ -17,6 +17,24 @@
 \N	true	8
 \N	true	9
 
+-- !acosh_1 --
+\N	true
+
+-- !acosh_2 --
+\N	true
+
+-- !acosh_3 --
+0.4435682543851154	false	0
+0.4435682543851154	false	1
+0.4435682543851154	false	2
+0.4435682543851154	false	3
+0.4435682543851154	false	4
+0.4435682543851154	false	5
+0.4435682543851154	false	6
+0.4435682543851154	false	7
+0.4435682543851154	false	8
+0.4435682543851154	false	9
+
 -- !asin_1 --
 \N	true
 
@@ -34,6 +52,24 @@
 \N	true	7
 \N	true	8
 \N	true	9
+
+-- !atanh_1 --
+\N	true
+
+-- !atanh_2 --
+\N	true
+
+-- !atanh_3 --
+0.0	false	0
+0.0	false	1
+0.0	false	2
+0.0	false	3
+0.0	false	4
+0.0	false	5
+0.0	false	6
+0.0	false	7
+0.0	false	8
+0.0	false	9
 
 -- !sqrt_1 --
 \N	true
@@ -63,7 +99,27 @@
 7	\N	true
 8	\N	true
 
+-- !acosh_tbl_1 --
+1	0.4435682543851154	false
+2	\N	true
+3	\N	true
+4	\N	true
+5	\N	true
+6	\N	true
+7	\N	true
+8	\N	true
+
 -- !asin_tbl_1 --
+1	\N	true
+2	\N	true
+3	0.0	false
+4	\N	true
+5	\N	true
+6	\N	true
+7	\N	true
+8	\N	true
+
+-- !atanh_tbl_1 --
 1	\N	true
 2	\N	true
 3	0.0	false

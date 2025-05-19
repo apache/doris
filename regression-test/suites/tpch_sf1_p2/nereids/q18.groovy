@@ -65,7 +65,7 @@ limit 100;
     """
 
      qt_select """
-select /*+SET_VAR(exec_mem_limit=8589934592, parallel_fragment_exec_instance_num=16, batch_size=4096, disable_join_reorder=true, enable_cost_based_join_reorder=true, enable_projection=true) */
+select /*+SET_VAR(exec_mem_limit=8589934592, parallel_pipeline_task_num=16, batch_size=4096, disable_join_reorder=true, enable_cost_based_join_reorder=true, enable_projection=true) */
     c_name,
     c_custkey,
     t3.o_orderkey,

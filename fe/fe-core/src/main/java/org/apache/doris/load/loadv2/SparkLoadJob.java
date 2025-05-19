@@ -672,7 +672,7 @@ public class SparkLoadJob extends BulkLoadJob {
             try {
                 LOG.info(new LogBuilder(LogKey.LOAD_JOB, id).add("txn_id", transactionId)
                         .add("msg", "Load job try to commit txn").build());
-                Env.getCurrentGlobalTransactionMgr().commitTransaction(
+                Env.getCurrentGlobalTransactionMgr().commitTransactionWithoutLock(
                         dbId, tableList, transactionId, commitInfos,
                         new LoadJobFinalOperation(id, loadingStatus, progress, loadStartTimestamp,
                                 finishTimestamp, state, failMsg));

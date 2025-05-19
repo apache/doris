@@ -19,9 +19,9 @@ package org.apache.doris.common.profile;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.common.io.Text;
-import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TUnit;
 import org.apache.doris.transaction.TransactionType;
@@ -31,14 +31,18 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
+import java.util.stream.Collectors;
 
 /**
  * SummaryProfile is part of a query profile.
@@ -100,6 +104,8 @@ public class SummaryProfile {
     public static final String NEREIDS_LOCK_TABLE_TIME = "Nereids Lock Table Time";
     public static final String NEREIDS_ANALYSIS_TIME = "Nereids Analysis Time";
     public static final String NEREIDS_REWRITE_TIME = "Nereids Rewrite Time";
+
+    public static final String NEREIDS_COLLECT_TABLE_PARTITION_TIME = "Nereids Collect Table Partition Time";
     public static final String NEREIDS_OPTIMIZE_TIME = "Nereids Optimize Time";
     public static final String NEREIDS_TRANSLATE_TIME = "Nereids Translate Time";
     public static final String NEREIDS_DISTRIBUTE_TIME = "Nereids Distribute Time";
@@ -123,6 +129,7 @@ public class SummaryProfile {
     public static final String RPC_QUEUE_TIME = "RPC Work Queue Time";
     public static final String RPC_WORK_TIME = "RPC Work Time";
     public static final String LATENCY_FROM_BE_TO_FE = "RPC Latency From BE To FE";
+    public static final String SPLITS_ASSIGNMENT_WEIGHT = "Splits Assignment Weight";
 
     // These info will display on FE's web ui table, every one will be displayed as
     // a column, so that should not
@@ -180,7 +187,10 @@ public class SummaryProfile {
             TRACE_ID,
             TRANSACTION_COMMIT_TIME,
             SYSTEM_MESSAGE,
-            EXECUTED_BY_FRONTEND
+            EXECUTED_BY_FRONTEND,
+            NEREIDS_BE_FOLD_CONST_TIME,
+            NEREIDS_GARBAGE_COLLECT_TIME,
+            SPLITS_ASSIGNMENT_WEIGHT
     );
 
     // Ident of each item. Default is 0, which doesn't need to present in this Map.
@@ -228,6 +238,9 @@ public class SummaryProfile {
     private long parseSqlFinishTime = -1;
     @SerializedName(value = "nereidsLockTableFinishTime")
     private long nereidsLockTableFinishTime = -1;
+
+    @SerializedName(value = "nereidsCollectTablePartitionFinishTime")
+    private long nereidsCollectTablePartitionFinishTime = -1;
     @SerializedName(value = "nereidsAnalysisFinishTime")
     private long nereidsAnalysisFinishTime = -1;
     @SerializedName(value = "nereidsRewriteFinishTime")
@@ -341,6 +354,8 @@ public class SummaryProfile {
     private Map<TNetworkAddress, List<Long>> rpcPhase1Latency;
     private Map<TNetworkAddress, List<Long>> rpcPhase2Latency;
 
+    private Map<Backend, Long> assignedWeightPerBackend;
+
     public SummaryProfile() {
         init();
     }
@@ -400,6 +415,24 @@ public class SummaryProfile {
         updateExecutionSummaryProfile();
     }
 
+    // This method is used to display the final data status when the overall query ends.
+    // This can avoid recalculating some strings and so on every time during the update process.
+    public void queryFinished() {
+        if (assignedWeightPerBackend != null) {
+            Map<String, Long> m = assignedWeightPerBackend.entrySet().stream()
+                    .sorted(Map.Entry.comparingByValue())
+                    .collect(Collectors.toMap(
+                        entry -> entry.getKey().getAddress(),
+                        Entry::getValue,
+                        (v1, v2) -> v1,
+                        LinkedHashMap::new
+                ));
+            executionSummaryProfile.addInfoString(
+                    SPLITS_ASSIGNMENT_WEIGHT,
+                    new GsonBuilder().create().toJson(m));
+        }
+    }
+
     private void updateSummaryProfile(Map<String, String> infos) {
         for (String key : infos.keySet()) {
             if (SUMMARY_KEYS.contains(key)) {
@@ -417,6 +450,8 @@ public class SummaryProfile {
         executionSummaryProfile.addInfoString(NEREIDS_LOCK_TABLE_TIME, getPrettyNereidsLockTableTime());
         executionSummaryProfile.addInfoString(NEREIDS_ANALYSIS_TIME, getPrettyNereidsAnalysisTime());
         executionSummaryProfile.addInfoString(NEREIDS_REWRITE_TIME, getPrettyNereidsRewriteTime());
+        executionSummaryProfile.addInfoString(NEREIDS_COLLECT_TABLE_PARTITION_TIME,
+                getPrettyNereidsCollectTablePartitionTime());
         executionSummaryProfile.addInfoString(NEREIDS_OPTIMIZE_TIME, getPrettyNereidsOptimizeTime());
         executionSummaryProfile.addInfoString(NEREIDS_TRANSLATE_TIME, getPrettyNereidsTranslateTime());
         executionSummaryProfile.addInfoString(NEREIDS_DISTRIBUTE_TIME, getPrettyNereidsDistributeTime());
@@ -515,6 +550,10 @@ public class SummaryProfile {
         this.nereidsLockTableFinishTime = TimeUtils.getStartTimeMs();
     }
 
+    public void setNereidsCollectTablePartitionFinishTime() {
+        this.nereidsCollectTablePartitionFinishTime = TimeUtils.getStartTimeMs();
+    }
+
     public void setNereidsAnalysisTime() {
         this.nereidsAnalysisFinishTime = TimeUtils.getStartTimeMs();
     }
@@ -543,8 +582,8 @@ public class SummaryProfile {
         this.nereidsDistributeFinishTime = TimeUtils.getStartTimeMs();
     }
 
-    public void setQueryBeginTime() {
-        this.queryBeginTime = TimeUtils.getStartTimeMs();
+    public void setQueryBeginTime(long queryBeginTime) {
+        this.queryBeginTime = queryBeginTime;
     }
 
     public void setQueryAnalysisFinishTime() {
@@ -789,8 +828,13 @@ public class SummaryProfile {
         return getPrettyTime(nereidsRewriteFinishTime, nereidsAnalysisFinishTime, TUnit.TIME_MS);
     }
 
+
+    public String getPrettyNereidsCollectTablePartitionTime() {
+        return getPrettyTime(nereidsCollectTablePartitionFinishTime, nereidsRewriteFinishTime, TUnit.TIME_MS);
+    }
+
     public String getPrettyNereidsOptimizeTime() {
-        return getPrettyTime(nereidsOptimizeFinishTime, nereidsRewriteFinishTime, TUnit.TIME_MS);
+        return getPrettyTime(nereidsOptimizeFinishTime, nereidsCollectTablePartitionFinishTime, TUnit.TIME_MS);
     }
 
     public String getPrettyNereidsTranslateTime() {
@@ -951,5 +995,9 @@ public class SummaryProfile {
 
     public void write(DataOutput output) throws IOException {
         Text.writeString(output, GsonUtils.GSON.toJson(this));
+    }
+
+    public void setAssignedWeightPerBackend(Map<Backend, Long> assignedWeightPerBackend) {
+        this.assignedWeightPerBackend = assignedWeightPerBackend;
     }
 }

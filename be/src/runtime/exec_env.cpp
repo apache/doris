@@ -33,6 +33,7 @@
 #include "runtime/load_stream_mgr.h"
 #include "util/debug_util.h"
 #include "util/time.h"
+#include "vec/runtime/vdata_stream_mgr.h"
 #include "vec/sink/delta_writer_v2_pool.h"
 #include "vec/sink/load_stream_map_pool.h"
 
@@ -51,15 +52,21 @@ void ExecEnv::set_write_cooldown_meta_executors() {
 }
 #endif // BE_TEST
 
-Result<BaseTabletSPtr> ExecEnv::get_tablet(int64_t tablet_id) {
+Result<BaseTabletSPtr> ExecEnv::get_tablet(int64_t tablet_id, SyncRowsetStats* sync_stats) {
     auto storage_engine = GetInstance()->_storage_engine.get();
     return storage_engine != nullptr
-                   ? storage_engine->get_tablet(tablet_id)
+                   ? storage_engine->get_tablet(tablet_id, sync_stats)
                    : ResultError(Status::InternalError("failed to get tablet {}", tablet_id));
 }
 
 const std::string& ExecEnv::token() const {
     return _cluster_info->token;
+}
+
+void ExecEnv::clear_stream_mgr() {
+    if (_vstream_mgr) {
+        SAFE_DELETE(_vstream_mgr);
+    }
 }
 
 std::vector<TFrontendInfo> ExecEnv::get_frontends() {

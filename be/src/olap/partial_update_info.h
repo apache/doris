@@ -42,11 +42,12 @@ struct RowsetId;
 class BitmapValue;
 
 struct PartialUpdateInfo {
-    void init(const TabletSchema& tablet_schema, UniqueKeyUpdateModePB unique_key_update_mode,
-              const std::set<std::string>& partial_update_cols, bool is_strict_mode,
-              int64_t timestamp_ms, int32_t nano_seconds, const std::string& timezone,
-              const std::string& auto_increment_column, int32_t sequence_map_col_uid = -1,
-              int64_t cur_max_version = -1);
+    Status init(int64_t tablet_id, int64_t txn_id, const TabletSchema& tablet_schema,
+                UniqueKeyUpdateModePB unique_key_update_mode,
+                const std::set<std::string>& partial_update_cols, bool is_strict_mode,
+                int64_t timestamp_ms, int32_t nano_seconds, const std::string& timezone,
+                const std::string& auto_increment_column, int32_t sequence_map_col_uid = -1,
+                int64_t cur_max_version = -1);
     void to_pb(PartialUpdateInfoPB* partial_update_info) const;
     void from_pb(PartialUpdateInfoPB* partial_update_info);
     Status handle_non_strict_mode_not_found_error(const TabletSchema& tablet_schema,

@@ -97,7 +97,7 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
                     new TxnCoordinator(TxnSourceType.FE, 0,
                             FrontendOptions.getLocalHostAddress(),
                             ExecuteEnv.getInstance().getStartupTime()),
-                    LoadJobSourceType.INSERT_STREAMING, ctx.getExecTimeout());
+                    LoadJobSourceType.INSERT_STREAMING, ctx.getExecTimeoutS());
         } catch (Exception e) {
             throw new AnalysisException("begin transaction failed. " + e.getMessage(), e);
         }
@@ -125,7 +125,7 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
 
             // set schema and partition info for tablet id shuffle exchange
             if (fragment.getPlanRoot() instanceof ExchangeNode
-                    && fragment.getDataPartition().getType() == TPartitionType.TABLET_SINK_SHUFFLE_PARTITIONED) {
+                    && fragment.getDataPartition().getType() == TPartitionType.OLAP_TABLE_SINK_HASH_PARTITIONED) {
                 DataSink childFragmentSink = fragment.getChild(0).getSink();
                 DataStreamSink dataStreamSink = null;
                 if (childFragmentSink instanceof MultiCastDataSink) {
@@ -306,7 +306,7 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
     }
 
     public long getTimeout() {
-        return ctx.getExecTimeout();
+        return ctx.getExecTimeoutS();
     }
 
     private boolean isGroupCommitHttpStream() {

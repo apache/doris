@@ -102,9 +102,6 @@ public:
 
     Field operator[](size_t n) const override;
     void get(size_t n, Field& res) const override;
-    StringRef get_data_at(size_t n) const override;
-
-    void insert_data(const char* pos, size_t length) override;
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
     void insert_range_from_ignore_overflow(const IColumn& src, size_t start,
                                            size_t length) override;
@@ -113,7 +110,6 @@ public:
     void insert_default() override;
 
     void pop_back(size_t n) override;
-    bool is_column_map() const override { return true; }
     StringRef serialize_value_into_arena(size_t n, Arena& arena, char const*& begin) const override;
     const char* deserialize_and_insert_from_arena(const char* pos) override;
 
@@ -156,6 +152,7 @@ public:
     void resize(size_t n) override;
     size_t byte_size() const override;
     size_t allocated_bytes() const override;
+    bool has_enough_capacity(const IColumn& src) const override;
 
     void update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
                                   const uint8_t* __restrict null_data) const override;
@@ -201,6 +198,8 @@ public:
         values_column = values_column->convert_column_if_overflow();
         return IColumn::convert_column_if_overflow();
     }
+
+    void erase(size_t start, size_t length) override;
 
 private:
     friend class COWHelper<IColumn, ColumnMap>;

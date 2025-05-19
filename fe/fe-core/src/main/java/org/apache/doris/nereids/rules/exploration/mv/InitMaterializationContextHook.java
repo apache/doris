@@ -28,6 +28,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVCache;
+import org.apache.doris.mtmv.MTMVPlanUtil;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.NereidsPlanner;
@@ -62,7 +63,7 @@ public class InitMaterializationContextHook implements PlannerHook {
     public static final InitMaterializationContextHook INSTANCE = new InitMaterializationContextHook();
 
     @Override
-    public void afterAnalyze(NereidsPlanner planner) {
+    public void afterRewrite(NereidsPlanner planner) {
         initMaterializationContext(planner.getCascadesContext());
     }
 
@@ -176,13 +177,13 @@ public class InitMaterializationContextHook implements PlannerHook {
         try {
             availableMTMVs = getAvailableMTMVs(usedTables, cascadesContext);
         } catch (Exception e) {
-            LOG.warn(String.format("MaterializationContext getAvailableMTMVs generate fail, current queryId is %s",
-                    cascadesContext.getConnectContext().getQueryIdentifier()), e);
+            LOG.warn(String.format("MaterializationContext getAvailableMTMVs generate fail, current sqlHash is %s",
+                    cascadesContext.getConnectContext().getSqlHash()), e);
             return ImmutableList.of();
         }
         if (CollectionUtils.isEmpty(availableMTMVs)) {
-            LOG.debug("Enable materialized view rewrite but availableMTMVs is empty, current queryId "
-                    + "is {}", cascadesContext.getConnectContext().getQueryIdentifier());
+            LOG.debug("Enable materialized view rewrite but availableMTMVs is empty, current sqlHash "
+                    + "is {}", cascadesContext.getConnectContext().getSqlHash());
             return ImmutableList.of();
         }
         List<MaterializationContext> asyncMaterializationContext = new ArrayList<>();
@@ -190,13 +191,6 @@ public class InitMaterializationContextHook implements PlannerHook {
             MTMVCache mtmvCache = null;
             try {
                 mtmvCache = materializedView.getOrGenerateCache(cascadesContext.getConnectContext());
-                // If mv property use_for_rewrite is set false, should not partition in
-                // query rewrite by materialized view
-                if (!materializedView.isUseForRewrite()) {
-                    LOG.debug("mv doesn't part in query rewrite process because "
-                            + "use_for_rewrite is false, mv is {}", materializedView.getName());
-                    continue;
-                }
                 if (mtmvCache == null) {
                     continue;
                 }
@@ -230,10 +224,10 @@ public class InitMaterializationContextHook implements PlannerHook {
         }
         for (Map.Entry<Long, MaterializedIndexMeta> entry : olapTable.getVisibleIndexIdToMeta().entrySet()) {
             long indexId = entry.getKey();
+            String indexName = olapTable.getIndexNameById(indexId);
             try {
                 if (indexId != baseIndexId) {
                     MaterializedIndexMeta meta = entry.getValue();
-                    String indexName = olapTable.getIndexNameById(indexId);
                     String createMvSql;
                     if (meta.getDefineStmt() != null) {
                         // get the original create mv sql
@@ -256,8 +250,12 @@ public class InitMaterializationContextHook implements PlannerHook {
                             LOG.warn(String.format("can't parse %s ", createMvSql));
                             continue;
                         }
-                        MTMVCache mtmvCache = MaterializedViewUtils.createMTMVCache(querySql.get(),
+                        ConnectContext basicMvContext = MTMVPlanUtil.createBasicMvContext(
                                 cascadesContext.getConnectContext());
+                        basicMvContext.setDatabase(meta.getDbName());
+                        MTMVCache mtmvCache = MTMVCache.from(querySql.get(),
+                                basicMvContext, true,
+                                false, cascadesContext.getConnectContext());
                         contexts.add(new SyncMaterializationContext(mtmvCache.getLogicalPlan(),
                                 mtmvCache.getOriginalPlan(), olapTable, meta.getIndexId(), indexName,
                                 cascadesContext, mtmvCache.getStatistics()));
@@ -266,8 +264,9 @@ public class InitMaterializationContextHook implements PlannerHook {
                     }
                 }
             } catch (Exception exception) {
-                LOG.warn(String.format("createSyncMvContexts exception, index id is %s, index name is %s",
-                        entry.getValue(), entry.getValue()), exception);
+                LOG.warn(String.format("createSyncMvContexts exception, index id is %s, index name is %s, "
+                                + "table name is %s", entry.getValue(), indexName, olapTable.getQualifiedName()),
+                        exception);
             }
         }
         return getMaterializationContextByHint(contexts);

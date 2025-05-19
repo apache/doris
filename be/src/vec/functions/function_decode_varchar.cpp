@@ -106,6 +106,7 @@ public:
             simd::reverse_copy_bytes(col_res_data.data() + col_res_offset[i - 1], str_size,
                                      ui8_ptr + sizeof(IntegerType) - str_size, str_size);
         }
+        col_res_data.resize(col_res_offset[col_res_offset.size() - 1]);
 
         block.get_by_position(result).column = std::move(col_res);
 

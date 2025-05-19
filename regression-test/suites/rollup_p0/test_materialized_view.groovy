@@ -49,30 +49,15 @@ suite("test_materialized_view") {
             ) 
             DISTRIBUTED BY HASH(record_id) properties("replication_num" = "1");
         """
-    sql "CREATE materialized VIEW amt_sum AS SELECT store_id, sum(sale_amt) FROM ${tbName1} GROUP BY store_id;"
-    int max_try_secs = 60
-    Awaitility.await().atMost(max_try_secs, SECONDS).pollInterval(2, SECONDS).until{
-        String res = getJobState(tbName1)
-        if (res == "FINISHED" || res == "CANCELLED") {
-            assertEquals("FINISHED", res)
-            sleep(3000)
-            return true;
-        } else {
-            return false;
-        }
-    }
-    sql "CREATE materialized VIEW seller_id_order AS SELECT store_id,seller_id, sale_amt FROM ${tbName2} ORDER BY store_id,seller_id;"
-    max_try_secs = 60
-    Awaitility.await().atMost(max_try_secs, SECONDS).pollInterval(2, SECONDS).until{
-        String res = getJobState(tbName2)
-        if (res == "FINISHED" || res == "CANCELLED") {
-            assertEquals("FINISHED", res)
-            sleep(3000)
-            return true;
-        } else {
-            return false;
-        }
-    }
+
+    createMV("""
+    CREATE materialized VIEW amt_sum AS SELECT store_id, sum(sale_amt) FROM ${tbName1} GROUP BY store_id;
+    """)
+
+    createMV("""
+    CREATE materialized VIEW seller_id_order AS SELECT store_id,seller_id, sale_amt FROM ${tbName2} ORDER BY store_id,seller_id;
+    """)
+
     sql "SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='${tbName1}';"
     sql "SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='${tbName2}';"
     qt_sql "DESC ${tbName1} ALL;"
@@ -91,17 +76,11 @@ suite("test_materialized_view") {
     qt_sql "SELECT * FROM ${tbName2} order by record_id;"
     qt_sql "SELECT store_id, sum(sale_amt) FROM ${tbName2} GROUP BY store_id order by store_id;"
 
-    sql "CREATE materialized VIEW amt_count AS SELECT store_id, count(sale_amt) FROM ${tbName1} GROUP BY store_id;"
-    max_try_secs = 60
-    Awaitility.await().atMost(max_try_secs, SECONDS).pollInterval(2, SECONDS).until{
-        String res = getJobState(tbName1)
-        if (res == "FINISHED" || res == "CANCELLED") {
-            assertEquals("FINISHED", res)
-            sleep(3000)
-            return true;
-        }
-        return false;
-    }
+
+    createMV("""
+    CREATE materialized VIEW amt_count AS SELECT store_id, count(sale_amt) FROM ${tbName1} GROUP BY store_id;
+    """)
+
     sql "SELECT store_id, count(sale_amt) FROM ${tbName1} GROUP BY store_id;"
     order_qt_sql "DESC ${tbName1} ALL;"
 

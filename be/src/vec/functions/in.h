@@ -108,18 +108,17 @@ public:
         std::shared_ptr<InState> state = std::make_shared<InState>();
         context->set_function_state(scope, state);
         DCHECK(context->get_num_args() >= 1);
-        if (context->get_arg_type(0)->type == PrimitiveType::TYPE_NULL) {
-            state->hybrid_set.reset(create_set(TYPE_BOOLEAN, 0));
-        } else if (context->get_arg_type(0)->type == PrimitiveType::TYPE_CHAR ||
-                   context->get_arg_type(0)->type == PrimitiveType::TYPE_VARCHAR ||
-                   context->get_arg_type(0)->type == PrimitiveType::TYPE_STRING) {
+        if (context->get_arg_type(0)->get_primitive_type() == PrimitiveType::TYPE_NULL) {
+            state->hybrid_set.reset(create_set(TYPE_BOOLEAN, 0, true));
+        } else if (context->get_arg_type(0)->get_primitive_type() == PrimitiveType::TYPE_CHAR ||
+                   context->get_arg_type(0)->get_primitive_type() == PrimitiveType::TYPE_VARCHAR ||
+                   context->get_arg_type(0)->get_primitive_type() == PrimitiveType::TYPE_STRING) {
             // the StringValue's memory is held by FunctionContext, so we can use StringValueSet here directly
             state->hybrid_set.reset(create_string_value_set(get_size_with_out_null(context)));
         } else {
-            state->hybrid_set.reset(
-                    create_set(context->get_arg_type(0)->type, get_size_with_out_null(context)));
+            state->hybrid_set.reset(create_set(context->get_arg_type(0)->get_primitive_type(),
+                                               get_size_with_out_null(context), true));
         }
-        state->hybrid_set->set_null_aware(true);
 
         for (int i = 1; i < context->get_num_args(); ++i) {
             const auto& const_column_ptr = context->get_constant_col(i);
@@ -164,7 +163,7 @@ public:
         for (const auto& arg : arguments) {
             Field param_value;
             arg.column->get(0, param_value);
-            auto param_type = arg.type->get_type_as_type_descriptor().type;
+            auto param_type = arg.type->get_primitive_type();
             if (param_value.is_null()) {
                 // predicate like column NOT IN (NULL, '') should not push down to index.
                 if (negative) {
@@ -244,7 +243,7 @@ public:
                 }
 
             } else { // non-nullable
-                if (WhichDataType(left_arg.type).is_string()) {
+                if (is_string_type(left_arg.type->get_primitive_type())) {
                     const auto* column_string_ptr =
                             assert_cast<const vectorized::ColumnString*>(materialized_column.get());
                     search_hash_set(in_state, input_rows_count, vec_res, column_string_ptr);
@@ -279,10 +278,6 @@ public:
             block.replace_by_position(result, std::move(res));
         }
 
-        return Status::OK();
-    }
-
-    Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
         return Status::OK();
     }
 
@@ -336,8 +331,8 @@ private:
                     set_datas.push_back(set_data);
                 }
             }
-            std::unique_ptr<HybridSetBase> hybrid_set(
-                    create_set(context->get_arg_type(0)->type, set_datas.size()));
+            std::unique_ptr<HybridSetBase> hybrid_set(create_set(
+                    context->get_arg_type(0)->get_primitive_type(), set_datas.size(), true));
             for (auto& set_data : set_datas) {
                 hybrid_set->insert((void*)(set_data.data), set_data.size);
             }

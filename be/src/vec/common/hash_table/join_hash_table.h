@@ -24,8 +24,8 @@
 #include "common/exception.h"
 #include "common/status.h"
 #include "vec/columns/column_filter_helper.h"
+#include "vec/common/custom_allocator.h"
 #include "vec/common/hash_table/hash.h"
-#include "vec/common/hash_table/hash_table_allocator.h"
 
 namespace doris {
 template <typename Key, typename Hash = DefaultHash<Key>>
@@ -70,7 +70,7 @@ public:
 
     size_t size() const { return next.size(); }
 
-    std::vector<uint8_t>& get_visited() { return visited; }
+    DorisVector<uint8_t>& get_visited() { return visited; }
 
     bool empty_build_side() const { return _empty_build_side; }
 
@@ -106,7 +106,7 @@ public:
                     keys, build_idx_map, probe_idx, build_idx, probe_rows, probe_idxs, build_idxs);
         }
 
-        if (is_mark_join && JoinOpType != TJoinOp::RIGHT_SEMI_JOIN) {
+        if (is_mark_join) {
             bool is_null_aware_join = JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
                                       JoinOpType == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN;
             bool is_left_half_join =
@@ -178,7 +178,7 @@ public:
     }
 
     template <int JoinOpType, bool is_mark_join>
-    bool iterate_map(std::vector<uint32_t>& build_idxs,
+    bool iterate_map(vectorized::ColumnVector<uint32_t>& build_idxs,
                      vectorized::ColumnFilterHelper* mark_column_helper) const {
         const auto batch_size = max_batch_size;
         const auto elem_num = visited.size();
@@ -187,7 +187,7 @@ public:
 
         while (count < batch_size && iter_idx < elem_num) {
             const auto matched = visited[iter_idx];
-            build_idxs[count] = iter_idx;
+            build_idxs.get_element(count) = iter_idx;
             if constexpr (JoinOpType == TJoinOp::RIGHT_SEMI_JOIN) {
                 if constexpr (is_mark_join) {
                     mark_column_helper->insert_value(matched);
@@ -209,7 +209,7 @@ public:
 
     bool keep_null_key() { return _keep_null_key; }
 
-    void pre_build_idxs(std::vector<uint32>& buckets) const {
+    void pre_build_idxs(DorisVector<uint32>& buckets) const {
         for (unsigned int& bucket : buckets) {
             bucket = first[bucket];
         }
@@ -292,15 +292,6 @@ private:
 
         auto do_the_probe = [&]() {
             while (build_idx && matched_cnt < batch_size) {
-                if constexpr (JoinOpType == TJoinOp::RIGHT_ANTI_JOIN ||
-                              JoinOpType == TJoinOp::RIGHT_SEMI_JOIN) {
-                    if (!visited[build_idx] && keys[probe_idx] == build_keys[build_idx]) {
-                        probe_idxs[matched_cnt] = probe_idx;
-                        build_idxs[matched_cnt] = build_idx;
-                        matched_cnt++;
-                    }
-                }
-
                 if (keys[probe_idx] == build_keys[build_idx]) {
                     build_idxs[matched_cnt] = build_idx;
                     probe_idxs[matched_cnt] = probe_idx;
@@ -469,13 +460,13 @@ private:
     }
 
     const Key* __restrict build_keys;
-    std::vector<uint8_t> visited;
+    DorisVector<uint8_t> visited;
 
     uint32_t bucket_size = 1;
     int max_batch_size = 4064;
 
-    std::vector<uint32_t> first = {0};
-    std::vector<uint32_t> next = {0};
+    DorisVector<uint32_t> first = {0};
+    DorisVector<uint32_t> next = {0};
 
     // use in iter hash map
     mutable uint32_t iter_idx = 1;

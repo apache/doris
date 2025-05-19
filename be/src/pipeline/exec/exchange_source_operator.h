@@ -34,7 +34,7 @@ class Block;
 namespace doris::pipeline {
 
 class ExchangeSourceOperatorX;
-class ExchangeLocalState final : public PipelineXLocalState<> {
+class ExchangeLocalState : public PipelineXLocalState<> {
     ENABLE_FACTORY_CREATOR(ExchangeLocalState);
 
 public:
@@ -52,6 +52,8 @@ public:
                       [&](std::shared_ptr<Dependency> dep) { dep_vec.push_back(dep.get()); });
         return dep_vec;
     }
+
+    MOCK_FUNCTION void create_stream_recvr(RuntimeState* state);
     std::shared_ptr<doris::vectorized::VDataStreamRecvr> stream_recvr;
     doris::vectorized::VSortExecExprs vsort_exec_exprs;
     int64_t num_rows_skipped;
@@ -69,8 +71,15 @@ class ExchangeSourceOperatorX final : public OperatorX<ExchangeLocalState> {
 public:
     ExchangeSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                             const DescriptorTbl& descs, int num_senders);
+#ifdef BE_TEST
+    ExchangeSourceOperatorX(int num_senders, bool is_merging, int offset)
+            : _num_senders(num_senders),
+              _is_merging(is_merging),
+              _partition_type(TPartitionType::UNPARTITIONED),
+              _offset(offset) {}
+#endif
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
-    Status open(RuntimeState* state) override;
+    Status prepare(RuntimeState* state) override;
 
     Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
 
@@ -78,8 +87,6 @@ public:
 
     Status close(RuntimeState* state) override;
     [[nodiscard]] bool is_source() const override { return true; }
-
-    [[nodiscard]] RowDescriptor input_row_desc() const { return _input_row_desc; }
 
     [[nodiscard]] int num_senders() const { return _num_senders; }
     [[nodiscard]] bool is_merging() const { return _is_merging; }
@@ -100,11 +107,9 @@ private:
     const int _num_senders;
     const bool _is_merging;
     const TPartitionType::type _partition_type;
-    RowDescriptor _input_row_desc;
 
     // use in merge sort
     size_t _offset;
-
     doris::vectorized::VSortExecExprs _vsort_exec_exprs;
     std::vector<bool> _is_asc_order;
     std::vector<bool> _nulls_first;

@@ -152,8 +152,6 @@ public:
 
     size_t get_number_of_arguments() const override { return 1; }
 
-    bool use_default_implementation_for_nulls() const override { return true; }
-
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         auto res_null_map = ColumnUInt8::create(input_rows_count, 0);
@@ -267,7 +265,7 @@ struct NameHllToBase64 {
 
 struct HllToBase64 {
     using ReturnType = DataTypeString;
-    static constexpr auto TYPE_INDEX = TypeIndex::HLL;
+    static constexpr auto PrimitiveTypeImpl = PrimitiveType::TYPE_HLL;
     using Type = DataTypeHLL::FieldType;
     using ReturnColumnType = ColumnString;
     using Chars = ColumnString::Chars;

@@ -30,16 +30,12 @@ import org.apache.doris.analysis.ShowCreateMaterializedViewStmt;
 import org.apache.doris.analysis.ShowCreateTableStmt;
 import org.apache.doris.catalog.ColocateGroupSchema;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
-import org.apache.doris.catalog.MysqlTable;
-import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
-import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Table;
@@ -92,7 +88,6 @@ public class AlterTest {
         Config.disable_balance = true;
         Config.schedule_batch_size = 400;
         Config.schedule_slot_num_per_hdd_path = 100;
-        Config.enable_odbc_mysql_broker_table = true;
         UtFrameUtils.createDorisClusterWithMultiTag(runningDir, 5);
 
         List<Backend> backends = Env.getCurrentSystemInfo().getAllBackendsByAllCluster().values().asList();
@@ -182,14 +177,8 @@ public class AlterTest {
                         + "PARTITION BY RANGE(k1)\n" + "(\n"
                         + "    PARTITION p1 values less than('2020-02-01 00:00:00'),\n"
                         + "    PARTITION p2 values less than('2020-03-01 00:00:00')\n" + ")\n"
-                        + "DISTRIBUTED BY HASH(k2) BUCKETS 3\n" + "PROPERTIES('replication_num' = '1','enable_unique_key_merge_on_write' = 'false');");
-
-        createTable("create external table test.odbc_table\n" + "(  `k1` bigint(20) COMMENT \"\",\n"
-                + "  `k2` datetime COMMENT \"\",\n" + "  `k3` varchar(20) COMMENT \"\",\n"
-                + "  `k4` varchar(100) COMMENT \"\",\n" + "  `k5` float COMMENT \"\"\n" + ")ENGINE=ODBC\n"
-                + "PROPERTIES (\n" + "\"host\" = \"127.0.0.1\",\n" + "\"port\" = \"3306\",\n" + "\"user\" = \"root\",\n"
-                + "\"password\" = \"123\",\n" + "\"database\" = \"db1\",\n" + "\"table\" = \"tbl1\",\n"
-                + "\"driver\" = \"Oracle Driver\",\n" + "\"odbc_type\" = \"oracle\"\n" + ");");
+                        + "DISTRIBUTED BY HASH(k2) BUCKETS 3\n"
+                        + "PROPERTIES('replication_num' = '1','enable_unique_key_merge_on_write' = 'false');");
 
         // s3 resource
         createRemoteStorageResource(
@@ -197,7 +186,8 @@ public class AlterTest {
                         + "   \"AWS_ENDPOINT\" = \"bj\",\n" + "   \"AWS_REGION\" = \"bj\",\n"
                         + "   \"AWS_ROOT_PATH\" = \"/path/to/root\",\n" + "   \"AWS_ACCESS_KEY\" = \"bbb\",\n"
                         + "   \"AWS_SECRET_KEY\" = \"aaaa\",\n" + "   \"AWS_MAX_CONNECTIONS\" = \"50\",\n"
-                        + "   \"AWS_REQUEST_TIMEOUT_MS\" = \"3000\",\n" + "   \"AWS_CONNECTION_TIMEOUT_MS\" = \"1000\",\n"
+                        + "   \"AWS_REQUEST_TIMEOUT_MS\" = \"3000\",\n"
+                        + "   \"AWS_CONNECTION_TIMEOUT_MS\" = \"1000\",\n"
                         + "   \"AWS_BUCKET\" = \"test-bucket\",  \"s3_validity_check\" = \"false\"\n"
                         + ");");
 
@@ -206,7 +196,8 @@ public class AlterTest {
                         + "   \"AWS_ENDPOINT\" = \"bj\",\n" + "   \"AWS_REGION\" = \"bj\",\n"
                         + "   \"AWS_ROOT_PATH\" = \"/path/to/root\",\n" + "   \"AWS_ACCESS_KEY\" = \"bbb\",\n"
                         + "   \"AWS_SECRET_KEY\" = \"aaaa\",\n" + "   \"AWS_MAX_CONNECTIONS\" = \"50\",\n"
-                        + "   \"AWS_REQUEST_TIMEOUT_MS\" = \"3000\",\n" + "   \"AWS_CONNECTION_TIMEOUT_MS\" = \"1000\",\n"
+                        + "   \"AWS_REQUEST_TIMEOUT_MS\" = \"3000\",\n"
+                        + "   \"AWS_CONNECTION_TIMEOUT_MS\" = \"1000\",\n"
                         + "   \"AWS_BUCKET\" = \"test-bucket\", \"s3_validity_check\" = \"false\"\n"
                         + ");");
 
@@ -219,7 +210,8 @@ public class AlterTest {
                         + "  \"cooldown_ttl\" = \"1\"\n" + ");");
 
         createRemoteStoragePolicy(
-                "CREATE STORAGE POLICY testPolicyAnotherResource\n" + "PROPERTIES(\n" + "  \"storage_resource\" = \"remote_s3_1\",\n"
+                "CREATE STORAGE POLICY testPolicyAnotherResource\n" + "PROPERTIES(\n"
+                        + "  \"storage_resource\" = \"remote_s3_1\",\n"
                         + "  \"cooldown_ttl\" = \"1\"\n" + ");");
 
         createTable("CREATE TABLE test.tbl_remote1\n" + "(\n" + "    k1 date,\n" + "    k2 int,\n" + "    v1 int sum\n"
@@ -247,7 +239,7 @@ public class AlterTest {
                 + " PROPERTIES (\"replication_num\" = \"1\", \"function_column.sequence_col\" = \"v1\");");
 
         createTable("CREATE TABLE test.tbl_storage(k1 int) ENGINE=OLAP UNIQUE KEY (k1)\n"
-                 + "DISTRIBUTED BY HASH(k1) BUCKETS 3\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 3\n"
                 + "PROPERTIES('replication_num' = '1','enable_unique_key_merge_on_write' = 'true');");
     }
 
@@ -258,7 +250,6 @@ public class AlterTest {
     }
 
     private static void createTable(String sql) throws Exception {
-        Config.enable_odbc_mysql_broker_table = true;
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
         try {
             Env.getCurrentEnv().createTable(createTableStmt);
@@ -1099,9 +1090,12 @@ public class AlterTest {
     @Test
     public void testAlterDateV2Schema() throws Exception {
         createTable("CREATE TABLE test.unique_partition_datev2\n" + "(\n" + "    k1 date,\n" + "    k2 datetime(3),\n"
-                + "    k3 datetime,\n" + "    v1 date,\n" + "    v2 datetime(3),\n" + "    v3 datetime,\n" + "    v4 int\n"
-                + ")\n" + "UNIQUE KEY(k1, k2, k3)\n" + "PARTITION BY RANGE(k1)\n" + "(\n" + "    PARTITION p1 values less than('2020-02-01'),\n"
-                + "    PARTITION p2 values less than('2020-03-01')\n" + ")\n" + "DISTRIBUTED BY HASH(k1) BUCKETS 3\n" + "PROPERTIES('replication_num' = '1');");
+                + "    k3 datetime,\n" + "    v1 date,\n" + "    v2 datetime(3),\n" + "    v3 datetime,\n"
+                + "    v4 int\n"
+                + ")\n" + "UNIQUE KEY(k1, k2, k3)\n" + "PARTITION BY RANGE(k1)\n" + "(\n"
+                + "    PARTITION p1 values less than('2020-02-01'),\n"
+                + "    PARTITION p2 values less than('2020-03-01')\n" + ")\n" + "DISTRIBUTED BY HASH(k1) BUCKETS 3\n"
+                + "PROPERTIES('replication_num' = '1');");
 
         // partition key can not be changed.
         String changeOrderStmt = "ALTER TABLE test.unique_partition_datev2 modify column k1 int key null";
@@ -1149,120 +1143,6 @@ public class AlterTest {
             }
         }
         return true;
-    }
-
-    @Test
-    public void testExternalTableAlterOperations() throws Exception {
-        // external table do not support partition operation
-        String stmt = "alter table test.odbc_table add partition p3 values less than('2020-04-01'), add partition p4 values less than('2020-05-01')";
-        alterTable(stmt, true);
-
-        // external table do not support rollup
-        stmt = "alter table test.odbc_table add rollup r1 (k1)";
-        alterTable(stmt, true);
-
-        // external table support add column
-        stmt = "alter table test.odbc_table add column k6 INT KEY after k1, add column k7 TINYINT KEY after k6";
-        alterTable(stmt, false);
-        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
-        Table odbcTable = db.getTableOrMetaException("odbc_table");
-        Assert.assertEquals(odbcTable.getBaseSchema().size(), 7);
-        Assert.assertEquals(odbcTable.getBaseSchema().get(1).getDataType(), PrimitiveType.INT);
-        Assert.assertEquals(odbcTable.getBaseSchema().get(2).getDataType(), PrimitiveType.TINYINT);
-
-        // external table support drop column
-        stmt = "alter table test.odbc_table drop column k7";
-        alterTable(stmt, false);
-        db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
-        odbcTable = db.getTableOrMetaException("odbc_table");
-        Assert.assertEquals(odbcTable.getBaseSchema().size(), 6);
-
-        // external table support modify column
-        stmt = "alter table test.odbc_table modify column k6 bigint after k5";
-        alterTable(stmt, false);
-        db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
-        odbcTable = db.getTableOrMetaException("odbc_table");
-        Assert.assertEquals(odbcTable.getBaseSchema().size(), 6);
-        Assert.assertEquals(odbcTable.getBaseSchema().get(5).getDataType(), PrimitiveType.BIGINT);
-
-        // external table support reorder column
-        db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
-        odbcTable = db.getTableOrMetaException("odbc_table");
-        Assert.assertEquals(odbcTable.getBaseSchema().stream()
-                .map(column -> column.getName())
-                .reduce("", (totalName, columnName) -> totalName + columnName), "k1k2k3k4k5k6");
-        stmt = "alter table test.odbc_table order by (k6, k5, k4, k3, k2, k1)";
-        alterTable(stmt, false);
-        Assert.assertEquals(odbcTable.getBaseSchema().stream()
-                .map(column -> column.getName())
-                .reduce("", (totalName, columnName) -> totalName + columnName), "k6k5k4k3k2k1");
-
-        // external table support drop column
-        stmt = "alter table test.odbc_table drop column k6";
-        alterTable(stmt, false);
-        stmt = "alter table test.odbc_table drop column k5";
-        alterTable(stmt, false);
-        stmt = "alter table test.odbc_table drop column k4";
-        alterTable(stmt, false);
-        stmt = "alter table test.odbc_table drop column k3";
-        alterTable(stmt, false);
-        stmt = "alter table test.odbc_table drop column k2";
-        alterTable(stmt, false);
-        // do not allow drop last column
-        Assert.assertEquals(odbcTable.getBaseSchema().size(), 1);
-        stmt = "alter table test.odbc_table drop column k1";
-        alterTable(stmt, true);
-        Assert.assertEquals(odbcTable.getBaseSchema().size(), 1);
-
-        // external table support rename operation
-        stmt = "alter table test.odbc_table rename oracle_table";
-        alterTable(stmt, false);
-        db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
-        odbcTable = db.getTableNullable("oracle_table");
-        Assert.assertNotNull(odbcTable);
-        odbcTable = db.getTableNullable("odbc_table");
-        Assert.assertNull(odbcTable);
-    }
-
-    @Test
-    public void testModifyTableEngine() throws Exception {
-        String createOlapTblStmt = "CREATE TABLE test.mysql_table (\n"
-                + "  `k1` date NULL COMMENT \"\",\n"
-                + "  `k2` int NULL COMMENT \"\",\n"
-                + "  `k3` smallint NULL COMMENT \"\",\n"
-                + "  `v1` varchar(2048) NULL COMMENT \"\",\n"
-                + "  `v2` datetime NULL COMMENT \"\"\n"
-                + ") ENGINE=MYSQL\n"
-                + "PROPERTIES (\n"
-                + "\"host\" = \"172.16.0.1\",\n"
-                + "\"port\" = \"3306\",\n"
-                + "\"user\" = \"cmy\",\n"
-                + "\"password\" = \"abc\",\n"
-                + "\"database\" = \"db1\",\n"
-                + "\"table\" = \"tbl1\""
-                + ");";
-        createTable(createOlapTblStmt);
-
-        Database db = Env.getCurrentInternalCatalog().getDbNullable("test");
-        MysqlTable mysqlTable = (MysqlTable) db.getTableOrMetaException("mysql_table", Table.TableType.MYSQL);
-
-        String alterEngineStmt = "alter table test.mysql_table modify engine to odbc";
-        alterTable(alterEngineStmt, true);
-
-        alterEngineStmt = "alter table test.mysql_table modify engine to odbc properties(\"driver\" = \"MySQL\")";
-        alterTable(alterEngineStmt, false);
-
-        OdbcTable odbcTable = (OdbcTable) db.getTableNullable(mysqlTable.getId());
-        Assert.assertEquals("mysql_table", odbcTable.getName());
-        List<Column> schema = odbcTable.getBaseSchema();
-        Assert.assertEquals(5, schema.size());
-        Assert.assertEquals("172.16.0.1", odbcTable.getHost());
-        Assert.assertEquals("3306", odbcTable.getPort());
-        Assert.assertEquals("cmy", odbcTable.getUserName());
-        Assert.assertEquals("abc", odbcTable.getPasswd());
-        Assert.assertEquals("db1", odbcTable.getOdbcDatabaseName());
-        Assert.assertEquals("tbl1", odbcTable.getOdbcTableName());
-        Assert.assertEquals("MySQL", odbcTable.getOdbcDriver());
     }
 
     @Test(expected = DdlException.class)
@@ -1452,5 +1332,39 @@ public class AlterTest {
         List<List<String>> resultRows = executor.execute().getResultRows();
         String createSql = resultRows.get(0).get(1);
         Assert.assertFalse(createSql.contains("storage_policy"));
+    }
+
+    @Test
+    public void alterTableModifyPropertyTrim() throws Exception {
+        createTable("CREATE TABLE test.tbl_trim_property_key (\n"
+                + "`uuid` varchar(255) NULL,\n"
+                + "`action_datetime` date NULL\n"
+                + ")\n"
+                + "DUPLICATE KEY(uuid)\n"
+                + "PARTITION BY RANGE(action_datetime)()\n"
+                + "DISTRIBUTED BY HASH(uuid) BUCKETS 3\n"
+                + "PROPERTIES\n"
+                + "(\n"
+                + "\"replication_num\" = \"1\"\n"
+                + ");\n");
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
+        OlapTable tbl = (OlapTable) db.getTableOrMetaException("tbl_trim_property_key");
+        Assert.assertEquals(1, tbl.getTableProperty().getReplicaAllocation().getTotalReplicaNum());
+
+        String sql1 = "alter table test.tbl_trim_property_key set (\n"
+                + "' default.replication_num ' = '2'\n"
+                + " );";
+        AlterTableStmt alterTableStmt1 = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql1, connectContext);
+        Env.getCurrentEnv().alterTable(alterTableStmt1);
+        Assert.assertEquals(2, tbl.getDefaultReplicaAllocation().getTotalReplicaNum());
+
+        String sql2 = "alter table test.tbl_trim_property_key set (\n"
+                + "'default.replication_ num' = '1'\n"
+                + " );";
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
+                "Unknown table property: [default.replication_ num]",
+                () -> Env.getCurrentEnv()
+                        .alterTable((AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql2, connectContext)));
     }
 }

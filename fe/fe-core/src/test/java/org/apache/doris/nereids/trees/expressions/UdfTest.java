@@ -18,6 +18,9 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Function;
+import org.apache.doris.catalog.GlobalFunctionMgr;
+import org.apache.doris.common.Config;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateFormat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateTrunc;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DayOfMonth;
@@ -48,6 +51,7 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
+import java.util.List;
 
 public class UdfTest extends TestWithFeService implements PlanPatternMatchSupported {
     @Override
@@ -59,10 +63,13 @@ public class UdfTest extends TestWithFeService implements PlanPatternMatchSuppor
     @Override
     protected void runBeforeEach() throws Exception {
         connectContext.setDatabase("test");
+        Config.enable_java_udf = true;
     }
 
     @Test
     public void testSimpleAliasFunction() throws Exception {
+        // alias udf should not check java_udf
+        Config.enable_java_udf = false;
         createFunction("create global alias function f(int) with parameter(n) as hours_add(now(3), n)");
         createFunction("create alias function f(int) with parameter(n) as hours_sub(now(3), n)");
 
@@ -188,8 +195,13 @@ public class UdfTest extends TestWithFeService implements PlanPatternMatchSuppor
         Env.getCurrentEnv().getGlobalFunctionMgr().write(new DataOutputStream(outputStream));
         byte[] buffer = outputStream.toByteArray();
         ByteArrayInputStream inputStream = new ByteArrayInputStream(buffer);
-        Env.getCurrentEnv().getGlobalFunctionMgr().readFields(new DataInputStream(inputStream));
+        GlobalFunctionMgr newMgr = GlobalFunctionMgr.read(new DataInputStream(inputStream));
 
+        List<Function> functions = newMgr.getFunctions();
+        Assertions.assertEquals(1, functions.stream()
+                .map(f -> f.getFunctionName().getFunction())
+                .filter(name -> name.equals("f8"))
+                .count());
         Assertions.assertEquals(1, Env.getCurrentEnv().getFunctionRegistry()
                 .findUdfBuilder(connectContext.getDatabase(), "f8").size());
     }

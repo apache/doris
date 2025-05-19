@@ -74,7 +74,7 @@ public class IsNull extends Expression implements UnaryExpression, AlwaysNotNull
     }
 
     @Override
-    public int hashCode() {
+    public int computeHashCode() {
         return child().hashCode();
     }
 

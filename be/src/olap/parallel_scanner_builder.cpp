@@ -26,13 +26,13 @@
 #include "olap/rowset/beta_rowset.h"
 #include "olap/segment_loader.h"
 #include "pipeline/exec/olap_scan_operator.h"
-#include "vec/exec/scan/new_olap_scanner.h"
+#include "vec/exec/scan/olap_scanner.h"
 
 namespace doris {
 
 using namespace vectorized;
 
-Status ParallelScannerBuilder::build_scanners(std::list<VScannerSPtr>& scanners) {
+Status ParallelScannerBuilder::build_scanners(std::list<ScannerSPtr>& scanners) {
     RETURN_IF_ERROR(_load());
     if (_is_dup_mow_key) {
         return _build_scanners_by_rowid(scanners);
@@ -42,7 +42,7 @@ Status ParallelScannerBuilder::build_scanners(std::list<VScannerSPtr>& scanners)
     }
 }
 
-Status ParallelScannerBuilder::_build_scanners_by_rowid(std::list<VScannerSPtr>& scanners) {
+Status ParallelScannerBuilder::_build_scanners_by_rowid(std::list<ScannerSPtr>& scanners) {
     DCHECK_GE(_rows_per_scanner, _min_rows_per_scanner);
 
     for (auto&& [tablet, version] : _tablets) {
@@ -70,7 +70,7 @@ Status ParallelScannerBuilder::_build_scanners_by_rowid(std::list<VScannerSPtr>&
                 continue;
             }
 
-            int segment_start = 0;
+            int64_t segment_start = 0;
             auto split = RowSetSplits(reader->clone());
 
             for (size_t i = 0; i != segments_rows.size(); ++i) {
@@ -164,32 +164,26 @@ Status ParallelScannerBuilder::_build_scanners_by_rowid(std::list<VScannerSPtr>&
  */
 Status ParallelScannerBuilder::_load() {
     _total_rows = 0;
+    size_t idx = 0;
     for (auto&& [tablet, version] : _tablets) {
         const auto tablet_id = tablet->tablet_id();
-        auto& read_source = _all_read_sources[tablet_id];
-        RETURN_IF_ERROR(tablet->capture_rs_readers({0, version}, &read_source.rs_splits, false));
-        if (!_state->skip_delete_predicate()) {
-            read_source.fill_delete_predicates();
-        }
-        bool enable_segment_cache = _state->query_options().__isset.enable_segment_cache
-                                            ? _state->query_options().enable_segment_cache
-                                            : true;
-
+        _all_read_sources[tablet_id] = _read_sources[idx];
+        const auto& read_source = _all_read_sources[tablet_id];
         for (auto& rs_split : read_source.rs_splits) {
             auto rowset = rs_split.rs_reader->rowset();
             RETURN_IF_ERROR(rowset->load());
             const auto rowset_id = rowset->rowset_id();
-            SegmentCacheHandle segment_cache_handle;
 
-            RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(
-                    std::dynamic_pointer_cast<BetaRowset>(rowset), &segment_cache_handle,
-                    enable_segment_cache, false));
-
-            for (const auto& segment : segment_cache_handle.get_segments()) {
-                _all_segments_rows[rowset_id].emplace_back(segment->num_rows());
+            auto beta_rowset = std::dynamic_pointer_cast<BetaRowset>(rowset);
+            std::vector<uint32_t> segment_rows;
+            RETURN_IF_ERROR(beta_rowset->get_segment_num_rows(&segment_rows));
+            auto segment_count = rowset->num_segments();
+            for (int64_t i = 0; i != segment_count; i++) {
+                _all_segments_rows[rowset_id].emplace_back(segment_rows[i]);
             }
             _total_rows += rowset->num_rows();
         }
+        idx++;
     }
 
     _rows_per_scanner = _total_rows / _max_scanners_count;
@@ -198,12 +192,12 @@ Status ParallelScannerBuilder::_load() {
     return Status::OK();
 }
 
-std::shared_ptr<NewOlapScanner> ParallelScannerBuilder::_build_scanner(
+std::shared_ptr<OlapScanner> ParallelScannerBuilder::_build_scanner(
         BaseTabletSPtr tablet, int64_t version, const std::vector<OlapScanRange*>& key_ranges,
         TabletReader::ReadSource&& read_source) {
-    NewOlapScanner::Params params {_state,  _scanner_profile.get(), key_ranges, std::move(tablet),
-                                   version, std::move(read_source), _limit,     _is_preaggregation};
-    return NewOlapScanner::create_shared(_parent, std::move(params));
+    OlapScanner::Params params {_state,  _scanner_profile.get(), key_ranges, std::move(tablet),
+                                version, std::move(read_source), _limit,     _is_preaggregation};
+    return OlapScanner::create_shared(_parent, std::move(params));
 }
 
 } // namespace doris

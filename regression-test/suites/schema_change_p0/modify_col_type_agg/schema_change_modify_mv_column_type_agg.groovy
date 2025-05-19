@@ -73,25 +73,8 @@ suite("schema_change_modify_mv_column_type_agg") {
     qt_sql "SELECT * from ${testTable} order by 1, 2, 3 limit 10"
     qt_sql "SELECT * from ${testTable} where c_tinyint = 10 order by 1, 2, 3 limit 10 "
 
-    sql """
-          ALTER table ${testTable} MODIFY COLUMN c_int BIGINT max;
-          """
-    def getJobState = { tableName ->
-          def jobStateResult = sql """  SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName}' ORDER BY createtime DESC LIMIT 1 """
-          return jobStateResult[0][9]
-     }
-    int max_try_time = 100
-    while (max_try_time--){
-        String result = getJobState(testTable)
-        if (result == "FINISHED") {
-            break
-        } else {
-            sleep(2000)
-            if (max_try_time < 1){
-                assertEquals(1,2)
-            }
-        }
+    test {
+        sql """ ALTER table ${testTable} MODIFY COLUMN c_int BIGINT max """
+        exception "Can not modify column contained by mv"
     }
-    qt_sql """ desc ${testTable} all """
-    sql "INSERT INTO ${testTable} SELECT * from ${testTable}"
 }

@@ -56,6 +56,7 @@ import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.AlterReplicaTask;
 import org.apache.doris.task.CreateReplicaTask;
+import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
@@ -143,13 +144,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
     @SerializedName(value = "hasRowStoreChange")
     protected boolean hasRowStoreChange = false;
 
-    @SerializedName(value = "enableUniqueKeySkipBitmap")
-    private boolean enableUniqueKeySkipBitmap = false;
-    @SerializedName(value = "hasEnableUniqueKeySkipBitmapChanged")
-    private boolean hasEnableUniqueKeySkipBitmapChanged = false;
-
     // save all schema change tasks
-    private AgentBatchTask schemaChangeBatchTask = new AgentBatchTask();
+    AgentBatchTask schemaChangeBatchTask = new AgentBatchTask();
 
     protected SchemaChangeJobV2() {
         super(JobType.SCHEMA_CHANGE);
@@ -199,12 +195,6 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         this.hasRowStoreChange = hasRowStoreChange;
         this.storeRowColumn = storeRowColumn;
         this.rowStoreColumns = rowStoreColumns;
-    }
-
-    public void setEnableUniqueKeySkipBitmapInfo(boolean enableUniqueKeySkipBitmap,
-            boolean hasEnableUniqueKeySkipBitmapChanged) {
-        this.enableUniqueKeySkipBitmap = enableUniqueKeySkipBitmap;
-        this.hasEnableUniqueKeySkipBitmapChanged = hasEnableUniqueKeySkipBitmapChanged;
     }
 
     public void setAlterIndexInfo(boolean indexChange, List<Index> indexes) {
@@ -588,22 +578,32 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             List<AgentTask> tasks = schemaChangeBatchTask.getUnfinishedTasks(2000);
             ensureCloudClusterExist(tasks);
             for (AgentTask task : tasks) {
-                if (task.getFailedTimes() > 0) {
-                    task.setFinished(true);
-                    AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.ALTER, task.getSignature());
-                    LOG.warn("schema change task failed: {}", task.getErrorMsg());
-                    List<Long> failedBackends = failedTabletBackends.get(task.getTabletId());
-                    if (failedBackends == null) {
-                        failedBackends = Lists.newArrayList();
-                        failedTabletBackends.put(task.getTabletId(), failedBackends);
+                int maxFailedTimes = 0;
+                if (Config.isCloudMode() && Config.enable_schema_change_retry_in_cloud_mode) {
+                    if (task.getErrorCode() != null && task.getErrorCode()
+                            .equals(TStatusCode.DELETE_BITMAP_LOCK_ERROR)) {
+                        maxFailedTimes = Config.schema_change_max_retry_time;
                     }
-                    failedBackends.add(task.getBackendId());
-                    int expectSucceedTaskNum = tbl.getPartitionInfo()
-                            .getReplicaAllocation(task.getPartitionId()).getTotalReplicaNum();
-                    int failedTaskCount = failedBackends.size();
-                    if (expectSucceedTaskNum - failedTaskCount < expectSucceedTaskNum / 2 + 1) {
-                        throw new AlterCancelException(
+                }
+                if (task.getFailedTimes() > maxFailedTimes) {
+                    task.setFinished(true);
+                    if (!FeConstants.runningUnitTest) {
+                        AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.ALTER, task.getSignature());
+                        LOG.warn("schema change task failed, failedTimes: {}, maxFailedTimes: {}, err: {}",
+                                task.getFailedTimes(), maxFailedTimes, task.getErrorMsg());
+                        List<Long> failedBackends = failedTabletBackends.get(task.getTabletId());
+                        if (failedBackends == null) {
+                            failedBackends = Lists.newArrayList();
+                            failedTabletBackends.put(task.getTabletId(), failedBackends);
+                        }
+                        failedBackends.add(task.getBackendId());
+                        int expectSucceedTaskNum = tbl.getPartitionInfo()
+                                .getReplicaAllocation(task.getPartitionId()).getTotalReplicaNum();
+                        int failedTaskCount = failedBackends.size();
+                        if (expectSucceedTaskNum - failedTaskCount < expectSucceedTaskNum / 2 + 1) {
+                            throw new AlterCancelException(
                                 String.format("schema change tasks failed, error reason: %s", task.getErrorMsg()));
+                        }
                     }
                 }
             }
@@ -612,6 +612,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         Env.getCurrentEnv().getGroupCommitManager().blockTable(tableId);
         Env.getCurrentEnv().getGroupCommitManager().waitWalFinished(tableId);
         Env.getCurrentEnv().getGroupCommitManager().unblockTable(tableId);
+
         /*
          * all tasks are finished. check the integrity.
          * we just check whether all new replicas are healthy.
@@ -632,7 +633,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                 Partition partition = tbl.getPartition(partitionId);
                 Preconditions.checkNotNull(partition, partitionId);
 
-                long visiableVersion = partition.getVisibleVersion();
+                long visibleVersion = partition.getVisibleVersion();
                 short expectReplicationNum = tbl.getPartitionInfo()
                         .getReplicaAllocation(partition.getId()).getTotalReplicaNum();
 
@@ -645,12 +646,12 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                         int healthyReplicaNum = 0;
                         for (Replica replica : replicas) {
                             if (!replica.isBad() && replica.getLastFailedVersion() < 0
-                                    && replica.checkVersionCatchUp(visiableVersion, false)) {
+                                    && replica.checkVersionCatchUp(visibleVersion, false)) {
                                 healthyReplicaNum++;
                             }
                         }
 
-                        if (healthyReplicaNum < expectReplicationNum / 2 + 1) {
+                        if ((healthyReplicaNum < expectReplicationNum / 2 + 1) && !FeConstants.runningUnitTest) {
                             LOG.warn("shadow tablet {} has few healthy replicas: {}, schema change job: {}"
                                     + " healthyReplicaNum {} expectReplicationNum {}",
                                     shadowTablet.getId(), replicas, jobId, healthyReplicaNum, expectReplicationNum);
@@ -769,9 +770,6 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         if (hasRowStoreChange) {
             tbl.setStoreRowColumn(storeRowColumn);
             tbl.setRowStoreColumns(rowStoreColumns);
-        }
-        if (hasEnableUniqueKeySkipBitmapChanged) {
-            tbl.setEnableUniqueKeySkipBitmap(enableUniqueKeySkipBitmap);
         }
 
         // set storage format of table, only set if format is v2

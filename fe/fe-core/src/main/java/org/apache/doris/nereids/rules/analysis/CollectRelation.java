@@ -25,7 +25,9 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.nereids.CTEContext;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.PlannerHook;
 import org.apache.doris.nereids.StatementContext.TableFrom;
+import org.apache.doris.nereids.analyzer.UnboundDictionarySink;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundResultSink;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
@@ -35,12 +37,14 @@ import org.apache.doris.nereids.pattern.MatchingContext;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.exploration.mv.InitMaterializationContextHook;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
+import org.apache.doris.nereids.trees.plans.logical.UnboundLogicalSink;
 import org.apache.doris.nereids.util.RelationUtil;
 
 import com.google.common.collect.ImmutableList;
@@ -75,8 +79,8 @@ public class CollectRelation implements AnalysisRuleFactory {
                 unboundRelation()
                         .thenApply(this::collectFromUnboundRelation)
                         .toRule(RuleType.COLLECT_TABLE_FROM_RELATION),
-                unboundTableSink()
-                        .thenApply(this::collectFromUnboundTableSink)
+                unboundLogicalSink()
+                        .thenApply(this::collectFromUnboundSink)
                         .toRule(RuleType.COLLECT_TABLE_FROM_SINK),
                 any().whenNot(UnboundRelation.class::isInstance)
                         .whenNot(UnboundTableSink.class::isInstance)
@@ -124,7 +128,7 @@ public class CollectRelation implements AnalysisRuleFactory {
         return null;
     }
 
-    private Plan collectFromUnboundTableSink(MatchingContext<UnboundTableSink<Plan>> ctx) {
+    private Plan collectFromUnboundSink(MatchingContext<UnboundLogicalSink<Plan>> ctx) {
         List<String> nameParts = ctx.root.getNameParts();
         switch (nameParts.size()) {
             case 1:
@@ -175,12 +179,25 @@ public class CollectRelation implements AnalysisRuleFactory {
                 }
             }
         }
+
         List<String> tableQualifier = RelationUtil.getQualifierName(cascadesContext.getConnectContext(), nameParts);
-        TableIf table = cascadesContext.getConnectContext().getStatementContext()
+        TableIf table;
+        if (cascadesContext.getRewritePlan() instanceof UnboundDictionarySink) {
+            table = ((UnboundDictionarySink) cascadesContext.getRewritePlan()).getDictionary();
+        } else {
+            table = cascadesContext.getConnectContext().getStatementContext()
                 .getAndCacheTable(tableQualifier, tableFrom);
+        }
         LOG.info("collect table {} from {}", nameParts, tableFrom);
         if (tableFrom == TableFrom.QUERY) {
             collectMTMVCandidates(table, cascadesContext);
+        }
+        if (tableFrom == TableFrom.INSERT_TARGET) {
+            if (!cascadesContext.getStatementContext().getInsertTargetSchema().isEmpty()) {
+                LOG.warn("collect insert target table '{}' more than once.", tableQualifier);
+            }
+            cascadesContext.getStatementContext().getInsertTargetSchema().clear();
+            cascadesContext.getStatementContext().getInsertTargetSchema().addAll(table.getFullSchema());
         }
         if (table instanceof View) {
             parseAndCollectFromView(tableQualifier, (View) table, cascadesContext);
@@ -188,22 +205,37 @@ public class CollectRelation implements AnalysisRuleFactory {
     }
 
     private void collectMTMVCandidates(TableIf table, CascadesContext cascadesContext) {
-        if (cascadesContext.getConnectContext().getSessionVariable().enableMaterializedViewRewrite) {
+        boolean shouldCollect = false;
+        for (PlannerHook plannerHook : cascadesContext.getStatementContext().getPlannerHooks()) {
+            // only collect when InitMaterializationContextHook exists in planner hooks
+            if (plannerHook instanceof InitMaterializationContextHook) {
+                shouldCollect = true;
+                break;
+            }
+        }
+        if (shouldCollect) {
             Set<MTMV> mtmvSet = Env.getCurrentEnv().getMtmvService().getRelationManager()
                     .getAllMTMVs(Lists.newArrayList(new BaseTableInfo(table)));
-            LOG.info("table {} related mv set is {}", new BaseTableInfo(table), mtmvSet);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("table {} related mv set is {}", new BaseTableInfo(table), mtmvSet);
+            }
             for (MTMV mtmv : mtmvSet) {
                 cascadesContext.getStatementContext().getMtmvRelatedTables().put(mtmv.getFullQualifiers(), mtmv);
                 mtmv.readMvLock();
                 try {
                     for (BaseTableInfo baseTableInfo : mtmv.getRelation().getBaseTables()) {
-                        LOG.info("mtmv {} related base table include {}", new BaseTableInfo(mtmv), baseTableInfo);
+                        if (!baseTableInfo.isValid()) {
+                            continue;
+                        }
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("mtmv {} related base table include {}", new BaseTableInfo(mtmv), baseTableInfo);
+                        }
                         try {
                             cascadesContext.getStatementContext().getAndCacheTable(baseTableInfo.toList(),
                                     TableFrom.MTMV);
                         } catch (AnalysisException exception) {
-                            LOG.warn("mtmv related base table get err, related table is "
-                                            + baseTableInfo.toList(), exception);
+                            LOG.warn("mtmv related base table get err, related table is {}",
+                                    baseTableInfo.toList(), exception);
                         }
                     }
                 } finally {

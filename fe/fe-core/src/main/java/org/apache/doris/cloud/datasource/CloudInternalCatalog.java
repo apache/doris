@@ -179,7 +179,6 @@ public class CloudInternalCatalog extends InternalCatalog {
                         tbl.getTimeSeriesCompactionLevelThreshold(),
                         tbl.disableAutoCompaction(),
                         tbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
-                        tbl.getEnableMowLightDelete(),
                         tbl.getInvertedIndexFileStorageFormat(),
                         tbl.rowStorePageSize(),
                         tbl.variantEnableFlattenNested(), clusterKeyUids,
@@ -213,7 +212,7 @@ public class CloudInternalCatalog extends InternalCatalog {
             Long timeSeriesCompactionGoalSizeMbytes, Long timeSeriesCompactionFileCountThreshold,
             Long timeSeriesCompactionTimeThresholdSeconds, Long timeSeriesCompactionEmptyRowsetsThreshold,
             Long timeSeriesCompactionLevelThreshold, boolean disableAutoCompaction,
-            List<Integer> rowStoreColumnUniqueIds, boolean enableMowLightDelete,
+            List<Integer> rowStoreColumnUniqueIds,
             TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat, long pageSize,
             boolean variantEnableFlattenNested, List<Integer> clusterKeyUids,
             long storagePageSize) throws DdlException {
@@ -323,17 +322,20 @@ public class CloudInternalCatalog extends InternalCatalog {
             schemaBuilder.addColumn(column.toPb(bfColumns, indexes));
         }
 
+        Map<Integer, Column> columnMap = Maps.newHashMap();
+        for (Column column : schemaColumns) {
+            columnMap.put(column.getUniqueId(), column);
+        }
         if (indexes != null) {
-            for (int i = 0; i < indexes.size(); i++) {
-                Index index = indexes.get(i);
-                schemaBuilder.addIndex(index.toPb(schemaColumns));
+            for (Index index : indexes) {
+                schemaBuilder.addIndex(index.toPb(columnMap, index.getColumnUniqueIds(schemaColumns)));
             }
         }
+
         if (rowStoreColumnUniqueIds != null) {
             schemaBuilder.addAllRowStoreColumnUniqueIds(rowStoreColumnUniqueIds);
         }
         schemaBuilder.setDisableAutoCompaction(disableAutoCompaction);
-        schemaBuilder.setEnableMowLightDelete(enableMowLightDelete);
 
         if (invertedIndexFileStorageFormat != null) {
             if (invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.V1) {

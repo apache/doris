@@ -47,16 +47,16 @@ list(REMOVE_ITEM UT_FILES
     ${CMAKE_CURRENT_SOURCE_DIR}/olap/rowset/segment_v2/plain_page_test.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/olap/rowset/segment_v2/rle_page_test.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/runtime/decimal_value_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/runtime/result_buffer_mgr_test.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/util/decompress_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/util/runtime_profile_test.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/util/url_coding_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/exprs/hybrid_set_test.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/io/fs/remote_file_system_test.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/olap/remote_rowset_gc_test.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/runtime/jsonb_value_test.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/runtime/large_int_value_test.cpp
 )
+
+message(STATUS "Disable the metrics collection for orc")
+add_compile_definitions(ENABLE_METRICS=0)
 
 list(APPEND UT_FILES
     ${CMAKE_SOURCE_DIR}/src/apache-orc/c++/test/MemoryInputStream.cc

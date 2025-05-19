@@ -37,6 +37,7 @@
 #include "olap/rowset/segment_v2/vertical_segment_writer.h"
 #include "olap/tablet_schema.h"
 #include "olap/utils.h"
+#include "util/pretty_printer.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_object.h"
@@ -92,7 +93,7 @@ Status SegmentFlusher::_internal_parse_variant_columns(vectorized::Block& block)
     std::vector<int> variant_column_pos;
     for (int i = 0; i < block.columns(); ++i) {
         const auto& entry = block.get_by_position(i);
-        if (vectorized::is_variant_type(remove_nullable(entry.type))) {
+        if (entry.type->get_primitive_type() == TYPE_VARIANT) {
             variant_column_pos.push_back(i);
         }
     }
@@ -254,7 +255,8 @@ Status SegmentFlusher::_flush_segment_writer(
     segstat.key_bounds = key_bounds;
     LOG(INFO) << "tablet_id:" << _context.tablet_id
               << ", flushing rowset_dir: " << _context.tablet_path
-              << ", rowset_id:" << _context.rowset_id << ", data size:" << segstat.data_size
+              << ", rowset_id:" << _context.rowset_id
+              << ", data size:" << PrettyPrinter::print_bytes(segstat.data_size)
               << ", index size:" << segstat.index_size;
 
     writer.reset();

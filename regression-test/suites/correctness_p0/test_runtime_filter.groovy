@@ -150,4 +150,21 @@ suite("test_runtime_filter") {
     sql "set runtime_filter_type='8';"
     qt_test "select * from c_table,v_table where c_table.kc=v_table.kv;"
     qt_test "select * from c_table,v_table where c_table.kv=v_table.kc;"
+
+    test {
+        sql "set runtime_filter_type='IN,BLOOM_FILTER';"
+        exception "IN, BLOOM, IN_OR_BLOOM can not be enabled at the same time"
+    }
+    test {
+        sql "set runtime_filter_type='BLOOM_FILTER,IN_OR_BLOOM_FILTER';"
+        exception "IN, BLOOM, IN_OR_BLOOM can not be enabled at the same time"
+    }
+    test {
+        sql "set runtime_filter_type='IN,IN_OR_BLOOM_FILTER';"
+        exception "IN, BLOOM, IN_OR_BLOOM can not be enabled at the same time"
+    }
+    test {
+        sql "set runtime_filter_type='IN,BLOOM_FILTER,IN_OR_BLOOM_FILTER';"
+        exception "IN, BLOOM, IN_OR_BLOOM can not be enabled at the same time"
+    }
 }

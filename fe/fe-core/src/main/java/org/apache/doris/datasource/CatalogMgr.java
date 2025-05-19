@@ -125,7 +125,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         idToCatalog.put(catalog.getId(), catalog);
         String catalogName = catalog.getName();
         if (!catalogName.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
-            ((ExternalCatalog) catalog).onRefresh(false);
+            ((ExternalCatalog) catalog).resetToUninitialized(false);
         }
         if (!Strings.isNullOrEmpty(catalog.getResource())) {
             Resource resource = Env.getCurrentEnv().getResourceMgr().getResource(catalog.getResource());
@@ -377,24 +377,33 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     /**
      * Modify the catalog property and write the meta log.
      */
-    public void alterCatalogProps(AlterCatalogPropertyStmt stmt) throws UserException {
+    public void alterCatalogProps(String catalogName, Map<String, String> newProperties) throws UserException {
         writeLock();
         try {
-            CatalogIf catalog = nameToCatalog.get(stmt.getCatalogName());
+            CatalogIf catalog = nameToCatalog.get(catalogName);
             if (catalog == null) {
-                throw new DdlException("No catalog found with name: " + stmt.getCatalogName());
+                throw new DdlException("No catalog found with name: " + catalogName);
             }
             Map<String, String> oldProperties = catalog.getProperties();
-            if (stmt.getNewProperties().containsKey("type") && !catalog.getType()
-                    .equalsIgnoreCase(stmt.getNewProperties().get("type"))) {
-                throw new DdlException("Can't modify the type of catalog property with name: " + stmt.getCatalogName());
+            if (newProperties.containsKey("type") && !catalog.getType()
+                    .equalsIgnoreCase(newProperties.get("type"))) {
+                throw new DdlException("Can't modify the type of catalog property with name: " + catalogName);
             }
-            CatalogLog log = CatalogFactory.createCatalogLog(catalog.getId(), stmt);
+            CatalogLog log = new CatalogLog();
+            log.setCatalogId(catalog.getId());
+            log.setNewProps(newProperties);
             replayAlterCatalogProps(log, oldProperties, false);
             Env.getCurrentEnv().getEditLog().logCatalogLog(OperationType.OP_ALTER_CATALOG_PROPS, log);
         } finally {
             writeUnlock();
         }
+    }
+
+    /**
+     * Modify the catalog property and write the meta log.
+     */
+    public void alterCatalogProps(AlterCatalogPropertyStmt stmt) throws UserException {
+        alterCatalogProps(stmt.getCatalogName(), stmt.getNewProperties());
     }
 
     /**
@@ -405,14 +414,21 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     }
 
     public ShowResultSet showCatalogs(ShowCatalogStmt showStmt, String currentCtlg) throws AnalysisException {
+        List<List<String>> rows = showCatalogs(showStmt.getCatalogName(), showStmt.getPattern(), currentCtlg);
+
+        return new ShowResultSet(showStmt.getMetaData(), rows);
+    }
+
+    public List<List<String>> showCatalogs(
+            String catalogName, String pattern, String currentCatalogName) throws AnalysisException {
         List<List<String>> rows = Lists.newArrayList();
         readLock();
         try {
-            if (showStmt.getCatalogName() == null) {
+            if (catalogName == null) {
                 PatternMatcher matcher = null;
-                if (showStmt.getPattern() != null) {
-                    matcher = PatternMatcherWrapper.createMysqlPattern(showStmt.getPattern(),
-                            CaseSensibility.CATALOG.getCaseSensibility());
+                if (pattern != null) {
+                    matcher = PatternMatcherWrapper.createMysqlPattern(pattern,
+                        CaseSensibility.CATALOG.getCaseSensibility());
                 }
                 for (CatalogIf catalog : listCatalogsWithCheckPriv(ConnectContext.get().getCurrentUserIdentity())) {
                     String name = catalog.getName();
@@ -424,7 +440,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                     row.add(String.valueOf(catalog.getId()));
                     row.add(name);
                     row.add(catalog.getType());
-                    if (name.equals(currentCtlg)) {
+                    if (name.equals(currentCatalogName)) {
                         row.add("Yes");
                     } else {
                         row.add("No");
@@ -442,14 +458,16 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                     });
                 }
             } else {
-                if (!nameToCatalog.containsKey(showStmt.getCatalogName())) {
-                    throw new AnalysisException("No catalog found with name: " + showStmt.getCatalogName());
+                if (!nameToCatalog.containsKey(catalogName)) {
+                    throw new AnalysisException("No catalog found with name: " + catalogName);
                 }
-                CatalogIf<DatabaseIf> catalog = nameToCatalog.get(showStmt.getCatalogName());
+                CatalogIf<DatabaseIf> catalog = nameToCatalog.get(catalogName);
                 if (!Env.getCurrentEnv().getAccessManager()
                         .checkCtlPriv(ConnectContext.get(), catalog.getName(), PrivPredicate.SHOW)) {
-                    ErrorReport.reportAnalysisException(ErrorCode.ERR_CATALOG_ACCESS_DENIED,
-                            ConnectContext.get().getQualifiedUser(), catalog.getName());
+                    ErrorReport.reportAnalysisException(
+                            ErrorCode.ERR_CATALOG_ACCESS_DENIED,
+                            ConnectContext.get().getQualifiedUser(),
+                            catalog.getName());
                 }
                 if (!Strings.isNullOrEmpty(catalog.getResource())) {
                     rows.add(Arrays.asList("resource", catalog.getResource()));
@@ -461,7 +479,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             readUnlock();
         }
 
-        return new ShowResultSet(showStmt.getMetaData(), rows);
+        return rows;
     }
 
     public static Map<String, String> getCatalogPropertiesWithPrintable(CatalogIf<?> catalog) {
@@ -885,5 +903,9 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
 
     public Set<CatalogIf> getCopyOfCatalog() {
         return new HashSet<>(idToCatalog.values());
+    }
+
+    public int getCatalogNum() {
+        return idToCatalog.size();
     }
 }

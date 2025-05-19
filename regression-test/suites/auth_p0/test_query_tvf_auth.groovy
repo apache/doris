@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_jdbc_query_tvf","p0,auth") {
-    String suiteName = "test_jdbc_query_tvf"
+suite("test_query_tvf_auth", "p0,auth,external,external_docker") {
+    String suiteName = "test_query_tvf_auth"
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     String s3_endpoint = getS3Endpoint()
@@ -48,21 +48,21 @@ suite("test_jdbc_query_tvf","p0,auth") {
             def clusters = sql " SHOW CLUSTERS; "
             assertTrue(!clusters.isEmpty())
             def validCluster = clusters[0][0]
-            sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${dorisuser}""";
+            sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${dorisuser}""";
         }
 
         sql """grant select_priv on regression_test to ${dorisuser}"""
 
-        connect(user=dorisuser, password="${dorispwd}", url=context.config.jdbcUrl) {
+        connect(dorisuser, "${dorispwd}", context.config.jdbcUrl) {
             test {
                   sql """
                      select * from query('catalog' = '${catalog_name}', 'query' = 'select * from doris_test.all_types');
                   """
-                  exception "denied"
+                  exception "has no privilege"
             }
         }
         sql """grant select_priv on ${catalog_name}.*.* to ${dorisuser}"""
-        connect(user=dorisuser, password="${dorispwd}", url=context.config.jdbcUrl) {
+        connect(dorisuser, "${dorispwd}", context.config.jdbcUrl) {
           sql """
              select * from query('catalog' = '${catalog_name}', 'query' = 'select * from doris_test.all_types');
           """

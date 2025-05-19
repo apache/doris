@@ -18,17 +18,22 @@
 package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.properties.RequireProperties;
 import org.apache.doris.nereids.properties.RequirePropertiesSupplier;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Ndv;
 import org.apache.doris.nereids.trees.expressions.functions.agg.NullableAggregateFunction;
 import org.apache.doris.nereids.trees.plans.AggMode;
 import org.apache.doris.nereids.trees.plans.AggPhase;
@@ -43,6 +48,8 @@ import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
 
 import java.util.List;
 import java.util.Objects;
@@ -135,10 +142,12 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
         this.requireProperties = Objects.requireNonNull(requireProperties, "requireProperties cannot be null");
     }
 
+    @Override
     public List<Expression> getGroupByExpressions() {
         return groupByExpressions;
     }
 
+    @Override
     public List<NamedExpression> getOutputExpressions() {
         return outputExpressions;
     }
@@ -209,6 +218,32 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
                 "topnFilter", topnPushInfo != null,
                 "topnPushDown", getMutableState(MutableState.KEY_PUSH_TOPN_TO_AGG).isPresent()
         );
+    }
+
+    @Override
+    public String getFingerprint() {
+        StringBuilder builder = new StringBuilder();
+        String aggPhase = "Aggregate(" + this.aggregateParam.aggPhase.toString() + ")";
+        List<Object> groupByExpressionsArgs = Lists.newArrayList(
+                "groupByExpr", groupByExpressions);
+        builder.append(Utils.toSqlString(aggPhase, groupByExpressionsArgs.toArray()));
+
+        builder.append("outputExpr=");
+        for (NamedExpression expr : outputExpressions) {
+            if (expr instanceof Alias) {
+                if (expr.child(0) instanceof AggregateExpression) {
+                    builder.append(((AggregateExpression) expr.child(0)).getFunction().getName());
+                } else if (expr.child(0) instanceof AggregateFunction) {
+                    builder.append(((AggregateFunction) expr.child(0)).getName());
+                } else {
+                    builder.append(Utils.toStringOrNull(expr));
+                }
+            } else {
+                builder.append(Utils.toStringOrNull(expr));
+            }
+        }
+
+        return builder.toString();
     }
 
     /**
@@ -380,5 +415,92 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
             }
             return output;
         });
+    }
+
+    private boolean isUniqueGroupByUnique(NamedExpression namedExpression) {
+        if (namedExpression.children().size() != 1) {
+            return false;
+        }
+        Expression agg = namedExpression.child(0);
+        return ExpressionUtils.isInjectiveAgg(agg)
+                && child().getLogicalProperties().getTrait().isUniqueAndNotNull(agg.getInputSlots());
+    }
+
+    private boolean isUniformGroupByUnique(NamedExpression namedExpression) {
+        if (namedExpression.children().size() != 1) {
+            return false;
+        }
+        Expression agg = namedExpression.child(0);
+        return agg instanceof Count || agg instanceof Ndv;
+    }
+
+    @Override
+    public void computeUnique(DataTrait.Builder builder) {
+        if (groupByExpressions.stream().anyMatch(s -> s instanceof VirtualSlotReference)) {
+            // roll up may generate new data
+            return;
+        }
+        DataTrait childFd = child(0).getLogicalProperties().getTrait();
+        ImmutableSet<Slot> groupByKeys = groupByExpressions.stream()
+                .map(s -> (Slot) s)
+                .collect(ImmutableSet.toImmutableSet());
+        // when group by all tuples, the result only have one row
+        if (groupByExpressions.isEmpty() || childFd.isUniformAndNotNull(groupByKeys)) {
+            getOutput().forEach(builder::addUniqueSlot);
+            return;
+        }
+
+        // propagate all unique slots
+        builder.addUniqueSlot(childFd);
+
+        // group by keys is unique
+        builder.addUniqueSlot(groupByKeys);
+
+        // group by unique may has unique aggregate result
+        if (childFd.isUniqueAndNotNull(groupByKeys)) {
+            for (NamedExpression namedExpression : getOutputExpressions()) {
+                if (isUniqueGroupByUnique(namedExpression)) {
+                    builder.addUniqueSlot(namedExpression.toSlot());
+                }
+            }
+        }
+    }
+
+    @Override
+    public void computeUniform(DataTrait.Builder builder) {
+        // always propagate uniform
+        DataTrait childFd = child(0).getLogicalProperties().getTrait();
+        builder.addUniformSlot(childFd);
+
+        if (groupByExpressions.stream().anyMatch(s -> s instanceof VirtualSlotReference)) {
+            // roll up may generate new data
+            return;
+        }
+        ImmutableSet<Slot> groupByKeys = groupByExpressions.stream()
+                .map(s -> (Slot) s)
+                .collect(ImmutableSet.toImmutableSet());
+        // when group by all tuples, the result only have one row
+        if (groupByExpressions.isEmpty() || childFd.isUniformAndNotNull(groupByKeys)) {
+            getOutput().forEach(builder::addUniformSlot);
+            return;
+        }
+
+        if (childFd.isUniqueAndNotNull(groupByKeys)) {
+            for (NamedExpression namedExpression : getOutputExpressions()) {
+                if (isUniformGroupByUnique(namedExpression)) {
+                    builder.addUniformSlot(namedExpression.toSlot());
+                }
+            }
+        }
+    }
+
+    @Override
+    public void computeEqualSet(DataTrait.Builder builder) {
+        builder.addEqualSet(child().getLogicalProperties().getTrait());
+    }
+
+    @Override
+    public void computeFd(DataTrait.Builder builder) {
+        builder.addFuncDepsDG(child().getLogicalProperties().getTrait());
     }
 }

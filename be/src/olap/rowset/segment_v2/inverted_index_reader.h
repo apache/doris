@@ -202,7 +202,7 @@ public:
 
     [[nodiscard]] uint64_t get_index_id() const { return _index_meta.index_id(); }
 
-    [[nodiscard]] const std::map<string, string>& get_index_properties() const {
+    [[nodiscard]] const std::map<std::string, std::string>& get_index_properties() const {
         return _index_meta.properties();
     }
 
@@ -219,9 +219,9 @@ public:
                                          InvertedIndexCacheHandle* inverted_index_cache_handle,
                                          const io::IOContext* io_ctx, OlapReaderStatistics* stats);
     std::string get_index_file_path();
-    static Status create_index_searcher(lucene::store::Directory* dir, IndexSearcherPtr* searcher,
-                                        MemTracker* mem_tracker,
-                                        InvertedIndexReaderType reader_type);
+    static Status create_index_searcher(IndexSearcherBuilder* index_searcher_builder,
+                                        lucene::store::Directory* dir, IndexSearcherPtr* searcher,
+                                        size_t& reader_size);
 
 protected:
     Status match_index_search(const io::IOContext* io_ctx, OlapReaderStatistics* stats,
@@ -468,7 +468,7 @@ public:
     }
 
     [[nodiscard]] InvertedIndexReaderType get_inverted_index_reader_type() const;
-    [[nodiscard]] const std::map<string, string>& get_index_properties() const;
+    [[nodiscard]] const std::map<std::string, std::string>& get_index_properties() const;
     [[nodiscard]] bool has_null() { return _reader->has_null(); };
 
     const InvertedIndexReaderPtr& reader() { return _reader; }

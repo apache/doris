@@ -20,6 +20,7 @@ suite("push_down_sum_through_join_one_side") {
     sql "set runtime_filter_mode=OFF"
     sql "SET enable_fallback_to_original_planner=false"
     sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
+    sql "set be_number_for_test=1"
     sql "set DISABLE_NEREIDS_RULES='ONE_PHASE_AGGREGATE_WITHOUT_DISTINCT, ONE_PHASE_AGGREGATE_SINGLE_DISTINCT_TO_MULTI'"
 
     sql """
@@ -154,7 +155,7 @@ suite("push_down_sum_through_join_one_side") {
     """
 
     qt_with_hint_groupby_pushdown_basic """
-        explain shape plan select /*+ USE_CBO_RULE(push_down_agg_through_join_one_side) */  sum(t1.score) from sum_t_one_side t1, sum_t_one_side t2 where t1.id = t2.id group by t1.name;
+        explain shape plan select /*+ USE_CBO_RULE(push_down_agg_through_join_one_side) */  sum(t1.score) from sum_t_one_side t1, sum_t_one_side t2 where t1.id = t2.id and t2.score < 100 group by t1.name;
     """
 
     qt_with_hint_groupby_pushdown_left_join """

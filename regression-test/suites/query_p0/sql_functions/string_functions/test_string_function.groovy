@@ -71,6 +71,14 @@ suite("test_string_function", "arrow_flight_sql") {
     qt_sql "select unhex('');"
     qt_sql "select unhex(NULL);"
 
+
+    qt_sql_unhex_null "select unhex_null('@');"
+    qt_sql_unhex_null "select unhex_null('68656C6C6F2C646F726973');"
+    qt_sql_unhex_null "select unhex_null('41');"
+    qt_sql_unhex_null "select unhex_null('4142');"
+    qt_sql_unhex_null "select unhex_null('');"
+    qt_sql_unhex_null "select unhex_null(NULL);"
+
     qt_sql_instr "select instr(\"abc\", \"b\");"
     qt_sql_instr "select instr(\"abc\", \"d\");"
     qt_sql_instr "select instr(\"abc\", null);"
@@ -162,6 +170,8 @@ suite("test_string_function", "arrow_flight_sql") {
     qt_sql "select left(\"good morning\", -5);"
     qt_sql "select right(\"Hello doris\", 120);"
     qt_sql "select right(\"Hello doris\", -6);"
+
+    qt_convert_1 "select convert('装装装装装' using gbk);"
 
     sql """ drop table if exists left_right_test; """
     sql """ create table left_right_test (
@@ -266,7 +276,7 @@ suite("test_string_function", "arrow_flight_sql") {
         ("aaaaaaaa", 1)
     """
     // bug fix
-    qt_sql_substring1 """ select /*+SET_VAR(parallel_fragment_exec_instance_num=1)*/ substring(k1, cast(null as int), cast(null as int)) from test_string_function; """
+    qt_sql_substring1 """ select /*+SET_VAR(parallel_pipeline_task_num=1)*/ substring(k1, cast(null as int), cast(null as int)) from test_string_function; """
 
     qt_sql "select substr('a',3,1);"
     qt_sql "select substr('a',2,1);"

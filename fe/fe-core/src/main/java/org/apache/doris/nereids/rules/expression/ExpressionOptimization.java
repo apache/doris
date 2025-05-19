@@ -26,10 +26,11 @@ import org.apache.doris.nereids.rules.expression.rules.DistinctPredicatesRule;
 import org.apache.doris.nereids.rules.expression.rules.ExtractCommonFactorRule;
 import org.apache.doris.nereids.rules.expression.rules.LikeToEqualRewrite;
 import org.apache.doris.nereids.rules.expression.rules.NullSafeEqualToEqual;
-import org.apache.doris.nereids.rules.expression.rules.OrToIn;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyComparisonPredicate;
+import org.apache.doris.nereids.rules.expression.rules.SimplifyConflictCompound;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyInPredicate;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyRange;
+import org.apache.doris.nereids.rules.expression.rules.SimplifySelfComparison;
 import org.apache.doris.nereids.rules.expression.rules.TopnToMax;
 
 import com.google.common.collect.ImmutableList;
@@ -42,12 +43,18 @@ import java.util.List;
 public class ExpressionOptimization extends ExpressionRewrite {
     public static final List<ExpressionRewriteRule> OPTIMIZE_REWRITE_RULES = ImmutableList.of(
             bottomUp(
-                    ExtractCommonFactorRule.INSTANCE,
-                    DistinctPredicatesRule.INSTANCE,
-                    SimplifyComparisonPredicate.INSTANCE,
                     SimplifyInPredicate.INSTANCE,
+
+                    // comparison predicates
+                    SimplifyComparisonPredicate.INSTANCE,
+                    SimplifySelfComparison.INSTANCE,
+
+                    // compound predicates
                     SimplifyRange.INSTANCE,
-                    OrToIn.INSTANCE,
+                    SimplifyConflictCompound.INSTANCE,
+                    DistinctPredicatesRule.INSTANCE,
+                    ExtractCommonFactorRule.INSTANCE,
+
                     DateFunctionRewrite.INSTANCE,
                     ArrayContainToArrayOverlap.INSTANCE,
                     CaseWhenToIf.INSTANCE,

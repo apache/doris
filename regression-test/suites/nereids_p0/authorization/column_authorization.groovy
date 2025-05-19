@@ -49,7 +49,7 @@ suite("column_authorization") {
         def clusters = sql " SHOW CLUSTERS; "
         assertTrue(!clusters.isEmpty())
         def validCluster = clusters[0][0]
-        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user1}""";
+        sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${user1}""";
     }
 
     sql 'sync'
@@ -63,6 +63,16 @@ suite("column_authorization") {
         test {
             sql "select * from ${db}.${baseTable}"
             exception "Permission denied"
+        }
+        sql "use ${db}"
+        test {
+            sql "create materialized view mv_xyz as select id, name from ${db}.${baseTable}"
+            exception "Permission denied"
+        }
+
+        test {
+            sql "create materialized view mv_xyz as select id from ${db}.${baseTable}"
+            exception "Access denied; you need (at least one of) the (ALTER) privilege(s) for this operation"
         }
 
         // has privilege to id, __DORIS_DELETE_SIGN__

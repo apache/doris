@@ -186,4 +186,54 @@ suite("test_ip_basic") {
     qt_sql """ alter table table_ip_default_like add column col25 ipv6 NULL DEFAULT "::" """
     qt_sql """ alter table table_ip_default_like add column col26 ipv4 NULL DEFAULT "127.0.0.1" """
     qt_sql """ select * from table_ip_default_like order by col0 """
+
+    // test ipv6 with uint128 presentation
+    sql """ DROP TABLE IF EXISTS table_ipv6_uint128 """
+    sql """ CREATE TABLE IF NOT EXISTS `table_ipv6_uint128` (`col0` bigint NOT NULL, `ipv6_uint128` ipv6 NOT NULL, `ipv6` ipv6 NOT NULL) ENGINE=OLAP UNIQUE KEY(`col0`) DISTRIBUTED BY HASH(`col0`) BUCKETS 4 PROPERTIES ("replication_allocation" = "tag.location.default: 1") """
+    // streamload
+    streamLoad {
+        db 'regression_test_datatype_p0_ip'
+        table 'table_ipv6_uint128'
+        set 'column_separator', ','
+        set 'columns', 'col0, tmp, ipv6, ipv6_uint128=ipv6_from_uint128_string_or_null(tmp)'
+        file 'test_data/ipv6_uint128.csv'
+        time 10000 // limit inflight 10s
+        // stream load action will check result, include Success status, and NumberTotalRows == NumberLoadedRows
+        check { res, exception, startTime, endTime ->
+                 if (exception != null) {
+                     throw exception
+                 }
+                 log.info("Stream load result: ${res}".toString())
+                 def json = parseJson(res)
+                 assertEquals("success", json.Status.toLowerCase())
+                 assertEquals(json.NumberTotalRows, json.NumberLoadedRows)
+                 assertTrue(json.LoadBytes > 0)
+             }
+    }
+    qt_sql_ipv6 """ select * from table_ipv6_uint128 order by col0 """
+    // test cast
+    sql """ DROP TABLE IF EXISTS table_ipv6_uint128_string """
+    sql """ CREATE TABLE IF NOT EXISTS `table_ipv6_uint128_string` (`col0` bigint NOT NULL, `ipv6_uint128` string NOT NULL, `ipv6` ipv6 NOT NULL) ENGINE=OLAP UNIQUE KEY(`col0`) DISTRIBUTED BY HASH(`col0`) BUCKETS 4 PROPERTIES ("replication_allocation" = "tag.location.default: 1") """
+    // streamload
+     streamLoad {
+            db 'regression_test_datatype_p0_ip'
+            table 'table_ipv6_uint128_string'
+            set 'column_separator', ','
+            file 'test_data/ipv6_uint128.csv'
+            time 10000 // limit inflight 10s
+            // stream load action will check result, include Success status, and NumberTotalRows == NumberLoadedRows
+            check { res, exception, startTime, endTime ->
+                     if (exception != null) {
+                         throw exception
+                     }
+                     log.info("Stream load result: ${res}".toString())
+                     def json = parseJson(res)
+                     assertEquals("success", json.Status.toLowerCase())
+                     assertEquals(json.NumberTotalRows, json.NumberLoadedRows)
+                     assertTrue(json.LoadBytes > 0)
+                 }
+        }
+
+    // then cast ipv6_uint128 to ipv6
+    qt_sql_ipv6_string """ select ipv6_from_uint128_string_or_null(ipv6_uint128) as ipv6_uint128, ipv6 from table_ipv6_uint128_string order by col0 """
 }

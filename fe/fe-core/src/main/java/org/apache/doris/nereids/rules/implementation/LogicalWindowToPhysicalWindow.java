@@ -18,10 +18,6 @@
 package org.apache.doris.nereids.rules.implementation;
 
 import org.apache.doris.nereids.annotation.DependsRules;
-import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
-import org.apache.doris.nereids.properties.OrderKey;
-import org.apache.doris.nereids.properties.OrderSpec;
-import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.properties.RequireProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
@@ -37,6 +33,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import org.apache.commons.collections.CollectionUtils;
@@ -55,8 +52,6 @@ import java.util.stream.Collectors;
  * step 2: sort PartitionKeyGroup with increasing order of tupleSize
  * step 3: for every WindowFrameGroup of each SortGroup, generate one PhysicalWindow node, with common PartitionKeys,
  *  OrderKeys, unique WindowFrame and a function list.
- * step 4: for each PhysicalWindow, generate RequiredProperties, including PartitionKey for DistributionSpec,
- *  and (PartitionKey + OrderKey) for OrderSpec.
  */
 @DependsRules({
     CheckAndStandardizeWindowFunctionAndFrame.class,
@@ -68,7 +63,7 @@ public class LogicalWindowToPhysicalWindow extends OneImplementationRuleFactory 
     public Rule build() {
 
         return RuleType.LOGICAL_WINDOW_TO_PHYSICAL_WINDOW_RULE.build(
-            logicalWindow().when(LogicalWindow::isChecked).then(this::implement)
+            logicalWindow().then(this::implement)
         );
     }
 
@@ -118,45 +113,15 @@ public class LogicalWindowToPhysicalWindow extends OneImplementationRuleFactory 
         // Plan newRoot = createPhysicalSortNode(root, orderKeyGroup, ctx);
         Plan newRoot = root;
 
-        // we will not add PhysicalSort in this step, but generate it if necessary with the ability of enforcer by
-        // setting RequiredProperties for PhysicalWindow
-        List<OrderKey> requiredOrderKeys = generateKeysNeedToBeSorted(orderKeyGroup);
-
         // PhysicalWindow nodes for each different window frame, so at least one PhysicalWindow node will be added
         for (WindowFrameGroup windowFrameGroup : orderKeyGroup.groups) {
-            newRoot = createPhysicalWindow(newRoot, windowFrameGroup, requiredOrderKeys);
+            newRoot = createPhysicalWindow(newRoot, windowFrameGroup);
         }
 
         return newRoot;
     }
 
-    private List<OrderKey> generateKeysNeedToBeSorted(OrderKeyGroup orderKeyGroup) {
-        // all keys that need to be sorted, which includes BOTH partitionKeys and orderKeys from this group
-        List<OrderKey> keysNeedToBeSorted = Lists.newArrayList();
-
-        // used as SortNode.isAnalyticSort, but it is unnecessary to add it in LogicalSort
-        if (!orderKeyGroup.partitionKeys.isEmpty()) {
-            keysNeedToBeSorted.addAll(orderKeyGroup.partitionKeys.stream().map(partitionKey -> {
-                // todo: haven't support isNullFirst, and its default value is false(see AnalyticPlanner,
-                //  but in LogicalPlanBuilder, its default value is true)
-                return new OrderKey(partitionKey, true, false);
-            }).collect(Collectors.toList()));
-        }
-
-        if (!orderKeyGroup.orderKeys.isEmpty()) {
-            keysNeedToBeSorted.addAll(orderKeyGroup.orderKeys.stream()
-                    .map(OrderExpression::getOrderKey)
-                    .collect(Collectors.toList())
-            );
-        }
-        return keysNeedToBeSorted;
-    }
-
-    private PhysicalWindow<Plan> createPhysicalWindow(Plan root, WindowFrameGroup windowFrameGroup,
-                                                      List<OrderKey> requiredOrderKeys) {
-        // requiredProperties:
-        //  Distribution: partitionKeys
-        //  Order: requiredOrderKeys
+    private PhysicalWindow<Plan> createPhysicalWindow(Plan root, WindowFrameGroup windowFrameGroup) {
         LogicalWindow<Plan> tempLogicalWindow = new LogicalWindow<>(windowFrameGroup.groups, root);
         PhysicalWindow<Plan> physicalWindow = new PhysicalWindow<>(
                 windowFrameGroup,
@@ -164,24 +129,7 @@ public class LogicalWindowToPhysicalWindow extends OneImplementationRuleFactory 
                 tempLogicalWindow.getWindowExpressions(),
                 tempLogicalWindow.getLogicalProperties(),
                 root);
-
-        if (windowFrameGroup.partitionKeys.isEmpty() && requiredOrderKeys.isEmpty()) {
-            return physicalWindow.withRequirePropertiesAndChild(RequireProperties.of(PhysicalProperties.GATHER), root);
-        }
-
-        // todo: WFGs in the same OKG only need same RequiredProperties
-        PhysicalProperties properties;
-        if (windowFrameGroup.partitionKeys.isEmpty()) {
-            properties = PhysicalProperties.GATHER.withOrderSpec(new OrderSpec(requiredOrderKeys));
-        } else {
-            properties = PhysicalProperties.createHash(
-                windowFrameGroup.partitionKeys, ShuffleType.REQUIRE);
-            // requiredOrderKeys contain partitionKeys, so there is no need to check if requiredOrderKeys.isEmpty()
-            properties = properties.withOrderSpec(new OrderSpec(requiredOrderKeys));
-        }
-
-        RequireProperties requireProperties = RequireProperties.of(properties);
-        return physicalWindow.withRequirePropertiesAndChild(requireProperties, root);
+        return (PhysicalWindow) physicalWindow.withChildren(ImmutableList.of(root));
     }
 
     /* ********************************************************************************************

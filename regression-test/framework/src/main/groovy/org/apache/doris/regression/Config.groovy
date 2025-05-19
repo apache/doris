@@ -149,6 +149,23 @@ class Config {
 
     public String s3Source
 
+    // for aws role arn regression test
+    public String awsRoleArn
+    public String awsExternalId
+    public String awsEndpoint
+    public String awsRegion
+    public String awsBucket
+    public String awsPrefix
+    public String awsAccessKey
+    public String awsSecretKey
+
+    public String regressionAwsRoleArn
+    public String regressionAwsExternalId
+    public String regressionAwsEndpoint
+    public String regressionAwsRegion
+    public String regressionAwsBucket
+    public String regressionAwsPrefix
+
     Config() {}
 
     Config(
@@ -593,6 +610,23 @@ class Config {
         config.dockerEndDeleteFiles = configToBoolean(obj.dockerEndDeleteFiles)
         config.dockerEndNoKill = configToBoolean(obj.dockerEndNoKill)
         config.excludeDockerTest = configToBoolean(obj.excludeDockerTest)
+
+        config.awsRoleArn = configToString(obj.awsRoleArn)
+        config.awsExternalId = configToString(obj.awsExternalId)
+        config.awsPrefix = configToString(obj.awsPrefix)
+        config.awsEndpoint = configToString(obj.awsEndpoint)
+        config.awsRegion = configToString(obj.awsRegion)
+        config.awsBucket = configToString(obj.awsBucket)
+        config.awsAccessKey = configToString(obj.awsAccessKey)
+        config.awsSecretKey = configToString(obj.awsSecretKey)
+        config.awsPrefix = configToString(obj.awsPrefix)
+
+        config.regressionAwsRoleArn = configToString(obj.regressionAwsRoleArn)
+        config.regressionAwsExternalId = configToString(obj.regressionAwsExternalId)
+        config.regressionAwsEndpoint = configToString(obj.regressionAwsEndpoint)
+        config.regressionAwsRegion = configToString(obj.regressionAwsRegion)
+        config.regressionAwsBucket = configToString(obj.regressionAwsBucket)
+        config.regressionAwsPrefix = configToString(obj.regressionAwsPrefix)
 
         def declareFileNames = config.getClass()
                 .getDeclaredFields()
@@ -1041,7 +1075,7 @@ class Config {
                 , "partial_update", "nereids_update_on_current_timestamp", "update_on_current_timestamp", "nereids_delete_mow_partial_update", "delete_mow_partial_update", "test_unique_table_auto_inc"
                 , "test_unique_table_auto_inc_partial_update_correct_insert", "partial_update_seq_col", "nereids_partial_update_native_insert_stmt_complex", "regression_test_variant_delete_and_update"
                 , "test_unique_table_auto_inc_partial_update_correct_stream_load", "test_update_mow", "test_new_update", "test_update_unique", "nereids_partial_update_native_insert_seq_col"
-                , "test_partial_update_rowset_not_found_fault_injection"]
+                , "test_partial_update_rowset_not_found_fault_injection", "test_primary_key_partial_update_broker_load"]
             for (def excludeCase in excludeCases) {
                 excludeSuiteWildcard.add(excludeCase)
             }

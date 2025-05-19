@@ -22,7 +22,6 @@ import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.TableName;
-import org.apache.doris.analysis.TableValuedFunctionRef;
 import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
@@ -31,9 +30,8 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
-import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
+import org.apache.doris.nereids.trees.plans.commands.TruncateTableCommand;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -94,7 +92,7 @@ public interface CatalogIf<T extends DatabaseIf> {
 
     default void notifyPropertiesUpdated(Map<String, String> updatedProps) {
         if (this instanceof ExternalCatalog) {
-            ((ExternalCatalog) this).onRefresh(false);
+            ((ExternalCatalog) this).resetToUninitialized(false);
         }
     }
 
@@ -189,7 +187,11 @@ public interface CatalogIf<T extends DatabaseIf> {
 
     void createDb(CreateDbStmt stmt) throws DdlException;
 
-    void dropDb(DropDbStmt stmt) throws DdlException;
+    default void dropDb(DropDbStmt stmt) throws DdlException {
+        dropDb(stmt.getDbName(), stmt.isSetIfExists(), stmt.isForceDrop());
+    }
+
+    void dropDb(String dbName, boolean ifExists, boolean force) throws DdlException;
 
     /**
      * @return if org.apache.doris.analysis.CreateTableStmt.ifNotExists is true, return true if table exists,
@@ -199,27 +201,12 @@ public interface CatalogIf<T extends DatabaseIf> {
 
     void dropTable(DropTableStmt stmt) throws DdlException;
 
+    void dropTable(String dbName, String tableName, boolean isView, boolean isMtmv, boolean ifExists,
+                   boolean force) throws DdlException;
+
     void truncateTable(TruncateTableStmt truncateTableStmt) throws DdlException;
 
-    /**
-     * Try to parse meta table name from table name.
-     * Some catalog allow querying meta table like "table_name$partitions".
-     * Catalog can override this method to parse meta table name from table name.
-     *
-     * @param tableName table name like "table_name" or "table_name$partitions"
-     * @return pair of source table name and meta table name
-     */
-    default Pair<String, String> getSourceTableNameWithMetaTableName(String tableName) {
-        return Pair.of(tableName, "");
-    }
-
-    default Optional<TableValuedFunction> getMetaTableFunction(String dbName, String sourceNameWithMetaName) {
-        return Optional.empty();
-    }
-
-    default Optional<TableValuedFunctionRef> getMetaTableFunctionRef(String dbName, String sourceNameWithMetaName) {
-        return Optional.empty();
-    }
+    void truncateTable(TruncateTableCommand truncateTableCommand) throws DdlException;
 
     // Convert from remote database name to local database name, overridden by subclass if necessary
     default String fromRemoteDatabaseName(String remoteDatabaseName) {

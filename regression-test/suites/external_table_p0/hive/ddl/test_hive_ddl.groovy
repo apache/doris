@@ -36,7 +36,7 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
                  """
             test {
                 sql """ drop database `test_hive_db` """;
-                exception "java.sql.SQLException: Unexpected exception: failed to drop database from hms client. reason: org.apache.hadoop.hive.metastore.api.InvalidOperationException: Database test_hive_db is not empty. One or more tables exist."
+                exception "java.sql.SQLException: errCode = 2, detailMessage = failed to drop database from hms client. reason: org.apache.hadoop.hive.metastore.api.InvalidOperationException: Database test_hive_db is not empty. One or more tables exist."
             }
 
             sql """ DROP TABLE `test_hive_db_has_tbl` """
@@ -681,6 +681,17 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
                     )
                     """
                 exception "Floating point type column can not be partition column"
+            }
+
+            try {
+                sql """
+                    CREATE TEMPORARY TABLE test_hive_db_temp_tbl (
+                      `col` STRING COMMENT 'col'
+                    )  ENGINE=hive
+                 """
+                throw new IllegalStateException("Should throw error")
+            } catch (Exception ex) {
+                assertTrue(ex.getMessage().contains("Do not support temporary table"), ex.getMessage())
             }
 
             sql """ drop database if exists `test_hive_db_tbl` """;

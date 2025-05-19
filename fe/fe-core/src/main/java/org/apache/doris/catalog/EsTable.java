@@ -152,15 +152,24 @@ public class EsTable extends Table implements GsonPostProcessable {
     }
 
     public Map<String, String> fieldsContext() throws UserException {
+        initEsMetaStateTracker();
         return esMetaStateTracker.searchContext().fetchFieldsContext();
     }
 
     public Map<String, String> docValueContext() throws UserException {
+        initEsMetaStateTracker();
         return esMetaStateTracker.searchContext().docValueFieldsContext();
     }
 
     public List<String> needCompatDateFields() throws UserException {
+        initEsMetaStateTracker();
         return esMetaStateTracker.searchContext().needCompatDateFields();
+    }
+
+    private void initEsMetaStateTracker() {
+        if (esMetaStateTracker == null) {
+            esMetaStateTracker = new EsMetaStateTracker(client, this);
+        }
     }
 
     private void validate(Map<String, String> properties) throws DdlException {
@@ -315,9 +324,12 @@ public class EsTable extends Table implements GsonPostProcessable {
         } else {
             throw new IOException("invalid partition type: " + partType);
         }
+        // parse httpSslEnabled before use it here.
+        EsResource.fillUrlsWithSchema(seeds, httpSslEnabled);
         client = new EsRestClient(seeds, userName, passwd, httpSslEnabled);
     }
 
+    @Override
     public void gsonPostProcess() throws IOException {
         hosts = tableContext.get("hosts");
         seeds = hosts.split(",");
@@ -346,6 +358,8 @@ public class EsTable extends Table implements GsonPostProcessable {
         includeHiddenIndex = Boolean.parseBoolean(tableContext.getOrDefault(EsResource.INCLUDE_HIDDEN_INDEX,
                 EsResource.INCLUDE_HIDDEN_INDEX_DEFAULT_VALUE));
 
+        // parse httpSslEnabled before use it here.
+        EsResource.fillUrlsWithSchema(seeds, httpSslEnabled);
         client = new EsRestClient(seeds, userName, passwd, httpSslEnabled);
     }
 
@@ -353,9 +367,7 @@ public class EsTable extends Table implements GsonPostProcessable {
      * Sync es index meta from remote ES Cluster.
      */
     public void syncTableMetaData() {
-        if (esMetaStateTracker == null) {
-            esMetaStateTracker = new EsMetaStateTracker(client, this);
-        }
+        initEsMetaStateTracker();
         try {
             esMetaStateTracker.run();
             this.esTablePartitions = esMetaStateTracker.searchContext().tablePartitions();

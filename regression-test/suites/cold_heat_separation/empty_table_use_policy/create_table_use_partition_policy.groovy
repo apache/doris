@@ -140,11 +140,64 @@ suite("create_table_use_partition_policy") {
         ) PARTITION BY RANGE (k1) (
             PARTITION p1 VALUES LESS THAN ("2022-01-01 00:00:00.111") ("storage_policy" = "test_create_table_partition_use_policy_1" ,"replication_num"="1"),
             PARTITION p2 VALUES LESS THAN ("2022-02-01 00:00:00.111") ("storage_policy" = "test_create_table_partition_use_policy_2" ,"replication_num"="1")
-        ) DISTRIBUTED BY HASH(k2) BUCKETS 1;
+        ) DISTRIBUTED BY HASH(k2) BUCKETS 1
+        PROPERTIES (
+            "replication_num" = "1"
+        );
     """
 
     assertEquals(create_table_partition_use_created_policy_2.size(), 1);
 
+    // test create table like
+    sql """
+    CREATE TABLE create_table_partition_use_created_policy_3 LIKE create_table_partition_use_created_policy_2;
+    """
+    def policy_using_item_count_1 = try_sql """
+        SHOW STORAGE POLICY USING for test_create_table_partition_use_policy_1
+    """
+    assertEquals(policy_using_item_count_1.size(), 2);
+
+    def policy_using_item_count_2 = try_sql """
+        SHOW STORAGE POLICY USING for test_create_table_partition_use_policy_2
+    """
+    assertEquals(policy_using_item_count_2.size(), 2);
+
+    def create_table_partition_use_created_policy_4 = try_sql """
+        CREATE TABLE IF NOT EXISTS create_table_partition_use_created_policy_4
+        (
+            k1 DATE,
+            k2 INT,
+            V1 VARCHAR(2048) REPLACE
+        ) PARTITION BY LIST (k1) (
+            PARTITION p1 VALUES IN ("2022-01-01") ("storage_policy" = "test_create_table_partition_use_policy_1" ,"replication_num"="1"),
+            PARTITION p2 VALUES IN ("2022-02-01") ("storage_policy" = "test_create_table_partition_use_policy_2" ,"replication_num"="1")
+        ) DISTRIBUTED BY HASH(k2) BUCKETS 1
+        PROPERTIES (
+            "replication_num" = "1"
+        );
+    """
+    sql """
+    CREATE TABLE create_table_partition_use_created_policy_5 LIKE create_table_partition_use_created_policy_4;
+    """
+    def policy_using_item_count_3 = try_sql """
+        SHOW STORAGE POLICY USING for test_create_table_partition_use_policy_1
+    """
+    assertEquals(policy_using_item_count_3.size(), 4);
+
+    def policy_using_item_count_4 = try_sql """
+        SHOW STORAGE POLICY USING for test_create_table_partition_use_policy_2
+    """
+    assertEquals(policy_using_item_count_4.size(), 4);
+
+    sql """
+    DROP TABLE create_table_partition_use_created_policy_5;
+    """
+    sql """
+    DROP TABLE create_table_partition_use_created_policy_4;
+    """
+    sql """
+    DROP TABLE create_table_partition_use_created_policy_3;
+    """
     sql """
     DROP TABLE create_table_partition_use_created_policy_2;
     """

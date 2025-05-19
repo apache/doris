@@ -55,9 +55,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.InSubquery;
 import org.apache.doris.nereids.trees.expressions.IntegralDivide;
-import org.apache.doris.nereids.trees.expressions.ListQuery;
 import org.apache.doris.nereids.trees.expressions.Match;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Placeholder;
@@ -68,7 +66,6 @@ import org.apache.doris.nereids.trees.expressions.Variable;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdfBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdaf;
@@ -81,6 +78,7 @@ import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
 import org.apache.doris.nereids.trees.plans.PlaceholderId;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
@@ -265,11 +263,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     public Expression visitUnboundAlias(UnboundAlias unboundAlias, ExpressionRewriteContext context) {
         Expression child = unboundAlias.child().accept(this, context);
         if (unboundAlias.getAlias().isPresent()) {
-            return new Alias(child, unboundAlias.getAlias().get());
-            // TODO: the variant bind element_at(slot, 'name') will return a slot, and we should
-            //       assign an Alias to this function, this is trick and should refactor it
-        } else if (!(unboundAlias.child() instanceof ElementAt) && child instanceof NamedExpression) {
-            return new Alias(child, ((NamedExpression) child).getName());
+            return new Alias(child, unboundAlias.getAlias().get(), unboundAlias.isNameFromChild());
         } else {
             return new Alias(child);
         }
@@ -299,6 +293,11 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                 Expression firstBound = bounded.get(0);
                 if (!foundInThisScope && firstBound instanceof Slot
                         && !outerScope.get().getCorrelatedSlots().contains(firstBound)) {
+                    if (currentPlan instanceof LogicalJoin) {
+                        throw new AnalysisException(
+                                "Unsupported correlated subquery with correlated slot in join conjuncts "
+                                        + currentPlan);
+                    }
                     outerScope.get().getCorrelatedSlots().add((Slot) firstBound);
                 }
                 return firstBound;
@@ -345,7 +344,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     public Expression visitUnboundStar(UnboundStar unboundStar, ExpressionRewriteContext context) {
         List<String> qualifier = unboundStar.getQualifier();
         boolean showHidden = Util.showHiddenColumns();
-        List<Slot> slots = getScope().getSlots()
+        List<Slot> slots = getScope().getAsteriskSlots()
                 .stream()
                 .filter(slot -> !(slot instanceof SlotReference)
                         || (((SlotReference) slot).isVisible()) || showHidden)
@@ -623,6 +622,11 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         }
         Expression realExpr = context.cascadesContext.getStatementContext()
                     .getIdToPlaceholderRealExpr().get(placeholder.getPlaceholderId());
+        // In prepare stage, the realExpr has not been set, set it to NullLiteral so that we can plan the statement
+        // and get the output slots in prepare stage, which is required by Mysql api definition.
+        if (realExpr == null && context.cascadesContext.getStatementContext().isPrepareStage()) {
+            realExpr = new NullLiteral();
+        }
         return visit(realExpr, context);
     }
 
@@ -686,20 +690,34 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
 
         // compareExpr already analyze when invoke super.visitInSubquery
         Expression newCompareExpr = inSubquery.getCompareExpr();
-        // but ListQuery does not analyze
-        Expression newListQuery = inSubquery.getListQuery().accept(this, context);
+        Optional<Expression> typeCoercionExpr = inSubquery.getTypeCoercionExpr();
 
-        ComparisonPredicate afterTypeCoercion = (ComparisonPredicate) TypeCoercionUtils.processComparisonPredicate(
-                new EqualTo(newCompareExpr, newListQuery));
-        if (newListQuery.getDataType().isBitmapType()) {
+        // ATTN: support a trick usage of Doris: integral type in bitmap union column. For example:
+        //   SELECT 1 IN (SELECT bitmap_empty() FROM DUAL);
+        if (inSubquery.getSubqueryOutput().getDataType().isBitmapType()) {
             if (!newCompareExpr.getDataType().isBigIntType()) {
                 newCompareExpr = new Cast(newCompareExpr, BigIntType.INSTANCE);
             }
         } else {
+            ComparisonPredicate afterTypeCoercion = (ComparisonPredicate) TypeCoercionUtils.processComparisonPredicate(
+                    new EqualTo(newCompareExpr, inSubquery.getSubqueryOutput()));
             newCompareExpr = afterTypeCoercion.left();
+            if (afterTypeCoercion.right() != inSubquery.getSubqueryOutput()) {
+                typeCoercionExpr = Optional.of(afterTypeCoercion.right());
+            }
         }
-        return new InSubquery(newCompareExpr, (ListQuery) afterTypeCoercion.right(),
-                inSubquery.getCorrelateSlots(), ((ListQuery) afterTypeCoercion.right()).getTypeCoercionExpr(),
+        if (getScope().getOuterScope().isPresent()) {
+            Scope outerScope = getScope().getOuterScope().get();
+            for (Slot slot : newCompareExpr.getInputSlots()) {
+                if (outerScope.getCorrelatedSlots().contains(slot)) {
+                    throw new AnalysisException(
+                            String.format("access outer query column %s in expression %s is not supported",
+                                    slot, inSubquery));
+                }
+            }
+        }
+        return new InSubquery(newCompareExpr, inSubquery.getQueryPlan(),
+                inSubquery.getCorrelateSlots(), typeCoercionExpr,
                 inSubquery.isNot());
     }
 
@@ -867,10 +885,6 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         }
     }
 
-    public static boolean compareDbName(String boundedDbName, String unBoundDbName) {
-        return unBoundDbName.equalsIgnoreCase(boundedDbName);
-    }
-
     public static boolean sameTableName(String boundSlot, String unboundSlot) {
         if (GlobalVariable.lowerCaseTableNames != 1) {
             return boundSlot.equals(unboundSlot);
@@ -920,7 +934,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     private List<Slot> bindSingleSlotByName(String name, Scope scope) {
         int namePartSize = 1;
         Builder<Slot> usedSlots = ImmutableList.builderWithExpectedSize(1);
-        for (Slot boundSlot : scope.findSlotIgnoreCase(name)) {
+        for (Slot boundSlot : scope.findSlotIgnoreCase(name, false)) {
             if (!shouldBindSlotBy(namePartSize, boundSlot)) {
                 continue;
             }
@@ -933,7 +947,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     private List<Slot> bindSingleSlotByTable(String table, String name, Scope scope) {
         int namePartSize = 2;
         Builder<Slot> usedSlots = ImmutableList.builderWithExpectedSize(1);
-        for (Slot boundSlot : scope.findSlotIgnoreCase(name)) {
+        for (Slot boundSlot : scope.findSlotIgnoreCase(name, true)) {
             if (!shouldBindSlotBy(namePartSize, boundSlot)) {
                 continue;
             }
@@ -951,7 +965,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     private List<Slot> bindSingleSlotByDb(String db, String table, String name, Scope scope) {
         int namePartSize = 3;
         Builder<Slot> usedSlots = ImmutableList.builderWithExpectedSize(1);
-        for (Slot boundSlot : scope.findSlotIgnoreCase(name)) {
+        for (Slot boundSlot : scope.findSlotIgnoreCase(name, true)) {
             if (!shouldBindSlotBy(namePartSize, boundSlot)) {
                 continue;
             }
@@ -970,7 +984,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     private List<Slot> bindSingleSlotByCatalog(String catalog, String db, String table, String name, Scope scope) {
         int namePartSize = 4;
         Builder<Slot> usedSlots = ImmutableList.builderWithExpectedSize(1);
-        for (Slot boundSlot : scope.findSlotIgnoreCase(name)) {
+        for (Slot boundSlot : scope.findSlotIgnoreCase(name, true)) {
             if (!shouldBindSlotBy(namePartSize, boundSlot)) {
                 continue;
             }

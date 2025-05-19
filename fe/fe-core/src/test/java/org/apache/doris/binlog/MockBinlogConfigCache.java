@@ -34,6 +34,11 @@ final class MockBinlogConfigCache extends BinlogConfigCache {
         mockedConfigs.put(String.valueOf(dbId), config);
     }
 
+    public void addTableBinlogConfig(long dbId, long tableId, boolean enableBinlog, long expiredTime) {
+        BinlogConfig config = BinlogTestUtils.newTestBinlogConfig(enableBinlog, expiredTime);
+        mockedConfigs.put(String.format("%d_%d", dbId, tableId), config);
+    }
+
     @Override
     public BinlogConfig getTableBinlogConfig(long dbId, long tableId) {
         return mockedConfigs.get(String.format("%d_%d", dbId, tableId));

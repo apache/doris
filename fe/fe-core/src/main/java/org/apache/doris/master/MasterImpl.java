@@ -85,6 +85,21 @@ public class MasterImpl {
     }
 
     public TMasterResult finishTask(TFinishTaskRequest request) {
+        TMasterResult result = null;
+        long startTime = System.currentTimeMillis();
+        try {
+            result = finishTaskInternal(request);
+            return result;
+        } finally {
+            long endTime = System.currentTimeMillis();
+            long duration = endTime - startTime;
+            if (result != null && duration > 1000L) {
+                LOG.warn("Finish task rpc exceeded 1s, request={}, result={}", request, result);
+            }
+        }
+    }
+
+    public TMasterResult finishTaskInternal(TFinishTaskRequest request) {
         TMasterResult result = new TMasterResult();
         TStatus tStatus = new TStatus(TStatusCode.OK);
         result.setStatus(tStatus);
@@ -128,6 +143,8 @@ public class MasterImpl {
                 List<String> errorMsgs = new ArrayList<String>();
                 errorMsgs.add(errMsg);
                 tStatus.setErrorMsgs(errorMsgs);
+            } else {
+                LOG.warn("Finish task rpc got null task for request={}", request);
             }
             return result;
         } else {
@@ -257,6 +274,7 @@ public class MasterImpl {
                 createReplicaTask.countDownToZero(task.getBackendId() + ": "
                         + request.getTaskStatus().getErrorMsgs().toString());
             } else {
+                createReplicaTask.setFinished(true);
                 long tabletId = createReplicaTask.getTabletId();
 
                 if (request.isSetFinishTabletInfos()) {
@@ -595,6 +613,7 @@ public class MasterImpl {
 
     private void finishMakeSnapshot(AgentTask task, TFinishTaskRequest request) {
         SnapshotTask snapshotTask = (SnapshotTask) task;
+        task.setFinished(true);
         if (snapshotTask.isCopyTabletTask()) {
             snapshotTask.setResultSnapshotPath(request.getSnapshotPath());
             snapshotTask.countDown(task.getBackendId(), task.getTabletId());
@@ -614,6 +633,7 @@ public class MasterImpl {
 
     private void finishDownloadTask(AgentTask task, TFinishTaskRequest request) {
         DownloadTask downloadTask = (DownloadTask) task;
+        task.setFinished(true);
         if (Env.getCurrentEnv().getBackupHandler().handleDownloadSnapshotTask(downloadTask, request)) {
             AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.DOWNLOAD, task.getSignature());
         }
@@ -621,6 +641,7 @@ public class MasterImpl {
 
     private void finishMoveDirTask(AgentTask task, TFinishTaskRequest request) {
         DirMoveTask dirMoveTask = (DirMoveTask) task;
+        task.setFinished(true);
         if (Env.getCurrentEnv().getBackupHandler().handleDirMoveTask(dirMoveTask, request)) {
             AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.MOVE, task.getSignature());
         }

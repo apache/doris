@@ -118,8 +118,8 @@ suite("test_jdbc_call", "p0,external,doris,external_docker,external_docker_doris
         def clusters = sql " SHOW CLUSTERS; "
         assertTrue(!clusters.isEmpty())
         def validCluster = clusters[0][0]
-        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user1}""";
-        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user2}""";
+        sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${user1}""";
+        sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${user2}""";
     }    
 
     def result1 = connect("${user1}", "", context.config.jdbcUrl) {

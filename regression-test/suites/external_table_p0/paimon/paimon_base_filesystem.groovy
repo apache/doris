@@ -48,7 +48,7 @@ suite("paimon_base_filesystem", "p0,external,doris,external_docker,external_dock
             create catalog if not exists ${catalog_cos} properties (
                 "type" = "paimon",
                 "paimon.catalog.type"="filesystem",
-                "warehouse" = "s3://doris-build-1308700295/regression/paimon1",
+                "warehouse" = "s3://sdb-qa-datalake-test-1308700295/regression/paimon1",
                 "s3.access_key" = "${txYunAk}",
                 "s3.secret_key" = "${txYunSk}",
                 "s3.endpoint" = "cos.ap-beijing.myqcloud.com"
@@ -58,7 +58,7 @@ suite("paimon_base_filesystem", "p0,external,doris,external_docker,external_dock
             create catalog if not exists ${catalog_cosn} properties (
                 "type" = "paimon",
                 "paimon.catalog.type"="filesystem",
-                "warehouse" = "cosn://doris-build-1308700295/regression/paimon1",
+                "warehouse" = "cosn://sdb-qa-datalake-test-1308700295/regression/paimon1",
                 "cos.access_key" = "${txYunAk}",
                 "cos.secret_key" = "${txYunSk}",
                 "cos.endpoint" = "cos.ap-beijing.myqcloud.com"

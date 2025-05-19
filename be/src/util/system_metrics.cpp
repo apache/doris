@@ -17,24 +17,16 @@
 
 #include "util/system_metrics.h"
 
-#include <ctype.h>
-// IWYU pragma: no_include <bthread/errno.h>
-#include <errno.h> // IWYU pragma: keep
+#include <absl/strings/str_split.h>
 #include <glog/logging.h>
-#include <inttypes.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 
 #include <functional>
 #include <ostream>
 #include <unordered_map>
 #include <utility>
 
-#include "gutil/strings/split.h" // for string split
-#include "gutil/strtoint.h"      //  for atoi64
+#include "runtime/memory/jemalloc_control.h"
 #include "util/cgroup_util.h"
-#include "util/mem_info.h"
 #include "util/perf_counters.h"
 
 namespace doris {
@@ -490,44 +482,44 @@ void SystemMetrics::update_allocator_metrics() {
     LOG(INFO) << "Memory tracking is not available with address sanitizer builds.";
 #elif defined(USE_JEMALLOC)
     _memory_metrics->memory_jemalloc_allocated_bytes->set_value(
-            MemInfo::get_jemallctl_value<int64_t>("stats.allocated"));
+            JemallocControl::get_jemallctl_value<int64_t>("stats.allocated"));
     _memory_metrics->memory_jemalloc_active_bytes->set_value(
-            MemInfo::get_jemallctl_value<int64_t>("stats.active"));
+            JemallocControl::get_jemallctl_value<int64_t>("stats.active"));
     _memory_metrics->memory_jemalloc_metadata_bytes->set_value(
-            MemInfo::get_jemallctl_value<int64_t>("stats.metadata"));
+            JemallocControl::get_jemallctl_value<int64_t>("stats.metadata"));
     _memory_metrics->memory_jemalloc_resident_bytes->set_value(
-            MemInfo::get_jemallctl_value<int64_t>("stats.resident"));
+            JemallocControl::get_jemallctl_value<int64_t>("stats.resident"));
     _memory_metrics->memory_jemalloc_mapped_bytes->set_value(
-            MemInfo::get_jemallctl_value<int64_t>("stats.mapped"));
+            JemallocControl::get_jemallctl_value<int64_t>("stats.mapped"));
     _memory_metrics->memory_jemalloc_retained_bytes->set_value(
-            MemInfo::get_jemallctl_value<int64_t>("stats.retained"));
+            JemallocControl::get_jemallctl_value<int64_t>("stats.retained"));
     _memory_metrics->memory_jemalloc_tcache_bytes->set_value(
-            MemInfo::get_je_all_arena_metrics("tcache_bytes"));
+            JemallocControl::get_je_all_arena_metrics("tcache_bytes"));
     _memory_metrics->memory_jemalloc_pactive_num->set_value(
-            MemInfo::get_je_all_arena_metrics("pactive"));
+            JemallocControl::get_je_all_arena_metrics("pactive"));
     _memory_metrics->memory_jemalloc_pdirty_num->set_value(
-            MemInfo::get_je_all_arena_metrics("pdirty"));
+            JemallocControl::get_je_all_arena_metrics("pdirty"));
     _memory_metrics->memory_jemalloc_pmuzzy_num->set_value(
-            MemInfo::get_je_all_arena_metrics("pmuzzy"));
+            JemallocControl::get_je_all_arena_metrics("pmuzzy"));
     _memory_metrics->memory_jemalloc_dirty_purged_num->set_value(
-            MemInfo::get_je_all_arena_metrics("dirty_purged"));
+            JemallocControl::get_je_all_arena_metrics("dirty_purged"));
     _memory_metrics->memory_jemalloc_muzzy_purged_num->set_value(
-            MemInfo::get_je_all_arena_metrics("muzzy_purged"));
+            JemallocControl::get_je_all_arena_metrics("muzzy_purged"));
 #else
     _memory_metrics->memory_tcmalloc_allocated_bytes->set_value(
-            MemInfo::get_tc_metrics("generic.total_physical_bytes"));
+            JemallocControl::get_tc_metrics("generic.total_physical_bytes"));
     _memory_metrics->memory_tcmalloc_total_thread_cache_bytes->set_value(
-            MemInfo::allocator_cache_mem());
+            JemallocControl::je_cache_bytes());
     _memory_metrics->memory_tcmalloc_central_cache_free_bytes->set_value(
-            MemInfo::get_tc_metrics("tcmalloc.central_cache_free_bytes"));
+            JemallocControl::get_tc_metrics("tcmalloc.central_cache_free_bytes"));
     _memory_metrics->memory_tcmalloc_transfer_cache_free_bytes->set_value(
-            MemInfo::get_tc_metrics("tcmalloc.transfer_cache_free_bytes"));
+            JemallocControl::get_tc_metrics("tcmalloc.transfer_cache_free_bytes"));
     _memory_metrics->memory_tcmalloc_thread_cache_free_bytes->set_value(
-            MemInfo::get_tc_metrics("tcmalloc.thread_cache_free_bytes"));
+            JemallocControl::get_tc_metrics("tcmalloc.thread_cache_free_bytes"));
     _memory_metrics->memory_tcmalloc_pageheap_free_bytes->set_value(
-            MemInfo::get_tc_metrics("tcmalloc.pageheap_free_bytes"));
+            JemallocControl::get_tc_metrics("tcmalloc.pageheap_free_bytes"));
     _memory_metrics->memory_tcmalloc_pageheap_unmapped_bytes->set_value(
-            MemInfo::get_tc_metrics("tcmalloc.pageheap_unmapped_bytes"));
+            JemallocControl::get_tc_metrics("tcmalloc.pageheap_unmapped_bytes"));
 #endif
 }
 
@@ -755,7 +747,7 @@ void SystemMetrics::_update_snmp_metrics() {
 
     // parse the Tcp header
     // Tcp: RtoAlgorithm RtoMin RtoMax MaxConn ActiveOpens PassiveOpens AttemptFails EstabResets CurrEstab InSegs OutSegs RetransSegs InErrs OutRsts InCsumErrors
-    std::vector<std::string> headers = strings::Split(_line_ptr, " ");
+    std::vector<std::string> headers = absl::StrSplit(_line_ptr, " ");
     std::unordered_map<std::string, int32_t> header_map;
     int32_t pos = 0;
     for (auto& h : headers) {
@@ -773,16 +765,16 @@ void SystemMetrics::_update_snmp_metrics() {
 
     // metric line looks like:
     // Tcp: 1 200 120000 -1 47849374 38601877 3353843 2320314 276 1033354613 1166025166 825439 12694 23238924 0
-    std::vector<std::string> metrics = strings::Split(_line_ptr, " ");
+    std::vector<std::string> metrics = absl::StrSplit(_line_ptr, " ");
     if (metrics.size() != headers.size()) {
         LOG(WARNING) << "invalid tcp metrics line: " << _line_ptr;
         fclose(fp);
         return;
     }
-    int64_t retrans_segs = atoi64(metrics[header_map["RetransSegs"]]);
-    int64_t in_errs = atoi64(metrics[header_map["InErrs"]]);
-    int64_t in_segs = atoi64(metrics[header_map["InSegs"]]);
-    int64_t out_segs = atoi64(metrics[header_map["OutSegs"]]);
+    int64_t retrans_segs = std::stoll(metrics[header_map["RetransSegs"]]);
+    int64_t in_errs = std::stoll(metrics[header_map["InErrs"]]);
+    int64_t in_segs = std::stoll(metrics[header_map["InSegs"]]);
+    int64_t out_segs = std::stoll(metrics[header_map["OutSegs"]]);
     _snmp_metrics->snmp_tcp_retrans_segs->set_value(retrans_segs);
     _snmp_metrics->snmp_tcp_in_errs->set_value(in_errs);
     _snmp_metrics->snmp_tcp_in_segs->set_value(in_segs);

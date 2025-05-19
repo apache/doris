@@ -21,8 +21,10 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.persist.gson.GsonUtils;
 
+import com.google.common.base.Strings;
 import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
@@ -30,6 +32,10 @@ import java.io.DataOutput;
 import java.io.IOException;
 
 public class DropInfo implements Writable {
+    @SerializedName(value = "ctl")
+    private String ctl;
+    @SerializedName(value = "db")
+    private String db;
     @SerializedName(value = "dbId")
     private long dbId;
     @SerializedName(value = "tableId")
@@ -50,13 +56,23 @@ public class DropInfo implements Writable {
     public DropInfo() {
     }
 
+    // for external table
+    public DropInfo(String ctl, String db, String tbl) {
+        this.ctl = ctl;
+        this.db = db;
+        this.tableName = tbl;
+    }
+
+    // for internal table
     public DropInfo(long dbId, long tableId, String tableName, boolean isView, boolean forceDrop,
             long recycleTime) {
         this(dbId, tableId, tableName, -1L, "", isView, forceDrop, recycleTime);
     }
 
+    // for internal table
     public DropInfo(long dbId, long tableId, String tableName, long indexId, String indexName, boolean isView,
             boolean forceDrop, long recycleTime) {
+        this.ctl = InternalCatalog.INTERNAL_CATALOG_NAME;
         this.dbId = dbId;
         this.tableId = tableId;
         this.tableName = tableName;
@@ -65,6 +81,14 @@ public class DropInfo implements Writable {
         this.isView = isView;
         this.forceDrop = forceDrop;
         this.recycleTime = recycleTime;
+    }
+
+    public String getCtl() {
+        return ctl;
+    }
+
+    public String getDb() {
+        return db;
     }
 
     public long getDbId() {
@@ -148,5 +172,14 @@ public class DropInfo implements Writable {
 
     public static DropInfo fromJson(String json) {
         return GsonUtils.GSON.fromJson(json, DropInfo.class);
+    }
+
+    @Override
+    public String toString() {
+        // In previous versions, ctl and db are not set, so they may be null.
+        return String.format("%s.%s.%s",
+                Strings.isNullOrEmpty(ctl) ? InternalCatalog.INTERNAL_CATALOG_NAME : ctl,
+                Strings.isNullOrEmpty(db) ? dbId : db,
+                tableName);
     }
 }

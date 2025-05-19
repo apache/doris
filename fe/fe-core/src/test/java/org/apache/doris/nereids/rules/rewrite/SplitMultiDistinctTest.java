@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
+import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.util.MatchingUtils;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
@@ -180,6 +182,8 @@ public class SplitMultiDistinctTest extends TestWithFeService implements MemoPat
                                                                     physicalHashAggregate(
                                                                             physicalDistribute(
                                                                                     physicalHashAggregate(any()))))
+                                                    ).when(join ->
+                                                        join.getJoinType() == JoinType.INNER_JOIN && join.getHashJoinConjuncts().get(0) instanceof NullSafeEqual
                                                     )
                                             )
                                     )

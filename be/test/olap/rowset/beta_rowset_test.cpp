@@ -27,6 +27,7 @@
 #include <gen_cpp/olap_common.pb.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
+#include <gtest/gtest.h>
 #include <stdint.h>
 #include <unistd.h>
 
@@ -44,6 +45,7 @@
 #include "io/fs/local_file_system.h"
 #include "io/fs/s3_file_system.h"
 #include "io/fs/s3_obj_storage_client.h"
+#include "json2pb/json_to_pb.h"
 #include "olap/data_dir.h"
 #include "olap/olap_common.h"
 #include "olap/options.h"
@@ -170,6 +172,61 @@ protected:
         EXPECT_EQ(Status::OK(), s);
     }
 
+    void init_rs_meta(RowsetMetaSharedPtr& pb1, int64_t start, int64_t end) {
+        std::string json_rowset_meta = R"({
+            "rowset_id": 540085,
+            "tablet_id": 15674,
+            "partition_id": 10000,
+            "txn_id": 4045,
+            "tablet_schema_hash": 567997588,
+            "rowset_type": "BETA_ROWSET",
+            "rowset_state": "VISIBLE",
+            "start_version": 2,
+            "end_version": 2,
+            "num_rows": 3929,
+            "total_disk_size": 84699,
+            "data_disk_size": 84464,
+            "index_disk_size": 235,
+            "empty": false,
+            "load_id": {
+                "hi": -5350970832824939812,
+                "lo": -6717994719194512122
+            },
+            "creation_time": 1553765670
+        })";
+
+        RowsetMetaPB rowset_meta_pb;
+        json2pb::JsonToProtoMessage(json_rowset_meta, &rowset_meta_pb);
+        rowset_meta_pb.set_start_version(start);
+        rowset_meta_pb.set_end_version(end);
+        rowset_meta_pb.set_creation_time(10000);
+
+        pb1->init_from_pb(rowset_meta_pb);
+    }
+
+    void construct_column(ColumnPB* column_pb, TabletIndexPB* tablet_index, int64_t index_id,
+                          const std::string& index_name, int32_t col_unique_id,
+                          const std::string& column_type, const std::string& column_name,
+                          const std::map<std::string, std::string>& properties =
+                                  std::map<std::string, std::string>(),
+                          bool is_key = false) {
+        column_pb->set_unique_id(col_unique_id);
+        column_pb->set_name(column_name);
+        column_pb->set_type(column_type);
+        column_pb->set_is_key(is_key);
+        column_pb->set_is_nullable(true);
+        tablet_index->set_index_id(index_id);
+        tablet_index->set_index_name(index_name);
+        tablet_index->set_index_type(IndexType::INVERTED);
+        tablet_index->add_col_unique_id(col_unique_id);
+        if (!properties.empty()) {
+            auto* pros = tablet_index->mutable_properties();
+            for (const auto& [key, value] : properties) {
+                (*pros)[key] = value;
+            }
+        }
+    }
+
 private:
     std::unique_ptr<DataDir> _data_dir;
 };
@@ -238,6 +295,8 @@ TEST_F(BetaRowsetTest, ReadTest) {
                             .sk = "sk",
                             .token = "",
                             .bucket = "",
+                            .role_arn = "",
+                            .external_id = "",
                     }};
     std::string resource_id = "10000";
     auto res = io::S3FileSystem::create(std::move(s3_conf), io::FileSystem::TMP_FS_ID);
@@ -302,6 +361,56 @@ TEST_F(BetaRowsetTest, AddToBinlogTest) {
     ASSERT_TRUE(s.ok()) << "first add_to_binlog(): " << s;
     s = rowset.add_to_binlog();
     ASSERT_TRUE(s.ok()) << "second add_to_binlog(): " << s;
+}
+
+TEST_F(BetaRowsetTest, GetIndexFileNames) {
+    // v1
+    {
+        TabletSchemaPB schema_pb;
+        schema_pb.set_keys_type(KeysType::DUP_KEYS);
+        schema_pb.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V2);
+        construct_column(schema_pb.add_column(), schema_pb.add_index(), 10000, "key_index", 0,
+                         "INT", "key");
+        construct_column(schema_pb.add_column(), schema_pb.add_index(), 10001, "v1_index", 1,
+                         "STRING", "v1");
+        schema_pb.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V1);
+        auto tablet_schema = std::make_shared<TabletSchema>();
+        tablet_schema->init_from_pb(schema_pb);
+
+        auto rowset_meta = std::make_shared<RowsetMeta>();
+        init_rs_meta(rowset_meta, 1, 1);
+        rowset_meta->set_num_segments(2);
+
+        BetaRowset rowset(tablet_schema, rowset_meta, "");
+        auto file_names = rowset.get_index_file_names();
+        ASSERT_EQ(file_names[0], "540085_0_10000.idx");
+        ASSERT_EQ(file_names[1], "540085_0_10001.idx");
+        ASSERT_EQ(file_names[2], "540085_1_10000.idx");
+        ASSERT_EQ(file_names[3], "540085_1_10001.idx");
+    }
+
+    // v2
+    {
+        TabletSchemaPB schema_pb;
+        schema_pb.set_keys_type(KeysType::DUP_KEYS);
+        schema_pb.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V2);
+        construct_column(schema_pb.add_column(), schema_pb.add_index(), 10000, "key_index", 0,
+                         "INT", "key");
+        construct_column(schema_pb.add_column(), schema_pb.add_index(), 10001, "v1_index", 1,
+                         "STRING", "v1");
+        schema_pb.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V2);
+        auto tablet_schema = std::make_shared<TabletSchema>();
+        tablet_schema->init_from_pb(schema_pb);
+
+        auto rowset_meta = std::make_shared<RowsetMeta>();
+        init_rs_meta(rowset_meta, 1, 1);
+        rowset_meta->set_num_segments(2);
+
+        BetaRowset rowset(tablet_schema, rowset_meta, "");
+        auto file_names = rowset.get_index_file_names();
+        ASSERT_EQ(file_names[0], "540085_0.idx");
+        ASSERT_EQ(file_names[1], "540085_1.idx");
+    }
 }
 
 } // namespace doris

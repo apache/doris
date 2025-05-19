@@ -336,7 +336,14 @@ suite("test_point_query", "nonConcurrent") {
     } 
     qt_sql "select * from table_3821461 where col1 = 10 and col2 = 20 and loc3 = 'aabc';"
     sql "delete from table_3821461 where col1 = 10 and col2 = 20 and loc3 = 'aabc';"
+    // read delete sign
     qt_sql "select * from table_3821461 where col1 = 10 and col2 = 20 and loc3 = 'aabc';"
+
+    // skip delete sign
+    sql """set skip_delete_bitmap=true; set skip_delete_sign=true;"""
+    qt_sql "select * from table_3821461 where col1 = 10 and col2 = 20 and loc3 = 'aabc';"
+    sql """set skip_delete_bitmap=false; set skip_delete_sign=false;"""
+
     sql "update table_3821461 set value = 'update value' where col1 = -10 or col1 = 20;"
     qt_sql """select * from table_3821461 where col1 = -10 and col2 = 20 and loc3 = 'aabc'"""
 
@@ -392,6 +399,13 @@ suite("test_point_query", "nonConcurrent") {
         assertEquals(partial_prepared_stmt.class, com.mysql.cj.jdbc.ServerPreparedStatement);
         partial_prepared_stmt.setString(1, "sk")
         partial_prepared_stmt.setString(2, "feature")
+        qe_point_select partial_prepared_stmt
+        qe_point_select partial_prepared_stmt
+
+        partial_prepared_stmt = prepareStatement " select * from regression_test_point_query_p0.table_3821461 where col1 = ? and col2 = ? and loc3 = 'aabc'"
+        partial_prepared_stmt.setInt(1, 10)
+        partial_prepared_stmt.setInt(2, 20)
+        qe_point_select partial_prepared_stmt
         qe_point_select partial_prepared_stmt
         qe_point_select partial_prepared_stmt
 

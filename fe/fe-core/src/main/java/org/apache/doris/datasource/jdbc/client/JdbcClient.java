@@ -144,7 +144,22 @@ public abstract class JdbcClient {
                     + ", ConnectionPoolMaxWaitTime = " + config.getConnectionPoolMaxWaitTime()
                     + ", ConnectionPoolMaxLifeTime = " + config.getConnectionPoolMaxLifeTime());
         } catch (Exception e) {
-            throw new JdbcClientException(e.getMessage());
+            // If driver class loading failed (Hikari wraps it), clean cache and prompt retry
+            String msg = e.getMessage();
+            if (msg != null && msg.contains("Failed to load driver class")) {
+                try {
+                    URL url = new URL(JdbcResource.getFullDriverUrl(config.getDriverUrl()));
+                    classLoaderMap.remove(url);
+                    // Prompt user to verify driver validity and retry
+                    throw new JdbcClientException(
+                        String.format("Failed to load driver class `%s`. "
+                                        + "Please check that the driver JAR is valid and retry.",
+                                      config.getDriverClass()), e);
+                } catch (MalformedURLException ignore) {
+                    // ignore invalid URL when cleaning cache
+                }
+            }
+            throw new JdbcClientException(e.getMessage(), e);
         } finally {
             Thread.currentThread().setContextClassLoader(oldClassLoader);
         }
@@ -153,7 +168,7 @@ public abstract class JdbcClient {
     private synchronized void initializeClassLoader(JdbcClientConfig config) {
         try {
             URL[] urls = {new URL(JdbcResource.getFullDriverUrl(config.getDriverUrl()))};
-            if (classLoaderMap.containsKey(urls[0])) {
+            if (classLoaderMap.containsKey(urls[0]) && classLoaderMap.get(urls[0]) != null) {
                 this.classLoader = classLoaderMap.get(urls[0]);
             } else {
                 ClassLoader parent = getClass().getClassLoader();
@@ -161,7 +176,8 @@ public abstract class JdbcClient {
                 classLoaderMap.put(urls[0], this.classLoader);
             }
         } catch (MalformedURLException e) {
-            throw new RuntimeException("Error loading JDBC driver.", e);
+            throw new RuntimeException("Failed to load JDBC driver from path: "
+                    + config.getDriverUrl(), e);
         }
     }
 
@@ -369,8 +385,8 @@ public abstract class JdbcClient {
         return tableSchema;
     }
 
-    public List<Column> getColumnsFromJdbc(String localDbName, String localTableName) {
-        List<JdbcFieldSchema> jdbcTableSchema = getJdbcColumnsInfo(localDbName, localTableName);
+    public List<Column> getColumnsFromJdbc(String remoteDbName, String remoteTableName) {
+        List<JdbcFieldSchema> jdbcTableSchema = getJdbcColumnsInfo(remoteDbName, remoteTableName);
         List<Column> dorisTableSchema = Lists.newArrayListWithCapacity(jdbcTableSchema.size());
         for (JdbcFieldSchema field : jdbcTableSchema) {
             dorisTableSchema.add(new Column(field.getColumnName(),
@@ -479,5 +495,17 @@ public abstract class JdbcClient {
 
     public String getTestQuery() {
         return "select 1";
+    }
+
+    public String getJdbcDriverVersion() {
+        Connection conn = null;
+        try {
+            conn = getConnection();
+            return conn.getMetaData().getDriverVersion();
+        } catch (SQLException e) {
+            throw new JdbcClientException("Failed to get jdbc driver version", e);
+        } finally {
+            close(conn);
+        }
     }
 }

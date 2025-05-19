@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnionInt;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CollectList;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CollectSet;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Corr;
+import org.apache.doris.nereids.trees.expressions.functions.agg.CorrWelford;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CountByEnum;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Covar;
@@ -51,6 +52,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.LinearHistogram;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MapAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MaxBy;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Median;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MinBy;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctCount;
@@ -142,6 +144,10 @@ public interface AggregateFunctionVisitor<R, C> {
     }
 
     default R visitCorr(Corr corr, C context) {
+        return visitNullableAggregateFunction(corr, context);
+    }
+
+    default R visitCorrWelford(CorrWelford corr, C context) {
         return visitNullableAggregateFunction(corr, context);
     }
 
@@ -259,6 +265,10 @@ public interface AggregateFunctionVisitor<R, C> {
 
     default R visitOrthogonalBitmapUnionCount(OrthogonalBitmapUnionCount function, C context) {
         return visitAggregateFunction(function, context);
+    }
+
+    default R visitMedian(Median median, C context) {
+        return visitNullableAggregateFunction(median, context);
     }
 
     default R visitPercentile(Percentile percentile, C context) {

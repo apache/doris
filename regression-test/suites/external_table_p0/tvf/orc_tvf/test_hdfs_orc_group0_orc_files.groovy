@@ -174,7 +174,11 @@ suite("test_hdfs_orc_group0_orc_files","external,hive,tvf,external_docker") {
             order_qt_test_25 """ select * from HDFS(
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
-                        "format" = "orc") order by _col0 DESC limit 100; """
+                        "format" = "orc")
+                        where _col0 is not null and _col1 is not null and _col2 is not null and _col3 is not null
+                              and _col4 is not null and _col5 is not null and _col6 is not null
+                        order by _col0 DESC, _col1 DESC, _col2 DESC, _col3 DESC, _col4 DESC, _col5 DESC, _col6 DESC
+                        limit 100; """
 
 
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_orc/group0/TestVectorOrcFile.testLzo.orc"

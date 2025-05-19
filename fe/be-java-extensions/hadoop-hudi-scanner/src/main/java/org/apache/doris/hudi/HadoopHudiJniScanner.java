@@ -20,6 +20,8 @@ package org.apache.doris.hudi;
 import org.apache.doris.common.classloader.ThreadClassLoaderContext;
 import org.apache.doris.common.jni.JniScanner;
 import org.apache.doris.common.jni.vec.ColumnType;
+import org.apache.doris.common.security.authentication.PreExecutionAuthenticator;
+import org.apache.doris.common.security.authentication.PreExecutionAuthenticatorCache;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -92,6 +94,8 @@ public class HadoopHudiJniScanner extends JniScanner {
     private final int fetchSize;
     private final ClassLoader classLoader;
 
+    private final PreExecutionAuthenticator preExecutionAuthenticator;
+
     public HadoopHudiJniScanner(int fetchSize, Map<String, String> params) {
         this.basePath = params.get("base_path");
         this.dataFilePath = params.get("data_file_path");
@@ -120,6 +124,7 @@ public class HadoopHudiJniScanner extends JniScanner {
                 LOG.debug("get hudi params {}: {}", entry.getKey(), entry.getValue());
             }
         }
+        this.preExecutionAuthenticator = PreExecutionAuthenticatorCache.getAuthenticator(fsOptionsProps);
 
         ZoneId zoneId;
         if (Strings.isNullOrEmpty(params.get("time_zone"))) {
@@ -135,10 +140,14 @@ public class HadoopHudiJniScanner extends JniScanner {
     @Override
     public void open() throws IOException {
         try (ThreadClassLoaderContext ignored = new ThreadClassLoaderContext(classLoader)) {
-            initRequiredColumnsAndTypes();
-            initTableInfo(requiredTypes, requiredFields, fetchSize);
-            Properties properties = getReaderProperties();
-            initReader(properties);
+            preExecutionAuthenticator.execute(() -> {
+                initRequiredColumnsAndTypes();
+                initTableInfo(requiredTypes, requiredFields, fetchSize);
+                Properties properties = getReaderProperties();
+                initReader(properties);
+                return null;
+            });
+
         } catch (Exception e) {
             close();
             LOG.warn("failed to open hadoop hudi jni scanner", e);
@@ -149,25 +158,27 @@ public class HadoopHudiJniScanner extends JniScanner {
     @Override
     public int getNext() throws IOException {
         try (ThreadClassLoaderContext ignored = new ThreadClassLoaderContext(classLoader)) {
-            NullWritable key = reader.createKey();
-            ArrayWritable value = reader.createValue();
-            int numRows = 0;
-            for (; numRows < fetchSize; numRows++) {
-                if (!reader.next(key, value)) {
-                    break;
+            return preExecutionAuthenticator.execute(() -> {
+                NullWritable key = reader.createKey();
+                ArrayWritable value = reader.createValue();
+                int numRows = 0;
+                for (; numRows < fetchSize; numRows++) {
+                    if (!reader.next(key, value)) {
+                        break;
+                    }
+                    Object rowData = deserializer.deserialize(value);
+                    for (int i = 0; i < fields.length; i++) {
+                        Object fieldData = rowInspector.getStructFieldData(rowData, structFields[i]);
+                        columnValue.setRow(fieldData);
+                        // LOG.info("rows: {}, column: {}, col name: {}, col type: {}, inspector: {}",
+                        //        numRows, i, types[i].getName(), types[i].getType().name(),
+                        //        fieldInspectors[i].getTypeName());
+                        columnValue.setField(types[i], fieldInspectors[i]);
+                        appendData(i, columnValue);
+                    }
                 }
-                Object rowData = deserializer.deserialize(value);
-                for (int i = 0; i < fields.length; i++) {
-                    Object fieldData = rowInspector.getStructFieldData(rowData, structFields[i]);
-                    columnValue.setRow(fieldData);
-                    // LOG.info("rows: {}, column: {}, col name: {}, col type: {}, inspector: {}",
-                    //        numRows, i, types[i].getName(), types[i].getType().name(),
-                    //        fieldInspectors[i].getTypeName());
-                    columnValue.setField(types[i], fieldInspectors[i]);
-                    appendData(i, columnValue);
-                }
-            }
-            return numRows;
+                return numRows;
+            });
         } catch (Exception e) {
             close();
             LOG.warn("failed to get next in hadoop hudi jni scanner", e);

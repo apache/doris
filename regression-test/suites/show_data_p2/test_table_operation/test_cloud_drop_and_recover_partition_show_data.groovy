@@ -21,7 +21,7 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
  // loading one data 10 times, expect data size not rising
-suite("test_cloud_drop_and_recover_partition_show_data","p2") {
+suite("test_cloud_drop_and_recover_partition_show_data","p2, nonConcurrent") {
     //cloud-mode
     if (!isCloudMode()) {
         logger.info("not cloud mode, not run")
@@ -84,13 +84,11 @@ suite("test_cloud_drop_and_recover_partition_show_data","p2") {
             PARTITION BY RANGE(L_ORDERKEY) 
             (
               PARTITION p1 VALUES LESS THAN (100000),                                                                                                                                                    
-              PARTITION p2 VALUES LESS THAN (200000),
               PARTITION p3 VALUES LESS THAN (300000),
-              PARTITION p4 VALUES LESS THAN (400000),
               PARTITION p5 VALUES LESS THAN (500000),
               PARTITION other VALUES LESS THAN (MAXVALUE)
             )
-            DISTRIBUTED BY HASH(L_ORDERKEY) BUCKETS 3
+            DISTRIBUTED BY HASH(L_ORDERKEY) BUCKETS 1
             PROPERTIES (
               "replication_num" = "1"
             )
@@ -125,7 +123,7 @@ suite("test_cloud_drop_and_recover_partition_show_data","p2") {
             AUTO PARTITION BY RANGE (date_trunc(`L_SHIPDATE`, 'year'))
             (
             )
-            DISTRIBUTED BY HASH(L_ORDERKEY) BUCKETS 3
+            DISTRIBUTED BY HASH(L_ORDERKEY) BUCKETS 1
             PROPERTIES (
               "replication_num" = "1"
             )
@@ -141,17 +139,18 @@ suite("test_cloud_drop_and_recover_partition_show_data","p2") {
             repeate_stream_load_same_data(tableName, i, "regression/tpch/sf0.1/lineitem.tbl.gz")
             def rows = sql_return_maparray "select count(*) as count from ${tableName};"
             logger.info("table ${tableName} has ${rows[0]["count"]} rows")
+            tablets = get_tablets_from_table(tableName)
             // 加一下触发compaction的机制
             trigger_compaction(tablets)
 
             // 然后 sleep 1min， 等fe汇报完
-            sleep(60 * 1000)
+            sleep(10 * 1000)
             sql "select count(*) from ${tableName}"
+            sleep(10 * 1000)
 
             sizeRecords["apiSize"].add(caculate_table_data_size_through_api(tablets))
             sizeRecords["cbsSize"].add(caculate_table_data_size_in_backend_storage(tablets))
             sizeRecords["mysqlSize"].add(show_table_data_size_through_mysql(tableName))
-            sleep(60 * 1000)
             logger.info("after ${i} times stream load, mysqlSize is: ${sizeRecords["mysqlSize"][-1]}, apiSize is: ${sizeRecords["apiSize"][-1]}, storageSize is: ${sizeRecords["cbsSize"][-1]}")
         }
 
@@ -171,16 +170,18 @@ suite("test_cloud_drop_and_recover_partition_show_data","p2") {
 
         // after drop partition，tablets will changed，need get new tablets
         tablets = get_tablets_from_table(tableName)
-        sizeRecords["apiSize"].add(caculate_table_data_size_through_api(tablets))
-        sizeRecords["cbsSize"].add(caculate_table_data_size_in_backend_storage(tablets))
-        sizeRecords["mysqlSize"].add(show_table_data_size_through_mysql(tableName))
 
         // 加一下触发compaction的机制
         trigger_compaction(tablets)
 
         // 然后 sleep 1min， 等fe汇报完
-        sleep(60 * 1000)
+        sleep(10 * 1000)
         sql "select count(*) from ${tableName}"
+        sleep(10 * 1000)
+        sizeRecords["apiSize"].add(caculate_table_data_size_through_api(tablets))
+        sizeRecords["cbsSize"].add(caculate_table_data_size_in_backend_storage(tablets))
+        sizeRecords["mysqlSize"].add(show_table_data_size_through_mysql(tableName))
+        logger.info("after drop partition, mysqlSize is: ${sizeRecords["mysqlSize"][-1]}, apiSize is: ${sizeRecords["apiSize"][-1]}, storageSize is: ${sizeRecords["cbsSize"][-1]}")
 
         // expect mysqlSize == apiSize == storageSize
         assertEquals(sizeRecords["mysqlSize"][2], sizeRecords["apiSize"][2])
@@ -189,21 +190,24 @@ suite("test_cloud_drop_and_recover_partition_show_data","p2") {
         if (op == 1){
           sql """recover partition p1 from ${tableName};"""
         } else if(op == 2){
-          sql """recover partition pp19920101000000 from ${tableName};"""
+          sql """recover partition p19920101000000 from ${tableName};"""
         }
 
         // after drop partition，tablets will changed，need get new tablets
         tablets = get_tablets_from_table(tableName)
-        sizeRecords["apiSize"].add(caculate_table_data_size_through_api(tablets))
-        sizeRecords["cbsSize"].add(caculate_table_data_size_in_backend_storage(tablets))
-        sizeRecords["mysqlSize"].add(show_table_data_size_through_mysql(tableName))
 
         // 加一下触发compaction的机制
         trigger_compaction(tablets)
 
         // 然后 sleep 1min， 等fe汇报完
-        sleep(60 * 1000)
+        sleep(10 * 1000)
         sql "select count(*) from ${tableName}"
+        sleep(10 * 1000)
+
+        sizeRecords["apiSize"].add(caculate_table_data_size_through_api(tablets))
+        sizeRecords["cbsSize"].add(caculate_table_data_size_in_backend_storage(tablets))
+        sizeRecords["mysqlSize"].add(show_table_data_size_through_mysql(tableName))
+        logger.info("after recover partition, mysqlSize is: ${sizeRecords["mysqlSize"][-1]}, apiSize is: ${sizeRecords["apiSize"][-1]}, storageSize is: ${sizeRecords["cbsSize"][-1]}")
 
         // expect mysqlSize == apiSize == storageSize
         assertEquals(sizeRecords["mysqlSize"][3], sizeRecords["apiSize"][3])
@@ -222,5 +226,9 @@ suite("test_cloud_drop_and_recover_partition_show_data","p2") {
         check(tableName, 2)
     }
 
+    set_config_before_show_data_test()
+    sleep(10 * 1000)
     main()
+    set_config_after_show_data_test()
+    sleep(10 * 1000)
 }

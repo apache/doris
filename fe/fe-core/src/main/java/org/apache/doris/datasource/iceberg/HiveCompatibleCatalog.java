@@ -45,11 +45,11 @@ public abstract class HiveCompatibleCatalog extends BaseMetastoreCatalog impleme
     protected Configuration conf;
     protected ClientPool<IMetaStoreClient, TException> clients;
     protected FileIO fileIO;
-    protected String uid;
+    protected String catalogName;
 
     public void initialize(String name, FileIO fileIO,
                            ClientPool<IMetaStoreClient, TException> clients) {
-        this.uid = name;
+        this.catalogName = name;
         this.fileIO = fileIO;
         this.clients = clients;
     }

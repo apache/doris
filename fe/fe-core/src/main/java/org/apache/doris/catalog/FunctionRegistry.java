@@ -17,14 +17,20 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AggCombinerFunctionBuilder;
+import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
+import org.apache.doris.nereids.trees.expressions.functions.BuiltinFunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
+import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdafBuilder;
+import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdfBuilder;
+import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdtfBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.udf.UdfBuilder;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.qe.ConnectContext;
@@ -37,6 +43,8 @@ import com.google.common.collect.Maps;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 
+import java.lang.reflect.Constructor;
+import java.lang.reflect.Modifier;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -64,6 +72,18 @@ public class FunctionRegistry {
         name2UdfBuilders = new ConcurrentHashMap<>();
         registerBuiltinFunctions(name2BuiltinBuilders);
         afterRegisterBuiltinFunctions(name2BuiltinBuilders);
+    }
+
+    public Map<String, List<FunctionBuilder>> getName2BuiltinBuilders() {
+        return name2BuiltinBuilders;
+    }
+
+    public String getGlobalFunctionDbName() {
+        return GLOBAL_FUNCTION;
+    }
+
+    public Map<String, Map<String, List<FunctionBuilder>>> getName2UdfBuilders() {
+        return name2UdfBuilders;
     }
 
     // this function is used to test.
@@ -157,6 +177,15 @@ public class FunctionRegistry {
             throw new AnalysisException("Can not found function '" + qualifiedName
                     + "' which has " + arity + " arity. Candidate functions are: " + candidateHints);
         }
+        if (!Config.enable_java_udf) {
+            candidateBuilders = candidateBuilders.stream()
+                    .filter(fb -> !(fb instanceof JavaUdfBuilder || fb instanceof JavaUdafBuilder
+                            || fb instanceof JavaUdtfBuilder))
+                    .collect(Collectors.toList());
+            if (candidateBuilders.isEmpty()) {
+                throw new AnalysisException("java_udf has been disabled.");
+            }
+        }
         if (candidateBuilders.size() > 1) {
             boolean needChooseOne = true;
             List<FunctionSignature> signatures = Lists.newArrayListWithCapacity(candidateBuilders.size());
@@ -209,7 +238,6 @@ public class FunctionRegistry {
                 List<FunctionBuilder> candidate = name2UdfBuilders.getOrDefault(scope, ImmutableMap.of())
                         .get(name.toLowerCase());
                 if (candidate != null && !candidate.isEmpty()) {
-                    FunctionUtil.checkEnableJavaUdfForNereids();
                     return candidate;
                 }
             }
@@ -227,7 +255,25 @@ public class FunctionRegistry {
 
     public String getCandidateHint(String name, List<FunctionBuilder> candidateBuilders) {
         return candidateBuilders.stream()
-                .map(builder -> name + builder.toString())
+                .filter(builder -> {
+                    if (builder instanceof BuiltinFunctionBuilder) {
+                        Constructor<BoundFunction> builderMethod
+                                = ((BuiltinFunctionBuilder) builder).getBuilderMethod();
+                        if (Modifier.isAbstract(builderMethod.getModifiers())
+                                || !Modifier.isPublic(builderMethod.getModifiers())) {
+                            return false;
+                        }
+                        for (Class<?> parameterType : builderMethod.getParameterTypes()) {
+                            if (!Expression.class.isAssignableFrom(parameterType)
+                                    && !(parameterType.isArray()
+                                        && Expression.class.isAssignableFrom(parameterType.getComponentType()))) {
+                                return false;
+                            }
+                        }
+                    }
+                    return true;
+                })
+                .map(builder -> name + builder.parameterDisplayString())
                 .collect(Collectors.joining(", ", "[", "]"));
     }
 
@@ -250,6 +296,11 @@ public class FunctionRegistry {
             Map<String, List<FunctionBuilder>> builders = name2UdfBuilders.getOrDefault(dbName, ImmutableMap.of());
             builders.getOrDefault(name, Lists.newArrayList())
                     .removeIf(builder -> ((UdfBuilder) builder).getArgTypes().equals(argTypes));
+
+            // the name will be used when show functions, so remove the name when it's dropped
+            if (builders.getOrDefault(name, Lists.newArrayList()).isEmpty()) {
+                builders.remove(name);
+            }
         }
     }
 

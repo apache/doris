@@ -81,8 +81,11 @@ public class Config extends ConfigBase {
             options = {"NORMAL", "ASYNC", "BRIEF"})
     public static String sys_log_mode = "ASYNC";
 
-    @ConfField(description = {"FE 日志文件的最大数量。超过这个数量后，最老的日志文件会被删除",
-            "The maximum number of FE log files. After exceeding this number, the oldest log file will be deleted"})
+    @ConfField(description = {"FE 在 sys_log_roll_interval （日志滚动间隔）内允许保留的最大日志文件数。"
+            + "默认值为 10，意味着在每个日志滚动周期内，系统最多会保留 10 个日志文件。",
+            "This parameter defines the maximum number of FE log files that can be retained within the "
+            + "sys_log_roll_interval (log roll interval). The default value is 10, which means the system"
+            + " will keep up to 10 log files during each log roll interval."})
     public static int sys_log_roll_num = 10;
 
     @ConfField(description = {
@@ -140,8 +143,13 @@ public class Config extends ConfigBase {
             description = {"是否检查table锁泄漏", "Whether to check table lock leaky"})
     public static boolean check_table_lock_leaky = false;
 
+    @ConfField(mutable = true, masterOnly = false,
+            description = {"PreparedStatement stmtId 起始位置，仅用于测试",
+                    "PreparedStatement stmtId starting position, used for testing onl"})
+    public static long prepared_stmt_start_id = -1;
+
     @ConfField(description = {"插件的安装目录", "The installation directory of the plugin"})
-    public static String plugin_dir = System.getenv("DORIS_HOME") + "/plugins";
+    public static String plugin_dir =  EnvUtils.getDorisHome() + "/plugins";
 
     @ConfField(mutable = true, masterOnly = true, description = {"是否启用插件", "Whether to enable the plugin"})
     public static boolean plugin_enable = true;
@@ -150,7 +158,7 @@ public class Config extends ConfigBase {
             "JDBC 驱动的存放路径。在创建 JDBC Catalog 时，如果指定的驱动文件路径不是绝对路径，则会在这个目录下寻找",
             "The path to save jdbc drivers. When creating JDBC Catalog,"
                     + "if the specified driver file path is not an absolute path, Doris will find jars from this path"})
-    public static String jdbc_drivers_dir = System.getenv("DORIS_HOME") + "/jdbc_drivers";
+    public static String jdbc_drivers_dir = EnvUtils.getDorisHome() + "/plugins/jdbc_drivers";
 
     @ConfField(description = {"JDBC 驱动的安全路径。在创建 JDBC Catalog 时，允许使用的文件或者网络路径，可配置多个，使用分号分隔"
             + "默认为 * 表示全部允许，如果设置为空也表示全部允许",
@@ -190,6 +198,12 @@ public class Config extends ConfigBase {
             "For ALTER, EXPORT jobs, remove the finished job if expired."})
     public static int history_job_keep_max_second = 7 * 24 * 3600; // 7 days
 
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "针对 EXPORT 作业，如果系统内 EXPORT 作业数量超过这个值，则会删除最老的记录。",
+            "For EXPORT jobs, If the number of EXPORT jobs in the system exceeds this value, "
+                    + "the oldest records will be deleted."})
+    public static int max_export_history_job_num = 1000;
+
     @ConfField(description = {"事务的清理周期，单位为秒。每个周期内，将会清理已经结束的并且过期的历史事务信息",
             "The clean interval of transaction, in seconds. "
                     + "In each cycle, the expired history transaction will be cleaned"})
@@ -201,10 +215,10 @@ public class Config extends ConfigBase {
     public static int label_clean_interval_second = 1 * 3600; // 1 hours
 
     @ConfField(description = {"元数据的存储目录", "The directory to save Doris meta data"})
-    public static String meta_dir = System.getenv("DORIS_HOME") + "/doris-meta";
+    public static String meta_dir =  EnvUtils.getDorisHome() + "/doris-meta";
 
     @ConfField(description = {"临时文件的存储目录", "The directory to save Doris temp data"})
-    public static String tmp_dir = System.getenv("DORIS_HOME") + "/temp_dir";
+    public static String tmp_dir =  EnvUtils.getDorisHome() + "/temp_dir";
 
     @ConfField(description = {"元数据日志的存储类型。BDB: 日志存储在 BDBJE 中。LOCAL：日志存储在本地文件中（仅用于测试）",
             "The storage type of the metadata log. BDB: Logs are stored in BDBJE. "
@@ -295,6 +309,12 @@ public class Config extends ConfigBase {
                     + "If the free disk space is less than this value, BDBJE will not be able to write."})
     public static long bdbje_free_disk_bytes = 1 * 1024 * 1024 * 1024; // 1G
 
+    @ConfField(description = {"BDBJE Cache 内存大小， 最小值为 96KB。", "Amount of memory used by by BDBJE as cache. "})
+    public static long bdbje_cache_size_bytes = 10 * 1024 * 1024; // 10 MB
+
+    @ConfField(description = {"BDBJE Message 大小限制。", "Max message size of BDBJE. "})
+    public static long bdbje_max_message_size_bytes = Integer.MAX_VALUE; // 2 GB
+
     @ConfField(masterOnly = true, description = {"心跳线程池的线程数",
             "Num of thread to handle heartbeat events"})
     public static int heartbeat_mgr_threads_num = 8;
@@ -302,6 +322,10 @@ public class Config extends ConfigBase {
     @ConfField(masterOnly = true, description = {"心跳线程池的队列大小",
             "Queue size to store heartbeat task in heartbeat_mgr"})
     public static int heartbeat_mgr_blocking_queue_size = 1024;
+
+    @ConfField(masterOnly = true, description = {"TabletStatMgr线程数",
+            "Num of thread to update tablet stat"})
+    public static int tablet_stat_mgr_threads_num = -1;
 
     @ConfField(masterOnly = true, description = {"Agent任务线程池的线程数",
             "Num of thread to handle agent task in agent task thread-pool"})
@@ -355,7 +379,7 @@ public class Config extends ConfigBase {
 
     @ConfField(description = {"FE https 服务的 key store 路径",
             "The key store path of FE https service"})
-    public static String key_store_path = System.getenv("DORIS_HOME")
+    public static String key_store_path =  EnvUtils.getDorisHome()
             + "/conf/ssl/doris_ssl_certificate.keystore";
 
     @ConfField(description = {"FE https 服务的 key store 密码",
@@ -457,7 +481,7 @@ public class Config extends ConfigBase {
     public static int query_port = 9030;
 
     @ConfField(description = {"FE Arrow-Flight-SQL server 的端口号", "The port of FE Arrow-Flight-SQL server"})
-    public static int arrow_flight_sql_port = -1;
+    public static int arrow_flight_sql_port = 8070;
 
     @ConfField(description = {"MySQL 服务的 IO 线程数", "The number of IO threads in MySQL service"})
     public static int mysql_service_io_threads_num = 4;
@@ -627,7 +651,7 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, masterOnly = true, description = {"Spark Load 所使用的 Spark 程序目录",
             "Spark dir for Spark Load"})
-    public static String spark_home_default_dir = System.getenv("DORIS_HOME") + "/lib/spark2x";
+    public static String spark_home_default_dir =  EnvUtils.getDorisHome() + "/lib/spark2x";
 
     @ConfField(description = {"Spark load 所使用的依赖项目录", "Spark dependencies dir for Spark Load"})
     public static String spark_resource_path = "";
@@ -636,10 +660,10 @@ public class Config extends ConfigBase {
     public static String spark_launcher_log_dir = System.getenv("LOG_DIR") + "/spark_launcher_log";
 
     @ConfField(description = {"Yarn client 的路径", "Yarn client path"})
-    public static String yarn_client_path = System.getenv("DORIS_HOME") + "/lib/yarn-client/hadoop/bin/yarn";
+    public static String yarn_client_path =  EnvUtils.getDorisHome() + "/lib/yarn-client/hadoop/bin/yarn";
 
     @ConfField(description = {"Yarn 配置文件的路径", "Yarn config path"})
-    public static String yarn_config_dir = System.getenv("DORIS_HOME") + "/lib/yarn-config";
+    public static String yarn_config_dir =  EnvUtils.getDorisHome() + "/lib/yarn-config";
 
     @ConfField(mutable = true, masterOnly = true, description = {"Ingestion load 的默认超时时间，单位是秒。",
             "Default timeout for ingestion load job, in seconds."})
@@ -943,7 +967,19 @@ public class Config extends ConfigBase {
 
     // update interval of tablet stat
     // All frontends will get tablet stat from all backends at each interval
-    @ConfField public static int tablet_stat_update_interval_second = 60;  // 1 min
+    @ConfField(mutable = true)
+    public static int tablet_stat_update_interval_second = 60;  // 1 min
+
+    // update interval of alive session
+    // Only master FE collect this info from all frontends at each interval
+    @ConfField public static int alive_session_update_interval_second = 5;
+
+    @ConfField public static int fe_session_mgr_threads_num = 1;
+
+    @ConfField public static int fe_session_mgr_blocking_queue_size = 1024;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static int loss_conn_fe_temp_table_keep_second = 60;
 
     /**
      * Max bytes a broker scanner can process in one broker load job.
@@ -1261,6 +1297,12 @@ public class Config extends ConfigBase {
     public static int routine_load_task_timeout_multiplier = 10;
 
     /**
+     * routine load task min timeout second.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int routine_load_task_min_timeout_sec = 60;
+
+    /**
      * the max timeout of get kafka meta.
      */
     @ConfField(mutable = true, masterOnly = true)
@@ -1282,7 +1324,7 @@ public class Config extends ConfigBase {
      * Save small files
      */
     @ConfField
-    public static String small_file_dir = System.getenv("DORIS_HOME") + "/small_files";
+    public static String small_file_dir =  EnvUtils.getDorisHome() + "/small_files";
 
     /**
      * This will limit the max recursion depth of hash distribution pruner.
@@ -1319,6 +1361,14 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static long dynamic_partition_check_interval_seconds = 600;
+
+    /**
+     * When scheduling dynamic partition tables,
+     * the execution interval of each table to prevent excessive consumption of FE CPU at the same time
+     * default is 0
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static long dynamic_partition_step_interval_ms = 0;
 
     /**
      * If set to true, dynamic partition feature will open
@@ -1443,6 +1493,37 @@ public class Config extends ConfigBase {
     )
     public static int expire_sql_cache_in_fe_second = 300;
 
+    /**
+     *  Expire hbo plan stats. cache in frontend time.
+     */
+    @ConfField(
+            mutable = true,
+            masterOnly = false,
+            callbackClassString = "org.apache.doris.nereids.stats.MemoryHboPlanStatisticsProvider$UpdateConfig",
+            description = {
+                    "当前默认设置为 86400，用来控制控制MemoryHboPlanStatisticsProvider中stats. cache过期时间，超过不访问会被回收",
+                    "The default setting is 86400, which is used to control the expiration time of plan stats. cache"
+                            + "in MemoryHboPlanStatisticsProvider. If the cache is not accessed for a period of time, "
+                            + "it will be reclaimed."
+            }
+    )
+    public static int expire_hbo_plan_stats_cache_in_fe_second = 86400;
+
+    /**
+     *  Expire hbo plan info cache in frontend time.
+     */
+    @ConfField(
+            mutable = true,
+            masterOnly = false,
+            callbackClassString = "org.apache.doris.nereids.stats.HboPlanInfoProvider$UpdateConfig",
+            description = {
+                    "当前默认设置为1000，用来控制控制HboPlanInfoProvider中plan info cache过期时间，超过一段时间不访问cache会被回收",
+                    "The default setting is 100, which is used to control the expiration time of hbo plan info cache"
+                            + "in HboPlanInfoProvider. If the cache is not accessed for a period of time, "
+                            + "it will be reclaimed."
+            }
+    )
+    public static int expire_hbo_plan_info_cache_in_fe_second = 1000;
 
     /**
      *  Expire sql sql in frontend time
@@ -1721,6 +1802,12 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int table_name_length_limit = 64;
 
+    @ConfField(mutable = true, description = {
+            "用于限制列注释长度；如果存量的列注释超长，则显示时进行截断",
+            "Used to limit the length of column comment; "
+                    + "If the existing column comment is too long, it will be truncated when displayed."})
+    public static int column_comment_length_limit = -1;
+
     /*
      * The job scheduling interval of the schema change handler.
      * The user should not set this parameter.
@@ -1880,8 +1967,10 @@ public class Config extends ConfigBase {
             "Maximum number of persistence allowed per task in a job,exceeding which old tasks will be discarded，"
                    + "If the value is less than 1, it will not be persisted." })
     public static int max_persistence_task_count = 100;
-    @ConfField(masterOnly = true, description = {"MV task 的等待队列大小，如果是负数，则会使用 1024，如果不是 2 的幂，则会自动选择一个最接近的"
-            + " 2 的幂次方数", "The size of the MV task's waiting queue If the size is negative, 1024 will be used. If "
+
+    @ConfField(masterOnly = true, description = { "MTMV task 的等待队列大小，如果是负数，则会使用 1024，如果不是 2 的幂，则会自动选择一个最接近的"
+                    + " 2 的幂次方数",
+            "The size of the MTMV task's waiting queue If the size is negative, 1024 will be used. If "
             + "the size is not a power of two, the nearest power of the size will be"
             + " automatically selected."})
     public static int mtmv_task_queue_size = 1024;
@@ -1890,6 +1979,13 @@ public class Config extends ConfigBase {
             + " If the size is not a power of two, the nearest power of the size will "
             + "be automatically selected."})
     public static int insert_task_queue_size = 1024;
+    @ConfField(masterOnly = true, description = { "字典导入 task 的等待队列大小，如果是负数，则会使用 1024，如果不是 2 的幂，则会自动选择一个最接近"
+            + " 的 2 的幂次方数",
+            "The size of the Dictionary loading task's waiting queue If the size is negative, 1024 will be used."
+            + " If the size is not a power of two, the nearest power of the size will "
+            + "be automatically selected." })
+    public static int dictionary_task_queue_size = 1024;
+
     @ConfField(masterOnly = true, description = {"finished 状态的 job 最长保存时间，超过这个时间将会被删除, 单位：小时",
             "The longest time to save the job in finished status, it will be deleted after this time. Unit: hour"})
     public static int finished_job_cleanup_threshold_time_hour = 24;
@@ -1900,9 +1996,14 @@ public class Config extends ConfigBase {
     public static int job_insert_task_consumer_thread_num = 10;
 
     @ConfField(masterOnly = true, description = {"用于执行 MTMV 任务的线程数,值应该大于0，否则默认为10",
-            "The number of threads used to consume mtmv tasks, "
+            "The number of threads used to consume MTMV tasks, "
                     + "the value should be greater than 0, if it is <=0, default is 10."})
     public static int job_mtmv_task_consumer_thread_num = 10;
+
+    @ConfField(masterOnly = true, description = { "用于执行字典导入和删除任务的线程数,值应该大于0，否则默认为3",
+            "The number of threads used to perform the dictionary import and delete tasks, which should be"
+                    + " greater than 0, otherwise it defaults to 3." })
+    public static int job_dictionary_task_consumer_thread_num = 3;
 
     /* job test config */
     /**
@@ -1941,10 +2042,6 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true)
     public static boolean enable_query_queue = true;
-
-    // used for regression test
-    @ConfField(mutable = true)
-    public static boolean enable_alter_queue_prop_sync = false;
 
     @ConfField(mutable = true)
     public static long query_queue_update_interval_ms = 5000;
@@ -2147,10 +2244,6 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = false)
     public static int blacklist_duration_second = 120;
 
-    @ConfField(mutable = true, masterOnly = false, description = {
-            "禁止创建odbc, mysql, broker类型的外表", "Disallow the creation of odbc, mysql, broker type external tables"})
-    public static boolean enable_odbc_mysql_broker_table = false;
-
     /**
      * The default connection timeout for hive metastore.
      * hive.metastore.client.socket.timeout
@@ -2179,7 +2272,7 @@ public class Config extends ConfigBase {
             "Max cache number of partition at table level in Hive Metastore."})
     public static long max_hive_partition_cache_num = 10000;
 
-    @ConfField(description = {"Hudi/Iceberg 表级别缓存的最大数量。",
+    @ConfField(description = {"Hudi/Iceberg/Paimon 表级别缓存的最大数量。",
             "Max cache number of hudi/iceberg table."})
     public static long max_external_table_cache_num = 1000;
 
@@ -2202,6 +2295,10 @@ public class Config extends ConfigBase {
     @ConfField(mutable = false, masterOnly = false, description = {"外表行数缓存最大数量",
         "Max cache number of external table row count"})
     public static long max_external_table_row_count_cache_num = 100000;
+
+    @ConfField(description = {"每个查询的外表文件元数据缓存的最大文件数量。",
+            "Max cache file number of external table split file meta cache at query level."})
+    public static long max_external_table_split_file_meta_cache_num = 100000;
 
     /**
      * Max cache loader thread-pool size.
@@ -2326,6 +2423,47 @@ public class Config extends ConfigBase {
     public static int cache_partition_meta_table_manage_num = 100;
 
     /**
+     * HBO plan stats. cache number which can be reused for the next query.
+     */
+    @ConfField(
+            mutable = true,
+            callbackClassString = "org.apache.doris.nereids.stats.MemoryHboPlanStatisticsProvider$UpdateConfig",
+            description = {
+                    "当前默认设置为 100000，用来控制控制MemoryHboPlanStatisticsProvider管理的plan stats. cache数量。",
+                    "Now default set to 100000, this config is used to control the number of "
+                            + "hbo plan stats. cache"
+            }
+    )
+    public static int hbo_plan_stats_cache_num = 100000;
+
+    /**
+     * HBO plan recent runs entry number.
+     */
+    @ConfField(
+            mutable = true,
+            description = {
+                    "当前默认设置为 10，用来控制控制MemoryHboPlanStatisticsProvider管理的plan stats. cache recent runs数量。",
+                    "Now default set to 10, this config is used to control the number of "
+                            + "hbo plan stats. cache recent runs' entry number."
+            }
+    )
+    public static int hbo_plan_stats_cache_recent_runs_entry_num = 10;
+
+    /**
+     * Plan info cache number which is used for HboPlanInfoProvider.
+     */
+    @ConfField(
+            mutable = true,
+            callbackClassString = "org.apache.doris.nereids.stats.HboPlanInfoProvider$UpdateConfig",
+            description = {
+                    "当前默认设置为 1000，用来控制控制HboPlanInfoProvider管理的plan info cache数量。",
+                    "Now default set to 1000, this config is used to control the number of "
+                            + "hbo plan info cache"
+            }
+    )
+    public static int hbo_plan_info_cache_num = 1000;
+
+    /**
      * Maximum number of events to poll in each RPC.
      */
     @ConfField(mutable = true, masterOnly = true)
@@ -2365,14 +2503,14 @@ public class Config extends ConfigBase {
      * Default CA certificate file location for mysql ssl connection.
      */
     @ConfField(mutable = false, masterOnly = false)
-    public static String mysql_ssl_default_ca_certificate = System.getenv("DORIS_HOME")
+    public static String mysql_ssl_default_ca_certificate =  EnvUtils.getDorisHome()
             + "/mysql_ssl_default_certificate/ca_certificate.p12";
 
     /**
      * Default server certificate file location for mysql ssl connection.
      */
     @ConfField(mutable = false, masterOnly = false)
-    public static String mysql_ssl_default_server_certificate = System.getenv("DORIS_HOME")
+    public static String mysql_ssl_default_server_certificate =  EnvUtils.getDorisHome()
             + "/mysql_ssl_default_certificate/server_certificate.p12";
 
     /**
@@ -2536,7 +2674,7 @@ public class Config extends ConfigBase {
     public static int max_binlog_messsage_size = 1024 * 1024 * 1024;
 
     @ConfField(mutable = true, masterOnly = true, description = {
-            "是否禁止使用 WITH REOSOURCE 语句创建 Catalog。",
+            "是否禁止使用 WITH RESOURCE 语句创建 Catalog。",
             "Whether to disable creating catalog with WITH RESOURCE statement."})
     public static boolean disallow_create_catalog_with_resource = true;
 
@@ -2611,11 +2749,6 @@ public class Config extends ConfigBase {
     public static int maximum_parallelism_of_export_job = 50;
 
     @ConfField(mutable = true, description = {
-            "ExportExecutorTask任务中一个OutFile语句允许的最大tablets数量",
-            "The maximum number of tablets allowed by an OutfileStatement in an ExportExecutorTask"})
-    public static int maximum_tablets_of_outfile_in_export = 10;
-
-    @ConfField(mutable = true, description = {
             "是否用 mysql 的 bigint 类型来返回 Doris 的 largeint 类型",
             "Whether to use mysql's bigint type to return Doris's largeint type"})
     public static boolean use_mysql_bigint_for_largeint = false;
@@ -2688,21 +2821,23 @@ public class Config extends ConfigBase {
     })
     public static int autobucket_max_buckets = 128;
 
-    @ConfField(description = {"Arrow Flight Server中所有用户token的缓存上限，超过后LRU淘汰，默认值为512, "
-            + "并强制限制小于 qe_max_connection/2, 避免`Reach limit of connections`, "
-            + "因为arrow flight sql是无状态的协议，连接通常不会主动断开，"
-            + "bearer token 从 cache 淘汰的同时会 unregister Connection.",
-            "The cache limit of all user tokens in Arrow Flight Server. which will be eliminated by"
-            + "LRU rules after exceeding the limit, the default value is 512, the mandatory limit is "
-            + "less than qe_max_connection/2 to avoid `Reach limit of connections`, "
-            + "because arrow flight sql is a stateless protocol, the connection is usually not actively "
-            + "disconnected, bearer token is evict from the cache will unregister ConnectContext."})
-    public static int arrow_flight_token_cache_size = 512;
+    @ConfField(description = {"单个 FE 的 Arrow Flight Server 的最大连接数。",
+            "Maximal number of connections of Arrow Flight Server per FE."})
+    public static int arrow_flight_max_connections = 4096;
 
-    @ConfField(description = {"Arrow Flight Server中用户token的存活时间，自上次写入后过期时间，单位分钟，默认值为4320，即3天",
-            "The alive time of the user token in Arrow Flight Server, expire after write, unit minutes,"
-            + "the default value is 4320, which is 3 days"})
-    public static int arrow_flight_token_alive_time = 4320;
+    @ConfField(description = {"(已弃用，被 arrow_flight_max_connection 替代) Arrow Flight Server中所有用户token的缓存上限，"
+            + "超过后LRU淘汰, arrow flight sql是无状态的协议，连接通常不会主动断开，"
+            + "bearer token 从 cache 淘汰的同时会 unregister Connection.",
+            "(Deprecated, replaced by arrow_flight_max_connection) The cache limit of all user tokens in "
+            + "Arrow Flight Server. which will be eliminated by LRU rules after exceeding the limit, "
+            + "arrow flight sql is a stateless protocol, the connection is usually not actively disconnected, "
+            + "bearer token is evict from the cache will unregister ConnectContext."})
+    public static int arrow_flight_token_cache_size = 4096;
+
+    @ConfField(description = {"Arrow Flight Server中用户token的存活时间，自上次写入后过期时间，单位秒，默认值为86400，即1天",
+            "The alive time of the user token in Arrow Flight Server, expire after write, unit second,"
+            + "the default value is 86400, which is 1 days"})
+    public static int arrow_flight_token_alive_time_second = 86400;
 
     @ConfField(mutable = true, description = {
             "Doris 为了兼用 mysql 周边工具生态，会内置一个名为 mysql 的数据库，如果该数据库与用户自建数据库冲突，"
@@ -2756,11 +2891,27 @@ public class Config extends ConfigBase {
     })
     public static int sync_image_timeout_second = 300;
 
+    @ConfField(mutable = true, description = {
+        "FE启动时加载image文件某个模块的二进制内容到字节数组，并将字节数组反序列化为utf8编码字符串时单批次（单位：byte, 至少500MB）"
+            + "的大小。等于-1的值表示一次性读取完整的字节数组后反序列化反序列化为utf8编码字符串；"
+            + "不等于-1的值（至少16MB）表示分批每次读取多大的字节数组后反序列化为utf8编码字符串，最后合并成完成的字符串。默认值为-1",
+        "The size of a single batch (in bytes) when loading the binary content of a module of the "
+            + "image file into a byte array and deserializing the byte array into a utf8 encoded string when FE starts."
+            + " A value equal to -1 means reading the entire byte array at once and "
+            + "then deserializing it into a utf8 encoded string; a value not equal to -1 means reading "
+            + "a certain size (at least 16MB) of byte array in batches and then deserializing it into a "
+            + "utf8 encoded string, and finally merging it into a completed string. The default value is -1"
+    })
+    public static int metadata_text_read_max_batch_bytes = -1;
+
     @ConfField(mutable = true, masterOnly = true)
     public static int publish_topic_info_interval_ms = 30000; // 30s
 
     @ConfField(mutable = true)
     public static int workload_sched_policy_interval_ms = 10000; // 10s
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static int workload_group_check_interval_ms = 30000; // 30s
 
     @ConfField(mutable = true, masterOnly = true)
     public static int workload_max_policy_num = 25;
@@ -2852,6 +3003,15 @@ public class Config extends ConfigBase {
     })
     public static int backup_restore_batch_task_num_per_rpc = 10000;
 
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "一个 BE 同时执行的恢复任务的并发数",
+            "The number of concurrent restore tasks per be"})
+    public static int restore_task_concurrency_per_be = 5000;
+
+    @ConfField(mutable = true, description = {"执行 agent task 时，BE心跳超过多长时间，认为BE不可用",
+            "The time after which BE is considered unavailable if the heartbeat is not received"})
+    public static int agent_task_be_unavailable_heartbeat_timeout_second = 300;
+
     @ConfField(description = {"是否开启通过http接口获取log文件的功能",
             "Whether to enable the function of getting log files through http interface"})
     public static boolean enable_get_log_file_api = false;
@@ -2904,7 +3064,7 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, masterOnly = false, description = {"指定 trino-connector catalog 的插件默认加载路径",
             "Specify the default plugins loading path for the trino-connector catalog"})
-    public static String trino_connector_plugin_dir = EnvUtils.getDorisHome() + "/connectors";
+    public static String trino_connector_plugin_dir = EnvUtils.getDorisHome() + "/plugins/connectors";
 
     @ConfField(mutable = true)
     public static boolean fix_tablet_partition_id_eq_0 = false;
@@ -3019,6 +3179,19 @@ public class Config extends ConfigBase {
             "Whether to enable the sync job feature. It is disabled by default and will be removed in version 3.1."
     })
     public static boolean enable_feature_data_sync_job = false;
+
+    @ConfField(description = {
+        "存放 hadoop conf 配置文件的默认目录。",
+        "The default directory for storing hadoop conf configuration files."})
+    public static String hadoop_config_dir = EnvUtils.getDorisHome() + "/plugins/hadoop_conf/";
+
+    @ConfField(mutable = true, masterOnly = true, description = {"字典相关的 RPC 的超时时间",
+            "Timeout of dictionary related RPC"})
+    public static int dictionary_rpc_timeout_seconds = 5;
+
+    @ConfField(mutable = true, masterOnly = true, description = { "字典触发数据过期检查的时间间隔，单位为秒",
+            "Interval at which the dictionary triggers a data expiration check, in seconds" })
+    public static int dictionary_auto_refresh_interval_seconds = 5;
 
     //==========================================================================
     //                    begin of cloud config
@@ -3210,6 +3383,15 @@ public class Config extends ConfigBase {
             + "for example: s3_load_endpoint_white_list=a,b,c"})
     public static String[] s3_load_endpoint_white_list = {};
 
+    @ConfField(mutable = true, description = {
+            "此参数控制是否强制使用 Azure global endpoint。默认值为 false，系统将使用用户指定的 endpoint。"
+            + "如果设置为 true，系统将强制使用 {account}.blob.core.windows.net。",
+            "This parameter controls whether to force the use of the Azure global endpoint. "
+            + "The default is false, meaning the system will use the user-specified endpoint. "
+            + "If set to true, the system will force the use of {account}.blob.core.windows.net."
+    })
+    public static boolean force_azure_blob_global_endpoint = false;
+
     @ConfField(mutable = true, description = {"指定Jdbc driver url白名单, 举例: jdbc_driver_url_white_list=a,b,c",
             "the white list for jdbc driver url, if it is empty, no white list will be set"
             + "for example: jdbc_driver_url_white_list=a,b,c"
@@ -3266,14 +3448,22 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, description = {"存算分离模式下fe向ms请求锁的过期时间，默认60s"})
     public static int delete_bitmap_lock_expiration_seconds = 60;
 
-    @ConfField(mutable = true, description = {"存算分离模式下calculate delete bitmap task 超时时间，默认15s"})
-    public static int calculate_delete_bitmap_task_timeout_seconds = 15;
+    @ConfField(mutable = true, description = {"存算分离模式下calculate delete bitmap task 超时时间，默认60s"})
+    public static int calculate_delete_bitmap_task_timeout_seconds = 60;
 
     @ConfField(mutable = true, description = {"存算分离模式下事务导入calculate delete bitmap task 超时时间，默认300s"})
     public static int calculate_delete_bitmap_task_timeout_seconds_for_transaction_load = 300;
 
     @ConfField(mutable = true, description = {"存算分离模式下commit阶段等锁超时时间，默认5s"})
     public static int try_commit_lock_timeout_seconds = 5;
+
+    @ConfField(mutable = true, description = {"是否在事务提交时对所有表启用提交锁。设置为 true 时，所有表都会使用提交锁。"
+            + "设置为 false 时，仅对 Merge-On-Write 表使用提交锁。默认值为 true。",
+            "Whether to enable commit lock for all tables during transaction commit."
+            + "If true, commit lock will be applied to all tables."
+            + "If false, commit lock will only be applied to Merge-On-Write tables."
+            + "Default value is true." })
+    public static boolean enable_commit_lock_for_all_tables = true;
 
     @ConfField(mutable = true, description = {"存算分离模式下是否开启大事务提交，默认false"})
     public static boolean enable_cloud_txn_lazy_commit = false;
@@ -3299,6 +3489,30 @@ public class Config extends ConfigBase {
     @ConfField(description = {"Get tablet stat task的最大并发数。",
         "Maximal concurrent num of get tablet stat job."})
     public static int max_get_tablet_stat_task_threads_num = 4;
+
+    @ConfField(mutable = true, description = {"存算分离模式下schema change失败是否重试",
+            "Whether to enable retry when schema change failed in cloud model, default is true."})
+    public static boolean enable_schema_change_retry_in_cloud_mode = true;
+
+    @ConfField(mutable = true, description = {"存算分离模式下schema change重试次数",
+            "Max retry times when schema change failed in cloud model, default is 3."})
+    public static int schema_change_max_retry_time = 3;
+
+    @ConfField(mutable = true, description = {"是否允许使用ShowCacheHotSpotStmt语句",
+            "Whether to enable the use of ShowCacheHotSpotStmt, default is false."})
+    public static boolean enable_show_file_cache_hotspot_stmt = false;
+
+    @ConfField(mutable = true, description = {"存算分离模式下FE连接meta service的请求超时, 默认30000ms",
+            "Request timeout for FE connecting to meta service in cloud mode, default is 30000ms."})
+    public static int meta_service_brpc_timeout_ms = 30000;
+
+    @ConfField(mutable = true, description = {"存算分离模式下FE连接meta service的连接超时，默认500ms",
+            "Connection timeout for FE connecting to meta service in cloud mode., default is 500ms."})
+    public static int meta_service_brpc_connect_timeout_ms = 500;
+
+    @ConfField(mutable = true, description = {"存算分离模式下FE请求meta service超时的重试次数，默认1次",
+            "In cloud mode, the retry number when the FE requests the meta service times out is 1 by default"})
+    public static int meta_service_rpc_timeout_retry_times = 1;
 
     // ATTN: DONOT add any config not related to cloud mode here
     // ATTN: DONOT add any config not related to cloud mode here
@@ -3366,4 +3580,12 @@ public class Config extends ConfigBase {
     public static long meta_service_rpc_reconnect_interval_ms = 5000;
 
     public static long meta_service_rpc_retry_cnt = 10;
+
+    @ConfField(mutable = true, masterOnly = true, description = {"是否允许 variant 类型的列使用倒排索引格式 v1",
+            "Whether to allow the use of inverted index v1 for variant"})
+    public static boolean enable_inverted_index_v1_for_variant = false;
+
+    @ConfField(mutable = true, description = {"Prometheus 输出表维度指标的个数限制",
+            "Prometheus output table dimension metric count limit"})
+    public static int prom_output_table_metrics_limit = 10000;
 }

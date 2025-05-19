@@ -41,6 +41,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -101,7 +102,7 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
     protected SplitAssignment splitAssignment = null;
 
     protected long selectedPartitionNum = 0;
-    protected long selectedSplitNum = 0;
+    protected int selectedSplitNum = 0;
 
     // create a mapping between output slot's id and project expr
     Map<SlotId, Expr> outputSlotToProjectExpr = new HashMap<>();
@@ -110,6 +111,7 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
     protected final List<SortNode> topnFilterSortNodes = Lists.newArrayList();
 
     protected TableSnapshot tableSnapshot;
+    protected List<Column> columns;
 
     // Save the id of backends which this scan node will be executed on.
     // This is also important for local shuffle logic.
@@ -139,6 +141,13 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
         result.hostname = hostPort[0];
         result.port = Integer.parseInt(hostPort[1]);
         return result;
+    }
+
+    protected List<Column> getColumns() {
+        if (columns == null && desc.getTable() != null) {
+            columns = desc.getTable().getBaseSchema();
+        }
+        return columns;
     }
 
     public TupleDescriptor getTupleDesc() {
@@ -233,8 +242,12 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
         // for load scan node, table is null
         // partitionsInfo maybe null for other scan node, eg: ExternalScanNode...
         if (desc.getTable() != null) {
-            computeColumnsFilter(desc.getTable().getBaseSchema(), partitionsInfo);
+            computeColumnsFilter(getColumns(), partitionsInfo);
         }
+    }
+
+    public TableIf getTableIf() {
+        return desc.getTable();
     }
 
     public static ColumnRange createColumnRange(SlotDescriptor desc,

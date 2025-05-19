@@ -10,7 +10,7 @@ PhysicalResultSink
 
 -- !filter_project_arithmetic --
 PhysicalResultSink
---filter((cast(id as BIGINT) = 1))
+--filter((t1.id = 1))
 ----PhysicalOlapScan[t1]
 
 -- !filter_order_by --
@@ -221,7 +221,7 @@ PhysicalResultSink
 
 -- !filter_aggregation_filtered_agg_func --
 PhysicalResultSink
---filter((count(*) > 10))
+--filter((count() > 10))
 ----hashAgg[GLOBAL]
 ------hashAgg[LOCAL]
 --------PhysicalOlapScan[t1]
@@ -294,7 +294,7 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------PhysicalUnion
---------filter((cast(random() as INT) = 2))
+--------filter((id = 2))
 ----------PhysicalOneRowRelation
 --------filter((t2.id = 2))
 ----------PhysicalOlapScan[t2]
@@ -302,7 +302,7 @@ PhysicalResultSink
 -- !push_filter_union_all --
 PhysicalResultSink
 --PhysicalUnion
-----filter(cast(random() as INT) IN (2, 3))
+----filter(id IN (2, 3))
 ------PhysicalOneRowRelation
 ----filter(id IN (2, 3))
 ------PhysicalOlapScan[t2]
@@ -310,7 +310,7 @@ PhysicalResultSink
 -- !push_filter_intersect --
 PhysicalResultSink
 --PhysicalIntersect
-----filter(cast(random() as INT) IN (2, 3))
+----filter(id IN (2, 3))
 ------PhysicalOneRowRelation
 ----filter(id IN (2, 3))
 ------PhysicalOlapScan[t2]
@@ -318,8 +318,9 @@ PhysicalResultSink
 -- !push_filter_except --
 PhysicalResultSink
 --PhysicalExcept
-----filter((cast(random() as INT) = 2) and (t1.msg = ''))
-------PhysicalOlapScan[t1]
+----filter((id = 2))
+------filter((t1.msg = ''))
+--------PhysicalOlapScan[t1]
 ----filter((t2.id = 2) and (t2.msg = ''))
 ------PhysicalOlapScan[t2]
 

@@ -27,7 +27,7 @@ import java.util.regex.Pattern;
 /**
  * Represents IPv4 literal
  */
-public class IPv4Literal extends Literal {
+public class IPv4Literal extends Literal implements ComparableLiteral {
 
     private static final Pattern IPV4_STD_REGEX =
             Pattern.compile("^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$");
@@ -50,6 +50,11 @@ public class IPv4Literal extends Literal {
     }
 
     @Override
+    public double getDouble() {
+        return (double) value;
+    }
+
+    @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitIPv4Literal(this, context);
     }
@@ -57,6 +62,21 @@ public class IPv4Literal extends Literal {
     @Override
     public LiteralExpr toLegacyLiteral() {
         return new org.apache.doris.analysis.IPv4Literal(value);
+    }
+
+    @Override
+    public int compareTo(ComparableLiteral other) {
+        if (other instanceof IPv4Literal) {
+            return Long.compare(value, ((IPv4Literal) other).value);
+        }
+        if (other instanceof NullLiteral) {
+            return 1;
+        }
+        if (other instanceof MaxLiteral) {
+            return -1;
+        }
+        throw new RuntimeException("Cannot compare two values with different data types: "
+                + this + " (" + dataType + ") vs " + other + " (" + ((Literal) other).dataType + ")");
     }
 
     void init(String ipv4) throws AnalysisException {

@@ -95,6 +95,7 @@ suite("insert_group_commit_into_unique") {
             sql """ set group_commit = async_mode; """
             group_commit_insert """ insert into ${dbTableName} values (1, 'a', 10),(5, 'q', 50); """, 2
             group_commit_insert """ insert into ${dbTableName}(id) values(6); """, 1
+            getRowCount(3)
             group_commit_insert """ insert into ${dbTableName}(id) values(4);  """, 1
             group_commit_insert """ insert into ${dbTableName}(name, id) values('c', 3);  """, 1
             group_commit_insert """ insert into ${dbTableName}(id, name) values(2, 'b'); """, 1
@@ -175,6 +176,7 @@ suite("insert_group_commit_into_unique") {
 
             group_commit_insert """ insert into ${dbTableName} values (1, 'a', 10),(5, 'q', 50); """, 2
             group_commit_insert """ insert into ${dbTableName}(id, score) values(6, 60); """, 1
+            getRowCount(3)
             group_commit_insert """ insert into ${dbTableName}(id, score) values(4, 70);  """, 1
             group_commit_insert """ insert into ${dbTableName}(name, id, score) values('c', 3, 30);  """, 1
             group_commit_insert """ insert into ${dbTableName}(score, id, name) values(30, 2, 'b'); """, 1
@@ -256,6 +258,7 @@ suite("insert_group_commit_into_unique") {
 
             group_commit_insert """ insert into ${dbTableName}(id, name, score, __DORIS_SEQUENCE_COL__) values (1, 'a', 10, 100),(5, 'q', 50, 500); """, 2
             group_commit_insert """ insert into ${dbTableName}(id, score, __DORIS_SEQUENCE_COL__) values(6, 60, 600); """, 1
+            getRowCount(3)
             group_commit_insert """ insert into ${dbTableName}(id, score, __DORIS_SEQUENCE_COL__) values(6, 50, 500);  """, 1
             group_commit_insert """ insert into ${dbTableName}(name, id, score, __DORIS_SEQUENCE_COL__) values('c', 3, 30, 300);  """, 1
             group_commit_insert """ insert into ${dbTableName}(score, id, name, __DORIS_SEQUENCE_COL__) values(30, 2, 'b', 200); """, 1

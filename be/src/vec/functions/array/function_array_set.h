@@ -174,7 +174,7 @@ private:
                                   const ColumnArrayExecutionData& left_data,
                                   const ColumnArrayExecutionData& right_data) {
         using Impl = OpenSetImpl<operation, ColumnType>;
-        if (!check_column<ColumnType>(*left_data.nested_col)) {
+        if (!is_column<ColumnType>(*left_data.nested_col)) {
             return false;
         }
         constexpr auto execute_left_column_first = Impl::Action::execute_left_column_first;

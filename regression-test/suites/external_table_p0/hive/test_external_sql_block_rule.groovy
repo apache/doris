@@ -49,16 +49,37 @@ suite("test_external_sql_block_rule", "external_docker,hive,external_docker_hive
     sql """create user external_block_user1;"""
     sql """SET PROPERTY FOR 'external_block_user1' 'sql_block_rules' = 'external_hive_partition';"""
     sql """grant all on *.*.* to external_block_user1;"""
+    //cloud-mode
+    if (isCloudMode()) {
+        def clusters = sql " SHOW CLUSTERS; "
+        assertTrue(!clusters.isEmpty())
+        def validCluster = clusters[0][0]
+        sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO external_block_user1;""";
+    }
 
     sql """drop user if exists external_block_user2"""
     sql """create user external_block_user2;"""
     sql """SET PROPERTY FOR 'external_block_user2' 'sql_block_rules' = 'external_hive_partition2';"""
     sql """grant all on *.*.* to external_block_user2;"""
+    //cloud-mode
+    if (isCloudMode()) {
+        def clusters = sql " SHOW CLUSTERS; "
+        assertTrue(!clusters.isEmpty())
+        def validCluster = clusters[0][0]
+        sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO external_block_user2;""";
+    }
 
     sql """drop user if exists external_block_user3"""
     sql """create user external_block_user3;"""
     sql """SET PROPERTY FOR 'external_block_user3' 'sql_block_rules' = 'external_hive_partition3';"""
     sql """grant all on *.*.* to external_block_user3;"""
+    //cloud-mode
+    if (isCloudMode()) {
+        def clusters = sql " SHOW CLUSTERS; "
+        assertTrue(!clusters.isEmpty())
+        def validCluster = clusters[0][0]
+        sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO external_block_user3;""";
+    }
 
     // login as external_block_user1 
     def result1 = connect('external_block_user1', '', context.config.jdbcUrl) {

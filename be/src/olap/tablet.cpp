@@ -62,9 +62,6 @@
 #include "common/logging.h"
 #include "common/signal_handler.h"
 #include "common/status.h"
-#include "exprs/runtime_filter.h"
-#include "gutil/ref_counted.h"
-#include "gutil/strings/substitute.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/file_system.h"
@@ -225,6 +222,7 @@ void WriteCooldownMetaExecutors::WriteCooldownMetaExecutors::submit(TabletShared
             std::unique_lock<std::mutex> lck {_latch};
             _pending_tablets.erase(t->tablet_id());
         }
+        SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->orphan_mem_tracker());
         auto s = t->write_cooldown_meta();
         if (s.ok()) {
             return;
@@ -711,6 +709,9 @@ void Tablet::_delete_stale_rowset_by_version(const Version& version) {
 }
 
 void Tablet::delete_expired_stale_rowset() {
+    if (config::enable_mow_verbose_log) {
+        LOG_INFO("begin delete_expired_stale_rowset for tablet={}", tablet_id());
+    }
     int64_t now = UnixSeconds();
     // hold write lock while processing stable rowset
     {
@@ -879,6 +880,9 @@ void Tablet::delete_expired_stale_rowset() {
         save_meta();
     }
 #endif
+    if (config::enable_mow_verbose_log) {
+        LOG_INFO("finish delete_expired_stale_rowset for tablet={}", tablet_id());
+    }
 }
 
 Status Tablet::capture_consistent_versions_unlocked(const Version& spec_version,
@@ -1097,6 +1101,11 @@ uint32_t Tablet::_calc_cumulative_compaction_score(
         _cumulative_compaction_policy = cumulative_compaction_policy;
     }
 #endif
+    DBUG_EXECUTE_IF("Tablet._calc_cumulative_compaction_score.return", {
+        LOG_WARNING("Tablet._calc_cumulative_compaction_score.return")
+                .tag("tablet id", tablet_id());
+        return 0;
+    });
     return _cumulative_compaction_policy->calc_cumulative_compaction_score(this);
 }
 
@@ -1393,15 +1402,33 @@ void Tablet::get_compaction_status(std::string* json_result) {
     format_str = ToStringFromUnixMillis(_last_full_compaction_success_millis.load());
     full_success_value.SetString(format_str.c_str(), format_str.length(), root.GetAllocator());
     root.AddMember("last full success time", full_success_value, root.GetAllocator());
+    rapidjson::Value cumu_schedule_value;
+    format_str = ToStringFromUnixMillis(_last_cumu_compaction_schedule_millis.load());
+    cumu_schedule_value.SetString(format_str.c_str(), format_str.length(), root.GetAllocator());
+    root.AddMember("last cumulative schedule time", cumu_schedule_value, root.GetAllocator());
     rapidjson::Value base_schedule_value;
     format_str = ToStringFromUnixMillis(_last_base_compaction_schedule_millis.load());
     base_schedule_value.SetString(format_str.c_str(), format_str.length(), root.GetAllocator());
     root.AddMember("last base schedule time", base_schedule_value, root.GetAllocator());
+    rapidjson::Value full_schedule_value;
+    format_str = ToStringFromUnixMillis(_last_full_compaction_schedule_millis.load());
+    full_schedule_value.SetString(format_str.c_str(), format_str.length(), root.GetAllocator());
+    root.AddMember("last full schedule time", full_schedule_value, root.GetAllocator());
+    rapidjson::Value cumu_compaction_status_value;
+    cumu_compaction_status_value.SetString(_last_cumu_compaction_status.c_str(),
+                                           _last_cumu_compaction_status.length(),
+                                           root.GetAllocator());
+    root.AddMember("last cumulative status", cumu_compaction_status_value, root.GetAllocator());
     rapidjson::Value base_compaction_status_value;
     base_compaction_status_value.SetString(_last_base_compaction_status.c_str(),
                                            _last_base_compaction_status.length(),
                                            root.GetAllocator());
     root.AddMember("last base status", base_compaction_status_value, root.GetAllocator());
+    rapidjson::Value full_compaction_status_value;
+    full_compaction_status_value.SetString(_last_full_compaction_status.c_str(),
+                                           _last_full_compaction_status.length(),
+                                           root.GetAllocator());
+    root.AddMember("last full status", full_compaction_status_value, root.GetAllocator());
 
     // last single replica compaction status
     // "single replica compaction status": {
@@ -1489,7 +1516,6 @@ bool Tablet::do_tablet_meta_checkpoint() {
         _newly_created_rowset_num < config::tablet_meta_checkpoint_min_new_rowsets_num) {
         return false;
     }
-
     // hold read-lock other than write-lock, because it will not modify meta structure
     std::shared_lock rdlock(_meta_lock);
     if (tablet_state() != TABLET_RUNNING) {
@@ -1759,17 +1785,12 @@ Status Tablet::prepare_compaction_and_calculate_permits(
             }
             if (!res.is<CUMULATIVE_NO_SUITABLE_VERSION>()) {
                 DorisMetrics::instance()->cumulative_compaction_request_failed->increment(1);
-                return Status::InternalError("prepare cumulative compaction with err: {}", res);
+                return Status::InternalError("prepare cumulative compaction with err: {}",
+                                             res.to_string());
             }
             // return OK if OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSION, so that we don't need to
             // print too much useless logs.
             // And because we set permits to 0, so even if we return OK here, nothing will be done.
-            LOG_INFO(
-                    "cumulative compaction meet delete rowset, increase cumu point without other "
-                    "operation.")
-                    .tag("tablet id:", tablet->tablet_id())
-                    .tag("after cumulative compaction, cumu point:",
-                         tablet->cumulative_layer_point());
             return Status::OK();
         }
     } else if (compaction_type == CompactionType::BASE_COMPACTION) {
@@ -1794,7 +1815,8 @@ Status Tablet::prepare_compaction_and_calculate_permits(
             permits = 0;
             if (!res.is<BE_NO_SUITABLE_VERSION>()) {
                 DorisMetrics::instance()->base_compaction_request_failed->increment(1);
-                return Status::InternalError("prepare base compaction with err: {}", res);
+                return Status::InternalError("prepare base compaction with err: {}",
+                                             res.to_string());
             }
             // return OK if OLAP_ERR_BE_NO_SUITABLE_VERSION, so that we don't need to
             // print too much useless logs.
@@ -1810,7 +1832,8 @@ Status Tablet::prepare_compaction_and_calculate_permits(
             tablet->set_last_full_compaction_failure_time(UnixMillis());
             permits = 0;
             if (!res.is<FULL_NO_SUITABLE_VERSION>()) {
-                return Status::InternalError("prepare full compaction with err: {}", res);
+                return Status::InternalError("prepare full compaction with err: {}",
+                                             res.to_string());
             }
             // return OK if OLAP_ERR_BE_NO_SUITABLE_VERSION, so that we don't need to
             // print too much useless logs.
@@ -2006,7 +2029,10 @@ Status Tablet::create_rowset(const RowsetMetaSharedPtr& rowset_meta, RowsetShare
 Status Tablet::cooldown(RowsetSharedPtr rowset) {
     std::unique_lock schema_change_lock(_schema_change_lock, std::try_to_lock);
     if (!schema_change_lock.owns_lock()) {
-        return Status::Error<TRY_LOCK_FAILED>("try schema_change_lock failed");
+        return Status::Error<TRY_LOCK_FAILED>(
+                "try schema_change_lock failed, schema change running or inverted index built on "
+                "this tablet={}",
+                tablet_id());
     }
     // Check executing serially with compaction task.
     std::unique_lock base_compaction_lock(_base_compaction_lock, std::try_to_lock);
@@ -2021,6 +2047,12 @@ Status Tablet::cooldown(RowsetSharedPtr rowset) {
     if (_cooldown_conf.cooldown_replica_id <= 0) { // wait for FE to push cooldown conf
         return Status::InternalError("invalid cooldown_replica_id");
     }
+
+    auto mem_tracker = MemTrackerLimiter::create_shared(
+            MemTrackerLimiter::Type::OTHER,
+            fmt::format("Tablet::cooldown#tableId={}:replicaId={}", std::to_string(tablet_id()),
+                        std::to_string(replica_id())));
+    SCOPED_ATTACH_TASK(mem_tracker);
 
     if (_cooldown_conf.cooldown_replica_id == replica_id()) {
         // this replica is cooldown replica
@@ -2524,7 +2556,8 @@ CalcDeleteBitmapExecutor* Tablet::calc_delete_bitmap_executor() {
 
 Status Tablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t txn_id,
                                   DeleteBitmapPtr delete_bitmap, RowsetWriter* rowset_writer,
-                                  const RowsetIdUnorderedSet& cur_rowset_ids, int64_t lock_id) {
+                                  const RowsetIdUnorderedSet& cur_rowset_ids, int64_t lock_id,
+                                  int64_t next_visible_version) {
     RowsetSharedPtr rowset = txn_info->rowset;
     int64_t cur_version = rowset->start_version();
 

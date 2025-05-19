@@ -65,8 +65,10 @@ bool DataTypeArray::equals(const IDataType& rhs) const {
            nested->equals(*static_cast<const DataTypeArray&>(rhs).nested);
 }
 
+// here we should remove nullable, otherwise here always be 1
 size_t DataTypeArray::get_number_of_dimensions() const {
-    const DataTypeArray* nested_array = typeid_cast<const DataTypeArray*>(nested.get());
+    const DataTypeArray* nested_array =
+            typeid_cast<const DataTypeArray*>(remove_nullable(nested).get());
     if (!nested_array) return 1;
     return 1 +
            nested_array
@@ -186,8 +188,7 @@ void DataTypeArray::to_string(const IColumn& column, size_t row_num, BufferWrita
         if (i != offset) {
             ostr.write(", ", 2);
         }
-        WhichDataType which(remove_nullable(nested));
-        if (which.is_string_or_fixed_string()) {
+        if (is_string_type(nested->get_primitive_type())) {
             ostr.write("'", 1);
             nested->to_string(nested_column, i, ostr);
             ostr.write("'", 1);
@@ -215,8 +216,7 @@ std::string DataTypeArray::to_string(const IColumn& column, size_t row_num) cons
         if (i != offset) {
             str += ", ";
         }
-        WhichDataType which(remove_nullable(nested));
-        if (which.is_string_or_fixed_string()) {
+        if (is_string_type(nested->get_primitive_type())) {
             str += "'";
             str += nested->to_string(nested_column, i);
             str += "'";

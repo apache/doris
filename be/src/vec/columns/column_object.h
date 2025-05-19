@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 // This file is copied from
-// https://github.com/ClickHouse/ClickHouse/blob/master/src/Columns/ColumnObject.h
+// https://github.com/ClickHouse/ClickHouse/blob/master/src/Columns/ColumnVariant.h
 // and modified by Doris
 
 #pragma once
@@ -65,7 +65,7 @@ namespace doris::vectorized {
 /// of dimensions or nullability.
 struct FieldInfo {
     /// The common type id of of all scalars in field.
-    TypeIndex scalar_type_id;
+    PrimitiveType scalar_type_id;
     /// Do we have NULL scalar in field.
     bool have_nulls;
     /// If true then we have scalars with different types in array and
@@ -78,10 +78,10 @@ struct FieldInfo {
 void get_field_info(const Field& field, FieldInfo* info);
 /** A column that represents object with dynamic set of subcolumns.
  *  Subcolumns are identified by paths in document and are stored in
- *  a trie-like structure. ColumnObject is not suitable for writing into tables
+ *  a trie-like structure. ColumnVariant is not suitable for writing into tables
  *  and it should be converted to Tuple with fixed set of subcolumns before that.
  */
-class ColumnObject final : public COWHelper<IColumn, ColumnObject> {
+class ColumnVariant final : public COWHelper<IColumn, ColumnVariant> {
 public:
     /** Class that represents one subcolumn.
      * It stores values in several parts of column
@@ -94,7 +94,7 @@ public:
 
     // Using jsonb type as most common type, since it's adopted all types of json
     using MostCommonType = DataTypeJsonb;
-    constexpr static TypeIndex MOST_COMMON_TYPE_ID = TypeIndex::JSONB;
+    constexpr static PrimitiveType MOST_COMMON_TYPE_ID = PrimitiveType::TYPE_JSONB;
     // Nullable(Array(Nullable(Object)))
     const static DataTypePtr NESTED_TYPE;
     // Finlize mode for subcolumns, write mode will estimate which subcolumns are sparse columns(too many null values inside column),
@@ -115,6 +115,8 @@ public:
         size_t byteSize() const;
 
         size_t allocatedBytes() const;
+
+        bool has_enough_capacity(const IColumn& src) const { return false; };
 
         bool is_finalized() const;
 
@@ -177,7 +179,7 @@ public:
 
         void add_new_column_part(DataTypePtr type);
 
-        friend class ColumnObject;
+        friend class ColumnVariant;
 
     private:
         class LeastCommonType {
@@ -191,12 +193,12 @@ public:
             const DataTypePtr& get_base() const { return base_type; }
 
             // The least command type id
-            const TypeIndex& get_type_id() const { return type_id; }
+            const PrimitiveType& get_type_id() const { return type_id; }
 
             // The inner least common type if of array,
             // example: Array(Nullable(Object))
             // then the base type id is Object
-            const TypeIndex& get_base_type_id() const { return base_type_id; }
+            const PrimitiveType& get_base_type_id() const { return base_type_id; }
 
             size_t get_dimensions() const { return num_dimensions; }
 
@@ -207,8 +209,8 @@ public:
         private:
             DataTypePtr type;
             DataTypePtr base_type;
-            TypeIndex type_id;
-            TypeIndex base_type_id;
+            PrimitiveType type_id;
+            PrimitiveType base_type_id;
             size_t num_dimensions = 0;
             DataTypeSerDeSPtr least_common_type_serder;
         };
@@ -233,7 +235,7 @@ public:
         // the root Node should be JSONB type when finalize
         bool is_root = false;
     };
-    using Subcolumns = SubcolumnsTree<Subcolumn>;
+    using Subcolumns = SubcolumnsTree<Subcolumn, false>;
 
 private:
     /// If true then all subcolumns are nullable.
@@ -254,19 +256,21 @@ private:
 public:
     static constexpr auto COLUMN_NAME_DUMMY = "_dummy";
 
-    explicit ColumnObject(bool is_nullable_, bool create_root = true);
+    explicit ColumnVariant(bool is_nullable_, bool create_root = true);
 
-    explicit ColumnObject(bool is_nullable_, DataTypePtr type, MutableColumnPtr&& column);
+    explicit ColumnVariant(bool is_nullable_, DataTypePtr type, MutableColumnPtr&& column);
 
-    ColumnObject(Subcolumns&& subcolumns_, bool is_nullable_);
+    ColumnVariant(Subcolumns&& subcolumns_, bool is_nullable_);
 
-    ~ColumnObject() override = default;
+    ~ColumnVariant() override = default;
 
     /// Checks that all subcolumns have consistent sizes.
     void check_consistency() const;
 
     MutableColumnPtr get_root() {
-        if (subcolumns.empty() || is_nothing(subcolumns.get_root()->data.get_least_common_type())) {
+        if (subcolumns.empty() ||
+            subcolumns.get_root()->data.get_least_common_type()->get_primitive_type() ==
+                    INVALID_TYPE) {
             return nullptr;
         }
         return subcolumns.get_mutable_root()->data.get_finalized_column_ptr()->assume_mutable();
@@ -361,7 +365,7 @@ public:
 
     MutableColumnPtr clone_finalized() const {
         auto finalized = IColumn::mutate(get_ptr());
-        static_cast<ColumnObject*>(finalized.get())->finalize(FinalizeMode::READ_MODE);
+        static_cast<ColumnVariant*>(finalized.get())->finalize(FinalizeMode::READ_MODE);
         return finalized;
     }
 
@@ -385,6 +389,8 @@ public:
     size_t byte_size() const override;
 
     size_t allocated_bytes() const override;
+
+    bool has_enough_capacity(const IColumn& src) const override { return false; }
 
     void for_each_subcolumn(ColumnCallback callback) override;
 
@@ -445,85 +451,6 @@ public:
 
     void update_crc_with_value(size_t start, size_t end, uint32_t& hash,
                                const uint8_t* __restrict null_data) const override;
-
-    Int64 get_int(size_t /*n*/) const override {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "get_int" + get_name());
-    }
-
-    bool get_bool(size_t /*n*/) const override {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "get_bool" + get_name());
-    }
-
-    void insert_many_fix_len_data(const char* pos, size_t num) override {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "insert_many_fix_len_data" + get_name());
-    }
-
-    void insert_many_dict_data(const int32_t* data_array, size_t start_index, const StringRef* dict,
-                               size_t data_num, uint32_t dict_num = 0) override {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "insert_many_dict_data" + get_name());
-    }
-
-    void insert_many_continuous_binary_data(const char* data, const uint32_t* offsets,
-                                            const size_t num) override {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "insert_many_continuous_binary_data" + get_name());
-    }
-
-    void insert_many_strings(const StringRef* strings, size_t num) override {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "insert_many_strings" + get_name());
-    }
-
-    void insert_many_strings_overflow(const StringRef* strings, size_t num,
-                                      size_t max_length) override {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "insert_many_strings_overflow" + get_name());
-    }
-
-    void insert_many_raw_data(const char* pos, size_t num) override {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "insert_many_raw_data" + get_name());
-    }
-
-    size_t get_max_row_byte_size() const override {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "get_max_row_byte_size" + get_name());
-    }
-
-    void serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
-                       size_t max_row_byte_size) const override {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "serialize_vec" + get_name());
-    }
-
-    void serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
-                                     const uint8_t* null_map) const override {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "serialize_vec_with_null_map" + get_name());
-    }
-
-    void deserialize_vec(std::vector<StringRef>& keys, const size_t num_rows) override {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "deserialize_vec" + get_name());
-    }
-
-    void deserialize_vec_with_null_map(std::vector<StringRef>& keys, const size_t num_rows,
-                                       const uint8_t* null_map) override {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "deserialize_vec_with_null_map" + get_name());
-    }
-
-    Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) const {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "filter_by_selector" + get_name());
-    }
-
-    bool structure_equals(const IColumn&) const override {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "structure_equals" + get_name());
-    }
-
-    StringRef get_raw_data() const override {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "get_raw_data" + get_name());
-    }
 
     StringRef get_data_at(size_t) const override {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "get_data_at" + get_name());

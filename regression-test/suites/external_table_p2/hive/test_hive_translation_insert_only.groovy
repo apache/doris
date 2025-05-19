@@ -45,6 +45,11 @@ suite("test_hive_translation_insert_only", "p2,external,hive,external_remote,ext
     qt_2 """ select * from parquet_insert_only_major order by id """ 
     qt_3 """ select * from orc_insert_only_minor order by id """ 
 
+    qt_count_1 """ select count(*) from text_insert_only """ //4 
+    qt_count_2 """ select count(*) from parquet_insert_only_major """ //5 
+    qt_count_3 """ select count(*) from orc_insert_only_minor """ //5
+
+
     sql """drop catalog ${hms_catalog_name};"""
 }
 

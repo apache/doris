@@ -32,6 +32,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.load.DppConfig;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.resource.Tag;
@@ -84,9 +85,8 @@ public class UserProperty implements Writable {
     public static final String PROP_QUOTA = "quota";
     public static final String PROP_DEFAULT_LOAD_CLUSTER = "default_load_cluster";
 
+    public static final String PROP_DEFAULT_INIT_CATALOG = "default_init_catalog";
     public static final String PROP_WORKLOAD_GROUP = "default_workload_group";
-
-    public static final String PROP_ALLOW_RESOURCE_TAG_DOWNGRADE = "allow_resource_tag_downgrade";
 
     public static final String DEFAULT_CLOUD_CLUSTER = "default_cloud_cluster";
     public static final String DEFAULT_COMPUTE_GROUP = "default_compute_group";
@@ -141,13 +141,12 @@ public class UserProperty implements Writable {
         ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_EXEC_MEM_LIMIT + "$", Pattern.CASE_INSENSITIVE));
         ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_USER_QUERY_TIMEOUT + "$", Pattern.CASE_INSENSITIVE));
         ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_USER_INSERT_TIMEOUT + "$", Pattern.CASE_INSENSITIVE));
-        ADVANCED_PROPERTIES.add(
-                Pattern.compile("^" + PROP_ALLOW_RESOURCE_TAG_DOWNGRADE + "$", Pattern.CASE_INSENSITIVE));
 
         COMMON_PROPERTIES.add(Pattern.compile("^" + PROP_QUOTA + ".", Pattern.CASE_INSENSITIVE));
         COMMON_PROPERTIES.add(Pattern.compile("^" + PROP_DEFAULT_LOAD_CLUSTER + "$", Pattern.CASE_INSENSITIVE));
         COMMON_PROPERTIES.add(Pattern.compile("^" + PROP_LOAD_CLUSTER + "." + DppConfig.CLUSTER_NAME_REGEX + ".",
                 Pattern.CASE_INSENSITIVE));
+        COMMON_PROPERTIES.add(Pattern.compile("^" + PROP_DEFAULT_INIT_CATALOG + "$", Pattern.CASE_INSENSITIVE));
         COMMON_PROPERTIES.add(Pattern.compile("^" + PROP_WORKLOAD_GROUP + "$", Pattern.CASE_INSENSITIVE));
         COMMON_PROPERTIES.add(Pattern.compile("^" + DEFAULT_CLOUD_CLUSTER + "$", Pattern.CASE_INSENSITIVE));
         COMMON_PROPERTIES.add(Pattern.compile("^" + DEFAULT_COMPUTE_GROUP + "$", Pattern.CASE_INSENSITIVE));
@@ -192,6 +191,10 @@ public class UserProperty implements Writable {
         return commonProperties.getCpuResourceLimit();
     }
 
+    public String getInitCatalog() {
+        return commonProperties.getInitCatalog();
+    }
+
     public String getWorkloadGroup() {
         return commonProperties.getWorkloadGroup();
     }
@@ -203,10 +206,6 @@ public class UserProperty implements Writable {
 
     public Set<Tag> getCopiedResourceTags() {
         return Sets.newHashSet(this.commonProperties.getResourceTags());
-    }
-
-    public boolean isAllowResourceTagDowngrade() {
-        return this.commonProperties.isAllowResourceTagDowngrade();
     }
 
     public long getExecMemLimit() {
@@ -228,8 +227,8 @@ public class UserProperty implements Writable {
         long execMemLimit = this.commonProperties.getExecMemLimit();
         int queryTimeout = this.commonProperties.getQueryTimeout();
         int insertTimeout = this.commonProperties.getInsertTimeout();
+        String initCatalog = this.commonProperties.getInitCatalog();
         String workloadGroup = this.commonProperties.getWorkloadGroup();
-        boolean allowResourceTagDowngrade = this.commonProperties.isAllowResourceTagDowngrade();
 
         String newDefaultLoadCluster = defaultLoadCluster;
         String newDefaultCloudCluster = defaultCloudCluster;
@@ -268,7 +267,7 @@ public class UserProperty implements Writable {
                 }
 
                 newDefaultLoadCluster = value;
-            }  else if (keyArr[0].equalsIgnoreCase(DEFAULT_CLOUD_CLUSTER)) {
+            } else if (keyArr[0].equalsIgnoreCase(DEFAULT_CLOUD_CLUSTER)) {
                 newDefaultCloudCluster = checkCloudDefaultCluster(keyArr, value, DEFAULT_CLOUD_CLUSTER, isReplay);
             } else if (keyArr[0].equalsIgnoreCase(DEFAULT_COMPUTE_GROUP)) {
                 newDefaultCloudCluster = checkCloudDefaultCluster(keyArr, value, DEFAULT_COMPUTE_GROUP, isReplay);
@@ -358,6 +357,15 @@ public class UserProperty implements Writable {
                 } catch (NumberFormatException e) {
                     throw new DdlException(PROP_USER_INSERT_TIMEOUT + " is not number");
                 }
+            } else if (keyArr[0].equalsIgnoreCase(PROP_DEFAULT_INIT_CATALOG)) {
+                if (keyArr.length != 1) {
+                    throw new DdlException(PROP_DEFAULT_INIT_CATALOG + " format error");
+                }
+                CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(value);
+                if (catalog == null) {
+                    throw new DdlException("catalog " + value + " not exists");
+                }
+                initCatalog = value;
             } else if (keyArr[0].equalsIgnoreCase(PROP_WORKLOAD_GROUP)) {
                 if (keyArr.length != 1) {
                     throw new DdlException(PROP_WORKLOAD_GROUP + " format error");
@@ -367,15 +375,6 @@ public class UserProperty implements Writable {
                     throw new DdlException("workload group " + value + " not exists");
                 }
                 workloadGroup = value;
-            } else if (keyArr[0].equalsIgnoreCase(PROP_ALLOW_RESOURCE_TAG_DOWNGRADE)) {
-                if (keyArr.length != 1) {
-                    throw new DdlException(PROP_ALLOW_RESOURCE_TAG_DOWNGRADE + " format error");
-                }
-                if (!"true".equalsIgnoreCase(value) && !"false".equalsIgnoreCase(value)) {
-                    throw new DdlException(
-                            "allow_resource_tag_downgrade's value must be true or false");
-                }
-                allowResourceTagDowngrade = Boolean.parseBoolean(value);
             } else {
                 if (isReplay) {
                     // After using SET PROPERTY to modify the user property, if FE rolls back to a version without
@@ -398,8 +397,8 @@ public class UserProperty implements Writable {
         this.commonProperties.setExecMemLimit(execMemLimit);
         this.commonProperties.setQueryTimeout(queryTimeout);
         this.commonProperties.setInsertTimeout(insertTimeout);
+        this.commonProperties.setInitCatalog(initCatalog);
         this.commonProperties.setWorkloadGroup(workloadGroup);
-        this.commonProperties.setAllowResourceTagDowngrade(allowResourceTagDowngrade);
         if (newDppConfigs.containsKey(newDefaultLoadCluster)) {
             defaultLoadCluster = newDefaultLoadCluster;
         } else {
@@ -416,7 +415,7 @@ public class UserProperty implements Writable {
             return value;
         }
         // check cluster auth
-        if (!Strings.isNullOrEmpty(value) && !Env.getCurrentEnv().getAuth().checkCloudPriv(
+        if (!Strings.isNullOrEmpty(value) && !Env.getCurrentEnv().getAccessManager().checkCloudPriv(
             new UserIdentity(qualifiedUser, "%"), value, PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER)) {
             throw new ComputeGroupException(String.format("set default compute group failed, "
                 + "user %s has no permission to use compute group '%s', please grant use privilege first ",
@@ -563,10 +562,10 @@ public class UserProperty implements Writable {
         // resource tag
         result.add(Lists.newArrayList(PROP_RESOURCE_TAGS, Joiner.on(", ").join(commonProperties.getResourceTags())));
 
-        result.add(Lists.newArrayList(PROP_WORKLOAD_GROUP, String.valueOf(commonProperties.getWorkloadGroup())));
+        // init catalog
+        result.add(Lists.newArrayList(PROP_DEFAULT_INIT_CATALOG, String.valueOf(commonProperties.getInitCatalog())));
 
-        result.add(Lists.newArrayList(PROP_ALLOW_RESOURCE_TAG_DOWNGRADE,
-                String.valueOf(commonProperties.isAllowResourceTagDowngrade())));
+        result.add(Lists.newArrayList(PROP_WORKLOAD_GROUP, String.valueOf(commonProperties.getWorkloadGroup())));
 
         // load cluster
         if (defaultLoadCluster != null) {

@@ -65,7 +65,7 @@ Status DataTypeHLLSerDe::serialize_one_cell_to_json(const IColumn& column, int64
 
 Status DataTypeHLLSerDe::deserialize_column_from_json_vector(IColumn& column,
                                                              std::vector<Slice>& slices,
-                                                             int* num_deserialized,
+                                                             uint64_t* num_deserialized,
                                                              const FormatOptions& options) const {
     DESERIALIZE_COLUMN_FROM_JSON_VECTOR();
     return Status::OK();
@@ -121,7 +121,7 @@ void DataTypeHLLSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWrite
 void DataTypeHLLSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const {
     auto& col = reinterpret_cast<ColumnHLL&>(column);
     auto blob = static_cast<const JsonbBlobVal*>(arg);
-    HyperLogLog hyper_log_log(Slice(blob->getBlob()));
+    HyperLogLog hyper_log_log(Slice(blob->getBlob(), blob->getBlobLen()));
     col.insert_value(hyper_log_log);
 }
 

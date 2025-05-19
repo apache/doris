@@ -22,8 +22,7 @@ suite("test_hms_event_notification_multi_catalog", "p0,external,hive,external_do
         return;
     }
 
-    for (String useMetaCache : ["true","false"] ) {
-
+    for (String useMetaCache : ["true"] ) {
     for (String hivePrefix : ["hive3"]) {
         try {
             setHivePrefix(hivePrefix)

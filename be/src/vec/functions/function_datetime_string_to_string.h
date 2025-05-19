@@ -25,6 +25,7 @@
 
 #include "common/cast_set.h"
 #include "common/status.h"
+#include "runtime/runtime_state.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
@@ -42,9 +43,7 @@
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/functions/date_format_type.h"
-#include "vec/functions/date_time_transforms.h"
 #include "vec/functions/function.h"
-#include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -67,7 +66,9 @@ public:
     bool is_variadic() const override { return true; }
     size_t get_number_of_arguments() const override { return 0; }
     DataTypes get_variadic_argument_types_impl() const override {
-        if constexpr (has_variadic_argument) return Transform::get_variadic_argument_types();
+        if constexpr (has_variadic_argument) {
+            return Transform::get_variadic_argument_types();
+        }
         return {};
     }
 

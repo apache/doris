@@ -92,8 +92,6 @@ public:
     void cancel_plan_fragment(TCancelPlanFragmentResult& return_val,
                               const TCancelPlanFragmentParams& params) override {};
 
-    void transmit_data(TTransmitDataResult& return_val, const TTransmitDataParams& params) override;
-
     void submit_export_task(TStatus& t_status, const TExportTaskRequest& request) override;
 
     void get_export_status(TExportStatusResult& result, const TUniqueId& task_id) override;
@@ -138,6 +136,9 @@ public:
 
     void get_realtime_exec_status(TGetRealtimeExecStatusResponse& response,
                                   const TGetRealtimeExecStatusRequest& request) override;
+
+    void get_dictionary_status(TDictionaryStatusList& result,
+                               const std::vector<int64_t>& dictionary_id) override;
 
     ////////////////////////////////////////////////////////////////////////////
     // begin cloud backend functions

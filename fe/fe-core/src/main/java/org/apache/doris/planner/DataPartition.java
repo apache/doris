@@ -47,7 +47,7 @@ public class DataPartition {
 
     public static final DataPartition UNPARTITIONED = new DataPartition(TPartitionType.UNPARTITIONED);
     public static final DataPartition RANDOM = new DataPartition(TPartitionType.RANDOM);
-    public static final DataPartition TABLET_ID = new DataPartition(TPartitionType.TABLET_SINK_SHUFFLE_PARTITIONED);
+    public static final DataPartition TABLET_ID = new DataPartition(TPartitionType.OLAP_TABLE_SINK_HASH_PARTITIONED);
 
     private final TPartitionType type;
     // for hash partition: exprs used to compute hash value
@@ -58,7 +58,7 @@ public class DataPartition {
         Preconditions.checkState(!exprs.isEmpty());
         Preconditions.checkState(type == TPartitionType.HASH_PARTITIONED
                 || type == TPartitionType.RANGE_PARTITIONED
-                || type == TPartitionType.TABLE_SINK_HASH_PARTITIONED
+                || type == TPartitionType.HIVE_TABLE_SINK_HASH_PARTITIONED
                 || type == TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED);
         this.type = type;
         this.partitionExprs = ImmutableList.copyOf(exprs);
@@ -67,8 +67,8 @@ public class DataPartition {
     public DataPartition(TPartitionType type) {
         Preconditions.checkState(type == TPartitionType.UNPARTITIONED
                 || type == TPartitionType.RANDOM
-                || type == TPartitionType.TABLE_SINK_RANDOM_PARTITIONED
-                || type == TPartitionType.TABLET_SINK_SHUFFLE_PARTITIONED);
+                || type == TPartitionType.HIVE_TABLE_SINK_UNPARTITIONED
+                || type == TPartitionType.OLAP_TABLE_SINK_HASH_PARTITIONED);
         this.type = type;
         this.partitionExprs = ImmutableList.of();
     }
@@ -88,10 +88,6 @@ public class DataPartition {
 
     public boolean isBucketShuffleHashPartition() {
         return type == TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED;
-    }
-
-    public boolean isTabletSinkShufflePartition() {
-        return type == TPartitionType.TABLET_SINK_SHUFFLE_PARTITIONED;
     }
 
     public TPartitionType getType() {

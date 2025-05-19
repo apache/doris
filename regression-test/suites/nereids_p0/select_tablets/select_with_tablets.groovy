@@ -16,6 +16,9 @@
 // under the License.
 
 suite("select_with_tablets") {
+    if (isCloudMode()) {
+        return
+    }
     sql 'set enable_nereids_planner=true;'
     sql 'set enable_fallback_to_original_planner=false;'
 

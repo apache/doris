@@ -34,7 +34,10 @@ suite ("aggOnAggMV7") {
         """
 
     sql """insert into aggOnAggMV7 values("2020-01-01",1,"a",1,1,1);"""
+    sql """insert into aggOnAggMV7 values("2020-01-01",1,"a",1,1,1);"""
     sql """insert into aggOnAggMV7 values("2020-01-02",2,"b",2,2,2);"""
+    sql """insert into aggOnAggMV7 values("2020-01-02",2,"b",2,2,2);"""
+    sql """insert into aggOnAggMV7 values("2020-01-03",3,"c",3,3,3);"""
     sql """insert into aggOnAggMV7 values("2020-01-03",3,"c",3,3,3);"""
 
     createMV("create materialized view aggOnAggMV7_mv as select deptno, commission, sum(salary) from aggOnAggMV7 group by deptno, commission;")
@@ -44,6 +47,7 @@ suite ("aggOnAggMV7") {
     sql """insert into aggOnAggMV7 values("2020-01-01",1,"a",1,1,1);"""
 
     sql "analyze table aggOnAggMV7 with sync;"
+    sql """alter table aggOnAggMV7 modify column time_col set stats ('row_count'='7');"""
     sql """set enable_stats=false;"""
 
     mv_rewrite_fail("select * from aggOnAggMV7 order by empid;", "aggOnAggMV7_mv")
@@ -54,7 +58,6 @@ suite ("aggOnAggMV7") {
     order_qt_select_mv "select deptno, sum(salary) from aggOnAggMV7 where deptno>=20 group by deptno order by 1;"
 
     sql """set enable_stats=true;"""
-    sql """alter table aggOnAggMV7 modify column time_col set stats ('row_count'='4');"""
     mv_rewrite_fail("select * from aggOnAggMV7 order by empid;", "aggOnAggMV7_mv")
 
     mv_rewrite_success("select deptno, sum(salary) from aggOnAggMV7 where deptno>=20 group by deptno;",

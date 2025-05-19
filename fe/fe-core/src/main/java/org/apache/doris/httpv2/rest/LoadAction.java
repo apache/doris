@@ -47,7 +47,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.GroupCommitPlanner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
-import org.apache.doris.resource.Tag;
+import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.BeSelectionPolicy;
@@ -104,10 +104,6 @@ public class LoadAction extends RestBaseController {
     @RequestMapping(path = "/api/{" + DB_KEY + "}/{" + TABLE_KEY + "}/_load", method = RequestMethod.PUT)
     public Object load(HttpServletRequest request, HttpServletResponse response,
             @PathVariable(value = DB_KEY) String db, @PathVariable(value = TABLE_KEY) String table) {
-        if (needRedirect(request.getScheme())) {
-            return redirectToHttps(request);
-        }
-
         if (Config.disable_mini_load) {
             ResponseEntity entity = ResponseEntityBuilder.notFound("The mini load operation has been"
                     + " disabled by default, if you need to add disable_mini_load=false in fe.conf.");
@@ -144,9 +140,6 @@ public class LoadAction extends RestBaseController {
                     }
                 }
             }
-        }
-        if (needRedirect(request.getScheme())) {
-            return redirectToHttps(request);
         }
 
         String authToken = request.getHeader("token");
@@ -263,10 +256,6 @@ public class LoadAction extends RestBaseController {
             HttpServletResponse response,
             @PathVariable(value = DB_KEY) String db) {
         LOG.info("streamload action 2PC, db: {}, headers: {}", db, getAllHeaders(request));
-        if (needRedirect(request.getScheme())) {
-            return redirectToHttps(request);
-        }
-
         executeCheckPassword(request, response);
         return executeStreamLoad2PC(request, db);
     }
@@ -277,10 +266,6 @@ public class LoadAction extends RestBaseController {
             @PathVariable(value = DB_KEY) String db,
             @PathVariable(value = TABLE_KEY) String table) {
         LOG.info("streamload action 2PC, db: {}, tbl: {}, headers: {}", db, table, getAllHeaders(request));
-        if (needRedirect(request.getScheme())) {
-            return redirectToHttps(request);
-        }
-
         executeCheckPassword(request, response);
         return executeStreamLoad2PC(request, db);
     }
@@ -439,21 +424,16 @@ public class LoadAction extends RestBaseController {
             throws LoadException {
         Backend backend = null;
         BeSelectionPolicy policy = null;
-        String qualifiedUser = ConnectContext.get().getQualifiedUser();
-        Set<Tag> userTags = Env.getCurrentEnv().getAuth().getResourceTags(qualifiedUser);
-        boolean allowResourceTagDowngrade = Env.getCurrentEnv().getAuth().isAllowResourceTagDowngrade(qualifiedUser);
-        policy = new BeSelectionPolicy.Builder()
-                .addTags(userTags)
-                .setAllowResourceTagDowngrade(allowResourceTagDowngrade)
-                .setEnableRoundRobin(true)
-                .needLoadAvailable().build();
+        ConnectContext ctx = ConnectContext.get();
+        if (ctx == null) {
+            throw new LoadException("ConnectContext should not be null");
+        }
+        ComputeGroup computeGroup = ctx.getComputeGroupSafely();
+        policy = new BeSelectionPolicy.Builder().setEnableRoundRobin(true).needLoadAvailable().build();
         policy.nextRoundRobinIndex = getLastSelectedBackendIndexAndUpdate();
         List<Long> backendIds;
-        if (groupCommit) {
-            backendIds = Env.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, -1);
-        } else {
-            backendIds = Env.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, 1);
-        }
+        int number = groupCommit ? -1 : 1;
+        backendIds = Env.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, number, computeGroup.getBackendList());
         if (backendIds.isEmpty()) {
             throw new LoadException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + ", policy: " + policy);
         }
@@ -732,10 +712,6 @@ public class LoadAction extends RestBaseController {
     public Object createIngestionLoad(HttpServletRequest request, HttpServletResponse response,
                                   @PathVariable(value = CATALOG_KEY) String catalog,
                                   @PathVariable(value = DB_KEY) String db) {
-        if (needRedirect(request.getScheme())) {
-            return redirectToHttps(request);
-        }
-
         executeCheckPassword(request, response);
 
         if (!InternalCatalog.INTERNAL_CATALOG_NAME.equals(catalog)) {
@@ -853,10 +829,6 @@ public class LoadAction extends RestBaseController {
     public Object updateIngestionLoad(HttpServletRequest request, HttpServletResponse response,
                                       @PathVariable(value = CATALOG_KEY) String catalog,
                                       @PathVariable(value = DB_KEY) String db) {
-        if (needRedirect(request.getScheme())) {
-            return redirectToHttps(request);
-        }
-
         executeCheckPassword(request, response);
 
         if (!InternalCatalog.INTERNAL_CATALOG_NAME.equals(catalog)) {

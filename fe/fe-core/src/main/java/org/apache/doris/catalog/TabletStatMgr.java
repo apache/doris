@@ -21,7 +21,12 @@ import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.MarkedCountDownLatch;
+import org.apache.doris.common.Pair;
+import org.apache.doris.common.Status;
+import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.util.MasterDaemon;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -34,7 +39,9 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ForkJoinPool;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 /*
  * TabletStatMgr is for collecting tablet(replica) statistics from backends.
@@ -43,7 +50,13 @@ import java.util.concurrent.ForkJoinPool;
 public class TabletStatMgr extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(TabletStatMgr.class);
 
-    private ForkJoinPool taskPool = new ForkJoinPool(Runtime.getRuntime().availableProcessors());
+    private final ExecutorService executor = ThreadPoolManager.newDaemonFixedThreadPool(
+            Config.tablet_stat_mgr_threads_num > 0
+                    ? Config.tablet_stat_mgr_threads_num
+                    : Runtime.getRuntime().availableProcessors(),
+            1024, "tablet-stat-mgr", true);
+
+    private MarkedCountDownLatch<Long, Backend> updateTabletStatsLatch = null;
 
     public TabletStatMgr() {
         super("tablet stat mgr", Config.tablet_stat_update_interval_second * 1000);
@@ -59,9 +72,13 @@ public class TabletStatMgr extends MasterDaemon {
             return;
         }
         long start = System.currentTimeMillis();
-        taskPool.submit(() -> {
-            // no need to get tablet stat if backend is not alive
-            backends.values().stream().filter(Backend::isAlive).parallel().forEach(backend -> {
+        // no need to get tablet stat if backend is not alive
+        List<Backend> aliveBackends = backends.values().stream().filter(Backend::isAlive)
+                .collect(Collectors.toList());
+        updateTabletStatsLatch = new MarkedCountDownLatch<>(aliveBackends.size());
+        aliveBackends.forEach(backend -> {
+            updateTabletStatsLatch.addMark(backend.getId(), backend);
+            executor.submit(() -> {
                 BackendService.Client client = null;
                 TNetworkAddress address = null;
                 boolean ok = false;
@@ -74,8 +91,10 @@ public class TabletStatMgr extends MasterDaemon {
                                 result.getTabletsStatsSize());
                     }
                     updateTabletStat(backend.getId(), result);
+                    updateTabletStatsLatch.markedCountDown(backend.getId(), backend);
                     ok = true;
                 } catch (Throwable e) {
+                    updateTabletStatsLatch.markedCountDownWithStatus(backend.getId(), backend, Status.CANCELLED);
                     LOG.warn("task exec error. backend[{}]", backend.getId(), e);
                 }
 
@@ -89,7 +108,9 @@ public class TabletStatMgr extends MasterDaemon {
                     LOG.warn("client pool recyle error. backend[{}]", backend.getId(), e);
                 }
             });
-        }).join();
+        });
+        waitForTabletStatUpdate();
+
         if (LOG.isDebugEnabled()) {
             LOG.debug("finished to get tablet stat of all backends. cost: {} ms",
                     (System.currentTimeMillis() - start));
@@ -97,6 +118,16 @@ public class TabletStatMgr extends MasterDaemon {
 
         // after update replica in all backends, update index row num
         start = System.currentTimeMillis();
+        Pair<String, Long> maxTabletSize = Pair.of(/* tablet id= */null, /* byte size= */0L);
+        Pair<String, Long> maxPartitionSize = Pair.of(/* partition id= */null, /* byte size= */0L);
+        Pair<String, Long> maxTableSize = Pair.of(/* table id= */null, /* byte size= */0L);
+        Pair<String, Long> minTabletSize = Pair.of(/* tablet id= */null, /* byte size= */Long.MAX_VALUE);
+        Pair<String, Long> minPartitionSize = Pair.of(/* partition id= */null, /* byte size= */Long.MAX_VALUE);
+        Pair<String, Long> minTableSize = Pair.of(/* tablet id= */null, /* byte size= */Long.MAX_VALUE);
+        Long totalTableSize = 0L;
+        Long tabletCount = 0L;
+        Long partitionCount = 0L;
+        Long tableCount = 0L;
         List<Long> dbIds = Env.getCurrentInternalCatalog().getDbIds();
         for (Long dbId : dbIds) {
             Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
@@ -109,6 +140,7 @@ public class TabletStatMgr extends MasterDaemon {
                 if (!table.isManagedTable()) {
                     continue;
                 }
+                tableCount++;
                 OlapTable olapTable = (OlapTable) table;
 
                 Long tableDataSize = 0L;
@@ -129,12 +161,17 @@ public class TabletStatMgr extends MasterDaemon {
                     continue;
                 }
                 try {
-                    for (Partition partition : olapTable.getAllPartitions()) {
+                    List<Partition> allPartitions = olapTable.getAllPartitions();
+                    partitionCount += allPartitions.size();
+                    for (Partition partition : allPartitions) {
+                        Long partitionDataSize = 0L;
                         long version = partition.getVisibleVersion();
                         for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
                             long indexRowCount = 0L;
                             boolean indexReported = true;
-                            for (Tablet tablet : index.getTablets()) {
+                            List<Tablet> tablets = index.getTablets();
+                            tabletCount += tablets.size();
+                            for (Tablet tablet : tablets) {
 
                                 Long tabletDataSize = 0L;
                                 Long tabletRemoteDataSize = 0L;
@@ -183,7 +220,14 @@ public class TabletStatMgr extends MasterDaemon {
                                 }
 
                                 tableDataSize += tabletDataSize;
+                                partitionDataSize += tabletDataSize;
                                 tableRemoteDataSize += tabletRemoteDataSize;
+                                if (maxTabletSize.second <= tabletDataSize) {
+                                    maxTabletSize = Pair.of("" + tablet.getId(), tabletDataSize);
+                                }
+                                if (minTabletSize.second >= tabletDataSize) {
+                                    minTabletSize = Pair.of("" + tablet.getId(), tabletDataSize);
+                                }
 
                                 // When all BEs are down, avoid set Long.MAX_VALUE to index and table row count. Use 0.
                                 if (tabletRowCount == Long.MAX_VALUE) {
@@ -200,7 +244,19 @@ public class TabletStatMgr extends MasterDaemon {
                                     olapTable.getName(), olapTable.getIndexNameById(index.getId()),
                                     indexReported, indexRowCount);
                         } // end for indices
+                        if (maxPartitionSize.second <= partitionDataSize) {
+                            maxPartitionSize = Pair.of("" + partition.getId(), partitionDataSize);
+                        }
+                        if (minPartitionSize.second >= partitionDataSize) {
+                            minPartitionSize = Pair.of("" + partition.getId(), partitionDataSize);
+                        }
                     } // end for partitions
+                    if (maxTableSize.second <= tableDataSize) {
+                        maxTableSize = Pair.of("" + table.getId(), tableDataSize);
+                    }
+                    if (minTableSize.second >= tableDataSize) {
+                        minTableSize = Pair.of("" + table.getId(), tableDataSize);
+                    }
 
                     // this is only one thread to update table statistics, readLock is enough
                     olapTable.setStatistics(new OlapTable.Statistics(db.getName(), table.getName(),
@@ -216,10 +272,63 @@ public class TabletStatMgr extends MasterDaemon {
                 } finally {
                     table.readUnlock();
                 }
+                totalTableSize += tableDataSize;
             }
         }
+        MetricRepo.GAUGE_MAX_TABLE_SIZE_BYTES.setValue(maxTableSize.second);
+        MetricRepo.GAUGE_MAX_PARTITION_SIZE_BYTES.setValue(maxPartitionSize.second);
+        MetricRepo.GAUGE_MAX_TABLET_SIZE_BYTES.setValue(maxTabletSize.second);
+        long minTableSizeTmp = minTableSize.second == Long.MAX_VALUE ? 0 : minTableSize.second;
+        MetricRepo.GAUGE_MIN_TABLE_SIZE_BYTES.setValue(minTableSizeTmp);
+        long minPartitionSizeTmp = minPartitionSize.second == Long.MAX_VALUE ? 0 : minPartitionSize.second;
+        MetricRepo.GAUGE_MIN_PARTITION_SIZE_BYTES.setValue(minPartitionSizeTmp);
+        long minTabletSizeTmp = minTabletSize.second == Long.MAX_VALUE ? 0 : minTabletSize.second;
+        MetricRepo.GAUGE_MIN_TABLET_SIZE_BYTES.setValue(minTabletSizeTmp);
+        long avgTableSize = totalTableSize / Math.max(1, tableCount); // avoid ArithmeticException: / by zero
+        MetricRepo.GAUGE_AVG_TABLE_SIZE_BYTES.setValue(avgTableSize);
+        long avgPartitionSize = totalTableSize / Math.max(1, partitionCount); // avoid ArithmeticException: / by zero
+        MetricRepo.GAUGE_AVG_PARTITION_SIZE_BYTES.setValue(avgPartitionSize);
+        long avgTabletSize = totalTableSize / Math.max(1, tabletCount); // avoid ArithmeticException: / by zero
+        MetricRepo.GAUGE_AVG_TABLET_SIZE_BYTES.setValue(avgTabletSize);
         LOG.info("finished to update index row num of all databases. cost: {} ms",
                 (System.currentTimeMillis() - start));
+        LOG.info("Olap table num=" + tableCount + ", partition num=" + partitionCount + ", tablet num=" + tabletCount
+                + ", max tablet byte size=" + maxTabletSize.second + "(tablet_id=" + maxTableSize.first + ")"
+                + ", min tablet byte size=" + minTabletSizeTmp + "(tablet_id=" + minTabletSize.first + ")"
+                + ", avg tablet byte size=" + avgTabletSize
+                + ", max partition byte size=" + maxPartitionSize.second + "(partition_id=" + maxPartitionSize.first
+                + ")"
+                + ", min partition byte size=" + minPartitionSizeTmp + "(partition_id=" + minPartitionSize.first + ")"
+                + ", avg partition byte size=" + avgPartitionSize
+                + ", max table byte size=" + maxTableSize.second + "(table_id=" + maxTableSize.first + ")"
+                + ", min table byte size=" + minTableSizeTmp + "(table_id=" + minTableSize.first + ")"
+                + ", avg table byte size=" + avgTableSize);
+    }
+
+    public void waitForTabletStatUpdate() {
+        boolean ok = true;
+        try {
+            if (!updateTabletStatsLatch.await(600, TimeUnit.SECONDS)) {
+                LOG.info("timeout waiting {} update tablet stats tasks finish after {} seconds.",
+                        updateTabletStatsLatch.getCount(), 600);
+                ok = false;
+            }
+        } catch (InterruptedException e) {
+            LOG.warn("InterruptedException, {}", this, e);
+        }
+        if (!ok || !updateTabletStatsLatch.getStatus().ok()) {
+            List<Long> unfinishedBackendIds = updateTabletStatsLatch.getLeftMarks().stream()
+                    .map(Map.Entry::getKey).collect(Collectors.toList());
+            Status status = Status.TIMEOUT;
+            if (!updateTabletStatsLatch.getStatus().ok()) {
+                status = updateTabletStatsLatch.getStatus();
+            }
+            LOG.warn("Failed to update tablet stats reason: {}, unfinished backends: {}",
+                    status.getErrorMsg(), unfinishedBackendIds);
+            if (MetricRepo.isInit) {
+                MetricRepo.COUNTER_UPDATE_TABLET_STAT_FAILED.increase(1L);
+            }
+        }
     }
 
     private void updateTabletStat(Long beId, TTabletStatResult result) {

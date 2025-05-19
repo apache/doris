@@ -131,6 +131,9 @@ namespace ErrorCode {
     E(BAD_CAST, -254, true);                                 \
     E(ARITHMETIC_OVERFLOW_ERRROR, -255, false);              \
     E(PERMISSION_DENIED, -256, false);                       \
+    E(QUERY_MEMORY_EXCEEDED, -257, false);                   \
+    E(WORKLOAD_GROUP_MEMORY_EXCEEDED, -258, false);          \
+    E(PROCESS_MEMORY_EXCEEDED, -259, false);                 \
     E(CE_CMD_PARAMS_ERROR, -300, true);                      \
     E(CE_BUFFER_TOO_SMALL, -301, true);                      \
     E(CE_CMD_NOT_VALID, -302, true);                         \
@@ -271,8 +274,6 @@ namespace ErrorCode {
     E(SEGCOMPACTION_INIT_READER, -3117, false);              \
     E(SEGCOMPACTION_INIT_WRITER, -3118, false);              \
     E(SEGCOMPACTION_FAILED, -3119, false);                   \
-    E(PIP_WAIT_FOR_RF, -3120, false);                        \
-    E(PIP_WAIT_FOR_SC, -3121, false);                        \
     E(ROWSET_ADD_TO_BINLOG_FAILED, -3122, true);             \
     E(ROWSET_BINLOG_NOT_ONLY_ONE_VERSION, -3123, true);      \
     E(INVERTED_INDEX_INVALID_PARAMETERS, -6000, false);      \
@@ -381,6 +382,11 @@ public:
         _code = rhs._code;
         if (rhs._err_msg) {
             _err_msg = std::make_unique<ErrMsg>(*rhs._err_msg);
+        } else {
+            // If rhs error msg is empty, then should also clear current error msg
+            // For example, if rhs is OK and current status is error, then copy to current
+            // status, should clear current error message.
+            _err_msg.reset();
         }
         return *this;
     }
@@ -390,6 +396,8 @@ public:
         _code = rhs._code;
         if (rhs._err_msg) {
             _err_msg = std::move(rhs._err_msg);
+        } else {
+            _err_msg.reset();
         }
         return *this;
     }
@@ -482,8 +490,6 @@ public:
     ERROR_CTOR(NotSupported, NOT_IMPLEMENTED_ERROR)
     ERROR_CTOR_NOSTACK(EndOfFile, END_OF_FILE)
     ERROR_CTOR(InternalError, INTERNAL_ERROR)
-    ERROR_CTOR_NOSTACK(WaitForRf, PIP_WAIT_FOR_RF)
-    ERROR_CTOR_NOSTACK(WaitForScannerContext, PIP_WAIT_FOR_SC)
     ERROR_CTOR(RuntimeError, RUNTIME_ERROR)
     ERROR_CTOR_NOSTACK(Cancelled, CANCELLED)
     ERROR_CTOR(MemoryLimitExceeded, MEM_LIMIT_EXCEEDED)
@@ -598,6 +604,12 @@ public:
         error_st_ = new_status;
         error_code_.store(new_status.code(), std::memory_order_release);
         return true;
+    }
+
+    void reset() {
+        std::lock_guard l(mutex_);
+        error_st_ = Status::OK();
+        error_code_ = 0;
     }
 
     // will copy a new status object to avoid concurrency

@@ -54,14 +54,14 @@ suite("test_list_cache_file") {
 
     def get_tablets = { String tbl_name ->
         def res = sql "show tablets from ${tbl_name}"
-        List<Integer> tablets = new ArrayList<>()
+        List<Long> tablets = new ArrayList<>()
         for (final def line in res) {
-            tablets.add(Integer.valueOf(line[0].toString()))
+            tablets.add(Long.valueOf(line[0].toString()))
         }
         return tablets
     }
 
-    def get_rowsets = { int tablet_id ->
+    def get_rowsets = { long tablet_id ->
         var ret = []
         httpTest {
             endpoint ""

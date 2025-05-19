@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.PropagateFuncDeps;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.statistics.Statistics;
@@ -37,12 +38,14 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Enforcer plan.
+ * Enforcer plan. Generated when upstream's physical property mismatches downstream's required physical property.
  */
-public class PhysicalDistribute<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD_TYPE> {
-
+public class PhysicalDistribute<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD_TYPE>
+        implements PropagateFuncDeps {
+    // downstream's required physical property(i.e. target distribution spec)
     protected DistributionSpec distributionSpec;
 
+    // the upstream's physical property saves in base class
     public PhysicalDistribute(DistributionSpec spec, CHILD_TYPE child) {
         this(spec, Optional.empty(), child.getLogicalProperties(), child);
     }

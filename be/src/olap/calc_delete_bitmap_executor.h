@@ -49,11 +49,17 @@ public:
     explicit CalcDeleteBitmapToken(std::unique_ptr<ThreadPoolToken> thread_token)
             : _thread_token(std::move(thread_token)), _status(Status::OK()) {}
 
+    // calculate delete bitmap of `cur_segment` to historical `target_rowsets`
     Status submit(BaseTabletSPtr tablet, RowsetSharedPtr cur_rowset,
                   const segment_v2::SegmentSharedPtr& cur_segment,
                   const std::vector<RowsetSharedPtr>& target_rowsets, int64_t end_version,
                   DeleteBitmapPtr delete_bitmap, RowsetWriter* rowset_writer,
                   DeleteBitmapPtr tablet_delete_bitmap);
+
+    // calculate delete bitmap between `segments`
+    Status submit(BaseTabletSPtr tablet, RowsetId rowset_id,
+                  const std::vector<segment_v2::SegmentSharedPtr>& segments,
+                  DeleteBitmapPtr delete_bitmap);
 
     // wait all tasks in token to be completed.
     Status wait();
@@ -67,7 +73,7 @@ private:
     // Records the current status of the calc delete bitmap job.
     // Note: Once its value is set to Failed, it cannot return to SUCCESS.
     Status _status;
-    QueryThreadContext _query_thread_context;
+    std::shared_ptr<ResourceContext> _resource_ctx;
 };
 
 // CalcDeleteBitmapExecutor is responsible for calc delete bitmap concurrently.

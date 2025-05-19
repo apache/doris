@@ -39,7 +39,6 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "gutil/integral_types.h"
 #include "olap/lru_cache.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset.h"
@@ -245,9 +244,9 @@ private:
         std::string key = encode_key(cache_id);
         auto* value = new CacheValue;
         value->item = item;
-        LOG(INFO) << "Add item mem"
-                  << ", cache_capacity: " << get_capacity() << ", cache_usage: " << get_usage()
-                  << ", mem_consum: " << mem_consumption();
+        VLOG_DEBUG << "Add item mem"
+                   << ", cache_capacity: " << get_capacity() << ", cache_usage: " << get_usage()
+                   << ", mem_consum: " << mem_consumption();
         auto* lru_handle = insert(key, value, 1, sizeof(Reusable), CachePriority::NORMAL);
         release(lru_handle);
     }

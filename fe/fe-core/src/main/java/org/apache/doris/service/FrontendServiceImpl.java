@@ -29,6 +29,7 @@ import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.backup.Snapshot;
+import org.apache.doris.binlog.BinlogLagInfo;
 import org.apache.doris.catalog.AutoIncrementGenerator;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -84,9 +85,11 @@ import org.apache.doris.load.StreamLoadHandler;
 import org.apache.doris.load.routineload.ErrorReason;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.load.routineload.RoutineLoadJob.JobState;
+import org.apache.doris.load.routineload.RoutineLoadManager;
 import org.apache.doris.master.MasterImpl;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.trees.plans.PlanNodeAndHash;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.plsql.metastore.PlsqlPackage;
@@ -100,6 +103,7 @@ import org.apache.doris.qe.DdlExecutor;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.HttpStreamParams;
 import org.apache.doris.qe.MasterCatalogExecutor;
+import org.apache.doris.qe.MasterOpExecutor;
 import org.apache.doris.qe.MysqlConnectProcessor;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QueryState;
@@ -113,6 +117,7 @@ import org.apache.doris.statistics.InvalidateStatsTarget;
 import org.apache.doris.statistics.StatisticsCacheKey;
 import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.statistics.UpdatePartitionStatsTarget;
+import org.apache.doris.statistics.hbo.RecentRunsPlanStatistics;
 import org.apache.doris.statistics.query.QueryStats;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.system.Backend;
@@ -140,14 +145,14 @@ import org.apache.doris.thrift.TConfirmUnusedRemoteFilesRequest;
 import org.apache.doris.thrift.TConfirmUnusedRemoteFilesResult;
 import org.apache.doris.thrift.TCreatePartitionRequest;
 import org.apache.doris.thrift.TCreatePartitionResult;
-import org.apache.doris.thrift.TDescribeTableParams;
-import org.apache.doris.thrift.TDescribeTableResult;
 import org.apache.doris.thrift.TDescribeTablesParams;
 import org.apache.doris.thrift.TDescribeTablesResult;
 import org.apache.doris.thrift.TDropPlsqlPackageRequest;
 import org.apache.doris.thrift.TDropPlsqlStoredProcedureRequest;
 import org.apache.doris.thrift.TFeResult;
 import org.apache.doris.thrift.TFetchResourceResult;
+import org.apache.doris.thrift.TFetchRoutineLoadJobRequest;
+import org.apache.doris.thrift.TFetchRoutineLoadJobResult;
 import org.apache.doris.thrift.TFetchRunningQueriesRequest;
 import org.apache.doris.thrift.TFetchRunningQueriesResult;
 import org.apache.doris.thrift.TFetchSchemaTableDataRequest;
@@ -158,6 +163,8 @@ import org.apache.doris.thrift.TFinishTaskRequest;
 import org.apache.doris.thrift.TFrontendPingFrontendRequest;
 import org.apache.doris.thrift.TFrontendPingFrontendResult;
 import org.apache.doris.thrift.TFrontendPingFrontendStatusCode;
+import org.apache.doris.thrift.TFrontendReportAliveSessionRequest;
+import org.apache.doris.thrift.TFrontendReportAliveSessionResult;
 import org.apache.doris.thrift.TGetBackendMetaRequest;
 import org.apache.doris.thrift.TGetBackendMetaResult;
 import org.apache.doris.thrift.TGetBinlogLagResult;
@@ -195,6 +202,8 @@ import org.apache.doris.thrift.TLoadTxnCommitRequest;
 import org.apache.doris.thrift.TLoadTxnCommitResult;
 import org.apache.doris.thrift.TLoadTxnRollbackRequest;
 import org.apache.doris.thrift.TLoadTxnRollbackResult;
+import org.apache.doris.thrift.TLockBinlogRequest;
+import org.apache.doris.thrift.TLockBinlogResult;
 import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TMasterOpResult;
 import org.apache.doris.thrift.TMasterResult;
@@ -225,6 +234,7 @@ import org.apache.doris.thrift.TRestoreSnapshotRequest;
 import org.apache.doris.thrift.TRestoreSnapshotResult;
 import org.apache.doris.thrift.TRollbackTxnRequest;
 import org.apache.doris.thrift.TRollbackTxnResult;
+import org.apache.doris.thrift.TRoutineLoadJob;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TSchemaTableName;
 import org.apache.doris.thrift.TShowProcessListRequest;
@@ -253,6 +263,7 @@ import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.thrift.TUpdateExportTaskStatusRequest;
 import org.apache.doris.thrift.TUpdateFollowerPartitionStatsCacheRequest;
 import org.apache.doris.thrift.TUpdateFollowerStatsCacheRequest;
+import org.apache.doris.thrift.TUpdatePlanStatsCacheRequest;
 import org.apache.doris.thrift.TWaitingTxnStatusRequest;
 import org.apache.doris.thrift.TWaitingTxnStatusResult;
 import org.apache.doris.transaction.SubTransactionState;
@@ -263,11 +274,13 @@ import org.apache.doris.transaction.TransactionState.TxnSourceType;
 import org.apache.doris.transaction.TransactionStatus;
 import org.apache.doris.transaction.TxnCommitAttachment;
 
+import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
+import com.google.common.collect.Sets;
 import com.google.protobuf.InvalidProtocolBufferException;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -276,6 +289,7 @@ import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 
 import java.io.IOException;
+import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -284,6 +298,8 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
@@ -477,7 +493,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     continue;
                 }
 
-                if (matcher != null && !matcher.match(dbName)) {
+                if (matcher != null && !matcher.match(getMysqlTableSchema(catalog.getName(), dbName))) {
                     continue;
                 }
 
@@ -583,6 +599,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         List<TTableStatus> tablesResult = Lists.newArrayList();
         result.setTables(tablesResult);
         PatternMatcher matcher = null;
+        String specifiedTable = null;
         if (params.isSetPattern()) {
             try {
                 matcher = PatternMatcher.createMysqlPattern(params.getPattern(),
@@ -590,6 +607,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             } catch (PatternMatcherException e) {
                 throw new TException("Pattern is in bad format " + params.getPattern());
             }
+        }
+        if (params.isSetTable()) {
+            specifiedTable = params.getTable();
         }
         // database privs should be checked in analysis phrase
 
@@ -628,6 +648,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                                         table.getName(), PrivPredicate.SHOW)) {
                             continue;
                         }
+                        if (matcher != null && !matcher.match(table.getName())) {
+                            continue;
+                        }
+                        if (specifiedTable != null && !specifiedTable.equals(table.getName())) {
+                            continue;
+                        }
                         // For the follower node in cloud mode,
                         // when querying the information_schema table,
                         // the version needs to be updated.
@@ -644,9 +670,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         }
                         table.readLock();
                         try {
-                            if (matcher != null && !matcher.match(table.getName())) {
-                                continue;
-                            }
                             long lastCheckTime = table.getLastCheckTime() <= 0 ? 0 : table.getLastCheckTime();
                             TTableStatus status = new TTableStatus();
                             status.setName(table.getName());
@@ -825,74 +848,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     @Override
-    public TDescribeTableResult describeTable(TDescribeTableParams params) throws TException {
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("get desc table request: {}", params);
-        }
-        TDescribeTableResult result = new TDescribeTableResult();
-        List<TColumnDef> columns = Lists.newArrayList();
-        result.setColumns(columns);
-
-        // database privs should be checked in analysis phrase
-        UserIdentity currentUser = null;
-        if (params.isSetCurrentUserIdent()) {
-            currentUser = UserIdentity.fromThrift(params.current_user_ident);
-        } else {
-            currentUser = UserIdentity.createAnalyzedUserIdentWithIp(params.user, params.user_ip);
-        }
-        String dbName = getDbNameFromMysqlTableSchema(params.catalog, params.db);
-        if (!Env.getCurrentEnv().getAccessManager()
-                .checkTblPriv(currentUser, params.catalog, dbName, params.getTableName(), PrivPredicate.SHOW)) {
-            return result;
-        }
-
-        String catalogName = Strings.isNullOrEmpty(params.catalog) ? InternalCatalog.INTERNAL_CATALOG_NAME
-                : params.catalog;
-        DatabaseIf<TableIf> db = Env.getCurrentEnv().getCatalogMgr()
-                .getCatalogOrException(catalogName, catalog -> new TException("Unknown catalog " + catalog))
-                .getDbNullable(dbName);
-        if (db != null) {
-            TableIf table = db.getTableNullableIfException(params.getTableName());
-            if (table != null) {
-                table.readLock();
-                try {
-                    List<Column> baseSchema = table.getBaseSchemaOrEmpty();
-                    for (Column column : baseSchema) {
-                        final TColumnDesc desc = new TColumnDesc(column.getName(), column.getDataType().toThrift());
-                        final Integer precision = column.getOriginType().getPrecision();
-                        if (precision != null) {
-                            desc.setColumnPrecision(precision);
-                        }
-                        final Integer columnLength = column.getOriginType().getColumnSize();
-                        if (columnLength != null) {
-                            desc.setColumnLength(columnLength);
-                        }
-                        final Integer decimalDigits = column.getOriginType().getDecimalDigits();
-                        if (decimalDigits != null) {
-                            desc.setColumnScale(decimalDigits);
-                        }
-                        desc.setIsAllowNull(column.isAllowNull());
-                        final TColumnDef colDef = new TColumnDef(desc);
-                        final String comment = column.getComment();
-                        if (comment != null) {
-                            colDef.setComment(comment);
-                        }
-                        if (column.isKey()) {
-                            if (table instanceof OlapTable) {
-                                desc.setColumnKey(((OlapTable) table).getKeysType().toMetadata());
-                            }
-                        }
-                        columns.add(colDef);
-                    }
-                } finally {
-                    table.readUnlock();
-                }
-            }
-        }
-        return result;
-    }
-
-    @Override
     public TDescribeTablesResult describeTables(TDescribeTablesParams params) throws TException {
         if (LOG.isDebugEnabled()) {
             LOG.debug("get desc tables request: {}", params);
@@ -936,7 +891,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                             final TColumnDef colDef = new TColumnDef(desc);
                             final String comment = column.getComment();
                             if (comment != null) {
-                                colDef.setComment(comment);
+                                if (Config.column_comment_length_limit > 0
+                                        && comment.length() > Config.column_comment_length_limit) {
+                                    colDef.setComment(comment.substring(0, Config.column_comment_length_limit));
+                                } else {
+                                    colDef.setComment(comment);
+                                }
                             }
                             if (column.isKey()) {
                                 if (table instanceof OlapTable) {
@@ -1107,7 +1067,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (LOG.isDebugEnabled()) {
             LOG.debug("receive forwarded stmt {} from FE: {}", params.getStmtId(), params.getClientNodeHost());
         }
-        ConnectContext context = new ConnectContext(null, true);
+        ConnectContext context = new ConnectContext(null, true, params.getSessionId());
         // Set current connected FE to the client address, so that we can know where
         // this request come from.
         context.setCurrentConnectedFEIp(params.getClientNodeHost());
@@ -1646,6 +1606,17 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             return result;
         }
 
+        if (DebugPointUtil.isEnable("load.commit_timeout")) {
+            try {
+                Thread.sleep(60 * 1000);
+            } catch (InterruptedException e) {
+                LOG.warn("failed to sleep", e);
+            }
+            status.setStatusCode(TStatusCode.INTERNAL_ERROR);
+            status.addToErrorMsgs("load commit timeout");
+            return result;
+        }
+
         try {
             if (!loadTxnCommitImpl(request)) {
                 // committed success but not visible
@@ -1844,14 +1815,23 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                                 subTxnInfo.getTabletCommitInfos(), null));
             }
             transactionState.setSubTxnIds(subTxnIds);
-            return Env.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(db, request.getTxnId(),
-                    subTransactionStates, timeoutMs);
-        } else {
+            return Env.getCurrentGlobalTransactionMgr()
+                    .commitAndPublishTransaction(db, request.getTxnId(),
+                            subTransactionStates, timeoutMs);
+        } else if (!request.isOnlyCommit()) {
             return Env.getCurrentGlobalTransactionMgr()
                     .commitAndPublishTransaction(db, tableList,
                             request.getTxnId(),
                             TabletCommitInfo.fromThrift(request.getCommitInfos()), timeoutMs,
                             TxnCommitAttachment.fromThrift(request.getTxnCommitAttachment()));
+        } else {
+            // single table commit, so don't need to wait for publish.
+            Env.getCurrentGlobalTransactionMgr()
+                    .commitTransaction(db, tableList,
+                            request.getTxnId(),
+                            TabletCommitInfo.fromThrift(request.getCommitInfos()), timeoutMs,
+                            TxnCommitAttachment.fromThrift(request.getTxnCommitAttachment()));
+            return true;
         }
     }
 
@@ -2055,8 +2035,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             boolean hasUserName = !StringUtils.isEmpty(request.getUser());
             if (Config.enable_workload_group && hasUserName) {
                 tWorkloadGroupList = Env.getCurrentEnv().getWorkloadGroupMgr()
-                        .getWorkloadGroupByUser(ConnectContext.get()
-                                .getCurrentUserIdentity(), true);
+                        .getWorkloadGroup(ConnectContext.get());
             }
             if (!Strings.isNullOrEmpty(request.getLoadSql())) {
                 httpStreamPutImpl(request, result);
@@ -2196,6 +2175,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             ctx.getSessionVariable().enableMemtableOnSinkNode = Config.stream_load_default_memtable_on_sink_node;
         }
         ctx.getSessionVariable().groupCommit = request.getGroupCommitMode();
+        if (request.isSetPartialUpdate() && !request.isPartialUpdate()) {
+            ctx.getSessionVariable().setEnableUniqueKeyPartialUpdate(false);
+        }
         try {
             HttpStreamParams httpStreamParams = initHttpStreamPlan(request, ctx);
             int loadStreamPerNode = 2;
@@ -2253,6 +2235,34 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             return new TStatus(TStatusCode.OK);
         }
         return new TStatus(TStatusCode.CANCELLED);
+    }
+
+    @Override
+    public TFrontendReportAliveSessionResult getAliveSessions(TFrontendReportAliveSessionRequest request)
+            throws TException {
+        TFrontendReportAliveSessionResult result = new TFrontendReportAliveSessionResult();
+        result.setStatus(TStatusCode.OK);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("receive get alive sessions request: {}", request);
+        }
+
+        Env env = Env.getCurrentEnv();
+        if (env.isReady()) {
+            if (request.getClusterId() != env.getClusterId()) {
+                result.setStatus(TStatusCode.INVALID_ARGUMENT);
+                result.setMsg("invalid cluster id: " + Env.getCurrentEnv().getClusterId());
+            } else if (!request.getToken().equals(env.getToken())) {
+                result.setStatus(TStatusCode.INVALID_ARGUMENT);
+                result.setMsg("invalid token: " + Env.getCurrentEnv().getToken());
+            } else {
+                result.setMsg("success");
+                result.setSessionIdList(env.getAllAliveSessionIds());
+            }
+        } else {
+            result.setStatus(TStatusCode.ILLEGAL_STATE);
+            result.setMsg("not ready");
+        }
+        return result;
     }
 
     @Override
@@ -2785,15 +2795,42 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
 
+        boolean syncJournal = false;
         if (!Env.getCurrentEnv().isMaster()) {
-            status.setStatusCode(TStatusCode.NOT_MASTER);
-            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
-            result.setMasterAddress(getMasterAddress());
-            LOG.error("failed to get beginTxn: {}", NOT_MASTER_ERR_MSG);
-            return result;
+            if (!request.isAllowFollowerRead()) {
+                status.setStatusCode(TStatusCode.NOT_MASTER);
+                status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
+                result.setMasterAddress(getMasterAddress());
+                LOG.error("failed to get binlog: {}", NOT_MASTER_ERR_MSG);
+                return result;
+            }
+            syncJournal = true;
         }
 
         try {
+            /// Check all required arg: user, passwd, db, prev_commit_seq
+            if (!request.isSetUser()) {
+                throw new UserException("user is not set");
+            }
+            if (!request.isSetPasswd()) {
+                throw new UserException("passwd is not set");
+            }
+            if (!request.isSetDb()) {
+                throw new UserException("db is not set");
+            }
+            if (!request.isSetPrevCommitSeq()) {
+                throw new UserException("prev_commit_seq is not set");
+            }
+
+            if (syncJournal) {
+                ConnectContext ctx = new ConnectContext(null);
+                ctx.setDatabase(request.getDb());
+                ctx.setQualifiedUser(request.getUser());
+                ctx.setEnv(Env.getCurrentEnv());
+                MasterOpExecutor executor = new MasterOpExecutor(ctx);
+                executor.syncJournal();
+            }
+
             result = getBinlogImpl(request, clientAddr);
         } catch (UserException e) {
             LOG.warn("failed to get binlog: {}", e.getMessage());
@@ -2810,20 +2847,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     private TGetBinlogResult getBinlogImpl(TGetBinlogRequest request, String clientIp) throws UserException {
-        /// Check all required arg: user, passwd, db, prev_commit_seq
-        if (!request.isSetUser()) {
-            throw new UserException("user is not set");
-        }
-        if (!request.isSetPasswd()) {
-            throw new UserException("passwd is not set");
-        }
-        if (!request.isSetDb()) {
-            throw new UserException("db is not set");
-        }
-        if (!request.isSetPrevCommitSeq()) {
-            throw new UserException("prev_commit_seq is not set");
-        }
-
         // step 1: check auth
         if (Strings.isNullOrEmpty(request.getToken())) {
             checkSingleTablePasswordAndPrivs(request.getUser(), request.getPasswd(), request.getDb(),
@@ -2862,7 +2885,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TGetBinlogResult result = new TGetBinlogResult();
         result.setStatus(new TStatus(TStatusCode.OK));
         long prevCommitSeq = request.getPrevCommitSeq();
-        Pair<TStatus, TBinlog> statusBinlogPair = env.getBinlogManager().getBinlog(dbId, tableId, prevCommitSeq);
+        long numAcquired = request.getNumAcquired();
+        Pair<TStatus, List<TBinlog>> statusBinlogPair = env.getBinlogManager()
+                .getBinlog(dbId, tableId, prevCommitSeq, numAcquired);
         TStatus status = statusBinlogPair.first;
         if (status != null && status.getStatusCode() != TStatusCode.OK) {
             result.setStatus(status);
@@ -2871,10 +2896,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 return result;
             }
         }
-        TBinlog binlog = statusBinlogPair.second;
-        if (binlog != null) {
-            List<TBinlog> binlogs = Lists.newArrayList();
-            binlogs.add(binlog);
+        List<TBinlog> binlogs = statusBinlogPair.second;
+        if (binlogs != null) {
             result.setBinlogs(binlogs);
         }
         return result;
@@ -3071,6 +3094,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
         if (request.isAtomicRestore()) {
             properties.put(RestoreStmt.PROP_ATOMIC_RESTORE, "true");
+        }
+        if (request.isForceReplace()) {
+            properties.put(RestoreStmt.PROP_FORCE_REPLACE, "true");
         }
 
         AbstractBackupTableRefClause restoreTableRefClause = null;
@@ -3276,7 +3302,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     public TGetBinlogLagResult getBinlogLag(TGetBinlogRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
         if (LOG.isDebugEnabled()) {
-            LOG.debug("receive get binlog request: {}", request);
+            LOG.debug("receive get binlog lag request: {}", request);
         }
 
         TGetBinlogLagResult result = new TGetBinlogLagResult();
@@ -3287,14 +3313,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             status.setStatusCode(TStatusCode.NOT_MASTER);
             status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
             result.setMasterAddress(getMasterAddress());
-            LOG.error("failed to get beginTxn: {}", NOT_MASTER_ERR_MSG);
+            LOG.error("failed to get binlog lag: {}", NOT_MASTER_ERR_MSG);
             return result;
         }
 
         try {
             result = getBinlogLagImpl(request, clientAddr);
         } catch (UserException e) {
-            LOG.warn("failed to get binlog: {}", e.getMessage());
+            LOG.warn("failed to get binlog lag: {}", e.getMessage());
             status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
             status.addToErrorMsgs(e.getMessage());
         } catch (Throwable e) {
@@ -3361,16 +3387,117 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         result.setStatus(new TStatus(TStatusCode.OK));
         long prevCommitSeq = request.getPrevCommitSeq();
 
-        Pair<TStatus, Long> statusLagPair = env.getBinlogManager().getBinlogLag(dbId, tableId, prevCommitSeq);
-        TStatus status = statusLagPair.first;
+        Pair<TStatus, BinlogLagInfo> binlogLagInfo = env.getBinlogManager().getBinlogLag(dbId, tableId, prevCommitSeq);
+        TStatus status = binlogLagInfo.first;
         if (status != null && status.getStatusCode() != TStatusCode.OK) {
             result.setStatus(status);
         }
-        Long binlogLag = statusLagPair.second;
-        if (binlogLag != null) {
-            result.setLag(binlogLag);
+        BinlogLagInfo lagInfo = binlogLagInfo.second;
+        if (lagInfo != null) {
+            result.setLag(lagInfo.getLag());
+            result.setFirstCommitSeq(lagInfo.getFirstCommitSeq());
+            result.setLastCommitSeq(lagInfo.getLastCommitSeq());
+            result.setFirstBinlogTimestamp(lagInfo.getFirstCommitTs());
+            result.setLastBinlogTimestamp(lagInfo.getLastCommitTs());
+            result.setNextCommitSeq(lagInfo.getNextCommitSeq());
+            result.setNextBinlogTimestamp(lagInfo.getNextCommitTs());
+        }
+        return result;
+    }
+
+    public TLockBinlogResult lockBinlog(TLockBinlogRequest request) throws TException {
+        String clientAddr = getClientAddrAsString();
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("receive lock binlog request: {}", request);
         }
 
+        TLockBinlogResult result = new TLockBinlogResult();
+        TStatus status = new TStatus(TStatusCode.OK);
+        result.setStatus(status);
+
+        if (!Env.getCurrentEnv().isMaster()) {
+            status.setStatusCode(TStatusCode.NOT_MASTER);
+            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
+            result.setMasterAddress(getMasterAddress());
+            LOG.error("failed to lock binlog: {}", NOT_MASTER_ERR_MSG);
+            return result;
+        }
+
+        try {
+            result = lockBinlogImpl(request, clientAddr);
+        } catch (UserException e) {
+            LOG.warn("failed to lock binlog: {}", e.getMessage());
+            status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
+            status.addToErrorMsgs(e.getMessage());
+        } catch (Throwable e) {
+            LOG.warn("catch unknown result.", e);
+            status.setStatusCode(TStatusCode.INTERNAL_ERROR);
+            status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()));
+            return result;
+        }
+
+        return result;
+    }
+
+    private TLockBinlogResult lockBinlogImpl(TLockBinlogRequest request, String clientIp) throws UserException {
+        /// Check all required arg: user, passwd, db, prev_commit_seq
+        if (!request.isSetUser()) {
+            throw new UserException("user is not set");
+        }
+        if (!request.isSetPasswd()) {
+            throw new UserException("passwd is not set");
+        }
+        if (!request.isSetDb()) {
+            throw new UserException("db is not set");
+        }
+        if (!request.isSetJobUniqueId()) {
+            throw new UserException("job_unique_id is not set");
+        }
+
+        // step 1: check auth
+        if (Strings.isNullOrEmpty(request.getToken())) {
+            checkSingleTablePasswordAndPrivs(request.getUser(), request.getPasswd(), request.getDb(),
+                    request.getTable(), clientIp, PrivPredicate.SELECT);
+        }
+
+        // step 3: check database
+        Env env = Env.getCurrentEnv();
+        String fullDbName = request.getDb();
+        Database db = env.getInternalCatalog().getDbNullable(fullDbName);
+        if (db == null) {
+            String dbName = fullDbName;
+            if (Strings.isNullOrEmpty(request.getCluster())) {
+                dbName = request.getDb();
+            }
+            throw new UserException("unknown database, database=" + dbName);
+        }
+
+        // step 4: fetch all tableIds
+        // lookup tables && convert into tableIdList
+        long tableId = -1;
+        if (request.isSetTableId()) {
+            tableId = request.getTableId();
+        } else if (request.isSetTable()) {
+            String tableName = request.getTable();
+            Table table = db.getTableOrMetaException(tableName, TableType.OLAP);
+            if (table == null) {
+                throw new UserException("unknown table, table=" + tableName);
+            }
+            tableId = table.getId();
+        }
+
+        // step 6: lock binlog
+        long dbId = db.getId();
+        String jobUniqueId = request.getJobUniqueId();
+        long lockCommitSeq = -1L;
+        if (request.isSetLockCommitSeq()) {
+            lockCommitSeq = request.getLockCommitSeq();
+        }
+        Pair<TStatus, Long> statusSeqPair = env.getBinlogManager().lockBinlog(
+                dbId, tableId, jobUniqueId, lockCommitSeq);
+        TLockBinlogResult result = new TLockBinlogResult();
+        result.setStatus(statusSeqPair.first);
+        result.setLockedCommitSeq(statusSeqPair.second);
         return result;
     }
 
@@ -3387,6 +3514,15 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     k.catalogId, k.dbId, k.tableId, k.idxId, k.colName, c);
         }
         // Return Ok anyway
+        return new TStatus(TStatusCode.OK);
+    }
+
+    @Override
+    public TStatus updatePlanStatsCache(TUpdatePlanStatsCacheRequest request) throws TException {
+        PlanNodeAndHash key = GsonUtils.GSON.fromJson(request.key, PlanNodeAndHash.class);
+        RecentRunsPlanStatistics data = GsonUtils.GSON.fromJson(request.planStatsData, RecentRunsPlanStatistics.class);
+        Env.getCurrentEnv().getHboPlanStatisticsManager().getHboPlanStatisticsProvider()
+                .updatePlanStats(key, data);
         return new TStatus(TStatusCode.OK);
     }
 
@@ -3432,7 +3568,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             return result;
         }
 
-        OlapTable table = (OlapTable) (db.getTable(tableId).get());
+        Table table = db.getTable(tableId).get();
         if (table == null) {
             errorStatus.setErrorMsgs(
                     (Lists.newArrayList(String.format("dbId=%d tableId=%d is not exists", dbId, tableId))));
@@ -3512,18 +3648,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         // build partition & tablets
         List<TOlapTablePartition> partitions = Lists.newArrayList();
         List<TTabletLocation> tablets = Lists.newArrayList();
+        List<TTabletLocation> slaveTablets = new ArrayList<>();
         for (String partitionName : addPartitionClauseMap.keySet()) {
             Partition partition = table.getPartition(partitionName);
-            if (partition == null) {
-                String partInfos = table.getAllPartitions().stream()
-                        .map(partitionArg -> partitionArg.getName() + partitionArg.getId())
-                        .collect(Collectors.joining(", "));
-
-                errorStatus.setErrorMsgs(Lists.newArrayList("get partition " + partitionName + " failed"));
-                result.setStatus(errorStatus);
-                LOG.warn("send create partition error status: {}, {}", result, partInfos);
-                return result;
-            }
             TOlapTablePartition tPartition = new TOlapTablePartition();
             tPartition.setId(partition.getId());
             int partColNum = partitionInfo.getPartitionColumns().size();
@@ -3567,12 +3694,25 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     if (bePathsMap.keySet().size() < quorum) {
                         LOG.warn("auto go quorum exception");
                     }
-                    tablets.add(new TTabletLocation(tablet.getId(), Lists.newArrayList(bePathsMap.keySet())));
+                    if (request.isSetWriteSingleReplica() && request.isWriteSingleReplica()) {
+                        Long[] nodes = bePathsMap.keySet().toArray(new Long[0]);
+                        Random random = new SecureRandom();
+                        Long masterNode = nodes[random.nextInt(nodes.length)];
+                        Multimap<Long, Long> slaveBePathsMap = bePathsMap;
+                        slaveBePathsMap.removeAll(masterNode);
+                        tablets.add(new TTabletLocation(tablet.getId(),
+                                Lists.newArrayList(Sets.newHashSet(masterNode))));
+                        slaveTablets.add(new TTabletLocation(tablet.getId(),
+                                Lists.newArrayList(slaveBePathsMap.keySet())));
+                    } else {
+                        tablets.add(new TTabletLocation(tablet.getId(), Lists.newArrayList(bePathsMap.keySet())));
+                    }
                 }
             }
         }
         result.setPartitions(partitions);
         result.setTablets(tablets);
+        result.setSlaveTablets(slaveTablets);
 
         // build nodes
         List<TNodeInfo> nodeInfos = Lists.newArrayList();
@@ -3662,7 +3802,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             needReplace = overwriteManager.tryReplacePartitionIds(taskGroupId, reqPartitionIds, resultPartitionIds);
             // request: [1 2 3 4] result: [1 2 5 6] means ONLY 1 and 2 need replace.
             if (needReplace) {
-                // names for [1 2]
+                // names for [1 2]. if another txn dropped origin partitions, we will fail here. return the exception.
+                // that's reasonable because we want iot-auto-detect txn has as less impact as possible. so only when we
+                // detected the conflict in this RPC, we will fail the txn. it allows more concurrent transactions.
                 List<String> pendingPartitionNames = olapTable.getEqualPartitionNames(reqPartitionIds,
                                 resultPartitionIds);
                 for (String name : pendingPartitionNames) {
@@ -3690,7 +3832,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     }
                 }
             }
-        } catch (DdlException ex) {
+        } catch (DdlException | RuntimeException ex) {
             errorStatus.setErrorMsgs(Lists.newArrayList(ex.getMessage()));
             result.setStatus(errorStatus);
             LOG.warn("send create partition error status: {}", result);
@@ -3728,6 +3870,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         // so they won't be changed again. if other transaction changing it. just let it fail.
         List<TOlapTablePartition> partitions = new ArrayList<>();
         List<TTabletLocation> tablets = new ArrayList<>();
+        List<TTabletLocation> slaveTablets = new ArrayList<>();
         PartitionInfo partitionInfo = olapTable.getPartitionInfo();
         for (long partitionId : resultPartitionIds) {
             Partition partition = olapTable.getPartition(partitionId);
@@ -3776,12 +3919,25 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     if (bePathsMap.keySet().size() < quorum) {
                         LOG.warn("auto go quorum exception");
                     }
-                    tablets.add(new TTabletLocation(tablet.getId(), Lists.newArrayList(bePathsMap.keySet())));
+                    if (request.isSetWriteSingleReplica() && request.isWriteSingleReplica()) {
+                        Long[] nodes = bePathsMap.keySet().toArray(new Long[0]);
+                        Random random = new SecureRandom();
+                        Long masterNode = nodes[random.nextInt(nodes.length)];
+                        Multimap<Long, Long> slaveBePathsMap = bePathsMap;
+                        slaveBePathsMap.removeAll(masterNode);
+                        tablets.add(new TTabletLocation(tablet.getId(),
+                                Lists.newArrayList(Sets.newHashSet(masterNode))));
+                        slaveTablets.add(new TTabletLocation(tablet.getId(),
+                                Lists.newArrayList(slaveBePathsMap.keySet())));
+                    } else {
+                        tablets.add(new TTabletLocation(tablet.getId(), Lists.newArrayList(bePathsMap.keySet())));
+                    }
                 }
             }
         }
         result.setPartitions(partitions);
         result.setTablets(tablets);
+        result.setSlaveTablets(slaveTablets);
 
         // build nodes
         List<TNodeInfo> nodeInfos = Lists.newArrayList();
@@ -3874,6 +4030,21 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         table = db.getTableNullable(getMetaTable.getId());
                     } else {
                         table = db.getTableNullable(getMetaTable.getName());
+                    }
+
+                    if (table == null) {
+                        // Since Database.getTableNullable is lock-free, we need to take lock and check again,
+                        // to ensure the visibility of the table.
+                        db.readLock();
+                        try {
+                            if (getMetaTable.isSetId()) {
+                                table = db.getTableNullable(getMetaTable.getId());
+                            } else {
+                                table = db.getTableNullable(getMetaTable.getName());
+                            }
+                        } finally {
+                            db.readUnlock();
+                        }
                     }
 
                     if (table == null) {
@@ -4059,8 +4230,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (request.isSetCurrentUserIdent()) {
             userIdentity = UserIdentity.fromThrift(request.getCurrentUserIdent());
         }
+        String timeZone = VariableMgr.getDefaultSessionVariable().getTimeZone();
+        if (request.isSetTimeZone()) {
+            timeZone = request.getTimeZone();
+        }
         List<List<String>> processList = ExecuteEnv.getInstance().getScheduler()
-                .listConnectionForRpc(userIdentity, isShowFullSql);
+                .listConnectionForRpc(userIdentity, isShowFullSql, Optional.of(timeZone));
         TShowProcessListResult result = new TShowProcessListResult();
         result.setProcessList(processList);
         return result;
@@ -4097,6 +4272,57 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         result.setStatus(new TStatus(TStatusCode.OK));
         result.setRunningQueries(runningQueries);
+        return result;
+    }
+
+    @Override
+    public TFetchRoutineLoadJobResult fetchRoutineLoadJob(TFetchRoutineLoadJobRequest request) {
+        TFetchRoutineLoadJobResult result = new TFetchRoutineLoadJobResult();
+
+        if (!Env.getCurrentEnv().isReady()) {
+            return result;
+        }
+
+        RoutineLoadManager routineLoadManager = Env.getCurrentEnv().getRoutineLoadManager();
+        List<TRoutineLoadJob> jobInfos = Lists.newArrayList();
+        List<RoutineLoadJob> routineLoadJobs = routineLoadManager.getAllRoutineLoadJobs();
+        for (RoutineLoadJob job : routineLoadJobs) {
+            TRoutineLoadJob jobInfo = new TRoutineLoadJob();
+            jobInfo.setJobId(String.valueOf(job.getId()));
+            jobInfo.setJobName(job.getName());
+            jobInfo.setCreateTime(job.getCreateTimestampString());
+            jobInfo.setPauseTime(job.getPauseTimestampString());
+            jobInfo.setEndTime(job.getEndTimestampString());
+            String dbName = "";
+            String tableName = "";
+            try {
+                dbName = job.getDbFullName();
+                tableName = job.getTableName();
+            } catch (MetaNotFoundException e) {
+                LOG.warn("Failed to get db or table name for routine load job: {}", job.getId(), e);
+            }
+            jobInfo.setDbName(dbName);
+            jobInfo.setTableName(tableName);
+            jobInfo.setState(job.getState().name());
+            jobInfo.setCurrentTaskNum(String.valueOf(job.getSizeOfRoutineLoadTaskInfoList()));
+            jobInfo.setJobProperties(job.jobPropertiesToJsonString());
+            jobInfo.setDataSourceProperties(job.dataSourcePropertiesJsonToString());
+            jobInfo.setCustomProperties(job.customPropertiesJsonToString());
+            jobInfo.setStatistic(job.getStatistic());
+            jobInfo.setProgress(job.getProgress().toJsonString());
+            jobInfo.setLag(job.getLag());
+            jobInfo.setReasonOfStateChanged(job.getStateReason());
+            jobInfo.setErrorLogUrls(Joiner.on(", ").join(job.getErrorLogUrls()));
+            jobInfo.setUserName(job.getUserIdentity().getQualifiedUser());
+            jobInfo.setCurrentAbortTaskNum(job.getJobStatistic().currentAbortedTaskNum);
+            jobInfo.setIsAbnormalPause(job.isAbnormalPause());
+            jobInfos.add(jobInfo);
+        }
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("routine load job infos: {}", jobInfos);
+        }
+        result.setRoutineLoadJobs(jobInfos);
+
         return result;
     }
 }

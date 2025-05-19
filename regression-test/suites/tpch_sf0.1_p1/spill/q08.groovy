@@ -19,7 +19,7 @@ suite("q08_spill") {
     set enable_force_spill=true;
   """
   sql """
-    set min_revocable_mem=1;
+    set spill_min_revocable_mem=1;
   """
   sql """
     use regression_test_tpch_sf0_1_p1;
@@ -27,7 +27,7 @@ suite("q08_spill") {
   qt_q08 """
 -- tables: part,supplier,lineitem,orders,customer,nation,region
 SELECT
-/*+SET_VAR(enable_force_spill=true, min_revocable_mem=1)*/
+/*+SET_VAR(enable_force_spill=true, spill_min_revocable_mem=1)*/
   o_year,
   sum(CASE
       WHEN nation = 'BRAZIL'

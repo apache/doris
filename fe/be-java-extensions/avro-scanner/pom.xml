@@ -71,6 +71,7 @@ under the License.
 
     <build>
         <finalName>avro-scanner</finalName>
+        <directory>${project.basedir}/target/</directory>
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>

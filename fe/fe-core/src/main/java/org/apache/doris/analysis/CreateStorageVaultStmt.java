@@ -28,16 +28,17 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
+import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
+
+import com.google.common.collect.ImmutableMap;
 
 import java.util.Map;
 
 // CREATE STORAGE VAULT vault_name
 // PROPERTIES (key1 = value1, ...)
 public class CreateStorageVaultStmt extends DdlStmt implements NotFallbackInParser {
-    private static final String TYPE = "type";
-
     private static final String PATH_VERSION = "path_version";
 
     private static final String SHARD_NUM = "shard_num";
@@ -46,7 +47,7 @@ public class CreateStorageVaultStmt extends DdlStmt implements NotFallbackInPars
 
     private final boolean ifNotExists;
     private final String vaultName;
-    private final Map<String, String> properties;
+    private ImmutableMap<String, String> properties;
     private boolean setAsDefault;
     private int pathVersion = 0;
     private int numShard = 0;
@@ -55,7 +56,7 @@ public class CreateStorageVaultStmt extends DdlStmt implements NotFallbackInPars
     public CreateStorageVaultStmt(boolean ifNotExists, String vaultName, Map<String, String> properties) {
         this.ifNotExists = ifNotExists;
         this.vaultName = vaultName;
-        this.properties = properties;
+        this.properties = ImmutableMap.copyOf(properties);
         this.vaultType = vaultType.UNKNOWN;
     }
 
@@ -79,7 +80,7 @@ public class CreateStorageVaultStmt extends DdlStmt implements NotFallbackInPars
         return pathVersion;
     }
 
-    public Map<String, String> getProperties() {
+    public ImmutableMap<String, String> getProperties() {
         return properties;
     }
 
@@ -119,10 +120,20 @@ public class CreateStorageVaultStmt extends DdlStmt implements NotFallbackInPars
         if (properties == null || properties.isEmpty()) {
             throw new AnalysisException("Storage Vault properties can't be null");
         }
-        String type = properties.get(TYPE);
-        if (type == null) {
-            throw new AnalysisException("Storage Vault type can't be null");
+
+        String type = null;
+        for (Map.Entry<String, String> property : properties.entrySet()) {
+            if (property.getKey().equalsIgnoreCase(StorageVault.PropertyKey.TYPE)) {
+                type = property.getValue();
+            }
         }
+        if (type == null) {
+            throw new AnalysisException("Missing property " + StorageVault.PropertyKey.TYPE);
+        }
+        if (type.isEmpty()) {
+            throw new AnalysisException("Property " + StorageVault.PropertyKey.TYPE + " cannot be empty");
+        }
+
         final String pathVersionString = properties.get(PATH_VERSION);
         if (pathVersionString != null) {
             this.pathVersion = Integer.parseInt(pathVersionString);
@@ -135,6 +146,14 @@ public class CreateStorageVaultStmt extends DdlStmt implements NotFallbackInPars
         }
         setAsDefault = Boolean.parseBoolean(properties.getOrDefault(SET_AS_DEFAULT, "false"));
         setStorageVaultType(StorageVault.StorageVaultType.fromString(type));
+
+        if (vaultType == StorageVault.StorageVaultType.S3
+                && !properties.containsKey(PropertyConverter.USE_PATH_STYLE)) {
+            properties = ImmutableMap.<String, String>builder()
+                .putAll(properties)
+                .put(PropertyConverter.USE_PATH_STYLE, "true")
+                .build();
+        }
     }
 
     @Override

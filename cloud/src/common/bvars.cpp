@@ -85,6 +85,11 @@ BvarLatencyRecorderWithTag g_bvar_ms_finish_tablet_job("ms", "finish_tablet_job"
 BvarLatencyRecorderWithTag g_bvar_ms_get_cluster_status("ms", "get_cluster_status");
 BvarLatencyRecorderWithTag g_bvar_ms_set_cluster_status("ms", "set_cluster_status");
 BvarLatencyRecorderWithTag g_bvar_ms_check_kv("ms", "check_kv");
+BvarLatencyRecorderWithTag g_bvar_ms_get_schema_dict("ms", "get_schema_dict");
+bvar::Adder<int64_t> g_bvar_update_delete_bitmap_fail_counter;
+bvar::Window<bvar::Adder<int64_t> > g_bvar_update_delete_bitmap_fail_counter_minute("ms", "update_delete_bitmap_fail", &g_bvar_update_delete_bitmap_fail_counter, 60);
+bvar::Adder<int64_t> g_bvar_get_delete_bitmap_fail_counter;
+bvar::Window<bvar::Adder<int64_t> > g_bvar_get_delete_bitmap_fail_counter_minute("ms", "get_delete_bitmap_fail", &g_bvar_get_delete_bitmap_fail_counter, 60);
 
 // recycler's bvars
 // TODO: use mbvar for per instance, https://github.com/apache/brpc/blob/master/docs/cn/mbvar_c++.md
@@ -112,6 +117,18 @@ bvar::Adder<int64_t> g_bvar_txn_kv_commit_error_counter;
 bvar::Window<bvar::Adder<int64_t> > g_bvar_txn_kv_commit_error_counter_minute("txn_kv", "commit_error", &g_bvar_txn_kv_commit_error_counter, 60);
 bvar::Adder<int64_t> g_bvar_txn_kv_commit_conflict_counter;
 bvar::Window<bvar::Adder<int64_t> > g_bvar_txn_kv_commit_conflict_counter_minute("txn_kv", "commit_conflict", &g_bvar_txn_kv_commit_conflict_counter, 60);
+bvar::Adder<int64_t> g_bvar_delete_bitmap_lock_txn_put_conflict_counter;
+bvar::Window<bvar::Adder<int64_t> > g_bvar_delete_bitmap_lock_txn_put_conflict_counter_minute("delete_bitmap_lock", "txn_put_conflict", &g_bvar_delete_bitmap_lock_txn_put_conflict_counter, 60);
+bvar::Adder<int64_t> g_bvar_delete_bitmap_lock_txn_remove_conflict_by_fail_counter;
+bvar::Window<bvar::Adder<int64_t> > g_bvar_delete_bitmap_lock_txn_remove_conflict_by_fail_counter_minute("delete_bitmap_lock", "txn_remove_conflict_by_fail", &g_bvar_delete_bitmap_lock_txn_remove_conflict_by_fail_counter, 60);
+bvar::Adder<int64_t> g_bvar_delete_bitmap_lock_txn_remove_conflict_by_load_counter;
+bvar::Window<bvar::Adder<int64_t> > g_bvar_delete_bitmap_lock_txn_remove_conflict_by_load_counter_minute("delete_bitmap_lock", "txn_remove_conflict_by_load", &g_bvar_delete_bitmap_lock_txn_remove_conflict_by_load_counter, 60);
+bvar::Adder<int64_t> g_bvar_delete_bitmap_lock_txn_remove_conflict_by_compaction_commit_counter;
+bvar::Window<bvar::Adder<int64_t> > g_bvar_delete_bitmap_lock_txn_remove_conflict_by_compaction_commit_counter_minute("delete_bitmap_lock", "txn_remove_conflict_by_compaction_commit", &g_bvar_delete_bitmap_lock_txn_remove_conflict_by_compaction_commit_counter, 60);
+bvar::Adder<int64_t> g_bvar_delete_bitmap_lock_txn_remove_conflict_by_compaction_lease_counter;
+bvar::Window<bvar::Adder<int64_t> > g_bvar_delete_bitmap_lock_txn_remove_conflict_by_compaction_lease_counter_minute("delete_bitmap_lock", "txn_remove_conflict_by_compaction_lease", &g_bvar_delete_bitmap_lock_txn_remove_conflict_by_compaction_lease_counter, 60);
+bvar::Adder<int64_t> g_bvar_delete_bitmap_lock_txn_remove_conflict_by_compaction_abort_counter;
+bvar::Window<bvar::Adder<int64_t> > g_bvar_delete_bitmap_lock_txn_remove_conflict_by_compaction_abort_counter_minute("delete_bitmap_lock", "txn_remove_conflict_by_compaction_abort", &g_bvar_delete_bitmap_lock_txn_remove_conflict_by_compaction_abort_counter, 60);
 
 // fdb's bvars
 const int64_t BVAR_FDB_INVALID_VALUE = -99999999L;

@@ -44,7 +44,7 @@ public:
 private:
     friend class ResultFileSinkOperatorX;
 
-    std::shared_ptr<BufferControlBlock> _sender;
+    std::shared_ptr<ResultBlockBufferBase> _sender;
 
     std::shared_ptr<vectorized::BroadcastPBlockHolder> _block_holder;
     int _sender_id;
@@ -60,7 +60,7 @@ public:
                             const std::vector<TExpr>& t_output_expr, DescriptorTbl& descs);
     Status init(const TDataSink& thrift_sink) override;
 
-    Status open(RuntimeState* state) override;
+    Status prepare(RuntimeState* state) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
 
@@ -86,7 +86,7 @@ private:
     std::string _header_type;
 
     vectorized::VExprContextSPtrs _output_vexpr_ctxs;
-    std::shared_ptr<BufferControlBlock> _sender = nullptr;
+    std::shared_ptr<ResultBlockBufferBase> _sender = nullptr;
 };
 
 #include "common/compile_check_end.h"

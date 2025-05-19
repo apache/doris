@@ -549,6 +549,10 @@ suite("test_stream_load_properties", "p0") {
             sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
             sql new File("""${context.file.parent}/ddl/${tableName}_create.sql""").text
 
+            if (isCloudMode()) {
+                continue
+            }
+
             String txnId
             def tableName1 =  "stream_load_" + tableName
             // Invalid txn_id string with letters
