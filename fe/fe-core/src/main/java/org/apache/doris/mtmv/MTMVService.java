@@ -215,4 +215,12 @@ public class MTMVService implements EventListener {
         LOG.info("alterMTMV, mtmvName: {}", mtmv.getName());
         jobManager.alterJob(mtmv, isReplay);
     }
+
+    public void postCreateMTMV(MTMV mtmv) {
+        Objects.requireNonNull(mtmv, "mtmv can not be null");
+        LOG.info("postCreateMTMV, mtmvName: {}", mtmv.getName());
+        for (MTMVHookService mtmvHookService : hooks.values()) {
+            mtmvHookService.postCreateMTMV(mtmv);
+        }
+    }
 }

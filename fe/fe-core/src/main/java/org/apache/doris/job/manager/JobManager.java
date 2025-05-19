@@ -110,6 +110,7 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
 
     public void registerJob(T job) throws JobException {
         createJobInternal(job, false);
+        jobScheduler.scheduleOneJob(job);
     }
 
     public void createJobInternal(T job, boolean isReplay) throws JobException {
@@ -134,15 +135,7 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
             writeUnlock();
         }
         if (!isReplay) {
-            try {
-                // check its need to scheduler
-                jobScheduler.scheduleOneJob(job);
-            } catch (Exception e) {
-                // if scheduler job error, we need to unregister job
-                log.warn(("first schedule job error,unregister job, jobName:" + job.getJobName()), e);
-                unregisterJob(job.getJobId());
-                throw new JobException("register job error, jobName:" + job.getJobName());
-            }
+            jobScheduler.cycleTimerJobScheduler(job);
         }
     }
 
@@ -221,7 +214,7 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
         checkJobExist(jobId);
         jobMap.get(jobId).updateJobStatus(status);
         if (status.equals(JobStatus.RUNNING)) {
-            jobScheduler.scheduleOneJob(jobMap.get(jobId));
+            jobScheduler.cycleTimerJobScheduler(jobMap.get(jobId));
         }
         jobMap.get(jobId).logUpdateOperation();
     }
