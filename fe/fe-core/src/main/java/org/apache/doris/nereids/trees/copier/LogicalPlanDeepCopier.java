@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.copier;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.OrderKey;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
@@ -35,6 +36,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
@@ -93,7 +95,33 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
         return newRelation;
     }
 
-    // TODO update scan
+    @Override
+    public Plan visitLogicalCatalogRelation(LogicalCatalogRelation catalogRelation, DeepCopierContext context) {
+        if (context.getRelationReplaceMap().containsKey(catalogRelation.getRelationId())) {
+            return context.getRelationReplaceMap().get(catalogRelation.getRelationId());
+        }
+        LogicalCatalogRelation newRelation =
+                catalogRelation.withRelationId(StatementScopeIdGenerator.newRelationId());
+        updateReplaceMapWithOutput(catalogRelation, newRelation, context.exprIdReplaceMap);
+        List<NamedExpression> virtualColumns = catalogRelation.getVirtualColumns().stream()
+                .map(e -> {
+                    if (e instanceof Alias) {
+                        return new Alias(((Alias) e).child(), e.getName());
+                    }
+                    return e;
+                })
+                .collect(ImmutableList.toImmutableList());
+        for (int i = 0; i < virtualColumns.size(); i++) {
+            context.exprIdReplaceMap.put(catalogRelation.getVirtualColumns().get(i).getExprId(),
+                    virtualColumns.get(i).getExprId());
+        }
+        virtualColumns = virtualColumns.stream()
+                .map(o -> (NamedExpression) ExpressionDeepCopier.INSTANCE.deepCopy(o, context))
+                .collect(ImmutableList.toImmutableList());
+        newRelation = newRelation.withVirtualColumns(virtualColumns);
+        context.putRelation(catalogRelation.getRelationId(), newRelation);
+        return newRelation;
+    }
 
     @Override
     public Plan visitLogicalEmptyRelation(LogicalEmptyRelation emptyRelation, DeepCopierContext context) {
