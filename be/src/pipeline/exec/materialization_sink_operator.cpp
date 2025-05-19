@@ -57,7 +57,8 @@ class MaterializationCallback : public ::doris::DummyBrpcCallback<Response> {
 
 public:
     MaterializationCallback(std::weak_ptr<TaskExecutionContext> tast_exec_ctx,
-                            MaterializationSharedState* shared_state, MonotonicStopWatch& rpc_timer, std::string&& query_id)
+                            MaterializationSharedState* shared_state, MonotonicStopWatch& rpc_timer,
+                            std::string&& query_id)
             : _tast_exec_ctx(std::move(tast_exec_ctx)),
               _shared_state(shared_state),
               _rpc_timer(rpc_timer),
