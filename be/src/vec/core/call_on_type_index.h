@@ -186,8 +186,6 @@ bool call_on_index_and_data_type(PrimitiveType number, F&& f) {
         return f(TypePair<DataTypeNumber<Float32>, T>());
     case PrimitiveType::TYPE_DOUBLE:
         return f(TypePair<DataTypeNumber<Float64>, T>());
-    case PrimitiveType::TYPE_TIME:
-        return f(TypePair<DataTypeTimeV2, T>());
     case PrimitiveType::TYPE_TIMEV2:
         return f(TypePair<DataTypeTimeV2, T>());
     case PrimitiveType::TYPE_DECIMAL32:
