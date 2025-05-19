@@ -108,7 +108,7 @@ suite("test_job_mtmv","mtmv") {
     order_qt_deferred_schedule_start "select MvName,ExecuteType,RecurringStrategy,Status from jobs('type'='mv') where MvName='${mvName}' and MvDatabaseName='${dbName}';"
 
     sql """
-        alter MATERIALIZED VIEW ${mvName} build immediate REFRESH AUTO ON manual
+        alter MATERIALIZED VIEW ${mvName} REFRESH AUTO ON manual
         """
     order_qt_alter "select MvName,ExecuteType,RecurringStrategy,Status from jobs('type'='mv') where MvName='${mvName}' and MvDatabaseName='${dbName}';"
 
