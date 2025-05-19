@@ -103,16 +103,13 @@ static constexpr char EMPTY_STRING_FOR_OVERFLOW[ColumnString::MAX_STRINGS_OVERFL
 static constexpr int decimal_precision_for_hive11 = BeConsts::MAX_DECIMAL128_PRECISION;
 static constexpr int decimal_scale_for_hive11 = 10;
 
-#define FOR_FLAT_ORC_COLUMNS(M)                            \
-    M(TypeIndex::Int8, Int8, orc::LongVectorBatch)         \
-    M(TypeIndex::UInt8, UInt8, orc::LongVectorBatch)       \
-    M(TypeIndex::Int16, Int16, orc::LongVectorBatch)       \
-    M(TypeIndex::UInt16, UInt16, orc::LongVectorBatch)     \
-    M(TypeIndex::UInt32, UInt32, orc::LongVectorBatch)     \
-    M(TypeIndex::Int64, Int64, orc::LongVectorBatch)       \
-    M(TypeIndex::UInt64, UInt64, orc::LongVectorBatch)     \
-    M(TypeIndex::Float32, Float32, orc::DoubleVectorBatch) \
-    M(TypeIndex::Float64, Float64, orc::DoubleVectorBatch)
+#define FOR_FLAT_ORC_COLUMNS(M)                                   \
+    M(PrimitiveType::TYPE_TINYINT, Int8, orc::LongVectorBatch)    \
+    M(PrimitiveType::TYPE_BOOLEAN, UInt8, orc::LongVectorBatch)   \
+    M(PrimitiveType::TYPE_SMALLINT, Int16, orc::LongVectorBatch)  \
+    M(PrimitiveType::TYPE_BIGINT, Int64, orc::LongVectorBatch)    \
+    M(PrimitiveType::TYPE_FLOAT, Float32, orc::DoubleVectorBatch) \
+    M(PrimitiveType::TYPE_DOUBLE, Float64, orc::DoubleVectorBatch)
 
 void ORCFileInputStream::read(void* buf, uint64_t length, uint64_t offset) {
     _statistics->fs_read_calls++;
@@ -1693,39 +1690,40 @@ Status OrcReader::_fill_doris_data_column(const std::string& col_name,
                                           const DataTypePtr& data_type,
                                           const orc::Type* orc_column_type,
                                           const orc::ColumnVectorBatch* cvb, size_t num_values) {
-    TypeIndex logical_type = remove_nullable(data_type)->get_type_id();
+    auto logical_type = data_type->get_primitive_type();
     switch (logical_type) {
 #define DISPATCH(FlatType, CppType, OrcColumnType) \
     case FlatType:                                 \
         return _decode_flat_column<CppType, OrcColumnType>(col_name, data_column, cvb, num_values);
         FOR_FLAT_ORC_COLUMNS(DISPATCH)
 #undef DISPATCH
-    case TypeIndex::Int32:
+    case PrimitiveType::TYPE_INT:
         return _decode_int32_column<is_filter>(col_name, data_column, cvb, num_values);
-    case TypeIndex::Decimal32:
+    case PrimitiveType::TYPE_DECIMAL32:
         return _decode_decimal_column<Decimal32, is_filter>(col_name, data_column, data_type, cvb,
                                                             num_values);
-    case TypeIndex::Decimal64:
+    case PrimitiveType::TYPE_DECIMAL64:
         return _decode_decimal_column<Decimal64, is_filter>(col_name, data_column, data_type, cvb,
                                                             num_values);
-    case TypeIndex::Decimal128V2:
+    case PrimitiveType::TYPE_DECIMALV2:
         return _decode_decimal_column<Decimal128V2, is_filter>(col_name, data_column, data_type,
                                                                cvb, num_values);
-    case TypeIndex::Decimal128V3:
+    case PrimitiveType::TYPE_DECIMAL128I:
         return _decode_decimal_column<Decimal128V3, is_filter>(col_name, data_column, data_type,
                                                                cvb, num_values);
-    case TypeIndex::DateV2:
+    case PrimitiveType::TYPE_DATEV2:
         return _decode_time_column<DateV2Value<DateV2ValueType>, UInt32, orc::LongVectorBatch,
                                    is_filter>(col_name, data_column, cvb, num_values);
-    case TypeIndex::DateTimeV2:
+    case PrimitiveType::TYPE_DATETIMEV2:
         return _decode_time_column<DateV2Value<DateTimeV2ValueType>, UInt64,
                                    orc::TimestampVectorBatch, is_filter>(col_name, data_column, cvb,
                                                                          num_values);
-    case TypeIndex::String:
-    case TypeIndex::FixedString:
+    case PrimitiveType::TYPE_STRING:
+    case PrimitiveType::TYPE_VARCHAR:
+    case PrimitiveType::TYPE_CHAR:
         return _decode_string_column<is_filter>(col_name, data_column, orc_column_type->getKind(),
                                                 cvb, num_values);
-    case TypeIndex::Array: {
+    case PrimitiveType::TYPE_ARRAY: {
         if (orc_column_type->getKind() != orc::TypeKind::LIST) {
             return Status::InternalError(
                     "Wrong data type for column '{}', expected list, actual {}", col_name,
@@ -1746,7 +1744,7 @@ Status OrcReader::_fill_doris_data_column(const std::string& col_name,
                 element_name, static_cast<ColumnArray&>(*data_column).get_data_ptr(), nested_type,
                 nested_orc_type, orc_list->elements.get(), element_size);
     }
-    case TypeIndex::Map: {
+    case PrimitiveType::TYPE_MAP: {
         if (orc_column_type->getKind() != orc::TypeKind::MAP) {
             return Status::InternalError("Wrong data type for column '{}', expected map, actual {}",
                                          col_name, orc_column_type->getKind());
@@ -1775,7 +1773,7 @@ Status OrcReader::_fill_doris_data_column(const std::string& col_name,
                                                   doris_value_type, orc_value_type,
                                                   orc_map->elements.get(), element_size);
     }
-    case TypeIndex::Struct: {
+    case PrimitiveType::TYPE_STRUCT: {
         if (orc_column_type->getKind() != orc::TypeKind::STRUCT) {
             return Status::InternalError(
                     "Wrong data type for column '{}', expected struct, actual {}", col_name,

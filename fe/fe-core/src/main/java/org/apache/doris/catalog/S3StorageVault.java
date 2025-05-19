@@ -67,6 +67,9 @@ public class S3StorageVault extends StorageVault {
         public static final String USE_PATH_STYLE = PropertyConverter.USE_PATH_STYLE;
         public static final String ROOT_PATH = S3Properties.ROOT_PATH;
         public static final String PROVIDER = S3Properties.PROVIDER;
+        public static final String REGION = S3Properties.REGION;
+        public static final String ENDPOINT = S3Properties.ENDPOINT;
+        public static final String BUCKET = S3Properties.BUCKET;
     }
 
     public static final HashSet<String> ALLOW_ALTER_PROPERTIES = new HashSet<>(Arrays.asList(
