@@ -35,13 +35,6 @@ import java.util.Optional;
  */
 public interface MTMVHookService {
     /**
-     * triggered after create mtmv, only once
-     *
-     * @param mtmv
-     */
-    void postCreateMTMV(MTMV mtmv);
-
-    /**
      * triggered when playing `create mtmv` logs
      * When triggered, db has not completed playback yet, so use dbId as param
      *

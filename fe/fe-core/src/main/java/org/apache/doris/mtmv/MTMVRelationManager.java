@@ -186,11 +186,6 @@ public class MTMVRelationManager implements MTMVHookService {
         }
     }
 
-    @Override
-    public void postCreateMTMV(MTMV mtmv) {
-
-    }
-
     /**
      * modify `tableMTMVs` by MTMVRelation
      *

@@ -3277,9 +3277,6 @@ public class InternalCatalog implements CatalogIf<Database> {
 
             throw e;
         }
-        if (olapTable instanceof MTMV) {
-            Env.getCurrentEnv().getMtmvService().postCreateMTMV((MTMV) olapTable);
-        }
         return tableHasExist;
     }
 

@@ -58,28 +58,6 @@ public class MTMVJobManager implements MTMVHookService {
 
     public static final String MTMV_JOB_PREFIX = "inner_mtmv_";
 
-    // if immediate, triggerJob after create MTMT
-    @Override
-    public void postCreateMTMV(MTMV mtmv) {
-        MTMVJob job = getJobByMTMV(mtmv);
-        try {
-            Env.getCurrentEnv().getJobManager().scheduleOneJob(job);
-        } catch (JobException e) {
-            // should not happen
-            LOG.warn("scheduleOneJob failed by mvName: {}", mtmv.getName(), e);
-        }
-        if (!mtmv.getRefreshInfo().getBuildMode().equals(BuildMode.IMMEDIATE)) {
-            return;
-        }
-        MTMVTaskContext mtmvTaskContext = new MTMVTaskContext(MTMVTaskTriggerMode.SYSTEM, null, true);
-        try {
-            Env.getCurrentEnv().getJobManager().triggerJob(job.getJobId(), mtmvTaskContext);
-        } catch (JobException e) {
-            // should not happen
-            LOG.warn("triggerJob failed by mvName: {}", mtmv.getName(), e);
-        }
-    }
-
     private JobExecutionConfiguration getJobConfig(MTMV mtmv) {
         JobExecutionConfiguration jobExecutionConfiguration = new JobExecutionConfiguration();
         RefreshTrigger refreshTrigger = mtmv.getRefreshInfo().getRefreshTriggerInfo().getRefreshTrigger();
@@ -95,6 +73,11 @@ public class MTMVJobManager implements MTMVHookService {
 
     private void setManualJobConfig(JobExecutionConfiguration jobExecutionConfiguration, MTMV mtmv) {
         jobExecutionConfiguration.setExecuteType(JobExecuteType.MANUAL);
+        if (mtmv.getRefreshInfo().getBuildMode().equals(BuildMode.IMMEDIATE)) {
+            jobExecutionConfiguration.setImmediate(true);
+        } else {
+            jobExecutionConfiguration.setImmediate(false);
+        }
     }
 
     private void setScheduleJobConfig(JobExecutionConfiguration jobExecutionConfiguration, MTMV mtmv) {
@@ -109,6 +92,9 @@ public class MTMVJobManager implements MTMVHookService {
                 .isEmpty(refreshMTMVInfo.getRefreshTriggerInfo().getIntervalTrigger().getStartTime())) {
             timerDefinition.setStartTimeMs(TimeUtils.timeStringToLong(
                     refreshMTMVInfo.getRefreshTriggerInfo().getIntervalTrigger().getStartTime()));
+        }
+        if (refreshMTMVInfo.getBuildMode().equals(BuildMode.IMMEDIATE)) {
+            jobExecutionConfiguration.setImmediate(true);
         }
         jobExecutionConfiguration.setTimerDefinition(timerDefinition);
     }
