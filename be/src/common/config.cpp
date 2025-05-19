@@ -1205,6 +1205,9 @@ DEFINE_mBool(enable_merge_on_write_correctness_check, "true");
 // USED FOR DEBUGING
 // core directly if the compaction found there's duplicate key on mow table
 DEFINE_mBool(enable_mow_compaction_correctness_check_core, "false");
+// USED FOR DEBUGING
+// let compaction fail if the compaction found there's duplicate key on mow table
+DEFINE_mBool(enable_mow_compaction_correctness_check_fail, "false");
 // rowid conversion correctness check when compaction for mow table
 DEFINE_mBool(enable_rowid_conversion_correctness_check, "false");
 // missing rows correctness check when compaction for mow table
