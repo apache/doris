@@ -58,11 +58,25 @@ suite("test_base_recreate_on_commit_mtmv","mtmv") {
             REFRESH MATERIALIZED VIEW ${mvName} auto
         """
     waitingMTMVTaskFinishedByMvName(mvName)
-    order_qt_select_init "select * from ${mvName}"
+    run_on_follower_and_master({ jdbc_url ->
+        connect(context.config.jdbcUser, context.config.jdbcPassword, jdbc_url) {
+            sql "sync"
+            sql """set enable_materialized_view_nest_rewrite = true;"""
+            sql "use ${dbName}"
+            order_qt_select_init "select * from ${mvName}"
+        }
+    })
 
     // drop and recreate
     sql """drop table if exists `${tableName1}`"""
-    order_qt_drop "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
+    run_on_follower_and_master({ jdbc_url ->
+        connect(context.config.jdbcUser, context.config.jdbcPassword, jdbc_url) {
+            sql "sync"
+            sql """set enable_materialized_view_nest_rewrite = true;"""
+            sql "use ${dbName}"
+            order_qt_drop "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
+        }
+    })
 
     sql """
         CREATE TABLE ${tableName1}
@@ -81,6 +95,14 @@ suite("test_base_recreate_on_commit_mtmv","mtmv") {
         """
 
     waitingMTMVTaskFinishedByMvName(mvName)
-    order_qt_recreate "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
-    order_qt_select_recreate "select * from ${mvName}"
+
+    run_on_follower_and_master({ jdbc_url ->
+        connect(context.config.jdbcUser, context.config.jdbcPassword, jdbc_url) {
+            sql "sync"
+            sql """set enable_materialized_view_nest_rewrite = true;"""
+            sql "use ${dbName}"
+            order_qt_recreate "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
+            order_qt_select_recreate "select * from ${mvName}"
+        }
+    })
 }
