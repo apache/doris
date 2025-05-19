@@ -149,7 +149,7 @@ public class JobScheduler<T extends AbstractJob<?, C>, C> implements Closeable {
     }
 
 
-    public void cycleTimerJobScheduler(T job, long startTimeWindowMs) {
+    private void cycleTimerJobScheduler(T job, long startTimeWindowMs) {
         long currentTimeMs = TimeUtils.convertToSecondTimestamp(System.currentTimeMillis());
         startTimeWindowMs = TimeUtils.convertToSecondTimestamp(startTimeWindowMs);
         List<Long> delaySeconds = job.getJobConfig().getTriggerDelayTimes(currentTimeMs,
