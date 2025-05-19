@@ -111,4 +111,26 @@ public class ShowLoadCommandTest extends TestWithFeService {
         Assertions.assertFalse(op.isDesc());
         Assertions.assertEquals(1, op.getIndex());
     }
+
+    @Test
+    public void testApplyLimit() {
+        UnboundSlot key = new UnboundSlot(Lists.newArrayList("LABEL"));
+        List<OrderKey> orderKeys = Lists.newArrayList(new OrderKey(key, true, true));
+        long limit = 1;
+        long offset = 1;
+        ShowLoadCommand sl = new ShowLoadCommand(null, orderKeys, limit, offset, "test");
+        List<List<String>> rows = new ArrayList<>();
+        List<String> row1 = new ArrayList<>();
+        List<String> row2 = new ArrayList<>();
+        row1.add("a");
+        row1.add("b");
+        row2.add("x");
+        row2.add("y");
+        rows.add(row1);
+        rows.add(row2);
+        rows = sl.applyLimit(limit, offset, rows);
+        Assertions.assertEquals(1, rows.size());
+        Assertions.assertEquals("x", rows.get(0).get(0));
+        Assertions.assertEquals("y", rows.get(0).get(1));
+    }
 }
