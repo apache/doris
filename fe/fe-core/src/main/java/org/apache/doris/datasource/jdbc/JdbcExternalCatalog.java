@@ -342,9 +342,13 @@ public class JdbcExternalCatalog extends ExternalCatalog {
 
     public void configureJdbcTable(JdbcTable jdbcTable, String tableName) {
         makeSureInitialized();
+        setCommonJdbcTableProperties(jdbcTable, tableName, this.jdbcClient);
+    }
+
+    private void setCommonJdbcTableProperties(JdbcTable jdbcTable, String tableName, JdbcClient jdbcClient) {
         jdbcTable.setCatalogId(this.getId());
         jdbcTable.setExternalTableName(tableName);
-        jdbcTable.setJdbcTypeName(this.getDatabaseTypeName());
+        jdbcTable.setJdbcTypeName(jdbcClient.getDbType());
         jdbcTable.setJdbcUrl(this.getJdbcUrl());
         jdbcTable.setJdbcUser(this.getJdbcUser());
         jdbcTable.setJdbcPasswd(this.getJdbcPasswd());
@@ -426,21 +430,7 @@ public class JdbcExternalCatalog extends ExternalCatalog {
     private JdbcTable getTestConnectionJdbcTable(JdbcClient testClient) throws DdlException {
         JdbcTable testTable = new JdbcTable(0, "test_jdbc_connection", Lists.newArrayList(),
                 TableType.JDBC_EXTERNAL_TABLE);
-        testTable.setCatalogId(this.getId());
-        testTable.setExternalTableName("test_jdbc_connection");
-        testTable.setJdbcTypeName(testClient.getDbType());
-        testTable.setJdbcUrl(this.getJdbcUrl());
-        testTable.setJdbcUser(this.getJdbcUser());
-        testTable.setJdbcPasswd(this.getJdbcPasswd());
-        testTable.setDriverClass(this.getDriverClass());
-        testTable.setDriverUrl(this.getDriverUrl());
-        testTable.setCheckSum(this.getCheckSum());
-        testTable.setResourceName(this.getResource());
-        testTable.setConnectionPoolMinSize(this.getConnectionPoolMinSize());
-        testTable.setConnectionPoolMaxSize(this.getConnectionPoolMaxSize());
-        testTable.setConnectionPoolMaxLifeTime(this.getConnectionPoolMaxLifeTime());
-        testTable.setConnectionPoolMaxWaitTime(this.getConnectionPoolMaxWaitTime());
-        testTable.setConnectionPoolKeepAlive(this.isConnectionPoolKeepAlive());
+        setCommonJdbcTableProperties(testTable, "test_jdbc_connection", testClient);
         // Special checksum computation
         testTable.setCheckSum(JdbcResource.computeObjectChecksum(this.getDriverUrl()));
 
