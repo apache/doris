@@ -44,7 +44,7 @@ std::shared_ptr<LoadStreamStubs> LoadStreamMap::get_or_create(int64_t dst_id, bo
     }
     streams = std::make_shared<LoadStreamStubs>(_num_streams, _load_id, _src_id,
                                                 _tablet_schema_for_index,
-                                                _enable_unique_mow_for_index, incremental);
+                                                _enable_unique_mow_for_index);
     _streams_for_node[dst_id] = streams;
     return streams;
 }
@@ -106,11 +106,8 @@ bool LoadStreamMap::release() {
     return false;
 }
 
-void LoadStreamMap::close_load(bool incremental) {
+void LoadStreamMap::close_load() {
     for (auto& [dst_id, streams] : _streams_for_node) {
-        if (streams->is_incremental() != incremental) {
-            continue;
-        }
         std::vector<PTabletID> tablets_to_commit;
         const auto& tablets = _tablets_to_commit[dst_id];
         tablets_to_commit.reserve(tablets.size());
@@ -120,8 +117,7 @@ void LoadStreamMap::close_load(bool incremental) {
         }
         auto st = streams->close_load(tablets_to_commit);
         if (!st.ok()) {
-            LOG(WARNING) << "close_load for " << (incremental ? "incremental" : "non-incremental")
-                         << " streams failed: " << st << ", load_id=" << _load_id;
+            LOG(WARNING) << "close_load failed: " << st << ", load_id=" << _load_id;
         }
     }
 }

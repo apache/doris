@@ -1461,80 +1461,18 @@ void VTabletWriter::_do_try_close(RuntimeState* state, const Status& exec_status
         // if status is not ok, this sink may not be prepared, so that _profile is null
         SCOPED_TIMER(_profile->total_time_counter());
         for (const auto& index_channel : _channels) {
-            // two-step mark close. first we send close_origin to recievers to close all originly exist TabletsChannel.
-            // when they all closed, we are sure all Writer of instances called _do_try_close. that means no new channel
-            // will be opened. the refcount of recievers will be monotonically decreasing. then we are safe to close all
-            // our channels.
-            if (index_channel->has_incremental_node_channel()) {
-                if (!status.ok()) {
-                    break;
-                }
-                VLOG_TRACE << _sender_id << " first stage close start " << _txn_id;
-                index_channel->for_init_node_channel(
-                        [&index_channel, &status, this](const std::shared_ptr<VNodeChannel>& ch) {
-                            if (!status.ok() || ch->is_closed()) {
-                                return;
-                            }
-                            VLOG_DEBUG << index_channel->_parent->_sender_id << "'s " << ch->host()
-                                       << "mark close1 for inits " << _txn_id;
-                            ch->mark_close(true);
-                            if (ch->is_cancelled()) {
-                                status = cancel_channel_and_check_intolerable_failure(
-                                        std::move(status), ch->get_cancel_msg(), *index_channel,
-                                        *ch);
-                            }
-                        });
-                if (!status.ok()) {
-                    break;
-                }
-                index_channel->for_init_node_channel(
-                        [this, &index_channel, &status](const std::shared_ptr<VNodeChannel>& ch) {
-                            if (!status.ok() || ch->is_closed()) {
-                                return;
-                            }
-                            auto s = ch->close_wait(_state);
-                            VLOG_DEBUG << index_channel->_parent->_sender_id << "'s " << ch->host()
-                                       << "close1 wait finished!";
-                            if (!s.ok()) {
-                                status = cancel_channel_and_check_intolerable_failure(
-                                        std::move(status), s.to_string(), *index_channel, *ch);
-                            }
-                        });
-                if (!status.ok()) {
-                    break;
-                }
-                VLOG_DEBUG << _sender_id << " first stage finished. closeing inc nodes " << _txn_id;
-                index_channel->for_inc_node_channel(
-                        [&index_channel, &status, this](const std::shared_ptr<VNodeChannel>& ch) {
-                            if (!status.ok() || ch->is_closed()) {
-                                return;
-                            }
-                            // only first try close, all node channels will mark_close()
-                            VLOG_DEBUG << index_channel->_parent->_sender_id << "'s " << ch->host()
-                                       << "mark close2 for inc " << _txn_id;
-                            ch->mark_close();
-                            if (ch->is_cancelled()) {
-                                status = cancel_channel_and_check_intolerable_failure(
-                                        std::move(status), ch->get_cancel_msg(), *index_channel,
-                                        *ch);
-                            }
-                        });
-            } else { // not has_incremental_node_channel
-                VLOG_TRACE << _sender_id << " has no incremental channels " << _txn_id;
-                index_channel->for_each_node_channel(
-                        [&index_channel, &status](const std::shared_ptr<VNodeChannel>& ch) {
-                            if (!status.ok() || ch->is_closed()) {
-                                return;
-                            }
-                            // only first try close, all node channels will mark_close()
-                            ch->mark_close();
-                            if (ch->is_cancelled()) {
-                                status = cancel_channel_and_check_intolerable_failure(
-                                        std::move(status), ch->get_cancel_msg(), *index_channel,
-                                        *ch);
-                            }
-                        });
-            }
+            index_channel->for_each_node_channel(
+                    [&index_channel, &status](const std::shared_ptr<VNodeChannel>& ch) {
+                        if (!status.ok() || ch->is_closed()) {
+                            return;
+                        }
+                        // only first try close, all node channels will mark_close()
+                        ch->mark_close();
+                        if (ch->is_cancelled()) {
+                            status = cancel_channel_and_check_intolerable_failure(
+                                    std::move(status), ch->get_cancel_msg(), *index_channel, *ch);
+                        }
+                    });
         } // end for index channels
     }
 

@@ -18,6 +18,7 @@
 suite("two_instance_correctness") {
 
     // finish time of instances have diff
+    // case1: test enable_memtable_on_sink_node
     sql "DROP TABLE IF EXISTS two_bkt;"
     sql """
         create table two_bkt(
@@ -42,4 +43,35 @@ suite("two_instance_correctness") {
     sql " insert into two_bkt_dest select * from two_bkt; "
 
     qt_sql " select count(distinct k0) from two_bkt_dest; "
+
+    // case2: test enable_memtable_on_sink_node is false
+    sql """ set enable_memtable_on_sink_node=false """
+    try {
+        sql "DROP TABLE IF EXISTS two_bkt;"
+        sql """
+            create table two_bkt(
+                k0 date not null
+            )
+            DISTRIBUTED BY HASH(`k0`) BUCKETS 2
+            properties("replication_num" = "1");
+        """
+
+        sql """ insert into two_bkt values ("2012-12-11"); """
+        sql """ insert into two_bkt select "2020-12-12" from numbers("number" = "20000"); """
+
+        sql " DROP TABLE IF EXISTS two_bkt_dest; "
+        sql """
+            create table two_bkt_dest(
+                k0 date not null
+            )
+            AUTO PARTITION BY RANGE (date_trunc(k0, 'day')) ()
+            DISTRIBUTED BY HASH(`k0`) BUCKETS 10
+            properties("replication_num" = "1");
+        """
+        sql " insert into two_bkt_dest select * from two_bkt; "
+
+        qt_sql " select count(distinct k0) from two_bkt_dest; "
+    } finally {
+        sql """ set enable_memtable_on_sink_node=true """
+    }
 }

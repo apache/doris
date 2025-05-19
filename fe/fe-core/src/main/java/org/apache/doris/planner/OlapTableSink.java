@@ -972,48 +972,33 @@ public class OlapTableSink extends DataSink {
         }
     }
 
-    public List<TOlapTableLocationParam> createDummyLocation(OlapTable table) throws UserException {
-        TOlapTableLocationParam locationParam = new TOlapTableLocationParam();
-        TOlapTableLocationParam slaveLocationParam = new TOlapTableLocationParam();
-
+    public void createDummyLocation(OlapTable table, TOlapTableLocationParam locationParam) throws UserException {
         final long fakeTabletId = 0;
         SystemInfoService clusterInfo = Env.getCurrentSystemInfo();
         List<Long> aliveBe = clusterInfo.getAllBackendIds(true);
         if (aliveBe.isEmpty()) {
             throw new UserException(InternalErrorCode.REPLICA_FEW_ERR, "no available BE in cluster");
         }
+        // By planning a dummy tablet in each BE,
+        // one-step close wait is ensured that multiple senders have sent all the data.
         for (int i = 0; i < table.getIndexNumber(); i++) {
-            // only one fake tablet here
-            if (singleReplicaLoad) {
-                Long[] nodes = aliveBe.toArray(new Long[0]);
-                List<Long> slaveBe = aliveBe;
-
-                Random random = new SecureRandom();
-                int masterNode = random.nextInt(nodes.length);
-                locationParam.addToTablets(new TTabletLocation(fakeTabletId,
-                        Arrays.asList(nodes[masterNode])));
-
-                slaveBe.remove(masterNode);
-                slaveLocationParam.addToTablets(new TTabletLocation(fakeTabletId,
-                        slaveBe));
-            } else {
-                locationParam.addToTablets(new TTabletLocation(fakeTabletId,
-                        Arrays.asList(aliveBe.get(0)))); // just one fake location is enough
-
-                LOG.info("created dummy location tablet_id={}, be_id={}", fakeTabletId, aliveBe.get(0));
-            }
+            locationParam.addToTablets(new TTabletLocation(fakeTabletId, aliveBe));
+            LOG.info("created dummy location tablet_id={}, be_ids={}", fakeTabletId, aliveBe);
         }
-
-        return Arrays.asList(locationParam, slaveLocationParam);
     }
 
     private List<TOlapTableLocationParam> createLocation(long dbId, OlapTable table) throws UserException {
-        if (table.getPartitionInfo().enableAutomaticPartition() && partitionIds.isEmpty()) {
-            return createDummyLocation(table);
-        }
-
         TOlapTableLocationParam locationParam = new TOlapTableLocationParam();
         TOlapTableLocationParam slaveLocationParam = new TOlapTableLocationParam();
+
+        // create dummy location for auto partition table
+        if (table.getPartitionInfo().enableAutomaticPartition()) {
+            createDummyLocation(table, locationParam);
+            if (partitionIds.isEmpty()) {
+                return Arrays.asList(locationParam, slaveLocationParam);
+            }
+        }
+
         // BE id -> path hash
         Multimap<Long, Long> allBePathsMap = HashMultimap.create();
         List<Partition> partitions = partitionIds.stream().map(partitionId -> table.getPartition(partitionId))

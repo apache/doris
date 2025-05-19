@@ -110,12 +110,12 @@ public:
     // construct new stub
     LoadStreamStub(PUniqueId load_id, int64_t src_id,
                    std::shared_ptr<IndexToTabletSchema> schema_map,
-                   std::shared_ptr<IndexToEnableMoW> mow_map, bool incremental = false);
+                   std::shared_ptr<IndexToEnableMoW> mow_map);
 
     LoadStreamStub(UniqueId load_id, int64_t src_id,
                    std::shared_ptr<IndexToTabletSchema> schema_map,
-                   std::shared_ptr<IndexToEnableMoW> mow_map, bool incremental = false)
-            : LoadStreamStub(load_id.to_proto(), src_id, schema_map, mow_map, incremental) {};
+                   std::shared_ptr<IndexToEnableMoW> mow_map)
+            : LoadStreamStub(load_id.to_proto(), src_id, schema_map, mow_map) {};
 
 // for mock this class in UT
 #ifdef BE_TEST
@@ -199,8 +199,6 @@ public:
 
     bool is_open() const { return _is_open.load(); }
 
-    bool is_incremental() const { return _is_incremental; }
-
     friend std::ostream& operator<<(std::ostream& ostr, const LoadStreamStub& stub);
 
     std::string to_string();
@@ -264,8 +262,6 @@ protected:
     bthread::Mutex _failed_tablets_mutex;
     std::vector<int64_t> _success_tablets;
     std::unordered_map<int64_t, Status> _failed_tablets;
-
-    bool _is_incremental = false;
 };
 
 // a collection of LoadStreams connect to the same node
@@ -273,12 +269,10 @@ class LoadStreamStubs {
 public:
     LoadStreamStubs(size_t num_streams, UniqueId load_id, int64_t src_id,
                     std::shared_ptr<IndexToTabletSchema> schema_map,
-                    std::shared_ptr<IndexToEnableMoW> mow_map, bool incremental = false)
-            : _is_incremental(incremental) {
+                    std::shared_ptr<IndexToEnableMoW> mow_map) {
         _streams.reserve(num_streams);
         for (size_t i = 0; i < num_streams; i++) {
-            _streams.emplace_back(
-                    new LoadStreamStub(load_id, src_id, schema_map, mow_map, incremental));
+            _streams.emplace_back(new LoadStreamStub(load_id, src_id, schema_map, mow_map));
         }
     }
 
@@ -286,8 +280,6 @@ public:
                 int64_t txn_id, const OlapTableSchemaParam& schema,
                 const std::vector<PTabletID>& tablets_for_schema, int total_streams,
                 int64_t idle_timeout_ms, bool enable_profile);
-
-    bool is_incremental() const { return _is_incremental; }
 
     size_t size() const { return _streams.size(); }
 
@@ -334,7 +326,6 @@ private:
     std::vector<std::shared_ptr<LoadStreamStub>> _streams;
     std::atomic<bool> _open_success = false;
     std::atomic<size_t> _select_index = 0;
-    const bool _is_incremental;
 };
 
 } // namespace doris
