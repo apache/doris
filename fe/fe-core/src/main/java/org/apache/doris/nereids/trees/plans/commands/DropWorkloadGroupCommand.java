@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.resource.workloadgroup.WorkloadGroupKey;
 
 import org.apache.commons.lang3.StringUtils;
 
@@ -58,20 +59,30 @@ public class DropWorkloadGroupCommand extends DropCommand {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
 
-        if (StringUtils.isEmpty(computeGroup)) {
-            computeGroup = Config.isCloudMode() ? Tag.VALUE_DEFAULT_COMPUTE_GROUP_NAME : Tag.DEFAULT_BACKEND_TAG.value;
-        }
-
         if (Config.isCloudMode()) {
-            String originStr = computeGroup;
-            computeGroup = ((CloudSystemInfoService) Env.getCurrentEnv().getClusterInfo()).getCloudClusterIdByName(
-                    computeGroup);
             if (StringUtils.isEmpty(computeGroup)) {
-                throw new UserException("Can not find compute group " + originStr + ".");
+                computeGroup = Tag.VALUE_DEFAULT_COMPUTE_GROUP_NAME;
             }
+            String clusterId = ((CloudSystemInfoService) Env.getCurrentEnv().getClusterInfo()).getCloudClusterIdByName(
+                    computeGroup);
+            // there are two cases can not find a cluster_id:
+            // 1. user specify an error cluster name, this case should throw exception.
+            // 2. user specify a valid cluster_id but which has been dropped, this case should drop workload group.
+            if (StringUtils.isEmpty(clusterId)) {
+                WorkloadGroupKey wgKey = WorkloadGroupKey.get(computeGroup, workloadGroupName);
+                if (!Env.getCurrentEnv().getWorkloadGroupMgr().isWorkloadGroupExists(wgKey)) {
+                    throw new UserException("Can not find compute group " + computeGroup + ".");
+                } // else case 2, input computeGroup is already a valid cluster id which has been dropped, so drop wg.
+            } else {
+                computeGroup = clusterId;
+            }
+            Env.getCurrentEnv().getWorkloadGroupMgr().dropWorkloadGroup(computeGroup, workloadGroupName, ifExists);
+        } else {
+            if (StringUtils.isEmpty(computeGroup)) {
+                computeGroup = Tag.VALUE_DEFAULT_TAG;
+            }
+            Env.getCurrentEnv().getWorkloadGroupMgr().dropWorkloadGroup(computeGroup, workloadGroupName, ifExists);
         }
-
-        Env.getCurrentEnv().getWorkloadGroupMgr().dropWorkloadGroup(computeGroup, workloadGroupName, ifExists);
     }
 
     @Override

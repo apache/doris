@@ -188,8 +188,7 @@ void DataTypeArray::to_string(const IColumn& column, size_t row_num, BufferWrita
         if (i != offset) {
             ostr.write(", ", 2);
         }
-        WhichDataType which(remove_nullable(nested));
-        if (which.is_string_or_fixed_string()) {
+        if (is_string_type(nested->get_primitive_type())) {
             ostr.write("'", 1);
             nested->to_string(nested_column, i, ostr);
             ostr.write("'", 1);
@@ -217,8 +216,7 @@ std::string DataTypeArray::to_string(const IColumn& column, size_t row_num) cons
         if (i != offset) {
             str += ", ";
         }
-        WhichDataType which(remove_nullable(nested));
-        if (which.is_string_or_fixed_string()) {
+        if (is_string_type(nested->get_primitive_type())) {
             str += "'";
             str += nested->to_string(nested_column, i);
             str += "'";

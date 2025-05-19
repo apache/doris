@@ -29,19 +29,19 @@ class ColumnObjectTest : public ::testing::Test {};
 
 auto construct_dst_varint_column() {
     // 1. create an empty variant column
-    vectorized::ColumnObject::Subcolumns dynamic_subcolumns;
-    dynamic_subcolumns.create_root(vectorized::ColumnObject::Subcolumn(0, true, true /*root*/));
+    vectorized::ColumnVariant::Subcolumns dynamic_subcolumns;
+    dynamic_subcolumns.create_root(vectorized::ColumnVariant::Subcolumn(0, true, true /*root*/));
     dynamic_subcolumns.add(vectorized::PathInData("v.f"),
-                           vectorized::ColumnObject::Subcolumn {0, true});
+                           vectorized::ColumnVariant::Subcolumn {0, true});
     dynamic_subcolumns.add(vectorized::PathInData("v.e"),
-                           vectorized::ColumnObject::Subcolumn {0, true});
+                           vectorized::ColumnVariant::Subcolumn {0, true});
     dynamic_subcolumns.add(vectorized::PathInData("v.b"),
-                           vectorized::ColumnObject::Subcolumn {0, true});
+                           vectorized::ColumnVariant::Subcolumn {0, true});
     dynamic_subcolumns.add(vectorized::PathInData("v.b.d"),
-                           vectorized::ColumnObject::Subcolumn {0, true});
+                           vectorized::ColumnVariant::Subcolumn {0, true});
     dynamic_subcolumns.add(vectorized::PathInData("v.c.d"),
-                           vectorized::ColumnObject::Subcolumn {0, true});
-    return ColumnObject::create(std::move(dynamic_subcolumns), true);
+                           vectorized::ColumnVariant::Subcolumn {0, true});
+    return ColumnVariant::create(std::move(dynamic_subcolumns), true);
 }
 
 TEST_F(ColumnObjectTest, permute) {
@@ -64,7 +64,7 @@ TEST_F(ColumnObjectTest, permute) {
 
 // TEST
 TEST_F(ColumnObjectTest, test_pop_back) {
-    ColumnObject::Subcolumn subcolumn(0, true /* is_nullable */, false /* is_root */);
+    ColumnVariant::Subcolumn subcolumn(0, true /* is_nullable */, false /* is_root */);
 
     Field field_int(123);
     Field field_string("hello");
@@ -82,7 +82,7 @@ TEST_F(ColumnObjectTest, test_pop_back) {
 }
 
 TEST_F(ColumnObjectTest, test_pop_back_multiple_types) {
-    ColumnObject::Subcolumn subcolumn(0, true /* is_nullable */, false /* is_root */);
+    ColumnVariant::Subcolumn subcolumn(0, true /* is_nullable */, false /* is_root */);
 
     Field field_int8(42);
     subcolumn.insert(field_int8);
@@ -168,7 +168,7 @@ TEST_F(ColumnObjectTest, test_insert_indices_from) {
     // Test case 1: Insert from scalar variant source to empty destination
     {
         // Create source column with scalar values
-        auto src_column = ColumnObject::create(true);
+        auto src_column = ColumnVariant::create(true);
         Field field_int(123);
         src_column->try_insert(field_int);
         Field field_int2(456);
@@ -179,7 +179,7 @@ TEST_F(ColumnObjectTest, test_insert_indices_from) {
         EXPECT_EQ(src_column->size(), 2);
 
         // Create empty destination column
-        auto dst_column = ColumnObject::create(true);
+        auto dst_column = ColumnVariant::create(true);
         EXPECT_EQ(dst_column->size(), 0);
 
         // Create indices
@@ -207,7 +207,7 @@ TEST_F(ColumnObjectTest, test_insert_indices_from) {
     // Test case 2: Insert from scalar variant source to non-empty destination of same type
     {
         // Create source column with scalar values
-        auto src_column = ColumnObject::create(true);
+        auto src_column = ColumnVariant::create(true);
         Field field_int(123);
         src_column->try_insert(field_int);
         Field field_int2(456);
@@ -216,7 +216,7 @@ TEST_F(ColumnObjectTest, test_insert_indices_from) {
         EXPECT_TRUE(src_column->is_scalar_variant());
 
         // Create destination column with same type
-        auto dst_column = ColumnObject::create(true);
+        auto dst_column = ColumnVariant::create(true);
         Field field_int3(789);
         dst_column->try_insert(field_int3);
         dst_column->finalize();
@@ -246,7 +246,7 @@ TEST_F(ColumnObjectTest, test_insert_indices_from) {
     // Test case 3: Insert from non-scalar or different type source (fallback to try_insert)
     {
         // Create source column with object values (non-scalar)
-        auto src_column = ColumnObject::create(true);
+        auto src_column = ColumnVariant::create(true);
 
         // Create a map with {"a": 123}
         Field field_map = VariantMap();
@@ -264,7 +264,7 @@ TEST_F(ColumnObjectTest, test_insert_indices_from) {
         EXPECT_FALSE(src_column->is_scalar_variant());
 
         // Create destination column (empty)
-        auto dst_column = ColumnObject::create(true);
+        auto dst_column = ColumnVariant::create(true);
 
         // Create indices
         std::vector<uint32_t> indices = {1, 0};
@@ -280,8 +280,8 @@ TEST_F(ColumnObjectTest, test_insert_indices_from) {
         dst_column->get(0, result1);
         dst_column->get(1, result2);
 
-        EXPECT_TRUE(result1.get_type() == Field::Types::VariantMap);
-        EXPECT_TRUE(result2.get_type() == Field::Types::VariantMap);
+        EXPECT_TRUE(result1.get_type() == PrimitiveType::TYPE_VARIANT);
+        EXPECT_TRUE(result2.get_type() == PrimitiveType::TYPE_VARIANT);
 
         const auto& result1_map = result1.get<const VariantMap&>();
         const auto& result2_map = result2.get<const VariantMap&>();

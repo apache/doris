@@ -1095,28 +1095,22 @@ TEST_F(PipelineTest, PLAN_HASH_JOIN) {
                               ->_runtime_filter_type,
                       RuntimeFilterType::IN_OR_BLOOM_FILTER);
             EXPECT_EQ(_pipeline_tasks[1][j]->_is_pending_finish(), false);
+            auto wrapper =
+                    sink_local_state._runtime_filter_producer_helper->_producers[0]->_wrapper;
             EXPECT_EQ(_pipeline_tasks[1][j]->close(Status::OK()), Status::OK());
-            EXPECT_EQ(sink_local_state._runtime_filter_producer_helper->_producers[0]
-                              ->_wrapper->get_real_type(),
+            EXPECT_EQ(wrapper->get_real_type(),
                       j == 0 ? RuntimeFilterType::IN_FILTER : RuntimeFilterType::BLOOM_FILTER)
                     << "  " << j << " "
                     << sink_local_state._runtime_filter_producer_helper->_producers[0]
                                ->debug_string();
-            EXPECT_TRUE(sink_local_state._runtime_filter_producer_helper->_producers[0]
-                                ->_wrapper->_state == RuntimeFilterWrapper::State::READY);
+            EXPECT_TRUE(wrapper->_state == RuntimeFilterWrapper::State::READY);
 
             if (j == 0) {
-                EXPECT_EQ(sink_local_state._runtime_filter_producer_helper->_producers[0]
-                                  ->_wrapper->_hybrid_set->size(),
-                          1);
+                EXPECT_EQ(wrapper->_hybrid_set->size(), 1);
             } else {
-                EXPECT_EQ(sink_local_state._runtime_filter_producer_helper->_producers[0]
-                                  ->_wrapper->_bloom_filter_func->build_bf_by_runtime_size(),
-                          false);
+                EXPECT_EQ(wrapper->_bloom_filter_func->build_bf_by_runtime_size(), false);
 
-                EXPECT_EQ(sink_local_state._runtime_filter_producer_helper->_producers[0]
-                                  ->_wrapper->_bloom_filter_func->_bloom_filter_length,
-                          1048576);
+                EXPECT_EQ(wrapper->_bloom_filter_func->_bloom_filter_length, 1048576);
             }
         }
     }
