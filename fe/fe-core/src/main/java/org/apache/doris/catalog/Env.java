@@ -207,6 +207,7 @@ import org.apache.doris.nereids.trees.plans.commands.AdminSetReplicaStatusComman
 import org.apache.doris.nereids.trees.plans.commands.AlterSystemCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.AnalyzeCommand;
+import org.apache.doris.nereids.trees.plans.commands.CancelBuildIndexCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand.IdType;
 import org.apache.doris.nereids.trees.plans.commands.TruncateTableCommand;
@@ -4973,6 +4974,13 @@ public class Env {
     }
 
     /*
+     * used for handling CancelIndexCommand
+     */
+    public void cancelBuildIndex(CancelBuildIndexCommand command) throws DdlException {
+        this.getSchemaChangeHandler().cancelIndexJob(command);
+    }
+
+    /*
      * used for handling CancelAlterStmt (for client is the CANCEL ALTER
      * command). including SchemaChangeHandler and RollupHandler
      */
@@ -6377,13 +6385,13 @@ public class Env {
         List<Long> replacedPartitionIds = olapTable.replaceTempPartitions(db.getId(), partitionNames,
                 tempPartitionNames, isStrictRange,
                 useTempPartitionName, isForceDropOld);
-        long version;
+        long version = 0L;
         long versionTime = System.currentTimeMillis();
+        // In cloud mode, the internal partition deletion logic will update the table version,
+        // so here we only need to handle non-cloud mode.
         if (Config.isNotCloudMode()) {
             version = olapTable.getNextVersion();
             olapTable.updateVisibleVersionAndTime(version, versionTime);
-        } else {
-            version = olapTable.getVisibleVersion();
         }
         // Here, we only wait for the EventProcessor to finish processing the event,
         // but regardless of the success or failure of the result,
@@ -6420,8 +6428,12 @@ public class Env {
             olapTable.replaceTempPartitions(dbId, replaceTempPartitionLog.getPartitions(),
                     replaceTempPartitionLog.getTempPartitions(), replaceTempPartitionLog.isStrictRange(),
                     replaceTempPartitionLog.useTempPartitionName(), replaceTempPartitionLog.isForce());
-            olapTable.updateVisibleVersionAndTime(replaceTempPartitionLog.getVersion(),
-                    replaceTempPartitionLog.getVersionTime());
+            // In cloud mode, the internal partition deletion logic will update the table version,
+            // so here we only need to handle non-cloud mode.
+            if (Config.isNotCloudMode()) {
+                olapTable.updateVisibleVersionAndTime(replaceTempPartitionLog.getVersion(),
+                        replaceTempPartitionLog.getVersionTime());
+            }
         } catch (DdlException e) {
             throw new MetaNotFoundException(e);
         } finally {
