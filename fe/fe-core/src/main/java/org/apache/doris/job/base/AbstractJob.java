@@ -150,11 +150,6 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
 
     @Override
     public void cancelAllTasks(boolean needWaitCancelComplete) throws JobException {
-        cancelAllTasksWithoutLog(needWaitCancelComplete);
-        logUpdateOperation();
-    }
-
-    public void cancelAllTasksWithoutLog(boolean needWaitCancelComplete) throws JobException {
         if (CollectionUtils.isEmpty(runningTasks)) {
             return;
         }
@@ -163,6 +158,7 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
             canceledTaskCount.incrementAndGet();
         }
         runningTasks = new CopyOnWriteArrayList<>();
+        logUpdateOperation();
     }
 
     private static final ImmutableList<String> TITLE_NAMES =
