@@ -37,7 +37,6 @@ import org.apache.doris.nereids.trees.plans.commands.info.CancelMTMVTaskInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.PauseMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.ResumeMTMVInfo;
-import org.apache.doris.persist.AlterMTMV;
 
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
@@ -97,15 +96,6 @@ public class MTMVService implements EventListener {
         LOG.info("postCreateMTMV: " + mtmv.getName());
         for (MTMVHookService mtmvHookService : hooks.values()) {
             mtmvHookService.postCreateMTMV(mtmv);
-        }
-    }
-
-    public void alterMTMV(MTMV mtmv, AlterMTMV alterMTMV) throws DdlException {
-        Objects.requireNonNull(mtmv, "mtmv can not be null");
-        Objects.requireNonNull(alterMTMV, "alterMTMV can not be null");
-        LOG.info("alterMTMV, mtmvName: {}, AlterMTMV: {}", mtmv.getName(), alterMTMV);
-        for (MTMVHookService mtmvHookService : hooks.values()) {
-            mtmvHookService.alterMTMV(mtmv, alterMTMV);
         }
     }
 
@@ -220,11 +210,17 @@ public class MTMVService implements EventListener {
         return mtmv.getRefreshInfo().getRefreshTriggerInfo().getRefreshTrigger().equals(RefreshTrigger.COMMIT);
     }
 
-    public void createJob(MTMV mtmv) {
-        jobManager.createJob(mtmv);
+    public void createJob(MTMV mtmv, boolean isReplay) {
+        jobManager.createJob(mtmv, isReplay);
     }
 
-    public void dropJob(MTMV mtmv) {
-        jobManager.dropJob(mtmv);
+    public void dropJob(MTMV mtmv, boolean isReplay) {
+        jobManager.dropJob(mtmv, isReplay);
+    }
+
+    public void alterJob(MTMV mtmv, boolean isReplay) {
+        Objects.requireNonNull(mtmv, "mtmv can not be null");
+        LOG.info("alterMTMV, mtmvName: {}", mtmv.getName());
+        jobManager.alterJob(mtmv, isReplay);
     }
 }

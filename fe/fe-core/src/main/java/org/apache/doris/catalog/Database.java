@@ -417,7 +417,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
                     Env.getCurrentEnv().registerTempTableAndSession(table);
                 }
                 if (table instanceof MTMV) {
-                    Env.getCurrentEnv().getMtmvService().createJob((MTMV) table);
+                    Env.getCurrentEnv().getMtmvService().createJob((MTMV) table, isReplay);
                 }
                 if (!isReplay) {
                     // Write edit log

@@ -837,7 +837,7 @@ public class Alter {
             }
             Env.getCurrentEnv().getAnalysisManager().removeTableStats(origTable.getId());
             if (origTable instanceof MTMV) {
-                Env.getCurrentEnv().getMtmvService().dropJob((MTMV) origTable);
+                Env.getCurrentEnv().getMtmvService().dropJob((MTMV) origTable, isReplay);
             }
         }
     }
@@ -1306,7 +1306,9 @@ public class Alter {
                 default:
                     throw new RuntimeException("Unknown type value: " + alterMTMV.getOpType());
             }
-            Env.getCurrentEnv().getMtmvService().alterMTMV(mtmv, alterMTMV);
+            if (alterMTMV.isNeedRebuildJob()) {
+                Env.getCurrentEnv().getMtmvService().alterJob(mtmv, isReplay);
+            }
             // 4. log it and replay it in the follower
             if (!isReplay) {
                 Env.getCurrentEnv().getEditLog().logAlterMTMV(alterMTMV);

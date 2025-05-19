@@ -27,7 +27,6 @@ import org.apache.doris.nereids.trees.plans.commands.info.CancelMTMVTaskInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.PauseMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.ResumeMTMVInfo;
-import org.apache.doris.persist.AlterMTMV;
 
 import java.util.Optional;
 
@@ -57,15 +56,6 @@ public interface MTMVHookService {
      * @param mtmv
      */
     void unregisterMTMV(MTMV mtmv);
-
-    /**
-     * triggered when alter mtmv, only once
-     *
-     * @param mtmv
-     * @param alterMTMV
-     * @throws DdlException
-     */
-    void alterMTMV(MTMV mtmv, AlterMTMV alterMTMV) throws DdlException;
 
     /**
      * triggered when refresh mtmv

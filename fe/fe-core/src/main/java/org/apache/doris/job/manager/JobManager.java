@@ -109,19 +109,7 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
     }
 
     public void registerJob(T job) throws JobException {
-        writeLock();
-        try {
-            job.onRegister();
-            job.checkJobParams();
-            checkJobNameExist(job.getJobName());
-            if (jobMap.get(job.getJobId()) != null) {
-                throw new JobException("job id exist, jobId:" + job.getJobId());
-            }
-            jobMap.put(job.getJobId(), job);
-            job.logCreateOperation();
-        } finally {
-            writeUnlock();
-        }
+        createJobInternal(job, false);
         try {
             //check its need to scheduler
             jobScheduler.scheduleOneJob(job);
@@ -133,16 +121,24 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
         }
     }
 
-    // For internal calls by other modules, parameter validation and persistence are handled by other components.
-    // Since this method may be invoked by replay threads, it must not throw exceptions.
-    public boolean createJobInternal(T job) {
+    public void createJobInternal(T job, boolean isReplay) throws JobException {
         writeLock();
         try {
-            if (jobMap.containsKey(job.getJobId())) {
-                return false;
+            if (!isReplay) {
+                job.onRegister();
+                job.checkJobParams();
+                checkJobNameExist(job.getJobName());
+                if (jobMap.get(job.getJobId()) != null) {
+                    throw new JobException("job id exist, jobId:" + job.getJobId());
+                }
             }
-            jobMap.putIfAbsent(job.getJobId(), job);
-            return true;
+            jobMap.put(job.getJobId(), job);
+            if (isReplay) {
+                job.onReplayCreate();
+            }
+            if (!isReplay && job.needPersist()) {
+                job.logCreateOperation();
+            }
         } finally {
             writeUnlock();
         }
@@ -198,35 +194,27 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
         if (dropJob == null) {
             throw new JobException("job not exist, jobName:" + jobName);
         }
-        //is job status is running, we need to stop it and cancel all running task
-        // since job only running in master, we don't need to write update metadata log
-        if (dropJob.getJobStatus().equals(JobStatus.RUNNING)) {
-            dropJob.updateJobStatus(JobStatus.STOPPED);
-        }
-        writeLock();
-        try {
-            // write delete log
-            dropJob.logDeleteOperation();
-            jobMap.remove(dropJob.getJobId());
-        } finally {
-            writeUnlock();
-        }
+        dropJobInternal(dropJob, false);
     }
 
-    // For internal calls by other modules, parameter validation and persistence are handled by other components.
-    // Since this method may be invoked by replay threads, it must not throw exceptions.
-    public T dropJobInternal(T job) {
-        // set to stop status avoid create new tasks
-        job.setJobStatus(JobStatus.STOPPED);
-        // cancel tasks that has been created
-        try {
-            job.cancelAllTasksWithoutLog(true);
-        } catch (JobException e) {
-            LOG.warn("cancel task failed, jobName: {}", job.getJobName(), e);
+    public void dropJobInternal(T job, boolean isReplay) throws JobException {
+        if (!isReplay) {
+            // is job status is running, we need to stop it and cancel all running task
+            // since job only running in master, we don't need to write update metadata log
+            if (job.getJobStatus().equals(JobStatus.RUNNING)) {
+                job.updateJobStatus(JobStatus.STOPPED);
+            }
         }
         writeLock();
         try {
-            return jobMap.remove(job.getJobId());
+            jobMap.remove(job.getJobId());
+            if (isReplay) {
+                job.onReplayEnd(job);
+            }
+            // write delete log
+            if (!isReplay && job.needPersist()) {
+                job.logDeleteOperation();
+            }
         } finally {
             writeUnlock();
         }
@@ -319,11 +307,7 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
         if (!job.needPersist()) {
             return;
         }
-        if (jobMap.containsKey(job.getJobId())) {
-            return;
-        }
-        jobMap.putIfAbsent(job.getJobId(), job);
-        job.onReplayCreate();
+        createJobInternal(job, true);
     }
 
     /**
@@ -356,12 +340,7 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
         if (!replayJob.needPersist()) {
             return;
         }
-        T job = jobMap.get(replayJob.getJobId());
-        if (null == job) {
-            return;
-        }
-        jobMap.remove(replayJob.getJobId());
-        job.onReplayEnd(replayJob);
+        dropJobInternal(replayJob, true);
     }
 
     /**

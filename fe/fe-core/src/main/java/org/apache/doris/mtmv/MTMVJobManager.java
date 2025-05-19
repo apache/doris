@@ -42,7 +42,6 @@ import org.apache.doris.nereids.trees.plans.commands.info.PauseMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.ResumeMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
-import org.apache.doris.persist.AlterMTMV;
 
 import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
@@ -124,7 +123,7 @@ public class MTMVJobManager implements MTMVHookService {
 
     }
 
-    public void createJob(MTMV mtmv) {
+    public void createJob(MTMV mtmv, boolean isReplay) {
         MTMVJob job = new MTMVJob(mtmv.getDatabase().getId(), mtmv.getId());
         // The jobId should remain constant, as it serves as the unique identifier when updating the job.
         job.setJobId(mtmv.getId());
@@ -132,27 +131,27 @@ public class MTMVJobManager implements MTMVHookService {
         job.setCreateUser(UserIdentity.ADMIN);
         job.setJobStatus(JobStatus.RUNNING);
         job.setJobConfig(getJobConfig(mtmv));
-        Env.getCurrentEnv().getJobManager().createJobInternal(job);
-    }
-
-    public void dropJob(MTMV mtmv) {
-        MTMVJob job = getJobByMTMV(mtmv);
-        Env.getCurrentEnv().getJobManager().dropJobInternal(job);
-    }
-
-    /**
-     * drop MTMVJob and then create MTMVJob
-     *
-     * @param mtmv
-     * @param alterMTMV
-     * @throws DdlException
-     */
-    @Override
-    public void alterMTMV(MTMV mtmv, AlterMTMV alterMTMV) throws DdlException {
-        if (alterMTMV.isNeedRebuildJob()) {
-            dropJob(mtmv);
-            createJob(mtmv);
+        try {
+            Env.getCurrentEnv().getJobManager().createJobInternal(job, isReplay);
+        } catch (JobException e) {
+            // should not happen
+            LOG.warn("triggerJob failed by mvName: {}", mtmv.getName(), e);
         }
+    }
+
+    public void dropJob(MTMV mtmv, boolean isReplay) {
+        MTMVJob job = getJobByMTMV(mtmv);
+        try {
+            Env.getCurrentEnv().getJobManager().dropJobInternal(job, isReplay);
+        } catch (JobException e) {
+            // should not happen
+            LOG.warn("dropJob failed by mvName: {}", mtmv.getName(), e);
+        }
+    }
+
+    public void alterJob(MTMV mtmv, boolean isReplay) {
+        dropJob(mtmv, isReplay);
+        createJob(mtmv, isReplay);
     }
 
     /**

@@ -32,7 +32,6 @@ import org.apache.doris.nereids.trees.plans.commands.info.PauseMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.ResumeMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
-import org.apache.doris.persist.AlterMTMV;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -211,11 +210,6 @@ public class MTMVRelationManager implements MTMVHookService {
     @Override
     public void unregisterMTMV(MTMV mtmv) {
         removeMTMV(new BaseTableInfo(mtmv));
-    }
-
-    @Override
-    public void alterMTMV(MTMV mtmv, AlterMTMV alterMTMV) throws DdlException {
-
     }
 
     @Override

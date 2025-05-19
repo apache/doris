@@ -1045,7 +1045,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             esRepository.deRegisterTable(table.getId());
         }
         if (table instanceof MTMV) {
-            Env.getCurrentEnv().getMtmvService().dropJob((MTMV) table);
+            Env.getCurrentEnv().getMtmvService().dropJob((MTMV) table, isReplay);
         }
         Env.getCurrentEnv().getAnalysisManager().removeTableStats(table.getId());
         Env.getCurrentEnv().getDictionaryManager().dropTableDictionaries(db.getName(), table.getName());
