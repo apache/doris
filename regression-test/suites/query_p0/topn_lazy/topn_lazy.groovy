@@ -100,6 +100,17 @@ suite("topn_lazy") {
         multiContains("VMaterializeNode", 1)
     }
     
+        explain {
+        sql """    select *
+            from 
+                    customer left semi join (
+                        select * from lineorder order by lo_custkey limit 100
+                    ) T on c_custkey=lo_partkey
+                    order by c_name limit 1;
+                    """
+        multiContains("VMaterializeNode", 1)
+    }
+    
     qt_test_lazy1 """select * from date order by d_date limit 10;"""
 
     qt_test_lazy2 """SELECT d_datekey, d_date, d_dayofweek, d_month, d_year, d_yearmonthnum, d_daynuminweek, d_monthnuminyear, d_sellingseason FROM date ORDER BY d_date LIMIT 10;"""
