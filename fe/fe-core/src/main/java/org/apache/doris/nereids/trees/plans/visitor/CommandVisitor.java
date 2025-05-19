@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.visitor;
 
 import org.apache.doris.nereids.trees.plans.commands.AddConstraintCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterMTMVCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.CallCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelMTMVTaskCommand;
@@ -181,6 +182,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitCreateViewCommand(CreateViewCommand createViewCommand, C context) {
         return visitCommand(createViewCommand, context);
+    }
+
+    default R visitAlterTableCommand(AlterTableCommand alterTableCommand, C context) {
+        return visitCommand(alterTableCommand, context);
     }
 
     default R visitAlterViewCommand(AlterViewCommand alterViewCommand, C context) {

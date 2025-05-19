@@ -995,7 +995,9 @@ public class AlterTest {
         Assert.assertEquals("replace2", replace2.getIndexNameById(replace2.getBaseIndexId()));
 
         // replace with no swap
-        replaceStmt = "ALTER TABLE test.replace1 REPLACE WITH TABLE replace2 properties('swap' = 'false')";
+        // tablet check will be done in this testcase. so
+        // we need to use force . behaviour same as older version
+        replaceStmt = "ALTER TABLE test.replace1 REPLACE WITH TABLE replace2 properties('swap' = 'false') force";
         alterTable(replaceStmt, false);
         replace1 = (OlapTable) db.getTableNullable("replace1");
         replace2 = (OlapTable) db.getTableNullable("replace2");
