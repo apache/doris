@@ -94,11 +94,5 @@ public class AlterMTMVReplaceInfo extends AlterMTMVInfo {
         Env.getCurrentEnv().getAlterInstance().processReplaceTable(db, mtmv, newName, swapTable, true);
         Env.getCurrentEnv().getMtmvService()
                 .alterTable(new BaseTableInfo(mtmv), Optional.of(new BaseTableInfo(newMtmv)), true);
-        if (swapTable) {
-            Env.getCurrentEnv().getMtmvService().alterTable(mtmv, newName);
-        } else {
-            Env.getCurrentEnv().getMtmvService().dropMTMV(mtmv);
-            Env.getCurrentEnv().getMtmvService().dropTable(mtmv);
-        }
     }
 }
