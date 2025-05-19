@@ -61,5 +61,5 @@
 2
 
 -- !regexp_extract_all --
-['b']
+["b"]
 

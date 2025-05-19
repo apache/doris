@@ -63,7 +63,7 @@ suite("test_string_function_regexp") {
     qt_sql "select regexp_extract_all('xxfs','f');"
     qt_sql "select regexp_extract_all('asdfg', '(z|x|c|)');"
     qt_sql "select regexp_extract_all('abcdfesscca', '(ab|c|)');"
-    qt_sql_regexp_extract_all "select regexp_extract_all('', '\"([^\"]+)\":'), length(regexp_extract_all('', '\"([^\"]+)\":')) from test_string_function_regexp;"
+    qt_sql_regexp_extract_all "select regexp_extract_all('', '\"([^\"]+)\":'), array_size(regexp_extract_all('', '\"([^\"]+)\":')) from test_string_function_regexp;"
 
     qt_sql "SELECT regexp_replace('a b c', \" \", \"-\");"
     qt_sql "SELECT regexp_replace('a b c','(b)','<\\\\1>');"
@@ -159,4 +159,44 @@ suite("test_string_function_regexp") {
 
     qt_sql_field4 "SELECT FIELD('21','2130', '2131', '21');"
     qt_sql_field5 "SELECT FIELD(21, 2130, 21, 2131);"
+
+
+    def tbName3 = "test_string_function_extract_all"
+    sql "DROP TABLE IF EXISTS ${tbName3}"
+    sql """
+            CREATE TABLE IF NOT EXISTS ${tbName3} (
+                id int,
+                name varchar(32),
+                reg_str string,
+                group_index int
+            )
+            DISTRIBUTED BY HASH(name) BUCKETS 2 properties("replication_num" = "1");
+        """
+    sql """
+        INSERT INTO ${tbName3} VALUES 
+            (1, "Ben", "([A-Z])e([a-z])", -1),
+            (2, "Ben", "([A-Z])e([a-z])", 0),
+            (3, "Ben", "([A-Z])e([a-z])", 1),
+            (4, "Ben", "([A-Z])e([a-z])", null),
+            (5, "Ben", "([A-Z])e([a-z])", 2),
+            (6, "Ben", "([A-Z])e([a-z])", 3),
+            (7, "BenxxBen", "([A-Z])e([a-z])", -1),
+            (8, "BenxxBen", "([A-Z])e([a-z])", 0),
+            (9, "BenxxBen", "([A-Z])e([a-z])", 1),
+            (10, "BenxxBen", "([A-Z])e([a-z])", null),
+            (11, "BenxxBen", "([A-Z])e([a-z])", 2),
+            (12, "BenxxBen", "([A-Z])e([a-z])", 3),
+            (13, "BenxxBen", "([A-Z]{2})e([a-z])", 0),
+            (14, "BenxxBen", "([A-Z]{2})e([a-z])", 1),
+            (15, "BenxxBen", "([A-Z]{2})e([a-z])", 2),
+            (16, "BenxxBen", "([A-Z]{2})e([a-z])", 3),
+            (17, "BenxxBen", "([A-Z]{2})e([a-z])", -1)
+        """
+    qt_sql_regexp_extract_all_column """
+            SELECT 
+                id, name, reg_str, group_index
+                , regexp_extract_all(name, reg_str, group_index) as value
+                , array_size(regexp_extract_all(name, reg_str, group_index)) as cnt 
+            FROM ${tbName3} ORDER BY id;
+        """
 }
