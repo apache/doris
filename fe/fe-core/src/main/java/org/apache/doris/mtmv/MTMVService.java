@@ -91,14 +91,6 @@ public class MTMVService implements EventListener {
         }
     }
 
-    public void postCreateMTMV(MTMV mtmv) {
-        Objects.requireNonNull(mtmv, "mtmv can not be null");
-        LOG.info("postCreateMTMV: " + mtmv.getName());
-        for (MTMVHookService mtmvHookService : hooks.values()) {
-            mtmvHookService.postCreateMTMV(mtmv);
-        }
-    }
-
     public void refreshMTMV(RefreshMTMVInfo info) throws DdlException, MetaNotFoundException, JobException {
         Objects.requireNonNull(info, "info can not be null");
         LOG.info("refreshMTMV, RefreshMTMVInfo: {}", info);
