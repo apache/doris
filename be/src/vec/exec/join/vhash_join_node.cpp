@@ -292,6 +292,11 @@ Status HashJoinNode::prepare(RuntimeState* state) {
     _right_table_data_types = VectorizedUtils::get_data_types(child(1)->row_desc());
     _left_table_data_types = VectorizedUtils::get_data_types(child(0)->row_desc());
     _right_table_column_names = VectorizedUtils::get_column_names(child(1)->row_desc());
+
+    _right_col_idx = (_is_right_semi_anti && !_have_other_join_conjunct &&
+                      (!_is_mark_join || _mark_join_conjuncts.empty()))
+                             ? 0
+                             : _left_table_data_types.size();
     // Hash Table Init
     _hash_table_init(state);
     _construct_mutable_join_block();
