@@ -73,6 +73,7 @@ Status HashJoinProbeLocalState::open(RuntimeState* state) {
     RETURN_IF_ERROR(JoinProbeLocalState::open(state));
 
     auto& p = _parent->cast<HashJoinProbeOperatorX>();
+    _right_col_idx = p._right_col_idx;
     std::visit(
             [&](auto&& join_op_variants, auto have_other_join_conjunct) {
                 using JoinOpType = std::decay_t<decltype(join_op_variants)>;
@@ -511,7 +512,7 @@ Status HashJoinProbeOperatorX::init(const TPlanNode& tnode, RuntimeState* state)
     const bool probe_dispose_null =
             _match_all_probe || _build_unique || _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
             _join_op == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN || _join_op == TJoinOp::LEFT_ANTI_JOIN ||
-            _join_op == TJoinOp::LEFT_SEMI_JOIN;
+            _join_op == TJoinOp::LEFT_SEMI_JOIN || _is_mark_join;
     const std::vector<TEqJoinCondition>& eq_join_conjuncts = tnode.hash_join_node.eq_join_conjuncts;
     std::vector<bool> probe_not_ignore_null(eq_join_conjuncts.size());
     size_t conjuncts_index = 0;
@@ -642,14 +643,34 @@ Status HashJoinProbeOperatorX::open(RuntimeState* state) {
         }
     }
 
-    const int right_col_idx =
-            (_is_right_semi_anti && !_have_other_join_conjunct) ? 0 : _left_table_data_types.size();
+    _right_col_idx = (_is_right_semi_anti && !_have_other_join_conjunct &&
+                      (!_is_mark_join || _mark_join_conjuncts.empty()))
+                             ? 0
+                             : _left_table_data_types.size();
     size_t idx = 0;
     for (const auto* slot : slots_to_check) {
         auto data_type = slot->get_data_type_ptr();
-        const auto slot_on_left = idx < right_col_idx;
+        const auto slot_on_left = idx < _right_col_idx;
+
+        if (slot_on_left) {
+            if (idx >= _left_table_data_types.size()) {
+                return Status::InternalError(
+                        "Join node(id={}, OP={}) intermediate slot({}, #{})'s on left table "
+                        "idx out bound of _left_table_data_types: {} vs {}",
+                        _node_id, _join_op, slot->col_name(), slot->id(), idx,
+                        _left_table_data_types.size());
+            }
+        } else if (idx - _right_col_idx >= _right_table_data_types.size()) {
+            return Status::InternalError(
+                    "Join node(id={}, OP={}) intermediate slot({}, #{})'s on right table "
+                    "idx out bound of _right_table_data_types: {} vs {}(idx = {}, _right_col_idx = "
+                    "{})",
+                    _node_id, _join_op, slot->col_name(), slot->id(), idx - _right_col_idx,
+                    _right_table_data_types.size(), idx, _right_col_idx);
+        }
+
         auto target_data_type = slot_on_left ? _left_table_data_types[idx]
-                                             : _right_table_data_types[idx - right_col_idx];
+                                             : _right_table_data_types[idx - _right_col_idx];
         ++idx;
         if (data_type->equals(*target_data_type)) {
             continue;

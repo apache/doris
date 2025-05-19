@@ -56,9 +56,7 @@ ProcessHashTableProbe<JoinOpType>::ProcessHashTableProbe(HashJoinProbeLocalState
           _build_side_output_timer(parent->_build_side_output_timer),
           _probe_side_output_timer(parent->_probe_side_output_timer),
           _finish_probe_phase_timer(parent->_finish_probe_phase_timer),
-          _right_col_idx((_is_right_semi_anti && !_have_other_join_conjunct)
-                                 ? 0
-                                 : _parent->left_table_data_types().size()),
+          _right_col_idx(parent->_right_col_idx),
           _right_col_len(_parent->right_table_data_types().size()) {}
 
 template <int JoinOpType>
@@ -66,11 +64,10 @@ void ProcessHashTableProbe<JoinOpType>::build_side_output_column(
         vectorized::MutableColumns& mcol, const std::vector<bool>& output_slot_flags, int size,
         bool have_other_join_conjunct, bool is_mark_join) {
     SCOPED_TIMER(_build_side_output_timer);
-    constexpr auto is_semi_anti_join = JoinOpType == TJoinOp::RIGHT_ANTI_JOIN ||
-                                       JoinOpType == TJoinOp::RIGHT_SEMI_JOIN ||
-                                       JoinOpType == TJoinOp::LEFT_ANTI_JOIN ||
+    constexpr auto is_semi_anti_join = JoinOpType == TJoinOp::LEFT_ANTI_JOIN ||
+                                       JoinOpType == TJoinOp::LEFT_SEMI_JOIN ||
                                        JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
-                                       JoinOpType == TJoinOp::LEFT_SEMI_JOIN;
+                                       JoinOpType == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN;
 
     constexpr auto probe_all =
             JoinOpType == TJoinOp::LEFT_OUTER_JOIN || JoinOpType == TJoinOp::FULL_OUTER_JOIN;
@@ -209,7 +206,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
                         (JoinOpType == doris::TJoinOp::LEFT_ANTI_JOIN ||
                          JoinOpType == doris::TJoinOp::LEFT_SEMI_JOIN ||
                          JoinOpType == doris::TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
-                         (is_mark_join && JoinOpType != doris::TJoinOp::RIGHT_SEMI_JOIN)));
+                         (is_mark_join)));
     }
 
     auto& mcol = mutable_block.mutable_columns();
@@ -268,8 +265,8 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
     build_side_output_column(mcol, *_right_output_slot_flags, current_offset, with_other_conjuncts,
                              is_mark_join);
 
-    if constexpr (with_other_conjuncts || (JoinOpType != TJoinOp::RIGHT_SEMI_JOIN &&
-                                           JoinOpType != TJoinOp::RIGHT_ANTI_JOIN)) {
+    if (with_other_conjuncts || !_parent->_mark_join_conjuncts.empty() ||
+        (JoinOpType != TJoinOp::RIGHT_SEMI_JOIN && JoinOpType != TJoinOp::RIGHT_ANTI_JOIN)) {
         auto check_all_match_one = [](const std::vector<uint32_t>& vecs, uint32_t probe_idx,
                                       int size) {
             if (!size || vecs[0] != probe_idx || vecs[size - 1] != probe_idx + size - 1) {
@@ -291,7 +288,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
 
     output_block->swap(mutable_block.to_block());
 
-    if constexpr (is_mark_join && JoinOpType != TJoinOp::RIGHT_SEMI_JOIN) {
+    if constexpr (is_mark_join) {
         return do_mark_join_conjuncts<with_other_conjuncts>(
                 output_block, hash_table_ctx.hash_table->get_bucket_size());
     } else if constexpr (with_other_conjuncts) {
@@ -363,19 +360,29 @@ template <int JoinOpType>
 template <bool with_other_conjuncts>
 Status ProcessHashTableProbe<JoinOpType>::do_mark_join_conjuncts(vectorized::Block* output_block,
                                                                  size_t hash_table_bucket_size) {
-    DCHECK(JoinOpType == TJoinOp::LEFT_ANTI_JOIN ||
-           JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
-           JoinOpType == TJoinOp::LEFT_SEMI_JOIN ||
-           JoinOpType == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN);
+    if (JoinOpType != TJoinOp::LEFT_ANTI_JOIN && JoinOpType != TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN &&
+        JoinOpType != TJoinOp::LEFT_SEMI_JOIN && JoinOpType != TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN &&
+        JoinOpType != TJoinOp::RIGHT_SEMI_JOIN && JoinOpType != TJoinOp::RIGHT_ANTI_JOIN) {
+        return Status::InternalError("join type {} is not supported", JoinOpType);
+    }
 
     constexpr bool is_anti_join = JoinOpType == TJoinOp::LEFT_ANTI_JOIN ||
-                                  JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN;
+                                  JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
+                                  JoinOpType == TJoinOp::RIGHT_ANTI_JOIN;
     constexpr bool is_null_aware_join = JoinOpType == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN ||
                                         JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN;
+    constexpr bool is_right_half_join =
+            JoinOpType == TJoinOp::RIGHT_SEMI_JOIN || JoinOpType == TJoinOp::RIGHT_ANTI_JOIN;
 
     const auto row_count = output_block->rows();
     if (!row_count) {
         return Status::OK();
+    }
+
+    if constexpr (is_right_half_join) {
+        if (mark_join_flags.empty() && _build_block != nullptr) {
+            mark_join_flags.resize(_build_block->rows(), 0);
+        }
     }
 
     auto mark_column_mutable =
@@ -458,37 +465,70 @@ Status ProcessHashTableProbe<JoinOpType>::do_mark_join_conjuncts(vectorized::Blo
     const bool should_be_null_if_build_side_has_null =
             *_has_null_in_build_side && is_null_aware_join && !with_other_conjuncts;
     for (size_t i = 0; i != row_count; ++i) {
-        bool not_matched_before = _parent->_last_probe_match != _probe_indexs[i];
-        if (_build_indexs[i] == 0) {
-            bool has_null_mark_value = _parent->_last_probe_null_mark == _probe_indexs[i];
-            if (not_matched_before) {
-                filter_map[i] = true;
-                mark_null_map[i] = has_null_mark_value || should_be_null_if_build_side_has_null;
-                mark_filter_data[i] = false;
+        if constexpr (is_right_half_join) {
+            const auto& build_index = _build_indexs[i];
+            if (build_index == 0) {
+                continue;
+            }
+
+            if (mark_join_flags[build_index] == 1) {
+                continue;
+            }
+
+            if (mark_null_map[i]) {
+                mark_join_flags[build_index] = -1;
+            } else if (mark_filter_data[i]) {
+                mark_join_flags[build_index] = 1;
             }
         } else {
-            if (mark_null_map[i]) { // is null
-                _parent->_last_probe_null_mark = _probe_indexs[i];
-            } else {
-                if (mark_filter_data[i] && not_matched_before) {
-                    _parent->_last_probe_match = _probe_indexs[i];
+            bool not_matched_before = _parent->_last_probe_match != _probe_indexs[i];
+            if (_build_indexs[i] == 0) {
+                bool has_null_mark_value = _parent->_last_probe_null_mark == _probe_indexs[i];
+                if (not_matched_before) {
                     filter_map[i] = true;
+                    mark_null_map[i] = has_null_mark_value || should_be_null_if_build_side_has_null;
+                    mark_filter_data[i] = false;
+                }
+            } else {
+                if (mark_null_map[i]) { // is null
+                    _parent->_last_probe_null_mark = _probe_indexs[i];
+                } else {
+                    if (mark_filter_data[i] && not_matched_before) {
+                        _parent->_last_probe_match = _probe_indexs[i];
+                        filter_map[i] = true;
+                    }
                 }
             }
         }
     }
 
-    if constexpr (is_anti_join) {
-        // flip the mark column
-        for (size_t i = 0; i != row_count; ++i) {
-            mark_filter_data[i] ^= 1; // not null/ null
-        }
-    }
+    if constexpr (is_right_half_join) {
+        if constexpr (is_anti_join) {
+            // flip the mark column
+            for (size_t i = 0; i != row_count; ++i) {
+                if (mark_join_flags[i] == -1) {
+                    // -1 means null.
+                    continue;
+                }
 
-    auto result_column_id = output_block->columns();
-    output_block->insert(
-            {std::move(filter_column), std::make_shared<vectorized::DataTypeUInt8>(), ""});
-    return vectorized::Block::filter_block(output_block, result_column_id, result_column_id);
+                mark_join_flags[i] ^= 1;
+            }
+        }
+        // For right semi/anti join, no rows will be output in probe phase.
+        output_block->swap(vectorized::Block());
+        return Status::OK();
+    } else {
+        if constexpr (is_anti_join) {
+            // flip the mark column
+            for (size_t i = 0; i != row_count; ++i) {
+                mark_filter_data[i] ^= 1; // not null/ null
+            }
+        }
+
+        auto result_column_id = output_block->columns();
+        output_block->insert({std::move(filter_column), std::make_shared<DataTypeUInt8>(), ""});
+        return vectorized::Block::filter_block(output_block, result_column_id, result_column_id);
+    }
 }
 
 template <int JoinOpType>
@@ -637,7 +677,8 @@ Status ProcessHashTableProbe<JoinOpType>::finish_probing(HashTableType& hash_tab
     if (block_size) {
         if (mcol.size() < _right_col_len + _right_col_idx) {
             return Status::InternalError(
-                    "output block invalid, mcol.size()={}, _right_col_len={}, _right_col_idx={}",
+                    "output block invalid, mcol.size()={}, _right_col_len={}, "
+                    "_right_col_idx={}",
                     mcol.size(), _right_col_len, _right_col_idx);
         }
         for (size_t j = 0; j < _right_col_len; ++j) {
@@ -646,8 +687,31 @@ Status ProcessHashTableProbe<JoinOpType>::finish_probing(HashTableType& hash_tab
                                                           _build_indexs.data() + block_size);
         }
 
+        if constexpr (JoinOpType == TJoinOp::RIGHT_ANTI_JOIN ||
+                      JoinOpType == TJoinOp::RIGHT_SEMI_JOIN) {
+            if (is_mark_join) {
+                if (mark_join_flags.empty() && _build_block != nullptr) {
+                    mark_join_flags.resize(_build_block->rows(), 0);
+                }
+
+                // mark column is nullable
+                auto* mark_column = assert_cast<vectorized::ColumnNullable*>(
+                        mcol[_parent->_mark_column_id].get());
+                mark_column->resize(block_size);
+                auto* null_map = mark_column->get_null_map_data().data();
+                auto* data = assert_cast<vectorized::ColumnUInt8&>(mark_column->get_nested_column())
+                                     .get_data()
+                                     .data();
+                for (size_t i = 0; i != block_size; ++i) {
+                    const auto build_index = _build_indexs[i];
+                    null_map[i] = mark_join_flags[build_index] == -1;
+                    data[i] = mark_join_flags[build_index] == 1;
+                }
+            }
+        }
+
         // just resize the left table column in case with other conjunct to make block size is not zero
-        if (_is_right_semi_anti && _have_other_join_conjunct) {
+        if (_is_right_semi_anti && _right_col_idx != 0) {
             for (int i = 0; i < _right_col_idx; ++i) {
                 mcol[i]->resize(block_size);
             }
