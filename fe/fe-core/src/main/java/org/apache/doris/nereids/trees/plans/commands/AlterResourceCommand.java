@@ -81,5 +81,9 @@ public class AlterResourceCommand extends AlterCommand implements NeedAuditEncry
         return visitor.visitAlterResourceCommand(this, context);
     }
 
+    @Override
+    public boolean needAuditEncryption() {
+        return true;
+    }
 }
 
