@@ -150,7 +150,7 @@ private:
     int _be_exec_version;
 };
 
-DataTypePtr get_serialized_type(const DataTypePtr& type) {
+inline DataTypePtr get_serialized_type(const DataTypePtr& type) {
     if (const auto* typed = typeid_cast<const DataTypeAggState*>(type.get()); typed) {
         return typed->get_serialized_type();
     }
