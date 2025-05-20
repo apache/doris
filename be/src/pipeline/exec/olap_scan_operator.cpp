@@ -560,6 +560,8 @@ Status OlapScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     const TOlapScanNode& olap_scan_node = _parent->cast<OlapScanOperatorX>()._olap_scan_node;
 
     if (olap_scan_node.__isset.ann_sort_info || olap_scan_node.__isset.ann_sort_limit) {
+        LOG_INFO("Ann sort info: {}",
+                 apache::thrift::ThriftDebugString(olap_scan_node.ann_sort_info));
         DCHECK(olap_scan_node.__isset.ann_sort_info);
         DCHECK(olap_scan_node.__isset.ann_sort_limit);
         DCHECK(olap_scan_node.ann_sort_info.ordering_exprs.size() == 1);
@@ -570,7 +572,6 @@ Status OlapScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
         size_t limit = olap_scan_node.ann_sort_limit;
         std::shared_ptr<vectorized::VExprContext> ordering_expr_ctx;
         RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(ordering_expr, ordering_expr_ctx));
-        LOG_INFO("Ann thrift expr: {}", apache::thrift::ThriftDebugString(ordering_expr));
         _ann_topn_descriptor =
                 vectorized::AnnTopNDescriptor::create_shared(limit, ordering_expr_ctx);
     }
@@ -592,20 +593,21 @@ Status OlapScanLocalState::open(RuntimeState* state) {
 
             _slot_id_to_virtual_column_expr[slot_desc->id()] = virtual_column_expr_ctx;
             _slot_id_to_col_type[slot_desc->id()] = slot_desc->get_data_type_ptr();
-            int cid = p.intermediate_row_desc().get_column_id(slot_desc->id());
-            if (cid < 0) {
+            int col_pos = p.intermediate_row_desc().get_column_id(slot_desc->id());
+            if (col_pos < 0) {
                 return Status::InternalError(
                         "Invalid virtual slot, can not find its information. Slot desc:\n{}\nRow "
                         "desc:\n{}",
                         slot_desc->debug_string(), p.row_desc().debug_string());
             } else {
-                _slot_id_to_index_in_block[slot_desc->id()] = cid;
+                _slot_id_to_index_in_block[slot_desc->id()] = col_pos;
             }
 
             LOG_INFO(
-                    "OlapScanLocalState opening, virtual column expr slot id: {}, cid: {}, expr: "
+                    "OlapScanLocalState opening, virtual column expr slot id: {}, col_pos: {}, "
+                    "expr: "
                     "{}",
-                    slot_desc->id(), cid, virtual_column_expr_ctx->root()->debug_string());
+                    slot_desc->id(), col_pos, virtual_column_expr_ctx->root()->debug_string());
         }
     }
 

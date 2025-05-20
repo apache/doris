@@ -44,7 +44,7 @@ public:
     void collect_slot_column_ids(std::set<int>& column_ids) const override {
         column_ids.insert(_column_id);
     }
-    std::shared_ptr<VExprContext> get_virtual_column_expr() const { return _virtual_column_expr; }
+    std::shared_ptr<VExpr> get_virtual_column_expr() const { return _virtual_column_expr; }
     // void prepare_virtual_slots(const std::map<SlotId, vectorized::VExprContextSPtr>&
     //                                    _slot_id_to_virtual_column_expr) override;
 
@@ -89,7 +89,7 @@ public:
     void set_column_data_type(DataTypePtr column_data_type) {
         _column_data_type = std::move(column_data_type);
     }
-    void set_virtual_column_expr(std::shared_ptr<VExprContext> virtual_column_expr) {
+    void set_virtual_column_expr(std::shared_ptr<VExpr> virtual_column_expr) {
         _virtual_column_expr = virtual_column_expr;
     }
 #endif
@@ -99,7 +99,7 @@ private:
     int _slot_id;
     const std::string* _column_name;
     const std::string _column_label;
-    std::shared_ptr<VExprContext> _virtual_column_expr;
+    std::shared_ptr<VExpr> _virtual_column_expr;
     DataTypePtr _column_data_type;
 };
 

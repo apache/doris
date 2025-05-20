@@ -151,6 +151,7 @@ Status OlapScanner::init() {
     }
 
     for (auto pair : local_state->_slot_id_to_virtual_column_expr) {
+        // Scanner will be executed in a different thread, so we need to clone the context.
         VExprContextSPtr context;
         RETURN_IF_ERROR(pair.second->clone(_state, context));
         _slot_id_to_virtual_column_expr[pair.first] = context;

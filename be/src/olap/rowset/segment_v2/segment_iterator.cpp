@@ -843,8 +843,7 @@ Status SegmentIterator::_extract_common_expr_columns(const vectorized::VExprSPtr
     } else if (node_type == TExprNodeType::VIRTUAL_SLOT_REF) {
         std::shared_ptr<vectorized::VirtualSlotRef> virtual_slot_ref =
                 std::dynamic_pointer_cast<vectorized::VirtualSlotRef>(expr);
-        auto column_expr = virtual_slot_ref->get_virtual_column_expr();
-        RETURN_IF_ERROR(_extract_common_expr_columns(column_expr->root()));
+        RETURN_IF_ERROR(_extract_common_expr_columns(virtual_slot_ref->get_virtual_column_expr()));
     }
 
     return Status::OK();
@@ -2148,6 +2147,8 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
 
                 return res;
             }
+
+            RETURN_IF_ERROR(res);
             // reverse block row order if read_orderby_key_reverse is true for key topn
             // it should be processed for all success _next_batch_internal
             if (_opts.read_orderby_key_reverse) {

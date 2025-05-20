@@ -72,15 +72,6 @@ Status VirtualColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t
         _filter[_row_id_to_idx[rowids[i]]] = 1;
     }
 
-    // Count one of the filter
-    size_t count_one = 0;
-    for (size_t i = 0; i < _size; ++i) {
-        if (_filter[i] == 1) {
-            count_one++;
-        }
-    }
-    std::cout << "count_one: " << count_one << std::endl;
-
     // Apply filter to materialized column
     doris::vectorized::IColumn::Ptr res_col = _materialized_column_ptr->filter(_filter, 0);
     // Update dst column

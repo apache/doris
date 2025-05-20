@@ -100,7 +100,6 @@ Status Scanner::get_block(RuntimeState* state, Block* block, bool* eof) {
                                                 slot_desc->get_data_type_ptr(),
                                                 slot_desc->col_name()));
         }
-        LOG_INFO("Block columns count: {}", block->columns());
     }
 
 #ifndef BE_TEST
@@ -207,9 +206,6 @@ Status Scanner::_do_projections(vectorized::Block* origin_block, vectorized::Blo
             reinterpret_cast<ColumnNullable*>(mutable_columns[i].get())
                     ->insert_range_from_not_nullable(*column_ptr, 0, rows);
         } else {
-            LOG_INFO(" Projections {} insert_range_from {} to {}",
-                     _projections[i]->root()->debug_string(), column_ptr->get_name(),
-                     mutable_columns[i]->get_name());
             mutable_columns[i]->insert_range_from(*column_ptr, 0, rows);
         }
     }
