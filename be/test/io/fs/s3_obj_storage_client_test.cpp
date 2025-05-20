@@ -39,15 +39,18 @@ protected:
 
         S3ObjStorageClientTest::bucket = std::getenv("AWS_BUCKET");
 
-        S3ObjStorageClientTest::obj_storage_client =
-                S3ClientFactory::instance().create({.endpoint = endpoint,
-                                                    .region = "dummy-region",
-                                                    .ak = access_key,
-                                                    .sk = secret_key,
-                                                    .token = "",
-                                                    .bucket = bucket,
-                                                    .provider = io::ObjStorageType::AWS,
-                                                    .use_virtual_addressing = false});
+        S3ObjStorageClientTest::obj_storage_client = S3ClientFactory::instance().create({
+                .endpoint = endpoint,
+                .region = "dummy-region",
+                .ak = access_key,
+                .sk = secret_key,
+                .token = "",
+                .bucket = bucket,
+                .provider = io::ObjStorageType::AWS,
+                .use_virtual_addressing = false,
+                .role_arn = "",
+                .external_id = "",
+        });
 
         ASSERT_TRUE(S3ObjStorageClientTest::obj_storage_client != nullptr);
     }

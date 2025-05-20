@@ -136,13 +136,6 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
     }
 
     protected ResultRow collectMinMax() {
-        // Agg table value columns has no zone map.
-        // For these columns, skip collecting min and max value to avoid scan whole table.
-        if (((OlapTable) tbl).getKeysType().equals(KeysType.AGG_KEYS) && !col.isKey()) {
-            LOG.info("Aggregation table {} column {} is not a key column, skip collecting min and max.",
-                    tbl.getName(), col.getName());
-            return null;
-        }
         long startTime = System.currentTimeMillis();
         Map<String, String> params = buildSqlParams();
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
@@ -263,6 +256,13 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         params.put("rowCount", String.valueOf(tableRowCount));
         params.put("type", col.getType().toString());
         params.put("limit", "");
+
+        // For agg table and mor unique table, set PREAGGOPEN preAggHint.
+        if (((OlapTable) tbl).getKeysType().equals(KeysType.AGG_KEYS)
+                || ((OlapTable) tbl).getKeysType().equals(KeysType.UNIQUE_KEYS)
+                && !((OlapTable) tbl).isUniqKeyMergeOnWrite()) {
+            params.put("preAggHint", "/*+PREAGGOPEN*/");
+        }
 
         // If table row count is less than the target sample row count, simple scan the full table.
         if (tableRowCount <= targetSampleRows) {
@@ -388,6 +388,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         params.put("colName", StatisticsUtil.escapeColumnName(String.valueOf(info.colName)));
         params.put("tblName", String.valueOf(tbl.getName()));
         params.put("index", getIndex());
+        params.put("preAggHint", "");
         return params;
     }
 

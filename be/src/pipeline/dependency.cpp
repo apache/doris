@@ -57,8 +57,9 @@ Dependency* BasicSharedState::create_sink_dependency(int dest_id, int node_id,
     return sink_deps.back().get();
 }
 
-void Dependency::_add_block_task(PipelineTask* task) {
-    DCHECK(_blocked_task.empty() || _blocked_task[_blocked_task.size() - 1] != task)
+void Dependency::_add_block_task(std::shared_ptr<PipelineTask> task) {
+    DCHECK(_blocked_task.empty() || _blocked_task[_blocked_task.size() - 1].lock() == nullptr ||
+           _blocked_task[_blocked_task.size() - 1].lock().get() != task.get())
             << "Duplicate task: " << task->debug_string();
     _blocked_task.push_back(task);
 }
@@ -68,7 +69,7 @@ void Dependency::set_ready() {
         return;
     }
     _watcher.stop();
-    std::vector<PipelineTask*> local_block_task {};
+    std::vector<std::weak_ptr<PipelineTask>> local_block_task {};
     {
         std::unique_lock<std::mutex> lc(_task_lock);
         if (_ready) {
@@ -77,16 +78,15 @@ void Dependency::set_ready() {
         _ready = true;
         local_block_task.swap(_blocked_task);
     }
-    for (auto* task : local_block_task) {
-        std::unique_lock<std::mutex> lc(_task_lock);
-        THROW_IF_ERROR(task->wake_up(this));
+    for (auto task : local_block_task) {
+        if (auto t = task.lock()) {
+            std::unique_lock<std::mutex> lc(_task_lock);
+            THROW_IF_ERROR(t->wake_up(this));
+        }
     }
 }
 
-Dependency* Dependency::is_blocked_by(PipelineTask* task) {
-    if (task && task->wake_up_early()) {
-        return nullptr;
-    }
+Dependency* Dependency::is_blocked_by(std::shared_ptr<PipelineTask> task) {
     std::unique_lock<std::mutex> lc(_task_lock);
     auto ready = _ready.load();
     if (!ready && task) {
@@ -111,13 +111,6 @@ std::string CountedFinishDependency::debug_string(int indentation_level) {
                    "{}{}: id={}, block_task={}, ready={}, _always_ready={}, count={}",
                    std::string(indentation_level * 2, ' '), _name, _node_id, _blocked_task.size(),
                    _ready, _always_ready, _counter);
-    return fmt::to_string(debug_string_buffer);
-}
-
-std::string RuntimeFilterDependency::debug_string(int indentation_level) {
-    fmt::memory_buffer debug_string_buffer;
-    fmt::format_to(debug_string_buffer, "{}, runtime filter: {}",
-                   Dependency::debug_string(indentation_level), _runtime_filter->debug_string());
     return fmt::to_string(debug_string_buffer);
 }
 
@@ -437,6 +430,19 @@ Status SetSharedState::update_build_not_ignore_null(const vectorized::VExprConte
     }
 
     return Status::OK();
+}
+
+size_t SetSharedState::get_hash_table_size() const {
+    size_t hash_table_size = 0;
+    std::visit(
+            [&](auto&& arg) {
+                using HashTableCtxType = std::decay_t<decltype(arg)>;
+                if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
+                    hash_table_size = arg.hash_table->size();
+                }
+            },
+            hash_table_variants->method_variant);
+    return hash_table_size;
 }
 
 Status SetSharedState::hash_table_init() {

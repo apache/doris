@@ -49,6 +49,7 @@
 #include "pipeline/exec/cache_sink_operator.h"
 #include "pipeline/exec/cache_source_operator.h"
 #include "pipeline/exec/datagen_operator.h"
+#include "pipeline/exec/dict_sink_operator.h"
 #include "pipeline/exec/distinct_streaming_aggregation_operator.h"
 #include "pipeline/exec/empty_set_operator.h"
 #include "pipeline/exec/es_scan_operator.h"
@@ -139,27 +140,26 @@ PipelineFragmentContext::~PipelineFragmentContext() {
     // The memory released by the query end is recorded in the query mem tracker.
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_ctx->query_mem_tracker());
     auto st = _query_ctx->exec_status();
-    _query_ctx.reset();
     for (size_t i = 0; i < _tasks.size(); i++) {
         if (!_tasks[i].empty()) {
             _call_back(_tasks[i].front()->runtime_state(), &st);
         }
     }
-    _tasks.clear();
     for (auto& runtime_states : _task_runtime_states) {
         for (auto& runtime_state : runtime_states) {
             runtime_state.reset();
         }
     }
+    _tasks.clear();
     _dag.clear();
     _pip_id_to_pipeline.clear();
     _pipelines.clear();
     _sink.reset();
     _root_op.reset();
     _runtime_state.reset();
-    _runtime_filter_states.clear();
     _runtime_filter_mgr_map.clear();
     _op_id_to_shared_state.clear();
+    _query_ctx.reset();
 }
 
 bool PipelineFragmentContext::is_timeout(timespec now) const {
@@ -369,7 +369,6 @@ Status PipelineFragmentContext::_build_pipeline_tasks(const doris::TPipelineFrag
     _total_tasks = 0;
     const auto target_size = request.local_params.size();
     _tasks.resize(target_size);
-    _runtime_filter_states.resize(target_size);
     _runtime_filter_mgr_map.resize(target_size);
     _task_runtime_states.resize(_pipelines.size());
     for (size_t pip_idx = 0; pip_idx < _pipelines.size(); pip_idx++) {
@@ -381,10 +380,7 @@ Status PipelineFragmentContext::_build_pipeline_tasks(const doris::TPipelineFrag
     auto pre_and_submit = [&](int i, PipelineFragmentContext* ctx) {
         const auto& local_params = request.local_params[i];
         auto fragment_instance_id = local_params.fragment_instance_id;
-        _runtime_filter_states[i] = RuntimeFilterParamsContext::create(_query_ctx.get());
-        std::unique_ptr<RuntimeFilterMgr> runtime_filter_mgr =
-                std::make_unique<RuntimeFilterMgr>(request.query_id, _runtime_filter_states[i],
-                                                   _query_ctx->query_mem_tracker(), false);
+        auto runtime_filter_mgr = std::make_unique<RuntimeFilterMgr>(false);
         std::map<PipelineId, PipelineTask*> pipeline_id_to_task;
         auto get_shared_state = [&](PipelinePtr pipeline)
                 -> std::map<int, std::pair<std::shared_ptr<BasicSharedState>,
@@ -419,7 +415,6 @@ Status PipelineFragmentContext::_build_pipeline_tasks(const doris::TPipelineFrag
                         request.query_options, _query_ctx->query_globals, _exec_env,
                         _query_ctx.get());
                 auto& task_runtime_state = _task_runtime_states[pip_idx][i];
-                _runtime_filter_states[i]->set_state(task_runtime_state.get());
                 {
                     // Initialize runtime state for this task
                     task_runtime_state->set_query_mem_tracker(_query_ctx->query_mem_tracker());
@@ -457,11 +452,11 @@ Status PipelineFragmentContext::_build_pipeline_tasks(const doris::TPipelineFrag
                 auto cur_task_id = _total_tasks++;
                 task_runtime_state->set_task_id(cur_task_id);
                 task_runtime_state->set_task_num(pipeline->num_tasks());
-                auto task = std::make_unique<PipelineTask>(
-                        pipeline, cur_task_id, task_runtime_state.get(), this,
+                auto task = std::make_shared<PipelineTask>(
+                        pipeline, cur_task_id, task_runtime_state.get(),
+                        std::dynamic_pointer_cast<PipelineFragmentContext>(shared_from_this()),
                         pipeline_id_to_profile[pip_idx].get(), get_shared_state(pipeline), i);
                 pipeline->incr_created_tasks(i, task.get());
-                task_runtime_state->set_task(task.get());
                 pipeline_id_to_task.insert({pipeline->id(), task.get()});
                 _tasks[i].emplace_back(std::move(task));
             }
@@ -514,9 +509,8 @@ Status PipelineFragmentContext::_build_pipeline_tasks(const doris::TPipelineFrag
                 scan_ranges = find_with_default(local_params.per_node_scan_ranges,
                                                 _pipelines[pip_idx]->operators().front()->node_id(),
                                                 scan_ranges);
-                RETURN_IF_ERROR_OR_CATCH_EXCEPTION(
-                        task->prepare(scan_ranges, local_params.sender_id,
-                                      request.fragment.output_sink, _query_ctx.get()));
+                RETURN_IF_ERROR_OR_CATCH_EXCEPTION(task->prepare(
+                        scan_ranges, local_params.sender_id, request.fragment.output_sink));
             }
         }
         {
@@ -1021,6 +1015,15 @@ Status PipelineFragmentContext::_create_data_sink(ObjectPool* pool, const TDataS
                                             thrift_sink.result_sink));
         break;
     }
+    case TDataSinkType::DICTIONARY_SINK: {
+        if (!thrift_sink.__isset.dictionary_sink) {
+            return Status::InternalError("Missing dict sink.");
+        }
+
+        _sink.reset(new DictSinkOperatorX(next_sink_operator_id(), row_desc, output_exprs,
+                                          thrift_sink.dictionary_sink));
+        break;
+    }
     case TDataSinkType::GROUP_COMMIT_OLAP_TABLE_SINK:
     case TDataSinkType::OLAP_TABLE_SINK: {
         if (state->query_options().enable_memtable_on_sink_node &&
@@ -1275,7 +1278,8 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
                                       tnode.agg_node.use_streaming_preaggregation &&
                                       !tnode.agg_node.grouping_exprs.empty();
         const bool can_use_distinct_streaming_agg =
-                is_streaming_agg && tnode.agg_node.aggregate_functions.empty() &&
+                tnode.agg_node.aggregate_functions.empty() &&
+                !tnode.agg_node.__isset.agg_sort_info_by_group_key &&
                 request.query_options.__isset.enable_distinct_streaming_aggregation &&
                 request.query_options.enable_distinct_streaming_aggregation;
 
@@ -1698,7 +1702,9 @@ Status PipelineFragmentContext::submit() {
     auto* scheduler = _query_ctx->get_pipe_exec_scheduler();
     for (auto& task : _tasks) {
         for (auto& t : task) {
-            st = scheduler->schedule_task(t.get());
+            st = scheduler->schedule_task(t);
+            DBUG_EXECUTE_IF("PipelineFragmentContext.submit.failed",
+                            { st = Status::Aborted("PipelineFragmentContext.submit.failed"); });
             if (!st) {
                 cancel(Status::InternalError("submit context to executor fail"));
                 std::lock_guard<std::mutex> l(_task_mutex);
@@ -1876,8 +1882,7 @@ size_t PipelineFragmentContext::get_revocable_size(bool* has_running_task) const
                 LOG_EVERY_N(INFO, 50) << "Query: " << print_id(_query_id)
                                       << " is running, task: " << (void*)task.get()
                                       << ", is_revoking: " << task->is_revoking()
-                                      << ", is_running: " << task->is_running()
-                                      << ", task info: " << task->debug_string();
+                                      << ", is_running: " << task->is_running();
                 *has_running_task = true;
                 return 0;
             }

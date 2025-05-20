@@ -41,4 +41,26 @@ suite("test_routine_load_name","p0") {
         assertEquals(e.toString().contains("required format is"), true)
         assertEquals(e.toString().contains("Maybe routine load job name is longer than 64 or contains illegal characters"), true)
     }
+
+    try {
+        sql """
+                CREATE ROUTINE LOAD x.y.z
+                COLUMNS TERMINATED BY "|"
+                PROPERTIES
+                (
+                    "max_batch_interval" = "5",
+                    "max_batch_rows" = "300000",
+                    "max_batch_size" = "209715200"
+                )
+                FROM KAFKA
+                (
+                    "kafka_broker_list" = "${externalEnvIp}:${kafka_port}",
+                    "kafka_topic" = "multi_table_load_invalid_table",
+                    "property.kafka_default_offsets" = "OFFSET_BEGINNING"
+                );
+            """
+    } catch (Exception e) {
+        log.info("exception: ${e.toString()}".toString())
+        assertEquals(e.toString().contains("labelParts in load should be [db.]label"), true)
+    }
 }

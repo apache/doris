@@ -44,7 +44,7 @@ public interface Task {
      * This method is called when the task fails to execute successfully.
      * Implementations can use this method to handle any failure scenarios.
      */
-    void onFail() throws JobException;
+    boolean onFail() throws JobException;
 
     /**
      * This method is called when the task fails to execute successfully, with an additional error message.
@@ -58,15 +58,16 @@ public interface Task {
      * This method is called when the task executes successfully.
      * Implementations can use this method to handle successful execution scenarios.
      */
-    void onSuccess() throws JobException;
+    boolean onSuccess() throws JobException;
 
     /**
      * This method is called to cancel the execution of the task.
      * Implementations should define the necessary steps to cancel the task.
      *
      * @param needWaitCancelComplete Do we need to wait for the cancellation to be completed.
+     * @return if cancel success
      */
-    void cancel(boolean needWaitCancelComplete) throws JobException;
+    boolean cancel(boolean needWaitCancelComplete) throws JobException;
 
     /**
      * get info for tvf `tasks`

@@ -24,6 +24,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
@@ -203,6 +204,21 @@ public class MysqlProto {
         //  authenticate
         if (!Env.getCurrentEnv().getAuthenticatorManager()
                 .authenticate(context, qualifiedUser, channel, serializer, authPacket, handshakePacket)) {
+            return false;
+        }
+
+        // try to change catalog, if default_init_catalog inside user property is not 'internal'
+        try {
+            String userInitCatalog = Env.getCurrentEnv().getAuth().getInitCatalog(context.getQualifiedUser());
+            if (userInitCatalog != null && userInitCatalog != InternalCatalog.INTERNAL_CATALOG_NAME) {
+                CatalogIf catalogIf = context.getEnv().getCatalogMgr().getCatalog(userInitCatalog);
+                if (catalogIf != null) {
+                    context.getEnv().changeCatalog(context, userInitCatalog);
+                }
+            }
+        } catch (DdlException e) {
+            context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
+            sendResponsePacket(context);
             return false;
         }
 

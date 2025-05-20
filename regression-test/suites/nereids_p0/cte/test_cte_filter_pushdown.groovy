@@ -20,6 +20,8 @@ suite("test_cte_filter_pushdown") {
     sql "SET enable_fallback_to_original_planner=false"
     sql "set ignore_shape_nodes='PhysicalDistribute, PhysicalProject'"
     sql "set runtime_filter_mode=OFF"
+    sql "set disable_nereids_rules=ELIMINATE_CONST_JOIN_CONDITION"
+
     // CTE filter pushing down with the same filter
     qt_cte_filter_pushdown_1 """
             explain shape plan

@@ -175,3 +175,6 @@ enableNonCatalogKerberosTest = true
 
 // LakeSoul catalog test config
 enableLakesoulTest = true
+
+// AWS iam role config
+

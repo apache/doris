@@ -78,6 +78,8 @@ public class PlanTranslatorContext {
      */
     private final Map<ExprId, SlotRef> exprIdToSlotRef = Maps.newHashMap();
 
+    private final Map<Integer, PlanNodeId> nereidsIdToPlanNodeIdMap = Maps.newHashMap();
+
     /**
      * Inverted index from legacy slot to Nereids' slot.
      */
@@ -216,6 +218,10 @@ public class PlanTranslatorContext {
     public void addExprIdSlotRefPair(ExprId exprId, SlotRef slotRef) {
         exprIdToSlotRef.put(exprId, slotRef);
         slotIdToExprId.put(slotRef.getDesc().getId(), exprId);
+    }
+
+    public Map<Integer, PlanNodeId> getNereidsIdToPlanNodeIdMap() {
+        return nereidsIdToPlanNodeIdMap;
     }
 
     public void addExprIdColumnRefPair(ExprId exprId, ColumnRefExpr columnRefExpr) {

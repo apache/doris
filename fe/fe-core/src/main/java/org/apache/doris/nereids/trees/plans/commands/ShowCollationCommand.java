@@ -52,6 +52,11 @@ public class ShowCollationCommand extends ShowCommand {
     }
 
     @Override
+    public ShowResultSetMetaData getMetaData() {
+        return COLLATION_META_DATA;
+    }
+
+    @Override
     public ShowResultSet doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
         List<List<String>> rows = Lists.newArrayList();
         List<String> utf8mb40900Bin = Lists.newArrayList();
@@ -74,7 +79,7 @@ public class ShowCollationCommand extends ShowCommand {
         utf8mb3GeneralCi.add("1");
         rows.add(utf8mb3GeneralCi);
         // Set the result set and send it using the executor
-        return new ShowResultSet(COLLATION_META_DATA, rows);
+        return new ShowResultSet(getMetaData(), rows);
     }
 
     @Override

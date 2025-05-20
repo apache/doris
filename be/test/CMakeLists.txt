@@ -55,6 +55,9 @@ list(REMOVE_ITEM UT_FILES
     ${CMAKE_CURRENT_SOURCE_DIR}/runtime/large_int_value_test.cpp
 )
 
+message(STATUS "Disable the metrics collection for orc")
+add_compile_definitions(ENABLE_METRICS=0)
+
 list(APPEND UT_FILES
     ${CMAKE_SOURCE_DIR}/src/apache-orc/c++/test/MemoryInputStream.cc
     ${CMAKE_SOURCE_DIR}/src/apache-orc/c++/test/MemoryOutputStream.cc

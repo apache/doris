@@ -75,7 +75,7 @@ static Status parse_thrift_footer(io::FileReaderSPtr file, FileMetaData** file_m
     tparquet::FileMetaData t_metadata;
     // deserialize footer
     RETURN_IF_ERROR(deserialize_thrift_msg(meta_ptr, &metadata_size, true, &t_metadata));
-    *file_metadata = new FileMetaData(t_metadata);
+    *file_metadata = new FileMetaData(t_metadata, metadata_size);
     RETURN_IF_ERROR((*file_metadata)->init_schema());
     *meta_size = PARQUET_FOOTER_SIZE + metadata_size;
     return Status::OK();

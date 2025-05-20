@@ -35,7 +35,8 @@ TEST(function_string_test, function_string_substr_test) {
     std::string func_name = "substr";
 
     {
-        BaseInputTypeSet input_types = {TypeIndex::String, TypeIndex::Int32, TypeIndex::Int32};
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_INT,
+                                    PrimitiveType::TYPE_INT};
 
         DataSet data_set = {
                 {{std::string("AbCdEfg"), std::int32_t(1), std::int32_t(1)}, std::string("A")},
@@ -343,7 +344,7 @@ TEST(function_string_test, function_string_substr_test) {
     }
 
     {
-        BaseInputTypeSet input_types = {TypeIndex::String, TypeIndex::Int32};
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_INT};
 
         DataSet data_set = {
                 {{std::string("ABC"), std::int32_t(123)}, std::string("")},
@@ -385,7 +386,7 @@ TEST(function_string_test, function_string_strright_test) {
     std::string func_name = "strright";
 
     {
-        BaseInputTypeSet input_types = {TypeIndex::String, TypeIndex::Int32};
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_INT};
 
         DataSet data_set = {
                 {{std::string("asd"), 1}, std::string("d")},
@@ -405,6 +406,8 @@ TEST(function_string_test, function_string_strright_test) {
                 {{std::string("hah hah"), -1}, std::string("hah hah")},
                 {{std::string("🤣"), -1}, std::string("🤣")},
                 {{std::string("🤣😃😄"), -2}, std::string("😃😄")},
+                {{std::string("🐼abc🐼"), 100}, std::string("🐼abc🐼")},
+                {{std::string("你好世界"), 5}, std::string("你好世界")},
                 {{std::string("12345"), 6}, std::string("12345")},
                 {{std::string("12345"), 12345}, std::string("12345")},
                 {{std::string("-12345"), -1}, std::string("-12345")},
@@ -421,7 +424,7 @@ TEST(function_string_test, function_string_strright_test) {
 TEST(function_string_test, function_string_strleft_test) {
     std::string func_name = "strleft";
     {
-        BaseInputTypeSet input_types = {TypeIndex::String, TypeIndex::Int32};
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_INT};
 
         DataSet data_set = {
                 {{std::string("asd"), 1}, std::string("a")},
@@ -487,7 +490,7 @@ TEST(function_string_test, function_string_strleft_test) {
 TEST(function_string_test, function_string_lower_test) {
     std::string func_name = "lower";
     {
-        BaseInputTypeSet input_types = {TypeIndex::String};
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
         DataSet data_set = {
                 {{std::string("AbCdEfg")}, std::string("abcdefg")},
                 {{std::string("HELLO123")}, std::string("hello123")},
@@ -514,7 +517,7 @@ TEST(function_string_test, function_string_lower_test) {
 TEST(function_string_test, function_string_upper_test) {
     std::string func_name = "upper";
     {
-        BaseInputTypeSet input_types = {TypeIndex::String};
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
         DataSet data_set = {
                 {{std::string("AbCdEfg")}, std::string("ABCDEFG")},
                 {{std::string("HELLO123")}, std::string("HELLO123")},
@@ -563,7 +566,7 @@ TEST(function_string_test, function_string_upper_test) {
 TEST(function_string_test, function_string_trim_test) {
     std::string func_name = "trim";
     {
-        BaseInputTypeSet input_types = {TypeIndex::String};
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
         DataSet data_set = {
                 {{std::string("    paddedStringNoEscape   ")}, std::string("paddedStringNoEscape")},
                 {{std::string("singleWord")}, std::string("singleWord")},
@@ -611,7 +614,7 @@ TEST(function_string_test, function_string_trim_test) {
 
 TEST(function_string_test, function_string_ltrim_test) {
     std::string func_name = "ltrim";
-    BaseInputTypeSet input_types = {TypeIndex::String};
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
     DataSet data_set = {
             {{std::string("AbCdEfg")}, std::string("AbCdEfg")},
             {{std::string("你好HELLO")}, std::string("你好HELLO")},
@@ -630,7 +633,7 @@ TEST(function_string_test, function_string_ltrim_test) {
 
 TEST(function_string_test, function_string_rtrim_test) {
     std::string func_name = "rtrim";
-    BaseInputTypeSet input_types = {TypeIndex::String};
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
     DataSet data_set = {{
             {{std::string("AbCdEfg")}, std::string("AbCdEfg")},
             {{std::string("你好HELLO")}, std::string("你好HELLO")},
@@ -651,7 +654,7 @@ TEST(function_string_test, function_string_rtrim_test) {
 TEST(function_string_test, function_string_repeat_test) {
     std::string func_name = "repeat";
     {
-        BaseInputTypeSet input_types = {TypeIndex::String, TypeIndex::Int32};
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_INT};
 
         DataSet data_set = {
                 {{std::string("AbCdEfg"), std::int32_t(1)}, std::string("AbCdEfg")},
@@ -753,7 +756,7 @@ TEST(function_string_test, function_string_repeat_test) {
 TEST(function_string_test, function_string_reverse_test) {
     std::string func_name = "reverse";
     {
-        BaseInputTypeSet input_types = {TypeIndex::String};
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
         DataSet data_set = {
                 {{std::string("AbCdEfg")}, std::string("gfEdCbA")},
                 {{std::string("HELLO123")}, std::string("321OLLEH")},
@@ -814,7 +817,7 @@ TEST(function_string_test, function_string_reverse_test) {
 
 TEST(function_string_test, function_string_length_test) {
     std::string func_name = "length";
-    BaseInputTypeSet input_types = {TypeIndex::String};
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
     DataSet data_set = {
             {{std::string("YXNk5L2g5aW9")}, std::int32_t(12)},
             {{std::string("aGVsbG8gd29ybGQ")}, std::int32_t(15)},
@@ -858,7 +861,7 @@ TEST(function_string_test, function_string_length_test) {
 
 TEST(function_string_test, function_string_quote_test) {
     std::string func_name = "quote";
-    BaseInputTypeSet input_types = {TypeIndex::String};
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
     DataSet data_set = {
             {{std::string("hello")}, std::string(R"('hello')")},
             {{std::string("hello\t\n\nworld")}, std::string("'hello\t\n\nworld'")},
@@ -879,7 +882,7 @@ TEST(function_string_test, function_string_quote_test) {
 TEST(function_string_test, function_append_trailing_char_if_absent_test) {
     std::string func_name = "append_trailing_char_if_absent";
 
-    BaseInputTypeSet input_types = {TypeIndex::String, TypeIndex::String};
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR};
 
     DataSet data_set = {{{std::string("ASD"), std::string("D")}, std::string("ASD")},
                         {{std::string("AS"), std::string("D")}, std::string("ASD")},
@@ -890,7 +893,29 @@ TEST(function_string_test, function_append_trailing_char_if_absent_test) {
                         {{std::string("ABC"), Null()}, Null()},
                         {{Null(), std::string("ABC")}, Null()},
                         {{std::string(""), Null()}, Null()},
+                        {{std::string("中文"), std::string("文")}, std::string("中文")},
+                        {{std::string("中"), std::string("文")}, std::string("中文")},
+                        {{std::string(""), std::string("文")}, std::string("文")},
                         {{Null(), std::string("")}, Null()}};
+
+    check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
+}
+
+TEST(function_string_test, function_url_encode_test) {
+    std::string func_name = "url_encode";
+
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
+
+    DataSet data_set = {
+            {{std::string("编码")}, std::string("%E7%BC%96%E7%A0%81")},
+            {{std::string("http://www.baidu.com/?a=中文日文韩文俄文希伯来文Emoji")},
+             std::string(
+                     "http%3A%2F%2Fwww.baidu.com%2F%3Fa%3D%E4%B8%AD%E6%96%87%E6%97%A5%E6%96%87%E9%"
+                     "9F%A9%E6%96%87%E4%BF%84%E6%96%87%E5%B8%8C%E4%BC%AF%E6%9D%A5%E6%96%87Emoji")},
+            {{std::string("http://www.baidu.com?a=http%3A%2F%2Fexample.com%2F😊")},
+             std::string("http%3A%2F%2Fwww.baidu.com%3Fa%3Dhttp%253A%252F%252Fexample.com%252F%F0%"
+                         "9F%98%8A")},
+    };
 
     check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
 }
@@ -898,7 +923,7 @@ TEST(function_string_test, function_append_trailing_char_if_absent_test) {
 TEST(function_string_test, function_starts_with_test) {
     std::string func_name = "starts_with";
 
-    BaseInputTypeSet input_types = {TypeIndex::String, TypeIndex::String};
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR};
 
     DataSet data_set = {{{std::string("hello world"), std::string("hello")}, uint8_t(1)},
                         {{std::string("hello world"), std::string("world")}, uint8_t(0)},
@@ -913,7 +938,7 @@ TEST(function_string_test, function_starts_with_test) {
 TEST(function_string_test, function_ends_with_test) {
     std::string func_name = "ends_with";
 
-    BaseInputTypeSet input_types = {TypeIndex::String, TypeIndex::String};
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR};
 
     DataSet data_set = {{{std::string("hello world"), std::string("hello")}, uint8_t(0)},
                         {{std::string("hello world"), std::string("world")}, uint8_t(1)},
@@ -950,7 +975,7 @@ TEST(function_string_test, function_ends_with_test) {
 TEST(function_string_test, function_ascii_test) {
     std::string func_name = "ascii";
 
-    BaseInputTypeSet input_types = {TypeIndex::String};
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
 
     DataSet data_set = {
             {{std::string("YXNk5L2g5aW9")}, std::int32_t(89)},
@@ -972,7 +997,7 @@ TEST(function_string_test, function_ascii_test) {
 TEST(function_string_test, function_char_length_test) {
     std::string func_name = "char_length";
 
-    BaseInputTypeSet input_types = {TypeIndex::String};
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
 
     DataSet data_set = {
             {{std::string("YXNk5L2g5aW9")}, std::int32_t(12)},
@@ -994,7 +1019,7 @@ TEST(function_string_test, function_char_length_test) {
 TEST(function_string_test, function_concat_test) {
     std::string func_name = "concat";
     {
-        BaseInputTypeSet input_types = {TypeIndex::String};
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
 
         DataSet data_set = {{{std::string("")}, std::string("")},
                             {{std::string("123")}, std::string("123")},
@@ -1004,7 +1029,7 @@ TEST(function_string_test, function_concat_test) {
     };
 
     {
-        BaseInputTypeSet input_types = {TypeIndex::String, TypeIndex::String};
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR};
 
         DataSet data_set = {
                 {{std::string("AbCdEfg"), std::string("AbCdEfg")}, std::string("AbCdEfgAbCdEfg")},
@@ -1171,7 +1196,8 @@ TEST(function_string_test, function_concat_test) {
     };
 
     {
-        BaseInputTypeSet input_types = {TypeIndex::String, TypeIndex::String, TypeIndex::String};
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR,
+                                    PrimitiveType::TYPE_VARCHAR};
 
         DataSet data_set = {
                 {{std::string(""), std::string("1"), std::string("")}, std::string("1")},
@@ -1187,10 +1213,10 @@ TEST(function_string_test, function_elt_test) {
     std::string func_name = "elt";
 
     {
-        BaseInputTypeSet input_types = {
-                TypeIndex::Int32,
-                TypeIndex::String,
-                TypeIndex::String,
+        InputTypeSet input_types = {
+                PrimitiveType::TYPE_INT,
+                PrimitiveType::TYPE_VARCHAR,
+                PrimitiveType::TYPE_VARCHAR,
         };
 
         DataSet data_set = {
@@ -1261,7 +1287,7 @@ TEST(function_string_test, function_elt_test) {
 TEST(function_string_test, function_concat_ws_test) {
     std::string func_name = "concat_ws";
     {
-        BaseInputTypeSet input_types = {TypeIndex::String, TypeIndex::String};
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR};
 
         DataSet data_set = {
                 {{std::string("AbCdEfg"), std::string("AbCdEfg")}, std::string("AbCdEfg")},
@@ -1396,7 +1422,8 @@ TEST(function_string_test, function_concat_ws_test) {
     };
 
     {
-        BaseInputTypeSet input_types = {TypeIndex::String, TypeIndex::String, TypeIndex::String};
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR,
+                                    PrimitiveType::TYPE_VARCHAR};
 
         DataSet data_set = {
                 {{std::string("-"), std::string(""), std::string("")}, std::string("-")},
@@ -1409,8 +1436,8 @@ TEST(function_string_test, function_concat_ws_test) {
     };
 
     {
-        BaseInputTypeSet input_types = {TypeIndex::String, TypeIndex::String, TypeIndex::String,
-                                        TypeIndex::String};
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR,
+                                    PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR};
 
         DataSet data_set = {
                 {{std::string("-"), std::string(""), std::string(""), std::string("")},
@@ -1427,13 +1454,14 @@ TEST(function_string_test, function_concat_ws_test) {
     };
 
     {
-        BaseInputTypeSet input_types = {TypeIndex::String, TypeIndex::Array, TypeIndex::String};
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_ARRAY,
+                                    PrimitiveType::TYPE_VARCHAR};
 
-        Array vec1 = {Field(String("", 0)), Field(String("", 0)), Field(String("", 0))};
-        Array vec2 = {Field(String("123", 3)), Field(String("456", 3)), Field(String("789", 3))};
-        Array vec3 = {Field(String("", 0)), Field(String("?", 1)), Field(String("", 0))};
-        Array vec4 = {Field(String("abc", 3)), Field(String("", 0)), Field(String("def", 3))};
-        Array vec5 = {Field(String("abc", 3)), Field(String("def", 3)), Field(String("ghi", 3))};
+        TestArray vec1 = {std::string(""), std::string(""), std::string("")};
+        TestArray vec2 = {std::string("123"), std::string("456"), std::string("789")};
+        TestArray vec3 = {std::string(""), std::string("?"), std::string("")};
+        TestArray vec4 = {std::string("abc"), std::string(""), std::string("def")};
+        TestArray vec5 = {std::string("abc"), std::string("def"), std::string("ghi")};
         DataSet data_set = {{{std::string("-"), vec1}, std::string("--")},
                             {{std::string(""), vec2}, std::string("123456789")},
                             {{std::string("-"), vec3}, std::string("-?-")},
@@ -1447,7 +1475,7 @@ TEST(function_string_test, function_concat_ws_test) {
 TEST(function_string_test, function_null_or_empty_test) {
     std::string func_name = "null_or_empty";
 
-    BaseInputTypeSet input_types = {TypeIndex::String};
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
 
     DataSet data_set = {{{std::string("")}, uint8(true)},
                         {{std::string("aa")}, uint8(false)},
@@ -1459,7 +1487,7 @@ TEST(function_string_test, function_null_or_empty_test) {
 
 TEST(function_string_test, function_to_base64_test) {
     std::string func_name = "to_base64";
-    BaseInputTypeSet input_types = {TypeIndex::String};
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
 
     DataSet data_set = {
             {{std::string("ABC")}, std::string("QUJD")},
@@ -1484,7 +1512,7 @@ TEST(function_string_test, function_to_base64_test) {
 
 TEST(function_string_test, function_from_base64_test) {
     std::string func_name = "from_base64";
-    BaseInputTypeSet input_types = {TypeIndex::String};
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
 
     DataSet data_set = {
             {{std::string("YXNk5L2g5aW9")}, std::string("asd你好")},
@@ -1504,7 +1532,7 @@ TEST(function_string_test, function_from_base64_test) {
 
 TEST(function_string_test, function_reverse_test) {
     std::string func_name = "reverse";
-    BaseInputTypeSet input_types = {TypeIndex::String};
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
     DataSet data_set = {
             {{std::string("AbCdEfg")}, std::string("gfEdCbA")},
             {{std::string("HELLO123")}, std::string("321OLLEH")},
@@ -1524,7 +1552,7 @@ TEST(function_string_test, function_reverse_test) {
 TEST(function_string_test, function_instr_test) {
     std::string func_name = "instr";
 
-    BaseInputTypeSet input_types = {TypeIndex::String, TypeIndex::String};
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR};
 
     DataSet data_set = {
             {{std::string("ABC"), std::string("ABC")}, std::int32_t(1)},
@@ -1607,7 +1635,7 @@ TEST(function_string_test, function_locate_test) {
     std::string func_name = "locate";
 
     {
-        BaseInputTypeSet input_types = {TypeIndex::String, TypeIndex::String};
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR};
 
         DataSet data_set = {
                 {{std::string("ABC"), std::string("ABC")}, std::int32_t(1)},
@@ -1674,7 +1702,8 @@ TEST(function_string_test, function_locate_test) {
     }
 
     {
-        BaseInputTypeSet input_types = {TypeIndex::String, TypeIndex::String, TypeIndex::Int32};
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR,
+                                    PrimitiveType::TYPE_INT};
 
         DataSet data_set = {
                 {{std::string("ABC"), std::string("ABC"), std::int32_t(100)}, std::int32_t(0)},
@@ -1807,7 +1836,7 @@ TEST(function_string_test, function_locate_test) {
 TEST(function_string_test, function_find_in_set_test) {
     std::string func_name = "find_in_set";
 
-    BaseInputTypeSet input_types = {TypeIndex::String, TypeIndex::String};
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR};
 
     DataSet data_set = {
             {{std::string("ABC"), std::string("A,B,C")}, std::int32_t(0)},
@@ -1845,7 +1874,7 @@ TEST(function_string_test, function_md5sum_test) {
     std::string func_name = "md5sum";
 
     {
-        BaseInputTypeSet input_types = {TypeIndex::String};
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
         DataSet data_set = {
                 {{std::string("asd你好")}, {std::string("a38c15675555017e6b8ea042f2eb24f5")}},
                 {{std::string("hello world")}, {std::string("5eb63bbbe01eeed093cb22bb8f5acdc3")}},
@@ -1860,7 +1889,7 @@ TEST(function_string_test, function_md5sum_test) {
     }
 
     {
-        BaseInputTypeSet input_types = {TypeIndex::String, TypeIndex::String};
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR};
         DataSet data_set = {{{std::string("asd"), std::string("你好")},
                              {std::string("a38c15675555017e6b8ea042f2eb24f5")}},
                             {{std::string("hello "), std::string("world")},
@@ -1873,7 +1902,8 @@ TEST(function_string_test, function_md5sum_test) {
     }
 
     {
-        BaseInputTypeSet input_types = {TypeIndex::String, TypeIndex::String, TypeIndex::String};
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR,
+                                    PrimitiveType::TYPE_VARCHAR};
         DataSet data_set = {{{std::string("a"), std::string("sd"), std::string("你好")},
                              {std::string("a38c15675555017e6b8ea042f2eb24f5")}},
                             {{std::string(""), std::string(""), std::string("")},
@@ -1890,7 +1920,7 @@ TEST(function_string_test, function_sm3sum_test) {
     std::string func_name = "sm3sum";
 
     {
-        BaseInputTypeSet input_types = {TypeIndex::String};
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
         DataSet data_set = {
                 {{std::string("asd你好")},
                  {std::string("0d6b9dfa8fe5708eb0dccfbaff4f2964abaaa976cc4445a7ecace49c0ceb31d3")}},
@@ -1913,7 +1943,7 @@ TEST(function_string_test, function_sm3sum_test) {
     }
 
     {
-        BaseInputTypeSet input_types = {TypeIndex::String, TypeIndex::String};
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR};
         DataSet data_set = {
                 {{std::string("asd"), std::string("你好")},
                  {std::string("0d6b9dfa8fe5708eb0dccfbaff4f2964abaaa976cc4445a7ecace49c0ceb31d3")}},
@@ -1927,7 +1957,8 @@ TEST(function_string_test, function_sm3sum_test) {
     }
 
     {
-        BaseInputTypeSet input_types = {TypeIndex::String, TypeIndex::String, TypeIndex::String};
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR,
+                                    PrimitiveType::TYPE_VARCHAR};
         DataSet data_set = {
                 {{std::string("a"), std::string("sd"), std::string("你好")},
                  {std::string("0d6b9dfa8fe5708eb0dccfbaff4f2964abaaa976cc4445a7ecace49c0ceb31d3")}},
@@ -1944,7 +1975,8 @@ TEST(function_string_test, function_sm3sum_test) {
 TEST(function_string_test, function_aes_encrypt_test) {
     std::string func_name = "aes_encrypt";
     {
-        BaseInputTypeSet input_types = {TypeIndex::String, TypeIndex::String, TypeIndex::String};
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR,
+                                    PrimitiveType::TYPE_VARCHAR};
 
         const char* mode = "AES_128_ECB";
         const char* key = "doris";
@@ -1972,8 +2004,8 @@ TEST(function_string_test, function_aes_encrypt_test) {
         check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
     }
     {
-        BaseInputTypeSet input_types = {TypeIndex::String, TypeIndex::String, TypeIndex::String,
-                                        TypeIndex::String};
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR,
+                                    PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR};
         const char* iv = "0123456789abcdef";
         const char* mode = "AES_256_ECB";
         const char* key = "vectorized";
@@ -2012,7 +2044,8 @@ TEST(function_string_test, function_aes_encrypt_test) {
 TEST(function_string_test, function_aes_decrypt_test) {
     std::string func_name = "aes_decrypt";
     {
-        BaseInputTypeSet input_types = {TypeIndex::String, TypeIndex::String, TypeIndex::String};
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR,
+                                    PrimitiveType::TYPE_VARCHAR};
 
         const char* mode = "AES_128_ECB";
         const char* key = "doris";
@@ -2039,8 +2072,8 @@ TEST(function_string_test, function_aes_decrypt_test) {
         check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
     }
     {
-        BaseInputTypeSet input_types = {TypeIndex::String, TypeIndex::String, TypeIndex::String,
-                                        TypeIndex::String};
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR,
+                                    PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR};
         const char* key = "vectorized";
         const char* iv = "0123456789abcdef";
         const char* mode = "AES_128_OFB";
@@ -2076,8 +2109,8 @@ TEST(function_string_test, function_aes_decrypt_test) {
 TEST(function_string_test, function_sm4_encrypt_test) {
     std::string func_name = "sm4_encrypt";
     {
-        BaseInputTypeSet input_types = {TypeIndex::String, TypeIndex::String, TypeIndex::String,
-                                        TypeIndex::String};
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR,
+                                    PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR};
 
         const char* key = "doris";
         const char* iv = "0123456789abcdef";
@@ -2114,8 +2147,8 @@ TEST(function_string_test, function_sm4_encrypt_test) {
     }
 
     {
-        BaseInputTypeSet input_types = {TypeIndex::String, TypeIndex::String, TypeIndex::String,
-                                        TypeIndex::String};
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR,
+                                    PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR};
 
         const char* key = "vectorized";
         const char* iv = "0123456789abcdef";
@@ -2155,8 +2188,8 @@ TEST(function_string_test, function_sm4_encrypt_test) {
 TEST(function_string_test, function_sm4_decrypt_test) {
     std::string func_name = "sm4_decrypt";
     {
-        BaseInputTypeSet input_types = {TypeIndex::String, TypeIndex::String, TypeIndex::String,
-                                        TypeIndex::String};
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR,
+                                    PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR};
 
         const char* key = "doris";
         const char* iv = "0123456789abcdef";
@@ -2191,8 +2224,8 @@ TEST(function_string_test, function_sm4_decrypt_test) {
     }
 
     {
-        BaseInputTypeSet input_types = {TypeIndex::String, TypeIndex::String, TypeIndex::String,
-                                        TypeIndex::String};
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR,
+                                    PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR};
 
         const char* key = "vectorized";
         const char* iv = "0123456789abcdef";
@@ -2229,7 +2262,7 @@ TEST(function_string_test, function_sm4_decrypt_test) {
 
 TEST(function_string_test, function_extract_url_parameter_test) {
     std::string func_name = "extract_url_parameter";
-    BaseInputTypeSet input_types = {TypeIndex::String, TypeIndex::String};
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR};
     DataSet data_set = {
             {{VARCHAR(""), VARCHAR("k1")}, {VARCHAR("")}},
             {{VARCHAR("http://doris.apache.org?k1=aa"), VARCHAR("")}, {VARCHAR("")}},
@@ -2256,7 +2289,7 @@ TEST(function_string_test, function_parse_url_test) {
     std::string func_name = "parse_url";
 
     {
-        BaseInputTypeSet input_types = {TypeIndex::String, TypeIndex::String};
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR};
         DataSet data_set = {
                 {{std::string("zhangsan"), std::string("HOST")}, {Null()}},
                 {{std::string("facebook.com/path/p1"), std::string("HOST")}, {Null()}},
@@ -2303,7 +2336,8 @@ TEST(function_string_test, function_parse_url_test) {
     }
 
     {
-        BaseInputTypeSet input_types = {TypeIndex::String, TypeIndex::String, TypeIndex::String};
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR,
+                                    PrimitiveType::TYPE_VARCHAR};
         DataSet data_set = {
                 {{std::string("http://fb.com/path/p1.p?q=1#f"), std::string("QUERY"),
                   std::string("q")},
@@ -2323,7 +2357,7 @@ TEST(function_string_test, function_parse_url_test) {
 
 TEST(function_string_test, function_hex_test) {
     std::string func_name = "hex";
-    BaseInputTypeSet input_types = {TypeIndex::String};
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
     DataSet data_set = {
             {{std::string("AbCdEfg")}, std::string("41624364456667")},
             {{std::string("你好HELLO")}, std::string("E4BDA0E5A5BD48454C4C4F")},
@@ -2342,8 +2376,8 @@ TEST(function_string_test, function_hex_test) {
 }
 
 TEST(function_string_test, function_unhex_test) {
-    std::string func_name = "unhex";
-    BaseInputTypeSet input_types = {TypeIndex::String};
+    std::string unhex_func_name = "unhex";
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
     DataSet data_set = {
             {{std::string("41624364456667")}, std::string("AbCdEfg")},
             {{std::string("E4BDA0E5A5BD48454C4C4F")}, std::string("你好HELLO")},
@@ -2358,13 +2392,32 @@ TEST(function_string_test, function_unhex_test) {
             {{std::string("20202020202B20202020202020323320")}, std::string("     +       23 ")},
             // {{std::string("!")}, Null()},
     };
-    check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
+    check_function_all_arg_comb<DataTypeString, true>(unhex_func_name, input_types, data_set);
+
+    std::string unhex_null_func_name = "unhex_null";
+    data_set = {
+            {{std::string("41624364456667")}, std::string("AbCdEfg")},
+            {{std::string("E4BDA0E5A5BD48454C4C4F")}, std::string("你好HELLO")},
+            {{std::string("")}, Null()},
+            {{Null()}, Null()},
+            {{std::string("21402324402A2028212623")}, std::string("!@#$@* (!&#")},
+            {{std::string("4A534B41422851405F5F21")}, std::string("JSKAB(Q@__!")},
+            {{std::string("M4D59207465737420537472E4BDA0E5A5BD2020")}, Null()},
+            {{std::string("2020202020202020202020202020202020")}, std::string("                 ")},
+            {{std::string("3233203132202D2D215F5F215F215F5F21")}, std::string("23 12 --!__!_!__!")},
+            {{std::string("3131322B202B202B")}, std::string("112+ + +")},
+            {{std::string("20202020202B20202020202020323320")}, std::string("     +       23 ")},
+            {{std::string("41G42")}, Null()},
+            {{std::string("!")}, Null()},
+    };
+    check_function_all_arg_comb<DataTypeString, true>(unhex_null_func_name, input_types, data_set);
 }
 
 TEST(function_string_test, function_coalesce_test) {
     std::string func_name = "coalesce";
     {
-        BaseInputTypeSet input_types = {TypeIndex::Int32, TypeIndex::Int32, TypeIndex::Int32};
+        InputTypeSet input_types = {PrimitiveType::TYPE_INT, PrimitiveType::TYPE_INT,
+                                    PrimitiveType::TYPE_INT};
         DataSet data_set = {{{Null(), Null(), (int32_t)1}, {(int32_t)1}},
                             {{Null(), Null(), (int32_t)2}, {(int32_t)2}},
                             {{Null(), Null(), (int32_t)3}, {(int32_t)3}},
@@ -2374,7 +2427,8 @@ TEST(function_string_test, function_coalesce_test) {
     }
 
     {
-        BaseInputTypeSet input_types = {TypeIndex::String, TypeIndex::String, TypeIndex::Int32};
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR,
+                                    PrimitiveType::TYPE_INT};
         DataSet data_set = {
                 {{std::string("qwer"), Null(), (int32_t)1}, {std::string("qwer")}},
                 {{std::string("asdf"), Null(), (int32_t)2}, {std::string("asdf")}},
@@ -2385,7 +2439,8 @@ TEST(function_string_test, function_coalesce_test) {
     }
 
     {
-        BaseInputTypeSet input_types = {TypeIndex::String, TypeIndex::String, TypeIndex::String};
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR,
+                                    PrimitiveType::TYPE_VARCHAR};
         DataSet data_set = {
                 {{Null(), std::string("abc"), std::string("hij")}, {std::string("abc")}},
                 {{Null(), std::string("def"), std::string("klm")}, {std::string("def")}},
@@ -2397,10 +2452,10 @@ TEST(function_string_test, function_coalesce_test) {
 
 TEST(function_string_test, function_replace) {
     std::string func_name = "replace";
-    BaseInputTypeSet input_types = {
-            TypeIndex::String,
-            TypeIndex::String,
-            TypeIndex::String,
+    InputTypeSet input_types = {
+            PrimitiveType::TYPE_VARCHAR,
+            PrimitiveType::TYPE_VARCHAR,
+            PrimitiveType::TYPE_VARCHAR,
     };
     DataSet data_set = {
             {{std::string("A"), std::string("A"), std::string("A")}, std::string("A")},
@@ -2671,10 +2726,10 @@ TEST(function_string_test, function_replace) {
 
 TEST(function_string_test, function_replace_empty) {
     std::string func_name = "replace_empty";
-    BaseInputTypeSet input_types = {
-            TypeIndex::String,
-            TypeIndex::String,
-            TypeIndex::String,
+    InputTypeSet input_types = {
+            PrimitiveType::TYPE_VARCHAR,
+            PrimitiveType::TYPE_VARCHAR,
+            PrimitiveType::TYPE_VARCHAR,
     };
     DataSet data_set = {
             {{std::string("A"), std::string("A"), std::string("A")}, std::string("A")},
@@ -2953,7 +3008,7 @@ TEST(function_string_test, function_replace_empty) {
 
 TEST(function_string_test, function_bit_length_test) {
     std::string func_name = "bit_length";
-    BaseInputTypeSet input_types = {TypeIndex::String};
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
     DataSet data_set = {
             {{std::string("YXNk5L2g5aW9")}, std::int32_t(96)},
             {{std::string("aGVsbG8gd29ybGQ")}, std::int32_t(120)},
@@ -2974,7 +3029,7 @@ TEST(function_string_test, function_bit_length_test) {
 TEST(function_string_test, function_uuid_test) {
     {
         std::string func_name = "uuid_to_int";
-        BaseInputTypeSet input_types = {TypeIndex::String};
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
         uint64_t high = 9572195551486940809ULL;
         uint64_t low = 1759290071393952876ULL;
         __int128 result = (__int128)high * (__int128)10000000000000000000ULL + (__int128)low;
@@ -2988,7 +3043,7 @@ TEST(function_string_test, function_uuid_test) {
     }
     {
         std::string func_name = "int_to_uuid";
-        BaseInputTypeSet input_types = {TypeIndex::Int128};
+        InputTypeSet input_types = {PrimitiveType::TYPE_LARGEINT};
         uint64_t high = 9572195551486940809ULL;
         uint64_t low = 1759290071393952876ULL;
         __int128 value = (__int128)high * (__int128)10000000000000000000ULL + (__int128)low;
@@ -3004,10 +3059,10 @@ TEST(function_string_test, function_overlay_test) {
     std::string func_name = "overlay";
     {
         InputTypeSet input_types = {
-                TypeIndex::String,
-                TypeIndex::Int32,
-                TypeIndex::Int32,
-                TypeIndex::String,
+                PrimitiveType::TYPE_VARCHAR,
+                PrimitiveType::TYPE_INT,
+                PrimitiveType::TYPE_INT,
+                PrimitiveType::TYPE_VARCHAR,
         };
         DataSet data_set = {
                 {{
@@ -3058,10 +3113,10 @@ TEST(function_string_test, function_overlay_test) {
     }
     {
         InputTypeSet input_types = {
-                TypeIndex::String,
-                Consted {TypeIndex::Int32},
-                Consted {TypeIndex::Int32},
-                Consted {TypeIndex::String},
+                PrimitiveType::TYPE_VARCHAR,
+                Consted {PrimitiveType::TYPE_INT},
+                Consted {PrimitiveType::TYPE_INT},
+                Consted {PrimitiveType::TYPE_VARCHAR},
         };
         DataSet data_set = {
                 {{
@@ -3119,12 +3174,14 @@ TEST(function_string_test, function_overlay_test) {
 TEST(function_string_test, function_initcap) {
     std::string func_name {"initcap"};
 
-    BaseInputTypeSet input_types = {TypeIndex::String};
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
 
     DataSet data_set = {{{std::string("SKJ_ASD_SAD _1A")}, std::string("Skj_Asd_Sad _1a")},
                         {{std::string("BC'S aaaaA'' 'S")}, std::string("Bc'S Aaaaa'' 'S")},
                         {{std::string("NULL")}, std::string("Null")},
                         {{Null()}, Null()},
+                        {{std::string("GROSSE     àstanbul , ÀÇAC123    ΣΟΦΟΣ")},
+                         std::string("Grosse     Àstanbul , Àçac123    Σοφος")},
                         {{std::string("HELLO, WORLD!")}, std::string("Hello, World!")},
                         {{std::string("HHHH+-1; asAAss__!")}, std::string("Hhhh+-1; Asaass__!")},
                         {{std::string("a,B,C,D")}, std::string("A,B,C,D")}};
@@ -3135,7 +3192,8 @@ TEST(function_string_test, function_initcap) {
 TEST(function_string_test, function_lpad_test) {
     std::string func_name = "lpad";
 
-    BaseInputTypeSet input_types = {TypeIndex::String, TypeIndex::Int32, TypeIndex::String};
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_INT,
+                                PrimitiveType::TYPE_VARCHAR};
 
     DataSet data_set = {
             {{std::string("YXNk5L2g5aW9"), std::int32_t(1), std::string("__123hehe1")},
@@ -3256,7 +3314,8 @@ TEST(function_string_test, function_lpad_test) {
 TEST(function_string_test, function_rpad_test) {
     std::string func_name = "rpad";
 
-    BaseInputTypeSet input_types = {TypeIndex::String, TypeIndex::Int32, TypeIndex::String};
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_INT,
+                                PrimitiveType::TYPE_VARCHAR};
 
     DataSet data_set = {
             {{std::string("YXNk5L2g5aW9"), std::int32_t(1), std::string("__123hehe1")},
@@ -3370,6 +3429,57 @@ TEST(function_string_test, function_rpad_test) {
             {{Null(), std::int32_t(0), std::string("TVl0ZXN0U1RS")}, Null()},
             {{Null(), std::int32_t(0), Null()}, Null()},
     };
+
+    check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
+}
+
+TEST(function_string_test, function_xpath_string_test) {
+    std::string func_name = "xpath_string";
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR};
+
+    DataSet data_set = {
+            {{std::string("<a>123</a>"), std::string("/a")}, std::string("123")},
+            {{std::string("<a><b>123</b></a>"), std::string("/a/b")}, std::string("123")},
+            {{std::string("<a><b>123</b><c>456</c></a>"), std::string("/a/c")}, std::string("456")},
+            {{std::string("<a><b>123</b><c>456</c></a>"), std::string("/a/d")}, std::string("")},
+            {{std::string("<a><b>123</b><b>456</b></a>"), std::string("/a/b[1]")},
+             std::string("123")},
+            {{std::string("<a><b>123</b><b>456</b></a>"), std::string("/a/b[2]")},
+             std::string("456")},
+            {{std::string("<a><b>123</b><b>456</b></a>"), std::string("/a/b[3]")}, std::string("")},
+            {{std::string("<a><b attr='val'>123</b></a>"), std::string("/a/b[@attr]")},
+             std::string("123")},
+            {{std::string("<a><b attr='val'>123</b></a>"), std::string("/a/b[@attr='val']")},
+             std::string("123")},
+            {{std::string("<a><b attr='val'>123</b></a>"), std::string("/a/b[@attr='wrong']")},
+             std::string("")},
+            {{std::string("<a><!-- comment -->123</a>"), std::string("/a")}, std::string("123")},
+            {{std::string("<a><![CDATA[123]]></a>"), std::string("/a")}, std::string("123")},
+            {{std::string("<a>123<b>456</b>789</a>"), std::string("/a")}, std::string("123456789")},
+            {{std::string("<a>  123  </a>"), std::string("/a")}, std::string("  123  ")},
+            {{std::string("<a></a>"), std::string("/a")}, std::string("")},
+            {{std::string("<a/>"), std::string("/a")}, std::string("")},
+            {{std::string("<a>123</a>"), std::string("")}, Null()},
+            {{std::string(""), std::string("/a")}, Null()},
+            {{Null(), std::string("/a")}, Null()},
+            {{std::string("<a>123</a>"), Null()}, Null()},
+            {{std::string("<book><title>Intro to Hive</title><author>John "
+                          "Doe</author><publisher>Tech Press</publisher></book>"),
+              std::string("//title/text()")},
+             std::string("Intro to Hive")},
+            {{std::string("<book><title>Intro to Hive</title><author>John "
+                          "Doe</author><publisher>Tech Press</publisher></book>"),
+              std::string("//author/text()")},
+             std::string("John Doe")},
+            {{std::string("<book><title>Intro to Hive</title><author>John "
+                          "Doe</author><publisher>Tech Press</publisher></book>"),
+              std::string("//publisher/text()")},
+             std::string("Tech Press")},
+            {{std::string("<book><title>Intro to Hive</title><author>John "
+                          "Doe</author><publisher>Tech Press</publisher></book>"),
+              std::string("/book")},
+             std::string("Intro to HiveJohn DoeTech Press")},
+            {{Null(), Null()}, Null()}};
 
     check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
 }

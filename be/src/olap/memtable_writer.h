@@ -33,7 +33,6 @@
 #include "olap/partial_update_info.h"
 #include "olap/tablet.h"
 #include "olap/tablet_schema.h"
-#include "util/spinlock.h"
 #include "vec/common/custom_allocator.h"
 
 namespace doris {
@@ -134,7 +133,7 @@ private:
     // Save the not active memtable that is in flush queue or under flushing.
     std::vector<std::weak_ptr<MemTable>> _freezed_mem_tables;
     // The lock to protect _memtable and _freezed_mem_tables structure to avoid concurrency modification or read
-    SpinLock _mem_table_ptr_lock;
+    std::mutex _mem_table_ptr_lock;
     std::shared_ptr<ResourceContext> _resource_ctx;
 
     std::mutex _lock;

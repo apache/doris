@@ -186,7 +186,6 @@ PartitionedAggregationTestHelper::create_operators() {
             shared_state_map;
     pipeline_task = std::make_shared<PipelineTask>(source_pipeline, 0, runtime_state.get(), nullptr,
                                                    nullptr, shared_state_map, 0);
-    runtime_state->set_task(pipeline_task.get());
     return {std::move(source_operator), std::move(sink_operator)};
 }
 

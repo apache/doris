@@ -225,6 +225,11 @@ Status OlapScanner::init() {
                 LOG(WARNING) << "fail to init reader.res=" << st;
                 return st;
             }
+            if (config::enable_mow_verbose_log && tablet->enable_unique_key_merge_on_write()) {
+                LOG_INFO("finish capture_rs_readers for tablet={}, query_id={}",
+                         tablet->tablet_id(), print_id(_state->query_id()));
+            }
+
             if (!_state->skip_delete_predicate()) {
                 read_source.fill_delete_predicates();
             }
@@ -319,8 +324,11 @@ Status OlapScanner::_init_tablet_reader_params(
     _tablet_reader_params.vir_col_idx_to_type = _vir_col_idx_to_type;
     _tablet_reader_params.output_columns =
             ((pipeline::OlapScanLocalState*)_local_state)->_maybe_read_column_ids;
-    _tablet_reader_params.target_cast_type_for_variants =
-            ((pipeline::OlapScanLocalState*)_local_state)->_cast_types_for_variants;
+    for (const auto& ele :
+         ((pipeline::OlapScanLocalState*)_local_state)->_cast_types_for_variants) {
+        _tablet_reader_params.target_cast_type_for_variants[ele.first] =
+                ele.second->get_primitive_type();
+    };
     // Condition
     for (auto& filter : filters) {
         _tablet_reader_params.conditions.push_back(filter);
@@ -460,7 +468,7 @@ Status OlapScanner::_init_variant_columns() {
         if (!slot->is_materialized()) {
             continue;
         }
-        if (slot->type().is_variant_type()) {
+        if (slot->type()->get_primitive_type() == PrimitiveType::TYPE_VARIANT) {
             // Such columns are not exist in frontend schema info, so we need to
             // add them into tablet_schema for later column indexing.
             TabletColumn subcol = TabletColumn::create_materialized_variant_column(
@@ -511,7 +519,7 @@ Status OlapScanner::_init_return_columns() {
                      _vir_col_idx_to_type[idx_in_block]->get_name());
             // Virtual column is not included in columns in read-schema.
             continue;
-        } else if (slot->type().is_variant_type()) {
+        } if (slot->type()->get_primitive_type() == PrimitiveType::TYPE_VARIANT) {
             index = tablet_schema->field_index(PathInData(
                     tablet_schema->column_by_uid(slot->col_unique_id()).name_lower_case(),
                     slot->column_paths()));
@@ -664,9 +672,6 @@ void OlapScanner::_collect_profile_before_close() {
     COUNTER_UPDATE(local_state->_rows_short_circuit_cond_input_counter,
                    stats.short_circuit_cond_input_rows);
     COUNTER_UPDATE(local_state->_rows_expr_cond_input_counter, stats.expr_cond_input_rows);
-    for (const auto& [id, info] : stats.filter_info) {
-        local_state->add_filter_info(id, info);
-    }
     COUNTER_UPDATE(local_state->_stats_filtered_counter, stats.rows_stats_filtered);
     COUNTER_UPDATE(local_state->_stats_rp_filtered_counter, stats.rows_stats_rp_filtered);
     COUNTER_UPDATE(local_state->_dict_filtered_counter, stats.rows_dict_filtered);

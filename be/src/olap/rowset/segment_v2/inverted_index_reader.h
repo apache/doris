@@ -198,7 +198,7 @@ public:
 
     [[nodiscard]] uint64_t get_index_id() const override { return _index_meta.index_id(); }
 
-    [[nodiscard]] const std::map<string, string>& get_index_properties() const {
+    [[nodiscard]] const std::map<std::string, std::string>& get_index_properties() const {
         return _index_meta.properties();
     }
 

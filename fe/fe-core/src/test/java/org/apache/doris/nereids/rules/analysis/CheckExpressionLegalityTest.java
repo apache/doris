@@ -35,7 +35,7 @@ public class CheckExpressionLegalityTest implements MemoPatternMatchSupported {
     public void testAvg() {
         ConnectContext connectContext = MemoTestUtils.createConnectContext();
         ExceptionChecker.expectThrowsWithMsg(
-                AnalysisException.class, "avg requires a numeric parameter", () -> {
+                AnalysisException.class, "avg requires a numeric", () -> {
                     PlanChecker.from(connectContext)
                             .analyze("select avg(id) from (select to_bitmap(1) id) tbl");
                 });

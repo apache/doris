@@ -37,6 +37,7 @@ import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -755,6 +756,25 @@ public class StatisticsUtil {
                 || type instanceof AggStateType;
     }
 
+    public static boolean canCollectColumn(Column c, TableIf table, boolean isSampleAnalyze, long indexId) {
+        // Full analyze can collect all columns.
+        if (!isSampleAnalyze) {
+            return true;
+        }
+        // External table can collect all columns.
+        if (!(table instanceof OlapTable)) {
+            return true;
+        }
+        OlapTable olapTable = (OlapTable) table;
+        // Skip agg table value columns
+        KeysType keysType = olapTable.getIndexMetaByIndexId(indexId).getKeysType();
+        if (KeysType.AGG_KEYS.equals(keysType) && !c.isKey()) {
+            return false;
+        }
+        // Skip mor unique table value columns
+        return !KeysType.UNIQUE_KEYS.equals(keysType) || olapTable.isUniqKeyMergeOnWrite() || c.isKey();
+    }
+
     public static void sleep(long millis) {
         try {
             Thread.sleep(millis);
@@ -881,6 +901,16 @@ public class StatisticsUtil {
                 SessionVariable.ENABLE_PARTITION_ANALYZE).enablePartitionAnalyze;
         } catch (Exception e) {
             LOG.warn("Fail to get value of enable partition analyze, return false by default", e);
+        }
+        return false;
+    }
+
+    public static boolean isEnableHboInfoCollection() {
+        try {
+            return findConfigFromGlobalSessionVar(
+                    SessionVariable.ENABLE_HBO_INFO_COLLECTION).isEnableHboInfoCollection();
+        } catch (Exception e) {
+            LOG.warn("Fail to get value of enable hbo optimization, return false by default", e);
         }
         return false;
     }

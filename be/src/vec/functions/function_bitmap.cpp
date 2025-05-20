@@ -18,6 +18,7 @@
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/Functions/FunctionBitmap.h
 // and modified by Doris
 
+#include <absl/strings/str_split.h>
 #include <glog/logging.h>
 #include <stdint.h>
 #include <string.h>
@@ -34,7 +35,6 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "gutil/strings/numbers.h"
-#include "gutil/strings/split.h"
 #include "util/bitmap_value.h"
 #include "util/hash_util.hpp"
 #include "util/murmur_hash3.h"
@@ -66,9 +66,9 @@
 #include "vec/functions/function_bitmap_min_or_max.h"
 #include "vec/functions/function_const.h"
 #include "vec/functions/function_helpers.h"
-#include "vec/functions/function_string.h"
 #include "vec/functions/function_totype.h"
 #include "vec/functions/simple_function_factory.h"
+#include "vec/utils/stringop_substring.h"
 #include "vec/utils/util.hpp"
 
 namespace doris {
@@ -231,12 +231,26 @@ struct BitmapFromString {
             null_map[0] = 1;
             return Status::OK();
         }
+
+        auto split_and_parse = [&bits](const char* raw_str, size_t str_size) {
+            auto res = absl::StrSplit(std::string_view {raw_str, str_size}, ",", absl::SkipEmpty());
+            uint64_t value = 0;
+            for (auto s : res) {
+                if (!safe_strtou64(std::string(s), &value)) {
+                    return false;
+                }
+                bits.push_back(value);
+            }
+            return true;
+        };
+
+        // split by comma
+
         for (size_t i = 0; i < input_rows_count; ++i) {
             const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
             int64_t str_size = offsets[i] - offsets[i - 1];
 
-            if ((str_size > INT32_MAX) ||
-                !(SplitStringAndParse({raw_str, (int)str_size}, ",", &safe_strtou64, &bits))) {
+            if ((str_size > INT32_MAX) || !split_and_parse(raw_str, str_size)) {
                 res.emplace_back();
                 null_map[i] = 1;
                 continue;
@@ -375,23 +389,28 @@ public:
             const auto& nested_column = nested_nullable_column.get_nested_column();
             const auto& nested_null_map = nested_nullable_column.get_null_map_column().get_data();
 
-            WhichDataType which_type(argument_type);
-            if (which_type.is_int8()) {
+            switch (argument_type->get_primitive_type()) {
+            case PrimitiveType::TYPE_TINYINT:
                 RETURN_IF_ERROR(Impl::template vector<ColumnInt8>(offset_column_data, nested_column,
                                                                   nested_null_map, res, null_map));
-            } else if (which_type.is_uint8()) {
+                break;
+            case PrimitiveType::TYPE_BOOLEAN:
                 RETURN_IF_ERROR(Impl::template vector<ColumnUInt8>(
                         offset_column_data, nested_column, nested_null_map, res, null_map));
-            } else if (which_type.is_int16()) {
+                break;
+            case PrimitiveType::TYPE_SMALLINT:
                 RETURN_IF_ERROR(Impl::template vector<ColumnInt16>(
                         offset_column_data, nested_column, nested_null_map, res, null_map));
-            } else if (which_type.is_int32()) {
+                break;
+            case PrimitiveType::TYPE_INT:
                 RETURN_IF_ERROR(Impl::template vector<ColumnInt32>(
                         offset_column_data, nested_column, nested_null_map, res, null_map));
-            } else if (which_type.is_int64()) {
+                break;
+            case PrimitiveType::TYPE_BIGINT:
                 RETURN_IF_ERROR(Impl::template vector<ColumnInt64>(
                         offset_column_data, nested_column, nested_null_map, res, null_map));
-            } else {
+                break;
+            default:
                 return Status::RuntimeError("Illegal column {} of argument of function {}",
                                             block.get_by_position(arguments[0]).column->get_name(),
                                             get_name());
@@ -957,7 +976,7 @@ struct NameBitmapToString {
 
 struct BitmapToString {
     using ReturnType = DataTypeString;
-    static constexpr auto TYPE_INDEX = TypeIndex::BitMap;
+    static constexpr auto PrimitiveTypeImpl = PrimitiveType::TYPE_OBJECT;
     using Type = DataTypeBitMap::FieldType;
     using ReturnColumnType = ColumnString;
     using Chars = ColumnString::Chars;
@@ -980,7 +999,7 @@ struct NameBitmapToBase64 {
 
 struct BitmapToBase64 {
     using ReturnType = DataTypeString;
-    static constexpr auto TYPE_INDEX = TypeIndex::BitMap;
+    static constexpr auto PrimitiveTypeImpl = PrimitiveType::TYPE_OBJECT;
     using Type = DataTypeBitMap::FieldType;
     using ReturnColumnType = ColumnString;
     using Chars = ColumnString::Chars;

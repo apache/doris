@@ -20,6 +20,7 @@ package org.apache.doris.mtmv;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.jobs.executor.Rewriter;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -97,7 +98,7 @@ public class MTMVCache {
     public static MTMVCache from(String defSql,
             ConnectContext createCacheContext,
             boolean needCost, boolean needLock,
-            ConnectContext currentContext) {
+            ConnectContext currentContext) throws AnalysisException {
         StatementContext mvSqlStatementContext = new StatementContext(createCacheContext,
                 new OriginStatement(defSql, 0));
         if (!needLock) {

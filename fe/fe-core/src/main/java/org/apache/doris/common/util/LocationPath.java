@@ -20,6 +20,7 @@ package org.apache.doris.common.util;
 import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
+import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.property.constants.CosProperties;
 import org.apache.doris.datasource.property.constants.ObsProperties;
@@ -52,6 +53,9 @@ public class LocationPath {
     private static final Logger LOG = LogManager.getLogger(LocationPath.class);
     private static final String SCHEME_DELIM = "://";
     private static final String NONSTANDARD_SCHEME_DELIM = ":/";
+    private static final String STANDARD_HDFS_PREFIX = "hdfs://";
+    private static final String EMPTY_HDFS_PREFIX = "hdfs:///";
+    private static final String BROKEN_HDFS_PREFIX = "hdfs:/";
     private final Scheme scheme;
     private final String location;
     private final boolean isBindBroker;
@@ -106,7 +110,9 @@ public class LocationPath {
                 this.scheme = Scheme.HDFS;
                 // Need add hdfs host to location
                 String host = props.get(HdfsResource.DSF_NAMESERVICES);
-                tmpLocation = convertPath ? normalizedHdfsPath(tmpLocation, host) : tmpLocation;
+                boolean enableOssRootPolicy = props.getOrDefault(ExternalCatalog.OOS_ROOT_POLICY, "false")
+                        .equals("true");
+                tmpLocation = convertPath ? normalizedHdfsPath(tmpLocation, host, enableOssRootPolicy) : tmpLocation;
                 break;
             case FeConstants.FS_PREFIX_S3:
                 this.scheme = Scheme.S3;
@@ -203,8 +209,9 @@ public class LocationPath {
 
     // Return the file system type and the file system identity.
     // The file system identity is the scheme and authority of the URI, eg. "hdfs://host:port" or "s3://bucket".
-    public static Pair<FileSystemType, String> getFSIdentity(String location, String bindBrokerName) {
-        LocationPath locationPath = new LocationPath(location, Collections.emptyMap(), true);
+    public static Pair<FileSystemType, String> getFSIdentity(String location,
+            Map<String, String> properties, String bindBrokerName) {
+        LocationPath locationPath = new LocationPath(location, properties, true);
         FileSystemType fsType = (bindBrokerName != null) ? FileSystemType.BROKER : locationPath.getFileSystemType();
         URI uri = locationPath.getPath().toUri();
         String fsIdent = Strings.nullToEmpty(uri.getScheme()) + "://" + Strings.nullToEmpty(uri.getAuthority());
@@ -364,38 +371,48 @@ public class LocationPath {
         return pos;
     }
 
-    private static String normalizedHdfsPath(String location, String host) {
+    @VisibleForTesting
+    public static String normalizedHdfsPath(String location, String host, boolean enableOssRootPolicy) {
         try {
             // Hive partition may contain special characters such as ' ', '<', '>' and so on.
             // Need to encode these characters before creating URI.
             // But doesn't encode '/' and ':' so that we can get the correct uri host.
-            location = URLEncoder.encode(location, StandardCharsets.UTF_8.name())
-                .replace("%2F", "/").replace("%3A", ":");
-            URI normalizedUri = new URI(location);
+            String newLocation = URLEncoder.encode(location, StandardCharsets.UTF_8.name()).replace("%2F", "/")
+                    .replace("%3A", ":");
+            URI normalizedUri = new URI(newLocation).normalize();
             // compatible with 'hdfs:///' or 'hdfs:/'
             if (StringUtils.isEmpty(normalizedUri.getHost())) {
-                location = URLDecoder.decode(location, StandardCharsets.UTF_8.name());
-                String normalizedPrefix = HdfsResource.HDFS_PREFIX + "//";
-                String brokenPrefix = HdfsResource.HDFS_PREFIX + "/";
-                if (location.startsWith(brokenPrefix) && !location.startsWith(normalizedPrefix)) {
-                    location = location.replace(brokenPrefix, normalizedPrefix);
+                newLocation = URLDecoder.decode(newLocation, StandardCharsets.UTF_8.name());
+                if (newLocation.startsWith(BROKEN_HDFS_PREFIX) && !newLocation.startsWith(STANDARD_HDFS_PREFIX)) {
+                    newLocation = newLocation.replace(BROKEN_HDFS_PREFIX, STANDARD_HDFS_PREFIX);
                 }
                 if (StringUtils.isNotEmpty(host)) {
                     // Replace 'hdfs://key/' to 'hdfs://name_service/key/'
                     // Or hdfs:///abc to hdfs://name_service/abc
-                    return location.replace(normalizedPrefix, normalizedPrefix + host + "/");
+                    if (newLocation.startsWith(EMPTY_HDFS_PREFIX)) {
+                        return newLocation.replace(STANDARD_HDFS_PREFIX, STANDARD_HDFS_PREFIX + host);
+                    } else {
+                        return newLocation.replace(STANDARD_HDFS_PREFIX, STANDARD_HDFS_PREFIX + host + "/");
+                    }
                 } else {
                     // 'hdfs://null/' equals the 'hdfs:///'
-                    if (location.startsWith(HdfsResource.HDFS_PREFIX + "///")) {
+                    if (newLocation.startsWith(EMPTY_HDFS_PREFIX)) {
                         // Do not support hdfs:///location
-                        throw new RuntimeException("Invalid location with empty host: " + location);
+                        throw new RuntimeException("Invalid location with empty host: " + newLocation);
                     } else {
-                        // Replace 'hdfs://key/' to '/key/', try access local NameNode on BE.
-                        return location.replace(normalizedPrefix, "/");
+                        if (enableOssRootPolicy) {
+                            // if oss root policy is enabled, the path should be like:
+                            // hdfs://customized_host/path/to/file
+                            // Should remain unchanged.
+                            return newLocation;
+                        } else {
+                            // Replace 'hdfs://key/' to '/key/', try access local NameNode on BE.
+                            return newLocation.replace(STANDARD_HDFS_PREFIX, "/");
+                        }
                     }
                 }
             }
-            return URLDecoder.decode(location, StandardCharsets.UTF_8.name());
+            return URLDecoder.decode(newLocation, StandardCharsets.UTF_8.name());
         } catch (URISyntaxException | UnsupportedEncodingException e) {
             throw new RuntimeException(e.getMessage(), e);
         }

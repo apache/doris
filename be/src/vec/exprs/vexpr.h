@@ -91,7 +91,7 @@ public:
 
     VExpr(const TExprNode& node);
     VExpr(const VExpr& vexpr);
-    VExpr(TypeDescriptor type, bool is_slotref, bool is_nullable);
+    VExpr(DataTypePtr type, bool is_slotref);
     // only used for test
     VExpr() = default;
     virtual ~VExpr() = default;
@@ -154,8 +154,6 @@ public:
 
     DataTypePtr& data_type() { return _data_type; }
 
-    TypeDescriptor type() { return _type; }
-
     bool is_slot_ref() const { return _node_type == TExprNodeType::SLOT_REF; }
 
     bool is_column_ref() const { return _node_type == TExprNodeType::COLUMN_REF; }
@@ -197,7 +195,7 @@ public:
 
     bool is_nullable() const { return _data_type->is_nullable(); }
 
-    PrimitiveType result_type() const { return _type.type; }
+    PrimitiveType result_type() const { return _data_type->get_primitive_type(); }
 
     static Status create_expr(const TExprNode& expr_node, VExprSPtr& expr);
 
@@ -230,7 +228,8 @@ public:
     /// the output. Returns nullptr if the argument is not constant. The returned ColumnPtr is
     /// owned by this expr. This should only be called after Open() has been called on this
     /// expr.
-    Status get_const_col(VExprContext* context, std::shared_ptr<ColumnPtrWrapper>* column_wrapper);
+    MOCK_FUNCTION Status get_const_col(VExprContext* context,
+                                       std::shared_ptr<ColumnPtrWrapper>* column_wrapper);
 
     int fn_context_index() const { return _fn_context_index; }
 
@@ -334,7 +333,6 @@ protected:
     TExprNodeType::type _node_type;
     // Used to check what opcode
     TExprOpcode::type _opcode;
-    TypeDescriptor _type;
     DataTypePtr _data_type;
     VExprSPtrs _children; // in few hundreds
     TFunction _fn;

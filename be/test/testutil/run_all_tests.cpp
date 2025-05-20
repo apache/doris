@@ -23,6 +23,7 @@
 
 #include "common/config.h"
 #include "common/logging.h"
+#include "common/phdr_cache.h"
 #include "common/status.h"
 #include "gtest/gtest.h"
 #include "olap/page_cache.h"
@@ -44,7 +45,7 @@
 DEFINE_bool(wait, false, "Wait user to start test");
 
 int main(int argc, char** argv) {
-    doris::ThreadLocalHandle::create_thread_local_if_not_exits();
+    SCOPED_INIT_THREAD_CONTEXT();
     doris::ExecEnv::GetInstance()->init_mem_tracker();
     // Used for unit test
     std::unique_ptr<doris::ThreadPool> non_block_close_thread_pool;
@@ -99,15 +100,30 @@ int main(int argc, char** argv) {
 
     ::testing::TestEventListeners& listeners = ::testing::UnitTest::GetInstance()->listeners();
     listeners.Append(new TestListener);
-    doris::ExecEnv::GetInstance()->set_tracking_memory(false);
+    doris::ExecEnv::set_tracking_memory(false);
 
     google::ParseCommandLineFlags(&argc, &argv, false);
     // a infinite loop to wait for the http service to start
     while (FLAGS_wait) {
         sleep(1);
     }
-    int res = RUN_ALL_TESTS();
 
-    doris::ExecEnv::GetInstance()->set_non_block_close_thread_pool(nullptr);
-    return res;
+    updatePHDRCache();
+    try {
+        int res = RUN_ALL_TESTS();
+        doris::ExecEnv::GetInstance()->set_non_block_close_thread_pool(nullptr);
+        return res;
+    } catch (doris::Exception& e) {
+        LOG(FATAL) << "Exception: " << e.what();
+    } catch (...) {
+        auto eptr = std::current_exception();
+        try {
+            std::rethrow_exception(eptr);
+        } catch (const std::exception& e) {
+            LOG(FATAL) << "Unknown exception: " << e.what();
+        } catch (...) {
+            LOG(FATAL) << "Unknown exception";
+        }
+        return -1;
+    }
 }
