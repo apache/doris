@@ -218,7 +218,7 @@ suite("refactor_storage_backup_restore_object_storage", "p0,external,external_do
     test_backup_restore(ak,sk,s3_endpoint,region,bucket,objPrefix)
     //todo When the new fs is fully enabled, we need to open this startup
     String enabledOtherObjectStorageTest = context.config.otherConfigs.get("enabledOtherObjectStorageTest")
-    if (enabled == null || enabledOtherObjectStorageTest.equalsIgnoreCase("false")) {
+    if (enabledOtherObjectStorageTest == null || enabledOtherObjectStorageTest.equalsIgnoreCase("false")) {
         return
     }
     /*-----------------Tencent COS----------------*/
