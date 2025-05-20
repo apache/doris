@@ -399,8 +399,8 @@ public class MysqlLoadManager {
                 CsvFileFormatProperties csvFileFormatProperties = (CsvFileFormatProperties) fileFormatProperties;
                 httpPut.addHeader(LoadStmt.KEY_TRIM_DOUBLE_QUOTES,
                         String.valueOf(csvFileFormatProperties.isTrimDoubleQuotes()));
-                httpPut.addHeader(LoadStmt.KEY_ENCLOSE, String.valueOf(csvFileFormatProperties.getEnclose()));
-                httpPut.addHeader(LoadStmt.KEY_ESCAPE, String.valueOf(csvFileFormatProperties.getEscape()));
+                httpPut.addHeader(LoadStmt.KEY_ENCLOSE, new String(new byte[]{csvFileFormatProperties.getEnclose()}));
+                httpPut.addHeader(LoadStmt.KEY_ESCAPE, new String(new byte[]{csvFileFormatProperties.getEscape()}));
             }
         }
 
