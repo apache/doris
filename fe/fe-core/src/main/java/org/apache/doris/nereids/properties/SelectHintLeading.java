@@ -27,21 +27,50 @@ import java.util.stream.Collectors;
 public class SelectHintLeading extends SelectHint {
     // e.g. query_timeout='1800', exec_mem_limit='2147483648'
     private final List<String> parameters;
+    private final String originalLeadingText;
 
-    public SelectHintLeading(String hintName, List<String> parameters) {
+    private boolean isSyntaxError;
+    private String errorMessage;
+
+    public SelectHintLeading(String hintName, List<String> parameters, String originalLeadingText) {
         super(hintName);
         this.parameters = parameters;
+        this.originalLeadingText = originalLeadingText;
+        this.isSyntaxError = false;
+    }
+
+    public SelectHintLeading(String hintName, List<String> parameters) {
+        this(hintName, parameters, null);
     }
 
     public List<String> getParameters() {
         return parameters;
     }
 
+    public boolean isSyntaxError() {
+        return isSyntaxError;
+    }
+
+    public String getErrorMessage() {
+        return errorMessage;
+    }
+
+    public void setErrorMessage(String errorMessage) {
+        if (errorMessage != null) {
+            isSyntaxError = true;
+            this.errorMessage = errorMessage;
+        }
+    }
+
     @Override
     public String toString() {
-        String leadingString = parameters
-                .stream()
-                .collect(Collectors.joining(" "));
-        return super.getHintName() + "(" + leadingString + ")";
+        if (originalLeadingText != null) {
+            return originalLeadingText;
+        } else {
+            String leadingString = parameters
+                    .stream()
+                    .collect(Collectors.joining(" "));
+            return super.getHintName() + "(" + leadingString + ")";
+        }
     }
 }
