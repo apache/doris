@@ -324,13 +324,18 @@ suite("test_hive_meta_cache", "p0,external,hive,external_docker,external_docker_
             // desc table, 3 columns
             qt_sql_3col "desc test_hive_meta_cache_db.sales";
             // show create table , 3 columns
-            qt_sql_sct01_3col "show create table test_hive_meta_cache_db.sales";
+            def sql_sct01_3col = sql "show create table test_hive_meta_cache_db.sales"
+            println "${sql_sct01_3col}"
+            assertTrue(sql_sct01_3col[0][1].contains("CREATE TABLE `sales`(\n  `id` int,\n  `amount` double)\nPARTITIONED BY (\n `year` int)"));
+            
             // add a new column in hive
             hive_docker "alter table test_hive_meta_cache_db.sales add columns(k1 string)"
             // desc table, 4 columns
             qt_sql_4col "desc test_hive_meta_cache_db.sales";
             // show create table, 4 columns
-            qt_sql_sct01_4col "show create table test_hive_meta_cache_db.sales";
+            def sql_sct01_4col = sql "show create table test_hive_meta_cache_db.sales"
+            println "${sql_sct01_4col}"
+            assertTrue(sql_sct01_4col[0][1].contains("CREATE TABLE `sales`(\n  `id` int,\n  `amount` double,\n  `k1` string)\nPARTITIONED BY (\n `year` int)"));
 
             // open schema cache
             sql """alter catalog ${catalog_name_no_cache} set properties ("schema.cache.ttl-second" = "120")"""
@@ -339,13 +344,17 @@ suite("test_hive_meta_cache", "p0,external,hive,external_docker,external_docker_
             // desc table, 5 columns
             qt_sql_5col "desc test_hive_meta_cache_db.sales";
             // show create table, 5 columns
-            qt_sql_sct01_5col "show create table test_hive_meta_cache_db.sales";
+            def sql_sct01_5col = sql "show create table test_hive_meta_cache_db.sales"
+            println "${sql_sct01_5col}"
+            assertTrue(sql_sct01_5col[0][1].contains("CREATE TABLE `sales`(\n  `id` int,\n  `amount` double,\n  `k1` string,\n  `k2` string)\nPARTITIONED BY (\n `year` int)"));
             // add a new column in hive
             hive_docker "alter table test_hive_meta_cache_db.sales add columns(k3 string)"
             // desc table, still 5 columns
             qt_sql_5col "desc test_hive_meta_cache_db.sales";
             // show create table always see latest schema, 6 columns
-            qt_sql_sct01_5col "show create table test_hive_meta_cache_db.sales";
+            def sql_sct01_6col = sql "show create table test_hive_meta_cache_db.sales"
+            println "${sql_sct01_6col}"
+            assertTrue(sql_sct01_6col[0][1].contains("CREATE TABLE `sales`(\n  `id` int,\n  `amount` double,\n  `k1` string,\n  `k2` string,\n  `k3` string)\nPARTITIONED BY (\n `year` int)"));
             sql """drop table test_hive_meta_cache_db.sales"""
         }
     }
