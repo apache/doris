@@ -109,7 +109,8 @@ Status LoadBlockQueue::add_block(RuntimeState* runtime_state,
 
 Status LoadBlockQueue::get_block(RuntimeState* runtime_state, vectorized::Block* block,
                                  bool* find_block, bool* eos,
-                                 std::shared_ptr<pipeline::Dependency> get_block_dep) {
+                                 std::shared_ptr<pipeline::Dependency> get_block_dep,
+                                 std::shared_ptr<pipeline::Dependency> timer_dependency) {
     *find_block = false;
     *eos = false;
     std::unique_lock l(mutex);
@@ -145,8 +146,9 @@ Status LoadBlockQueue::get_block(RuntimeState* runtime_state, vectorized::Block*
                           << ", duration=" << duration << ", load_ids=" << get_load_ids();
             }
         }
-        if (!_load_ids_to_write_dep.empty()) {
+        if (!_need_commit && !timer_dependency->ready()) {
             get_block_dep->block();
+            VLOG_DEBUG << "block get_block for query_id=" << load_instance_id;
         }
     } else {
         const BlockData block_data = _block_queue.front();
