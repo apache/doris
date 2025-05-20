@@ -18,12 +18,12 @@
 #pragma once
 
 #include <butil/macros.h>
+#include <sanitizer/asan_interface.h>
 
 #include <cstdint>
 #include <cstring>
 #include <string>
 
-#include "gutil/dynamic_annotations.h"
 #include "util/memcpy_inlined.h"
 #include "util/slice.h"
 #include "vec/common/allocator.h"

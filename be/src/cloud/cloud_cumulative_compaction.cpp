@@ -49,10 +49,18 @@ CloudCumulativeCompaction::~CloudCumulativeCompaction() = default;
 
 Status CloudCumulativeCompaction::prepare_compact() {
     DBUG_EXECUTE_IF("CloudCumulativeCompaction.prepare_compact.sleep", { sleep(5); })
+    Status st;
+    Defer defer_set_st([&] {
+        if (!st.ok()) {
+            cloud_tablet()->set_last_cumu_compaction_status(st.to_string());
+            cloud_tablet()->set_last_cumu_compaction_failure_time(UnixMillis());
+        }
+    });
     if (_tablet->tablet_state() != TABLET_RUNNING &&
         (!config::enable_new_tablet_do_compaction ||
          static_cast<CloudTablet*>(_tablet.get())->alter_version() == -1)) {
-        return Status::InternalError("invalid tablet state. tablet_id={}", _tablet->tablet_id());
+        st = Status::InternalError("invalid tablet state. tablet_id={}", _tablet->tablet_id());
+        return st;
     }
 
     std::vector<std::shared_ptr<CloudCumulativeCompaction>> cumu_compactions;
@@ -76,11 +84,12 @@ Status CloudCumulativeCompaction::prepare_compact() {
         }
     }
     if (need_sync_tablet) {
-        RETURN_IF_ERROR(cloud_tablet()->sync_rowsets());
+        st = cloud_tablet()->sync_rowsets();
+        RETURN_IF_ERROR(st);
     }
 
     // pick rowsets to compact
-    auto st = pick_rowsets_to_compact();
+    st = pick_rowsets_to_compact();
     if (!st.ok()) {
         if (_last_delete_version.first != -1) {
             // we meet a delete version, should increase the cumulative point to let base compaction handle the delete version.
@@ -88,8 +97,8 @@ Status CloudCumulativeCompaction::prepare_compact() {
             // NOTICE: after that, the cumulative point may be larger than max version of this tablet, but it doesn't matter.
             update_cumulative_point();
             if (!config::enable_sleep_between_delete_cumu_compaction) {
-                st = Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>(
-                        "_last_delete_version.first not equal to -1");
+                st = Status::Error<CUMULATIVE_MEET_DELETE_VERSION>(
+                        "cumulative compaction meet delete version");
             }
         }
         return st;
@@ -156,7 +165,8 @@ Status CloudCumulativeCompaction::request_global_lock() {
             LOG_WARNING("failed to prepare cumu compaction")
                     .tag("job_id", _uuid)
                     .tag("msg", resp.status().msg());
-            return Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>("no suitable versions");
+            return Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>(
+                    "cumu no suitable versions: job tablet busy");
         } else if (resp.status().code() == cloud::JOB_CHECK_ALTER_VERSION) {
             (static_cast<CloudTablet*>(_tablet.get()))->set_alter_version(resp.alter_version());
             std::stringstream ss;
@@ -182,12 +192,21 @@ Status CloudCumulativeCompaction::execute_compact() {
 
     using namespace std::chrono;
     auto start = steady_clock::now();
-    auto res = CloudCompactionMixin::execute_compact();
-    if (!res.ok()) {
-        LOG(WARNING) << "fail to do " << compaction_name() << ". res=" << res
+    Status st;
+    Defer defer_set_st([&] {
+        cloud_tablet()->set_last_cumu_compaction_status(st.to_string());
+        if (!st.ok()) {
+            cloud_tablet()->set_last_cumu_compaction_failure_time(UnixMillis());
+        } else {
+            cloud_tablet()->set_last_cumu_compaction_success_time(UnixMillis());
+        }
+    });
+    st = CloudCompactionMixin::execute_compact();
+    if (!st.ok()) {
+        LOG(WARNING) << "fail to do " << compaction_name() << ". res=" << st
                      << ", tablet=" << _tablet->tablet_id()
                      << ", output_version=" << _output_version;
-        return res;
+        return st;
     }
     LOG_INFO("finish CloudCumulativeCompaction, tablet_id={}, cost={}ms, range=[{}-{}]",
              _tablet->tablet_id(), duration_cast<milliseconds>(steady_clock::now() - start).count(),
@@ -216,7 +235,8 @@ Status CloudCumulativeCompaction::execute_compact() {
             _input_rowsets_total_size);
     cumu_output_size << _output_rowset->total_disk_size();
 
-    return Status::OK();
+    st = Status::OK();
+    return st;
 }
 
 Status CloudCumulativeCompaction::modify_rowsets() {
@@ -472,7 +492,8 @@ Status CloudCumulativeCompaction::pick_rowsets_to_compact() {
                 });
     }
     if (candidate_rowsets.empty()) {
-        return Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>("no suitable versions");
+        return Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>(
+                "no suitable versions: candidate rowsets empty");
     }
     std::sort(candidate_rowsets.begin(), candidate_rowsets.end(), Rowset::comparator);
     if (auto st = check_version_continuity(candidate_rowsets); !st.ok()) {
@@ -500,12 +521,14 @@ Status CloudCumulativeCompaction::pick_rowsets_to_compact() {
                                  &_last_delete_version, &compaction_score);
 
     if (_input_rowsets.empty()) {
-        return Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>("no suitable versions");
+        return Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>(
+                "no suitable versions: input rowsets empty");
     } else if (_input_rowsets.size() == 1 &&
                !_input_rowsets.front()->rowset_meta()->is_segments_overlapping()) {
         VLOG_DEBUG << "there is only one rowset and not overlapping. tablet_id="
                    << _tablet->tablet_id() << ", version=" << _input_rowsets.front()->version();
-        return Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>("no suitable versions");
+        return Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>(
+                "no suitable versions: only one rowset and not overlapping");
     }
     return Status::OK();
 }
