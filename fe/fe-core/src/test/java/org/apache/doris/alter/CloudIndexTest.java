@@ -19,14 +19,19 @@ package org.apache.doris.alter;
 
 import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.BuildIndexClause;
 import org.apache.doris.analysis.CancelAlterTableStmt;
 import org.apache.doris.analysis.CreateIndexClause;
 import org.apache.doris.analysis.DataSortInfo;
 import org.apache.doris.analysis.DropIndexClause;
+import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.IndexDef;
 import org.apache.doris.analysis.IndexDef.IndexType;
 import org.apache.doris.analysis.ShowAlterStmt;
+import org.apache.doris.analysis.ShowBuildIndexStmt;
+import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.CatalogTestUtil;
 import org.apache.doris.catalog.Database;
@@ -48,6 +53,8 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ShowExecutor;
+import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.resource.computegroup.ComputeGroupMgr;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
@@ -61,6 +68,8 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import mockit.Mock;
 import mockit.MockUp;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -71,11 +80,14 @@ import java.util.List;
 import java.util.Map;
 
 public class CloudIndexTest {
+    private static final Logger LOG = LogManager.getLogger(CloudIndexTest.class);
+
     private static String fileName = "./CloudIndexTest";
 
     private static FakeEditLog fakeEditLog;
     private static FakeEnv fakeEnv;
     private static Env masterEnv;
+    private ConnectContext ctx;
 
     private static Analyzer analyzer;
     private static Database db;
@@ -216,7 +228,7 @@ public class CloudIndexTest {
         fakeEditLog = new FakeEditLog();
         FakeEnv.setEnv(masterEnv);
 
-        ConnectContext ctx = new ConnectContext();
+        ctx = new ConnectContext();
         ctx.setEnv(masterEnv);
         ctx.setQualifiedUser("root");
         ctx.setThreadLocalInfo();
@@ -239,6 +251,8 @@ public class CloudIndexTest {
                 return new ComputeGroupMgr(Env.getCurrentSystemInfo());
             }
         };
+        analyzer = new Analyzer(masterEnv, ctx);
+
         Assert.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
         ((CloudSystemInfoService) Env.getCurrentSystemInfo()).addCloudCluster("test_group", "");
         List<Backend> backends =
@@ -467,6 +481,86 @@ public class CloudIndexTest {
     }
 
     @Test
+    public void testShowBuildInvertedIndex() throws Exception {
+        Assert.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
+
+        SystemInfoService cloudSystemInfo = Env.getCurrentSystemInfo();
+        fakeEnv = new FakeEnv();
+        fakeEditLog = new FakeEditLog();
+        FakeEnv.setEnv(masterEnv);
+        FakeEnv.setSystemInfo(cloudSystemInfo);
+
+        Assert.assertTrue(Env.getCurrentInternalCatalog() instanceof CloudInternalCatalog);
+        Assert.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
+        CatalogTestUtil.createDupTable(db);
+        OlapTable table = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId2);
+        DataSortInfo dataSortInfo = new DataSortInfo();
+        dataSortInfo.setSortType(TSortType.LEXICAL);
+        table.setDataSortInfo(dataSortInfo);
+        String indexName = "raw_inverted_index";
+        IndexDef indexDef = new IndexDef(indexName, false,
+                Lists.newArrayList(table.getBaseSchema().get(3).getName()),
+                IndexType.INVERTED,
+                Maps.newHashMap(), "raw inverted index");
+        TableName tableName = new TableName(masterEnv.getInternalCatalog().getName(), db.getName(),
+                table.getName());
+        createIndexClause = new CreateIndexClause(tableName, indexDef, false);
+        createIndexClause.analyze(analyzer);
+        SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
+        ArrayList<AlterClause> alterClauses = new ArrayList<>();
+        alterClauses.add(createIndexClause);
+        schemaChangeHandler.process(alterClauses, db, table);
+        Map<Long, AlterJobV2> indexChangeJobMap = schemaChangeHandler.getAlterJobsV2();
+        Assert.assertEquals(1, indexChangeJobMap.size());
+        Assert.assertEquals(1, table.getIndexes().size());
+        Assert.assertEquals("raw_inverted_index", table.getIndexes().get(0).getIndexName());
+
+        long jobId = indexChangeJobMap.values().stream().findAny().get().jobId;
+
+        buildIndexClause = new BuildIndexClause(tableName, indexName, null, false);
+        buildIndexClause.analyze(analyzer);
+        alterClauses.clear();
+        alterClauses.add(buildIndexClause);
+
+        schemaChangeHandler.process(alterClauses, db, table);
+        Assert.assertEquals(2, indexChangeJobMap.size());
+        Assert.assertEquals(OlapTableState.SCHEMA_CHANGE, table.getState());
+
+        Expr where = new BinaryPredicate(
+                BinaryPredicate.Operator.EQ, new SlotRef(tableName, "TableName"),
+                new StringLiteral(table.getName()));
+        ShowBuildIndexStmt buildIndexStmt = new ShowBuildIndexStmt(db.getName(), where, null, null);
+        buildIndexStmt.analyze(analyzer);
+        ShowExecutor executor = new ShowExecutor(ctx, buildIndexStmt);
+        ShowResultSet result = executor.execute();
+        LOG.info(result.getResultRows());
+        Assert.assertEquals(1, result.getResultRows().size());
+
+        SchemaChangeJobV2 jobV2 = (SchemaChangeJobV2) indexChangeJobMap.values().stream()
+                .filter(job -> job.jobId != jobId)
+                .findFirst()
+                .orElse(null);
+        Assert.assertEquals(0, jobV2.schemaChangeBatchTask.getTaskNum());
+
+        schemaChangeHandler.runAfterCatalogReady();
+        Assert.assertEquals(AlterJobV2.JobState.WAITING_TXN, jobV2.getJobState());
+        Assert.assertEquals(0, jobV2.schemaChangeBatchTask.getTaskNum());
+
+        schemaChangeHandler.runAfterCatalogReady();
+        Assert.assertEquals(AlterJobV2.JobState.RUNNING, jobV2.getJobState());
+        Assert.assertEquals(1, jobV2.schemaChangeBatchTask.getTaskNum());
+
+        List<AgentTask> tasks = AgentTaskQueue.getTask(TTaskType.ALTER);
+        Assert.assertEquals(1, tasks.size());
+        for (AgentTask agentTask : tasks) {
+            agentTask.setFinished(true);
+        }
+
+        schemaChangeHandler.runAfterCatalogReady();
+        Assert.assertEquals(AlterJobV2.JobState.FINISHED, jobV2.getJobState());
+    }
+
+    @Test
     public void testCancelRawInvertedBuildIndex() throws Exception {
         Assert.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
 
@@ -537,5 +631,263 @@ public class CloudIndexTest {
 
         schemaChangeHandler.runAfterCatalogReady();
         Assert.assertEquals(AlterJobV2.JobState.CANCELLED, jobV2.getJobState());
+    }
+
+    @Test
+    public void testCreateAndBuildMultipleInvertedIndexes() throws Exception {
+        Assert.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
+
+        SystemInfoService cloudSystemInfo = Env.getCurrentSystemInfo();
+        fakeEnv = new FakeEnv();
+        fakeEditLog = new FakeEditLog();
+        FakeEnv.setEnv(masterEnv);
+        FakeEnv.setSystemInfo(cloudSystemInfo);
+
+        Assert.assertTrue(Env.getCurrentInternalCatalog() instanceof CloudInternalCatalog);
+        Assert.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
+        CatalogTestUtil.createDupTable(db);
+        OlapTable table = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId2);
+        DataSortInfo dataSortInfo = new DataSortInfo();
+        dataSortInfo.setSortType(TSortType.LEXICAL);
+        table.setDataSortInfo(dataSortInfo);
+        String indexName1 = "raw_inverted_index1";
+        String indexName2 = "raw_inverted_index2";
+
+        IndexDef indexDef1 = new IndexDef(indexName1, false,
+                Lists.newArrayList(table.getBaseSchema().get(2).getName()),
+                IndexType.INVERTED,
+                Maps.newHashMap(), "first inverted index");
+        TableName tableName = new TableName(masterEnv.getInternalCatalog().getName(), db.getName(),
+                table.getName());
+        createIndexClause = new CreateIndexClause(tableName, indexDef1, false);
+        createIndexClause.analyze(analyzer);
+        SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
+        ArrayList<AlterClause> alterClauses = new ArrayList<>();
+        alterClauses.add(createIndexClause);
+        schemaChangeHandler.process(alterClauses, db, table);
+        Map<Long, AlterJobV2> indexChangeJobMap = schemaChangeHandler.getAlterJobsV2();
+        Assert.assertEquals(1, indexChangeJobMap.size());
+        Assert.assertEquals(1, table.getIndexes().size());
+        long job1Id = indexChangeJobMap.values().stream().findAny().get().jobId;
+
+        IndexDef indexDef2 = new IndexDef(indexName2, false,
+                Lists.newArrayList(table.getBaseSchema().get(3).getName()),
+                IndexType.INVERTED,
+                Maps.newHashMap(), "second inverted index");
+        createIndexClause = new CreateIndexClause(tableName, indexDef2, false);
+        createIndexClause.analyze(analyzer);
+        alterClauses.clear();
+        alterClauses.add(createIndexClause);
+        schemaChangeHandler.process(alterClauses, db, table);
+
+        indexChangeJobMap = schemaChangeHandler.getAlterJobsV2();
+        Assert.assertEquals(2, indexChangeJobMap.size());
+        Assert.assertEquals(2, table.getIndexes().size());
+        long job2Id = indexChangeJobMap.values().stream().filter(job -> job.jobId != job1Id).findAny().get().jobId;
+
+        boolean hasIndex1 = false;
+        boolean hasIndex2 = false;
+        for (int i = 0; i < table.getIndexes().size(); i++) {
+            String name = table.getIndexes().get(i).getIndexName();
+            if (name.equals(indexName1)) {
+                hasIndex1 = true;
+            } else if (name.equals(indexName2)) {
+                hasIndex2 = true;
+            }
+        }
+        Assert.assertTrue(hasIndex1);
+        Assert.assertTrue(hasIndex2);
+
+        buildIndexClause = new BuildIndexClause(tableName, indexName1, null, false);
+        buildIndexClause.analyze(analyzer);
+        alterClauses.clear();
+        alterClauses.add(buildIndexClause);
+        schemaChangeHandler.process(alterClauses, db, table);
+
+        Assert.assertEquals(OlapTableState.SCHEMA_CHANGE, table.getState());
+        SchemaChangeJobV2 jobV2 = (SchemaChangeJobV2) indexChangeJobMap.values().stream()
+                .filter(job -> (job.jobId != job1Id && job.jobId != job2Id))
+                .findFirst()
+                .orElse(null);
+        Assert.assertEquals(0, jobV2.schemaChangeBatchTask.getTaskNum());
+        long job3Id = jobV2.getJobId();
+
+        schemaChangeHandler.runAfterCatalogReady();
+        Assert.assertEquals(AlterJobV2.JobState.WAITING_TXN, jobV2.getJobState());
+
+        schemaChangeHandler.runAfterCatalogReady();
+        Assert.assertEquals(AlterJobV2.JobState.RUNNING, jobV2.getJobState());
+
+        List<AgentTask> tasks = AgentTaskQueue.getTask(TTaskType.ALTER);
+        Assert.assertEquals(1, tasks.size());
+        for (AgentTask agentTask : tasks) {
+            agentTask.setFinished(true);
+        }
+
+        schemaChangeHandler.runAfterCatalogReady();
+        Assert.assertEquals(AlterJobV2.JobState.FINISHED, jobV2.getJobState());
+        Assert.assertEquals(2, table.getIndexes().size());
+
+        buildIndexClause = new BuildIndexClause(tableName, indexName2, null, false);
+        buildIndexClause.analyze(analyzer);
+        alterClauses.clear();
+        alterClauses.add(buildIndexClause);
+        schemaChangeHandler.process(alterClauses, db, table);
+        jobV2 = (SchemaChangeJobV2) indexChangeJobMap.values().stream()
+        .filter(job -> (job.jobId != job2Id && job.jobId != job3Id && job.jobId != job1Id))
+        .findFirst()
+        .orElse(null);
+        Assert.assertEquals(0, jobV2.schemaChangeBatchTask.getTaskNum());
+        schemaChangeHandler.runAfterCatalogReady();
+        Assert.assertEquals(AlterJobV2.JobState.WAITING_TXN, jobV2.getJobState());
+
+        schemaChangeHandler.runAfterCatalogReady();
+        Assert.assertEquals(AlterJobV2.JobState.RUNNING, jobV2.getJobState());
+
+        tasks = AgentTaskQueue.getTask(TTaskType.ALTER);
+        Assert.assertEquals(2, tasks.size());
+        for (AgentTask agentTask : tasks) {
+            agentTask.setFinished(true);
+        }
+
+        schemaChangeHandler.runAfterCatalogReady();
+        Assert.assertEquals(AlterJobV2.JobState.FINISHED, jobV2.getJobState());
+
+        Assert.assertEquals(2, table.getIndexes().size());
+    }
+
+    @Test
+    public void testCancelMultipleInvertedBuildIndex() throws Exception {
+        Assert.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
+
+        SystemInfoService cloudSystemInfo = Env.getCurrentSystemInfo();
+        fakeEnv = new FakeEnv();
+        fakeEditLog = new FakeEditLog();
+        FakeEnv.setEnv(masterEnv);
+        FakeEnv.setSystemInfo(cloudSystemInfo);
+
+        Assert.assertTrue(Env.getCurrentInternalCatalog() instanceof CloudInternalCatalog);
+        Assert.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
+        CatalogTestUtil.createDupTable(db);
+        OlapTable table = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId2);
+        DataSortInfo dataSortInfo = new DataSortInfo();
+        dataSortInfo.setSortType(TSortType.LEXICAL);
+        table.setDataSortInfo(dataSortInfo);
+
+        // Create first inverted index
+        String indexName1 = "raw_inverted_index1";
+        IndexDef indexDef1 = new IndexDef(indexName1, false,
+                Lists.newArrayList(table.getBaseSchema().get(2).getName()),
+                IndexType.INVERTED,
+                Maps.newHashMap(), "first inverted index");
+        TableName tableName = new TableName(masterEnv.getInternalCatalog().getName(), db.getName(),
+                table.getName());
+        createIndexClause = new CreateIndexClause(tableName, indexDef1, false);
+        createIndexClause.analyze(analyzer);
+        SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
+        ArrayList<AlterClause> alterClauses = new ArrayList<>();
+        alterClauses.add(createIndexClause);
+        schemaChangeHandler.process(alterClauses, db, table);
+        Map<Long, AlterJobV2> indexChangeJobMap = schemaChangeHandler.getAlterJobsV2();
+        Assert.assertEquals(1, indexChangeJobMap.size());
+        Assert.assertEquals(1, table.getIndexes().size());
+        long job1Id = indexChangeJobMap.values().stream().findAny().get().jobId;
+
+        // Create second inverted index
+        String indexName2 = "raw_inverted_index2";
+        IndexDef indexDef2 = new IndexDef(indexName2, false,
+                Lists.newArrayList(table.getBaseSchema().get(3).getName()),
+                IndexType.INVERTED,
+                Maps.newHashMap(), "second inverted index");
+        createIndexClause = new CreateIndexClause(tableName, indexDef2, false);
+        createIndexClause.analyze(analyzer);
+        alterClauses.clear();
+        alterClauses.add(createIndexClause);
+        schemaChangeHandler.process(alterClauses, db, table);
+
+        indexChangeJobMap = schemaChangeHandler.getAlterJobsV2();
+        Assert.assertEquals(2, indexChangeJobMap.size());
+        Assert.assertEquals(2, table.getIndexes().size());
+        long job2Id = indexChangeJobMap.values().stream().filter(job -> job.jobId != job1Id).findAny().get().jobId;
+
+        // Verify both indexes were created
+        boolean hasIndex1 = false;
+        boolean hasIndex2 = false;
+        for (int i = 0; i < table.getIndexes().size(); i++) {
+            String name = table.getIndexes().get(i).getIndexName();
+            if (name.equals(indexName1)) {
+                hasIndex1 = true;
+            } else if (name.equals(indexName2)) {
+                hasIndex2 = true;
+            }
+        }
+        Assert.assertTrue(hasIndex1);
+        Assert.assertTrue(hasIndex2);
+
+        // Start building first index
+        buildIndexClause = new BuildIndexClause(tableName, indexName1, null, false);
+        buildIndexClause.analyze(analyzer);
+        alterClauses.clear();
+        alterClauses.add(buildIndexClause);
+        schemaChangeHandler.process(alterClauses, db, table);
+
+        Assert.assertEquals(OlapTableState.SCHEMA_CHANGE, table.getState());
+        SchemaChangeJobV2 job1V2 = (SchemaChangeJobV2) indexChangeJobMap.values().stream()
+                .filter(job -> (job.jobId != job1Id && job.jobId != job2Id))
+                .findFirst()
+                .orElse(null);
+        Assert.assertEquals(0, job1V2.schemaChangeBatchTask.getTaskNum());
+        schemaChangeHandler.runAfterCatalogReady();
+        Assert.assertEquals(AlterJobV2.JobState.WAITING_TXN, job1V2.getJobState());
+        Assert.assertEquals(0, job1V2.schemaChangeBatchTask.getTaskNum());
+
+        schemaChangeHandler.runAfterCatalogReady();
+        Assert.assertEquals(AlterJobV2.JobState.RUNNING, job1V2.getJobState());
+        Assert.assertEquals(1, job1V2.schemaChangeBatchTask.getTaskNum());
+
+        schemaChangeHandler.runAfterCatalogReady();
+        Assert.assertEquals(AlterJobV2.JobState.RUNNING, job1V2.getJobState());
+        Assert.assertEquals(1, job1V2.schemaChangeBatchTask.getTaskNum());
+        List<Long> alterJobIdList = new ArrayList<>();
+        alterJobIdList.add(job1V2.jobId);
+        cancelAlterTableStmt = new CancelAlterTableStmt(ShowAlterStmt.AlterType.INDEX, tableName, alterJobIdList);
+        cancelAlterTableStmt.analyze(analyzer);
+        schemaChangeHandler.cancel(cancelAlterTableStmt);
+
+        schemaChangeHandler.runAfterCatalogReady();
+        Assert.assertEquals(AlterJobV2.JobState.CANCELLED, job1V2.getJobState());
+
+        // Start building first index
+        buildIndexClause = new BuildIndexClause(tableName, indexName2, null, false);
+        buildIndexClause.analyze(analyzer);
+        alterClauses.clear();
+        alterClauses.add(buildIndexClause);
+        schemaChangeHandler.process(alterClauses, db, table);
+
+        Assert.assertEquals(OlapTableState.SCHEMA_CHANGE, table.getState());
+        SchemaChangeJobV2 job2V2 = (SchemaChangeJobV2) indexChangeJobMap.values().stream()
+                .filter(job -> (job.jobId != job1Id && job.jobId != job2Id && job.jobId != job1V2.jobId))
+                .findFirst()
+                .orElse(null);
+        Assert.assertEquals(0, job2V2.schemaChangeBatchTask.getTaskNum());
+        schemaChangeHandler.runAfterCatalogReady();
+        Assert.assertEquals(AlterJobV2.JobState.WAITING_TXN, job2V2.getJobState());
+        Assert.assertEquals(0, job2V2.schemaChangeBatchTask.getTaskNum());
+
+        schemaChangeHandler.runAfterCatalogReady();
+        Assert.assertEquals(AlterJobV2.JobState.RUNNING, job2V2.getJobState());
+        Assert.assertEquals(1, job2V2.schemaChangeBatchTask.getTaskNum());
+
+        schemaChangeHandler.runAfterCatalogReady();
+        Assert.assertEquals(AlterJobV2.JobState.RUNNING, job2V2.getJobState());
+        Assert.assertEquals(1, job2V2.schemaChangeBatchTask.getTaskNum());
+        alterJobIdList.clear();
+        alterJobIdList.add(job2V2.jobId);
+        cancelAlterTableStmt = new CancelAlterTableStmt(ShowAlterStmt.AlterType.INDEX, tableName, alterJobIdList);
+        cancelAlterTableStmt.analyze(analyzer);
+        schemaChangeHandler.cancel(cancelAlterTableStmt);
+
+        schemaChangeHandler.runAfterCatalogReady();
+        Assert.assertEquals(AlterJobV2.JobState.CANCELLED, job2V2.getJobState());
     }
 }

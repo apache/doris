@@ -33,6 +33,7 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Maps;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -43,17 +44,25 @@ public class BuildIndexOp extends AlterTableOp {
     // in which table the index on, only used when alter = false
     private final TableNameInfo tableName;
     // index definition class
-    private IndexDefinition indexDef;
+    private List<IndexDefinition> indexDefinitionList;
     // when alter = true, clause like: alter table add index xxxx
     // when alter = false, clause like: create index xx on table xxxx
     private final boolean alter;
     // index internal class
-    private Index index;
+    private List<Index> indexList;
     // index name
     private final String indexName;
     // partition names info
     private final PartitionNamesInfo partitionNamesInfo;
 
+    /**
+     * Constructor for BuildIndexOp.
+     *
+     * @param tableName the name of the table
+     * @param indexName the name of the index
+     * @param partitionNamesInfo partition names info
+     * @param alter true if it's an alter table operation, false for create index
+     */
     public BuildIndexOp(TableNameInfo tableName, String indexName, PartitionNamesInfo partitionNamesInfo,
                             boolean alter) {
         super(AlterOpType.SCHEMA_CHANGE);
@@ -61,6 +70,24 @@ public class BuildIndexOp extends AlterTableOp {
         this.indexName = indexName;
         this.partitionNamesInfo = partitionNamesInfo;
         this.alter = alter;
+        this.indexDefinitionList = new ArrayList<>();
+        this.indexList = new ArrayList<>();
+    }
+
+    /**
+     * Constructor for BuildIndexOp.
+     *
+     * @param tableName the name of the table
+     * @param alter true if it's an alter table operation, false for create index
+     */
+    public BuildIndexOp(TableNameInfo tableName, boolean alter) {
+        super(AlterOpType.SCHEMA_CHANGE);
+        this.tableName = tableName;
+        this.alter = alter;
+        this.indexName = null;
+        this.partitionNamesInfo = null;
+        this.indexDefinitionList = new ArrayList<>();
+        this.indexList = new ArrayList<>();
     }
 
     @Override
@@ -68,12 +95,12 @@ public class BuildIndexOp extends AlterTableOp {
         return Maps.newHashMap();
     }
 
-    public Index getIndex() {
-        return index;
+    public List<Index> getIndexList() {
+        return indexList;
     }
 
-    public IndexDefinition getIndexDef() {
-        return indexDef;
+    public List<IndexDefinition> getIndexDefList() {
+        return indexDefinitionList;
     }
 
     public boolean isAlter() {
@@ -97,44 +124,62 @@ public class BuildIndexOp extends AlterTableOp {
             throw new AnalysisException("Only olap table support build index");
         }
 
-        Index existedIdx = null;
-        for (Index index : table.getTableIndexes().getIndexes()) {
-            if (index.getIndexName().equalsIgnoreCase(indexName)) {
-                existedIdx = index;
-                if (!existedIdx.isLightIndexChangeSupported()) {
-                    throw new AnalysisException("BUILD INDEX operation failed: The index "
-                        + existedIdx.getIndexName() + " of type " + existedIdx.getIndexType()
-                        + " does not support lightweight index changes.");
+        if (indexName != null && !indexName.isEmpty()) {
+            Index existedIdx = null;
+            for (Index index : table.getTableIndexes().getIndexes()) {
+                if (index.getIndexName().equalsIgnoreCase(indexName)) {
+                    existedIdx = index;
+                    if (!existedIdx.isLightIndexChangeSupported()) {
+                        throw new AnalysisException(
+                            "BUILD INDEX operation failed: The index " + existedIdx.getIndexName()
+                            + " of type " + existedIdx.getIndexType()
+                            + " does not support lightweight index changes.");
+                    }
+                    break;
                 }
-                break;
+            }
+            if (existedIdx == null) {
+                throw new AnalysisException("Index[" + indexName + "] is not exist in table["
+                        + tableName.getTbl() + "]");
+            }
+
+            IndexDef.IndexType indexType = existedIdx.getIndexType();
+            if (!existedIdx.isLightIndexChangeSupported()) {
+                throw new AnalysisException(indexType.toString() + " index is not needed to build.");
+            }
+
+            IndexDefinition indexDef = new IndexDefinition(indexName, partitionNamesInfo, indexType);
+            if (!table.isPartitionedTable()) {
+                List<String> specifiedPartitions = indexDef.getPartitionNames();
+                if (!specifiedPartitions.isEmpty()) {
+                    throw new AnalysisException(
+                        "table " + table.getName()
+                        + " is not partitioned, cannot build index with partitions.");
+                }
+            }
+            indexDef.validate();
+            indexDefinitionList.add(indexDef);
+            indexList.add(existedIdx.clone());
+        } else {
+            // add all isLightIndexChangeSupported index to indexList and indexDefList
+            for (Index index : table.getTableIndexes().getIndexes()) {
+                if (index.isLightIndexChangeSupported()) {
+                    indexList.add(index.clone());
+                    indexDefinitionList.add(new IndexDefinition(index.getIndexName(),
+                            partitionNamesInfo, index.getIndexType()));
+                }
             }
         }
-        if (existedIdx == null) {
-            throw new AnalysisException("Index[" + indexName + "] is not exist in table[" + tableName.getTbl() + "]");
-        }
-
-        IndexDef.IndexType indexType = existedIdx.getIndexType();
-        if (!existedIdx.isLightIndexChangeSupported()) {
-            throw new AnalysisException(indexType.toString() + " index is not needed to build.");
-        }
-
-        indexDef = new IndexDefinition(indexName, partitionNamesInfo, indexType);
-        if (!table.isPartitionedTable()) {
-            List<String> specifiedPartitions = indexDef.getPartitionNames();
-            if (!specifiedPartitions.isEmpty()) {
-                throw new AnalysisException("table " + table.getName()
-                    + " is not partitioned, cannot build index with partitions.");
-            }
-        }
-        indexDef.validate();
-        this.index = existedIdx.clone();
     }
 
     @Override
     public AlterTableClause translateToLegacyAlterClause() {
-        indexDef.getIndexType();
-        return new BuildIndexClause(tableName.transferToTableName(), indexDef.translateToLegacyIndexDef(), index,
-                alter);
+        List<IndexDef> indexDefList = new ArrayList<>();
+        for (IndexDefinition indexDefinition : indexDefinitionList) {
+            indexDefList.add(indexDefinition.translateToLegacyIndexDef());
+        }
+
+        return new BuildIndexClause(tableName.transferToTableName(), indexDefList, indexList, alter);
     }
 
     @Override
@@ -149,10 +194,11 @@ public class BuildIndexOp extends AlterTableOp {
 
     @Override
     public String toSql() {
+        // TODO: support multiple index
         if (alter) {
-            return indexDef.toSql();
+            return indexDefinitionList.get(0).toSql();
         } else {
-            return "BUILD " + indexDef.toSql(tableName.toSql());
+            return "BUILD " + indexDefinitionList.get(0).toSql(tableName.toSql());
         }
     }
 }

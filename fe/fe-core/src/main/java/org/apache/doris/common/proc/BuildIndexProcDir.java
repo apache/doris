@@ -26,6 +26,7 @@ import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.OrderByPair;
 
@@ -115,7 +116,12 @@ public class BuildIndexProcDir implements ProcDirInterface {
         Preconditions.checkNotNull(db);
         Preconditions.checkNotNull(schemaChangeHandler);
 
-        List<List<Comparable>> indexChangeJobInfos = schemaChangeHandler.getAllIndexChangeJobInfos(db);
+        List<List<Comparable>> indexChangeJobInfos;
+        if (Config.isCloudMode()) {
+            indexChangeJobInfos = schemaChangeHandler.getAllIndexChangeJobInfosInCloud(db);
+        } else {
+            indexChangeJobInfos = schemaChangeHandler.getAllIndexChangeJobInfos(db);
+        }
 
         //where
         List<List<Comparable>> jobInfos;
@@ -125,7 +131,7 @@ public class BuildIndexProcDir implements ProcDirInterface {
             jobInfos = Lists.newArrayList();
             for (List<Comparable> infoStr : indexChangeJobInfos) {
                 if (infoStr.size() != TITLE_NAMES.size()) {
-                    LOG.warn("indexChangeJobInfos.size() " + indexChangeJobInfos.size()
+                    LOG.warn("indexChangeJobInfo.size() " + infoStr.size()
                             + " not equal TITLE_NAMES.size() " + TITLE_NAMES.size());
                     continue;
                 }
