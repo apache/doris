@@ -759,7 +759,7 @@ Status RowGroupReader::_read_empty_batch(size_t batch_size, size_t* read_rows, b
                     before_index++;
                     continue;
                 }
-                _current_batch_row_ids[idx++] = id;
+                _current_batch_row_ids[idx++] = (rowid_t)id;
             }
         }
     } else {
