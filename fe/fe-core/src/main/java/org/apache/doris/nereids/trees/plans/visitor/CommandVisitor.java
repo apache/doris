@@ -74,6 +74,7 @@ import org.apache.doris.nereids.trees.plans.commands.CreateTableLikeCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateUserCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateWorkloadGroupCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateWorkloadPolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromUsingCommand;
 import org.apache.doris.nereids.trees.plans.commands.DescribeCommand;
@@ -167,6 +168,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowIndexStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLastInsertCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLoadProfileCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowOpenTablesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPartitionIdCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPluginsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPrivilegesCommand;
@@ -723,6 +725,10 @@ public interface CommandVisitor<R, C> {
         return visitCommand(command, context);
     }
 
+    default R visitCreateWorkloadPolicyCommand(CreateWorkloadPolicyCommand createWorkloadPolicyCommand, C context) {
+        return visitCommand(createWorkloadPolicyCommand, context);
+    }
+
     default R visitShowDynamicPartitionCommand(ShowDynamicPartitionCommand showDynamicPartitionCommand, C context) {
         return visitCommand(showDynamicPartitionCommand, context);
     }
@@ -850,6 +856,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitShowDeleteCommand(ShowDeleteCommand showDeleteCommand, C context) {
         return visitCommand(showDeleteCommand, context);
+    }
+
+    default R visitShowOpenTablesCommand(ShowOpenTablesCommand showOpenTablesCommand, C context) {
+        return visitCommand(showOpenTablesCommand, context);
     }
 
     default R visitShowPrivilegesCommand(ShowPrivilegesCommand showPrivilegesCommand, C context) {

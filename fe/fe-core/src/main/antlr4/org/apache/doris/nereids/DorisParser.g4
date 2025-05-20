@@ -209,6 +209,10 @@ supportedCreateStatement
         ON tableName=multipartIdentifier identifierList
         (USING (BITMAP | NGRAM_BF | INVERTED))?
         properties=propertyClause? (COMMENT STRING_LITERAL)?                    #createIndex
+    | CREATE WORKLOAD POLICY (IF NOT EXISTS)? name=identifierOrText
+        (CONDITIONS LEFT_PAREN workloadPolicyConditions RIGHT_PAREN)?
+        (ACTIONS LEFT_PAREN workloadPolicyActions RIGHT_PAREN)?
+        properties=propertyClause?                                              #createWorkloadPolicy
     | CREATE SQL_BLOCK_RULE (IF NOT EXISTS)?
         name=identifier properties=propertyClause?                        #createSqlBlockRule
     | CREATE ENCRYPTKEY (IF NOT EXISTS)? multipartIdentifier AS STRING_LITERAL  #createEncryptkey
@@ -361,6 +365,7 @@ supportedShowStatement
         sortClause? limitClause?                                                    #showLoad
     | SHOW FULL? TRIGGERS ((FROM | IN) database=multipartIdentifier)? wildWhere?    #showTriggers
     | SHOW TABLET DIAGNOSIS tabletId=INTEGER_VALUE                                  #showDiagnoseTablet
+    | SHOW OPEN TABLES ((FROM | IN) database=multipartIdentifier)? wildWhere?       #showOpenTables    
     | SHOW FRONTENDS name=identifier?                                               #showFrontends
     | SHOW DATABASE databaseId=INTEGER_VALUE                                        #showDatabaseId
     | SHOW TABLE tableId=INTEGER_VALUE                                              #showTableId
@@ -443,7 +448,6 @@ lockTable
 
 unsupportedShowStatement
     : SHOW STORAGE (VAULT | VAULTS)                                                 #showStorageVault
-    | SHOW OPEN TABLES ((FROM | IN) database=multipartIdentifier)? wildWhere?       #showOpenTables
     | SHOW CREATE MATERIALIZED VIEW name=multipartIdentifier                        #showMaterializedView
     | SHOW CREATE statementScope? FUNCTION functionIdentifier
         LEFT_PAREN functionArguments? RIGHT_PAREN
@@ -807,10 +811,6 @@ unsupportedCreateStatement
     | CREATE (READ ONLY)? REPOSITORY name=identifier WITH storageBackend        #createRepository
     | CREATE STORAGE VAULT (IF NOT EXISTS)?
         name=identifierOrText properties=propertyClause?                        #createStorageVault
-    | CREATE WORKLOAD POLICY (IF NOT EXISTS)? name=identifierOrText
-        (CONDITIONS LEFT_PAREN workloadPolicyConditions RIGHT_PAREN)?
-        (ACTIONS LEFT_PAREN workloadPolicyActions RIGHT_PAREN)?
-        properties=propertyClause?                                              #createWorkloadPolicy
     ;
 
 workloadPolicyActions
