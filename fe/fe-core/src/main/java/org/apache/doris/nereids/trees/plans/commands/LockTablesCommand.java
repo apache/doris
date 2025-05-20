@@ -35,7 +35,7 @@ import java.util.List;
 /**
  * Command for LOCK TABLES.
  */
-public class LockTablesCommand extends Command implements ForwardWithSync {
+public class LockTablesCommand extends Command implements NoForward {
 
     private List<LockTableInfo> lockTables;
 
