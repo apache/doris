@@ -660,7 +660,7 @@ struct DataWithNullKey<Base> : public DataWithNullKeyImpl<Base> {
         Iterator(typename Base::iterator it, bool null, Base::Value* null_key)
                 : base_iterator(it), current_null(null), null_key_data(null_key) {}
         bool operator==(const Iterator& rhs) const {
-            return current_null == rhs.current_null && base_iterator == base_iterator;
+            return current_null == rhs.current_null && base_iterator == rhs.base_iterator;
         }
 
         bool operator!=(const Iterator& rhs) const { return !(*this == rhs); }
