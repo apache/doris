@@ -123,6 +123,7 @@ import org.apache.doris.nereids.trees.plans.commands.RefreshMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ReplayCommand;
 import org.apache.doris.nereids.trees.plans.commands.ResumeJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.ResumeMTMVCommand;
+import org.apache.doris.nereids.trees.plans.commands.RevokeRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.SetDefaultStorageVaultCommand;
 import org.apache.doris.nereids.trees.plans.commands.SetOptionsCommand;
 import org.apache.doris.nereids.trees.plans.commands.SetTransactionCommand;
@@ -1130,5 +1131,9 @@ public interface CommandVisitor<R, C> {
     default R visitGrantResourcePrivilegeCommand(GrantResourcePrivilegeCommand grantResourcePrivilegeCommand,
             C context) {
         return visitCommand(grantResourcePrivilegeCommand, context);
+    }
+
+    default R visitRevokeRoleCommand(RevokeRoleCommand revokeRoleCommand, C context) {
+        return visitCommand(revokeRoleCommand, context);
     }
 }
