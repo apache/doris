@@ -1959,10 +1959,11 @@ static bool check_partition_version_when_update_delete_bitmap(
 }
 
 // return false if the delete bitmap key already exists
-static bool check_delete_bitmap_kv_exists(MetaServiceCode& code, std::string& msg,
-                                          std::unique_ptr<Transaction>& txn, const std::string& key,
-                                          std::string& instance_id, int64_t tablet_id,
-                                          int64_t lock_id) {
+[[maybe_unused]] static bool check_delete_bitmap_kv_exists(MetaServiceCode& code, std::string& msg,
+                                                           std::unique_ptr<Transaction>& txn,
+                                                           const std::string& key,
+                                                           std::string& instance_id,
+                                                           int64_t tablet_id, int64_t lock_id) {
     std::string start_key {key};
     std::string end_key {start_key};
     encode_int64(INT64_MAX, &end_key);
