@@ -20,6 +20,7 @@ package org.apache.doris.common.proc;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -37,7 +38,7 @@ import java.util.Set;
 public class IndexSchemaProcNode implements ProcNodeInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("Field").add("Type").add("Null").add("Key")
-            .add("Default").add("Extra").add("Comment")
+            .add("Default").add("Extra")
             .build();
 
     private final List<Column> schema;
@@ -48,7 +49,7 @@ public class IndexSchemaProcNode implements ProcNodeInterface {
         this.bfColumns = bfColumns;
     }
 
-    public static ProcResult createResult(List<Column> schema, Set<String> bfColumns) throws AnalysisException {
+    public static ProcResult createResult(List<Column> schema, Set<String> bfColumns, List<String> additionalColNames) {
         Preconditions.checkNotNull(schema);
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
@@ -78,6 +79,17 @@ public class IndexSchemaProcNode implements ProcNodeInterface {
                     column.getDefaultValue() == null
                             ? FeConstants.null_string : column.getDefaultValue(),
                     extraStr, comment);
+
+            for (String additionalColName : additionalColNames) {
+                switch (additionalColName.toLowerCase()) {
+                    case "comment":
+                        rowList.add(column.getComment());
+                        break;
+                    default:
+                        Preconditions.checkState(false, "Unknown additional column name: " + additionalColName);
+                        break;
+                }
+            }
             result.addRow(rowList);
         }
         return result;
@@ -85,6 +97,9 @@ public class IndexSchemaProcNode implements ProcNodeInterface {
 
     @Override
     public ProcResult fetchResult() throws AnalysisException {
-        return createResult(this.schema, this.bfColumns);
+        boolean showCommentInDescribe = ConnectContext.get() == null ? false
+                : ConnectContext.get().getSessionVariable().showColumnCommentInDescribe;
+        return createResult(this.schema, this.bfColumns,
+                showCommentInDescribe ? Lists.newArrayList("comment") : Lists.newArrayList());
     }
 }
