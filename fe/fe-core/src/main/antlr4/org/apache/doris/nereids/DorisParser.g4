@@ -441,7 +441,6 @@ lockTable
 unsupportedShowStatement
     : SHOW STORAGE (VAULT | VAULTS)                                                 #showStorageVault
     | SHOW OPEN TABLES ((FROM | IN) database=multipartIdentifier)? wildWhere?       #showOpenTables
-    | SHOW CREATE MATERIALIZED VIEW name=multipartIdentifier                        #showMaterializedView
     | SHOW CREATE statementScope? FUNCTION functionIdentifier
         LEFT_PAREN functionArguments? RIGHT_PAREN
         ((FROM | IN) database=multipartIdentifier)?                                 #showCreateFunction
@@ -462,7 +461,6 @@ unsupportedShowStatement
         (FROM |IN) tableName=multipartIdentifier
         ((FROM | IN) database=multipartIdentifier)?                                 #showIndex
     | SHOW TRANSACTION ((FROM | IN) database=multipartIdentifier)? wildWhere?       #showTransaction
-    | SHOW CACHE HOTSPOT tablePath=STRING_LITERAL                                   #showCacheHotSpot
     | SHOW CATALOG RECYCLE BIN wildWhere?                                           #showCatalogRecycleBin
     | SHOW QUERY STATS ((FOR database=identifier)
             | (FROM tableName=multipartIdentifier (ALL VERBOSE?)?))?                #showQueryStats
@@ -658,8 +656,6 @@ unsupportedAlterStatement
         SET LEFT_PAREN propertyItemList RIGHT_PAREN                                 #alterColocateGroup
     | ALTER ROUTINE LOAD FOR name=multipartIdentifier properties=propertyClause?
             (FROM type=identifier LEFT_PAREN propertyItemList RIGHT_PAREN)?         #alterRoutineLoad
-    | ALTER STORAGE POLICY name=identifierOrText
-        properties=propertyClause                                                   #alterStoragePlicy
     ;
 
 alterSystemClause
@@ -1225,8 +1221,8 @@ joinRelation
 
 // Just like `opt_plan_hints` in legacy CUP parser.
 distributeType
-    : LEFT_BRACKET identifier RIGHT_BRACKET                           #bracketDistributeType
-    | HINT_START identifier HINT_END                                  #commentDistributeType
+    : LEFT_BRACKET identifier skewSpec? RIGHT_BRACKET
+    | HINT_START identifier skewSpec? HINT_END
     ;
 
 relationHint
@@ -1257,16 +1253,42 @@ qualifyClause
     : QUALIFY booleanExpression
     ;
 
-selectHint: hintStatements+=hintStatement (COMMA? hintStatements+=hintStatement)* HINT_END;
+selectHint: hintStatements+=hintStatement (COMMA? hintStatements+=hintStatement)*;
 
 hintStatement
-    : hintName=identifier (LEFT_PAREN parameters+=hintAssignment (COMMA? parameters+=hintAssignment)* RIGHT_PAREN)?
-    | (USE_MV | NO_USE_MV) (LEFT_PAREN tableList+=multipartIdentifier (COMMA tableList+=multipartIdentifier)* RIGHT_PAREN)?
+    : (LEADING | JOIN_ORDER) LEFT_PAREN (tableSpecs)? RIGHT_PAREN                                                           #leadingHint
+    | (ORDERED | JOIN_FIXED_ORDER)                                                                                          #orderedHint
+    | (USE_MV | NO_USE_MV) (LEFT_PAREN tableList+=multipartIdentifier (COMMA tableList+=multipartIdentifier)* RIGHT_PAREN)? #mvHint
+    | (USE_CBO_RULE | NO_USE_CBO_RULE) (identifierList)?                                                                    #cboRuleHint
+    | SET_VAR (LEFT_PAREN parameters+=hintAssignment (COMMA? parameters+=hintAssignment)* RIGHT_PAREN)?                     #setVarHint
+    | QB_NAME LEFT_PAREN identifier? RIGHT_PAREN                                                                            #qbNameHint
+    | SKEW                                                                                                                  #skewHint
+    | (PREAGG_ON | PREAGG_OFF)                                                                                              #preAggHint
+    ;
+
+tableSpecs
+    : tableSpecPrimary joinTableSpec*
+    ;
+
+joinTableSpec
+    : distributeType? tableSpecPrimary
+    ;
+
+tableSpecPrimary
+    : multipartIdentifier
+    | LEFT_PAREN tableSpecs RIGHT_PAREN
     ;
 
 hintAssignment
     : key=identifierOrText (EQ (constantValue=constant | identifierValue=identifier))?
     | constant
+    ;
+
+skewSpec
+    : LEFT_PAREN SKEW (LEFT_PAREN qualifiedName constantList RIGHT_PAREN)? RIGHT_PAREN;
+
+constantList
+    : LEFT_PAREN values+=constant (COMMA values+=constant)* RIGHT_PAREN
     ;
 
 updateAssignment
@@ -1941,12 +1963,15 @@ nonReserved
     | ISOLATION
     | JOB
     | JOBS
+    | JOIN_FIXED_ORDER
+    | JOIN_ORDER
     | JSON
     | JSONB
     | LABEL
     | LAST
     | LDAP
     | LDAP_ADMIN_PASSWORD
+    | LEADING
     | LEFT_BRACE
     | LESS
     | LEVEL
@@ -1984,6 +2009,7 @@ nonReserved
     | NEXT
     | NGRAM_BF
     | NO
+    | NO_USE_CBO_RULE
     | NON_NULLABLE
     | NULLS
     | OF
@@ -1991,6 +2017,7 @@ nonReserved
     | ONLY
     | OPEN
     | OPTIMIZED
+    | ORDERED
     | PARAMETER
     | PARSED
     | PASSWORD
@@ -2010,6 +2037,8 @@ nonReserved
     | PLUGIN
     | PLUGINS
     | POLICY
+    | PREAGG_OFF
+    | PREAGG_ON
     | PRIVILEGES
     | PROC
     | PROCESS
@@ -2017,6 +2046,7 @@ nonReserved
     | PROFILE
     | PROPERTIES
     | PROPERTY
+    | QB_NAME
     | QUANTILE_STATE
 	| QUANTILE_UNION
 	| QUARTER
@@ -2055,6 +2085,7 @@ nonReserved
     | SECOND
     | SERIALIZABLE
     | SET_SESSION_VARIABLE
+    | SET_VAR
     | SESSION
     | SESSION_USER
     | SHAPE
@@ -2095,6 +2126,7 @@ nonReserved
     | UNSET
     | UP
     | USER
+    | USE_CBO_RULE
     | VALUE
     | VARCHAR
     | VARIABLE
