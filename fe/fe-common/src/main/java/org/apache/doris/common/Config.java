@@ -3283,6 +3283,10 @@ public class Config extends ConfigBase {
             "In cloud mode, the retry number when the FE requests the meta service times out is 1 by default"})
     public static int meta_service_rpc_timeout_retry_times = 1;
 
+    @ConfField(mutable = true, description = {"存算分离模式下MOW表上的导入是否共享锁，默认false",
+            "Whether to share lock for load on MOW tables in cloud mode, default is false."})
+    public static boolean enable_share_mow_lock_for_load = true;
+
     // ATTN: DONOT add any config not related to cloud mode here
     // ATTN: DONOT add any config not related to cloud mode here
     // ATTN: DONOT add any config not related to cloud mode here

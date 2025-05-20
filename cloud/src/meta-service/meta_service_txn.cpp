@@ -1221,15 +1221,22 @@ void commit_txn_immediately(
                 LOG(WARNING) << msg << " txn_id=" << txn_id;
                 return;
             }
-            if (lock_info.lock_id() != request->txn_id()) {
+
+            int64_t lock_id = request->has_lock_id() ? request->lock_id() : request->txn_id();
+            if (lock_info.lock_id() != lock_id) {
                 ss << "lock is expired, locked by lock_id=" << lock_info.lock_id();
                 msg = ss.str();
                 code = MetaServiceCode::LOCK_EXPIRED;
                 return;
             }
-            txn->remove(lock_keys[i]);
-            LOG(INFO) << "xxx remove delete bitmap lock, lock_key=" << hex(lock_keys[i])
-                      << " table_id=" << table_id << " txn_id=" << txn_id;
+
+            bool skip_remove_delete_bitmap_lock = request->has_skip_remove_delete_bitmap_lock() &&
+                                                  request->skip_remove_delete_bitmap_lock();
+            if (!skip_remove_delete_bitmap_lock) {
+                txn->remove(lock_keys[i]);
+                LOG(INFO) << "xxx remove delete bitmap lock, lock_key=" << hex(lock_keys[i])
+                          << " table_id=" << table_id << " txn_id=" << txn_id;
+            }
 
             for (auto tablet_id : table_id_tablet_ids[table_id]) {
                 std::string pending_key = meta_pending_delete_bitmap_key({instance_id, tablet_id});

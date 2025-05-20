@@ -1022,6 +1022,8 @@ public class InternalCatalog implements CatalogIf<Database> {
         if (Config.isCloudMode()) {
             ((CloudGlobalTransactionMgr) Env.getCurrentGlobalTransactionMgr())
                     .clearTableLastTxnId(db.getId(), table.getId());
+            ((CloudGlobalTransactionMgr) Env.getCurrentGlobalTransactionMgr())
+                    .clearTableCachedDeleteBitmapLock(db.getId(), table.getId());
         }
     }
 
