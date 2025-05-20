@@ -170,7 +170,6 @@ concept IteratoredMap = requires(T* map) { typename T::iterator; };
 template <typename HashMap>
 struct MethodBase : public MethodBaseInner<HashMap> {
     using Iterator = void*;
-    Iterator iterator;
     void init_iterator() { MethodBaseInner<HashMap>::inited_iterator = true; }
 };
 
@@ -178,11 +177,13 @@ template <IteratoredMap HashMap>
 struct MethodBase<HashMap> : public MethodBaseInner<HashMap> {
     using Iterator = typename HashMap::iterator;
     using Base = MethodBaseInner<HashMap>;
-    Iterator iterator;
+    Iterator begin;
+    Iterator end;
     void init_iterator() {
         if (!Base::inited_iterator) {
             Base::inited_iterator = true;
-            iterator = Base::hash_table->begin();
+            begin = Base::hash_table->begin();
+            end = Base::hash_table->end();
         }
     }
 };
@@ -421,7 +422,6 @@ struct MethodKeysFixed : public MethodBase<TData> {
     using typename Base::Mapped;
     using Base::keys;
     using Base::hash_table;
-    using Base::iterator;
 
     using State = ColumnsHashing::HashMethodKeysFixed<typename Base::Value, Key, Mapped>;
 
@@ -637,6 +637,79 @@ struct DataWithNullKey : public Base {
         Base::clear_and_shrink();
         has_null_key = false;
     }
+
+private:
+    bool has_null_key = false;
+    Base::Value null_key_data;
+};
+
+template <IteratoredMap Base>
+struct DataWithNullKey<Base> : public Base {
+    bool& has_null_key_data() { return has_null_key; }
+    bool has_null_key_data() const { return has_null_key; }
+    template <typename MappedType>
+    MappedType& get_null_key_data() const {
+        return (MappedType&)null_key_data;
+    }
+    size_t size() const { return Base::size() + has_null_key; }
+    bool empty() const { return Base::empty() && !has_null_key; }
+
+    void clear() {
+        Base::clear();
+        has_null_key = false;
+    }
+
+    void clear_and_shrink() {
+        Base::clear_and_shrink();
+        has_null_key = false;
+    }
+
+    struct Iterator {
+        typename Base::iterator base_iterator = {};
+        bool current_null = false;
+        Base::Value* null_key_data = nullptr;
+
+        Iterator() = default;
+        Iterator(typename Base::iterator it, bool null, Base::Value* null_key)
+                : base_iterator(it), current_null(null), null_key_data(null_key) {}
+        bool operator==(const Iterator& rhs) const {
+            return current_null == rhs.current_null && base_iterator == base_iterator;
+        }
+
+        bool operator!=(const Iterator& rhs) const { return !(*this == rhs); }
+
+        Iterator& operator++() {
+            if (current_null) {
+                current_null = false;
+            } else {
+                ++base_iterator;
+            }
+            return *this;
+        }
+
+        Base::Value& get_second() {
+            if (current_null) {
+                return *null_key_data;
+            } else {
+                return base_iterator->get_second();
+            }
+        }
+    };
+
+    Iterator begin() { return {Base::begin(), true, &null_key_data}; }
+
+    Iterator end() { return {Base::end(), false, &null_key_data}; }
+
+    void insert(const Iterator& other_iter) {
+        if (other_iter.current_null) {
+            has_null_key = true;
+            null_key_data = *other_iter.null_key_data;
+        } else {
+            Base::insert(other_iter.base_iterator);
+        }
+    }
+
+    using iterator = Iterator;
 
 private:
     bool has_null_key = false;
