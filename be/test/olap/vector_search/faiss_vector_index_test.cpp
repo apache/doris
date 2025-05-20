@@ -302,7 +302,7 @@ TEST_F(VectorSearchTest, SearchAllVectors) {
     // Add 500 vectors
     const int num_vectors = 500;
     std::vector<float> vectors;
-    for (int i = 0; i < num_vectors * params.m; i++) {
+    for (int i = 0; i < num_vectors; i++) {
         auto vec = generate_random_vector(params.d);
         vectors.insert(vectors.end(), vec.begin(), vec.end());
     }
@@ -384,7 +384,7 @@ TEST_F(VectorSearchTest, CompRangeSearch) {
         for (int i = 0; i < num_vectors; i++) {
             double sum = 0;
             for (int j = 0; j < params.d; j++) {
-                accumulate(vectors[i * params.m + j], query_vec[j], sum);
+                accumulate(vectors[i * params.d + j], query_vec[j], sum);
             }
             distances[i] = std::make_pair(i, finalize(sum));
         }
@@ -462,7 +462,7 @@ TEST_F(VectorSearchTest, RangeSearchNoSelector1) {
         for (int i = 0; i < num_vectors; i++) {
             double sum = 0;
             for (int j = 0; j < params.d; j++) {
-                accumulate(vectors[i * params.m + j], vectors[j], sum);
+                accumulate(vectors[i * params.d + j], vectors[j], sum);
             }
             distances[i] = std::make_pair(i, finalize(sum));
         }
@@ -578,7 +578,7 @@ TEST_F(VectorSearchTest, RangeSearchWithSelector1) {
         for (int i = 0; i < num_vectors; i++) {
             double sum = 0;
             for (int j = 0; j < params.d; j++) {
-                accumulate(vectors[i * params.m + j], vectors[j], sum);
+                accumulate(vectors[i * params.d + j], vectors[j], sum);
             }
             distances[i] = std::make_pair(i, finalize(sum));
         }

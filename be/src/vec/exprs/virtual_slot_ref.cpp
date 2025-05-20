@@ -35,6 +35,7 @@
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/exprs/vectorized_fn_call.h"
 #include "vec/exprs/vexpr_context.h"
+#include "vec/exprs/vexpr_fwd.h"
 
 namespace doris::vectorized {
 
@@ -94,9 +95,12 @@ Status VirtualSlotRef::prepare(doris::RuntimeState* state, const doris::RowDescr
     }
     const TExpr& expr = *slot_desc->get_virtual_column_expr();
     LOG_INFO("Virtual column expr is {}", apache::thrift::ThriftDebugString(expr));
-    RETURN_IF_ERROR(VExpr::create_expr_tree(expr, _virtual_column_expr));
-    RETURN_IF_ERROR(_virtual_column_expr->prepare(state, desc));
-
+    // Create a temp_ctx only for create_expr_tree.
+    VExprContextSPtr temp_ctx;
+    RETURN_IF_ERROR(VExpr::create_expr_tree(expr, temp_ctx));
+    _virtual_column_expr = temp_ctx->root();
+    // Virtual column expr should do prepare with original context.
+    RETURN_IF_ERROR(_virtual_column_expr->prepare(state, desc, context));
     _prepare_finished = true;
     return Status::OK();
 }
@@ -104,7 +108,7 @@ Status VirtualSlotRef::prepare(doris::RuntimeState* state, const doris::RowDescr
 Status VirtualSlotRef::open(RuntimeState* state, VExprContext* context,
                             FunctionContext::FunctionStateScope scope) {
     DCHECK(_prepare_finished);
-    RETURN_IF_ERROR(_virtual_column_expr->open(state));
+    RETURN_IF_ERROR(_virtual_column_expr->open(state, context, scope));
     RETURN_IF_ERROR(VExpr::open(state, context, scope));
     _open_finished = true;
     return Status::OK();
@@ -136,7 +140,7 @@ Status VirtualSlotRef::execute(VExprContext* context, Block* block, int* result_
             // 注意，在执行 execute 之后，后续代码里不能在用 120 行的 column 了，因为 execute 的时候 vector 可能发生
             // resize，导致之前的引用实效。
             int tmp_column_id = -1;
-            RETURN_IF_ERROR(_virtual_column_expr->execute(block, &tmp_column_id));
+            RETURN_IF_ERROR(_virtual_column_expr->execute(context, block, &tmp_column_id));
 
             // Maybe do clone.
             block->replace_by_position(_column_id,
@@ -205,34 +209,14 @@ bool VirtualSlotRef::equals(const VExpr& other) {
     return true;
 }
 
-// void VirtualSlotRef::prepare_virtual_slots(
-//         const std::map<SlotId, vectorized::VExprContextSPtr>& _slot_id_to_virtual_column_expr) {
-//     DCHECK(_children.empty());
-
-//     if (_slot_id_to_virtual_column_expr.find(_slot_id) != _slot_id_to_virtual_column_expr.end()) {
-//         _virtual_column_expr = _slot_id_to_virtual_column_expr.at(_slot_id);
-//     } else {
-//         // TODO: FIX debug_string 函数有core dump 的可能
-//         std::string msg;
-//         for (auto& it : _slot_id_to_virtual_column_expr) {
-//             msg += fmt::format("slot_id: {}, virtual_column_expr: {}, ", it.first,
-//                                it.second->root()->debug_string());
-//         }
-//         throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
-//                                "VirtualSlotRef {} has no virtual column expr, slot_id: {}, "
-//                                "slot_id_to_virtual_column_expr: {}",
-//                                *_column_name, _slot_id, msg);
-//     }
-// }
-
 Status VirtualSlotRef::evaluate_ann_range_search(
         const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& cid_to_index_iterators,
         const std::vector<ColumnId>& idx_to_cid,
         const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
         roaring::Roaring& row_bitmap) {
     if (_virtual_column_expr != nullptr) {
-        return _virtual_column_expr->root()->evaluate_ann_range_search(
-                cid_to_index_iterators, idx_to_cid, column_iterators, row_bitmap);
+        return _virtual_column_expr->evaluate_ann_range_search(cid_to_index_iterators, idx_to_cid,
+                                                               column_iterators, row_bitmap);
     }
     return Status::OK();
 }
