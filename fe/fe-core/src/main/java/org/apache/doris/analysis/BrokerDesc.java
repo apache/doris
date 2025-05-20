@@ -98,7 +98,8 @@ public class BrokerDesc extends StorageDesc implements Writable {
                 LOG.info("Failed to create storage properties for broker: {}, properties: {}", name, properties, e);
             }
         }
-        if (StringUtils.isBlank(this.name)) {
+        //only storage type is broker
+        if (StringUtils.isBlank(this.name) && (this.getStorageType() != StorageType.BROKER)) {
             this.name = this.storageType().name();
         }
     }
@@ -110,16 +111,10 @@ public class BrokerDesc extends StorageDesc implements Writable {
         if (properties != null) {
             this.properties.putAll(properties);
         }
-        if (MapUtils.isNotEmpty(properties)) {
-            try {
-                if (StorageType.REFACTOR_STORAGE_TYPES.contains(storageType)) {
-                    this.storageProperties = StorageProperties.createPrimary(properties);
-                }
-            } catch (Exception e) {
-                throw new RuntimeException("Failed to create storage properties for broker: "
-                        + name + ", error msg is: " + e.getMessage(), e);
-            }
+        if (MapUtils.isNotEmpty(this.properties) && StorageType.REFACTOR_STORAGE_TYPES.contains(storageType)) {
+            this.storageProperties = StorageProperties.createPrimary(properties);
         }
+
     }
 
     public String getFileLocation(String location) throws UserException {

@@ -221,8 +221,12 @@ public class BackupHandler extends MasterDaemon implements Writable {
         } catch (UserException e) {
             throw new DdlException("Failed to initialize remote file system: " + e.getMessage());
         }
+        org.apache.doris.fs.remote.RemoteFileSystem oldfs = org.apache.doris.fs.FileSystemFactory
+                .get(stmt.getBrokerName(), stmt.getStorageType(),
+                        stmt.getProperties());
         long repoId = env.getNextId();
-        Repository repo = new Repository(repoId, stmt.getName(), stmt.isReadOnly(), stmt.getLocation(), fileSystem);
+        Repository repo = new Repository(repoId, stmt.getName(), stmt.isReadOnly(), stmt.getLocation(),
+                fileSystem, oldfs);
 
         Status st = repoMgr.addAndInitRepoIfNotExist(repo, false);
         if (!st.ok()) {
@@ -260,7 +264,8 @@ public class BackupHandler extends MasterDaemon implements Writable {
             // Create new Repository instance with updated file system
             Repository newRepo = new Repository(
                     oldRepo.getId(), oldRepo.getName(), oldRepo.isReadOnly(),
-                    oldRepo.getLocation(), fileSystem
+                    oldRepo.getLocation(), fileSystem,
+                    oldRepo.getOldfs()
             );
             // Verify the repository can be connected with new settings
             if (!newRepo.ping()) {

@@ -127,7 +127,7 @@ public class BackupJobTest {
     private EditLog editLog;
 
     private Repository repo = new Repository(repoId, "repo", false, "my_repo",
-            FileSystemFactory.get("broker", Maps.newHashMap()));
+            FileSystemFactory.get("broker", Maps.newHashMap()), null);
 
     @BeforeClass
     public static void start() {

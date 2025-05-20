@@ -132,18 +132,27 @@ public class Repository implements Writable, GsonPostProcessable {
     private String location;
 
     @SerializedName("fs")
+    private org.apache.doris.fs.PersistentFileSystem oldfs;
+
+
     private PersistentFileSystem fileSystem;
+
+    public org.apache.doris.fs.PersistentFileSystem getOldfs() {
+        return oldfs;
+    }
 
     private Repository() {
         // for persist
     }
 
-    public Repository(long id, String name, boolean isReadOnly, String location, RemoteFileSystem fileSystem) {
+    public Repository(long id, String name, boolean isReadOnly, String location, RemoteFileSystem fileSystem,
+                      org.apache.doris.fs.PersistentFileSystem oldFs) {
         this.id = id;
         this.name = name;
         this.isReadOnly = isReadOnly;
         this.location = location;
         this.fileSystem = fileSystem;
+        this.oldfs = oldFs;
         this.createTime = System.currentTimeMillis();
     }
 
@@ -848,7 +857,13 @@ public class Repository implements Writable, GsonPostProcessable {
         name = Text.readString(in);
         isReadOnly = in.readBoolean();
         location = Text.readString(in);
-        fileSystem = PersistentFileSystem.read(in);
+        oldfs = org.apache.doris.fs.PersistentFileSystem.read(in);
+        try {
+            fileSystem = FileSystemFactory.get(oldfs.getProperties());
+        } catch (UserException e) {
+            // do we ignore this exception?
+            throw new IOException("Failed to create file system: " + e.getMessage());
+        }
         createTime = in.readLong();
     }
 }

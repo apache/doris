@@ -125,7 +125,7 @@ public class RestoreJobTest {
 
     @Injectable
     private Repository repo = new Repository(repoId, "repo", false, "bos://my_repo",
-            FileSystemFactory.get("broker", Maps.newHashMap()));
+            FileSystemFactory.get("broker", Maps.newHashMap()), null);
 
     private BackupMeta backupMeta;
 

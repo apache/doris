@@ -20,6 +20,7 @@ package org.apache.doris.datasource.property.storage;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.ConnectionProperties;
 import org.apache.doris.datasource.property.ConnectorProperty;
+import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
 
 import lombok.Getter;
 
@@ -109,7 +110,7 @@ public abstract class StorageProperties extends ConnectionProperties {
                 return p;
             }
         }
-        throw new RuntimeException("No supported storage type found.");
+        throw new StoragePropertiesException("No supported storage type found. Please check your configuration.");
     }
 
     private static final List<Function<Map<String, String>, StorageProperties>> PROVIDERS =

@@ -19,6 +19,7 @@ package org.apache.doris.datasource.property.storage;
 
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.S3URI;
+import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
 
 import org.apache.commons.lang3.StringUtils;
 
@@ -128,7 +129,7 @@ public class S3PropertyUtils {
                                                  String stringUsePathStyle,
                                                  String stringForceParsingByStandardUri) throws UserException {
         if (StringUtils.isBlank(path)) {
-            throw new UserException("path is null");
+            throw new StoragePropertiesException("path is null");
         }
         if (path.startsWith("s3://")) {
             return path;
@@ -151,9 +152,9 @@ public class S3PropertyUtils {
      *                       Input: {"uri": "s3://my-bucket/my-key"}
      *                       Output: "s3://my-bucket/my-key"
      */
-    public static String validateAndGetUri(Map<String, String> props) throws UserException {
+    public static String validateAndGetUri(Map<String, String> props) {
         if (props.isEmpty()) {
-            throw new UserException("props is empty");
+            throw new StoragePropertiesException("props is empty");
         }
         Optional<String> uriOptional = props.entrySet().stream()
                 .filter(e -> e.getKey().equalsIgnoreCase(URI_KEY))
@@ -161,7 +162,7 @@ public class S3PropertyUtils {
                 .findFirst();
 
         if (!uriOptional.isPresent()) {
-            throw new UserException("props must contain uri");
+            throw new StoragePropertiesException("props must contain uri");
         }
         return uriOptional.get();
     }

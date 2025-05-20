@@ -20,6 +20,7 @@ package org.apache.doris.datasource.property.storage;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.URI;
+import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
 
 import com.google.common.collect.ImmutableSet;
 import org.apache.commons.lang3.StringUtils;
@@ -37,7 +38,7 @@ public class HdfsPropertiesUtils {
         }
         String uriStr = getUri(props);
         if (StringUtils.isBlank(uriStr)) {
-            throw new UserException("props must contain uri");
+            throw new StoragePropertiesException("props must contain uri");
         }
         return validateAndNormalizeUri(uriStr);
     }

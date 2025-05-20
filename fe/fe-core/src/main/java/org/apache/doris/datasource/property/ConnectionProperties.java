@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.property;
 
 import org.apache.doris.common.CatalogConfigFileUtils;
+import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
@@ -66,7 +67,8 @@ public abstract class ConnectionProperties {
                         field.set(this, origProps.get(name));
                         matchedProperties.put(name, origProps.get(name));
                     } catch (IllegalAccessException e) {
-                        throw new RuntimeException("Failed to set property " + name + ", " + e.getMessage(), e);
+                        throw new StoragePropertiesException("Failed to set property " + name
+                                + ", " + e.getMessage(), e);
                     }
                     break;
                 }
@@ -114,7 +116,8 @@ public abstract class ConnectionProperties {
                         throw new IllegalArgumentException("Property " + names[0] + " is required.");
                     }
                 } catch (IllegalAccessException e) {
-                    throw new RuntimeException(e);
+                    throw new StoragePropertiesException("Failed to get property " + names[0]
+                            + ", " + e.getMessage(), e);
                 }
             }
         }
