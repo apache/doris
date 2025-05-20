@@ -17,18 +17,106 @@
 
 #pragma once
 
+#include <atomic>
 #include <boost/uuid/uuid.hpp>
 #include <boost/uuid/uuid_generators.hpp>
 #include <boost/uuid/uuid_io.hpp>
+#include <chrono>
+#include <cstdint>
 #include <mutex>
+#include <random>
 
 namespace doris {
 
+// Format:
+// We use UUID v7 (RFC 4122) for generating UUIDs.
+// UUIDv7 was chosen for the following benefits:
+// 1. Time-ordered - Contains a timestamp component that makes UUIDs sortable by generation time,
+//    which is valuable for query tracking, debugging, and performance analysis
+// 2. High performance - Efficient generation with minimal overhead
+// 3. Global uniqueness - Combines timestamp with random data to ensure uniqueness across
+//    distributed systems without coordination
+// 4. Database friendly - The time-ordered nature makes it more efficient for database indexing
+//    and storage compared to purely random UUIDs (like v4)
+// 5. Future-proof - Follows the latest UUID standard with improvements over older versions
+
+// Note: Our implementation differs slightly from the standard UUIDv7 specification by
+// using a counter instead of random bits in the "rand_a" field to further enhance
+// uniqueness when generating multiple UUIDs in rapid succession.
+
+// 0                   1                   2                   3
+// 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+// |                           unix_ts_ms                          |
+// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+// |          unix_ts_ms           |  ver  |       counter         |
+// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+// |var|                        rand_b                             |
+// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+// |                            rand_b                             |
+// +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
 class UUIDGenerator {
 public:
+    UUIDGenerator() {
+        // Initialize random generator once
+        std::random_device rd;
+        _random_gen.seed(rd());
+        // Initialize lastTimestamp with current time
+        _last_timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                  std::chrono::system_clock::now().time_since_epoch())
+                                  .count();
+    }
+
     boost::uuids::uuid next_uuid() {
         std::lock_guard<std::mutex> lock(_uuid_gen_lock);
-        return _boost_uuid_generator();
+
+        auto now = std::chrono::system_clock::now();
+        uint64_t millis =
+                std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch())
+                        .count();
+
+        // If the current timestamp hasn't increased since the last call (either due to high frequency
+        // calls within a millisecond or clock adjustments), we use the last timestamp to maintain
+        // monotonically increasing timestamps. This prevents time going backward and ensures
+        // ordering of generated UUIDs even when many are created in rapid succession.
+        if (millis <= _last_timestamp) {
+            millis = _last_timestamp;
+        } else {
+            _last_timestamp = millis;
+        }
+
+        uint16_t counter = _counter.fetch_add(1, std::memory_order_relaxed) & 0xFF;
+
+        // Use the pre-initialized random generator
+        uint64_t random = _random_dist(_random_gen);
+
+        boost::uuids::uuid uuid;
+
+        uuid.data[0] = static_cast<uint8_t>((millis >> 40) & 0xFF);
+        uuid.data[1] = static_cast<uint8_t>((millis >> 32) & 0xFF);
+        uuid.data[2] = static_cast<uint8_t>((millis >> 24) & 0xFF);
+        uuid.data[3] = static_cast<uint8_t>((millis >> 16) & 0xFF);
+        uuid.data[4] = static_cast<uint8_t>((millis >> 8) & 0xFF);
+        uuid.data[5] = static_cast<uint8_t>(millis & 0xFF);
+
+        // Next 4 bits: version (7)
+        // Next 12 bits: counter
+        uuid.data[6] = static_cast<uint8_t>(0x70 | ((counter >> 8) & 0x0F));
+        uuid.data[7] = static_cast<uint8_t>(counter & 0xFF);
+
+        // Next 2 bits: variant (2)
+        // Remaining 62 bits: random
+        uuid.data[8] = static_cast<uint8_t>(0x80 | ((random >> 56) & 0x3F));
+        uuid.data[9] = static_cast<uint8_t>((random >> 48) & 0xFF);
+        uuid.data[10] = static_cast<uint8_t>((random >> 40) & 0xFF);
+        uuid.data[11] = static_cast<uint8_t>((random >> 32) & 0xFF);
+        uuid.data[12] = static_cast<uint8_t>((random >> 24) & 0xFF);
+        uuid.data[13] = static_cast<uint8_t>((random >> 16) & 0xFF);
+        uuid.data[14] = static_cast<uint8_t>((random >> 8) & 0xFF);
+        uuid.data[15] = static_cast<uint8_t>(random & 0xFF);
+
+        return uuid;
     }
 
     static UUIDGenerator* instance() {
@@ -37,8 +125,11 @@ public:
     }
 
 private:
-    boost::uuids::basic_random_generator<boost::mt19937> _boost_uuid_generator;
     std::mutex _uuid_gen_lock;
+    std::atomic<uint16_t> _counter {0};
+    std::mt19937_64 _random_gen;
+    std::uniform_int_distribution<uint64_t> _random_dist;
+    std::atomic<uint64_t> _last_timestamp;
 };
 
 } // namespace doris

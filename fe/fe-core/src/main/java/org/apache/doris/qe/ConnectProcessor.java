@@ -39,6 +39,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.UUIDv7Generator;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.SqlUtils;
@@ -657,7 +658,7 @@ public abstract class ConnectProcessor {
             if (request.isSetQueryId()) {
                 queryId = request.getQueryId();
             } else {
-                UUID uuid = UUID.randomUUID();
+                UUID uuid = UUIDv7Generator.getInstance().nextUUID();
                 queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
             }
             if (request.isSetPrepareExecuteBuffer()) {

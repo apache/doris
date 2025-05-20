@@ -108,6 +108,7 @@ import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.NereidsException;
 import org.apache.doris.common.Status;
+import org.apache.doris.common.UUIDv7Generator;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.cache.NereidsSqlCacheManager;
@@ -550,7 +551,7 @@ public class StmtExecutor {
 
     // query with a random sql
     public void execute() throws Exception {
-        UUID uuid = UUID.randomUUID();
+        UUID uuid = UUIDv7Generator.getInstance().nextUUID();
         TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
         if (Config.enable_print_request_before_execution) {
             LOG.info("begin to execute query {} {}",
@@ -581,7 +582,7 @@ public class StmtExecutor {
                     throw e;
                 }
                 TUniqueId lastQueryId = queryId;
-                uuid = UUID.randomUUID();
+                uuid = UUIDv7Generator.getInstance().nextUUID();
                 queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
                 int randomMillis = 10 + (int) (Math.random() * 10);
                 if (i > retryTime / 2) {
@@ -903,7 +904,7 @@ public class StmtExecutor {
             try {
                 // reset query id for each retry
                 if (i > 0) {
-                    UUID uuid = UUID.randomUUID();
+                    UUID uuid = UUIDv7Generator.getInstance().nextUUID();
                     TUniqueId newQueryId = new TUniqueId(uuid.getMostSignificantBits(),
                             uuid.getLeastSignificantBits());
                     AuditLog.getQueryAudit().log("Query {} {} times with new query id: {}",
@@ -1887,7 +1888,7 @@ public class StmtExecutor {
     private void handleQueryStmt() throws Exception {
         if (LOG.isDebugEnabled()) {
             LOG.debug("Handling query {} with query id {}",
-                          originStmt.originStmt, DebugUtil.printId(context.queryId));
+                          originStmt.originStmt, DebugUtil.printId(context.queryId()));
         }
 
         if (context.getConnectType() == ConnectType.MYSQL) {
@@ -1900,7 +1901,7 @@ public class StmtExecutor {
         if (queryStmt.isExplain()) {
             String explainString = planner.getExplainString(queryStmt.getExplainOptions());
             handleExplainStmt(explainString, false);
-            LOG.info("Query {} finished", DebugUtil.printId(context.queryId));
+            LOG.info("Query {} finished", DebugUtil.printId(context.queryId()));
             return;
         }
 
@@ -1919,7 +1920,7 @@ public class StmtExecutor {
             if (resultSet.isPresent()) {
                 sendResultSet(resultSet.get(), ((Queriable) parsedStmt).getFieldInfos());
                 isHandleQueryInFe = true;
-                LOG.info("Query {} finished", DebugUtil.printId(context.queryId));
+                LOG.info("Query {} finished", DebugUtil.printId(context.queryId()));
                 if (context.getSessionVariable().enableProfile()) {
                     if (profile != null) {
                         this.profile.getSummaryProfile().setExecutedByFrontend(true);
@@ -1954,7 +1955,7 @@ public class StmtExecutor {
                 && parsedStmt.getOrigStmt() != null && parsedStmt.getOrigStmt().originStmt != null) {
             if (queryStmt instanceof QueryStmt || queryStmt instanceof LogicalPlanAdapter) {
                 handleCacheStmt(cacheAnalyzer, channel);
-                LOG.info("Query {} finished", DebugUtil.printId(context.queryId));
+                LOG.info("Query {} finished", DebugUtil.printId(context.queryId()));
                 return;
             }
         }
@@ -1970,13 +1971,13 @@ public class StmtExecutor {
 
                 sendFields(queryStmt.getColLabels(), queryStmt.getFieldInfos(), exprToType(queryStmt.getResultExprs()));
                 context.getState().setEof();
-                LOG.info("Query {} finished", DebugUtil.printId(context.queryId));
+                LOG.info("Query {} finished", DebugUtil.printId(context.queryId()));
                 return;
             }
         }
 
         executeAndSendResult(isOutfileQuery, false, queryStmt, channel, null, null);
-        LOG.info("Query {} finished", DebugUtil.printId(context.queryId));
+        LOG.info("Query {} finished", DebugUtil.printId(context.queryId()));
     }
 
     public void executeAndSendResult(boolean isOutfileQuery, boolean isSendFields,
@@ -3288,7 +3289,7 @@ public class StmtExecutor {
     }
 
     private void handleOverwriteTable(InsertOverwriteTableStmt iotStmt) {
-        UUID uuid = UUID.randomUUID();
+        UUID uuid = UUIDv7Generator.getInstance().nextUUID();
         // to comply with naming rules
         TableName tmpTableName = new TableName(null, iotStmt.getDb(), "tmp_table_" + uuid.toString().replace('-', '_'));
         TableName targetTableName = new TableName(null, iotStmt.getDb(), iotStmt.getTbl());
@@ -3361,7 +3362,7 @@ public class StmtExecutor {
         try {
             // create tmp partitions with uuid
             for (String partitionName : partitionNames) {
-                UUID uuid = UUID.randomUUID();
+                UUID uuid = UUIDv7Generator.getInstance().nextUUID();
                 // to comply with naming rules
                 String tempPartName = "tmp_partition_" + uuid.toString().replace('-', '_');
                 List<AlterClause> ops = new ArrayList<>();
@@ -3511,7 +3512,7 @@ public class StmtExecutor {
         if (LOG.isDebugEnabled()) {
             LOG.debug("INTERNAL QUERY: {}", originStmt.toString());
         }
-        UUID uuid = UUID.randomUUID();
+        UUID uuid = UUIDv7Generator.getInstance().nextUUID();
         TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
         context.setQueryId(queryId);
         if (originStmt.originStmt != null) {
