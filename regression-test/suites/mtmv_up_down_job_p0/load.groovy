@@ -146,7 +146,7 @@ suite("test_upgrade_downgrade_prepare_job_mtmv","p0,mtmv,restart_fe") {
 
     sql """
         CREATE MATERIALIZED VIEW ${mvNameReplaceSwap2}
-        BUILD DEFERRED REFRESH AUTO ON manual
+        BUILD DEFERRED REFRESH AUTO ON SCHEDULE EVERY 1 DAY
         DISTRIBUTED BY RANDOM BUCKETS 2
         PROPERTIES (
         'replication_num' = '1'
@@ -172,7 +172,7 @@ suite("test_upgrade_downgrade_prepare_job_mtmv","p0,mtmv,restart_fe") {
 
     sql """
         CREATE MATERIALIZED VIEW ${mvNameReplaceNoSwap2}
-        BUILD DEFERRED REFRESH AUTO ON manual
+        BUILD DEFERRED REFRESH AUTO ON SCHEDULE EVERY 1 DAY
         DISTRIBUTED BY RANDOM BUCKETS 2
         PROPERTIES (
         'replication_num' = '1'

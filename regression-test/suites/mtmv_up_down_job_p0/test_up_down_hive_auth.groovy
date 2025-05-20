@@ -38,7 +38,7 @@ suite("test_upgrade_downgrade_job_mtmv","p0,mtmv,restart_fe") {
     waitingMTMVTaskFinishedByMvName(mvNameRefresh)
     def res = sql """select * from tasks('type'='mv') where MvName='${mvNameRefresh}' and MvDatabaseName='${dbName}'"""
     assertTrue(res.size()>0);
-
+    order_qt_select_refresh "select * from ${mvNameRefresh}";
     order_qt_alter_trigger "select MvName,ExecuteType,Status from jobs('type'='mv') where MvName='${mvNameAlterTrigger}' and MvDatabaseName='${dbName}';"
     order_qt_alter_pause "select MvName,ExecuteType,Status from jobs('type'='mv') where MvName='${mvNamePause}' and MvDatabaseName='${dbName}';"
     order_qt_alter_resume "select MvName,ExecuteType,Status from jobs('type'='mv') where MvName='${mvNameResume}' and MvDatabaseName='${dbName}';"
