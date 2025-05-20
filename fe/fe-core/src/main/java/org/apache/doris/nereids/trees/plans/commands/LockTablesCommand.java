@@ -70,7 +70,7 @@ public class LockTablesCommand extends Command implements NoForward {
 
     @Override
     public RedirectStatus toRedirectStatus() {
-        return RedirectStatus.FORWARD_NO_SYNC;
+        return RedirectStatus.NO_FORWARD;
     }
 }
 
