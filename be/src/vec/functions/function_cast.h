@@ -1594,41 +1594,16 @@ private:
 
     WrapperType create_hll_wrapper(FunctionContext* context, const DataTypePtr& from_type_untyped,
                                    const DataTypeHLL& to_type) const {
-        /// Conversion from String through parsing.
-        if (check_and_get_data_type<DataTypeString>(from_type_untyped.get())) {
-            return &ConvertImplGenericFromString::execute;
-        }
-
-        //TODO if from is not string, it must be HLL?
-        const auto* from_type = check_and_get_data_type<DataTypeHLL>(from_type_untyped.get());
-
-        if (!from_type) {
-            return create_unsupport_wrapper(
-                    "CAST AS HLL can only be performed between HLL, String "
-                    "types");
-        }
-
-        return nullptr;
+        throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "CAST AS HLL Not support");
+        return create_unsupport_wrapper("CAST AS HLL Not support");
     }
 
     WrapperType create_bitmap_wrapper(FunctionContext* context,
                                       const DataTypePtr& from_type_untyped,
                                       const DataTypeBitMap& to_type) const {
-        /// Conversion from String through parsing.
-        if (check_and_get_data_type<DataTypeString>(from_type_untyped.get())) {
-            return &ConvertImplGenericFromString::execute;
-        }
+        throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "CAST AS Bitmap Not support");
 
-        //TODO if from is not string, it must be BITMAP?
-        const auto* from_type = check_and_get_data_type<DataTypeBitMap>(from_type_untyped.get());
-
-        if (!from_type) {
-            return create_unsupport_wrapper(
-                    "CAST AS BITMAP can only be performed between BITMAP, String "
-                    "types");
-        }
-
-        return nullptr;
+        return create_unsupport_wrapper("CAST AS Bitmap Not support");
     }
 
     WrapperType create_array_wrapper(FunctionContext* context, const DataTypePtr& from_type_untyped,
