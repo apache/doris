@@ -45,8 +45,8 @@ Status MultiCastDataStreamSourceLocalState::init(RuntimeState* state, LocalState
 
     // TODO: Not sure if runtime profile info shuold be added to common_profile or custom_profile
     // init profile for runtime filter
-    RETURN_IF_ERROR(_helper.init(state, false, p.dest_id_from_sink(), p.operator_id(), _filter_dependencies,
-                                 p.get_name() + "_FILTER_DEPENDENCY"));
+    RETURN_IF_ERROR(_helper.init(state, false, p.dest_id_from_sink(), p.operator_id(),
+                                 _filter_dependencies, p.get_name() + "_FILTER_DEPENDENCY"));
     return Status::OK();
 }
 

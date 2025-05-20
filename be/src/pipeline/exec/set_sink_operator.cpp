@@ -54,7 +54,7 @@ Status SetSinkLocalState<is_intersect>::close(RuntimeState* state, Status exec_s
     }
 
     if (_runtime_filter_producer_helper) {
-        _runtime_filter_producer_helper->collect_realtime_profile(profile());
+        _runtime_filter_producer_helper->collect_realtime_profile(custom_profile());
     }
 
     return Base::close(state, exec_status);

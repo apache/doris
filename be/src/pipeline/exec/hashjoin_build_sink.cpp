@@ -253,7 +253,7 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
                 _finish_dependency->debug_string(), blocked_by_shared_hash_table_signal);
     }
     if (_runtime_filter_producer_helper) {
-        _runtime_filter_producer_helper->collect_realtime_profile(profile());
+        _runtime_filter_producer_helper->collect_realtime_profile(custom_profile());
     }
     return Base::close(state, exec_status);
 }

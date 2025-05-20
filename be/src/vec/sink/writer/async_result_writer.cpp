@@ -103,12 +103,12 @@ Status AsyncResultWriter::start_writer(RuntimeState* state, RuntimeProfile* oper
     // not deconstructed before the thread exit.
     auto task_ctx = state->get_task_execution_context();
     RETURN_IF_ERROR(ExecEnv::GetInstance()->fragment_mgr()->get_thread_pool()->submit_func(
-            [this, state, _operator_profile, task_ctx]() {
+            [this, state, task_ctx]() {
                 auto task_lock = task_ctx.lock();
                 if (task_lock == nullptr) {
                     return;
                 }
-                this->process_block(state, _operator_profile);
+                this->process_block(state, this->_operator_profile);
                 task_lock.reset();
             }));
     return Status::OK();
