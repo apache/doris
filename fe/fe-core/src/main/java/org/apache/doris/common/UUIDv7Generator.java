@@ -115,7 +115,7 @@ public class UUIDv7Generator {
 
     private UUID generateUUID(long timestamp, long sequence) {
         // Get counter value (12 bits)
-        int counter = (int) (sequence & 0xFFF);
+        int counter = (int) (sequence & MAX_SEQUENCE);
 
         // Generate random bits for the lower part
         long random = RANDOM.nextLong();
