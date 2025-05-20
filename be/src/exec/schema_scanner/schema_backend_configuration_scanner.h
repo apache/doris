@@ -41,6 +41,7 @@ public:
     static std::vector<SchemaScanner::ColumnDesc> _s_tbls_columns;
 
 private:
+    int64_t _backend_id;
     std::vector<std::vector<std::string>> _config_infos;
 };
 } // namespace doris

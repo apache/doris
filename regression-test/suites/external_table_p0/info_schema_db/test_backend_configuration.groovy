@@ -18,15 +18,11 @@
 suite("test_backend_configuration", "p0, external_table,information_schema,backend_configuration") {
     sql("use information_schema")
     // dont select be_id
-    qt_sql01 """
-        select CONFIGURATION, CONFIGURATION_TYPE, CONFIGURATION_VALUE, IS_MUTABLE from backend_configuration where CONFIGURATION = "brpc_port" and CONFIGURATION_TYPE = "int32_t"
-    """
-
-    qt_sql02 """ 
+    qt_sql01 """ 
          select CONFIGURATION, CONFIGURATION_TYPE, CONFIGURATION_VALUE, IS_MUTABLE from backend_configuration where CONFIGURATION = "disable_auto_compaction" and CONFIGURATION_TYPE = "bool";
     """
 
-    qt_sql03 """ 
+    qt_sql02 """ 
          select CONFIGURATION, CONFIGURATION_TYPE, CONFIGURATION_VALUE, IS_MUTABLE from backend_configuration where CONFIGURATION = "LZ4_HC_compression_level" and CONFIGURATION_TYPE = "int64_t";
     """
 

@@ -38,7 +38,8 @@ std::vector<SchemaScanner::ColumnDesc> SchemaBackendConfigurationScanner::_s_tbl
         {"IS_MUTABLE", TYPE_BOOLEAN, sizeof(bool), true}};
 
 SchemaBackendConfigurationScanner::SchemaBackendConfigurationScanner()
-        : SchemaScanner(_s_tbls_columns, TSchemaTableType::SCH_BACKEND_CONFIGURATION) {}
+        : SchemaScanner(_s_tbls_columns, TSchemaTableType::SCH_BACKEND_CONFIGURATION),
+          _backend_id(ExecEnv::GetInstance()->cluster_info()->backend_id) {}
 
 SchemaBackendConfigurationScanner::~SchemaBackendConfigurationScanner() = default;
 
@@ -71,11 +72,12 @@ Status SchemaBackendConfigurationScanner::get_next_block_internal(vectorized::Bl
         std::vector<std::string> column_values(row_num);
 
         for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
-            // idx==0 is be id
+            // be_id
             if (col_idx == 0) {
-                bigint_vals[row_idx] = ExecEnv::GetInstance()->cluster_info()->backend_id;
+                bigint_vals[row_idx] = _backend_id;
                 datas[row_idx] = &bigint_vals[row_idx];
             } else {
+                // config
                 const auto& row = _config_infos[row_idx];
                 if (row.size() != _s_tbls_columns.size() - 1) {
                     return Status::InternalError(
