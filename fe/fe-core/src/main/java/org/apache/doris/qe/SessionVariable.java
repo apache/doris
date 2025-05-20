@@ -739,6 +739,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String SHOW_COLUMN_COMMENT_IN_DESCRIBE = "show_column_comment_in_describe";
 
+    public static final String SQL_CONVERTOR_CONFIG = "sql_convertor_config";
+
     /**
      * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
      */
@@ -2603,6 +2605,13 @@ public class SessionVariable implements Serializable, Writable {
             })
     public boolean showColumnCommentInDescribe = false;
 
+    @VariableMgr.VarAttr(name = SQL_CONVERTOR_CONFIG, needForward = true,
+            description = {
+                    "SQL 转换器的相关配置，使用 Json 格式。以 {} 为根元素。",
+                    "SQL convertor config, use Json format. The root element is {}"
+            })
+    public String sqlConvertorConfig = "{}";
+
     public void setEnableEsParallelScroll(boolean enableESParallelScroll) {
         this.enableESParallelScroll = enableESParallelScroll;
     }
@@ -3550,6 +3559,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public String[] getSqlConvertorFeatures() {
         return enableSqlConvertorFeatures.split(",");
+    }
+
+    public String getSqlConvertorConfig() {
+        return sqlConvertorConfig;
     }
 
     public Dialect getSqlParseDialect() {
