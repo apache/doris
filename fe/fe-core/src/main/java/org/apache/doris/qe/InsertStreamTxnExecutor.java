@@ -66,7 +66,8 @@ public class InsertStreamTxnExecutor {
         OlapTable table = (OlapTable) txnEntry.getTable();
         // StreamLoadTask's id == request's load_id
         NereidsStreamLoadTask streamLoadTask = NereidsStreamLoadTask.fromTStreamLoadPutRequest(request);
-        NereidsStreamLoadPlanner planner = new NereidsStreamLoadPlanner((Database) txnEntry.getDb(), table, streamLoadTask);
+        NereidsStreamLoadPlanner planner = new NereidsStreamLoadPlanner((Database) txnEntry.getDb(), table,
+                streamLoadTask);
         boolean isMowTable = ((OlapTable) txnEntry.getTable()).getEnableUniqueKeyMergeOnWrite();
         TPipelineFragmentParamsList pipelineParamsList = new TPipelineFragmentParamsList();
         if (!table.tryReadLock(1, TimeUnit.MINUTES)) {
