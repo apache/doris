@@ -493,14 +493,14 @@ public class StmtExecutor {
         if (masterOpExecutor == null) {
             return MysqlStateType.UNKNOWN.ordinal();
         }
-        return masterOpExecutor.getProxyStatusCode();
+        return masterOpExecutor.getStatusCode();
     }
 
     public String getProxyErrMsg() {
         if (masterOpExecutor == null) {
             return MysqlStateType.UNKNOWN.name();
         }
-        return masterOpExecutor.getProxyErrMsg();
+        return masterOpExecutor.getErrMsg();
     }
 
     public boolean isSyncLoadKindStmt() {
@@ -1202,8 +1202,6 @@ public class StmtExecutor {
 
     /**
      * get variables in stmt.
-     *
-     * @throws DdlException
      */
     private void analyzeVariablesInStmt() throws DdlException {
         analyzeVariablesInStmt(parsedStmt);
@@ -2324,7 +2322,7 @@ public class StmtExecutor {
         TransactionEntry txnEntry = context.getTxnEntry();
         TTxnParams txnConf = txnEntry.getTxnConf();
         SessionVariable sessionVariable = context.getSessionVariable();
-        long timeoutSecond = context.getExecTimeout();
+        long timeoutSecond = context.getExecTimeoutS();
 
         TransactionState.LoadJobSourceType sourceType = TransactionState.LoadJobSourceType.INSERT_STREAMING;
         Database dbObj = Env.getCurrentInternalCatalog()
@@ -2502,9 +2500,9 @@ public class StmtExecutor {
                     coord.getQueryOptions().setEnableMemtableOnSinkNode(isEnableMemtableOnSinkNode);
                 }
                 coord.exec();
-                int execTimeout = context.getExecTimeout();
+                int execTimeout = context.getExecTimeoutS();
                 if (LOG.isDebugEnabled()) {
-                    LOG.debug("Insert {} execution timeout:{}", DebugUtil.printId(context.queryId()), execTimeout);
+                    LOG.debug("Insert {} execution timeout:{}ms", DebugUtil.printId(context.queryId()), execTimeout);
                 }
                 boolean notTimeout = coord.join(execTimeout);
                 if (!coord.isDone()) {

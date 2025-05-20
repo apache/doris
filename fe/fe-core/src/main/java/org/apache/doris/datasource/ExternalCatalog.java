@@ -81,6 +81,7 @@ import com.google.gson.annotations.SerializedName;
 import lombok.Data;
 import org.apache.commons.lang3.NotImplementedException;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -120,6 +121,14 @@ public abstract class ExternalCatalog
 
     public static final String FOUND_CONFLICTING = "Found conflicting";
     public static final String ONLY_TEST_LOWER_CASE_TABLE_NAMES = "only_test_lower_case_table_names";
+
+    // https://help.aliyun.com/zh/emr/emr-on-ecs/user-guide/use-rootpolicy-to-access-oss-hdfs?spm=a2c4g.11186623.help-menu-search-28066.d_0
+    public static final String OOS_ROOT_POLICY = "oss.root_policy";
+    public static final String SCHEMA_CACHE_TTL_SECOND = "schema.cache.ttl-second";
+    // -1 means cache with no ttl
+    public static final int CACHE_NO_TTL = -1;
+    // 0 means cache is disabled; >0 means cache with ttl;
+    public static final int CACHE_TTL_DISABLE_CACHE = 0;
 
     // Properties that should not be shown in the `show create catalog` result
     public static final Set<String> HIDDEN_PROPERTIES = Sets.newHashSet(
@@ -299,7 +308,7 @@ public abstract class ExternalCatalog
             } else {
                 if (!Env.getCurrentEnv().isMaster()) {
                     // Forward to master and wait the journal to replay.
-                    int waitTimeOut = ConnectContext.get() == null ? 300 : ConnectContext.get().getExecTimeout();
+                    int waitTimeOut = ConnectContext.get() == null ? 300 : ConnectContext.get().getExecTimeoutS();
                     MasterCatalogExecutor remoteExecutor = new MasterCatalogExecutor(waitTimeOut * 1000);
                     try {
                         remoteExecutor.forward(id, -1);
@@ -332,7 +341,7 @@ public abstract class ExternalCatalog
         Map<String, String> properties = getCatalogProperty().getProperties();
         if (properties.containsKey(CatalogMgr.METADATA_REFRESH_INTERVAL_SEC)) {
             try {
-                Integer metadataRefreshIntervalSec = Integer.valueOf(
+                int metadataRefreshIntervalSec = Integer.parseInt(
                         properties.get(CatalogMgr.METADATA_REFRESH_INTERVAL_SEC));
                 if (metadataRefreshIntervalSec < 0) {
                     throw new DdlException("Invalid properties: " + CatalogMgr.METADATA_REFRESH_INTERVAL_SEC);
@@ -342,11 +351,13 @@ public abstract class ExternalCatalog
             }
         }
 
-        // if (properties.getOrDefault(ExternalCatalog.USE_META_CACHE, "true").equals("false")) {
-        //     LOG.warn("force to set use_meta_cache to true for catalog: {} when creating", name);
-        //     getCatalogProperty().addProperty(ExternalCatalog.USE_META_CACHE, "true");
-        //     useMetaCache = Optional.of(true);
-        // }
+        // check schema.cache.ttl-second parameter
+        String schemaCacheTtlSecond = catalogProperty.getOrDefault(SCHEMA_CACHE_TTL_SECOND, null);
+        if (java.util.Objects.nonNull(schemaCacheTtlSecond) && NumberUtils.toInt(schemaCacheTtlSecond, CACHE_NO_TTL)
+                < CACHE_TTL_DISABLE_CACHE) {
+            throw new DdlException(
+                    "The parameter " + SCHEMA_CACHE_TTL_SECOND + " is wrong, value is " + schemaCacheTtlSecond);
+        }
     }
 
     /**
@@ -1246,5 +1257,14 @@ public abstract class ExternalCatalog
     @Override
     public int hashCode() {
         return Objects.hashCode(name);
+    }
+
+    @Override
+    public void notifyPropertiesUpdated(Map<String, String> updatedProps) {
+        CatalogIf.super.notifyPropertiesUpdated(updatedProps);
+        String schemaCacheTtl = updatedProps.getOrDefault(SCHEMA_CACHE_TTL_SECOND, null);
+        if (java.util.Objects.nonNull(schemaCacheTtl)) {
+            Env.getCurrentEnv().getExtMetaCacheMgr().invalidSchemaCache(id);
+        }
     }
 }
