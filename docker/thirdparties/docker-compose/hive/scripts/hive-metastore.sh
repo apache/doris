@@ -18,6 +18,7 @@
 
 set -e -x
 
+
 parallel=$(getconf _NPROCESSORS_ONLN)
 
 nohup /opt/hive/bin/hive --service metastore &
@@ -34,6 +35,13 @@ while ! $(nc -z localhost "${HMS_PORT:-9083}"); do
     sleep 5s
 done
 
+if [[ ${NEED_LOAD_DATA} = "0" ]]; then
+    rm -f "${lockfile1}"
+    echo "NEED_LOAD_DATA is 0, skip load data"
+    touch /mnt/SUCCESS
+    # Avoid container exit
+    tail -f /dev/null
+fi
 # create tables for other cases
 # new cases should use separate dir
 hadoop fs -mkdir -p /user/doris/suites/
