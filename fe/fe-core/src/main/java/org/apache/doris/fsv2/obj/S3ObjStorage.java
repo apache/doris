@@ -121,22 +121,22 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
             S3URI uri = S3URI.create(remotePath, isUsePathStyle, forceParsingByStandardUri);
             String bucket = uri.getBucket();
             String globPath = uri.getKey(); // eg: path/to/*.csv
-
-            LOG.info("globList globPath:{}, remotePath:{}", globPath, remotePath);
+            if (LOG.isDebugEnabled()) {
+                LOG.info("globList globPath:{}, remotePath:{}", globPath, remotePath);
+            }
 
             java.nio.file.Path pathPattern = Paths.get(globPath);
             PathMatcher matcher = FileSystems.getDefault().getPathMatcher("glob:" + pathPattern);
             HashSet<String> directorySet = new HashSet<>();
-
-            String listPrefix = getLongestPrefix(globPath); // similar to Azure
-            LOG.info("globList listPrefix: {}", listPrefix);
-
+            String listPrefix = S3Util.getLongestPrefix(globPath); // similar to Azure
+            if (LOG.isDebugEnabled()) {
+                LOG.info("globList listPrefix: {}", listPrefix);
+            }
             ListObjectsV2Request request = ListObjectsV2Request.builder()
                     .bucket(bucket)
                     .prefix(listPrefix)
                     .build();
-
-            boolean isTruncated = false;
+            boolean isTruncated;
             do {
                 roundCnt++;
                 ListObjectsV2Response response = getClient().listObjectsV2(request);
@@ -191,26 +191,12 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
         } finally {
             long endTime = System.nanoTime();
             long duration = endTime - startTime;
-            LOG.info("process {} elements under prefix {} for {} round, match {} elements, take {} ms",
-                    elementCnt, remotePath, roundCnt, matchCnt,
-                    duration / 1000);
-        }
-    }
-
-    public static String getLongestPrefix(String globPattern) {
-        int length = globPattern.length();
-        int earliestSpecialCharIndex = length;
-
-        char[] specialChars = {'*', '?', '[', '{', '\\'};
-
-        for (char specialChar : specialChars) {
-            int index = globPattern.indexOf(specialChar);
-            if (index != -1 && index < earliestSpecialCharIndex) {
-                earliestSpecialCharIndex = index;
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("process {} elements under prefix {} for {} round, match {} elements, take {} ms",
+                        elementCnt, remotePath, roundCnt, matchCnt,
+                        duration / 1000);
             }
         }
-
-        return globPattern.substring(0, earliestSpecialCharIndex);
     }
 
     @Override
@@ -225,7 +211,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
             S3URI uri = S3URI.create(remotePath, isUsePathStyle, forceParsingByStandardUri);
             HeadObjectResponse response = getClient()
                     .headObject(HeadObjectRequest.builder().bucket(uri.getBucket()).key(uri.getKey()).build());
-            LOG.info("head file " + remotePath + " success: " + response.toString());
+            LOG.info("head file {} success: {}", remotePath, response);
             return Status.OK;
         } catch (S3Exception e) {
             if (e.statusCode() == HttpStatus.SC_NOT_FOUND) {
@@ -247,7 +233,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
             S3URI uri = S3URI.create(remoteFilePath, isUsePathStyle, forceParsingByStandardUri);
             GetObjectResponse response = getClient().getObject(
                     GetObjectRequest.builder().bucket(uri.getBucket()).key(uri.getKey()).build(), localFile.toPath());
-            LOG.info("get file " + remoteFilePath + " success: " + response.toString());
+            LOG.info("get file {} success: {}", remoteFilePath, response);
             return Status.OK;
         } catch (S3Exception s3Exception) {
             return new Status(
@@ -272,13 +258,13 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                             .putObject(
                                     PutObjectRequest.builder().bucket(uri.getBucket()).key(uri.getKey()).build(),
                                     body);
-            LOG.info("put object success: " + response.toString());
+            LOG.info("put object success: {}", response.toString());
             return Status.OK;
         } catch (S3Exception e) {
-            LOG.error("put object failed:", e);
+            LOG.warn("put object failed:", e);
             return new Status(Status.ErrCode.COMMON_ERROR, "put object failed: " + e.getMessage());
         } catch (Exception ue) {
-            LOG.error("connect to s3 failed: ", ue);
+            LOG.warn("connect to s3 failed: ", ue);
             return new Status(Status.ErrCode.COMMON_ERROR, "connect to s3 failed: " + ue.getMessage());
         }
     }

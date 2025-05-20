@@ -50,7 +50,7 @@ public class S3Properties extends AbstractS3CompatibleProperties {
     protected String region = "";
 
     @Getter
-    @ConnectorProperty(names = {"s3.access_key", "AWS_ACCESS_KEY", "ACCESS_KEY", "access_key"},
+    @ConnectorProperty(names = {"s3.access_key", "AWS_ACCESS_KEY", "access_key", "ACCESS_KEY"},
             description = "The access key of S3.")
     protected String accessKey = "";
 

@@ -49,7 +49,7 @@ public class MinioProperties extends AbstractS3CompatibleProperties {
     protected String secretKey = "";
 
     private static final Set<String> IDENTIFIERS = ImmutableSet.of("minio.access_key", "AWS_ACCESS_KEY", "ACCESS_KEY",
-            "access_key", "s3.access_key");
+            "access_key", "s3.access_key", "minio.endpoint", "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT");
 
     /**
      * Constructor to initialize the object storage properties with the provided type and original properties map.

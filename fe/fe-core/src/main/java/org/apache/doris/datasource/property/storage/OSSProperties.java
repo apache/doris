@@ -39,7 +39,7 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
     protected String endpoint = "";
 
     @Getter
-    @ConnectorProperty(names = {"oss.access_key", "s3.access_key", "AWS_ACCESS_KEY", "ACCESS_KEY", "access_key"},
+    @ConnectorProperty(names = {"oss.access_key", "s3.access_key", "AWS_ACCESS_KEY", "access_key", "ACCESS_KEY"},
             description = "The access key of OSS.")
     protected String accessKey = "";
 

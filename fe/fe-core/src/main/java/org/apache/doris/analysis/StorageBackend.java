@@ -46,7 +46,7 @@ public class StorageBackend implements ParseNode {
 
 
     public StorageBackend(String storageName, String location,
-            StorageType storageType, Map<String, String> properties) {
+                          StorageType storageType, Map<String, String> properties) {
         this.storageDesc = new StorageDesc(storageName, storageType, properties);
         this.location = location;
         /*boolean convertedToS3 = BosProperties.tryConvertBosToS3(properties, storageType);
@@ -101,8 +101,8 @@ public class StorageBackend implements ParseNode {
             sb.append(" `").append(storageDesc.getName()).append("`");
         }
         sb.append(" ON LOCATION ").append(location).append(" PROPERTIES(")
-            .append(new PrintableMap<>(storageDesc.getProperties(), " = ", true, false, true))
-            .append(")");
+                .append(new PrintableMap<>(storageDesc.getProperties(), " = ", true, false, true))
+                .append(")");
         return sb.toString();
     }
 
@@ -149,6 +149,17 @@ public class StorageBackend implements ParseNode {
             }
         }
 
+        /**
+         * A set of storage types that currently support parameter refactoring.
+         * <p>
+         * Includes: S3 (referring to all systems compatible with the S3 protocol),
+         * HDFS, OFS, JFS, and AZURE. For S3, this is a generalized type that matches
+         * any system whose storage type name is returned as "s3" (or compatible)
+         * by {@link org.apache.doris.datasource.property.storage.StorageProperties#getStorageName()}.
+         * <p>
+         * This set is a temporary solution. Once parameter refactoring is fully supported
+         * across all storage systems, this class can be removed.
+         */
         public static final Set<StorageType> REFACTOR_STORAGE_TYPES =
                 ImmutableSet.of(StorageType.S3, StorageType.HDFS, StorageType.OFS, StorageType.JFS, StorageType.AZURE);
 

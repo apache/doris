@@ -203,6 +203,7 @@ public class Repository implements Writable, GsonPostProcessable {
         }
     }
 
+    //todo why only support alter S3 properties
     public Status alterRepositoryS3Properties(Map<String, String> properties) {
         if (this.fileSystem instanceof S3FileSystem) {
             Map<String, String> oldProperties = new HashMap<>(this.getRemoteFileSystem().getProperties());
@@ -236,7 +237,7 @@ public class Repository implements Writable, GsonPostProcessable {
 
     @Override
     public void gsonPostProcess() {
-        if (!BrokerFileSystem.class.equals(fileSystem.getClass())) {
+        if (!(fileSystem instanceof BrokerFileSystem)) {
             StorageProperties storageProperties = StorageProperties.createPrimary(this.fileSystem.properties);
             this.fileSystem = FileSystemFactory.get(storageProperties);
         }
