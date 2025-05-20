@@ -17,7 +17,7 @@
 
 suite("test_show_storage_vault_command", "query,storage_vault,cloud") {
     try {
-        if (!isCloudMode())
+        if (!isCloudMode() || !enableStorageVault())
             return;
         // Execute the SHOW STORAGE VAULT command and verify the output
         checkNereidsExecute("SHOW STORAGE VAULT")
