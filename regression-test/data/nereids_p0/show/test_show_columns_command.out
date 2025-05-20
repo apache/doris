@@ -13,5 +13,5 @@ score	float		YES	NO	\N	NONE
 score	float	YES	NO	\N	NONE
 
 -- !cmd --
-id	int(11)	YES	DUP	\N	
+id	int	YES	DUP	\N	
 
