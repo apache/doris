@@ -471,8 +471,6 @@ unsupportedShowStatement
         ((FROM | IN) database=multipartIdentifier)?                                 #showIndex
     | SHOW TRANSACTION ((FROM | IN) database=multipartIdentifier)? wildWhere?       #showTransaction
     | SHOW CACHE HOTSPOT tablePath=STRING_LITERAL                                   #showCacheHotSpot
-    | SHOW QUERY STATS ((FOR database=identifier)
-            | (FROM tableName=multipartIdentifier (ALL VERBOSE?)?))?                #showQueryStats
     | SHOW BUILD INDEX ((FROM | IN) database=multipartIdentifier)?
         wildWhere? sortClause? limitClause?                                         #showBuildIndex
     | SHOW REPLICA STATUS FROM baseTableRef wildWhere?                              #showReplicaStatus
