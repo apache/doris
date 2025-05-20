@@ -33,6 +33,7 @@
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet_mgr.h"
+#include "common/cast_set.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "io/cache/block_file_cache_downloader.h"
@@ -613,6 +614,66 @@ void CloudTablet::get_compaction_status(std::string* json_result) {
     // get snapshot version path json_doc
     _timestamped_version_tracker.get_stale_version_path_json_doc(path_arr);
     root.AddMember("cumulative point", _cumulative_point.load(), root.GetAllocator());
+    rapidjson::Value cumu_value;
+    std::string format_str = ToStringFromUnixMillis(_last_cumu_compaction_failure_millis.load());
+    cumu_value.SetString(format_str.c_str(), cast_set<uint>(format_str.length()),
+                         root.GetAllocator());
+    root.AddMember("last cumulative failure time", cumu_value, root.GetAllocator());
+    rapidjson::Value base_value;
+    format_str = ToStringFromUnixMillis(_last_base_compaction_failure_millis.load());
+    base_value.SetString(format_str.c_str(), cast_set<uint>(format_str.length()),
+                         root.GetAllocator());
+    root.AddMember("last base failure time", base_value, root.GetAllocator());
+    rapidjson::Value full_value;
+    format_str = ToStringFromUnixMillis(_last_full_compaction_failure_millis.load());
+    full_value.SetString(format_str.c_str(), cast_set<uint>(format_str.length()),
+                         root.GetAllocator());
+    root.AddMember("last full failure time", full_value, root.GetAllocator());
+    rapidjson::Value cumu_success_value;
+    format_str = ToStringFromUnixMillis(_last_cumu_compaction_success_millis.load());
+    cumu_success_value.SetString(format_str.c_str(), cast_set<uint>(format_str.length()),
+                                 root.GetAllocator());
+    root.AddMember("last cumulative success time", cumu_success_value, root.GetAllocator());
+    rapidjson::Value base_success_value;
+    format_str = ToStringFromUnixMillis(_last_base_compaction_success_millis.load());
+    base_success_value.SetString(format_str.c_str(), cast_set<uint>(format_str.length()),
+                                 root.GetAllocator());
+    root.AddMember("last base success time", base_success_value, root.GetAllocator());
+    rapidjson::Value full_success_value;
+    format_str = ToStringFromUnixMillis(_last_full_compaction_success_millis.load());
+    full_success_value.SetString(format_str.c_str(), cast_set<uint>(format_str.length()),
+                                 root.GetAllocator());
+    root.AddMember("last full success time", full_success_value, root.GetAllocator());
+    rapidjson::Value cumu_schedule_value;
+    format_str = ToStringFromUnixMillis(_last_cumu_compaction_schedule_millis.load());
+    cumu_schedule_value.SetString(format_str.c_str(), cast_set<uint>(format_str.length()),
+                                  root.GetAllocator());
+    root.AddMember("last cumulative schedule time", cumu_schedule_value, root.GetAllocator());
+    rapidjson::Value base_schedule_value;
+    format_str = ToStringFromUnixMillis(_last_base_compaction_schedule_millis.load());
+    base_schedule_value.SetString(format_str.c_str(), cast_set<uint>(format_str.length()),
+                                  root.GetAllocator());
+    root.AddMember("last base schedule time", base_schedule_value, root.GetAllocator());
+    rapidjson::Value full_schedule_value;
+    format_str = ToStringFromUnixMillis(_last_full_compaction_schedule_millis.load());
+    full_schedule_value.SetString(format_str.c_str(), cast_set<uint>(format_str.length()),
+                                  root.GetAllocator());
+    root.AddMember("last full schedule time", full_schedule_value, root.GetAllocator());
+    rapidjson::Value cumu_compaction_status_value;
+    cumu_compaction_status_value.SetString(_last_cumu_compaction_status.c_str(),
+                                           cast_set<uint>(_last_cumu_compaction_status.length()),
+                                           root.GetAllocator());
+    root.AddMember("last cumulative status", cumu_compaction_status_value, root.GetAllocator());
+    rapidjson::Value base_compaction_status_value;
+    base_compaction_status_value.SetString(_last_base_compaction_status.c_str(),
+                                           cast_set<uint>(_last_base_compaction_status.length()),
+                                           root.GetAllocator());
+    root.AddMember("last base status", base_compaction_status_value, root.GetAllocator());
+    rapidjson::Value full_compaction_status_value;
+    full_compaction_status_value.SetString(_last_full_compaction_status.c_str(),
+                                           cast_set<uint>(_last_full_compaction_status.length()),
+                                           root.GetAllocator());
+    root.AddMember("last full status", full_compaction_status_value, root.GetAllocator());
 
     // print all rowsets' version as an array
     rapidjson::Document versions_arr;
@@ -811,11 +872,12 @@ Status CloudTablet::calc_delete_bitmap_for_compaction(
         const std::vector<RowsetSharedPtr>& input_rowsets, const RowsetSharedPtr& output_rowset,
         const RowIdConversion& rowid_conversion, ReaderType compaction_type, int64_t merged_rows,
         int64_t filtered_rows, int64_t initiator, DeleteBitmapPtr& output_rowset_delete_bitmap,
-        bool allow_delete_in_cumu_compaction) {
+        bool allow_delete_in_cumu_compaction, int64_t& get_delete_bitmap_lock_start_time) {
     output_rowset_delete_bitmap = std::make_shared<DeleteBitmap>(tablet_id());
     std::unique_ptr<RowLocationSet> missed_rows;
     if ((config::enable_missing_rows_correctness_check ||
-         config::enable_mow_compaction_correctness_check_core) &&
+         config::enable_mow_compaction_correctness_check_core ||
+         config::enable_mow_compaction_correctness_check_fail) &&
         !allow_delete_in_cumu_compaction &&
         compaction_type == ReaderType::READER_CUMULATIVE_COMPACTION) {
         missed_rows = std::make_unique<RowLocationSet>();
@@ -848,12 +910,14 @@ Status CloudTablet::calc_delete_bitmap_for_compaction(
                             "not equal to missed rows({}) in rowid conversion, tablet_id: {}, "
                             "table_id:{}",
                             merged_rows, filtered_rows, missed_rows_size, tablet_id(), table_id());
+                    LOG(WARNING) << err_msg;
                     if (config::enable_mow_compaction_correctness_check_core) {
                         CHECK(false) << err_msg;
+                    } else if (config::enable_mow_compaction_correctness_check_fail) {
+                        return Status::InternalError<false>(err_msg);
                     } else {
                         DCHECK(false) << err_msg;
                     }
-                    LOG(WARNING) << err_msg;
                 }
             }
         }
@@ -868,6 +932,7 @@ Status CloudTablet::calc_delete_bitmap_for_compaction(
     RETURN_IF_ERROR(_engine.meta_mgr().get_delete_bitmap_update_lock(
             *this, COMPACTION_DELETE_BITMAP_LOCK_ID, initiator));
     int64_t t2 = MonotonicMicros();
+    get_delete_bitmap_lock_start_time = t2;
     RETURN_IF_ERROR(_engine.meta_mgr().sync_tablet_rowsets(this));
     int64_t t3 = MonotonicMicros();
 

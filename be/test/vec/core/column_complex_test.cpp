@@ -550,7 +550,7 @@ public:
         const auto rows = column.size();
         for (size_t i = 0; i != rows; ++i) {
             auto field = column[i];
-            ASSERT_EQ(field.get_type(), Field::Types::Bitmap);
+            ASSERT_EQ(field.get_type(), PrimitiveType::TYPE_OBJECT);
             dst_column->insert(field);
         }
 
@@ -598,7 +598,7 @@ public:
         const auto rows = column.size();
         for (size_t i = 0; i != rows; ++i) {
             auto field = column[i];
-            ASSERT_EQ(field.get_type(), Field::Types::QuantileState);
+            ASSERT_EQ(field.get_type(), PrimitiveType::TYPE_QUANTILE_STATE);
             dst_column->insert(field);
         }
 
@@ -660,7 +660,7 @@ TEST_F(ColumnBitmapTest, OperatorValidate) {
     auto& bitmap_column = assert_cast<ColumnBitmap&>(*column.get());
     for (size_t i = 0; i != row_size; ++i) {
         auto field = bitmap_column[i];
-        ASSERT_EQ(field.get_type(), Field::Types::Bitmap);
+        ASSERT_EQ(field.get_type(), PrimitiveType::TYPE_OBJECT);
         const auto& bitmap = vectorized::get<BitmapValue&>(field);
 
         ASSERT_EQ(bitmap.cardinality(), i + 1);

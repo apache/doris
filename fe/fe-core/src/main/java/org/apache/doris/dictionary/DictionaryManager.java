@@ -347,7 +347,7 @@ public class DictionaryManager extends MasterDaemon implements Writable {
                     Dictionary dictionary = idToDictionary.get(id);
                     /// for all dictionaries:
                     // 1. if it's OUT_OF_DATE(maybe update failed or something), try to refresh it.
-                    if (dictionary.getStatus() == DictionaryStatus.OUT_OF_DATE) {
+                    if (dictionary.getStatus() == DictionaryStatus.OUT_OF_DATE && dictionary.checkBaseDataValid()) {
                         submitDataLoad(dictionary, false);
                         continue;
                     }
@@ -438,6 +438,12 @@ public class DictionaryManager extends MasterDaemon implements Writable {
         if (ctx.getState().getErrorCode() != null && ctx.getState().getErrorMessage() != null) {
             dictionary.trySetStatus(oldStatus);
             dictionary.setLastUpdateResult(ctx.getState().getErrorMessage());
+            // for must failed refresh, we can skip it at next time. this mark is tricky but we have to do now.
+            if (ctx.getState().getErrorMessage().contains("[INVALID_DICT_MARK]")) {
+                LOG.warn("Dictionary {} load failed with src version {}, mark it invalid", dictionary.getName(),
+                        ctx.getStatementContext().getDictionaryUsedSrcVersion());
+                dictionary.updateLatestInvalidVersion(ctx.getStatementContext().getDictionaryUsedSrcVersion());
+            }
             throw new RuntimeException(ctx.getState().getErrorMessage());
         }
 
@@ -490,7 +496,8 @@ public class DictionaryManager extends MasterDaemon implements Writable {
         } else {
             dictionary.setLastUpdateResult("succeed");
         }
-        LOG.info("Dictionary {} refresh succeed", dictionary.getName());
+        LOG.info("Dictionary {} refresh succeed. used src version {}", dictionary.getName(),
+                ctx.getStatementContext().getDictionaryUsedSrcVersion());
     }
 
     private boolean commitNextVersion(ConnectContext ctx, Dictionary dictionary) {

@@ -28,12 +28,12 @@
 #include "vec/common/assert_cast.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_date_or_datetime_v2.h"
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_ipv4.h"
 #include "vec/data_types/data_type_ipv6.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
-#include "vec/data_types/data_type_time_v2.h"
 #include "vec/functions/cast_type_to_either.h"
 
 namespace doris {
@@ -45,6 +45,8 @@ namespace doris::vectorized {
  * Dictionary implementation in Doris that provides key-value mapping functionality
  * Currently only supports in-memory dictionary storage
  */
+
+const static std::string DICT_DATA_ERROR_TAG = "[INVALID_DICT_MARK]";
 
 struct DictionaryAttribute {
     const std::string name; // value name

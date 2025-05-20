@@ -782,13 +782,11 @@ public class CreateTableInfo {
             throw new AnalysisException("Do not support temporary table with rollup ");
         }
 
-        if (!Config.enable_odbc_mysql_broker_table && (engineName.equals(ENGINE_ODBC)
+        if ((engineName.equals(ENGINE_ODBC)
                 || engineName.equals(ENGINE_MYSQL) || engineName.equals(ENGINE_BROKER))) {
             throw new AnalysisException("odbc, mysql and broker table is no longer supported."
                     + " For odbc and mysql external table, use jdbc table or jdbc catalog instead."
-                    + " For broker table, use table valued function instead."
-                    + ". Or you can temporarily set 'enable_odbc_mysql_broker_table=true'"
-                    + " in fe.conf to reopen this feature.");
+                    + " For broker table, use table valued function instead.");
         }
     }
 

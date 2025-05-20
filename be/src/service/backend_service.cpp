@@ -1083,13 +1083,18 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
     PUniqueId p_load_id;
     p_load_id.set_hi(load_id.hi);
     p_load_id.set_lo(load_id.lo);
-    auto status = _engine.txn_manager()->prepare_txn(partition_id, *local_tablet, txn_id, p_load_id,
-                                                     is_ingrest);
-    if (!status.ok()) {
-        LOG(WARNING) << "prepare txn failed. txn_id=" << txn_id
-                     << ", status=" << status.to_string();
-        status.to_thrift(&tstatus);
-        return;
+
+    {
+        // See RowsetBuilder::prepare_txn for details
+        std::shared_lock base_migration_lock(local_tablet->get_migration_lock());
+        auto status = _engine.txn_manager()->prepare_txn(partition_id, *local_tablet, txn_id,
+                                                         p_load_id, is_ingrest);
+        if (!status.ok()) {
+            LOG(WARNING) << "prepare txn failed. txn_id=" << txn_id
+                         << ", status=" << status.to_string();
+            status.to_thrift(&tstatus);
+            return;
+        }
     }
 
     bool is_async = (_ingest_binlog_workers != nullptr);
@@ -1110,7 +1115,7 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
     };
 
     if (is_async) {
-        status = _ingest_binlog_workers->submit_func(std::move(ingest_binlog_func));
+        auto status = _ingest_binlog_workers->submit_func(std::move(ingest_binlog_func));
         if (!status.ok()) {
             status.to_thrift(&tstatus);
             return;

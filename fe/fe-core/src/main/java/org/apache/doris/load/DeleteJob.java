@@ -585,7 +585,7 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
             deleteJob.setCountDownLatch(new MarkedCountDownLatch<>((int) replicaNum));
             ConnectContext connectContext = ConnectContext.get();
             if (connectContext != null) {
-                deleteJob.setTimeoutS(connectContext.getExecTimeout());
+                deleteJob.setTimeoutS(connectContext.getExecTimeoutS());
             }
             return deleteJob;
         }
@@ -622,7 +622,7 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
             deleteJob.setCountDownLatch(new MarkedCountDownLatch<>((int) replicaNum));
             ConnectContext connectContext = ConnectContext.get();
             if (connectContext != null) {
-                deleteJob.setTimeoutS(connectContext.getExecTimeout());
+                deleteJob.setTimeoutS(connectContext.getExecTimeoutS());
             }
             return deleteJob;
         }

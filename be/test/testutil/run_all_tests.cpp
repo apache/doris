@@ -45,7 +45,7 @@
 DEFINE_bool(wait, false, "Wait user to start test");
 
 int main(int argc, char** argv) {
-    doris::ThreadLocalHandle::create_thread_local_if_not_exits();
+    SCOPED_INIT_THREAD_CONTEXT();
     doris::ExecEnv::GetInstance()->init_mem_tracker();
     // Used for unit test
     std::unique_ptr<doris::ThreadPool> non_block_close_thread_pool;
