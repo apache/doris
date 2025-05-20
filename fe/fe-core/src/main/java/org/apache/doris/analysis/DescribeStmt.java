@@ -100,7 +100,7 @@ public class DescribeStmt extends ShowStmt implements NotFallbackInParser {
 
     private boolean isAllTables;
     private boolean isOlapTable = false;
-    private boolean showColumns = false;
+    private boolean showComment = false;
 
     TableValuedFunctionRef tableValuedFunctionRef;
     boolean isTableValuedFunction;
