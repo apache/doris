@@ -384,9 +384,7 @@ supportedShowStatement
         wildWhere? sortClause? limitClause?                                         #showTabletsFromTable
     | SHOW TABLET tabletId=INTEGER_VALUE                                            #showTabletId
     | SHOW DICTIONARIES wildWhere?                                                  #showDictionaries
-    | SHOW STREAM? LOAD ((FROM | IN) database=multipartIdentifier)? wildWhere?
-        sortClause? limitClause?                                                    #showLoad
-    | SHOW COPY ((FROM | IN) database=multipartIdentifier)?
+    | SHOW COPY ((FROM | IN) database=identifier)?
         whereClause? sortClause? limitClause?                                       #showCopy
     ;
 
