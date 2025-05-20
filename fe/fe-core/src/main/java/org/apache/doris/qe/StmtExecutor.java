@@ -175,7 +175,6 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalSqlCache;
 import org.apache.doris.planner.GroupCommitPlanner;
 import org.apache.doris.planner.GroupCommitScanNode;
 import org.apache.doris.planner.OlapScanNode;
-import org.apache.doris.planner.OriginalPlanner;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ScanNode;
@@ -1607,10 +1606,6 @@ public class StmtExecutor {
             }
         }
         profile.getSummaryProfile().setQueryAnalysisFinishTime();
-        planner = new OriginalPlanner(analyzer);
-        if (parsedStmt instanceof QueryStmt || parsedStmt instanceof InsertStmt) {
-            planner.plan(parsedStmt, tQueryOptions);
-        }
         profile.getSummaryProfile().setQueryPlanFinishTime();
     }
 
@@ -1861,23 +1856,6 @@ public class StmtExecutor {
             if (cacheAnalyzer.getHitRange() == Cache.HitRange.Full) {
                 sendCachedValues(channel, cacheResult.getValuesList(), queryStmt, isSendFields, true);
                 return;
-            }
-            // rewrite sql
-            if (mode == CacheMode.Partition) {
-                if (cacheAnalyzer.getHitRange() == Cache.HitRange.Left) {
-                    isSendFields = sendCachedValues(channel, cacheResult.getValuesList(),
-                            queryStmt, isSendFields, false);
-                }
-                StatementBase newSelectStmt = cacheAnalyzer.getRewriteStmt();
-                newSelectStmt.reset();
-                analyzer = new Analyzer(context.getEnv(), context);
-                newSelectStmt.analyze(analyzer);
-                if (parsedStmt instanceof LogicalPlanAdapter) {
-                    planner = new NereidsPlanner(statementContext);
-                } else {
-                    planner = new OriginalPlanner(analyzer);
-                }
-                planner.plan(newSelectStmt, context.getSessionVariable().toThrift());
             }
         }
         executeAndSendResult(false, isSendFields, queryStmt, channel, cacheAnalyzer, cacheResult);
