@@ -52,7 +52,18 @@ public class IndexSchemaProcNode implements ProcNodeInterface {
     public static ProcResult createResult(List<Column> schema, Set<String> bfColumns, List<String> additionalColNames) {
         Preconditions.checkNotNull(schema);
         BaseProcResult result = new BaseProcResult();
-        result.setNames(TITLE_NAMES);
+        List<String> names = Lists.newArrayList(TITLE_NAMES);
+        for (String additionalColName : additionalColNames) {
+            switch (additionalColName.toLowerCase()) {
+                case "comment":
+                    names.add(COMMENT_COLUMN_TITLE);
+                    break;
+                default:
+                    Preconditions.checkState(false, "Unknown additional column name: " + additionalColName);
+                    break;
+            }
+        }
+        result.setNames(names);
 
         for (Column column : schema) {
             // Extra string (aggregation and bloom filter)
@@ -100,6 +111,6 @@ public class IndexSchemaProcNode implements ProcNodeInterface {
         boolean showCommentInDescribe = ConnectContext.get() == null ? false
                 : ConnectContext.get().getSessionVariable().showColumnCommentInDescribe;
         return createResult(this.schema, this.bfColumns,
-                showCommentInDescribe ? Lists.newArrayList("comment") : Lists.newArrayList());
+                showCommentInDescribe ? Lists.newArrayList(COMMENT_COLUMN_TITLE) : Lists.newArrayList());
     }
 }

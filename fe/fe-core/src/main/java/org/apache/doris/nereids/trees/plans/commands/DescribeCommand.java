@@ -163,7 +163,7 @@ public class DescribeCommand extends ShowCommand {
                 builder.addColumn(new Column(col, ScalarType.createVarchar(30)));
             }
             if (showComment) {
-                builder.addColumn(new Column(IndexSchemaProcNode.COMMENT_COLUMN_TITLE, ScalarType.createVarchar(30)));
+                builder.addColumn(new Column(IndexSchemaProcNode.COMMENT_COLUMN_TITLE, ScalarType.createStringType()));
             }
             return builder.build();
         } else {
