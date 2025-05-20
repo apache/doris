@@ -30,25 +30,32 @@
 #include <utility>
 #include <vector>
 
+#include "olap/hll.h"
 #include "olap/olap_common.h"
-#include "runtime/types.h"
 #include "testutil/any_type.h"
 #include "testutil/function_utils.h"
 #include "testutil/test_util.h"
 #include "udf/udf.h"
+#include "util/bitmap_value.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/core/block.h"
 #include "vec/core/types.h"
 #include "vec/core/wide_integer.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_bitmap.h"
+#include "vec/data_types/data_type_date.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_hll.h"
+#include "vec/data_types/data_type_ipv4.h"
+#include "vec/data_types/data_type_ipv6.h"
 #include "vec/data_types/data_type_nothing.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
+#include "vec/data_types/data_type_string.h"
+#include "vec/data_types/data_type_struct.h"
 #include "vec/data_types/data_type_time.h"
 #include "vec/functions/simple_function_factory.h"
 
@@ -67,19 +74,19 @@ using InputDataSet = std::vector<InputCell>;
 using Expect = AnyType;
 using Row = std::pair<InputCell, Expect>;
 using DataSet = std::vector<Row>;
-// to represent Array<Int64>: {TypeIndex::Array, TypeIndex::Int64}
+// to represent Array<Int64>: {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_BIGINT}
 using InputTypeSet = std::vector<AnyType>;
 
 struct Nullable {
-    TypeIndex tp;
+    PrimitiveType tp;
 };
 
 struct Notnull {
-    TypeIndex tp;
+    PrimitiveType tp;
 };
 // Consted already defined in types.h
 struct ConstedNotnull {
-    TypeIndex tp;
+    PrimitiveType tp;
 };
 
 namespace ut_type {
@@ -100,6 +107,84 @@ using FLOAT = float;
 using IPV4 = uint32_t;
 using IPV6 = uint128_t;
 
+//ATTN: keep same with `insert_cell`. not applicable for DataTypeNullable
+//TODO: make default_value constexpr when we upgrade to clang++17
+template <typename DataType>
+struct ut_input_type {};
+template <typename NativeType>
+struct ut_input_type<DataTypeNumber<NativeType>> {
+    using type = DataTypeNumber<NativeType>::FieldType;
+    inline static type default_value = 123;
+};
+template <typename DecimalType>
+struct ut_input_type<DataTypeDecimal<DecimalType>> {
+    using type = DataTypeDecimal<DecimalType>::FieldType;
+    inline static type default_value = type {123};
+};
+template <>
+struct ut_input_type<DataTypeString> {
+    using type = std::string;
+    inline static type default_value = "test_default";
+};
+template <>
+struct ut_input_type<DataTypeDate> {
+    using type = std::string;
+    inline static type default_value = "1970-01-01";
+};
+template <>
+struct ut_input_type<DataTypeDateTime> {
+    using type = std::string;
+    inline static type default_value = "1970-01-01";
+};
+template <>
+struct ut_input_type<DataTypeDateV2> {
+    using type = std::string;
+    inline static type default_value = "1970-01-01";
+};
+template <>
+struct ut_input_type<DataTypeDateTimeV2> {
+    using type = std::string;
+    inline static type default_value = "1970-01-01";
+};
+template <>
+struct ut_input_type<DataTypeTimeV2> {
+    using type = std::string;
+    inline static type default_value = "01:02:03";
+};
+template <>
+struct ut_input_type<DataTypeJsonb> {
+    using type = std::string;
+};
+template <>
+struct ut_input_type<DataTypeBitMap> {
+    using type = BitmapValue*;
+};
+template <>
+struct ut_input_type<DataTypeHLL> {
+    using type = HyperLogLog*;
+};
+template <>
+struct ut_input_type<DataTypeIPv4> {
+    using type = IPV4;
+};
+template <>
+struct ut_input_type<DataTypeIPv6> {
+    using type = IPV6;
+};
+template <>
+struct ut_input_type<DataTypeArray> {
+    using type = TestArray;
+};
+template <>
+struct ut_input_type<DataTypeStruct> {
+    using type = InputCell;
+};
+
+// for cast tests, the target type need a placeholder column with some legal value.
+template <typename DataType>
+inline static ut_input_type<DataType>::type ut_input_type_default_v =
+        ut_input_type<DataType>::default_value;
+
 // cell constructors. could also use from_int_frac if you'd like
 inline auto DECIMALV2 = Decimal128V2::double_to_decimalv2;
 inline auto DECIMAL32 = [](int32_t x, int32_t y, int scale) {
@@ -107,6 +192,9 @@ inline auto DECIMAL32 = [](int32_t x, int32_t y, int scale) {
 };
 inline auto DECIMAL64 = [](int64_t x, int64_t y, int scale) {
     return Decimal64::from_int_frac(x, y, scale);
+};
+inline auto DECIMAL128V2 = [](int128_t x, int128_t y, int scale) {
+    return Decimal128V2::from_int_frac(x, y, scale);
 };
 inline auto DECIMAL128V3 = [](int128_t x, int128_t y, int scale) {
     return Decimal128V3::from_int_frac(x, y, scale);
@@ -128,23 +216,26 @@ using UTDataTypeDescs = std::vector<UTDataTypeDesc>;
 
 bool parse_ut_data_type(const std::vector<AnyType>& input_types, ut_type::UTDataTypeDescs& descs);
 
-bool insert_cell(MutableColumnPtr& column, DataTypePtr type_ptr, const AnyType& cell);
+bool insert_cell(MutableColumnPtr& column, DataTypePtr type_ptr, const AnyType& cell,
+                 bool datetime_is_string_format = true);
 
 void check_vec_table_function(TableFunction* fn, const InputTypeSet& input_types,
                               const InputDataSet& input_set, const InputTypeSet& output_types,
                               const InputDataSet& output_set, bool test_get_value_func = false);
 
 template <typename ReturnType>
-DataTypePtr get_return_type_descriptor() {
+DataTypePtr get_return_type_descriptor(int scale, int precision) {
     if constexpr (std::is_same_v<ReturnType, DataTypeUInt8>) {
         return DataTypeFactory::instance().create_data_type(doris::PrimitiveType::TYPE_BOOLEAN,
                                                             false);
     } else if constexpr (std::is_same_v<ReturnType, DataTypeInt32>) {
         return DataTypeFactory::instance().create_data_type(doris::PrimitiveType::TYPE_INT, false);
-    } else if constexpr (std::is_same_v<ReturnType, DataTypeFloat64> ||
-                         std::is_same_v<ReturnType, DataTypeTimeV2>) {
+    } else if constexpr (std::is_same_v<ReturnType, DataTypeFloat64>) {
         return DataTypeFactory::instance().create_data_type(doris::PrimitiveType::TYPE_DOUBLE,
                                                             false);
+    } else if constexpr (std::is_same_v<ReturnType, DataTypeTimeV2>) {
+        return DataTypeFactory::instance().create_data_type(doris::PrimitiveType::TYPE_TIMEV2,
+                                                            false, precision, scale);
     } else if constexpr (std::is_same_v<ReturnType, DateTime>) {
         return DataTypeFactory::instance().create_data_type(doris::PrimitiveType::TYPE_DATETIME,
                                                             false);
@@ -153,41 +244,38 @@ DataTypePtr get_return_type_descriptor() {
                                                             false);
     } else if (std::is_same_v<ReturnType, DateTimeV2>) {
         return DataTypeFactory::instance().create_data_type(doris::PrimitiveType::TYPE_DATETIMEV2,
-                                                            false);
+                                                            false, precision, scale);
     } else if (std::is_same_v<ReturnType, DataTypeDecimal<Decimal128V2>>) {
-        return DataTypeFactory::instance().create_data_type(
-                doris::PrimitiveType::TYPE_DECIMALV2, false, BeConsts::MAX_DECIMALV2_PRECISION,
-                BeConsts::MAX_DECIMALV2_SCALE);
+        return DataTypeFactory::instance().create_data_type(doris::PrimitiveType::TYPE_DECIMALV2,
+                                                            false, precision, scale);
     } else if (std::is_same_v<ReturnType, DataTypeDecimal<Decimal32>>) {
-        return DataTypeFactory::instance().create_data_type(
-                doris::PrimitiveType::TYPE_DECIMAL32, false, BeConsts::MAX_DECIMAL32_PRECISION, 0);
+        return DataTypeFactory::instance().create_data_type(doris::PrimitiveType::TYPE_DECIMAL32,
+                                                            false, precision, scale);
     } else if (std::is_same_v<ReturnType, DataTypeDecimal<Decimal64>>) {
-        return DataTypeFactory::instance().create_data_type(
-                doris::PrimitiveType::TYPE_DECIMAL64, false, BeConsts::MAX_DECIMAL64_PRECISION, 0);
+        return DataTypeFactory::instance().create_data_type(doris::PrimitiveType::TYPE_DECIMAL64,
+                                                            false, precision, scale);
     } else if (std::is_same_v<ReturnType, DataTypeDecimal<Decimal128V3>>) {
         return DataTypeFactory::instance().create_data_type(doris::PrimitiveType::TYPE_DECIMAL128I,
-                                                            false,
-                                                            BeConsts::MAX_DECIMAL128_PRECISION, 0);
+                                                            false, precision, scale);
     } else if (std::is_same_v<ReturnType, DataTypeDecimal<Decimal256>>) {
         return DataTypeFactory::instance().create_data_type(doris::PrimitiveType::TYPE_DECIMAL256,
-                                                            false,
-                                                            BeConsts::MAX_DECIMAL256_PRECISION, 0);
+                                                            false, precision, scale);
     } else {
         return std::make_shared<DataTypeNothing>();
     }
 }
 
 struct Consted {
-    TypeIndex tp;
+    PrimitiveType tp;
 };
 
 /**
  * Null values are represented by Null()
- * The type of the constant column is represented as follows: Consted {TypeIndex::String}
+ * The type of the constant column is represented as follows: Consted {PrimitiveType::TYPE_VARCHAR}
  * A DataSet with a constant column can only have one row of data
  * About scales and precisions:
     When you need scale in and scale out(like, DatetimeV2 to DatetimeV2), you need:
-        InputTypeSet input_types = {{TypeIndex::DateTimeV2, 3}}; // input scale
+        InputTypeSet input_types = {{PrimitiveType::TYPE_DATETIMEV2, 3}}; // input scale
         ...
         check_function<DataTypeDateTimeV2, true, 3>(func_name, input_types, data_set); // output scale
      IF YOU FORGET TO SET THE SCALE, THE MICROSECOND WILL NOT BE TESTED. we can't force to check it because Field doesn't
@@ -201,7 +289,7 @@ struct Consted {
 // NOLINTBEGIN(readability-function-size)
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 template <typename ResultType, bool ResultNullable = false, int ResultScale = -1,
-          int ResultPrecision = -1>
+          int ResultPrecision = -1, bool datetime_is_string_format = true>
 Status check_function(const std::string& func_name, const InputTypeSet& input_types,
                       const DataSet& data_set, bool expect_execute_fail = false,
                       bool expect_result_ne = false) {
@@ -222,7 +310,8 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
 
         for (int j = 0; j < row_size; j++) {
             // null dealed in insert_cell
-            EXPECT_TRUE(insert_cell(column, desc.data_type, data_set[j].first[i]));
+            EXPECT_TRUE(insert_cell(column, desc.data_type, data_set[j].first[i],
+                                    datetime_is_string_format));
         }
 
         if (desc.is_const) {
@@ -267,7 +356,9 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
             func_name, block.get_columns_with_type_and_name(), return_type);
     assert(func.get() != nullptr);
 
-    auto fn_ctx_return = get_return_type_descriptor<ResultType>();
+    // this may be useless now. for some type like array, it's wrong. TODO: need more details explainations
+    auto fn_ctx_return = get_return_type_descriptor<ResultType>(std::max(0, ResultScale),
+                                                                std::max(0, ResultPrecision));
 
     FunctionUtils fn_utils(fn_ctx_return, arg_types, 0);
     auto* fn_ctx = fn_utils.get_fn_ctx();
@@ -305,7 +396,8 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
     }
     MutableColumnPtr expected_col_ptr = result_type_ptr->create_column();
     for (int i = 0; i < row_size; i++) {
-        EXPECT_TRUE(insert_cell(expected_col_ptr, result_type_ptr, data_set[i].second));
+        EXPECT_TRUE(insert_cell(expected_col_ptr, result_type_ptr, data_set[i].second,
+                                datetime_is_string_format));
     }
 
     // 3.1. check the result of function
@@ -325,9 +417,16 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
                     << block.get_data_types()[result]->to_string(*column, i)
                     << ", expected result: " << result_type_ptr->to_string(*expected_col_ptr, i);
         } else {
-            EXPECT_EQ(0, column->compare_at(i, i, *expected_col_ptr, 1))
-                    << ", function result: "
-                    << block.get_data_types()[result]->to_string(*column, i)
+            auto comp_res = column->compare_at(i, i, *expected_col_ptr, 1);
+            if (0 != comp_res) {
+                std::cerr << "function " << func_name << " result mismatch, row " << i << ":\n"
+                          << block.dump_data(i, 1) << std::endl
+                          << ", expected result: "
+                          << result_type_ptr->to_string(*expected_col_ptr, i) << std::endl;
+            }
+            EXPECT_EQ(0, comp_res)
+                    << ", function " << func_name
+                    << " result: " << block.get_data_types()[result]->to_string(*column, i)
                     << ", expected result: " << result_type_ptr->to_string(*expected_col_ptr, i);
         }
     }
@@ -350,7 +449,7 @@ void check_function_all_arg_comb(const std::string& func_name, const InputTypeSe
         InputTypeSet input_types {};
         for (int j = 0; j < arg_cnt; j++) {
             bool is_const = (1 << j) & i;
-            auto base_type_idx = any_cast<TypeIndex>(base_types[j]);
+            auto base_type_idx = any_cast<PrimitiveType>(base_types[j]);
             if (is_const) { // wrap in consted
                 if (base_types[j].type() == &typeid(Notnull)) {
                     input_types.emplace_back(ConstedNotnull {base_type_idx},

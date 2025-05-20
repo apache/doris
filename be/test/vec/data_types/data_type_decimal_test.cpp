@@ -17,6 +17,7 @@
 
 #include "vec/data_types/data_type_decimal.h"
 
+#include <fast_float/float_common.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 #include <gtest/gtest.h>
@@ -197,7 +198,7 @@ TEST_F(DataTypeDecimalTest, MetaInfoTest) {
     auto col_meta = std::make_shared<PColumnMeta>();
     col_meta->set_type(PGenericType_TypeId_DECIMAL32);
     CommonDataTypeTest::DataTypeMetaInfo meta_info_to_assert = {
-            .type_id = TypeIndex::Decimal32,
+            .type_id = PrimitiveType::TYPE_DECIMAL32,
             .type_as_type_descriptor = type_descriptor,
             .family_name = tmp_dt->get_family_name(),
             .has_subtypes = false,

@@ -163,6 +163,11 @@ public final class MetricRepo {
 
     public static Histogram HISTO_COMMIT_AND_PUBLISH_LATENCY;
 
+    public static Histogram HISTO_GET_DELETE_BITMAP_UPDATE_LOCK_LATENCY;
+    public static Histogram HISTO_GET_COMMIT_LOCK_LATENCY;
+    public static Histogram HISTO_CALCULATE_DELETE_BITMAP_LATENCY;
+    public static Histogram HISTO_COMMIT_TO_MS_LATENCY;
+
     // Catlaog/Database/Table num
     public static GaugeMetric<Integer> GAUGE_CATALOG_NUM;
     public static GaugeMetric<Integer> GAUGE_INTERNAL_DATABASE_NUM;
@@ -594,6 +599,24 @@ public final class MetricRepo {
 
         HISTO_COMMIT_AND_PUBLISH_LATENCY = METRIC_REGISTER.histogram(
                 MetricRegistry.name("txn_commit_and_publish", "latency", "ms"));
+
+        GaugeMetric<Integer> commitQueueLength = new GaugeMetric<Integer>("commit_queue_length",
+                MetricUnit.NOUNIT, "commit queue length") {
+            @Override
+            public Integer getValue() {
+                return Env.getCurrentEnv().getGlobalTransactionMgr().getQueueLength();
+            }
+        };
+        DORIS_METRIC_REGISTER.addMetrics(commitQueueLength);
+
+        HISTO_GET_DELETE_BITMAP_UPDATE_LOCK_LATENCY = METRIC_REGISTER.histogram(
+                MetricRegistry.name("get_delete_bitmap_update_lock", "latency", "ms"));
+        HISTO_GET_COMMIT_LOCK_LATENCY = METRIC_REGISTER.histogram(
+                MetricRegistry.name("get_commit_lock", "latency", "ms"));
+        HISTO_CALCULATE_DELETE_BITMAP_LATENCY = METRIC_REGISTER.histogram(
+                MetricRegistry.name("calculate_delete_bitmap", "latency", "ms"));
+        HISTO_COMMIT_TO_MS_LATENCY = METRIC_REGISTER.histogram(
+                MetricRegistry.name("commit_to_ms", "latency", "ms"));
 
         GAUGE_CATALOG_NUM = new GaugeMetric<Integer>("catalog_num",
                 MetricUnit.NOUNIT, "total catalog num") {

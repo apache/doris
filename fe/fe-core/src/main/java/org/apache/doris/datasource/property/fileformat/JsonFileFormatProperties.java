@@ -37,14 +37,14 @@ public class JsonFileFormatProperties extends FileFormatProperties {
     // from ExternalFileTableValuedFunction:
     private String jsonRoot = "";
     private String jsonPaths = "";
-    private boolean stripOuterArray;
+    private boolean stripOuterArray = false;
     private boolean readJsonByLine;
-    private boolean numAsString;
-    private boolean fuzzyParse;
+    private boolean numAsString = false;
+    private boolean fuzzyParse = false;
 
 
     public JsonFileFormatProperties() {
-        super(TFileFormatType.FORMAT_JSON);
+        super(TFileFormatType.FORMAT_JSON, FileFormatProperties.FORMAT_JSON);
     }
 
     @Override
