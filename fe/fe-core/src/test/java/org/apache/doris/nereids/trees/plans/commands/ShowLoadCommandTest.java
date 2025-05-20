@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -38,6 +39,21 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class ShowLoadCommandTest extends TestWithFeService {
+    public static final ImmutableList<String> LOAD_TITLE_NAMES = new ImmutableList.Builder<String>()
+            .add("JobId").add("Label").add("State").add("Progress")
+            .add("Type").add("EtlInfo").add("TaskInfo").add("ErrorMsg").add("CreateTime")
+            .add("EtlStartTime").add("EtlFinishTime").add("LoadStartTime").add("LoadFinishTime")
+            .add("URL").add("JobDetails").add("TransactionId").add("ErrorTablets").add("User").add("Comment")
+            .build();
+
+    // STREAM_LOAD_TITLE_NAMES copy from org.apache.doris.analysis.org.apache.doris.analysis
+    public static final ImmutableList<String> STREAM_LOAD_TITLE_NAMES = new ImmutableList.Builder<String>()
+            .add("Label").add("Db").add("Table")
+            .add("ClientIp").add("Status").add("Message").add("Url").add("TotalRows")
+            .add("LoadedRows").add("FilteredRows").add("UnselectedRows").add("LoadBytes")
+            .add("StartTime").add("FinishTime").add("User").add("Comment")
+            .build();
+
     @Override
     protected void runBeforeAll() throws Exception {
         createDatabase("test");
@@ -105,8 +121,8 @@ public class ShowLoadCommandTest extends TestWithFeService {
         UnboundSlot key = new UnboundSlot(Lists.newArrayList("LABEL"));
         List<OrderKey> orderKeys = Lists.newArrayList(new OrderKey(key, true, true));
         ShowLoadCommand sl = new ShowLoadCommand(null, orderKeys, -1, -1, "test");
-        sl.processOrderBy();
-        ArrayList<OrderByPair> orderByPairs = sl.getOrderByPairs();
+        ImmutableList<String> titles = sl.isStreamLoad() ? STREAM_LOAD_TITLE_NAMES : LOAD_TITLE_NAMES;
+        ArrayList<OrderByPair> orderByPairs = sl.getOrderByPairs(orderKeys, titles);
         OrderByPair op = orderByPairs.get(0);
         Assertions.assertFalse(op.isDesc());
         Assertions.assertEquals(1, op.getIndex());
