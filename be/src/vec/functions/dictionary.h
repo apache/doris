@@ -46,6 +46,8 @@ namespace doris::vectorized {
  * Currently only supports in-memory dictionary storage
  */
 
+const static std::string DICT_DATA_ERROR_TAG = "[INVALID_DICT_MARK]";
+
 struct DictionaryAttribute {
     const std::string name; // value name
     const DataTypePtr type; // value type
