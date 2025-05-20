@@ -25,6 +25,7 @@
 #include "common/cast_set.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/exception.h"
+#include "common/status.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "udf/udf.h"
@@ -57,25 +58,23 @@ VExprContext::~VExprContext() {
 }
 
 Status VExprContext::execute(vectorized::Block* block, int* result_column_id) {
-    Status st;
-    RETURN_IF_CATCH_EXCEPTION({
-        st = _root->execute(this, block, result_column_id);
-        _last_result_column_id = *result_column_id;
-        if (_last_result_column_id != -1) {
-            if (const auto* column_str = check_and_get_column<ColumnString>(
-                        block->get_by_position(*result_column_id).column.get())) {
-                column_str->sanity_check();
-            }
+    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_root->execute(this, block, result_column_id));
+
+    _last_result_column_id = *result_column_id;
+    if (_last_result_column_id != -1) {
+        if (const auto* column_str = check_and_get_column<ColumnString>(
+                    block->get_by_position(*result_column_id).column.get())) {
+            column_str->sanity_check();
         }
-    });
-    return st;
+    }
+
+    return Status::OK();
 }
 
 Status VExprContext::prepare(RuntimeState* state, const RowDescriptor& row_desc) {
     _prepared = true;
-    Status st;
-    RETURN_IF_CATCH_EXCEPTION({ st = _root->prepare(state, row_desc, this); });
-    return st;
+    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_root->prepare(state, row_desc, this));
+    return Status::OK();
 }
 
 Status VExprContext::open(RuntimeState* state) {
@@ -88,9 +87,9 @@ Status VExprContext::open(RuntimeState* state) {
     // original's fragment state and only need to have thread-local state initialized.
     FunctionContext::FunctionStateScope scope =
             _is_clone ? FunctionContext::THREAD_LOCAL : FunctionContext::FRAGMENT_LOCAL;
-    Status st;
-    RETURN_IF_CATCH_EXCEPTION({ st = _root->open(state, this, scope); });
-    return st;
+
+    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_root->open(state, this, scope));
+    return Status::OK();
 }
 
 void VExprContext::close() {
@@ -134,9 +133,8 @@ int VExprContext::register_function_context(RuntimeState* state, const DataTypeP
 }
 
 Status VExprContext::evaluate_inverted_index(uint32_t segment_num_rows) {
-    Status st;
-    RETURN_IF_CATCH_EXCEPTION({ st = _root->evaluate_inverted_index(this, segment_num_rows); });
-    return st;
+    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_root->evaluate_inverted_index(this, segment_num_rows));
+    return Status::OK();
 }
 
 bool VExprContext::all_expr_inverted_index_evaluated() {

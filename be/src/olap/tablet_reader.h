@@ -126,6 +126,9 @@ public:
         TabletSchemaSPtr tablet_schema;
         ReaderType reader_type = ReaderType::READER_QUERY;
         bool direct_mode = false;
+        // a parameter passed from planner.
+        // used to indicate whether target table is a pre-aggregation table.
+        // if true, backend will read data from table directly.
         bool is_pre_aggregation = false;
         // for compaction, schema_change, check_sum: we don't use page cache
         // for query and config::disable_storage_page_cache is false, we use page cache
@@ -297,7 +300,7 @@ protected:
     std::vector<ColumnPredicate*> _value_col_predicates;
     DeleteHandler _delete_handler;
 
-    bool _aggregation = false;
+    bool _is_pre_aggregation = false;
     // for agg query, we don't need to finalize when scan agg object data
     ReaderType _reader_type = ReaderType::READER_QUERY;
     bool _next_delete_flag = false;

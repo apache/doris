@@ -212,7 +212,7 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
             // unique keys with merge on write, no need to merge sort keys in rowset
             need_ordered_result = false;
         }
-        if (_aggregation) {
+        if (_is_pre_aggregation) {
             // compute engine will aggregate rows with the same key,
             // it's ok for rowset to return unordered result
             need_ordered_result = false;
@@ -286,7 +286,10 @@ Status TabletReader::_init_params(const ReaderParams& read_params) {
     read_params.check_validation();
 
     _direct_mode = read_params.direct_mode;
-    _aggregation = read_params.is_pre_aggregation;
+    // a parameter passed from planner.
+    // used to indicate whether target table is a pre-aggregation table.
+    // if true, backend will read data from table directly.
+    _is_pre_aggregation = read_params.is_pre_aggregation;
     _reader_type = read_params.reader_type;
     _tablet = read_params.tablet;
     _tablet_schema = read_params.tablet_schema;

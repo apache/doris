@@ -64,6 +64,9 @@ public:
         int64_t version;
         TabletReader::ReadSource read_source;
         int64_t limit;
+        // a parameter passed from planner.
+        // used to indicate whether target table is a pre-aggregation table.
+        // if true, backend will read data from table directly.
         bool is_pre_aggregation;
     };
 
