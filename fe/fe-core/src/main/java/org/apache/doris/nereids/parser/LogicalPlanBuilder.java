@@ -713,6 +713,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowRepositoriesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowResourcesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRestoreCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRolesCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowRoutineLoadTaskCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRowPolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowSmallFilesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowSnapshotCommand;
@@ -7469,5 +7470,20 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
 
         return new RefreshDictionaryCommand(dbName, dictName);
+    }
+
+    @Override
+    public LogicalPlan visitShowRoutineLoadTask(DorisParser.ShowRoutineLoadTaskContext ctx) {
+        String dbName = null;
+        if (ctx.database != null) {
+            dbName = ctx.database.getText();
+        }
+
+        Expression whereClause = null;
+        if (ctx.wildWhere() != null) {
+            whereClause = getWildWhere(ctx.wildWhere());
+        }
+
+        return new ShowRoutineLoadTaskCommand(dbName, whereClause);
     }
 }
