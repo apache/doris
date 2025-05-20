@@ -83,7 +83,7 @@ public class PushDownFilterThroughSetOperation extends OneRewriteRuleFactory {
                     } else if (newChildren.isEmpty() && newConstantExprs.size() == 1) {
                         ImmutableList.Builder<NamedExpression> newOneRowRelationOutput
                                 = ImmutableList.builderWithExpectedSize(newConstantExprs.size());
-                        for (int i = 0; i < newConstantExprs.size(); i++) {
+                        for (int i = 0; i < newConstantExprs.get(0).size(); i++) {
                             NamedExpression setOutput = setOutputs.get(i);
                             NamedExpression constantExpr = newConstantExprs.get(0).get(i);
                             Alias oneRowRelationOutput;

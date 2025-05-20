@@ -43,7 +43,7 @@ public class MergeProjectable extends OneRewriteRuleFactory {
         // here we just don't merge two projects if there is any window function
         return logicalProject(any().when(ProjectMergeable.class::isInstance))
                 .then(MergeProjectable::mergeProjectable)
-                .toRule(RuleType.MERGE_PROJECTS);
+                .toRule(RuleType.MERGE_PROJECTABLE);
     }
 
     /** merge projectable */
