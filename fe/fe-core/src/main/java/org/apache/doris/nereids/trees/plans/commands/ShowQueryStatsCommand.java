@@ -90,9 +90,6 @@ public class ShowQueryStatsCommand extends ShowCommand {
             dbName = ctx.getDatabase();
             type = ShowQueryStatsType.DATABASE;
         }
-        if (Strings.isNullOrEmpty(dbName)) {
-            dbName = ctx.getDatabase();
-        }
         String catalog = Env.getCurrentEnv().getCurrentCatalog().getName();
         if (tableNameInfo == null && StringUtils.isEmpty(dbName)) {
             if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
