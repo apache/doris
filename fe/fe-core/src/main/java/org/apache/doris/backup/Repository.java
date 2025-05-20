@@ -31,6 +31,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.property.constants.S3Properties;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.fsv2.FileSystemFactory;
 import org.apache.doris.fsv2.PersistentFileSystem;
 import org.apache.doris.fsv2.remote.BrokerFileSystem;
@@ -246,10 +247,19 @@ public class Repository implements Writable, GsonPostProcessable {
 
     @Override
     public void gsonPostProcess() {
-       /* if (!(fileSystem instanceof BrokerFileSystem)) {
-            StorageProperties storageProperties = StorageProperties.createPrimary(this.fileSystem.properties);
+        StorageBackend.StorageType type = StorageBackend.StorageType.BROKER;
+        if (this.oldfs.properties.containsKey(org.apache.doris.fs.PersistentFileSystem.STORAGE_TYPE)) {
+            type = StorageBackend.StorageType.valueOf(
+                    this.oldfs.properties.get(org.apache.doris.fs.PersistentFileSystem.STORAGE_TYPE));
+            this.oldfs.properties.remove(org.apache.doris.fs.PersistentFileSystem.STORAGE_TYPE);
+        }
+        this.oldfs = org.apache.doris.fs.FileSystemFactory.get(this.oldfs.getName(),
+                type,
+                this.oldfs.getProperties());
+        if (!type.equals(StorageBackend.StorageType.BROKER)) {
+            StorageProperties storageProperties = StorageProperties.createPrimary(this.oldfs.properties);
             this.fileSystem = FileSystemFactory.get(storageProperties);
-        }*/
+        }
     }
 
     public long getId() {
