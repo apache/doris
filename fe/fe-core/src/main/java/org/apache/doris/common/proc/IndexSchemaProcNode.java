@@ -27,7 +27,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
 
-import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
 
@@ -40,6 +39,7 @@ public class IndexSchemaProcNode implements ProcNodeInterface {
             .add("Field").add("Type").add("Null").add("Key")
             .add("Default").add("Extra")
             .build();
+    public static final String COMMENT_COLUMN_TITLE = "Comment";
 
     private final List<Column> schema;
     private final Set<String> bfColumns;
@@ -72,7 +72,7 @@ public class IndexSchemaProcNode implements ProcNodeInterface {
             String extraStr = StringUtils.join(extras, ",");
             String comment = column.getComment();
 
-            List<String> rowList = Arrays.asList(column.getDisplayName(),
+            List<String> rowList = Lists.newArrayList(column.getDisplayName(),
                     column.getOriginType().hideVersionForVersionColumn(true),
                     column.isAllowNull() ? "Yes" : "No",
                     ((Boolean) column.isKey()).toString(),

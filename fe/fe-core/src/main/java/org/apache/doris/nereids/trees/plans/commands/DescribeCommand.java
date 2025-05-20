@@ -84,6 +84,7 @@ public class DescribeCommand extends ShowCommand {
     private TableNameInfo dbTableName;
     private boolean isAllTables = false;
     private boolean isOlapTable = false;
+    private boolean showComment = false;
 
     private PartitionNamesInfo partitionNames;
 
@@ -160,6 +161,9 @@ public class DescribeCommand extends ShowCommand {
             ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
             for (String col : IndexSchemaProcNode.TITLE_NAMES) {
                 builder.addColumn(new Column(col, ScalarType.createVarchar(30)));
+            }
+            if (showComment) {
+                builder.addColumn(new Column(IndexSchemaProcNode.COMMENT_COLUMN_TITLE, ScalarType.createVarchar(30)));
             }
             return builder.build();
         } else {
@@ -421,6 +425,7 @@ public class DescribeCommand extends ShowCommand {
      * getResultRows
      */
     private List<List<String>> getResultRows(ProcNodeInterface node) throws AnalysisException {
+        showComment = ConnectContext.get().getSessionVariable().showColumnCommentInDescribe;
         Preconditions.checkNotNull(node);
         List<List<String>> rows = node.fetchResult().getRows();
         List<List<String>> res = new ArrayList<>();
