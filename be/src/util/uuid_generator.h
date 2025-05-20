@@ -76,6 +76,10 @@ public:
                 std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch())
                         .count();
 
+        // If the current timestamp hasn't increased since the last call (either due to high frequency
+        // calls within a millisecond or clock adjustments), we use the last timestamp to maintain
+        // monotonically increasing timestamps. This prevents time going backward and ensures
+        // ordering of generated UUIDs even when many are created in rapid succession.
         if (millis <= _last_timestamp) {
             millis = _last_timestamp;
         } else {

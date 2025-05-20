@@ -82,6 +82,14 @@ public class UUIDv7Generator {
             long timestamp = current >>> 12;
             long sequence = current & MAX_SEQUENCE;
 
+            // Implementation difference from C++ version:
+            // In the Java implementation, we use a more complex approach to handle timestamp synchronization:
+            // 1. We check if the current timestamp is less than the last timestamp (clock drift/adjustment case)
+            // 2. Or if we've exhausted the sequence counter for the current timestamp
+            // In these cases, we spin-wait (or park) to avoid generating duplicate timestamps
+            // This approach prioritizes strict ordering and uniqueness over throughput in edge cases
+            // The C++ version handles this by just reusing the last timestamp, which is simpler but
+            // might allow multiple UUIDs with the same timestamp and different counters
             if (currentTimestamp < timestamp || (currentTimestamp == timestamp && sequence >= MAX_SEQUENCE)) {
                 if (spinCount < SPIN_THRESHOLD) {
                     spinCount++;
