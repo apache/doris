@@ -70,11 +70,11 @@ Status AnnTopNDescriptor::prepare(RuntimeState* state, const RowDescriptor& row_
     _dest_column_idx = vir_slot_ref->column_id();
     auto vir_col_expr = vir_slot_ref->get_virtual_column_expr();
     std::shared_ptr<VectorizedFnCall> distance_fn_call =
-            std::dynamic_pointer_cast<VectorizedFnCall>(vir_col_expr->root());
+            std::dynamic_pointer_cast<VectorizedFnCall>(vir_col_expr);
 
     if (distance_fn_call == nullptr) {
         return Status::InternalError("Ann topn expr expect FuncationCall, got\n{}",
-                                     vir_col_expr->root()->debug_string());
+                                     vir_col_expr->debug_string());
     }
 
     std::shared_ptr<VCastExpr> cast_to_array_expr =

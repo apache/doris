@@ -39,20 +39,30 @@ namespace doris::vectorized {
 TEST_F(VectorSearchTest, AnnTopNDescriptorConstructor) {
     int limit = 10;
     std::shared_ptr<VExprContext> distanc_calcu_fn_call_ctx;
-    ASSERT_TRUE(vectorized::VExpr::create_expr_tree(_distance_function_call_thrift,
-                                                    distanc_calcu_fn_call_ctx)
-                        .ok());
+    auto distance_function_call_thrift = read_from_json<TExpr>(_distance_function_call_thrift);
+    ASSERT_TRUE(distance_function_call_thrift.nodes.empty() != true);
+    auto st1 = vectorized::VExpr::create_expr_tree(distance_function_call_thrift,
+                                                   distanc_calcu_fn_call_ctx);
+    ASSERT_TRUE(st1.ok()) << fmt::format(
+            "st: {}, expr {}", st1.to_string(),
+            apache::thrift::ThriftDebugString(distance_function_call_thrift));
+    ASSERT_TRUE(distanc_calcu_fn_call_ctx != nullptr) << "create expr tree failed";
+    ASSERT_TRUE(distanc_calcu_fn_call_ctx->root() != nullptr);
 
     std::shared_ptr<VExprContext> virtual_slot_expr_ctx;
     ASSERT_TRUE(vectorized::VExpr::create_expr_tree(_virtual_slot_ref_expr, virtual_slot_expr_ctx)
                         .ok());
+
+    ASSERT_TRUE(virtual_slot_expr_ctx != nullptr) << "create expr tree failed";
+    ASSERT_TRUE(virtual_slot_expr_ctx->root() != nullptr);
+
     std::shared_ptr<VirtualSlotRef> v =
             std::dynamic_pointer_cast<VirtualSlotRef>(virtual_slot_expr_ctx->root());
     if (v == nullptr) {
         LOG(FATAL) << "VAnnTopNDescriptor::SetUp() failed";
     }
 
-    v->set_virtual_column_expr(distanc_calcu_fn_call_ctx);
+    v->set_virtual_column_expr(distanc_calcu_fn_call_ctx->root());
 
     std::shared_ptr<AnnTopNDescriptor> predicate;
     predicate = AnnTopNDescriptor::create_shared(limit, virtual_slot_expr_ctx);
@@ -62,7 +72,8 @@ TEST_F(VectorSearchTest, AnnTopNDescriptorConstructor) {
 TEST_F(VectorSearchTest, AnnTopNDescriptorPrepare) {
     int limit = 10;
     std::shared_ptr<VExprContext> distanc_calcu_fn_call_ctx;
-    Status st = vectorized::VExpr::create_expr_tree(_distance_function_call_thrift,
+    auto distance_function_call_thrift = read_from_json<TExpr>(_distance_function_call_thrift);
+    Status st = vectorized::VExpr::create_expr_tree(distance_function_call_thrift,
                                                     distanc_calcu_fn_call_ctx);
 
     std::shared_ptr<VExprContext> virtual_slot_expr_ctx;
@@ -73,7 +84,7 @@ TEST_F(VectorSearchTest, AnnTopNDescriptorPrepare) {
         LOG(FATAL) << "VAnnTopNDescriptor::SetUp() failed";
     }
 
-    v->set_virtual_column_expr(distanc_calcu_fn_call_ctx);
+    v->set_virtual_column_expr(distanc_calcu_fn_call_ctx->root());
     std::shared_ptr<AnnTopNDescriptor> predicate;
     predicate = AnnTopNDescriptor::create_shared(limit, virtual_slot_expr_ctx);
     st = predicate->prepare(&_runtime_state, _row_desc);
@@ -86,7 +97,8 @@ TEST_F(VectorSearchTest, AnnTopNDescriptorPrepare) {
 TEST_F(VectorSearchTest, AnnTopNDescriptorEvaluateTopN) {
     int limit = 10;
     std::shared_ptr<VExprContext> distanc_calcu_fn_call_ctx;
-    Status st = vectorized::VExpr::create_expr_tree(_distance_function_call_thrift,
+    auto distance_function_call_thrift = read_from_json<TExpr>(_distance_function_call_thrift);
+    Status st = vectorized::VExpr::create_expr_tree(distance_function_call_thrift,
                                                     distanc_calcu_fn_call_ctx);
 
     std::shared_ptr<VExprContext> virtual_slot_expr_ctx;
@@ -97,7 +109,7 @@ TEST_F(VectorSearchTest, AnnTopNDescriptorEvaluateTopN) {
         LOG(FATAL) << "VAnnTopNDescriptor::SetUp() failed";
     }
 
-    v->set_virtual_column_expr(distanc_calcu_fn_call_ctx);
+    v->set_virtual_column_expr(distanc_calcu_fn_call_ctx->root());
     std::shared_ptr<AnnTopNDescriptor> predicate;
     predicate = AnnTopNDescriptor::create_shared(limit, virtual_slot_expr_ctx);
     st = predicate->prepare(&_runtime_state, _row_desc);
