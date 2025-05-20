@@ -123,6 +123,7 @@ import org.apache.doris.nereids.trees.plans.commands.RefreshMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ReplayCommand;
 import org.apache.doris.nereids.trees.plans.commands.ResumeJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.ResumeMTMVCommand;
+import org.apache.doris.nereids.trees.plans.commands.RevokeRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.SetDefaultStorageVaultCommand;
 import org.apache.doris.nereids.trees.plans.commands.SetOptionsCommand;
 import org.apache.doris.nereids.trees.plans.commands.SetTransactionCommand;
@@ -174,6 +175,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowProcCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowProcedureStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowProcessListCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowQueryProfileCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowQueryStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowQueuedAnalyzeJobsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowReplicaDistributionCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRepositoriesCommand;
@@ -897,6 +899,11 @@ public interface CommandVisitor<R, C> {
         return visitCommand(showQueryProfileCommand, context);
     }
 
+    default R visitShowQueryStatsCommand(ShowQueryStatsCommand showQueryStatsCommand,
+            C context) {
+        return visitCommand(showQueryStatsCommand, context);
+    }
+
     default R visitShowConvertLscCommand(ShowConvertLSCCommand showConvertLSCCommand, C context) {
         return visitCommand(showConvertLSCCommand, context);
     }
@@ -1135,5 +1142,9 @@ public interface CommandVisitor<R, C> {
     default R visitGrantResourcePrivilegeCommand(GrantResourcePrivilegeCommand grantResourcePrivilegeCommand,
             C context) {
         return visitCommand(grantResourcePrivilegeCommand, context);
+    }
+
+    default R visitRevokeRoleCommand(RevokeRoleCommand revokeRoleCommand, C context) {
+        return visitCommand(revokeRoleCommand, context);
     }
 }

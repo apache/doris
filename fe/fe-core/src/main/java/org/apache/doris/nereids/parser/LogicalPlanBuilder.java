@@ -359,6 +359,7 @@ import org.apache.doris.nereids.DorisParser.ShowProcContext;
 import org.apache.doris.nereids.DorisParser.ShowProcedureStatusContext;
 import org.apache.doris.nereids.DorisParser.ShowProcessListContext;
 import org.apache.doris.nereids.DorisParser.ShowQueryProfileContext;
+import org.apache.doris.nereids.DorisParser.ShowQueryStatsContext;
 import org.apache.doris.nereids.DorisParser.ShowQueuedAnalyzeJobsContext;
 import org.apache.doris.nereids.DorisParser.ShowReplicaDistributionContext;
 import org.apache.doris.nereids.DorisParser.ShowRepositoriesContext;
@@ -654,6 +655,7 @@ import org.apache.doris.nereids.trees.plans.commands.RefreshMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ReplayCommand;
 import org.apache.doris.nereids.trees.plans.commands.ResumeJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.ResumeMTMVCommand;
+import org.apache.doris.nereids.trees.plans.commands.RevokeRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.SetDefaultStorageVaultCommand;
 import org.apache.doris.nereids.trees.plans.commands.SetOptionsCommand;
 import org.apache.doris.nereids.trees.plans.commands.SetTransactionCommand;
@@ -705,6 +707,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowProcCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowProcedureStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowProcessListCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowQueryProfileCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowQueryStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowQueuedAnalyzeJobsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowReplicaDistributionCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRepositoriesCommand;
@@ -6173,6 +6176,21 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
+    public LogicalPlan visitShowQueryStats(ShowQueryStatsContext ctx) {
+        String dbName = null;
+        if (ctx.database != null) {
+            dbName = ctx.database.getText();
+        }
+        TableNameInfo tableNameInfo = null;
+        if (ctx.tableName != null) {
+            tableNameInfo = new TableNameInfo(visitMultipartIdentifier(ctx.tableName));
+        }
+        boolean isAll = ctx.ALL() != null;
+        boolean isVerbose = ctx.VERBOSE() != null;
+        return new ShowQueryStatsCommand(dbName, tableNameInfo, isAll, isVerbose);
+    }
+
+    @Override
     public LogicalPlan visitSwitchCatalog(SwitchCatalogContext ctx) {
         if (ctx.catalog != null) {
             return new SwitchCommand(ctx.catalog.getText());
@@ -7192,6 +7210,16 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return ctx.privilege().stream()
             .map(this::visitPrivilege)
             .collect(ImmutableList.toImmutableList());
+    }
+
+    @Override
+    public LogicalPlan visitRevokeRole(DorisParser.RevokeRoleContext ctx) {
+        UserIdentity userIdentity = visitUserIdentify(ctx.userIdentify());
+        List<String> roles = ctx.roles.stream()
+                .map(this::visitIdentifierOrText)
+                .collect(ImmutableList.toImmutableList());
+
+        return new RevokeRoleCommand(userIdentity, roles);
     }
 
     public LogicalPlan visitDropAnalyzeJob(DorisParser.DropAnalyzeJobContext ctx) {
