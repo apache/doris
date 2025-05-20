@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.property.storage;
 
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -51,10 +52,10 @@ public class HdfsPropertiesUtilsTest {
         Map<String, String> props = new HashMap<>();
         props.put("path", "xxx");
 
-        Exception exception = Assertions.assertThrows(UserException.class, () -> {
+        Exception exception = Assertions.assertThrows(StoragePropertiesException.class, () -> {
             HdfsPropertiesUtils.validateAndGetUri(props);
         });
-        Assertions.assertEquals("errCode = 2, detailMessage = props must contain uri", exception.getMessage());
+        Assertions.assertEquals("props must contain uri", exception.getMessage());
     }
 
     @Test

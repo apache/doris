@@ -31,7 +31,6 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.property.constants.S3Properties;
-import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.fsv2.FileSystemFactory;
 import org.apache.doris.fsv2.PersistentFileSystem;
 import org.apache.doris.fsv2.remote.BrokerFileSystem;
@@ -134,7 +133,8 @@ public class Repository implements Writable, GsonPostProcessable {
     @SerializedName("fs")
     private org.apache.doris.fs.PersistentFileSystem oldfs;
 
-
+    // Temporary field: currently still using the legacy fs config (oldfs).
+    // This field can be removed once the new fs configuration is fully enabled.
     private PersistentFileSystem fileSystem;
 
     public org.apache.doris.fs.PersistentFileSystem getOldfs() {
@@ -246,10 +246,10 @@ public class Repository implements Writable, GsonPostProcessable {
 
     @Override
     public void gsonPostProcess() {
-        if (!(fileSystem instanceof BrokerFileSystem)) {
+       /* if (!(fileSystem instanceof BrokerFileSystem)) {
             StorageProperties storageProperties = StorageProperties.createPrimary(this.fileSystem.properties);
             this.fileSystem = FileSystemFactory.get(storageProperties);
-        }
+        }*/
     }
 
     public long getId() {
@@ -859,7 +859,7 @@ public class Repository implements Writable, GsonPostProcessable {
         location = Text.readString(in);
         oldfs = org.apache.doris.fs.PersistentFileSystem.read(in);
         try {
-            fileSystem = FileSystemFactory.get(oldfs.getProperties());
+            fileSystem = FileSystemFactory.get(oldfs.getStorageType(), oldfs.getProperties());
         } catch (UserException e) {
             // do we ignore this exception?
             throw new IOException("Failed to create file system: " + e.getMessage());

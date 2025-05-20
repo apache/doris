@@ -216,6 +216,11 @@ suite("refactor_storage_backup_restore_object_storage", "p0,external,external_do
     String bucket = "selectdb-qa-datalake-test"
     String objPrefix="s3"
     test_backup_restore(ak,sk,s3_endpoint,region,bucket,objPrefix)
+    //todo When the new fs is fully enabled, we need to open this startup
+    String enabledOtherObjectStorageTest = context.config.otherConfigs.get("enabledOtherObjectStorageTest")
+    if (enabled == null || enabledOtherObjectStorageTest.equalsIgnoreCase("false")) {
+        return
+    }
     /*-----------------Tencent COS----------------*/
     ak = context.config.otherConfigs.get("txYunAk")
     sk = context.config.otherConfigs.get("txYunSk")

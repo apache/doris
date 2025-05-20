@@ -19,6 +19,7 @@ package org.apache.doris.datasource.property.storage;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
 
 import com.google.common.collect.Maps;
 import org.apache.hadoop.conf.Configuration;
@@ -104,9 +105,9 @@ public class HdfsPropertiesTest {
     @Test
     public void testNonParamsException() throws UserException {
         Map<String, String> origProps = new HashMap<>();
-        Assertions.assertThrowsExactly(RuntimeException.class, () -> StorageProperties.createPrimary(origProps));
+        Assertions.assertThrowsExactly(StoragePropertiesException.class, () -> StorageProperties.createPrimary(origProps));
         origProps.put("nonhdfs", "hdfs://localhost:9000");
-        Assertions.assertThrowsExactly(RuntimeException.class, () -> {
+        Assertions.assertThrowsExactly(StoragePropertiesException.class, () -> {
             StorageProperties.createPrimary(origProps);
         });
         origProps.put(StorageProperties.FS_HDFS_SUPPORT, "true");
