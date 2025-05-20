@@ -62,10 +62,10 @@ public class PlanPostProcessors {
         builder.add(new RemoveUselessProjectPostProcessor());
         builder.add(new MergeProjectPostProcessor());
         builder.add(new RecomputeLogicalPropertiesProcessor());
-        // if (cascadesContext.getConnectContext().getSessionVariable().enableAggregateCse) {
-        //     builder.add(new ProjectAggregateExpressionsForCse());
-        // }
-        // builder.add(new CommonSubExpressionOpt());
+        if (cascadesContext.getConnectContext().getSessionVariable().enableAggregateCse) {
+            builder.add(new ProjectAggregateExpressionsForCse());
+        }
+        builder.add(new CommonSubExpressionOpt());
         // DO NOT replace PLAN NODE from here
         if (cascadesContext.getConnectContext().getSessionVariable().pushTopnToAgg) {
             builder.add(new PushTopnToAgg());
