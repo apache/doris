@@ -345,7 +345,7 @@ public class SlotDescriptor {
                 .add("type", typeStr).add("materialized", isMaterialized).add("byteSize", byteSize)
                 .add("byteOffset", byteOffset).add("slotIdx", slotIdx).add("nullable", getIsNullable())
                 .add("isAutoIncrement", isAutoInc).add("subColPath", subColPath)
-                .add("virtualColumn", virtualColumn.toSql()).toString();
+                .add("virtualColumn", virtualColumn == null ? null : virtualColumn.toSql()).toString();
     }
 
     @Override
