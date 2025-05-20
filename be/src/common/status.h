@@ -245,6 +245,7 @@ namespace ErrorCode {
     E(CUMULATIVE_MISS_VERSION, -2006, true);                 \
     E(FULL_NO_SUITABLE_VERSION, -2008, false);               \
     E(FULL_MISS_VERSION, -2009, true);                       \
+    E(CUMULATIVE_MEET_DELETE_VERSION, -2010, false);         \
     E(META_INVALID_ARGUMENT, -3000, true);                   \
     E(META_OPEN_DB_ERROR, -3001, true);                      \
     E(META_KEY_NOT_FOUND, -3002, false);                     \
