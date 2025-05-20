@@ -43,8 +43,8 @@ void PrefixQuery::search(roaring::Roaring& roaring) {
     }
 }
 
-void PrefixQuery::get_prefix_terms(IndexReader* reader, const std::wstring& field_name,
-                                   const std::string& prefix,
+void PrefixQuery::get_prefix_terms(lucene::index::IndexReader* reader,
+                                   const std::wstring& field_name, const std::string& prefix,
                                    std::vector<std::wstring>& prefix_terms,
                                    int32_t max_expansions) {
     std::wstring ws_prefix = StringUtil::string_to_wstring(prefix);

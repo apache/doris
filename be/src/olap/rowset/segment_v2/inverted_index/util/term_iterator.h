@@ -60,14 +60,14 @@ public:
 
     bool read_range(DocRange* docRange) const { return term_docs_->readRange(docRange); }
 
-    static TermDocs* ensure_term_doc(IndexReader* reader, const std::wstring& field_name,
-                                     const std::string& term) {
+    static TermDocs* ensure_term_doc(lucene::index::IndexReader* reader,
+                                     const std::wstring& field_name, const std::string& term) {
         std::wstring ws_term = StringUtil::string_to_wstring(term);
         return ensure_term_doc(reader, field_name, ws_term);
     }
 
-    static TermDocs* ensure_term_doc(IndexReader* reader, const std::wstring& field_name,
-                                     const std::wstring& ws_term) {
+    static TermDocs* ensure_term_doc(lucene::index::IndexReader* reader,
+                                     const std::wstring& field_name, const std::wstring& ws_term) {
         auto* t = _CLNEW Term(field_name.c_str(), ws_term.c_str());
         auto* term_pos = reader->termDocs(t);
         _CLDECDELETE(t);

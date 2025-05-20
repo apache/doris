@@ -268,7 +268,9 @@ public:
     const std::string& index_name() const { return _index_name; }
     MOCK_FUNCTION IndexType index_type() const { return _index_type; }
     const std::vector<int32_t>& col_unique_ids() const { return _col_unique_ids; }
-    MOCK_FUNCTION const std::map<std::string, std::string>& properties() const { return _properties; }
+    MOCK_FUNCTION const std::map<std::string, std::string>& properties() const {
+        return _properties;
+    }
     int32_t get_gram_size() const {
         if (_properties.contains("gram_size")) {
             return std::stoi(_properties.at("gram_size"));

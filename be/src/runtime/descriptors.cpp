@@ -32,19 +32,19 @@
 
 #include "common/exception.h"
 #include "common/object_pool.h"
+#include "common/status.h"
 #include "util/string_util.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column_nothing.h"
-#include "vec/data_types/data_type_factory.hpp"
-#include "vec/exprs/vexpr.h"
-#include "vec/utils/util.hpp"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_map.h"
 #include "vec/data_types/data_type_struct.h"
+#include "vec/exprs/vexpr.h"
 #include "vec/functions/function_helpers.h"
+#include "vec/utils/util.hpp"
 
 namespace doris {
 
@@ -67,6 +67,17 @@ SlotDescriptor::SlotDescriptor(const TSlotDescriptor& tdesc)
           _is_auto_increment(tdesc.__isset.is_auto_increment ? tdesc.is_auto_increment : false),
           _col_default_value(tdesc.__isset.col_default_value ? tdesc.col_default_value : "") {
     if (tdesc.__isset.virtual_column_expr) {
+        if (tdesc.virtual_column_expr.nodes.empty()) {
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "virtual column expr is empty, slot id: {}", tdesc.id);
+        }
+
+        if (tdesc.virtual_column_expr.nodes[0].node_type == TExprNodeType::SLOT_REF) {
+            LOG_ERROR("Invalid vitual column expr,\n{}",
+                      apache::thrift::ThriftDebugString(tdesc.virtual_column_expr));
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "Invalid vitual column expr, slot id: {}", tdesc.id);
+        }
         this->virtual_column_expr = std::make_shared<doris::TExpr>(tdesc.virtual_column_expr);
     }
 }

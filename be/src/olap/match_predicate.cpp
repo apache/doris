@@ -77,7 +77,7 @@ Status MatchPredicate::evaluate(const vectorized::IndexFieldNameAndTypePair& nam
         match_value.replace(buffer, int32_t(length)); //is it safe?
         param.query_value = &match_value;
         RETURN_IF_ERROR(iterator->read_from_index(&param));
-    }  else if (primitive_type == TYPE_ARRAY &&
+    } else if (primitive_type == TYPE_ARRAY &&
                is_numeric_type(TabletColumn::get_field_type_by_type(
                        assert_cast<const vectorized::DataTypeArray*>(
                                vectorized::remove_nullable(type).get())

@@ -519,7 +519,8 @@ Status OlapScanner::_init_return_columns() {
                      _vir_col_idx_to_type[idx_in_block]->get_name());
             // Virtual column is not included in columns in read-schema.
             continue;
-        } if (slot->type()->get_primitive_type() == PrimitiveType::TYPE_VARIANT) {
+        }
+        if (slot->type()->get_primitive_type() == PrimitiveType::TYPE_VARIANT) {
             index = tablet_schema->field_index(PathInData(
                     tablet_schema->column_by_uid(slot->col_unique_id()).name_lower_case(),
                     slot->column_paths()));

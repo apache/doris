@@ -28,12 +28,13 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "common/utils.h"
 #include "olap/rowset/segment_v2/ann_index_iterator.h"
 #include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/rowset/segment_v2/index_reader.h"
 #include "olap/rowset/segment_v2/virtual_column_iterator.h"
-#include "common/utils.h"
 #include "pipeline/pipeline_task.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/runtime_state.h"
 #include "udf/udf.h"
 #include "vec/columns/column.h"
@@ -352,7 +353,7 @@ Status VectorizedFnCall::prepare_ann_range_search() {
 
     auto right_col = right_literal->get_column_ptr()->convert_to_full_column_if_const();
     auto right_type = right_literal->get_data_type();
-    if (right_type->get_type_id() != vectorized::TypeIndex::Float64) {
+    if (right_type->get_primitive_type() != PrimitiveType::TYPE_DOUBLE) {
         LOG_INFO("Right child is not a Float64Literal.");
         return Status::OK();
     }
