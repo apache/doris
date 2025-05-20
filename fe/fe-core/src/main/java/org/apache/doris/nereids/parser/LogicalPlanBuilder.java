@@ -379,6 +379,7 @@ import org.apache.doris.nereids.DorisParser.ShowStagesContext;
 import org.apache.doris.nereids.DorisParser.ShowStatusContext;
 import org.apache.doris.nereids.DorisParser.ShowStorageEnginesContext;
 import org.apache.doris.nereids.DorisParser.ShowStoragePolicyContext;
+import org.apache.doris.nereids.DorisParser.ShowStorageVaultContext;
 import org.apache.doris.nereids.DorisParser.ShowSyncJobContext;
 import org.apache.doris.nereids.DorisParser.ShowTableCreationContext;
 import org.apache.doris.nereids.DorisParser.ShowTableIdContext;
@@ -732,6 +733,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowStagesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowStorageEnginesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowStoragePolicyCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowStorageVaultCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowSyncJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTableCreationCommand;
@@ -4701,6 +4703,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public SetTransactionCommand visitSetTransaction(SetTransactionContext ctx) {
         return new SetTransactionCommand();
+    }
+
+    @Override
+    public LogicalPlan visitShowStorageVault(ShowStorageVaultContext ctx) {
+        return new ShowStorageVaultCommand();
     }
 
     @Override
