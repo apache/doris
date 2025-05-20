@@ -121,3 +121,40 @@ k4	text	Yes	true	\N
 k5	text	Yes	true	\N	
 year	int	Yes	true	\N	
 
+-- !sql_3col --
+id	int	Yes	true	\N	
+amount	double	Yes	true	\N	
+year	int	Yes	true	\N	
+
+-- !sql_sct01_3col --
+sales	CREATE TABLE `sales`(\n  `id` int,\n  `amount` double)\nPARTITIONED BY (\n `year` int)\nROW FORMAT SERDE\n  'org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe'\nWITH SERDEPROPERTIES (\n  'serialization.format' = '1')\nSTORED AS INPUTFORMAT\n  'org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat'\nOUTPUTFORMAT\n  'org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat'\nLOCATION\n  'hdfs://172.20.32.136:8320/user/hive/warehouse/test_hive_meta_cache_db.db/sales'\nTBLPROPERTIES (\n  'transient_lastDdlTime'='1747714021',\n  'bucketing_version'='2')
+
+-- !sql_4col --
+id	int	Yes	true	\N	
+amount	double	Yes	true	\N	
+k1	text	Yes	true	\N	
+year	int	Yes	true	\N	
+
+-- !sql_sct01_4col --
+sales	CREATE TABLE `sales`(\n  `id` int,\n  `amount` double,\n  `k1` string)\nPARTITIONED BY (\n `year` int)\nROW FORMAT SERDE\n  'org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe'\nWITH SERDEPROPERTIES (\n  'serialization.format' = '1')\nSTORED AS INPUTFORMAT\n  'org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat'\nOUTPUTFORMAT\n  'org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat'\nLOCATION\n  'hdfs://172.20.32.136:8320/user/hive/warehouse/test_hive_meta_cache_db.db/sales'\nTBLPROPERTIES (\n  'transient_lastDdlTime'='1747714021',\n  'bucketing_version'='2',\n  'last_modified_time'='1747714021',\n  'last_modified_by'='root')
+
+-- !sql_5col --
+id	int	Yes	true	\N	
+amount	double	Yes	true	\N	
+k1	text	Yes	true	\N	
+k2	text	Yes	true	\N	
+year	int	Yes	true	\N	
+
+-- !sql_sct01_5col --
+sales	CREATE TABLE `sales`(\n  `id` int,\n  `amount` double,\n  `k1` string,\n  `k2` string)\nPARTITIONED BY (\n `year` int)\nROW FORMAT SERDE\n  'org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe'\nWITH SERDEPROPERTIES (\n  'serialization.format' = '1')\nSTORED AS INPUTFORMAT\n  'org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat'\nOUTPUTFORMAT\n  'org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat'\nLOCATION\n  'hdfs://172.20.32.136:8320/user/hive/warehouse/test_hive_meta_cache_db.db/sales'\nTBLPROPERTIES (\n  'transient_lastDdlTime'='1747714021',\n  'bucketing_version'='2',\n  'last_modified_time'='1747714021',\n  'last_modified_by'='root')
+
+-- !sql_5col --
+id	int	Yes	true	\N	
+amount	double	Yes	true	\N	
+k1	text	Yes	true	\N	
+k2	text	Yes	true	\N	
+year	int	Yes	true	\N	
+
+-- !sql_sct01_5col --
+sales	CREATE TABLE `sales`(\n  `id` int,\n  `amount` double,\n  `k1` string,\n  `k2` string,\n  `k3` string)\nPARTITIONED BY (\n `year` int)\nROW FORMAT SERDE\n  'org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe'\nWITH SERDEPROPERTIES (\n  'serialization.format' = '1')\nSTORED AS INPUTFORMAT\n  'org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat'\nOUTPUTFORMAT\n  'org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat'\nLOCATION\n  'hdfs://172.20.32.136:8320/user/hive/warehouse/test_hive_meta_cache_db.db/sales'\nTBLPROPERTIES (\n  'transient_lastDdlTime'='1747714021',\n  'bucketing_version'='2',\n  'last_modified_time'='1747714021',\n  'last_modified_by'='root')
+
