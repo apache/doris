@@ -173,6 +173,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowProcCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowProcedureStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowProcessListCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowQueryProfileCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowQueryStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowQueuedAnalyzeJobsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowReplicaDistributionCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRepositoriesCommand;
@@ -894,6 +895,11 @@ public interface CommandVisitor<R, C> {
     default R visitShowQueryProfileCommand(ShowQueryProfileCommand showQueryProfileCommand,
                                            C context) {
         return visitCommand(showQueryProfileCommand, context);
+    }
+
+    default R visitShowQueryStatsCommand(ShowQueryStatsCommand showQueryStatsCommand,
+            C context) {
+        return visitCommand(showQueryStatsCommand, context);
     }
 
     default R visitShowConvertLscCommand(ShowConvertLSCCommand showConvertLSCCommand, C context) {
