@@ -46,6 +46,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.PlaceholderId;
+import org.apache.doris.nereids.trees.plans.QueryBlockId;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.TableId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
@@ -142,6 +143,8 @@ public class StatementContext implements Closeable {
     private final IdGenerator<CTEId> cteIdGenerator = CTEId.createGenerator();
     private final IdGenerator<TableId> talbeIdGenerator = TableId.createGenerator();
 
+    private final IdGenerator<QueryBlockId> queryBlockIdGenerator = QueryBlockId.createGenerator();
+
     private final Map<CTEId, Set<LogicalCTEConsumer>> cteIdToConsumers = new HashMap<>();
     private final Map<CTEId, Set<Slot>> cteIdToOutputIds = new HashMap<>();
     private final Map<RelationId, Set<Expression>> consumerIdToFilters = new HashMap<>();
@@ -208,6 +211,10 @@ public class StatementContext implements Closeable {
     // Maybe return null, which means the id according statistics should calc normally rather than getting
     // form this map
     private final Map<RelationId, Statistics> relationIdToStatisticsMap = new LinkedHashMap<>();
+
+    private final Map<RelationId, String> relationIdToQbNameMap = new HashMap<>();
+
+    private final Map<RelationId, String> relationIdToTableNameMap = new HashMap<>();
 
     // Indicates the query is short-circuited in both plan and execution phase, typically
     // for high speed/concurrency point queries
@@ -450,6 +457,10 @@ public class StatementContext implements Closeable {
         return objectIdGenerator.getNextId();
     }
 
+    public QueryBlockId getNextQueryBlockId() {
+        return queryBlockIdGenerator.getNextId();
+    }
+
     public RelationId getNextRelationId() {
         return relationIdGenerator.getNextId();
     }
@@ -613,6 +624,14 @@ public class StatementContext implements Closeable {
     @VisibleForTesting
     public Map<RelationId, Statistics> getRelationIdToStatisticsMap() {
         return relationIdToStatisticsMap;
+    }
+
+    public Optional<String> getQbName(RelationId id) {
+        return Optional.ofNullable(this.relationIdToQbNameMap.get(id));
+    }
+
+    public void addRelationIdToQbName(RelationId id, String qbName) {
+        this.relationIdToQbNameMap.put(id, qbName);
     }
 
     /**
