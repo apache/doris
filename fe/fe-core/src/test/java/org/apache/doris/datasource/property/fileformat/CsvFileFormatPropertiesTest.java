@@ -33,7 +33,7 @@ public class CsvFileFormatPropertiesTest {
 
     @Before
     public void setUp() {
-        csvFileFormatProperties = new CsvFileFormatProperties();
+        csvFileFormatProperties = new CsvFileFormatProperties("csv");
     }
 
     @Test

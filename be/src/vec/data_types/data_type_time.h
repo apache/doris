@@ -21,9 +21,9 @@
 #pragma once
 
 #include <gen_cpp/Types_types.h>
-#include <stddef.h>
 
 #include <boost/iterator/iterator_facade.hpp>
+#include <cstddef>
 #include <memory>
 #include <string>
 
@@ -34,14 +34,9 @@
 #include "vec/data_types/serde/data_type_serde.h"
 #include "vec/data_types/serde/data_type_time_serde.h"
 
-namespace doris {
-namespace vectorized {
+namespace doris::vectorized {
 class BufferWritable;
 class IColumn;
-} // namespace vectorized
-} // namespace doris
-
-namespace doris::vectorized {
 
 class DataTypeTimeV2 final : public DataTypeNumberBase<Float64> {
 public:

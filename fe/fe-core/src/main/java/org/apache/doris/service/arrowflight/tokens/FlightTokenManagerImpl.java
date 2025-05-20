@@ -59,20 +59,26 @@ public class FlightTokenManagerImpl implements FlightTokenManager {
     private ScheduledExecutorService cleanupExecutor;
 
     public FlightTokenManagerImpl(final int cacheSize, final int cacheExpiration) {
+        // The cache size of all user tokens in Arrow Flight Server. which will be eliminated by
+        // LRU rules after exceeding the limit, the default value is arrow_flight_max_connections,
+        // arrow flight sql is a stateless protocol, the connection is usually not actively
+        // disconnected, bearer token is evict from the cache will unregister ConnectContext.
         this.cacheSize = cacheSize;
         this.cacheExpiration = cacheExpiration;
 
         this.tokenCache = CacheBuilder.newBuilder().maximumSize(cacheSize)
-                .expireAfterWrite(cacheExpiration, TimeUnit.MINUTES)
+                .expireAfterWrite(cacheExpiration, TimeUnit.SECONDS)
                 .removalListener(new RemovalListener<String, FlightTokenDetails>() {
                     @Override
                     public void onRemoval(@NotNull RemovalNotification<String, FlightTokenDetails> notification) {
                         // TODO: broadcast this message to other FE
                         String token = notification.getKey();
                         FlightTokenDetails tokenDetails = notification.getValue();
-                        ConnectContext context = ExecuteEnv.getInstance().getScheduler().getContext(token);
+                        ConnectContext context = ExecuteEnv.getInstance().getScheduler().getFlightSqlConnectPoolMgr()
+                                .getContextWithFlightToken(token);
                         if (context != null) {
-                            ExecuteEnv.getInstance().getScheduler().unregisterConnection(context);
+                            ExecuteEnv.getInstance().getScheduler().getFlightSqlConnectPoolMgr()
+                                    .unregisterConnection(context);
                             LOG.info("evict bearer token: " + token + " from tokenCache, reason: "
                                     + notification.getCause()
                                     + ", and unregister flight connection context after evict bearer token");
@@ -145,13 +151,13 @@ public class FlightTokenManagerImpl implements FlightTokenManager {
         if (value.getToken().equals("")) {
             throw new IllegalArgumentException("invalid bearer token: " + token
                     + ", try reconnect, bearer token may not be created, or may have been evict, search for this "
-                    + "token in fe.log to see the evict reason. currently in fe.conf, `arrow_flight_token_cache_size`="
-                    + this.cacheSize + ", `arrow_flight_token_alive_time`=" + this.cacheExpiration);
+                    + "token in fe.log to see the evict reason. currently in fe.conf, `arrow_flight_max_connections`="
+                    + this.cacheSize + ", `arrow_flight_token_alive_time_second`=" + this.cacheExpiration);
         }
         if (System.currentTimeMillis() >= value.getExpiresAt()) {
             tokenCache.invalidate(token);
             throw new IllegalArgumentException("bearer token expired: " + token + ", try reconnect, "
-                    + "currently in fe.conf, `arrow_flight_token_alive_time`=" + this.cacheExpiration);
+                    + "currently in fe.conf, `arrow_flight_token_alive_time_second`=" + this.cacheExpiration);
         }
         if (usersTokenLRU.containsKey(value.getUsername())) {
             try {
