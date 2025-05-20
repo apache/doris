@@ -63,6 +63,21 @@ suite("test_add_build_index_with_format_v2", "inverted_index_format_v2"){
         }
         assertTrue(useTime <= OpTimeout, "wait_for_latest_build_index_on_partition_finish timeout")
     }
+    def wait_for_tablet_change = { last_tablet_id, table_name, OpTimeout ->
+        def tablet_id = last_tablet_id;
+        def tablets = sql_return_maparray """ show tablets from ${tableName}; """
+        for(int t = delta_time; t <= OpTimeout; t += delta_time){
+            if(tablet_id != last_tablet_id) {
+                break
+            }
+            tablet_id = tablets[0].TabletId  
+            tablets = sql_return_maparray """ show tablets from ${tableName}; """
+            useTime = t
+            sleep(delta_time)
+        }
+        assertTrue(useTime <= OpTimeout, "wait_for_tablet_change timeout")
+        return tablet_id
+    }
 
     sql "DROP TABLE IF EXISTS ${tableName}"
     
@@ -81,12 +96,8 @@ suite("test_add_build_index_with_format_v2", "inverted_index_format_v2"){
             "disable_auto_compaction" = "true"
         );
     """
-    sql """ INSERT INTO ${tableName} VALUES (1, "andy", 100); """
-    sql """ INSERT INTO ${tableName} VALUES (1, "bason", 99); """
-    sql """ INSERT INTO ${tableName} VALUES (2, "andy", 100); """
-    sql """ INSERT INTO ${tableName} VALUES (2, "bason", 99); """
-    sql """ INSERT INTO ${tableName} VALUES (3, "andy", 100); """
-    sql """ INSERT INTO ${tableName} VALUES (3, "bason", 99); """
+    sql """ INSERT INTO ${tableName} VALUES (1, "andy", 100),(1, "bason", 99),(2, "andy", 100),(2, "bason", 99),(3, "andy", 100),(3, "bason", 99); """
+    sql """ SELECT * FROM $tableName order by id, name, score; """
 
     // add index
     sql """
@@ -94,13 +105,35 @@ suite("test_add_build_index_with_format_v2", "inverted_index_format_v2"){
         ADD INDEX idx_name (name) using inverted;
     """
     wait_for_latest_op_on_table_finish(tableName, timeout)
-    
+    def query =  """ SELECT /*+SET_VAR(enable_profile = true, profile_level = 2)*/ * FROM $tableName WHERE name = 'andy' order by id, name, score; """
+    profile("sql_select_without_name_index") {
+        run {
+            sql "/* sql_select_without_name_index */ ${query}"
+            sleep(1000) // sleep 1s wait for the profile collection to be completed
+        }
+
+        check { profileString, exception ->
+            //log.info(profileString)
+            assertTrue(profileString.contains("RowsInvertedIndexFiltered:  0"))
+        }
+    }
     sql """
         ALTER TABLE ${tableName}
         ADD INDEX idx_score (score) using inverted;
     """
     wait_for_latest_op_on_table_finish(tableName, timeout)
+    query =  """ SELECT /*+SET_VAR(enable_profile = true, profile_level = 2)*/ * FROM $tableName WHERE score > 99 order by id, name, score; """
+    profile("sql_select_without_score_index") {
+        run {
+            sql "/* sql_select_without_score_index */ ${query}"
+            sleep(1000) // sleep 1s wait for the profile collection to be completed
+        }
 
+        check { profileString, exception ->
+            //log.info(profileString)
+            assertTrue(profileString.contains("RowsInvertedIndexFiltered:  0"))
+        }
+    }
     // show index after add index
     def show_result = sql_return_maparray "show index from ${tableName}"
     logger.info("show index from " + tableName + " result: " + show_result)
@@ -113,31 +146,68 @@ suite("test_add_build_index_with_format_v2", "inverted_index_format_v2"){
     String ip = backendId_to_backendIP.get(backend_id)
     String port = backendId_to_backendHttpPort.get(backend_id)
 
-    // cloud mode is directly schema change, local mode is light schema change.
     // cloud mode is 12, local mode is 6
     if (isCloudMode()) {
-        check_nested_index_file(ip, port, tablet_id, 7, 2, "V2")
-        qt_sql "SELECT * FROM $tableName WHERE name match 'andy' order by id, name, score;"
-        return
+        check_nested_index_file(ip, port, tablet_id, 2, 0, "V2")
+        // build index
+        sql """
+            BUILD INDEX idx_name ON ${tableName};
+        """
+        wait_for_build_index_on_partition_finish(tableName, timeout)
+        // cloud mode tablets change after index build
+        def new_tablet_id = wait_for_tablet_change(tablet_id, tableName, timeout)
+        check_nested_index_file(ip, port, new_tablet_id, 2, 2, "V2")
+        query =  """ SELECT /*+SET_VAR(enable_profile = true, profile_level = 2)*/ * FROM $tableName WHERE name = 'andy' order by id, name, score; """
+        profile("sql_select_with_name_index") {
+            run {
+                sql "/* sql_select_with_name_index */ ${query}"
+                sleep(1000) // sleep 1s wait for the profile collection to be completed
+            }
+
+            check { profileString, exception ->
+                //log.info(profileString)
+                assertTrue(profileString.contains("RowsInvertedIndexFiltered:  3"))
+            }
+        }
+        // build index
+        sql """
+            BUILD INDEX idx_score ON ${tableName};
+        """
+        wait_for_build_index_on_partition_finish(tableName, timeout)
+        def another_new_tablet_id = wait_for_tablet_change(new_tablet_id, tableName, timeout)
+        check_nested_index_file(ip, port, another_new_tablet_id, 2, 2, "V2")
+
+        query =  """ SELECT /*+SET_VAR(enable_profile = true, profile_level = 2)*/ * FROM $tableName WHERE score > 99 order by id, name, score; """
+        profile("sql_select_with_score_index") {
+            run {
+                sql "/* sql_select_with_score_index */ ${query}"
+                sleep(1000) // sleep 1s wait for the profile collection to be completed
+            }
+
+            check { profileString, exception ->
+                //log.info(profileString)
+                assertTrue(profileString.contains("RowsInvertedIndexFiltered:  3"))
+            }
+        }
     } else {
-        check_nested_index_file(ip, port, tablet_id, 7, 0, "V2")
+        // local mode
+        check_nested_index_file(ip, port, tablet_id, 2, 0, "V2")
+        // build index
+        sql """
+            BUILD INDEX idx_name ON ${tableName};
+        """
+        wait_for_build_index_on_partition_finish(tableName, timeout)
+
+        check_nested_index_file(ip, port, tablet_id, 2, 1, "V2")
+
+        // build index
+        sql """
+            BUILD INDEX idx_score ON ${tableName};
+        """
+        wait_for_build_index_on_partition_finish(tableName, timeout)
+
+        check_nested_index_file(ip, port, tablet_id, 2, 2, "V2")
+
+        qt_sql "SELECT * FROM $tableName WHERE name match 'andy' order by id, name, score;"
     }
-
-    // build index 
-    sql """
-        BUILD INDEX idx_name ON ${tableName};
-    """
-    wait_for_build_index_on_partition_finish(tableName, timeout)
-
-    check_nested_index_file(ip, port, tablet_id, 7, 1, "V2")
-
-    // build index 
-    sql """
-        BUILD INDEX idx_score ON ${tableName};
-    """
-    wait_for_build_index_on_partition_finish(tableName, timeout)
-
-    check_nested_index_file(ip, port, tablet_id, 7, 2, "V2")
-
-    qt_sql "SELECT * FROM $tableName WHERE name match 'andy' order by id, name, score;"
 }
