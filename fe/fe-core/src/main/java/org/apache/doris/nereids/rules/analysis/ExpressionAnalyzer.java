@@ -55,9 +55,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.InSubquery;
 import org.apache.doris.nereids.trees.expressions.IntegralDivide;
-import org.apache.doris.nereids.trees.expressions.ListQuery;
 import org.apache.doris.nereids.trees.expressions.Match;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Placeholder;
@@ -68,7 +66,6 @@ import org.apache.doris.nereids.trees.expressions.Variable;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdfBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdaf;
@@ -267,10 +264,6 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         Expression child = unboundAlias.child().accept(this, context);
         if (unboundAlias.getAlias().isPresent()) {
             return new Alias(child, unboundAlias.getAlias().get(), unboundAlias.isNameFromChild());
-            // TODO: the variant bind element_at(slot, 'name') will return a slot, and we should
-            //       assign an Alias to this function, this is trick and should refactor it
-        } else if (!(unboundAlias.child() instanceof ElementAt) && child instanceof NamedExpression) {
-            return new Alias(child, ((NamedExpression) child).getName());
         } else {
             return new Alias(child);
         }
@@ -697,17 +690,21 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
 
         // compareExpr already analyze when invoke super.visitInSubquery
         Expression newCompareExpr = inSubquery.getCompareExpr();
-        // but ListQuery does not analyze
-        Expression newListQuery = inSubquery.getListQuery().accept(this, context);
+        Optional<Expression> typeCoercionExpr = inSubquery.getTypeCoercionExpr();
 
-        ComparisonPredicate afterTypeCoercion = (ComparisonPredicate) TypeCoercionUtils.processComparisonPredicate(
-                new EqualTo(newCompareExpr, newListQuery));
-        if (newListQuery.getDataType().isBitmapType()) {
+        // ATTN: support a trick usage of Doris: integral type in bitmap union column. For example:
+        //   SELECT 1 IN (SELECT bitmap_empty() FROM DUAL);
+        if (inSubquery.getSubqueryOutput().getDataType().isBitmapType()) {
             if (!newCompareExpr.getDataType().isBigIntType()) {
                 newCompareExpr = new Cast(newCompareExpr, BigIntType.INSTANCE);
             }
         } else {
+            ComparisonPredicate afterTypeCoercion = (ComparisonPredicate) TypeCoercionUtils.processComparisonPredicate(
+                    new EqualTo(newCompareExpr, inSubquery.getSubqueryOutput()));
             newCompareExpr = afterTypeCoercion.left();
+            if (afterTypeCoercion.right() != inSubquery.getSubqueryOutput()) {
+                typeCoercionExpr = Optional.of(afterTypeCoercion.right());
+            }
         }
         if (getScope().getOuterScope().isPresent()) {
             Scope outerScope = getScope().getOuterScope().get();
@@ -719,8 +716,8 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                 }
             }
         }
-        return new InSubquery(newCompareExpr, (ListQuery) afterTypeCoercion.right(),
-                inSubquery.getCorrelateSlots(), ((ListQuery) afterTypeCoercion.right()).getTypeCoercionExpr(),
+        return new InSubquery(newCompareExpr, inSubquery.getQueryPlan(),
+                inSubquery.getCorrelateSlots(), typeCoercionExpr,
                 inSubquery.isNot());
     }
 
@@ -886,10 +883,6 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                 throw new AnalysisException("Not supported name: " + StringUtils.join(nameParts, "."));
             }
         }
-    }
-
-    public static boolean compareDbName(String boundedDbName, String unBoundDbName) {
-        return unBoundDbName.equalsIgnoreCase(boundedDbName);
     }
 
     public static boolean sameTableName(String boundSlot, String unboundSlot) {

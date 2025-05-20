@@ -280,30 +280,6 @@ private:
     std::string _charset;
 };
 
-class ODBCTableDescriptor : public TableDescriptor {
-public:
-    ODBCTableDescriptor(const TTableDescriptor& tdesc);
-    std::string debug_string() const override;
-    std::string db() const { return _db; }
-    std::string table() const { return _table; }
-    std::string host() const { return _host; }
-    std::string port() const { return _port; }
-    std::string user() const { return _user; }
-    std::string passwd() const { return _passwd; }
-    std::string driver() const { return _driver; }
-    TOdbcTableType::type type() const { return _type; }
-
-private:
-    std::string _db;
-    std::string _table;
-    std::string _host;
-    std::string _port;
-    std::string _user;
-    std::string _passwd;
-    std::string _driver;
-    TOdbcTableType::type _type;
-};
-
 class JdbcTableDescriptor : public TableDescriptor {
 public:
     JdbcTableDescriptor(const TTableDescriptor& tdesc);

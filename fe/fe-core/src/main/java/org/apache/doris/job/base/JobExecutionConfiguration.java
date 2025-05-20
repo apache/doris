@@ -136,12 +136,6 @@ public class JobExecutionConfiguration {
             }
             long intervalValue = timerDefinition.getIntervalUnit().getIntervalMs(timerDefinition.getInterval());
             long jobStartTimeMs = timerDefinition.getStartTimeMs();
-            if (isImmediate()) {
-                jobStartTimeMs += intervalValue;
-                if (jobStartTimeMs > endTimeMs) {
-                    return delayTimeSeconds;
-                }
-            }
             return getExecutionDelaySeconds(startTimeMs, endTimeMs, jobStartTimeMs,
                     intervalValue, currentTimeMs);
         }
@@ -171,6 +165,10 @@ public class JobExecutionConfiguration {
 
         long firstTriggerTime = windowStartTimeMs + (intervalMs - ((windowStartTimeMs - startTimeMs)
                 % intervalMs)) % intervalMs;
+        // should filter result which smaller than start time
+        if (firstTriggerTime < startTimeMs) {
+            firstTriggerTime = startTimeMs;
+        }
         if (firstTriggerTime < currentTimeMs) {
             // Calculate how many intervals to add to get the largest trigger time < currentTimeMs
             long intervalsToAdd = (currentTimeMs - firstTriggerTime) / intervalMs;

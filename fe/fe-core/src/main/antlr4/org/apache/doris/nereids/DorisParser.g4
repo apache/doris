@@ -68,12 +68,12 @@ statementBase
     | supportedKillStatement            #supportedKillStatementAlias
     | supportedStatsStatement           #supportedStatsStatementAlias
     | supportedTransactionStatement     #supportedTransactionStatementAlias
+    | supportedGrantRevokeStatement     #supportedGrantRevokeStatementAlias
     | unsupportedStatement              #unsupported
     ;
 
 unsupportedStatement
     : unsupportedUseStatement
-    | unsupportedDmlStatement
     | unsupportedCreateStatement
     | unsupportedDropStatement
     | unsupportedStatsStatement
@@ -165,6 +165,7 @@ supportedDmlStatement
             (stageAndPattern | (LEFT_PAREN SELECT selectColumnClause
                 FROM stageAndPattern whereClause? RIGHT_PAREN))
             properties=propertyClause?                                 #copyInto
+    | TRUNCATE TABLE multipartIdentifier specifiedPartition?  FORCE?   #truncateTable
     ;
 
 supportedCreateStatement
@@ -356,6 +357,8 @@ supportedShowStatement
     | SHOW STAGES                                                                   #showStages
     | SHOW REPLICA DISTRIBUTION FROM baseTableRef                                   #showReplicaDistribution
     | SHOW RESOURCES wildWhere? sortClause? limitClause?                            #showResources
+    | SHOW STREAM? LOAD ((FROM | IN) database=identifier)? wildWhere?
+        sortClause? limitClause?                                                    #showLoad
     | SHOW FULL? TRIGGERS ((FROM | IN) database=multipartIdentifier)? wildWhere?    #showTriggers
     | SHOW TABLET DIAGNOSIS tabletId=INTEGER_VALUE                                  #showDiagnoseTablet
     | SHOW FRONTENDS name=identifier?                                               #showFrontends
@@ -447,8 +450,6 @@ unsupportedShowStatement
         ((FROM | IN) database=multipartIdentifier)? wildWhere?                      #showColumns
     | SHOW LOAD WARNINGS ((((FROM | IN) database=multipartIdentifier)?
         wildWhere? limitClause?) | (ON url=STRING_LITERAL))                         #showLoadWarings
-    | SHOW STREAM? LOAD ((FROM | IN) database=multipartIdentifier)? wildWhere?
-        sortClause? limitClause?                                                    #showLoad
     | SHOW EXPORT ((FROM | IN) database=multipartIdentifier)? wildWhere?
         sortClause? limitClause?                                                    #showExport
     | SHOW ALTER TABLE (ROLLUP | (MATERIALIZED VIEW) | COLUMN)
@@ -558,16 +559,16 @@ supportedCancelStatement
     : CANCEL LOAD ((FROM | IN) database=identifier)? wildWhere?                     #cancelLoad
     | CANCEL EXPORT ((FROM | IN) database=identifier)? wildWhere?                   #cancelExport
     | CANCEL WARM UP JOB wildWhere?                                                 #cancelWarmUpJob
-    ;
-
-unsupportedCancelStatement
-    : CANCEL ALTER TABLE (ROLLUP | (MATERIALIZED VIEW) | COLUMN)
+    | CANCEL ALTER TABLE (ROLLUP | (MATERIALIZED VIEW) | COLUMN)
         FROM tableName=multipartIdentifier (LEFT_PAREN jobIds+=INTEGER_VALUE
             (COMMA jobIds+=INTEGER_VALUE)* RIGHT_PAREN)?                            #cancelAlterTable
     | CANCEL BUILD INDEX ON tableName=multipartIdentifier
         (LEFT_PAREN jobIds+=INTEGER_VALUE
             (COMMA jobIds+=INTEGER_VALUE)* RIGHT_PAREN)?                            #cancelBuildIndex
-    | CANCEL DECOMMISSION BACKEND hostPorts+=STRING_LITERAL
+    ;
+
+unsupportedCancelStatement
+    : CANCEL DECOMMISSION BACKEND hostPorts+=STRING_LITERAL
         (COMMA hostPorts+=STRING_LITERAL)*                                          #cancelDecommisionBackend
     | CANCEL BACKUP ((FROM | IN) database=identifier)?                              #cancelBackup
     | CANCEL RESTORE ((FROM | IN) database=identifier)?                             #cancelRestore
@@ -588,6 +589,10 @@ supportedAdminStatement
         (ON LEFT_PAREN backends+=STRING_LITERAL
               (COMMA backends+=STRING_LITERAL)* RIGHT_PAREN)?                       #adminCleanTrash
     | ADMIN SET TABLE name=multipartIdentifier STATUS properties=propertyClause?    #adminSetTableStatus
+    | ADMIN SET REPLICA STATUS PROPERTIES LEFT_PAREN propertyItemList RIGHT_PAREN   #adminSetReplicaStatus
+    | ADMIN REPAIR TABLE baseTableRef                                               #adminRepairTable
+    | ADMIN CANCEL REPAIR TABLE baseTableRef                                        #adminCancelRepairTable
+    | ADMIN COPY TABLET tabletId=INTEGER_VALUE properties=propertyClause?           #adminCopyTablet
     ;
 
 supportedRecoverStatement
@@ -599,15 +604,11 @@ supportedRecoverStatement
     ;
 
 unsupportedAdminStatement
-    : ADMIN SET REPLICA STATUS PROPERTIES LEFT_PAREN propertyItemList RIGHT_PAREN   #adminSetReplicaStatus
-    | ADMIN SET REPLICA VERSION PROPERTIES LEFT_PAREN propertyItemList RIGHT_PAREN  #adminSetReplicaVersion
-    | ADMIN REPAIR TABLE baseTableRef                                               #adminRepairTable
-    | ADMIN CANCEL REPAIR TABLE baseTableRef                                        #adminCancelRepairTable
+    : ADMIN SET REPLICA VERSION PROPERTIES LEFT_PAREN propertyItemList RIGHT_PAREN  #adminSetReplicaVersion
     | ADMIN SET (FRONTEND | (ALL FRONTENDS)) CONFIG
         (LEFT_PAREN propertyItemList RIGHT_PAREN)? ALL?                             #adminSetFrontendConfig
     | ADMIN SET TABLE name=multipartIdentifier
         PARTITION VERSION properties=propertyClause?                                #adminSetPartitionVersion
-    | ADMIN COPY TABLET tabletId=INTEGER_VALUE properties=propertyClause?           #adminCopyTablet
     ;
 
 baseTableRef
@@ -626,14 +627,17 @@ supportedTransactionStatement
     | ROLLBACK WORK? (AND NO? CHAIN)? (NO? RELEASE)?                                #transactionRollback
     ;
 
-unsupportedGrantRevokeStatement
+supportedGrantRevokeStatement
     : GRANT privilegeList ON multipartIdentifierOrAsterisk
         TO (userIdentify | ROLE identifierOrText)                                     #grantTablePrivilege
     | GRANT privilegeList ON
         (RESOURCE | CLUSTER | COMPUTE GROUP | STAGE | STORAGE VAULT | WORKLOAD GROUP)
         identifierOrTextOrAsterisk TO (userIdentify | ROLE identifierOrText)          #grantResourcePrivilege
-    | GRANT roles+=identifierOrText (COMMA roles+=identifierOrText)* TO userIdentify    #grantRole
-    | REVOKE privilegeList ON multipartIdentifierOrAsterisk
+    | GRANT roles+=identifierOrText (COMMA roles+=identifierOrText)* TO userIdentify  #grantRole
+    ;
+
+unsupportedGrantRevokeStatement
+    : REVOKE privilegeList ON multipartIdentifierOrAsterisk
         FROM (userIdentify | ROLE identifierOrText)                                   #revokeTablePrivilege
     | REVOKE privilegeList ON
         (RESOURCE | CLUSTER | COMPUTE GROUP | STAGE | STORAGE VAULT | WORKLOAD GROUP)
@@ -905,10 +909,6 @@ supportedUseStatement
 
 unsupportedUseStatement
     : USE ((catalog=identifier DOT)? database=identifier)? ATSIGN cluster=identifier #useCloudCluster
-    ;
-
-unsupportedDmlStatement
-    : TRUNCATE TABLE multipartIdentifier specifiedPartition?  FORCE?                 #truncateTable
     ;
 
 stageAndPattern

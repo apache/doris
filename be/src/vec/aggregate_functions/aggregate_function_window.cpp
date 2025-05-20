@@ -294,11 +294,11 @@ AggregateFunctionPtr create_function_lead_lag_first_last(const String& name,
     case PrimitiveType::TYPE_VARIANT: {
         if (arg_ignore_null_value) {
             return std::make_shared<AggregateFunctionTemplate<
-                    Impl<Data<ColumnObject, result_is_nullable, arg_is_nullable>, true>>>(
+                    Impl<Data<ColumnVariant, result_is_nullable, arg_is_nullable>, true>>>(
                     argument_types);
         } else {
             return std::make_shared<AggregateFunctionTemplate<
-                    Impl<Data<ColumnObject, result_is_nullable, arg_is_nullable>, false>>>(
+                    Impl<Data<ColumnVariant, result_is_nullable, arg_is_nullable>, false>>>(
                     argument_types);
         }
     }

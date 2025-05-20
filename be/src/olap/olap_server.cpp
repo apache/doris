@@ -51,7 +51,6 @@
 #include "cpp/sync_point.h"
 #include "gen_cpp/FrontendService.h"
 #include "gen_cpp/internal_service.pb.h"
-#include "gutil/ref_counted.h"
 #include "io/fs/file_writer.h" // IWYU pragma: keep
 #include "io/fs/path.h"
 #include "olap/base_tablet.h"
@@ -82,6 +81,7 @@
 #include "util/debug_points.h"
 #include "util/doris_metrics.h"
 #include "util/mem_info.h"
+#include "util/metrics.h"
 #include "util/thread.h"
 #include "util/threadpool.h"
 #include "util/thrift_rpc_helper.h"
@@ -700,6 +700,10 @@ void StorageEngine::_compaction_tasks_producer_callback() {
             for (const auto& tablet : tablets_compaction) {
                 if (compaction_type == CompactionType::BASE_COMPACTION) {
                     tablet->set_last_base_compaction_schedule_time(UnixMillis());
+                } else if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
+                    tablet->set_last_cumu_compaction_schedule_time(UnixMillis());
+                } else if (compaction_type == CompactionType::FULL_COMPACTION) {
+                    tablet->set_last_full_compaction_schedule_time(UnixMillis());
                 }
                 Status st = _submit_compaction_task(tablet, compaction_type, false);
                 if (!st.ok()) {
@@ -1049,6 +1053,15 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
                       << ", num_total_queued_tasks: " << thread_pool->get_queue_size();
         auto st = thread_pool->submit_func([tablet, compaction = std::move(compaction),
                                             compaction_type, permits, force, this]() {
+            if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) [[likely]] {
+                DorisMetrics::instance()->cumulative_compaction_task_running_total->increment(1);
+                DorisMetrics::instance()->cumulative_compaction_task_pending_total->set_value(
+                        _cumu_compaction_thread_pool->get_queue_size());
+            } else if (compaction_type == CompactionType::BASE_COMPACTION) {
+                DorisMetrics::instance()->base_compaction_task_running_total->increment(1);
+                DorisMetrics::instance()->base_compaction_task_pending_total->set_value(
+                        _base_compaction_thread_pool->get_queue_size());
+            }
             bool is_large_task = true;
             Defer defer {[&]() {
                 DBUG_EXECUTE_IF("StorageEngine._submit_compaction_task.sleep", { sleep(5); })
@@ -1063,6 +1076,14 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
                     if (!is_large_task) {
                         _cumu_compaction_thread_pool_small_tasks_running--;
                     }
+                    DorisMetrics::instance()->cumulative_compaction_task_running_total->increment(
+                            -1);
+                    DorisMetrics::instance()->cumulative_compaction_task_pending_total->set_value(
+                            _cumu_compaction_thread_pool->get_queue_size());
+                } else if (compaction_type == CompactionType::BASE_COMPACTION) {
+                    DorisMetrics::instance()->base_compaction_task_running_total->increment(-1);
+                    DorisMetrics::instance()->base_compaction_task_pending_total->set_value(
+                            _base_compaction_thread_pool->get_queue_size());
                 }
             }};
             do {
@@ -1121,6 +1142,13 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
             TEST_SYNC_POINT_RETURN_WITH_VOID("olap_server::execute_compaction");
             tablet->execute_compaction(*compaction);
         });
+        if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) [[likely]] {
+            DorisMetrics::instance()->cumulative_compaction_task_pending_total->set_value(
+                    _cumu_compaction_thread_pool->get_queue_size());
+        } else if (compaction_type == CompactionType::BASE_COMPACTION) {
+            DorisMetrics::instance()->base_compaction_task_pending_total->set_value(
+                    _base_compaction_thread_pool->get_queue_size());
+        }
         if (!st.ok()) {
             if (!force) {
                 _permit_limiter.release(permits);
