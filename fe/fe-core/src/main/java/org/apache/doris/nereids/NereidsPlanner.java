@@ -461,17 +461,9 @@ public class NereidsPlanner extends Planner {
                                                     Rewriter.getWholeTreeRewriterWithoutCostBasedJobs(childOptContext)
                                                             .execute();
                                                     return childOptContext.getRewritePlan();
-                                                }, rewrittenPlan, planForRewrite, true, false)
-
+                                                }, rewrittenPlan, planForRewrite,
+                                                false, false)
                                 );
-                                // copy the child's materialization context to root
-                                // cascades for showing explain message
-                                for (MaterializationContext context : childContext.getMaterializationContexts()) {
-                                    // Mark the rewrite success occurs in RBO
-                                    if (context.isSuccess()) {
-                                        context.setRewrittenInRbo(true);
-                                    }
-                                }
                                 return childContext.getRewritePlan();
                             }, planForRewrite, planForRewrite, false, true);
                 } catch (Exception e) {
@@ -484,7 +476,17 @@ public class NereidsPlanner extends Planner {
             }
             // clear the rewritten plans which are tmp optimized, should be filled by full optimize later
             statementContext.getRewrittenPlansByMv().clear();
-            plansWhichContainMv.forEach(statementContext::addRewrittenPlanByMv);
+            for (Plan planWhichContainMv : plansWhichContainMv) {
+                // Such as EliminateGroupByKeyByUniform would change out put expr id
+                Plan normalizedPlan = MaterializedViewUtils.normalizeExpressions(planWhichContainMv,
+                        cascadesContext.getRewritePlan());
+                if (normalizedPlan == null) {
+                    LOG.warn("RBO rewrite plan normalize expressions fail query is is {}",
+                            cascadesContext.getConnectContext().getQueryIdentifier());
+                    continue;
+                }
+                statementContext.addRewrittenPlanByMv(normalizedPlan);
+            }
             NereidsTracer.logImportantTime("EndPreRewritePlanByMv");
             if (LOG.isDebugEnabled()) {
                 LOG.debug("End pre rewrite plan by mv");

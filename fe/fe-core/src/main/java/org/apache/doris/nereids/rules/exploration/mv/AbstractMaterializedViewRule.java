@@ -37,7 +37,6 @@ import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.rules.rewrite.MergeProjects;
-import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -46,8 +45,6 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateTrunc;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
@@ -57,7 +54,6 @@ import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -289,7 +285,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                     childContext -> {
                         Rewriter.getWholeTreeRewriter(childContext).execute();
                         return childContext.getRewritePlan();
-                    }, rewrittenPlan, queryPlan, false, false);
+                    }, rewrittenPlan, queryPlan, true, false);
             if (rewrittenPlan == null) {
                 continue;
             }
@@ -394,7 +390,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 }
             }
             List<Slot> rewrittenPlanOutput = rewrittenPlan.getOutput();
-            rewrittenPlan = normalizeExpressions(rewrittenPlan, queryPlan);
+            rewrittenPlan = MaterializedViewUtils.normalizeExpressions(rewrittenPlan, queryPlan);
             if (rewrittenPlan == null) {
                 // maybe virtual slot reference added automatically
                 materializationContext.recordFailReason(queryStructInfo,
@@ -451,19 +447,6 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
      */
     protected boolean canUnionRewrite(Plan queryPlan, MTMV mtmv, CascadesContext cascadesContext) {
         return true;
-    }
-
-    // Normalize expression such as nullable property and output slot id
-    protected Plan normalizeExpressions(Plan rewrittenPlan, Plan originPlan) {
-        if (rewrittenPlan.getOutput().size() != originPlan.getOutput().size()) {
-            return null;
-        }
-        // normalize nullable
-        List<NamedExpression> normalizeProjects = new ArrayList<>();
-        for (int i = 0; i < originPlan.getOutput().size(); i++) {
-            normalizeProjects.add(normalizeExpression(originPlan.getOutput().get(i), rewrittenPlan.getOutput().get(i)));
-        }
-        return new LogicalProject<>(normalizeProjects, rewrittenPlan);
     }
 
     /**
@@ -705,24 +688,6 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             }
         }
         return true;
-    }
-
-    /**
-     * Normalize expression with query, keep the consistency of exprId and nullable props with
-     * query
-     * Keep the replacedExpression slot property is the same as the sourceExpression
-     */
-    public static NamedExpression normalizeExpression(
-            NamedExpression sourceExpression, NamedExpression replacedExpression) {
-        Expression innerExpression = replacedExpression;
-        if (replacedExpression.nullable() != sourceExpression.nullable()) {
-            // if enable join eliminate, query maybe inner join and mv maybe outer join.
-            // If the slot is at null generate side, the nullable maybe different between query and view
-            // So need to force to consistent.
-            innerExpression = sourceExpression.nullable()
-                    ? new Nullable(replacedExpression) : new NonNullable(replacedExpression);
-        }
-        return new Alias(sourceExpression.getExprId(), innerExpression, sourceExpression.getName());
     }
 
     /**

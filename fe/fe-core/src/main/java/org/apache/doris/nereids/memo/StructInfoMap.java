@@ -33,7 +33,6 @@ import java.util.BitSet;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
@@ -148,15 +147,16 @@ public class StructInfoMap {
                 }
                 childrenTableMap.add(child.getstructInfoMap().getTableMaps());
             }
-            // if one same groupExpression have refreshed, continue
-            BitSet oneOfGroupExpressionTableSet = new BitSet();
+            // if groupExpression which has the same table set have refreshed, continue
+            BitSet eachGroupExpressionTableSet = new BitSet();
             for (Set<BitSet> groupExpressionBitSet : childrenTableMap) {
-                Iterator<BitSet> iterator = groupExpressionBitSet.iterator();
-                if (iterator.hasNext()) {
-                    oneOfGroupExpressionTableSet.or(iterator.next());
+                for (BitSet bitSet : groupExpressionBitSet) {
+                    eachGroupExpressionTableSet.or(bitSet);
                 }
             }
-            if (groupExpressionMap.containsKey(oneOfGroupExpressionTableSet)) {
+            if (groupExpressionMap.containsKey(eachGroupExpressionTableSet)) {
+                // for the group expressions of group, only need to refresh any of the group expression
+                // when they have the same group expression table set
                 continue;
             }
             // if cumulative child table map is different from current

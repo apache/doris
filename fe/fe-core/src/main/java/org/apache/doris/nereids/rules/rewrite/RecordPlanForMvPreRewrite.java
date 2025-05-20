@@ -46,8 +46,11 @@ public class RecordPlanForMvPreRewrite extends DefaultPlanRewriter<Void> impleme
             return plan;
         }
         // when sync statementContext.getCandidateMTMVs() is always empty, so sync mv rewrite is in final CBO
-        if (!statementContext.isForceRecordTmpPlan() && (statementContext.getCandidateMTMVs().isEmpty()
-                || !MaterializedViewUtils.containMaterializedViewHook(cascadesContext.getStatementContext()))) {
+        // statementContext.getCandidateMTMVs()
+        // todo improve performance when no candidate mvs, should not record, but should consider sync mv
+        // sync mv always has no candidate mvs
+        if (!statementContext.isForceRecordTmpPlan()
+                && !MaterializedViewUtils.containMaterializedViewHook(cascadesContext.getStatementContext())) {
             return plan;
         }
         // plan pre normalize

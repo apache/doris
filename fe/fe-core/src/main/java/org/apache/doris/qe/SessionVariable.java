@@ -610,8 +610,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_MATERIALIZED_VIEW_REWRITE
             = "enable_materialized_view_rewrite";
 
-    public static final String ENABLE_PRE_MATERIALIZED_VIEW_REWRITE
-            = "enable_pre_materialized_view_rewrite";
+    public static final String PRE_MATERIALIZED_VIEW_REWRITE_STRATEGY
+            = "pre_materialized_view_rewrite_strategy";
 
     public static final String ENABLE_DML_MATERIALIZED_VIEW_REWRITE
             = "enable_dml_materialized_view_rewrite";
@@ -2184,7 +2184,7 @@ public class SessionVariable implements Serializable, Writable {
                     "Whether to enable materialized view rewriting based on struct info"})
     public boolean enableMaterializedViewRewrite = true;
 
-    @VariableMgr.VarAttr(name = ENABLE_PRE_MATERIALIZED_VIEW_REWRITE, needForward = true,
+    @VariableMgr.VarAttr(name = PRE_MATERIALIZED_VIEW_REWRITE_STRATEGY, needForward = true,
             description = {"在RBO阶段基于结构信息的物化视图透明改写的策略，FORCE_IN_ROB ：强制在 RBO 阶段透明改写，"
                     + "TRY_IN_RBO ：如果在NEED_PRE_REWRITE_RULE_TYPES中的规则改写成功了，那么就会尝试在 RBO 阶段透明改写"
                     + "NOT_IN_RBO ：不尝试在 RBO 阶段改写，只在 CBO 阶段改写",

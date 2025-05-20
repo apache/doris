@@ -127,20 +127,20 @@ public class PlanChecker {
     }
 
     public PlanChecker setIsQuery() {
-        cascadesContext.getConnectContext().getState().setIsQuery(true);
+        this.cascadesContext.getConnectContext().getState().setIsQuery(true);
         return this;
     }
 
     public PlanChecker analyze() {
-        cascadesContext.newTableCollector().collect();
+        this.cascadesContext.newTableCollector().collect();
         this.cascadesContext.newAnalyzer().analyze();
         MemoTestUtils.initMemoAndValidState(cascadesContext);
         return this;
     }
 
     public PlanChecker analyze(Plan plan) {
-        cascadesContext.newTableCollector().collect();
         this.cascadesContext = MemoTestUtils.createCascadesContext(connectContext, plan);
+        this.cascadesContext.newTableCollector().collect();
         Set<String> originDisableRules = connectContext.getSessionVariable().getDisableNereidsRuleNames();
         Set<String> disableRuleWithAuth = Sets.newHashSet(originDisableRules);
         disableRuleWithAuth.add(RuleType.RELATION_AUTHENTICATION.name());
@@ -152,8 +152,8 @@ public class PlanChecker {
     }
 
     public PlanChecker analyze(String sql) {
-        cascadesContext.newTableCollector().collect();
         this.cascadesContext = MemoTestUtils.createCascadesContext(connectContext, sql);
+        this.cascadesContext.newTableCollector().collect();
         this.cascadesContext.newAnalyzer().analyze();
         MemoTestUtils.initMemoAndValidState(cascadesContext);
         return this;
@@ -312,7 +312,15 @@ public class PlanChecker {
             }
             // clear the rewritten plans which are tmp optimized, should be filled by full optimize later
             statementContext.getRewrittenPlansByMv().clear();
-            plansWhichContainMv.forEach(statementContext::addRewrittenPlanByMv);
+            for (Plan planWhichContainMv : plansWhichContainMv) {
+                // Such as EliminateGroupByKeyByUniform would change out put expr id
+                Plan normalizedPlan = MaterializedViewUtils.normalizeExpressions(planWhichContainMv,
+                        cascadesContext.getRewritePlan());
+                if (normalizedPlan == null) {
+                    continue;
+                }
+                statementContext.addRewrittenPlanByMv(normalizedPlan);
+            }
             NereidsTracer.logImportantTime("EndPreRewritePlanByMv");
             // if rule-based optimized, not rewritten by cbo
             this.cascadesContext.getStatementContext().clearMaterializedHooks();

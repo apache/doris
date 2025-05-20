@@ -339,8 +339,6 @@ public class Memo {
         List<Plan> rewrittenPlansByMv = statementContext.getRewrittenPlansByMv();
         return !cascadesContext.getMaterializationContexts().isEmpty()
                 && !rewrittenPlansByMv.isEmpty() && rboFinalPlan instanceof LogicalResultSink
-                && rewrittenPlansByMv.stream().anyMatch(
-                        tmpPlan -> rboFinalPlan.getLogicalProperties().equals(tmpPlan.getLogicalProperties()))
                 && !Optimizer.isDpHyp(cascadesContext);
     }
 

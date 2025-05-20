@@ -46,6 +46,8 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateTrunc;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -246,7 +248,7 @@ public class MaterializedViewUtils {
      */
     public static Plan rewriteByRules(
             CascadesContext cascadesContext, Function<CascadesContext, Plan> planRewriter,
-            Plan rewrittenPlan, Plan originPlan, boolean checkResult, boolean mvRewrite) {
+            Plan rewrittenPlan, Plan originPlan, boolean checkResultFieldOrder, boolean mvRewrite) {
         if (originPlan == null || rewrittenPlan == null) {
             return null;
         }
@@ -292,13 +294,46 @@ public class MaterializedViewUtils {
         List<ExprId> rewrittenPlanExprIds = rewrittenPlan.getOutput().stream()
                 .map(Slot::getExprId).collect(Collectors.toList());
         // If project order doesn't change, return rewrittenPlan directly
-        if (originalRewrittenPlanExprIds.equals(rewrittenPlanExprIds) || !checkResult) {
+        if (originalRewrittenPlanExprIds.equals(rewrittenPlanExprIds) || !checkResultFieldOrder) {
             return rewrittenPlan;
         }
         // If project order change, return rewrittenPlan with reordered projects
         return new LogicalProject<>(originalRewrittenPlanExprIds.stream()
                 .map(exprId -> (NamedExpression) exprIdToNewRewrittenSlot.get(exprId)).collect(Collectors.toList()),
                 rewrittenPlan);
+    }
+
+    /**
+     * Normalize expression such as nullable property and output slot id
+     */
+    public static Plan normalizeExpressions(Plan rewrittenPlan, Plan originPlan) {
+        if (rewrittenPlan.getOutput().size() != originPlan.getOutput().size()) {
+            return null;
+        }
+        // normalize nullable
+        List<NamedExpression> normalizeProjects = new ArrayList<>();
+        for (int i = 0; i < originPlan.getOutput().size(); i++) {
+            normalizeProjects.add(normalizeExpression(originPlan.getOutput().get(i), rewrittenPlan.getOutput().get(i)));
+        }
+        return new LogicalProject<>(normalizeProjects, rewrittenPlan);
+    }
+
+    /**
+     * Normalize expression with query, keep the consistency of exprId and nullable props with
+     * query
+     * Keep the replacedExpression slot property is the same as the sourceExpression
+     */
+    public static NamedExpression normalizeExpression(
+            NamedExpression sourceExpression, NamedExpression replacedExpression) {
+        Expression innerExpression = replacedExpression;
+        if (replacedExpression.nullable() != sourceExpression.nullable()) {
+            // if enable join eliminate, query maybe inner join and mv maybe outer join.
+            // If the slot is at null generate side, the nullable maybe different between query and view
+            // So need to force to consistent.
+            innerExpression = sourceExpression.nullable()
+                    ? new Nullable(replacedExpression) : new NonNullable(replacedExpression);
+        }
+        return new Alias(sourceExpression.getExprId(), innerExpression, sourceExpression.getName());
     }
 
     /**

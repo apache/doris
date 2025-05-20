@@ -257,7 +257,7 @@ public abstract class MaterializationContext {
             Expression sourceExpression = this.getExprToScanExprMapping().get(targetExpression);
             if (sourceExpression != null && targetExpression instanceof NamedExpression
                     && sourceExpression instanceof NamedExpression) {
-                normalizedExpressionMap.put(AbstractMaterializedViewRule.normalizeExpression(
+                normalizedExpressionMap.put(MaterializedViewUtils.normalizeExpression(
                                 (NamedExpression) sourceExpression, (NamedExpression) targetExpression).toSlot(),
                         entry.getValue());
             }

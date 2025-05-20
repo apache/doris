@@ -122,7 +122,6 @@ public class MTMVCache {
             } else {
                 originPlan = planner.getCascadesContext().getRewritePlan();
             }
-            // originPlan = planner.getCascadesContext().getRewritePlan();
             // Eliminate result sink because sink operator is useless in query rewrite by materialized view
             // and the top sort can also be removed
             mvPlan = originPlan.accept(new DefaultPlanRewriter<Object>() {

@@ -452,9 +452,9 @@ public class SummaryProfile {
         executionSummaryProfile.addInfoString(NEREIDS_LOCK_TABLE_TIME, getPrettyNereidsLockTableTime());
         executionSummaryProfile.addInfoString(NEREIDS_ANALYSIS_TIME, getPrettyNereidsAnalysisTime());
         executionSummaryProfile.addInfoString(NEREIDS_REWRITE_TIME, getPrettyNereidsRewriteTime());
-        executionSummaryProfile.addInfoString(NEREIDS_PRE_REWRITE_BY_MV_TIME, getPrettyNereidsPreRewriteByMvTime());
         executionSummaryProfile.addInfoString(NEREIDS_COLLECT_TABLE_PARTITION_TIME,
                 getPrettyNereidsCollectTablePartitionTime());
+        executionSummaryProfile.addInfoString(NEREIDS_PRE_REWRITE_BY_MV_TIME, getPrettyNereidsPreRewriteByMvTime());
         executionSummaryProfile.addInfoString(NEREIDS_OPTIMIZE_TIME, getPrettyNereidsOptimizeTime());
         executionSummaryProfile.addInfoString(NEREIDS_TRANSLATE_TIME, getPrettyNereidsTranslateTime());
         executionSummaryProfile.addInfoString(NEREIDS_DISTRIBUTE_TIME, getPrettyNereidsDistributeTime());
@@ -553,16 +553,16 @@ public class SummaryProfile {
         this.nereidsLockTableFinishTime = TimeUtils.getStartTimeMs();
     }
 
-    public void setNereidsCollectTablePartitionFinishTime() {
-        this.nereidsCollectTablePartitionFinishTime = TimeUtils.getStartTimeMs();
-    }
-
     public void setNereidsAnalysisTime() {
         this.nereidsAnalysisFinishTime = TimeUtils.getStartTimeMs();
     }
 
     public void setNereidsRewriteTime() {
         this.nereidsRewriteFinishTime = TimeUtils.getStartTimeMs();
+    }
+
+    public void setNereidsCollectTablePartitionFinishTime() {
+        this.nereidsCollectTablePartitionFinishTime = TimeUtils.getStartTimeMs();
     }
 
     public void setNereidsPreRewriteByMvFinishTime() {
