@@ -683,7 +683,7 @@ struct DataWithNullKey<Base> : public DataWithNullKeyImpl<Base> {
         }
     };
 
-    Iterator begin() { return {Base::begin(), true, &null_key_data}; }
+    Iterator begin() { return {Base::begin(), has_null_key, &null_key_data}; }
 
     Iterator end() { return {Base::end(), false, &null_key_data}; }
 
