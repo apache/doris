@@ -26,8 +26,10 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.proc.TransProcDir;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Like;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -37,6 +39,7 @@ import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
+import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.base.Strings;
 
@@ -46,14 +49,16 @@ import com.google.common.base.Strings;
 public class ShowTransactionCommand extends ShowCommand {
 
     private String dbName;
-    private Expression whereClause;
+    private Expression expr;
     private long txnId = -1;
     private String label = "";
+    private TransactionStatus status = TransactionStatus.UNKNOWN;
+    private boolean labelMatch = false;
 
     public ShowTransactionCommand(String dbName, Expression whereClause) {
         super(PlanType.SHOW_TRANSACTION_COMMAND);
         this.dbName = dbName;
-        this.whereClause = whereClause;
+        this.expr = whereClause;
     }
 
     public String getDbName() {
@@ -77,13 +82,21 @@ public class ShowTransactionCommand extends ShowCommand {
     private ShowResultSet handleShowTransaction(ConnectContext ctx) throws AnalysisException {
         DatabaseIf db = ctx.getEnv().getInternalCatalog().getDbOrAnalysisException(dbName);
         GlobalTransactionMgrIface transactionMgr = Env.getCurrentGlobalTransactionMgr();
-        if (!label.isEmpty()) {
-            txnId = transactionMgr.getTransactionId(db.getId(), label);
-            if (txnId == -1) {
-                throw new AnalysisException("transaction with label " + label + " does not exist");
+        ShowResultSet resultSet;
+        if (status != TransactionStatus.UNKNOWN) {
+            resultSet = new ShowResultSet(getMetaData(), transactionMgr.getDbTransInfoByStatus(db.getId(), status));
+        } else if (labelMatch && !label.isEmpty()) {
+            resultSet = new ShowResultSet(getMetaData(), transactionMgr.getDbTransInfoByLabelMatch(db.getId(), label));
+        } else {
+            if (!label.isEmpty()) {
+                txnId = transactionMgr.getTransactionId(db.getId(), label);
+                if (txnId == -1) {
+                    throw new AnalysisException("transaction with label " + label + " does not exist");
+                }
             }
+            resultSet = new ShowResultSet(getMetaData(), transactionMgr.getSingleTranInfo(db.getId(), txnId));
         }
-        return new ShowResultSet(getMetaData(), transactionMgr.getSingleTranInfo(db.getId(), txnId));
+        return resultSet;
     }
 
     /**
@@ -103,37 +116,57 @@ public class ShowTransactionCommand extends ShowCommand {
             }
         }
 
-        if (whereClause == null) {
+        if (expr == null) {
             throw new AnalysisException("Missing transaction id");
         }
-        analyzeWhereClause();
+
+        if (!analyzeWhereClause()) {
+            throw new AnalysisException("Where clause should looks like one of them: id = 123 or label =/like 'label' "
+                + "or status = 'prepare/precommitted/committed/visible/aborted'");
+        }
     }
 
-    private void analyzeWhereClause() throws AnalysisException {
-        if (whereClause == null) {
-            return;
+    private boolean analyzeWhereClause() throws AnalysisException {
+        if (expr == null) {
+            return true;
         }
 
         boolean valid = true;
-        CHECK: {
-            if (!(whereClause instanceof EqualTo)) {
-                valid = false;
-                break CHECK;
-            }
 
-            String left = whereClause.child(0).toString();
-            if (left.equalsIgnoreCase("id") && (whereClause.child(1) instanceof IntegerLiteral)) {
-                txnId = ((IntegerLiteral) whereClause.child(1)).getLongValue();
-            } else if (left.equalsIgnoreCase("label") && (whereClause.child(1) instanceof StringLiteral)) {
-                label = ((StringLiteral) whereClause.child(1)).getStringValue();
-            } else {
-                valid = false;
-            }
+        if (!(expr instanceof EqualTo || expr instanceof Like)) {
+            valid = false;
         }
 
-        if (!valid) {
-            throw new AnalysisException("Where clause should looks like one of them: id = 123 or label = 'label'");
+        if (!(expr.child(0) instanceof UnboundSlot)) {
+            valid = false;
         }
+
+        String leftKey = ((UnboundSlot) expr.child(0)).getName();
+        if (leftKey.equalsIgnoreCase("id") && (expr.child(1) instanceof IntegerLiteral)) {
+            txnId = ((IntegerLiteral) expr.child(1)).getLongValue();
+        } else if (leftKey.equalsIgnoreCase("label") && (expr.child(1) instanceof StringLiteral)) {
+            label = ((StringLiteral) expr.child(1)).getStringValue();
+        } else if (leftKey.equalsIgnoreCase("status") && (expr.child(1) instanceof StringLiteral)) {
+            String txnStatus = ((StringLiteral) expr.child(1)).getStringValue();
+            try {
+                status = TransactionStatus.valueOf(txnStatus.toUpperCase());
+            } catch (Exception e) {
+                throw new AnalysisException("status should be prepare/precommitted/committed/visible/aborted");
+            }
+            if (status == TransactionStatus.UNKNOWN) {
+                throw new AnalysisException("status should be prepare/precommitted/committed/visible/aborted");
+            }
+        } else {
+            valid = false;
+        }
+
+        if (expr instanceof Like && leftKey.equalsIgnoreCase("label")) {
+            //Only supports label like matching
+            labelMatch = true;
+            label = label.replaceAll("%", ".*");
+        }
+
+        return valid;
     }
 
     @Override
