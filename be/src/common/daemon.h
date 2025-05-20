@@ -44,6 +44,7 @@ private:
     void cache_adjust_capacity_thread();
     void cache_prune_stale_thread();
     void report_runtime_query_statistics_thread();
+    void report_delete_bitmap_metrics_thread();
     void be_proc_monitor_thread();
     void calculate_workload_group_metrics_thread();
 

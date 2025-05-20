@@ -680,6 +680,22 @@ uint64_t TabletManager::get_segment_nums() {
     return segment_nums;
 }
 
+uint64_t TabletManager::get_valid_delete_bitmap_key_count() {
+    uint64_t valid_delete_bitmap_key_count = 0;
+    for_each_tablet([&](const TabletSharedPtr& tablet) {
+        valid_delete_bitmap_key_count += tablet->valid_delete_bitmap_key_count();
+    });
+    return valid_delete_bitmap_key_count;
+}
+
+uint64_t TabletManager::get_invalid_delete_bitmap_key_count() {
+    uint64_t invalid_delete_bitmap_key_count = 0;
+    for_each_tablet([&](const TabletSharedPtr& tablet) {
+        invalid_delete_bitmap_key_count += tablet->invalid_delete_bitmap_key_count();
+    });
+    return invalid_delete_bitmap_key_count;
+}
+
 bool TabletManager::get_tablet_id_and_schema_hash_from_path(const string& path,
                                                             TTabletId* tablet_id,
                                                             TSchemaHash* schema_hash) {
