@@ -36,7 +36,6 @@ import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.query.QueryStatsUtil;
 
 import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.ArrayList;
