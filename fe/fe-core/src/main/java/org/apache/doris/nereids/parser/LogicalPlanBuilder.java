@@ -713,6 +713,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowRepositoriesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowResourcesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRestoreCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRolesCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRowPolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowSmallFilesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowSnapshotCommand;
@@ -7469,5 +7470,29 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
 
         return new RefreshDictionaryCommand(dbName, dictName);
+    }
+
+    @Override
+    public LogicalPlan visitShowRoutineLoad(DorisParser.ShowRoutineLoadContext ctx) {
+        List<String> labelParts = visitMultipartIdentifier(ctx.label);
+        String jobName;
+        String dbName = null;
+        if (labelParts.size() == 1) {
+            jobName = labelParts.get(0);
+        } else if (labelParts.size() == 2) {
+            dbName = labelParts.get(0);
+            jobName = labelParts.get(1);
+        } else {
+            throw new ParseException("only support [<db>.]<job_name>", ctx.label);
+        }
+        LabelNameInfo labelNameInfo = new LabelNameInfo(dbName, jobName);
+
+        String pattern = null;
+        if (ctx.wildWhere() != null && ctx.wildWhere().LIKE() != null) {
+            pattern = stripQuotes(ctx.wildWhere().STRING_LITERAL().getText());
+        }
+
+        boolean isAll = ctx.ALL() != null;
+        return new ShowRoutineLoadCommand(labelNameInfo, pattern, isAll);
     }
 }

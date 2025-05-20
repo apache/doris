@@ -181,6 +181,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowRepositoriesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowResourcesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRestoreCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRolesCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRowPolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowSmallFilesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowSnapshotCommand;
@@ -1141,5 +1142,9 @@ public interface CommandVisitor<R, C> {
 
     default R visitRevokeRoleCommand(RevokeRoleCommand revokeRoleCommand, C context) {
         return visitCommand(revokeRoleCommand, context);
+    }
+
+    default R visitShowRoutineLoadCommand(ShowRoutineLoadCommand showRoutineLoadCommand, C context) {
+        return visitCommand(showRoutineLoadCommand, context);
     }
 }
