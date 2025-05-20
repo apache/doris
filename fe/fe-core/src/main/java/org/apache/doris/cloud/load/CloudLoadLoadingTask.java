@@ -29,6 +29,7 @@ import org.apache.doris.load.loadv2.LoadLoadingTask;
 import org.apache.doris.load.loadv2.LoadTaskCallback;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 
 import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
@@ -44,14 +45,15 @@ public class CloudLoadLoadingTask extends LoadLoadingTask {
     public CloudLoadLoadingTask(Database db, OlapTable table,
             BrokerDesc brokerDesc, List<BrokerFileGroup> fileGroups,
             long jobDeadlineMs, long execMemLimit, boolean strictMode, boolean isPartialUpdate,
+            TPartialUpdateNewRowPolicy partialUpdateNewKeyPolicy,
             long txnId, LoadTaskCallback callback, String timezone,
             long timeoutS, int loadParallelism, int sendBatchParallelism,
             boolean loadZeroTolerance, Profile jobProfile, boolean singleTabletLoadPerSink,
             Priority priority, boolean enableMemTableOnSinkNode, int batchSize,
             String clusterId) {
         super(db, table, brokerDesc, fileGroups, jobDeadlineMs, execMemLimit, strictMode, isPartialUpdate,
-                txnId, callback, timezone, timeoutS, loadParallelism, sendBatchParallelism, loadZeroTolerance,
-                jobProfile, singleTabletLoadPerSink, priority, enableMemTableOnSinkNode, batchSize);
+                partialUpdateNewKeyPolicy, txnId, callback, timezone, timeoutS, loadParallelism, sendBatchParallelism,
+                loadZeroTolerance, jobProfile, singleTabletLoadPerSink, priority, enableMemTableOnSinkNode, batchSize);
         this.cloudClusterId = clusterId;
     }
 

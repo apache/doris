@@ -634,6 +634,11 @@ message RowsetBinlogMetasPB {
     repeated RowsetBinlogMetaPB rowset_binlog_metas = 1;
 }
 
+enum PartialUpdateNewRowPolicyPB {
+    APPEND = 0;
+    ERROR = 1;
+}
+
 message PartialUpdateInfoPB {
     optional bool is_partial_update = 1 [default = false]; // deprecated
     repeated string partial_update_input_columns = 2;
@@ -649,4 +654,5 @@ message PartialUpdateInfoPB {
     optional int64 max_version_in_flush_phase = 12 [default = -1];
     optional int32 nano_seconds = 13 [default = 0];
     optional UniqueKeyUpdateModePB partial_update_mode = 14 [default = UPSERT];
+    optional PartialUpdateNewRowPolicyPB partial_update_new_key_policy = 15 [default = APPEND];
 }
