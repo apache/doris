@@ -618,7 +618,7 @@ struct MethodKeysFixed : public MethodBase<TData> {
 };
 
 template <typename Base>
-struct DataWithNullKey : public Base {
+struct DataWithNullKeyImpl : public Base {
     bool& has_null_key_data() { return has_null_key; }
     bool has_null_key_data() const { return has_null_key; }
     template <typename MappedType>
@@ -638,31 +638,18 @@ struct DataWithNullKey : public Base {
         has_null_key = false;
     }
 
-private:
+protected:
     bool has_null_key = false;
     Base::Value null_key_data;
 };
 
+template <typename Base>
+struct DataWithNullKey : public DataWithNullKeyImpl<Base> {};
+
 template <IteratoredMap Base>
-struct DataWithNullKey<Base> : public Base {
-    bool& has_null_key_data() { return has_null_key; }
-    bool has_null_key_data() const { return has_null_key; }
-    template <typename MappedType>
-    MappedType& get_null_key_data() const {
-        return (MappedType&)null_key_data;
-    }
-    size_t size() const { return Base::size() + has_null_key; }
-    bool empty() const { return Base::empty() && !has_null_key; }
-
-    void clear() {
-        Base::clear();
-        has_null_key = false;
-    }
-
-    void clear_and_shrink() {
-        Base::clear_and_shrink();
-        has_null_key = false;
-    }
+struct DataWithNullKey<Base> : public DataWithNullKeyImpl<Base> {
+    using DataWithNullKeyImpl<Base>::null_key_data;
+    using DataWithNullKeyImpl<Base>::has_null_key;
 
     struct Iterator {
         typename Base::iterator base_iterator = {};
@@ -710,10 +697,6 @@ struct DataWithNullKey<Base> : public Base {
     }
 
     using iterator = Iterator;
-
-private:
-    bool has_null_key = false;
-    Base::Value null_key_data;
 };
 
 /// Single low cardinality column.
