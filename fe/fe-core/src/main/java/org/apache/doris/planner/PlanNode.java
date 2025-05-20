@@ -269,10 +269,6 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         this.fragment = fragment;
     }
 
-    public boolean isNullAwareLeftAntiJoin() {
-        return children.stream().anyMatch(PlanNode::isNullAwareLeftAntiJoin);
-    }
-
     public PlanFragment getFragment() {
         return fragment;
     }
