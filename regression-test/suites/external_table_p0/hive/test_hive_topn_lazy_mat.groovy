@@ -144,15 +144,19 @@ suite("test_hive_topn_lazy_mat", "p0,external,hive,external_docker,external_dock
 
     for (String hivePrefix : ["hive2"]) {
         String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
-        String catalog_name = "ali_hive"
         String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+        String catalog = "test_hive_topn_lazy_mat_${hivePrefix}"
+
+        sql """drop catalog if exists ${catalog}"""
+        sql """create catalog if not exists ${catalog} properties (
+            'type'='hms',
+            'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}',
+        );"""
 
         logger.info("catalog " + catalog_name + " created")
         sql """switch ${catalog_name};"""
-        // logger.info("switched to catalog " + catalog_name)
-        
-        sql """ use daidai; """
 
+        sql """ use global_lazy_mat_db; """
 
 
         sql """
