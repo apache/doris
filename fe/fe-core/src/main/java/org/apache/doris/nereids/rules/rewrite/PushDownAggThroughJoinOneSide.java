@@ -84,8 +84,6 @@ public class PushDownAggThroughJoinOneSide implements RewriteRuleFactory {
                         })
                         .toRule(RuleType.PUSH_DOWN_AGG_THROUGH_JOIN_ONE_SIDE),
                 logicalAggregate(logicalProject(innerLogicalJoin()))
-                        // .when(agg -> agg.child().isAllSlots())
-                        // .when(agg -> agg.child().child().getOtherJoinConjuncts().isEmpty())
                         .whenNot(agg -> agg.child()
                                 .child(0).children().stream().anyMatch(p -> p instanceof LogicalAggregate))
                         .when(agg -> {
@@ -156,7 +154,15 @@ public class PushDownAggThroughJoinOneSide implements RewriteRuleFactory {
                 } else if (rightOutput.contains(slot)) {
                     rightFuncs.add(func);
                 } else {
-                    throw new IllegalStateException("Slot " + slot + " not found in join output");
+                    /*
+                        agg(sum(C))
+                           -->project(A+B as C)
+                              -->join
+                                -->Scan(T1[A...])
+                                -->Scan(T2[B...])
+                         sum(C) cannot be pushed down
+                     */
+                    return null;
                 }
             }
         }
@@ -172,7 +178,7 @@ public class PushDownAggThroughJoinOneSide implements RewriteRuleFactory {
                 return null;
             }
         }
-        for (Expression condition : join.getHashJoinConjuncts()) {
+        for (Expression condition : join.getExpressions()) {
             for (Slot joinConditionSlot : condition.getInputSlots()) {
                 if (leftOutput.contains(joinConditionSlot)) {
                     leftGroupBy.add(joinConditionSlot);
