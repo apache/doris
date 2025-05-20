@@ -145,6 +145,7 @@ import org.apache.doris.datasource.es.EsRepository;
 import org.apache.doris.event.DropPartitionEvent;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand.IdType;
 import org.apache.doris.nereids.trees.plans.commands.TruncateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.DropMTMVInfo;
@@ -441,6 +442,53 @@ public class InternalCatalog implements CatalogIf<Database> {
         try {
             if (fullNameToDb.containsKey(fullDbName)) {
                 if (stmt.isSetIfNotExists()) {
+                    LOG.info("create database[{}] which already exists", fullDbName);
+                    return;
+                } else {
+                    ErrorReport.reportDdlException(ErrorCode.ERR_DB_CREATE_EXISTS, fullDbName);
+                }
+            } else {
+                if (!db.tryWriteLock(100, TimeUnit.SECONDS)) {
+                    LOG.warn("try lock failed, create database failed {}", fullDbName);
+                    ErrorReport.reportDdlException(ErrorCode.ERR_EXECUTE_TIMEOUT,
+                            "create database " + fullDbName + " time out");
+                }
+                try {
+                    unprotectCreateDb(db);
+                    CreateDbInfo dbInfo = new CreateDbInfo(InternalCatalog.INTERNAL_CATALOG_NAME, db.getName(), db);
+                    Env.getCurrentEnv().getEditLog().logCreateDb(dbInfo);
+                } finally {
+                    db.writeUnlock();
+                }
+            }
+        } finally {
+            unlock();
+        }
+        LOG.info("createDb dbName = " + fullDbName + ", id = " + id);
+    }
+
+    /**
+     * Entry of creating a database.
+     *
+     * @param command
+     * @throws DdlException
+     */
+    public void createDb(CreateDatabaseCommand command) throws DdlException {
+        String fullDbName = command.getDbName();
+        Map<String, String> properties = command.getProperties();
+
+        long id = Env.getCurrentEnv().getNextId();
+        Database db = new Database(id, fullDbName);
+        // check and analyze database properties before create database
+        db.checkStorageVault(properties);
+        db.setDbProperties(new DatabaseProperty(properties));
+
+        if (!tryLock(false)) {
+            throw new DdlException("Failed to acquire catalog lock. Try again");
+        }
+        try {
+            if (fullNameToDb.containsKey(fullDbName)) {
+                if (command.isIfNotExists()) {
                     LOG.info("create database[{}] which already exists", fullDbName);
                     return;
                 } else {

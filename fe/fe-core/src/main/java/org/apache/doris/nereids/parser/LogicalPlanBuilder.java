@@ -585,6 +585,7 @@ import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.Constraint;
 import org.apache.doris.nereids.trees.plans.commands.CopyIntoCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateCatalogCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateDictionaryCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateEncryptkeyCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateFileCommand;
@@ -6640,6 +6641,31 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             properties.put(AnalyzeProperties.PROPERTY_PERIOD_CRON, ctx.STRING_LITERAL().getText());
         }
         return properties;
+    }
+
+    @Override
+    public LogicalPlan visitCreateDatabase(DorisParser.CreateDatabaseContext ctx) {
+        Map<String, String> properties = visitPropertyClause(ctx.propertyClause());
+        List<String> nameParts = visitMultipartIdentifier(ctx.multipartIdentifier());
+
+        if (nameParts.size() > 2) {
+            throw new AnalysisException("create database should be [catalog.]database");
+        }
+
+        String databaseName = "";
+        String catalogName = "";
+        if (nameParts.size() == 2) {
+            catalogName = nameParts.get(0);
+            databaseName = nameParts.get(1);
+        }
+        if (nameParts.size() == 1) {
+            databaseName = nameParts.get(0);
+        }
+
+        return new CreateDatabaseCommand(
+            ctx.IF() != null,
+                new DbName(catalogName, databaseName),
+            Maps.newHashMap(properties));
     }
 
     @Override
