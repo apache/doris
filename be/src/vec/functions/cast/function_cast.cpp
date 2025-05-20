@@ -103,44 +103,6 @@ WrapperType create_decimal_wrapper(const DataTypePtr& from_type,
     };
 }
 
-WrapperType create_hll_wrapper(FunctionContext* context, const DataTypePtr& from_type_untyped,
-                               const DataTypeHLL& to_type) {
-    /// Conversion from String through parsing.
-    if (check_and_get_data_type<DataTypeString>(from_type_untyped.get())) {
-        return cast_from_string_to_generic;
-    }
-
-    //TODO if from is not string, it must be HLL?
-    const auto* from_type = check_and_get_data_type<DataTypeHLL>(from_type_untyped.get());
-
-    if (!from_type) {
-        return CastWrapper::create_unsupport_wrapper(
-                "CAST AS HLL can only be performed between HLL, String "
-                "types");
-    }
-
-    return nullptr;
-}
-
-WrapperType create_bitmap_wrapper(FunctionContext* context, const DataTypePtr& from_type_untyped,
-                                  const DataTypeBitMap& to_type) {
-    /// Conversion from String through parsing.
-    if (check_and_get_data_type<DataTypeString>(from_type_untyped.get())) {
-        return cast_from_string_to_generic;
-    }
-
-    //TODO if from is not string, it must be BITMAP?
-    const auto* from_type = check_and_get_data_type<DataTypeBitMap>(from_type_untyped.get());
-
-    if (!from_type) {
-        return CastWrapper::create_unsupport_wrapper(
-                "CAST AS BITMAP can only be performed between BITMAP, String "
-                "types");
-    }
-
-    return nullptr;
-}
-
 WrapperType prepare_unpack_dictionaries(FunctionContext* context, const DataTypePtr& from_type,
                                         const DataTypePtr& to_type) {
     const auto& from_nested = from_type;
@@ -377,11 +339,6 @@ WrapperType prepare_impl(FunctionContext* context, const DataTypePtr& from_type,
                                      static_cast<const DataTypeStruct&>(*to_type));
     case PrimitiveType::TYPE_MAP:
         return create_map_wrapper(context, from_type, static_cast<const DataTypeMap&>(*to_type));
-    case PrimitiveType::TYPE_HLL:
-        return create_hll_wrapper(context, from_type, static_cast<const DataTypeHLL&>(*to_type));
-    case PrimitiveType::TYPE_OBJECT:
-        return create_bitmap_wrapper(context, from_type,
-                                     static_cast<const DataTypeBitMap&>(*to_type));
     case PrimitiveType::TYPE_JSONB:
         return create_cast_to_jsonb_wrapper(from_type, static_cast<const DataTypeJsonb&>(*to_type),
                                             context ? context->string_as_jsonb_string() : false);
