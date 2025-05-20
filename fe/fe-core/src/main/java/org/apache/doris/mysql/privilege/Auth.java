@@ -65,6 +65,7 @@ import org.apache.doris.mysql.authenticate.ldap.LdapUserInfo;
 import org.apache.doris.nereids.trees.plans.commands.GrantResourcePrivilegeCommand;
 import org.apache.doris.nereids.trees.plans.commands.GrantRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.GrantTablePrivilegeCommand;
+import org.apache.doris.nereids.trees.plans.commands.RevokeRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterUserInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateUserInfo;
 import org.apache.doris.persist.AlterUserOperationLog;
@@ -890,6 +891,11 @@ public class Auth implements Writable {
         } else {
             revokeInternal(stmt.getUserIdent(), stmt.getRoles(), false);
         }
+    }
+
+    // revoke role
+    public void revokeRole(RevokeRoleCommand command) throws DdlException {
+        revokeInternal(command.getUserIdentity(), command.getRoles(), false);
     }
 
     public void replayRevoke(PrivInfo info) {

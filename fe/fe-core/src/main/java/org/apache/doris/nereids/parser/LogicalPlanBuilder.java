@@ -655,6 +655,7 @@ import org.apache.doris.nereids.trees.plans.commands.RefreshMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ReplayCommand;
 import org.apache.doris.nereids.trees.plans.commands.ResumeJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.ResumeMTMVCommand;
+import org.apache.doris.nereids.trees.plans.commands.RevokeRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.SetDefaultStorageVaultCommand;
 import org.apache.doris.nereids.trees.plans.commands.SetOptionsCommand;
 import org.apache.doris.nereids.trees.plans.commands.SetTransactionCommand;
@@ -7208,6 +7209,16 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return ctx.privilege().stream()
             .map(this::visitPrivilege)
             .collect(ImmutableList.toImmutableList());
+    }
+
+    @Override
+    public LogicalPlan visitRevokeRole(DorisParser.RevokeRoleContext ctx) {
+        UserIdentity userIdentity = visitUserIdentify(ctx.userIdentify());
+        List<String> roles = ctx.roles.stream()
+                .map(this::visitIdentifierOrText)
+                .collect(ImmutableList.toImmutableList());
+
+        return new RevokeRoleCommand(userIdentity, roles);
     }
 
     public LogicalPlan visitDropAnalyzeJob(DorisParser.DropAnalyzeJobContext ctx) {
