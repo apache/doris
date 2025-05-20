@@ -33,7 +33,7 @@ import java.util.Map;
 /**
  * Command for ALTER RESOURCE in Nereids.
  */
-public class AlterResourceCommand extends AlterCommand {
+public class AlterResourceCommand extends AlterCommand implements NeedAuditEncryption {
     private static final String TYPE = "type";
     private final String resourceName;
     private final Map<String, String> properties;
