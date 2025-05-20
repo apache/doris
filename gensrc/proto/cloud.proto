@@ -877,6 +877,7 @@ message AlterObjStoreInfoRequest {
         UPDATE_AK_SK    = 1;
         ADD_OBJ_INFO    = 2;
         LEGACY_UPDATE_AK_SK = 3;
+        ALTER_OBJ_INFO = 4;
 
         ADD_HDFS_INFO = 100;
         DROP_HDFS_INFO = 101;
