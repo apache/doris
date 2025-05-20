@@ -104,7 +104,7 @@ public class HttpDialectConverterPlugin extends Plugin implements DialectConvert
             return null;
         }
         return HttpDialectUtils.convertSql(targetURL, originSql, sessionVariable.getSqlDialect(),
-                sessionVariable.getSqlConvertorFeatures());
+                sessionVariable.getSqlConvertorFeatures(), sessionVariable.getSqlConvertorConfig());
     }
 
     // no need to override parseSqlWithDialect, just return null
