@@ -106,6 +106,9 @@ public abstract class AlterJobV2 implements Writable {
     @SerializedName(value = "failedTabletBackends")
     protected Map<Long, List<Long>> failedTabletBackends = Maps.newHashMap();
 
+    @SerializedName(value = "uid")
+    protected UserIdentity userIdentity = null;
+
     public AlterJobV2(String rawSql, long jobId, JobType jobType, long dbId, long tableId, String tableName,
                       long timeoutMs) {
         this.rawSql = rawSql;
@@ -118,6 +121,10 @@ public abstract class AlterJobV2 implements Writable {
 
         this.createTimeMs = System.currentTimeMillis();
         this.jobState = JobState.PENDING;
+
+        if (ConnectContext.get() != null) {
+            userIdentity = ConnectContext.get().getCurrentUserIdentity();
+        }
     }
 
     protected AlterJobV2(JobType type) {
@@ -229,7 +236,9 @@ public abstract class AlterJobV2 implements Writable {
             ConnectContext ctx = new ConnectContext();
             ctx.setThreadLocalInfo();
             ctx.setCloudCluster(cloudClusterName);
-            ctx.setCurrentUserIdentity(UserIdentity.ROOT); // used for CloudReplica.getCurrentClusterId
+            // currently used for CloudReplica.getCurrentClusterId
+            // later maybe used for managing all workload in BE.
+            ctx.setCurrentUserIdentity(this.userIdentity);
         }
 
         // /api/debug_point/add/FE.STOP_ALTER_JOB_RUN
