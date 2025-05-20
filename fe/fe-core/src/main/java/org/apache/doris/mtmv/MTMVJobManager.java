@@ -120,6 +120,7 @@ public class MTMVJobManager implements MTMVHookService {
         job.setCreateUser(UserIdentity.ADMIN);
         job.setJobStatus(JobStatus.RUNNING);
         job.setJobConfig(getJobConfig(mtmv));
+        job.initParams();
         try {
             Env.getCurrentEnv().getJobManager().createJobInternal(job, isReplay);
         } catch (JobException e) {

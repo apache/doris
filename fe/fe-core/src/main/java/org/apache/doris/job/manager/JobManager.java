@@ -109,6 +109,7 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
     }
 
     public void registerJob(T job) throws JobException {
+        job.initParams();
         createJobInternal(job, false);
         jobScheduler.scheduleOneJob(job);
     }
