@@ -31,37 +31,50 @@ import java.util.stream.Collectors;
 public class SelectHintLeading extends SelectHint {
     // e.g. query_timeout='1800', exec_mem_limit='2147483648'
     private final List<String> parameters;
-    private final Map<String, DistributeHint> strToHint;
+    private final String originalLeadingText;
 
-    public SelectHintLeading(String hintName, List<String> parameters, Map<String, DistributeHint> strToHint) {
+    private boolean isSyntaxError;
+    private String errorMessage;
+
+    public SelectHintLeading(String hintName, List<String> parameters, String originalLeadingText) {
         super(hintName);
         this.parameters = parameters;
-        this.strToHint = strToHint;
+        this.originalLeadingText = originalLeadingText;
+        this.isSyntaxError = false;
+    }
+
+    public SelectHintLeading(String hintName, List<String> parameters) {
+        this(hintName, parameters, null);
     }
 
     public List<String> getParameters() {
         return parameters;
     }
 
-    public Map<String, DistributeHint> getStrToHint() {
-        return strToHint;
+    public boolean isSyntaxError() {
+        return isSyntaxError;
+    }
+
+    public String getErrorMessage() {
+        return errorMessage;
+    }
+
+    public void setErrorMessage(String errorMessage) {
+        if (errorMessage != null) {
+            isSyntaxError = true;
+            this.errorMessage = errorMessage;
+        }
     }
 
     @Override
     public String toString() {
-        List<String> newParameters = new ArrayList<>();
-        for (String param : parameters) {
-            if (param.startsWith("shuffle")) {
-                newParameters.add("shuffle");
-            } else if (param.startsWith("broadcast")) {
-                newParameters.add("broadcast");
-            } else {
-                newParameters.add(param);
-            }
+        if (originalLeadingText != null) {
+            return originalLeadingText;
+        } else {
+            String leadingString = parameters
+                    .stream()
+                    .collect(Collectors.joining(" "));
+            return super.getHintName() + "(" + leadingString + ")";
         }
-        String leadingString = newParameters
-                .stream()
-                .collect(Collectors.joining(" "));
-        return super.getHintName() + "(" + leadingString + ")";
     }
 }

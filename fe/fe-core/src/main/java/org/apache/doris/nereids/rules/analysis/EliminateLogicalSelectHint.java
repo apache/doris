@@ -26,6 +26,7 @@ import org.apache.doris.nereids.hint.UseCboRuleHint;
 import org.apache.doris.nereids.hint.UseMvHint;
 import org.apache.doris.nereids.properties.SelectHint;
 import org.apache.doris.nereids.properties.SelectHintLeading;
+import org.apache.doris.nereids.properties.SelectHintQbName;
 import org.apache.doris.nereids.properties.SelectHintSetVar;
 import org.apache.doris.nereids.properties.SelectHintUseCboRule;
 import org.apache.doris.nereids.properties.SelectHintUseMv;
@@ -33,6 +34,7 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSelectHint;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
@@ -72,6 +74,9 @@ public class EliminateLogicalSelectHint extends OneRewriteRuleFactory {
                     extractMv((SelectHintUseMv) hint, ConnectContext.get().getStatementContext());
                 } else if (hintName.equalsIgnoreCase("NO_USE_MV")) {
                     extractMv((SelectHintUseMv) hint, ConnectContext.get().getStatementContext());
+                } else if (hintName.equalsIgnoreCase("QBNAME")) {
+                    storeQbNameForAllRelations(selectHintPlan, ((SelectHintQbName) hint).getQbName(),
+                            ConnectContext.get().getStatementContext());
                 } else {
                     logger.warn("Can not process select hint '{}' and skip it", hint.getHintName());
                 }
@@ -82,8 +87,15 @@ public class EliminateLogicalSelectHint extends OneRewriteRuleFactory {
 
     private void extractLeading(SelectHintLeading selectHint, CascadesContext context,
                                     StatementContext statementContext, LogicalSelectHint<Plan> selectHintPlan) {
-        LeadingHint hint = new LeadingHint("Leading", selectHint.getParameters(), selectHint.toString(),
-                selectHint.getStrToHint());
+        if (selectHint.isSyntaxError()) {
+            LeadingHint hint = new LeadingHint("Leading", selectHint.toString());
+            hint.setStatus(Hint.HintStatus.SYNTAX_ERROR);
+            hint.setErrorMessage(selectHint.getErrorMessage());
+            statementContext.addHint(hint);
+            context.setLeadingJoin(false);
+            return;
+        }
+        LeadingHint hint = new LeadingHint("Leading", selectHint.getParameters(), selectHint.toString());
         if (context.getHintMap().get("Leading") != null) {
             hint.setStatus(Hint.HintStatus.SYNTAX_ERROR);
             context.getHintMap().get("Leading").setStatus(Hint.HintStatus.UNUSED);
@@ -136,6 +148,12 @@ public class EliminateLogicalSelectHint extends OneRewriteRuleFactory {
             }
         }
         statementContext.addHint(useMvHint);
+    }
+
+    private void storeQbNameForAllRelations(LogicalSelectHint<Plan> rootPlan, String qbName,
+            StatementContext statementContext) {
+        rootPlan.collect(LogicalRelation.class::isInstance).stream().forEach(relation -> statementContext
+                .addRelationIdToQbName(((LogicalRelation) relation).getRelationId(), qbName));
     }
 
 }

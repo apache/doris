@@ -51,6 +51,10 @@ import java.util.Stack;
  * e.g. set_var(query_timeout='1800', exec_mem_limit='2147483648')
  */
 public class LeadingHint extends Hint {
+    public static final String SHUFFLE = "[shuffle]";
+    public static final String BROADCAST = "[broadcast]";
+    private static final String LEFTPAREN = "(";
+    private static final String RIGHTPAREN = ")";
     private String originalString = "";
 
     private List<String> addJoinParameters;
@@ -93,6 +97,11 @@ public class LeadingHint extends Hint {
         this.strToHint.putAll(strToHint);
     }
 
+    public LeadingHint(String hintName, String originalString) {
+        super(hintName);
+        this.originalString = originalString;
+    }
+
     /**
      * insert join string into leading string
      * @param list of sql input leading string
@@ -102,14 +111,14 @@ public class LeadingHint extends Hint {
         List<String> output = new ArrayList<>();
 
         for (String item : list) {
-            if (item.startsWith("broadcast") || item.startsWith("shuffle")) {
+            if (item.startsWith(SHUFFLE) || item.startsWith(BROADCAST)) {
                 output.remove(output.size() - 1);
                 output.add(item);
                 continue;
-            } else if (item.equals("{")) {
+            } else if (item.equals(LEFTPAREN)) {
                 output.add(item);
                 continue;
-            } else if (item.equals("}")) {
+            } else if (item.equals(RIGHTPAREN)) {
                 output.remove(output.size() - 1);
                 output.add(item);
             } else {
@@ -131,20 +140,26 @@ public class LeadingHint extends Hint {
         List<String> s2 = new ArrayList<>();
 
         for (String item : list) {
-            if (!(item.startsWith("shuffle") || item.startsWith("broadcast") || item.equals("{")
-                    || item.equals("}") || item.equals("join"))) {
+            if (!(item.startsWith(SHUFFLE) || item.startsWith(BROADCAST) || item.equals(LEFTPAREN)
+                    || item.equals(RIGHTPAREN) || item.equals("join"))) {
                 tablelist.add(item);
                 s2.add(item);
-            } else if (item.equals("{")) {
+            } else if (item.equals(LEFTPAREN)) {
                 s1.push(item);
-            } else if (item.equals("}")) {
-                while (!s1.peek().equals("{")) {
+            } else if (item.equals(RIGHTPAREN)) {
+                while (!s1.peek().equals(LEFTPAREN)) {
                     String pop = s1.pop();
                     s2.add(pop);
                 }
                 s1.pop();
             } else {
-                while (s1.size() != 0 && !s1.peek().equals("{")) {
+                if (item.startsWith(SHUFFLE)) {
+                    distributeHints.put(item.hashCode(), new DistributeHint(DistributeType.SHUFFLE_RIGHT));
+                } else if (item.startsWith(BROADCAST)) {
+                    distributeHints.put(item.hashCode(), new DistributeHint(DistributeType.BROADCAST_RIGHT));
+                }
+
+                while (s1.size() != 0 && !s1.peek().equals(LEFTPAREN)) {
                     s2.add(s1.pop());
                 }
                 s1.push(item);
@@ -195,6 +210,7 @@ public class LeadingHint extends Hint {
             }
         }
         return "leading(" + out.toString() + ")";
+        // return originalString;
     }
 
     /**
@@ -512,6 +528,21 @@ public class LeadingHint extends Hint {
         return JoinType.INNER_JOIN;
     }
 
+    private DistributeHint getDistributeJoinHint(String distributeJoinType) {
+        DistributeHint distributeHint = null;
+        if (distributeJoinType.equals("join")) {
+            distributeHint = new DistributeHint(DistributeType.NONE);
+        } else if (distributeJoinType.startsWith(SHUFFLE) || distributeJoinType.startsWith(BROADCAST)) {
+            distributeHint = distributeHints.get(distributeJoinType.hashCode());
+        }
+        distributeHint.setSuccessInLeading(true);
+        if (!ConnectContext.get().getStatementContext().getHints().contains(distributeHint)) {
+            ConnectContext.get().getStatementContext().addHint(distributeHint);
+        }
+        distributeHints.put(0, distributeHint);
+        return distributeHint;
+    }
+
     private LogicalPlan makeJoinPlan(LogicalPlan leftChild, LogicalPlan rightChild, String distributeJoinType) {
         DistributeHint distributeHint = new DistributeHint(DistributeType.NONE);
         if (!distributeJoinType.equals("join")) {
@@ -553,7 +584,7 @@ public class LeadingHint extends Hint {
     public Plan generateLeadingJoinPlan() {
         Stack<LogicalPlan> stack = new Stack<>();
         for (String item : normalizedParameters) {
-            if (item.equals("join") || item.startsWith("shuffle") || item.startsWith("broadcast")) {
+            if (item.equals("join") || item.startsWith(SHUFFLE) || item.startsWith(BROADCAST)) {
                 LogicalPlan rightChild = stack.pop();
                 LogicalPlan leftChild = stack.pop();
                 LogicalPlan joinPlan = makeJoinPlan(leftChild, rightChild, item);

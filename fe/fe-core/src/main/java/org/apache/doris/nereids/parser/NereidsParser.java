@@ -390,7 +390,7 @@ public class NereidsParser {
         Token hintToken = tokenIterator.hasNext() ? tokenIterator.next() : null;
         while (hintToken != null && hintToken.getType() != DorisLexer.EOF) {
             if (hintToken.getChannel() == 2 && sql.charAt(hintToken.getStartIndex() + 2) == '+') {
-                String hintSql = sql.substring(hintToken.getStartIndex() + 3, hintToken.getStopIndex() + 1);
+                String hintSql = sql.substring(hintToken.getStartIndex() + 3, hintToken.getStopIndex() - 1);
                 DorisLexer newHintLexer = new DorisLexer(new CaseInsensitiveStream(CharStreams.fromString(hintSql)));
                 CommonTokenStream newHintTokenStream = new CommonTokenStream(newHintLexer);
                 DorisParser hintParser = new DorisParser(newHintTokenStream);
