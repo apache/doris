@@ -73,7 +73,7 @@ public:
 
     size_t estimate_memory(const size_t rows) override;
 
-    MOCK_FUNCTION Status evaluate_ann_range_search(
+    Status evaluate_ann_range_search(
             const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& cid_to_index_iterators,
             const std::vector<ColumnId>& idx_to_cid,
             const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,

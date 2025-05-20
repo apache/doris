@@ -348,9 +348,8 @@ Status VectorizedFnCall::prepare_ann_range_search() {
     auto vir_slot_ref = std::dynamic_pointer_cast<VirtualSlotRef>(left_child);
     if (vir_slot_ref != nullptr) {
         DCHECK(vir_slot_ref->get_virtual_column_expr() != nullptr);
-        DCHECK(vir_slot_ref->get_virtual_column_expr()->root() != nullptr);
         function_call = std::dynamic_pointer_cast<VectorizedFnCall>(
-                vir_slot_ref->get_virtual_column_expr()->root());
+                vir_slot_ref->get_virtual_column_expr());
     } else {
         function_call = std::dynamic_pointer_cast<VectorizedFnCall>(left_child);
     }
