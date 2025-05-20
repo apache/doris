@@ -285,6 +285,14 @@ Status ProcessHashTableProbe<JoinOpType>::process(HashTableType& hash_table_ctx,
                  JoinOpType == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN) &&
                 hash_table_ctx.hash_table
                         ->empty_build_side(); // empty build side will return false to instead null
+
+        if constexpr (JoinOpType == TJoinOp::RIGHT_SEMI_JOIN ||
+                      JoinOpType == TJoinOp::RIGHT_ANTI_JOIN) {
+            if (mark_join_flags.empty()) {
+                mark_join_flags.resize(hash_table_ctx.hash_table->size(), 0);
+            }
+        }
+
         return do_mark_join_conjuncts(output_block, ignore_null_map ? nullptr : null_map);
     } else if (_have_other_join_conjunct) {
         return do_other_join_conjuncts(output_block, hash_table_ctx.hash_table->get_visited());
@@ -491,12 +499,6 @@ Status ProcessHashTableProbe<JoinOpType>::do_mark_join_conjuncts(vectorized::Blo
         }
     }
 
-    if constexpr (is_right_half_join) {
-        if (mark_join_flags.empty() && _build_block != nullptr) {
-            mark_join_flags.resize(_build_block->rows(), 0);
-        }
-    }
-
     auto filter_column = vectorized::ColumnUInt8::create(row_count, 0);
     auto* __restrict filter_map = filter_column->get_data().data();
     for (size_t i = 0; i != row_count; ++i) {
@@ -547,7 +549,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_mark_join_conjuncts(vectorized::Blo
             }
         }
         // For right semi/anti join, no rows will be output in probe phase.
-        output_block->clear_column_data();
+        output_block->clear();
         return Status::OK();
     } else {
         if constexpr (is_anti_join) {
@@ -721,8 +723,8 @@ Status ProcessHashTableProbe<JoinOpType>::finish_probing(HashTableType& hash_tab
         if constexpr (JoinOpType == TJoinOp::RIGHT_ANTI_JOIN ||
                       JoinOpType == TJoinOp::RIGHT_SEMI_JOIN) {
             if (is_mark_join) {
-                if (mark_join_flags.empty() && _build_block != nullptr) {
-                    mark_join_flags.resize(_build_block->rows(), 0);
+                if (mark_join_flags.empty()) {
+                    mark_join_flags.resize(hash_table_ctx.hash_table->size(), 0);
                 }
 
                 // mark column is nullable
