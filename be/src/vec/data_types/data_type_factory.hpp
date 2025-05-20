@@ -56,6 +56,7 @@ public:
         return instance;
     }
 
+    DataTypePtr create_data_type(const doris::Field& col_desc);
     DataTypePtr create_data_type(const TabletColumn& col_desc, bool is_nullable = false);
 
     DataTypePtr create_data_type(const PColumnMeta& pcolumn);

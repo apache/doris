@@ -324,7 +324,7 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
                     },
                     _opts.io_ctx.reader_type != ReaderType::READER_QUERY);
             if (storage_type == nullptr) {
-                storage_type = vectorized::DataTypeFactory::instance().create_data_type(col->get_desc(), col->is_nullable());
+                storage_type = vectorized::DataTypeFactory::instance().create_data_type(*col);
             }
             // Currently, when writing a lucene index, the field of the document is column_name, and the column name is
             // bound to the index field. Since version 1.2, the data file storage has been changed from column_name to
