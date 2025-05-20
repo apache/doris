@@ -51,10 +51,7 @@ namespace doris {
 Status convert_to_arrow_type(const vectorized::DataTypePtr& origin_type,
                              std::shared_ptr<arrow::DataType>* result,
                              const std::string& timezone) {
-    auto type = origin_type;
-    if (const auto* typed = typeid_cast<const vectorized::DataTypeAggState*>(type.get()); typed) {
-        type = typed->get_serialized_type();
-    }
+    auto type = get_serialized_type(origin_type);
     switch (type->get_primitive_type()) {
     case TYPE_NULL:
         *result = arrow::null();

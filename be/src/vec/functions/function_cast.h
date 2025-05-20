@@ -2168,16 +2168,8 @@ private:
     WrapperType prepare_impl(FunctionContext* context, const DataTypePtr& origin_from_type,
                              const DataTypePtr& origin_to_type,
                              bool requested_result_is_nullable) const {
-        auto to_type = origin_to_type;
-        auto from_type = origin_from_type;
-        if (to_type->get_primitive_type() == PrimitiveType::TYPE_AGG_STATE) {
-            const auto& agg_state_type = assert_cast<const DataTypeAggState&>(*to_type);
-            to_type = agg_state_type.get_serialized_type();
-        }
-        if (from_type->get_primitive_type() == PrimitiveType::TYPE_AGG_STATE) {
-            const auto& agg_state_type = assert_cast<const DataTypeAggState&>(*from_type);
-            from_type = agg_state_type.get_serialized_type();
-        }
+        auto to_type = get_serialized_type(origin_to_type);
+        auto from_type = get_serialized_type(origin_from_type);
 
         if (from_type->equals(*to_type)) {
             return create_identity_wrapper(from_type);
