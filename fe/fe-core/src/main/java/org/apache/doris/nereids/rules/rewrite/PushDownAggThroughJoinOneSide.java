@@ -75,8 +75,8 @@ public class PushDownAggThroughJoinOneSide implements RewriteRuleFactory {
                             Set<AggregateFunction> funcs = agg.getAggregateFunctions();
                             return !funcs.isEmpty() && funcs.stream()
                                     .allMatch(f -> (f instanceof Min || f instanceof Max || f instanceof Sum
-                                            || f instanceof Count && !f.isDistinct()
-                                            && (f.children().isEmpty() || f.child(0) instanceof Slot)));
+                                            || f instanceof Count) && !f.isDistinct()
+                                            && (f.children().isEmpty() || f.child(0) instanceof Slot));
                         })
                         .thenApply(ctx -> {
                             LogicalAggregate<LogicalJoin<Plan, Plan>> agg = ctx.root;
