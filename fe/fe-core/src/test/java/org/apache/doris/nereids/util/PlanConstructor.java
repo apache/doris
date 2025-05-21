@@ -41,6 +41,7 @@ public class PlanConstructor {
     public static final OlapTable student;
     public static final OlapTable score;
     public static final OlapTable course;
+    public static final OlapTable salary;
 
     private static final IdGenerator<RelationId> RELATION_ID_GENERATOR = RelationId.createGenerator();
 
@@ -61,6 +62,17 @@ public class PlanConstructor {
                         new Column("name", Type.STRING, true, AggregateType.NONE, "", ""),
                         new Column("teacher", Type.STRING, true, AggregateType.NONE, "", "")),
                 KeysType.PRIMARY_KEYS, new PartitionInfo(), null);
+        salary = new OlapTable(3L, "salary",
+                ImmutableList.of(
+                        new Column("id", Type.INT, true, AggregateType.NONE, "0", ""),
+                        new Column("name", Type.STRING, true, AggregateType.NONE, "", ""),
+                        new Column("salary",
+                                ScalarType.createDecimalType(PrimitiveType.DECIMAL128,
+                                        ScalarType.MAX_DECIMAL128_PRECISION, 2),
+                                false, AggregateType.NONE, "", ""),
+                        new Column("age", Type.BIGINT, false, AggregateType.NONE, "", "")),
+                KeysType.PRIMARY_KEYS, new PartitionInfo(), null);
+
         student.setIndexMeta(-1,
                 "student",
                 student.getFullSchema(),
@@ -79,6 +91,12 @@ public class PlanConstructor {
                 0, 0, (short) 0,
                 TStorageType.COLUMN,
                 KeysType.PRIMARY_KEYS);
+        salary.setIndexMeta(-1,
+                "salary",
+                salary.getFullSchema(),
+                0, 0, (short) 0,
+                TStorageType.COLUMN,
+                KeysType.PRIMARY_KEYS);
     }
 
     public static OlapTable newOlapTable(long tableId, String tableName, int hashColumn) {
@@ -88,12 +106,7 @@ public class PlanConstructor {
     public static OlapTable newOlapTable(long tableId, String tableName, int hashColumn, KeysType keysType) {
         List<Column> columns = ImmutableList.of(
                 new Column("id", Type.INT, true, AggregateType.NONE, "0", ""),
-                new Column("name", Type.STRING, true, AggregateType.NONE, "", ""),
-                new Column("salary",
-                        ScalarType.createDecimalType(PrimitiveType.DECIMAL128,
-                                ScalarType.MAX_DECIMAL128_PRECISION, 2),
-                        false, AggregateType.NONE, "", ""),
-                new Column("age", Type.BIGINT, false, AggregateType.NONE, "", ""));
+                new Column("name", Type.STRING, true, AggregateType.NONE, "", ""));
 
         HashDistributionInfo hashDistributionInfo = new HashDistributionInfo(3,
                 ImmutableList.of(columns.get(hashColumn)));
