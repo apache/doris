@@ -28,6 +28,7 @@ import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.iceberg.dlf.DLFCatalog;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.constants.HMSProperties;
+import org.apache.doris.nereids.exceptions.NotSupportedException;
 
 import java.util.Map;
 

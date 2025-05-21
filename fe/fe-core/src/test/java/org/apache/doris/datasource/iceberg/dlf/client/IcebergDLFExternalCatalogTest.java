@@ -17,6 +17,9 @@
 
 package org.apache.doris.datasource.iceberg.dlf.client;
 
+import org.apache.doris.datasource.iceberg.IcebergDLFExternalCatalog;
+import org.apache.doris.nereids.exceptions.NotSupportedException;
+
 import org.apache.hadoop.conf.Configuration;
 import org.junit.Assert;
 import org.junit.Test;
