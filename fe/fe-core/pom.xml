@@ -417,6 +417,10 @@ under the License.
             <artifactId>aws-java-sdk-logs</artifactId>
         </dependency>
         <dependency>
+            <groupId>com.amazonaws</groupId>
+            <artifactId>aws-java-sdk-sts</artifactId>
+        </dependency>
+        <dependency>
             <groupId>com.huaweicloud</groupId>
             <artifactId>hadoop-huaweicloud</artifactId>
             <version>${huaweiobs.version}</version>
@@ -1080,6 +1084,10 @@ under the License.
                 </configuration>
             </plugin>
             <!-- jmockit -->
+            <!--fixme  Unify mocking framework usage across the project.
+            Currently, multiple mocking libraries (e.g., JMockit, Powermock) are used, 
+            which increases maintenance complexity and may cause agent conflicts (e.g., with JaCoCo).
+            Evaluate existing usages and standardize on a single framework where possible.-->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
@@ -1090,7 +1098,7 @@ under the License.
                     <reuseForks>false</reuseForks>
                     <useFile>false</useFile>
                     <argLine>
-                        -Xmx512m -javaagent:${settings.localRepository}/org/jmockit/jmockit/${jmockit.version}/jmockit-${jmockit.version}.jar @{argLine}
+                        -Xmx1024m -javaagent:${settings.localRepository}/org/jmockit/jmockit/${jmockit.version}/jmockit-${jmockit.version}.jar @{argLine}
                     </argLine>
                 </configuration>
             </plugin>

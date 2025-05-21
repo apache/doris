@@ -1770,6 +1770,101 @@ TEST(MetaServiceHttpTest, UpdateConfig) {
             }
         }
         {
+            auto [status_code, content] =
+                    ctx.query<std::string>("update_config",
+                                           "configs=delete_bitmap_lock_v2_white_list="
+                                           "warehouse2;warehouse3&persist=true");
+
+            ASSERT_EQ(status_code, 200);
+            ASSERT_EQ(config::delete_bitmap_lock_v2_white_list, "warehouse2;warehouse3");
+            auto& meta_service = ctx.meta_service_;
+            std::string use_version = "";
+            std::string instance_id = "warehouse1";
+            meta_service->get_delete_bitmap_lock_version(use_version, instance_id);
+            ASSERT_EQ(use_version, "v1");
+            instance_id = "warehouse2";
+            meta_service->get_delete_bitmap_lock_version(use_version, instance_id);
+            ASSERT_EQ(use_version, "v2");
+            instance_id = "warehouse3";
+            meta_service->get_delete_bitmap_lock_version(use_version, instance_id);
+            ASSERT_EQ(use_version, "v2");
+            config::Properties props;
+            ASSERT_TRUE(props.load(config::custom_conf_path.c_str(), true));
+            {
+                bool new_val_set = false;
+                std::string white_list = "";
+                ASSERT_TRUE(props.get_or_default("delete_bitmap_lock_v2_white_list", nullptr,
+                                                 white_list, &new_val_set));
+                ASSERT_TRUE(new_val_set);
+                ASSERT_EQ(white_list, "warehouse2;warehouse3");
+                instance_id = "warehouse1";
+                meta_service->get_delete_bitmap_lock_version(use_version, instance_id);
+                ASSERT_EQ(use_version, "v1");
+                instance_id = "warehouse2";
+                meta_service->get_delete_bitmap_lock_version(use_version, instance_id);
+                ASSERT_EQ(use_version, "v2");
+                instance_id = "warehouse3";
+                meta_service->get_delete_bitmap_lock_version(use_version, instance_id);
+                ASSERT_EQ(use_version, "v2");
+            }
+        }
+        //resend config will rewrite it
+        {
+            auto [status_code, content] = ctx.query<std::string>(
+                    "update_config", "configs=delete_bitmap_lock_v2_white_list=''&persist=true");
+            ASSERT_EQ(status_code, 200);
+            ASSERT_EQ(config::delete_bitmap_lock_v2_white_list, "''");
+            auto& meta_service = ctx.meta_service_;
+            std::string use_version = "";
+            std::string instance_id = "warehouse1";
+            meta_service->get_delete_bitmap_lock_version(use_version, instance_id);
+            ASSERT_EQ(use_version, "v1");
+            instance_id = "warehouse2";
+            meta_service->get_delete_bitmap_lock_version(use_version, instance_id);
+            ASSERT_EQ(use_version, "v1");
+            instance_id = "warehouse3";
+            meta_service->get_delete_bitmap_lock_version(use_version, instance_id);
+            ASSERT_EQ(use_version, "v1");
+        }
+        {
+            auto [status_code, content] =
+                    ctx.query<std::string>("update_config",
+                                           "configs=delete_bitmap_lock_v2_white_list="
+                                           "warehouse4;warehouse5&persist=true");
+            ASSERT_EQ(status_code, 200);
+            ASSERT_EQ(config::delete_bitmap_lock_v2_white_list, "warehouse4;warehouse5");
+            auto& meta_service = ctx.meta_service_;
+            std::string use_version = "";
+            std::string instance_id = "warehouse3";
+            meta_service->get_delete_bitmap_lock_version(use_version, instance_id);
+            ASSERT_EQ(use_version, "v1");
+            instance_id = "warehouse4";
+            meta_service->get_delete_bitmap_lock_version(use_version, instance_id);
+            ASSERT_EQ(use_version, "v2");
+            instance_id = "warehouse5";
+            meta_service->get_delete_bitmap_lock_version(use_version, instance_id);
+            ASSERT_EQ(use_version, "v2");
+            config::Properties props;
+            ASSERT_TRUE(props.load(config::custom_conf_path.c_str(), true));
+            {
+                bool new_val_set = false;
+                std::string white_list = "";
+                ASSERT_TRUE(props.get_or_default("delete_bitmap_lock_v2_white_list", nullptr,
+                                                 white_list, &new_val_set));
+                ASSERT_TRUE(new_val_set);
+                ASSERT_EQ(white_list, "warehouse4;warehouse5");
+                instance_id = "warehouse3";
+                meta_service->get_delete_bitmap_lock_version(use_version, instance_id);
+                ASSERT_EQ(use_version, "v1");
+                instance_id = "warehouse4";
+                meta_service->get_delete_bitmap_lock_version(use_version, instance_id);
+                ASSERT_EQ(use_version, "v2");
+                instance_id = "warehouse5";
+                meta_service->get_delete_bitmap_lock_version(use_version, instance_id);
+                ASSERT_EQ(use_version, "v2");
+            }
+        }
+        {
             auto [status_code, content] = ctx.query<std::string>(
                     "update_config", "configs=enable_s3_rate_limiter=false&persist=true");
             ASSERT_EQ(status_code, 200);
@@ -1800,6 +1895,25 @@ TEST(MetaServiceHttpTest, UpdateConfig) {
                                                  enable_s3_rate_limiter, &new_val_set));
                 ASSERT_TRUE(new_val_set);
                 ASSERT_FALSE(enable_s3_rate_limiter);
+            }
+            {
+                bool new_val_set = false;
+                std::string white_list = "";
+                ASSERT_TRUE(props.get_or_default("delete_bitmap_lock_v2_white_list", nullptr,
+                                                 white_list, &new_val_set));
+                ASSERT_TRUE(new_val_set);
+                ASSERT_EQ(white_list, "warehouse4;warehouse5");
+                auto& meta_service = ctx.meta_service_;
+                std::string use_version = "";
+                std::string instance_id = "warehouse3";
+                meta_service->get_delete_bitmap_lock_version(use_version, instance_id);
+                ASSERT_EQ(use_version, "v1");
+                instance_id = "warehouse4";
+                meta_service->get_delete_bitmap_lock_version(use_version, instance_id);
+                ASSERT_EQ(use_version, "v2");
+                instance_id = "warehouse5";
+                meta_service->get_delete_bitmap_lock_version(use_version, instance_id);
+                ASSERT_EQ(use_version, "v2");
             }
         }
         std::filesystem::remove(config::custom_conf_path);

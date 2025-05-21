@@ -19,4 +19,4 @@
 HIVE_SITE_CONF_hive_metastore_event_db_notification_api_auth=false
 HIVE_SITE_CONF_hive_metastore_dml_events=true
 HIVE_SITE_CONF_hive_metastore_transactional_event_listeners=org.apache.hive.hcatalog.listener.DbNotificationListener
-
+HIVE_SITE_CONF_hive_stats_column_autogather=false
