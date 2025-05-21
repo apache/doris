@@ -191,7 +191,8 @@ public:
             DecimalV2Value value;
             if (value.parse_from_str(node.decimal_literal.value.c_str(),
                                      node.decimal_literal.value.size()) == E_DEC_OK) {
-                return Field::create_field<TYPE_DECIMALV2>(value.value());
+                return Field::create_field<TYPE_DECIMALV2>(
+                        DecimalField<T>(value.value(), value.scale()));
             } else {
                 throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
                                        "Invalid decimal(scale: {}) value: {}", value.scale(),

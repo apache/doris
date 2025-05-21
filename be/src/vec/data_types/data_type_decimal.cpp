@@ -339,7 +339,7 @@ Field DataTypeDecimal<T>::get_default() const {
     } else if constexpr (std::is_same_v<T, Decimal64>) {
         return Field::create_field<TYPE_DECIMAL64>(DecimalField<Decimal64>(Decimal64(), scale));
     } else if constexpr (std::is_same_v<T, Decimal128V2>) {
-        return Field::create_field<TYPE_DECIMALV2>(Decimal128V2());
+        return Field::create_field<TYPE_DECIMALV2>(DecimalField<Decimal128V2>(Decimal128V2(), scale));
     } else if constexpr (std::is_same_v<T, Decimal128V3>) {
         return Field::create_field<TYPE_DECIMAL128I>(
                 DecimalField<Decimal128V3>(Decimal128V3(), scale));

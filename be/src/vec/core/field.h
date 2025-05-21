@@ -267,13 +267,13 @@ public:
     // set Types::Null explictly and avoid other types
     Field(PrimitiveType w) : type(w) {}
     template <PrimitiveType T>
-    static Field create_field(const typename PrimitiveTypeTraits<T>::ColumnItemType& data) {
+    static Field create_field(const typename PrimitiveTypeTraits<T>::NearestFieldType& data) {
         auto f = Field(PrimitiveTypeTraits<T>::NearestPrimitiveType);
         f.template create_concrete<PrimitiveTypeTraits<T>::NearestPrimitiveType>(data);
         return f;
     }
     template <PrimitiveType T>
-    static Field create_field(const typename PrimitiveTypeTraits<T>::ColumnItemType&& data) {
+    static Field create_field(const typename PrimitiveTypeTraits<T>::NearestFieldType&& data) {
         auto f = Field(PrimitiveTypeTraits<T>::NearestPrimitiveType);
         f.template create_concrete<PrimitiveTypeTraits<T>::NearestPrimitiveType>(data);
         return f;
@@ -486,14 +486,14 @@ private:
 
     /// Assuming there was no allocated state or it was deallocated (see destroy).
     template <PrimitiveType Type>
-    void create_concrete(typename PrimitiveTypeTraits<Type>::ColumnItemType&& x);
+    void create_concrete(typename PrimitiveTypeTraits<Type>::NearestFieldType&& x);
     template <PrimitiveType Type>
-    void create_concrete(const typename PrimitiveTypeTraits<Type>::ColumnItemType& x);
+    void create_concrete(const typename PrimitiveTypeTraits<Type>::NearestFieldType& x);
     /// Assuming same types.
     template <PrimitiveType Type>
-    void assign_concrete(typename PrimitiveTypeTraits<Type>::ColumnItemType&& x);
+    void assign_concrete(typename PrimitiveTypeTraits<Type>::NearestFieldType&& x);
     template <PrimitiveType Type>
-    void assign_concrete(const typename PrimitiveTypeTraits<Type>::ColumnItemType& x);
+    void assign_concrete(const typename PrimitiveTypeTraits<Type>::NearestFieldType& x);
 
     void create(const Field& field);
 

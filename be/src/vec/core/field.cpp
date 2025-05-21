@@ -93,7 +93,7 @@ bool decimal_less_or_equal(Decimal128V3 x, Decimal128V3 y, UInt32 xs, UInt32 ys)
 }
 
 template <PrimitiveType Type>
-void Field::create_concrete(typename PrimitiveTypeTraits<Type>::ColumnItemType&& x) {
+void Field::create_concrete(typename PrimitiveTypeTraits<Type>::NearestFieldType&& x) {
     // In both Field and PODArray, small types may be stored as wider types,
     // e.g. char is stored as UInt64. Field can return this extended value
     // with get<StorageType>(). To avoid uninitialized results from get(),
@@ -106,7 +106,7 @@ void Field::create_concrete(typename PrimitiveTypeTraits<Type>::ColumnItemType&&
 }
 
 template <PrimitiveType Type>
-void Field::create_concrete(const typename PrimitiveTypeTraits<Type>::ColumnItemType& x) {
+void Field::create_concrete(const typename PrimitiveTypeTraits<Type>::NearestFieldType& x) {
     // In both Field and PODArray, small types may be stored as wider types,
     // e.g. char is stored as UInt64. Field can return this extended value
     // with get<StorageType>(). To avoid uninitialized results from get(),
@@ -122,16 +122,16 @@ void Field::create(const Field& field) {
     switch (field.type) {
     case PrimitiveType::TYPE_NULL:
         create_concrete<TYPE_NULL>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_NULL>::ColumnItemType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_NULL>::NearestFieldType>());
         return;
     case PrimitiveType::TYPE_DATETIMEV2:
         create_concrete<TYPE_DATETIMEV2>(
                 field.template get<
-                        typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::ColumnItemType>());
+                        typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::NearestFieldType>());
         return;
     case PrimitiveType::TYPE_DATEV2:
         create_concrete<TYPE_DATEV2>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_DATEV2>::ColumnItemType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_DATEV2>::NearestFieldType>());
         return;
     case PrimitiveType::TYPE_DATETIME:
     case PrimitiveType::TYPE_DATE:
@@ -141,85 +141,96 @@ void Field::create(const Field& field) {
     case PrimitiveType::TYPE_INT:
     case PrimitiveType::TYPE_BIGINT:
         create_concrete<TYPE_BIGINT>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_BIGINT>::ColumnItemType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_BIGINT>::NearestFieldType>());
         return;
     case PrimitiveType::TYPE_LARGEINT:
         create_concrete<TYPE_LARGEINT>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_LARGEINT>::ColumnItemType>());
+                field.template get<
+                        typename PrimitiveTypeTraits<TYPE_LARGEINT>::NearestFieldType>());
         return;
     case PrimitiveType::TYPE_IPV4:
         create_concrete<TYPE_IPV4>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_IPV4>::ColumnItemType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_IPV4>::NearestFieldType>());
         return;
     case PrimitiveType::TYPE_IPV6:
         create_concrete<TYPE_IPV6>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_IPV6>::ColumnItemType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_IPV6>::NearestFieldType>());
         return;
     case PrimitiveType::TYPE_FLOAT:
     case PrimitiveType::TYPE_TIMEV2:
     case PrimitiveType::TYPE_DOUBLE:
         create_concrete<TYPE_DOUBLE>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_DOUBLE>::ColumnItemType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_DOUBLE>::NearestFieldType>());
         return;
     case PrimitiveType::TYPE_STRING:
         create_concrete<TYPE_STRING>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_STRING>::ColumnItemType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_STRING>::NearestFieldType>());
         return;
     case PrimitiveType::TYPE_CHAR:
         create_concrete<TYPE_CHAR>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_CHAR>::ColumnItemType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_CHAR>::NearestFieldType>());
         return;
     case PrimitiveType::TYPE_VARCHAR:
         create_concrete<TYPE_NULL>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_NULL>::ColumnItemType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_NULL>::NearestFieldType>());
         return;
     case PrimitiveType::TYPE_JSONB:
         create_concrete<TYPE_JSONB>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_JSONB>::ColumnItemType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_JSONB>::NearestFieldType>());
         return;
     case PrimitiveType::TYPE_ARRAY:
         create_concrete<TYPE_ARRAY>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_ARRAY>::ColumnItemType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_ARRAY>::NearestFieldType>());
         return;
     case PrimitiveType::TYPE_STRUCT:
         create_concrete<TYPE_STRUCT>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_STRUCT>::ColumnItemType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_STRUCT>::NearestFieldType>());
         return;
     case PrimitiveType::TYPE_MAP:
         create_concrete<TYPE_MAP>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_MAP>::ColumnItemType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_MAP>::NearestFieldType>());
         return;
     case PrimitiveType::TYPE_DECIMAL32:
-        create_concrete<TYPE_DECIMAL32>(field.template get<DecimalField<Decimal32>>());
+        create_concrete<TYPE_DECIMAL32>(
+                field.template get<
+                        typename PrimitiveTypeTraits<TYPE_DECIMAL32>::NearestFieldType>());
         return;
     case PrimitiveType::TYPE_DECIMAL64:
-        create_concrete<TYPE_DECIMAL64>(field.template get<DecimalField<Decimal64>>());
+        create_concrete<TYPE_DECIMAL64>(
+                field.template get<
+                        typename PrimitiveTypeTraits<TYPE_DECIMAL64>::NearestFieldType>());
         return;
     case PrimitiveType::TYPE_DECIMALV2:
-        create_concrete<TYPE_DECIMALV2>(field.template get<DecimalField<Decimal128V2>>());
+        create_concrete<TYPE_DECIMALV2>(
+                field.template get<
+                        typename PrimitiveTypeTraits<TYPE_DECIMALV2>::NearestFieldType>());
         return;
     case PrimitiveType::TYPE_DECIMAL128I:
-        create_concrete<TYPE_DECIMAL128I>(field.template get<DecimalField<Decimal128V3>>());
+        create_concrete<TYPE_DECIMAL128I>(
+                field.template get<
+                        typename PrimitiveTypeTraits<TYPE_DECIMAL128I>::NearestFieldType>());
         return;
     case PrimitiveType::TYPE_DECIMAL256:
-        create_concrete<TYPE_DECIMAL256>(field.template get<DecimalField<Decimal256>>());
+        create_concrete<TYPE_DECIMAL256>(
+                field.template get<
+                        typename PrimitiveTypeTraits<TYPE_DECIMAL256>::NearestFieldType>());
         return;
     case PrimitiveType::TYPE_VARIANT:
         create_concrete<TYPE_VARIANT>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_VARIANT>::ColumnItemType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_VARIANT>::NearestFieldType>());
         return;
     case PrimitiveType::TYPE_OBJECT:
         create_concrete<TYPE_OBJECT>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_OBJECT>::ColumnItemType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_OBJECT>::NearestFieldType>());
         return;
     case PrimitiveType::TYPE_HLL:
         create_concrete<TYPE_HLL>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_HLL>::ColumnItemType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_HLL>::NearestFieldType>());
         return;
     case PrimitiveType::TYPE_QUANTILE_STATE:
         create_concrete<TYPE_QUANTILE_STATE>(
                 field.template get<
-                        typename PrimitiveTypeTraits<TYPE_QUANTILE_STATE>::ColumnItemType>());
+                        typename PrimitiveTypeTraits<TYPE_QUANTILE_STATE>::NearestFieldType>());
         return;
     default:
         throw Exception(Status::FatalError("type not supported, type={}", field.get_type_name()));
@@ -230,24 +241,25 @@ void Field::assign(const Field& field) {
     switch (field.type) {
     case PrimitiveType::TYPE_NULL:
         assign_concrete<TYPE_NULL>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_NULL>::ColumnItemType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_NULL>::NearestFieldType>());
         return;
     case PrimitiveType::TYPE_DATETIMEV2:
         assign_concrete<TYPE_DATETIMEV2>(
                 field.template get<
-                        typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::ColumnItemType>());
+                        typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::NearestFieldType>());
         return;
     case PrimitiveType::TYPE_DATETIME:
         assign_concrete<TYPE_DATETIME>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_DATETIME>::ColumnItemType>());
+                field.template get<
+                        typename PrimitiveTypeTraits<TYPE_DATETIME>::NearestFieldType>());
         return;
     case PrimitiveType::TYPE_DATE:
         assign_concrete<TYPE_DATE>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_DATE>::ColumnItemType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_DATE>::NearestFieldType>());
         return;
     case PrimitiveType::TYPE_DATEV2:
         assign_concrete<TYPE_DATEV2>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_DATEV2>::ColumnItemType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_DATEV2>::NearestFieldType>());
         return;
     case PrimitiveType::TYPE_BOOLEAN:
     case PrimitiveType::TYPE_TINYINT:
@@ -255,83 +267,94 @@ void Field::assign(const Field& field) {
     case PrimitiveType::TYPE_INT:
     case PrimitiveType::TYPE_BIGINT:
         assign_concrete<TYPE_BIGINT>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_BIGINT>::ColumnItemType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_BIGINT>::NearestFieldType>());
         return;
     case PrimitiveType::TYPE_LARGEINT:
         assign_concrete<TYPE_LARGEINT>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_LARGEINT>::ColumnItemType>());
+                field.template get<
+                        typename PrimitiveTypeTraits<TYPE_LARGEINT>::NearestFieldType>());
         return;
     case PrimitiveType::TYPE_IPV4:
         assign_concrete<TYPE_IPV4>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_IPV4>::ColumnItemType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_IPV4>::NearestFieldType>());
         return;
     case PrimitiveType::TYPE_IPV6:
         assign_concrete<TYPE_IPV6>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_IPV6>::ColumnItemType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_IPV6>::NearestFieldType>());
         return;
     case PrimitiveType::TYPE_DOUBLE:
         assign_concrete<TYPE_DOUBLE>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_DOUBLE>::ColumnItemType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_DOUBLE>::NearestFieldType>());
         return;
     case PrimitiveType::TYPE_STRING:
         assign_concrete<TYPE_STRING>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_STRING>::ColumnItemType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_STRING>::NearestFieldType>());
         return;
     case PrimitiveType::TYPE_CHAR:
         assign_concrete<TYPE_CHAR>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_CHAR>::ColumnItemType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_CHAR>::NearestFieldType>());
         return;
     case PrimitiveType::TYPE_VARCHAR:
         assign_concrete<TYPE_NULL>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_NULL>::ColumnItemType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_NULL>::NearestFieldType>());
         return;
     case PrimitiveType::TYPE_JSONB:
         assign_concrete<TYPE_JSONB>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_JSONB>::ColumnItemType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_JSONB>::NearestFieldType>());
         return;
     case PrimitiveType::TYPE_ARRAY:
         assign_concrete<TYPE_ARRAY>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_ARRAY>::ColumnItemType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_ARRAY>::NearestFieldType>());
         return;
     case PrimitiveType::TYPE_STRUCT:
         assign_concrete<TYPE_STRUCT>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_STRUCT>::ColumnItemType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_STRUCT>::NearestFieldType>());
         return;
     case PrimitiveType::TYPE_MAP:
         assign_concrete<TYPE_MAP>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_MAP>::ColumnItemType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_MAP>::NearestFieldType>());
         return;
     case PrimitiveType::TYPE_DECIMAL32:
-        assign_concrete<TYPE_DECIMAL32>(field.template get<DecimalField<Decimal32>>());
+        assign_concrete<TYPE_DECIMAL32>(
+                field.template get<
+                        typename PrimitiveTypeTraits<TYPE_DECIMAL32>::NearestFieldType>());
         return;
     case PrimitiveType::TYPE_DECIMAL64:
-        assign_concrete<TYPE_DECIMAL64>(field.template get<DecimalField<Decimal64>>());
+        assign_concrete<TYPE_DECIMAL64>(
+                field.template get<
+                        typename PrimitiveTypeTraits<TYPE_DECIMAL64>::NearestFieldType>());
         return;
     case PrimitiveType::TYPE_DECIMALV2:
-        assign_concrete<TYPE_DECIMALV2>(field.template get<DecimalField<Decimal128V2>>());
+        assign_concrete<TYPE_DECIMALV2>(
+                field.template get<
+                        typename PrimitiveTypeTraits<TYPE_DECIMALV2>::NearestFieldType>());
         return;
     case PrimitiveType::TYPE_DECIMAL128I:
-        assign_concrete<TYPE_DECIMAL128I>(field.template get<DecimalField<Decimal128V3>>());
+        assign_concrete<TYPE_DECIMAL128I>(
+                field.template get<
+                        typename PrimitiveTypeTraits<TYPE_DECIMAL128I>::NearestFieldType>());
         return;
     case PrimitiveType::TYPE_DECIMAL256:
-        assign_concrete<TYPE_DECIMAL256>(field.template get<DecimalField<Decimal256>>());
+        assign_concrete<TYPE_DECIMAL256>(
+                field.template get<
+                        typename PrimitiveTypeTraits<TYPE_DECIMAL256>::NearestFieldType>());
         return;
     case PrimitiveType::TYPE_VARIANT:
         assign_concrete<TYPE_VARIANT>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_VARIANT>::ColumnItemType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_VARIANT>::NearestFieldType>());
         return;
     case PrimitiveType::TYPE_OBJECT:
         assign_concrete<TYPE_OBJECT>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_OBJECT>::ColumnItemType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_OBJECT>::NearestFieldType>());
         return;
     case PrimitiveType::TYPE_HLL:
         assign_concrete<TYPE_HLL>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_HLL>::ColumnItemType>());
+                field.template get<typename PrimitiveTypeTraits<TYPE_HLL>::NearestFieldType>());
         return;
     case PrimitiveType::TYPE_QUANTILE_STATE:
         assign_concrete<TYPE_QUANTILE_STATE>(
                 field.template get<
-                        typename PrimitiveTypeTraits<TYPE_QUANTILE_STATE>::ColumnItemType>());
+                        typename PrimitiveTypeTraits<TYPE_QUANTILE_STATE>::NearestFieldType>());
         return;
     default:
         throw Exception(Status::FatalError("type not supported, type={}", field.get_type_name()));
@@ -340,152 +363,152 @@ void Field::assign(const Field& field) {
 
 /// Assuming same types.
 template <PrimitiveType Type>
-void Field::assign_concrete(typename PrimitiveTypeTraits<Type>::ColumnItemType&& x) {
+void Field::assign_concrete(typename PrimitiveTypeTraits<Type>::NearestFieldType&& x) {
     auto* MAY_ALIAS ptr =
-            reinterpret_cast<typename PrimitiveTypeTraits<Type>::ColumnItemType*>(&storage);
-    *ptr = std::forward<typename PrimitiveTypeTraits<Type>::ColumnItemType>(x);
+            reinterpret_cast<typename PrimitiveTypeTraits<Type>::NearestFieldType*>(&storage);
+    *ptr = std::forward<typename PrimitiveTypeTraits<Type>::NearestFieldType>(x);
 }
 
 template <PrimitiveType Type>
-void Field::assign_concrete(const typename PrimitiveTypeTraits<Type>::ColumnItemType& x) {
+void Field::assign_concrete(const typename PrimitiveTypeTraits<Type>::NearestFieldType& x) {
     auto* MAY_ALIAS ptr =
-            reinterpret_cast<typename PrimitiveTypeTraits<Type>::ColumnItemType*>(&storage);
-    *ptr = std::forward<const typename PrimitiveTypeTraits<Type>::ColumnItemType>(x);
+            reinterpret_cast<typename PrimitiveTypeTraits<Type>::NearestFieldType*>(&storage);
+    *ptr = std::forward<const typename PrimitiveTypeTraits<Type>::NearestFieldType>(x);
 }
 
 std::string Field::get_type_name() const {
     return type_to_string(type);
 }
 
-#define DECLARE_FUNCTION(FUNC_NAME)                                                        \
-    template void Field::FUNC_NAME<TYPE_NULL>(                                             \
-            typename PrimitiveTypeTraits<TYPE_NULL>::ColumnItemType && rhs);               \
-    template void Field::FUNC_NAME<TYPE_TINYINT>(                                          \
-            typename PrimitiveTypeTraits<TYPE_TINYINT>::ColumnItemType && rhs);            \
-    template void Field::FUNC_NAME<TYPE_SMALLINT>(                                         \
-            typename PrimitiveTypeTraits<TYPE_SMALLINT>::ColumnItemType && rhs);           \
-    template void Field::FUNC_NAME<TYPE_INT>(                                              \
-            typename PrimitiveTypeTraits<TYPE_INT>::ColumnItemType && rhs);                \
-    template void Field::FUNC_NAME<TYPE_BIGINT>(                                           \
-            typename PrimitiveTypeTraits<TYPE_BIGINT>::ColumnItemType && rhs);             \
-    template void Field::FUNC_NAME<TYPE_LARGEINT>(                                         \
-            typename PrimitiveTypeTraits<TYPE_LARGEINT>::ColumnItemType && rhs);           \
-    template void Field::FUNC_NAME<TYPE_DATE>(                                             \
-            typename PrimitiveTypeTraits<TYPE_DATE>::ColumnItemType && rhs);               \
-    template void Field::FUNC_NAME<TYPE_DATETIME>(                                         \
-            typename PrimitiveTypeTraits<TYPE_DATETIME>::ColumnItemType && rhs);           \
-    template void Field::FUNC_NAME<TYPE_DATEV2>(                                           \
-            typename PrimitiveTypeTraits<TYPE_DATEV2>::ColumnItemType && rhs);             \
-    template void Field::FUNC_NAME<TYPE_DATETIMEV2>(                                       \
-            typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::ColumnItemType && rhs);         \
-    template void Field::FUNC_NAME<TYPE_DECIMAL32>(                                        \
-            typename PrimitiveTypeTraits<TYPE_DECIMAL32>::ColumnItemType && rhs);          \
-    template void Field::FUNC_NAME<TYPE_DECIMAL64>(                                        \
-            typename PrimitiveTypeTraits<TYPE_DECIMAL64>::ColumnItemType && rhs);          \
-    template void Field::FUNC_NAME<TYPE_DECIMALV2>(                                        \
-            typename PrimitiveTypeTraits<TYPE_DECIMALV2>::ColumnItemType && rhs);          \
-    template void Field::FUNC_NAME<TYPE_DECIMAL128I>(                                      \
-            typename PrimitiveTypeTraits<TYPE_DECIMAL128I>::ColumnItemType && rhs);        \
-    template void Field::FUNC_NAME<TYPE_DECIMAL256>(                                       \
-            typename PrimitiveTypeTraits<TYPE_DECIMAL256>::ColumnItemType && rhs);         \
-    template void Field::FUNC_NAME<TYPE_CHAR>(                                             \
-            typename PrimitiveTypeTraits<TYPE_CHAR>::ColumnItemType && rhs);               \
-    template void Field::FUNC_NAME<TYPE_VARCHAR>(                                          \
-            typename PrimitiveTypeTraits<TYPE_VARCHAR>::ColumnItemType && rhs);            \
-    template void Field::FUNC_NAME<TYPE_STRING>(                                           \
-            typename PrimitiveTypeTraits<TYPE_STRING>::ColumnItemType && rhs);             \
-    template void Field::FUNC_NAME<TYPE_HLL>(                                              \
-            typename PrimitiveTypeTraits<TYPE_HLL>::ColumnItemType && rhs);                \
-    template void Field::FUNC_NAME<TYPE_VARIANT>(                                          \
-            typename PrimitiveTypeTraits<TYPE_VARIANT>::ColumnItemType && rhs);            \
-    template void Field::FUNC_NAME<TYPE_QUANTILE_STATE>(                                   \
-            typename PrimitiveTypeTraits<TYPE_QUANTILE_STATE>::ColumnItemType && rhs);     \
-    template void Field::FUNC_NAME<TYPE_ARRAY>(                                            \
-            typename PrimitiveTypeTraits<TYPE_ARRAY>::ColumnItemType && rhs);              \
-    template void Field::FUNC_NAME<TYPE_NULL>(                                             \
-            const typename PrimitiveTypeTraits<TYPE_NULL>::ColumnItemType& rhs);           \
-    template void Field::FUNC_NAME<TYPE_TINYINT>(                                          \
-            const typename PrimitiveTypeTraits<TYPE_TINYINT>::ColumnItemType& rhs);        \
-    template void Field::FUNC_NAME<TYPE_SMALLINT>(                                         \
-            const typename PrimitiveTypeTraits<TYPE_SMALLINT>::ColumnItemType& rhs);       \
-    template void Field::FUNC_NAME<TYPE_INT>(                                              \
-            const typename PrimitiveTypeTraits<TYPE_INT>::ColumnItemType& rhs);            \
-    template void Field::FUNC_NAME<TYPE_BIGINT>(                                           \
-            const typename PrimitiveTypeTraits<TYPE_BIGINT>::ColumnItemType& rhs);         \
-    template void Field::FUNC_NAME<TYPE_LARGEINT>(                                         \
-            const typename PrimitiveTypeTraits<TYPE_LARGEINT>::ColumnItemType& rhs);       \
-    template void Field::FUNC_NAME<TYPE_DATE>(                                             \
-            const typename PrimitiveTypeTraits<TYPE_DATE>::ColumnItemType& rhs);           \
-    template void Field::FUNC_NAME<TYPE_DATETIME>(                                         \
-            const typename PrimitiveTypeTraits<TYPE_DATETIME>::ColumnItemType& rhs);       \
-    template void Field::FUNC_NAME<TYPE_DATEV2>(                                           \
-            const typename PrimitiveTypeTraits<TYPE_DATEV2>::ColumnItemType& rhs);         \
-    template void Field::FUNC_NAME<TYPE_DATETIMEV2>(                                       \
-            const typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::ColumnItemType& rhs);     \
-    template void Field::FUNC_NAME<TYPE_DECIMAL32>(                                        \
-            const typename PrimitiveTypeTraits<TYPE_DECIMAL32>::ColumnItemType& rhs);      \
-    template void Field::FUNC_NAME<TYPE_DECIMAL64>(                                        \
-            const typename PrimitiveTypeTraits<TYPE_DECIMAL64>::ColumnItemType& rhs);      \
-    template void Field::FUNC_NAME<TYPE_DECIMALV2>(                                        \
-            const typename PrimitiveTypeTraits<TYPE_DECIMALV2>::ColumnItemType& rhs);      \
-    template void Field::FUNC_NAME<TYPE_DECIMAL128I>(                                      \
-            const typename PrimitiveTypeTraits<TYPE_DECIMAL128I>::ColumnItemType& rhs);    \
-    template void Field::FUNC_NAME<TYPE_DECIMAL256>(                                       \
-            const typename PrimitiveTypeTraits<TYPE_DECIMAL256>::ColumnItemType& rhs);     \
-    template void Field::FUNC_NAME<TYPE_CHAR>(                                             \
-            const typename PrimitiveTypeTraits<TYPE_CHAR>::ColumnItemType& rhs);           \
-    template void Field::FUNC_NAME<TYPE_VARCHAR>(                                          \
-            const typename PrimitiveTypeTraits<TYPE_VARCHAR>::ColumnItemType& rhs);        \
-    template void Field::FUNC_NAME<TYPE_STRING>(                                           \
-            const typename PrimitiveTypeTraits<TYPE_STRING>::ColumnItemType& rhs);         \
-    template void Field::FUNC_NAME<TYPE_HLL>(                                              \
-            const typename PrimitiveTypeTraits<TYPE_HLL>::ColumnItemType& rhs);            \
-    template void Field::FUNC_NAME<TYPE_VARIANT>(                                          \
-            const typename PrimitiveTypeTraits<TYPE_VARIANT>::ColumnItemType& rhs);        \
-    template void Field::FUNC_NAME<TYPE_QUANTILE_STATE>(                                   \
-            const typename PrimitiveTypeTraits<TYPE_QUANTILE_STATE>::ColumnItemType& rhs); \
-    template void Field::FUNC_NAME<TYPE_ARRAY>(                                            \
-            const typename PrimitiveTypeTraits<TYPE_ARRAY>::ColumnItemType& rhs);          \
-    template void Field::FUNC_NAME<TYPE_IPV4>(                                             \
-            typename PrimitiveTypeTraits<TYPE_IPV4>::ColumnItemType && rhs);               \
-    template void Field::FUNC_NAME<TYPE_IPV4>(                                             \
-            const typename PrimitiveTypeTraits<TYPE_IPV4>::ColumnItemType& rhs);           \
-    template void Field::FUNC_NAME<TYPE_IPV6>(                                             \
-            typename PrimitiveTypeTraits<TYPE_IPV6>::ColumnItemType && rhs);               \
-    template void Field::FUNC_NAME<TYPE_IPV6>(                                             \
-            const typename PrimitiveTypeTraits<TYPE_IPV6>::ColumnItemType& rhs);           \
-    template void Field::FUNC_NAME<TYPE_BOOLEAN>(                                          \
-            typename PrimitiveTypeTraits<TYPE_BOOLEAN>::ColumnItemType && rhs);            \
-    template void Field::FUNC_NAME<TYPE_BOOLEAN>(                                          \
-            const typename PrimitiveTypeTraits<TYPE_BOOLEAN>::ColumnItemType& rhs);        \
-    template void Field::FUNC_NAME<TYPE_FLOAT>(                                            \
-            typename PrimitiveTypeTraits<TYPE_FLOAT>::ColumnItemType && rhs);              \
-    template void Field::FUNC_NAME<TYPE_FLOAT>(                                            \
-            const typename PrimitiveTypeTraits<TYPE_FLOAT>::ColumnItemType& rhs);          \
-    template void Field::FUNC_NAME<TYPE_DOUBLE>(                                           \
-            typename PrimitiveTypeTraits<TYPE_DOUBLE>::ColumnItemType && rhs);             \
-    template void Field::FUNC_NAME<TYPE_DOUBLE>(                                           \
-            const typename PrimitiveTypeTraits<TYPE_DOUBLE>::ColumnItemType& rhs);         \
-    template void Field::FUNC_NAME<TYPE_JSONB>(                                            \
-            typename PrimitiveTypeTraits<TYPE_JSONB>::ColumnItemType && rhs);              \
-    template void Field::FUNC_NAME<TYPE_JSONB>(                                            \
-            const typename PrimitiveTypeTraits<TYPE_JSONB>::ColumnItemType& rhs);          \
-    template void Field::FUNC_NAME<TYPE_STRUCT>(                                           \
-            typename PrimitiveTypeTraits<TYPE_STRUCT>::ColumnItemType && rhs);             \
-    template void Field::FUNC_NAME<TYPE_STRUCT>(                                           \
-            const typename PrimitiveTypeTraits<TYPE_STRUCT>::ColumnItemType& rhs);         \
-    template void Field::FUNC_NAME<TYPE_MAP>(                                              \
-            typename PrimitiveTypeTraits<TYPE_MAP>::ColumnItemType && rhs);                \
-    template void Field::FUNC_NAME<TYPE_MAP>(                                              \
-            const typename PrimitiveTypeTraits<TYPE_MAP>::ColumnItemType& rhs);            \
-    template void Field::FUNC_NAME<TYPE_OBJECT>(                                           \
-            typename PrimitiveTypeTraits<TYPE_OBJECT>::ColumnItemType && rhs);             \
-    template void Field::FUNC_NAME<TYPE_OBJECT>(                                           \
-            const typename PrimitiveTypeTraits<TYPE_OBJECT>::ColumnItemType& rhs);         \
-    template void Field::FUNC_NAME<TYPE_TIMEV2>(                                           \
-            const typename PrimitiveTypeTraits<TYPE_TIMEV2>::ColumnItemType& rhs);         \
-    template void Field::FUNC_NAME<TYPE_TIMEV2>(                                           \
-            typename PrimitiveTypeTraits<TYPE_TIMEV2>::ColumnItemType && rhs);
+#define DECLARE_FUNCTION(FUNC_NAME)                                                          \
+    template void Field::FUNC_NAME<TYPE_NULL>(                                               \
+            typename PrimitiveTypeTraits<TYPE_NULL>::NearestFieldType && rhs);               \
+    template void Field::FUNC_NAME<TYPE_TINYINT>(                                            \
+            typename PrimitiveTypeTraits<TYPE_TINYINT>::NearestFieldType && rhs);            \
+    template void Field::FUNC_NAME<TYPE_SMALLINT>(                                           \
+            typename PrimitiveTypeTraits<TYPE_SMALLINT>::NearestFieldType && rhs);           \
+    template void Field::FUNC_NAME<TYPE_INT>(                                                \
+            typename PrimitiveTypeTraits<TYPE_INT>::NearestFieldType && rhs);                \
+    template void Field::FUNC_NAME<TYPE_BIGINT>(                                             \
+            typename PrimitiveTypeTraits<TYPE_BIGINT>::NearestFieldType && rhs);             \
+    template void Field::FUNC_NAME<TYPE_LARGEINT>(                                           \
+            typename PrimitiveTypeTraits<TYPE_LARGEINT>::NearestFieldType && rhs);           \
+    template void Field::FUNC_NAME<TYPE_DATE>(                                               \
+            typename PrimitiveTypeTraits<TYPE_DATE>::NearestFieldType && rhs);               \
+    template void Field::FUNC_NAME<TYPE_DATETIME>(                                           \
+            typename PrimitiveTypeTraits<TYPE_DATETIME>::NearestFieldType && rhs);           \
+    template void Field::FUNC_NAME<TYPE_DATEV2>(                                             \
+            typename PrimitiveTypeTraits<TYPE_DATEV2>::NearestFieldType && rhs);             \
+    template void Field::FUNC_NAME<TYPE_DATETIMEV2>(                                         \
+            typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::NearestFieldType && rhs);         \
+    template void Field::FUNC_NAME<TYPE_DECIMAL32>(                                          \
+            typename PrimitiveTypeTraits<TYPE_DECIMAL32>::NearestFieldType && rhs);          \
+    template void Field::FUNC_NAME<TYPE_DECIMAL64>(                                          \
+            typename PrimitiveTypeTraits<TYPE_DECIMAL64>::NearestFieldType && rhs);          \
+    template void Field::FUNC_NAME<TYPE_DECIMALV2>(                                          \
+            typename PrimitiveTypeTraits<TYPE_DECIMALV2>::NearestFieldType && rhs);          \
+    template void Field::FUNC_NAME<TYPE_DECIMAL128I>(                                        \
+            typename PrimitiveTypeTraits<TYPE_DECIMAL128I>::NearestFieldType && rhs);        \
+    template void Field::FUNC_NAME<TYPE_DECIMAL256>(                                         \
+            typename PrimitiveTypeTraits<TYPE_DECIMAL256>::NearestFieldType && rhs);         \
+    template void Field::FUNC_NAME<TYPE_CHAR>(                                               \
+            typename PrimitiveTypeTraits<TYPE_CHAR>::NearestFieldType && rhs);               \
+    template void Field::FUNC_NAME<TYPE_VARCHAR>(                                            \
+            typename PrimitiveTypeTraits<TYPE_VARCHAR>::NearestFieldType && rhs);            \
+    template void Field::FUNC_NAME<TYPE_STRING>(                                             \
+            typename PrimitiveTypeTraits<TYPE_STRING>::NearestFieldType && rhs);             \
+    template void Field::FUNC_NAME<TYPE_HLL>(                                                \
+            typename PrimitiveTypeTraits<TYPE_HLL>::NearestFieldType && rhs);                \
+    template void Field::FUNC_NAME<TYPE_VARIANT>(                                            \
+            typename PrimitiveTypeTraits<TYPE_VARIANT>::NearestFieldType && rhs);            \
+    template void Field::FUNC_NAME<TYPE_QUANTILE_STATE>(                                     \
+            typename PrimitiveTypeTraits<TYPE_QUANTILE_STATE>::NearestFieldType && rhs);     \
+    template void Field::FUNC_NAME<TYPE_ARRAY>(                                              \
+            typename PrimitiveTypeTraits<TYPE_ARRAY>::NearestFieldType && rhs);              \
+    template void Field::FUNC_NAME<TYPE_NULL>(                                               \
+            const typename PrimitiveTypeTraits<TYPE_NULL>::NearestFieldType& rhs);           \
+    template void Field::FUNC_NAME<TYPE_TINYINT>(                                            \
+            const typename PrimitiveTypeTraits<TYPE_TINYINT>::NearestFieldType& rhs);        \
+    template void Field::FUNC_NAME<TYPE_SMALLINT>(                                           \
+            const typename PrimitiveTypeTraits<TYPE_SMALLINT>::NearestFieldType& rhs);       \
+    template void Field::FUNC_NAME<TYPE_INT>(                                                \
+            const typename PrimitiveTypeTraits<TYPE_INT>::NearestFieldType& rhs);            \
+    template void Field::FUNC_NAME<TYPE_BIGINT>(                                             \
+            const typename PrimitiveTypeTraits<TYPE_BIGINT>::NearestFieldType& rhs);         \
+    template void Field::FUNC_NAME<TYPE_LARGEINT>(                                           \
+            const typename PrimitiveTypeTraits<TYPE_LARGEINT>::NearestFieldType& rhs);       \
+    template void Field::FUNC_NAME<TYPE_DATE>(                                               \
+            const typename PrimitiveTypeTraits<TYPE_DATE>::NearestFieldType& rhs);           \
+    template void Field::FUNC_NAME<TYPE_DATETIME>(                                           \
+            const typename PrimitiveTypeTraits<TYPE_DATETIME>::NearestFieldType& rhs);       \
+    template void Field::FUNC_NAME<TYPE_DATEV2>(                                             \
+            const typename PrimitiveTypeTraits<TYPE_DATEV2>::NearestFieldType& rhs);         \
+    template void Field::FUNC_NAME<TYPE_DATETIMEV2>(                                         \
+            const typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::NearestFieldType& rhs);     \
+    template void Field::FUNC_NAME<TYPE_DECIMAL32>(                                          \
+            const typename PrimitiveTypeTraits<TYPE_DECIMAL32>::NearestFieldType& rhs);      \
+    template void Field::FUNC_NAME<TYPE_DECIMAL64>(                                          \
+            const typename PrimitiveTypeTraits<TYPE_DECIMAL64>::NearestFieldType& rhs);      \
+    template void Field::FUNC_NAME<TYPE_DECIMALV2>(                                          \
+            const typename PrimitiveTypeTraits<TYPE_DECIMALV2>::NearestFieldType& rhs);      \
+    template void Field::FUNC_NAME<TYPE_DECIMAL128I>(                                        \
+            const typename PrimitiveTypeTraits<TYPE_DECIMAL128I>::NearestFieldType& rhs);    \
+    template void Field::FUNC_NAME<TYPE_DECIMAL256>(                                         \
+            const typename PrimitiveTypeTraits<TYPE_DECIMAL256>::NearestFieldType& rhs);     \
+    template void Field::FUNC_NAME<TYPE_CHAR>(                                               \
+            const typename PrimitiveTypeTraits<TYPE_CHAR>::NearestFieldType& rhs);           \
+    template void Field::FUNC_NAME<TYPE_VARCHAR>(                                            \
+            const typename PrimitiveTypeTraits<TYPE_VARCHAR>::NearestFieldType& rhs);        \
+    template void Field::FUNC_NAME<TYPE_STRING>(                                             \
+            const typename PrimitiveTypeTraits<TYPE_STRING>::NearestFieldType& rhs);         \
+    template void Field::FUNC_NAME<TYPE_HLL>(                                                \
+            const typename PrimitiveTypeTraits<TYPE_HLL>::NearestFieldType& rhs);            \
+    template void Field::FUNC_NAME<TYPE_VARIANT>(                                            \
+            const typename PrimitiveTypeTraits<TYPE_VARIANT>::NearestFieldType& rhs);        \
+    template void Field::FUNC_NAME<TYPE_QUANTILE_STATE>(                                     \
+            const typename PrimitiveTypeTraits<TYPE_QUANTILE_STATE>::NearestFieldType& rhs); \
+    template void Field::FUNC_NAME<TYPE_ARRAY>(                                              \
+            const typename PrimitiveTypeTraits<TYPE_ARRAY>::NearestFieldType& rhs);          \
+    template void Field::FUNC_NAME<TYPE_IPV4>(                                               \
+            typename PrimitiveTypeTraits<TYPE_IPV4>::NearestFieldType && rhs);               \
+    template void Field::FUNC_NAME<TYPE_IPV4>(                                               \
+            const typename PrimitiveTypeTraits<TYPE_IPV4>::NearestFieldType& rhs);           \
+    template void Field::FUNC_NAME<TYPE_IPV6>(                                               \
+            typename PrimitiveTypeTraits<TYPE_IPV6>::NearestFieldType && rhs);               \
+    template void Field::FUNC_NAME<TYPE_IPV6>(                                               \
+            const typename PrimitiveTypeTraits<TYPE_IPV6>::NearestFieldType& rhs);           \
+    template void Field::FUNC_NAME<TYPE_BOOLEAN>(                                            \
+            typename PrimitiveTypeTraits<TYPE_BOOLEAN>::NearestFieldType && rhs);            \
+    template void Field::FUNC_NAME<TYPE_BOOLEAN>(                                            \
+            const typename PrimitiveTypeTraits<TYPE_BOOLEAN>::NearestFieldType& rhs);        \
+    template void Field::FUNC_NAME<TYPE_FLOAT>(                                              \
+            typename PrimitiveTypeTraits<TYPE_FLOAT>::NearestFieldType && rhs);              \
+    template void Field::FUNC_NAME<TYPE_FLOAT>(                                              \
+            const typename PrimitiveTypeTraits<TYPE_FLOAT>::NearestFieldType& rhs);          \
+    template void Field::FUNC_NAME<TYPE_DOUBLE>(                                             \
+            typename PrimitiveTypeTraits<TYPE_DOUBLE>::NearestFieldType && rhs);             \
+    template void Field::FUNC_NAME<TYPE_DOUBLE>(                                             \
+            const typename PrimitiveTypeTraits<TYPE_DOUBLE>::NearestFieldType& rhs);         \
+    template void Field::FUNC_NAME<TYPE_JSONB>(                                              \
+            typename PrimitiveTypeTraits<TYPE_JSONB>::NearestFieldType && rhs);              \
+    template void Field::FUNC_NAME<TYPE_JSONB>(                                              \
+            const typename PrimitiveTypeTraits<TYPE_JSONB>::NearestFieldType& rhs);          \
+    template void Field::FUNC_NAME<TYPE_STRUCT>(                                             \
+            typename PrimitiveTypeTraits<TYPE_STRUCT>::NearestFieldType && rhs);             \
+    template void Field::FUNC_NAME<TYPE_STRUCT>(                                             \
+            const typename PrimitiveTypeTraits<TYPE_STRUCT>::NearestFieldType& rhs);         \
+    template void Field::FUNC_NAME<TYPE_MAP>(                                                \
+            typename PrimitiveTypeTraits<TYPE_MAP>::NearestFieldType && rhs);                \
+    template void Field::FUNC_NAME<TYPE_MAP>(                                                \
+            const typename PrimitiveTypeTraits<TYPE_MAP>::NearestFieldType& rhs);            \
+    template void Field::FUNC_NAME<TYPE_OBJECT>(                                             \
+            typename PrimitiveTypeTraits<TYPE_OBJECT>::NearestFieldType && rhs);             \
+    template void Field::FUNC_NAME<TYPE_OBJECT>(                                             \
+            const typename PrimitiveTypeTraits<TYPE_OBJECT>::NearestFieldType& rhs);         \
+    template void Field::FUNC_NAME<TYPE_TIMEV2>(                                             \
+            const typename PrimitiveTypeTraits<TYPE_TIMEV2>::NearestFieldType& rhs);         \
+    template void Field::FUNC_NAME<TYPE_TIMEV2>(                                             \
+            typename PrimitiveTypeTraits<TYPE_TIMEV2>::NearestFieldType && rhs);
 DECLARE_FUNCTION(create_concrete)
 DECLARE_FUNCTION(assign_concrete)
 
