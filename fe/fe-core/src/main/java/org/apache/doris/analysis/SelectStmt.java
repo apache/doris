@@ -1490,11 +1490,7 @@ public class SelectStmt extends QueryStmt implements NotFallbackInParser {
                 groupingInfo.buildRepeat(groupingExprs, groupByClause.getGroupingSetList());
             }
 
-            boolean aliasFirst = false;
-            if (analyzer.getContext() != null) {
-                aliasFirst = analyzer.getContext().getSessionVariable().isGroupByAndHavingUseAliasFirst();
-            }
-            substituteOrdinalsAliases(groupingExprs, "GROUP BY", analyzer, aliasFirst);
+            substituteOrdinalsAliases(groupingExprs, "GROUP BY", analyzer, false);
             // the groupingExprs must substitute in the same way as resultExprs
             groupingExprs = Expr.substituteList(groupingExprs, countAllMap, analyzer, false);
 
