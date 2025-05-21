@@ -102,63 +102,62 @@ suite("test_external_and_internal_describe", "p0,external,hive,external_docker,e
             sql """unset variable show_column_comment_in_describe;"""
             // sql """drop table test_external_describe.user_behavior_log"""
         }
-    }
 
-    // desc internal table
-    sql "switch internal"
-    sql "drop database if exists test_external_and_internal_describe_db"
-    sql "create database test_external_and_internal_describe_db";
-    sql "use test_external_and_internal_describe_db";
-    sql """
-        CREATE TABLE test_external_and_internal_describe_tbl (
-            k1 int COMMENT "first column",
-            k2 string COMMENT "",
-            k3 string COMMENT "中文column"
-        ) DISTRIBUTED BY HASH(k1) BUCKETS 1 PROPERTIES("replication_num" = "1");
-    """
+        // desc internal table
+        sql "switch internal"
+        sql "drop database if exists test_external_and_internal_describe_db"
+        sql "create database test_external_and_internal_describe_db";
+        sql "use test_external_and_internal_describe_db";
+        sql """
+            CREATE TABLE test_external_and_internal_describe_tbl (
+                k1 int COMMENT "first column",
+                k2 string COMMENT "",
+                k3 string COMMENT "中文column"
+            ) DISTRIBUTED BY HASH(k1) BUCKETS 1 PROPERTIES("replication_num" = "1");
+        """
 
-    // no comment
-    sql """set show_column_comment_in_describe = false"""
-    qt_desc01 """desc test_external_and_internal_describe_tbl"""
-    // set show comment
-    sql """set show_column_comment_in_describe = true"""
-    qt_desc02 """desc test_external_and_internal_describe_tbl"""
+        // no comment
+        sql """set show_column_comment_in_describe = false"""
+        qt_desc01 """desc test_external_and_internal_describe_tbl"""
+        // set show comment
+        sql """set show_column_comment_in_describe = true"""
+        qt_desc02 """desc test_external_and_internal_describe_tbl"""
 
-    // test show proc for internal
-    def show_proc_string = """/catalogs/0/"""
-    def show_proc_db_string = """/dbs/"""
-    List<List<Object>> res = sql """show proc '${show_proc_string}'"""
-    for (int i = 0; i < res.size(); i++) {
-        if (res[i][1].equals("test_external_and_internal_describe_db")) {
-            show_proc_string = """${show_proc_string}${res[i][0]}/"""
-            show_proc_db_string = """${show_proc_db_string}${res[i][0]}/"""
+        // test show proc for internal
+        def show_proc_string = """/catalogs/0/"""
+        def show_proc_db_string = """/dbs/"""
+        List<List<Object>> res = sql """show proc '${show_proc_string}'"""
+        for (int i = 0; i < res.size(); i++) {
+            if (res[i][1].equals("test_external_and_internal_describe_db")) {
+                show_proc_string = """${show_proc_string}${res[i][0]}/"""
+                show_proc_db_string = """${show_proc_db_string}${res[i][0]}/"""
+            }
         }
-    }
-    // show proc "/catalogs/0/1747727318719/"
-    res = sql """show proc '${show_proc_string}'"""
-    for (int i = 0; i < res.size(); i++) {
-        if (res[i][1].equals("test_external_and_internal_describe_tbl")) {
-            show_proc_string = """${show_proc_string}${res[i][0]}/index_schema/"""
-            show_proc_db_string = """${show_proc_db_string}${res[i][0]}/index_schema/"""
+        // show proc "/catalogs/0/1747727318719/"
+        res = sql """show proc '${show_proc_string}'"""
+        for (int i = 0; i < res.size(); i++) {
+            if (res[i][1].equals("test_external_and_internal_describe_tbl")) {
+                show_proc_string = """${show_proc_string}${res[i][0]}/index_schema/"""
+                show_proc_db_string = """${show_proc_db_string}${res[i][0]}/index_schema/"""
+            }
         }
-    }
-    // show proc "/catalogs/0/1747727318719/2272230635936012419/4443123596601666371/index_schema"
-    res = sql """show proc '${show_proc_string}'"""
-    for (int i = 0; i < res.size(); i++) {
-        if (res[i][1].equals("test_external_and_internal_describe_tbl")) {
-            show_proc_string = """${show_proc_string}${res[i][0]}"""
-            show_proc_db_string = """${show_proc_db_string}${res[i][0]}"""
+        // show proc "/catalogs/0/1747727318719/2272230635936012419/4443123596601666371/index_schema"
+        res = sql """show proc '${show_proc_string}'"""
+        for (int i = 0; i < res.size(); i++) {
+            if (res[i][1].equals("test_external_and_internal_describe_tbl")) {
+                show_proc_string = """${show_proc_string}${res[i][0]}"""
+                show_proc_db_string = """${show_proc_db_string}${res[i][0]}"""
+            }
         }
+        sql """set show_column_comment_in_describe = false"""
+        qt_proc_sql01 """show proc '${show_proc_string}'"""
+        qt_proc_db_sql01 """show proc '${show_proc_db_string}'"""
+        sql """set show_column_comment_in_describe = true""" 
+        qt_proc_sql02 """show proc '${show_proc_string}'"""
+        qt_proc_db_sql02 """show proc '${show_proc_db_string}'"""
+
+
+        sql """unset variable show_column_comment_in_describe;"""
     }
-    sql """set show_column_comment_in_describe = false"""
-    qt_proc_sql01 """show proc '${show_proc_string}'"""
-    qt_proc_db_sql01 """show proc '${show_proc_db_string}'"""
-    sql """set show_column_comment_in_describe = true""" 
-    qt_proc_sql02 """show proc '${show_proc_string}'"""
-    qt_proc_db_sql02 """show proc '${show_proc_db_string}'"""
-
-
-    sql """unset variable show_column_comment_in_describe;"""
-
 }
 
