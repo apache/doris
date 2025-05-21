@@ -59,13 +59,21 @@ struct AggregateFunctionSumData {
         sum += value;
     }
 
-    void merge(const AggregateFunctionSumData& rhs) { sum += rhs.sum; }
+    void merge(const AggregateFunctionSumData& rhs) {
+        sum += rhs.sum;
+    }
 
-    void write(BufferWritable& buf) const { write_binary(sum, buf); }
+    void write(BufferWritable& buf) const {
+        write_binary(sum, buf);
+    }
 
-    void read(BufferReadable& buf) { read_binary(sum, buf); }
+    void read(BufferReadable& buf) {
+        read_binary(sum, buf);
+    }
 
-    T get() const { return sum; }
+    T get() const {
+        return sum;
+    }
 };
 
 /// Counts the sum of the numbers.
@@ -242,7 +250,7 @@ struct SumSimpleDecimal256 {
             level_up,
             std::conditional_t<
                     T == TYPE_DECIMALV2, Decimal128V2,
-                    std::conditional_t<is_decimal(T), Decimal128V3,
+                    std::conditional_t<is_decimal(T), Decimal256,
                                        typename PrimitiveTypeTraits<T>::NearestFieldType>>,
             typename PrimitiveTypeTraits<T>::ColumnItemType>;
     using AggregateDataType = AggregateFunctionSumData<ResultType>;
