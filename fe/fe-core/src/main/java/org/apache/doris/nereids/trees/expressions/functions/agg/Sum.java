@@ -77,6 +77,10 @@ public class Sum extends NullableAggregateFunction
         this(distinct, false, false, arg);
     }
 
+    public Sum(boolean distinct, boolean alwaysNullable, Expression arg) {
+        super("sum", distinct, alwaysNullable, arg);
+    }
+
     public Sum(boolean distinct, boolean alwaysNullable, boolean isSkew, Expression arg) {
         super("sum", distinct, alwaysNullable, isSkew, arg);
     }
