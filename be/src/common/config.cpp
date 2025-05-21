@@ -1947,6 +1947,10 @@ Status set_fuzzy_configs() {
     fuzzy_field_and_value["string_overflow_size"] =
             ((distribution(*generator) % 2) == 0) ? "10" : "4294967295";
 
+    std::uniform_int_distribution<int64_t> distribution2(-2, 10);
+    fuzzy_field_and_value["segments_key_bounds_truncation_threshold"] =
+            std::to_string(distribution2(*generator));
+
     fmt::memory_buffer buf;
     for (auto& it : fuzzy_field_and_value) {
         const auto& field = it.first;
