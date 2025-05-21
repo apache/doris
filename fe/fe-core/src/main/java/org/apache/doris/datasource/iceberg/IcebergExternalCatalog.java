@@ -54,7 +54,7 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     protected abstract void initCatalog();
 
     @Override
-    public synchronized void initPreExecutionAuthenticator() {
+    protected synchronized void initPreExecutionAuthenticator() {
         if (preExecutionAuthenticator == null) {
             preExecutionAuthenticator = new PreExecutionAuthenticator(getConfiguration());
         }

@@ -157,7 +157,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
     }
 
     @Override
-    public synchronized void initPreExecutionAuthenticator() {
+    protected synchronized void initPreExecutionAuthenticator() {
         if (preExecutionAuthenticator == null) {
             preExecutionAuthenticator = new PreExecutionAuthenticator(getConfiguration());
         }
