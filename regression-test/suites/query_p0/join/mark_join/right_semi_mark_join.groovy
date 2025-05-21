@@ -17,6 +17,7 @@
 
 
 suite("right_semi_mark_join") {
+    String suiteName = "right_semi_mark_join"
     String table_tbl1 = "${suiteName}_table_tbl1"
     String table_tbl2 = "${suiteName}_table_tbl2"
     String table_tbl3 = "${suiteName}_table_tbl3"

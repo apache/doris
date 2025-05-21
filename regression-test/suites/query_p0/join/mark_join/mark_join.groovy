@@ -75,7 +75,7 @@ suite("mark_join") {
     sql "drop table if exists ${table_tbl3};"
 
     sql """
-        CREATE TABLE `tbl1` (
+        CREATE TABLE `${table_tbl1}` (
             `unit_name` varchar(1080) NULL,
             `cur_unit_name` varchar(1080) NOT NULL
         ) ENGINE=OLAP
@@ -87,7 +87,7 @@ suite("mark_join") {
     """
 
     sql """
-        CREATE TABLE `tbl2` (
+        CREATE TABLE `${table_tbl2` (
             `org_code` varchar(150) NOT NULL ,
             `org_name` varchar(300) NULL
         ) ENGINE=OLAP
@@ -99,7 +99,7 @@ suite("mark_join") {
     """
 
     sql """
-        CREATE TABLE `tbl3` (
+        CREATE TABLE `${table_tbl3}` (
             `id` bigint NOT NULL,
             `acntm_name` varchar(500) NULL ,
             `vendor_name` varchar(500) NULL
