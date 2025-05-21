@@ -102,6 +102,8 @@ public class NereidsDataDescription {
             FunctionSet.HLL_HASH,
             "substitute");
 
+    private static final String DEFAULT_READ_JSON_BY_LINE = "true";
+
     private final String tableName;
 
     private String dbName;
@@ -222,6 +224,10 @@ public class NereidsDataDescription {
         if (properties != null) {
             this.analysisMap.putAll(properties);
         }
+        // the default value of `read_json_by_line` must be true.
+        // So that for broker load, this is always true,
+        // and for stream load, it will set on demand.
+        putAnalysisMapIfNonNull(JsonFileFormatProperties.PROP_READ_JSON_BY_LINE, DEFAULT_READ_JSON_BY_LINE);
         if (columnSeparator != null) {
             putAnalysisMapIfNonNull(CsvFileFormatProperties.PROP_COLUMN_SEPARATOR, columnSeparator.getOriSeparator());
         }
@@ -262,6 +268,10 @@ public class NereidsDataDescription {
         if (properties != null) {
             this.analysisMap.putAll(properties);
         }
+        // the default value of `read_json_by_line` must be true.
+        // So that for broker load, this is always true,
+        // and for stream load, it will set on demand.
+        putAnalysisMapIfNonNull(JsonFileFormatProperties.PROP_READ_JSON_BY_LINE, DEFAULT_READ_JSON_BY_LINE);
     }
 
     /**
@@ -295,6 +305,10 @@ public class NereidsDataDescription {
         if (properties != null) {
             this.analysisMap.putAll(properties);
         }
+        // the default value of `read_json_by_line` must be true.
+        // So that for broker load, this is always true,
+        // and for stream load, it will set on demand.
+        putAnalysisMapIfNonNull(JsonFileFormatProperties.PROP_READ_JSON_BY_LINE, DEFAULT_READ_JSON_BY_LINE);
         if (columnSeparator != null) {
             putAnalysisMapIfNonNull(CsvFileFormatProperties.PROP_COLUMN_SEPARATOR, columnSeparator.getOriSeparator());
         }
