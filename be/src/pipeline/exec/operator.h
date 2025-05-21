@@ -275,6 +275,10 @@ public:
     }
     Dependency* spill_dependency() const override { return _spill_dependency.get(); }
 
+    virtual bool must_set_shared_state() const {
+        return !std::is_same_v<SharedStateArg, FakeSharedState>;
+    }
+
 protected:
     Dependency* _dependency = nullptr;
     std::shared_ptr<Dependency> _spill_dependency;
@@ -527,6 +531,10 @@ public:
         return _dependency ? std::vector<Dependency*> {_dependency} : std::vector<Dependency*> {};
     }
     Dependency* spill_dependency() const override { return _spill_dependency.get(); }
+
+    virtual bool must_set_shared_state() const {
+        return !std::is_same_v<SharedStateArg, FakeSharedState>;
+    }
 
 protected:
     Dependency* _dependency = nullptr;
