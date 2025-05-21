@@ -50,8 +50,10 @@ suite ("diffrent_serialize") {
 
     sql "insert into d_table select -4,4,-4,'d';"
     sql "insert into d_table(k4,k2) values('d',4);"
+    sql "insert into d_table(k4,k2) values('d',3);"
+    sql "insert into d_table(k4,k2) values('b',3);"
 
-    qt_select_star "select * from d_table order by k1;"
+    qt_select_star "select * from d_table order by 1,2,3,4;"
 
     mv_rewrite_success("select k1,bitmap_to_string(bitmap_agg(k2)) from d_table group by k1 order by 1;", "mv1")
     qt_select_mv "select k1,bitmap_to_string(bitmap_agg(k2)) from d_table group by k1 order by 1;"
