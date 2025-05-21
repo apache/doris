@@ -636,7 +636,7 @@ Status PipelineXSinkLocalState<SharedState>::init(RuntimeState* state, LocalSink
 
     if (must_set_shared_state() && _shared_state == nullptr) {
         return Status::InternalError("must set shared state, in {}", _parent->get_name());
-    }    
+    }
 
     _rows_input_counter = ADD_COUNTER_WITH_LEVEL(_common_profile, "InputRows", TUnit::UNIT, 1);
     _init_timer = ADD_TIMER_WITH_LEVEL(_common_profile, "InitTime", 2);
