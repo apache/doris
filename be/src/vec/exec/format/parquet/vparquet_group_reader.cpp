@@ -390,6 +390,10 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_
 
 void RowGroupReader::_merge_read_ranges(std::vector<RowRange>& row_ranges) {
     _read_ranges = row_ranges;
+    _remaining_rows = 0;
+    for (auto& range : row_ranges) {
+        _remaining_rows += range.last_row - range.first_row;
+    }
 }
 
 Status RowGroupReader::_read_column_data(Block* block, const std::vector<std::string>& columns,
@@ -524,6 +528,11 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
             }
             for (auto& col : _lazy_read_ctx.predicate_missing_columns) {
                 block->get_by_name(col.first).column->assume_mutable()->clear();
+            }
+            if (_row_id_column_iterator_pair.first != nullptr) {
+                block->get_by_position(_row_id_column_iterator_pair.second)
+                        .column->assume_mutable()
+                        ->clear();
             }
             Block::erase_useless_column(block, origin_column_num);
 
@@ -773,6 +782,7 @@ Status RowGroupReader::_read_empty_batch(size_t batch_size, size_t* read_rows, b
             *batch_eof = true;
         }
     }
+    _total_read_rows += *read_rows;
     return Status::OK();
 }
 
@@ -786,7 +796,7 @@ Status RowGroupReader::_get_current_batch_row_id(size_t read_rows) {
         if (read_rows == 0) {
             break;
         }
-        if (_total_read_rows - read_range_rows > range.last_row - range.first_row) {
+        if (read_range_rows + (range.last_row - range.first_row) > _total_read_rows) {
             auto fi = _total_read_rows - read_range_rows + range.first_row;
             auto len = std::min(read_rows, (size_t)std::max(range.last_row - fi, 0L));
             read_rows -= len;

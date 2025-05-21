@@ -150,11 +150,11 @@ suite("test_hive_topn_lazy_mat", "p0,external,hive,external_docker,external_dock
         sql """drop catalog if exists ${catalog}"""
         sql """create catalog if not exists ${catalog} properties (
             'type'='hms',
-            'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}',
+            'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}'
         );"""
 
-        logger.info("catalog " + catalog_name + " created")
-        sql """switch ${catalog_name};"""
+        logger.info("catalog " + catalog + " created")
+        sql """switch ${catalog};"""
 
         sql """ use global_lazy_mat_db; """
 

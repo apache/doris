@@ -2177,7 +2177,7 @@ Status OrcReader::get_next_block_impl(Block* block, size_t* read_rows, bool* eof
                 SCOPED_RAW_TIMER(&_statistics.filter_block_time);
                 RETURN_IF_CATCH_EXCEPTION(Block::filter_block_internal(block, columns_to_filter,
                                                                        (*_delete_rows_filter_ptr)));
-            } else {
+            } else if (_position_delete_ordered_rowids != nullptr) {
                 std::unique_ptr<IColumn::Filter> filter(new IColumn::Filter(block->rows(), 1));
                 _execute_filter_position_delete_rowids(*filter);
                 SCOPED_RAW_TIMER(&_statistics.filter_block_time);
