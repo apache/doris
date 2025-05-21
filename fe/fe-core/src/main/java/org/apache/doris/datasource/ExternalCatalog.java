@@ -59,6 +59,7 @@ import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.datasource.test.TestExternalDatabase;
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalDatabase;
 import org.apache.doris.fs.remote.dfs.DFSFileSystem;
+import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.TruncateTableCommand;
 import org.apache.doris.persist.CreateDbInfo;
 import org.apache.doris.persist.CreateTableInfo;
@@ -996,6 +997,23 @@ public abstract class ExternalCatalog
             Env.getCurrentEnv().getEditLog().logCreateDb(info);
         } catch (Exception e) {
             LOG.warn("Failed to create database {} in catalog {}.", stmt.getFullDbName(), getName(), e);
+            throw e;
+        }
+    }
+
+    @Override
+    public void createDb(CreateDatabaseCommand command) throws DdlException {
+        makeSureInitialized();
+        if (metadataOps == null) {
+            LOG.warn("createDb not implemented");
+            return;
+        }
+        try {
+            metadataOps.createDb(command);
+            CreateDbInfo info = new CreateDbInfo(getName(), command.getDbName(), null);
+            Env.getCurrentEnv().getEditLog().logCreateDb(info);
+        } catch (Exception e) {
+            LOG.warn("Failed to create database {} in catalog {}.", command.getDbName(), getName(), e);
             throw e;
         }
     }

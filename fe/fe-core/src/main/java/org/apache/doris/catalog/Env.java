@@ -208,6 +208,7 @@ import org.apache.doris.nereids.trees.plans.commands.AlterSystemCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.AnalyzeCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelBuildIndexCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand.IdType;
 import org.apache.doris.nereids.trees.plans.commands.TruncateTableCommand;
@@ -3366,6 +3367,17 @@ public class Env {
             catalogIf = catalogMgr.getCatalog(stmt.getCtlName());
         }
         catalogIf.createDb(stmt);
+    }
+
+    // The interface which DdlExecutor needs.
+    public void createDb(CreateDatabaseCommand command) throws DdlException {
+        CatalogIf<?> catalogIf;
+        if (StringUtils.isEmpty(command.getCtlName())) {
+            catalogIf = getCurrentCatalog();
+        } else {
+            catalogIf = catalogMgr.getCatalog(command.getCtlName());
+        }
+        catalogIf.createDb(command);
     }
 
     // For replay edit log, need't lock metadata

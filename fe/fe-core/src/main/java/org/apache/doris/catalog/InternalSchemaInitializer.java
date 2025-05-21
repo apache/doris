@@ -22,7 +22,6 @@ import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.ColumnNullableType;
 import org.apache.doris.analysis.ColumnPosition;
-import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DbName;
 import org.apache.doris.analysis.DistributionDesc;
@@ -43,6 +42,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.ha.FrontendNodeType;
+import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.plugin.audit.AuditLoader;
 import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.statistics.util.StatisticsUtil;
@@ -256,10 +256,10 @@ public class InternalSchemaInitializer extends Thread {
 
     @VisibleForTesting
     public static void createDb() {
-        CreateDbStmt createDbStmt = new CreateDbStmt(true,
+        CreateDatabaseCommand command = new CreateDatabaseCommand(true,
                 new DbName("internal", FeConstants.INTERNAL_DB_NAME), null);
         try {
-            Env.getCurrentEnv().createDb(createDbStmt);
+            Env.getCurrentEnv().createDb(command);
         } catch (DdlException e) {
             LOG.warn("Failed to create database: {}, will try again later",
                     FeConstants.INTERNAL_DB_NAME, e);

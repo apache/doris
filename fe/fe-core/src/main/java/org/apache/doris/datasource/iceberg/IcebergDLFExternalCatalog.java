@@ -28,6 +28,7 @@ import org.apache.doris.datasource.iceberg.dlf.DLFCatalog;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.constants.HMSProperties;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
+import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.TruncateTableCommand;
 
 import java.util.Map;
@@ -56,6 +57,11 @@ public class IcebergDLFExternalCatalog extends IcebergExternalCatalog {
 
     @Override
     public void createDb(CreateDbStmt stmt) throws DdlException {
+        throw new NotSupportedException("iceberg catalog with dlf type not supports 'create database'");
+    }
+
+    @Override
+    public void createDb(CreateDatabaseCommand command) throws DdlException {
         throw new NotSupportedException("iceberg catalog with dlf type not supports 'create database'");
     }
 
