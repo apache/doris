@@ -87,8 +87,8 @@ inline MutableColumnPtr create_nested_column(size_t input_rows_count) {
         } else if constexpr (is_string_type(T)) {
             column->insert(Field::create_field<T>(generate_random_string(rand() % 512)));
         } else if constexpr (T == TYPE_DECIMAL64) {
-            column->insert(
-                    Field::create_field<T>(Int64(rand() % std::numeric_limits<Int64>::max())));
+            column->insert(Field::create_field<T>(
+                    DecimalField<Decimal64>(Int64(rand() % std::numeric_limits<Int64>::max()), 6)));
         } else {
             throw std::runtime_error("Unsupported type");
         }
