@@ -145,8 +145,7 @@ def gen_subnet_prefix16():
 
 
 def get_master_fe_endpoint(cluster_name, wait_master_fe_query_addr_file=False):
-    cluster_path = get_cluster_path(cluster_name)
-    if os.path.exists(cluster_path):
+    if os.path.exists(Cluster._get_meta_file(cluster_name)):
         master_fe_query_addr_file = get_master_fe_addr_path(cluster_name)
         max_retries = 10 if wait_master_fe_query_addr_file else 0
         i = 0
