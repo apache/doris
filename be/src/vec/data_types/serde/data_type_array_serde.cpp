@@ -20,6 +20,7 @@
 #include <arrow/array/builder_nested.h>
 
 #include "common/status.h"
+#include "complex_type_deserialize_util.h"
 #include "util/jsonb_document.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
@@ -98,55 +99,19 @@ Status DataTypeArraySerDe::deserialize_one_cell_from_json(IColumn& column, Slice
     slice.remove_prefix(1);
     slice.remove_suffix(1);
 
-    // deserialize array column from text we have to know how to split from text and support nested
-    //  complex type.
-    //   1. get item according to collection_delimiter, but if meet collection_delimiter in string, we should ignore it.
-    //   2. keep a nested level to support nested complex type.
-    int nested_level = 0;
-    bool has_quote = false;
-    std::vector<Slice> slices;
-    slices.reserve(10);
-    slice.trim_prefix();
-    slices.emplace_back(slice);
-    size_t slice_size = slice.size;
-    // pre add total slice can reduce lasted element check.
-    char quote_char = 0;
-    for (int idx = 0; idx < slice_size; ++idx) {
-        char c = slice[idx];
-        if (c == '"' || c == '\'') {
-            if (!has_quote) {
-                quote_char = c;
-                has_quote = !has_quote;
-            } else if (has_quote && quote_char == c) {
-                quote_char = 0;
-                has_quote = !has_quote;
-            }
-        } else if (!has_quote && (c == '[' || c == '{')) {
-            ++nested_level;
-        } else if (!has_quote && (c == ']' || c == '}')) {
-            --nested_level;
-        } else if (!has_quote && nested_level == 0 && c == options.collection_delim) {
-            // if meet collection_delimiter and not in quote, we can make it as an item.
-            auto& last_slice = slices.back();
-            last_slice.remove_suffix(slice_size - idx);
-            // we do not handle item in array is empty,just return error
-            if (last_slice.empty()) {
-                return Status::InvalidArgument("here has item in Array({}) is empty!",
-                                               slice.to_string());
-            }
-            // add next total slice.(slice data will not change, so we can use slice directly)
-            // skip delimiter
-            Slice next(slice.data + idx + 1, slice_size - idx - 1);
-            next.trim_prefix();
-            slices.emplace_back(next);
-        }
-    }
+    auto split_result = ComplexTypeDeserializeUtil::split_by_delimiter(
+            slice, [&](char c) { return c == options.collection_delim; });
 
+    std::vector<Slice> slices;
+
+    for (auto& e : split_result) {
+        slices.push_back(e.element);
+    }
     uint64_t elem_deserialized = 0;
-    Status st = nested_serde->deserialize_column_from_json_vector(nested_column, slices,
-                                                                  &elem_deserialized, options);
+    RETURN_IF_ERROR(nested_serde->deserialize_column_from_json_vector(nested_column, slices,
+                                                                      &elem_deserialized, options));
     offsets.emplace_back(offsets.back() + elem_deserialized);
-    return st;
+    return Status::OK();
 }
 
 Status DataTypeArraySerDe::deserialize_one_cell_from_hive_text(

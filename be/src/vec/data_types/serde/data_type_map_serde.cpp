@@ -20,6 +20,7 @@
 #include "arrow/array/builder_nested.h"
 #include "common/exception.h"
 #include "common/status.h"
+#include "complex_type_deserialize_util.h"
 #include "util/jsonb_document.h"
 #include "util/simd/bits.h"
 #include "vec/columns/column.h"
@@ -215,101 +216,38 @@ Status DataTypeMapSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& 
     // remove '{' '}'
     slice.remove_prefix(1);
     slice.remove_suffix(1);
-    slice.trim_prefix();
 
-    // deserialize map column from text we have to know how to split from text and support nested
-    //  complex type.
-    //   1. get item according to collection_delimiter, but if meet collection_delimiter in string, we should ignore it.
-    //   2. get kv according map_key_delimiter, but if meet map_key_delimiter in string, we should ignore it.
-    //   3. keep a nested level to support nested complex type.
-    int nested_level = 0;
-    bool has_quote = false;
-    int start_pos = 0;
-    size_t slice_size = slice.size;
-    bool key_added = false;
-    int idx = 0;
-    int elem_deserialized = 0;
-    char quote_char = 0;
-    for (; idx < slice_size; ++idx) {
-        char c = slice[idx];
-        if (c == '"' || c == '\'') {
-            if (!has_quote) {
-                quote_char = c;
-                has_quote = !has_quote;
-            } else if (has_quote && quote_char == c) {
-                quote_char = 0;
-                has_quote = !has_quote;
-            }
-        } else if (c == '\\' && idx + 1 < slice_size) { //escaped
-            ++idx;
-        } else if (!has_quote && (c == '[' || c == '{')) {
-            ++nested_level;
-        } else if (!has_quote && (c == ']' || c == '}')) {
-            --nested_level;
-        } else if (!has_quote && nested_level == 0 && c == options.map_key_delim && !key_added) {
-            // if meet map_key_delimiter and not in quote, we can make it as key elem.
-            if (idx == start_pos) {
-                continue;
-            }
-            Slice next(slice.data + start_pos, idx - start_pos);
-            next.trim_prefix();
-            if (Status st =
-                        key_serde->deserialize_one_cell_from_json(nested_key_column, next, options);
-                !st.ok()) {
-                nested_key_column.pop_back(elem_deserialized);
-                nested_val_column.pop_back(elem_deserialized);
-                return st;
-            }
-            // skip delimiter
-            start_pos = idx + 1;
-            key_added = true;
-        } else if (!has_quote && nested_level == 0 && c == options.collection_delim && key_added) {
-            // if meet collection_delimiter and not in quote, we can make it as value elem
-            if (idx == start_pos) {
-                continue;
-            }
-            Slice next(slice.data + start_pos, idx - start_pos);
-            next.trim_prefix();
+    auto split_result = ComplexTypeDeserializeUtil::split_by_delimiter(slice, [&](char c) {
+        return c == options.map_key_delim || c == options.collection_delim;
+    });
 
-            if (Status st = value_serde->deserialize_one_cell_from_json(nested_val_column, next,
-                                                                        options);
-                !st.ok()) {
-                nested_key_column.pop_back(elem_deserialized + 1);
-                nested_val_column.pop_back(elem_deserialized);
-                return st;
-            }
-            // skip delimiter
-            start_pos = idx + 1;
-            // reset key_added
-            key_added = false;
-            ++elem_deserialized;
+    // check syntax error
+    if (split_result.size() % 2 != 0) {
+        return Status::InvalidArgument("Map does not have even number of key-value pairs");
+    }
+
+    std::vector<Slice> key_slices;
+    std::vector<Slice> value_slices;
+
+    for (int i = 0; i < split_result.size(); i += 2) {
+        // : , : , : , :
+        if (split_result[i].delimiter != options.map_key_delim) {
+            return Status::InvalidArgument("Map key-value pair does not have map key delimiter");
         }
-    }
-    // for last value elem
-    if (!has_quote && nested_level == 0 && idx == slice_size && idx != start_pos && key_added) {
-        Slice next(slice.data + start_pos, idx - start_pos);
-        next.trim_prefix();
-
-        if (Status st =
-                    value_serde->deserialize_one_cell_from_json(nested_val_column, next, options);
-            !st.ok()) {
-            nested_key_column.pop_back(elem_deserialized + 1);
-            nested_val_column.pop_back(elem_deserialized);
-            return st;
+        if (i != 0 && split_result[i - 1].delimiter != options.collection_delim) {
+            return Status::InvalidArgument("Map key-value pair does not have collection delimiter");
         }
-        ++elem_deserialized;
+        key_slices.push_back(split_result[i].element);
+        value_slices.push_back(split_result[i + 1].element);
     }
 
-    if (nested_key_column.size() != nested_val_column.size()) {
-        // nested key and value should always same size otherwise we should popback wrong data
-        nested_key_column.pop_back(nested_key_column.size() - offsets.back());
-        nested_val_column.pop_back(nested_val_column.size() - offsets.back());
-        DCHECK(nested_key_column.size() == nested_val_column.size());
-        return Status::InvalidArgument(
-                "deserialize map error key_size({}) not equal to value_size{}",
-                nested_key_column.size(), nested_val_column.size());
-    }
-    offsets.emplace_back(offsets.back() + elem_deserialized);
+    uint64_t num_keys = 0, num_values = 0;
+    RETURN_IF_ERROR(key_serde->deserialize_column_from_json_vector(nested_key_column, key_slices,
+                                                                   &num_keys, options));
+    RETURN_IF_ERROR(value_serde->deserialize_column_from_json_vector(
+            nested_val_column, value_slices, &num_values, options));
+    DCHECK(num_keys == num_values);
+    offsets.push_back(offsets.back() + num_values);
     return Status::OK();
 }
 

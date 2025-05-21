@@ -19,6 +19,7 @@
 
 #include "arrow/array/builder_nested.h"
 #include "common/status.h"
+#include "complex_type_deserialize_util.h"
 #include "util/jsonb_document.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
@@ -101,116 +102,58 @@ Status DataTypeStructSerDe::deserialize_one_cell_from_json(IColumn& column, Slic
     slice.remove_suffix(1);
     slice.trim_prefix();
 
-    bool is_explicit_names = false;
-    int nested_level = 0;
-    bool has_quote = false;
-    int start_pos = 0;
-    size_t slice_size = slice.size;
-    bool key_added = false;
-    int idx = 0;
-    char quote_char = 0;
+    auto split_result = ComplexTypeDeserializeUtil::split_by_delimiter(slice, [&](char c) {
+        return c == options.map_key_delim || c == options.collection_delim;
+    });
 
-    auto elem_size = elem_serdes_ptrs.size();
-    DCHECK_EQ(elem_size, elem_names.size());
-    int field_pos = 0;
+    const auto elem_size = elem_serdes_ptrs.size();
 
-    for (; idx < slice_size; ++idx) {
-        char c = slice[idx];
-        if (c == '"' || c == '\'') {
-            if (!has_quote) {
-                quote_char = c;
-                has_quote = !has_quote;
-            } else if (has_quote && quote_char == c) {
-                quote_char = 0;
-                has_quote = !has_quote;
-            }
-        } else if (c == '\\' && idx + 1 < slice_size) { //escaped
-            ++idx;
-        } else if (!has_quote && (c == '[' || c == '{')) {
-            ++nested_level;
-        } else if (!has_quote && (c == ']' || c == '}')) {
-            --nested_level;
-        } else if (!has_quote && nested_level == 0 && c == options.map_key_delim && !key_added) {
-            // if meet map_key_delimiter and not in quote, we can make it as key elem.
-            if (idx == start_pos) {
-                continue;
-            }
-            Slice next(slice.data + start_pos, idx - start_pos);
-            next.trim_prefix();
-            next.trim_quote();
-            // check field_name
-            if (field_pos >= elem_size) {
-                // we should do column revert if error
-                for (size_t j = 0; j < field_pos; j++) {
-                    struct_column.get_column(j).pop_back(1);
-                }
+    std::vector<Slice> field_value;
+    // check syntax error
+    if (split_result.size() == elem_size) {
+        // no field name
+        for (int i = 0; i < split_result.size(); i++) {
+            if (i != split_result.size() - 1 &&
+                split_result[i].delimiter != options.collection_delim) {
                 return Status::InvalidArgument(
-                        "Actual struct field number is more than schema field number {}.",
-                        field_pos, elem_size);
+                        "Struct field value {} is not separated by collection_delim.", i);
             }
-            if (elem_names[field_pos] != next) {
-                // we should do column revert if error
-                for (size_t j = 0; j < field_pos; j++) {
-                    struct_column.get_column(j).pop_back(1);
-                }
+            field_value.push_back(split_result[i].element);
+        }
+    } else if (split_result.size() == 2 * elem_size) {
+        // field name : field value
+        int field_pos = 0;
+        for (int i = 0; i < split_result.size(); i += 2) {
+            if (split_result[i].delimiter != options.map_key_delim) {
+                return Status::InvalidArgument(
+                        "Struct name-value pair does not have map key delimiter");
+            }
+            if (i != 0 && split_result[i - 1].delimiter != options.collection_delim) {
+                return Status::InvalidArgument(
+                        "Struct name-value pair does not have collection delimiter");
+            }
+            if (field_pos >= elem_size) {
+                return Status::InvalidArgument(
+                        "Struct field number is more than schema field number");
+            }
+            auto field_name = split_result[i].element;
+            field_name.trim_quote();
+            if (elem_names[field_pos] != field_name) {
                 return Status::InvalidArgument("Cannot find struct field name {} in schema.",
-                                               next.to_string());
+                                               split_result[i].element.to_string());
             }
-            // skip delimiter
-            start_pos = idx + 1;
-            is_explicit_names = true;
-            key_added = true;
-        } else if (!has_quote && nested_level == 0 && c == options.collection_delim &&
-                   (key_added || !is_explicit_names)) {
-            // if meet collection_delimiter and not in quote, we can make it as value elem
-            if (idx == start_pos) {
-                continue;
-            }
-            Slice next(slice.data + start_pos, idx - start_pos);
-            next.trim_prefix();
-            // field_pos should always less than elem_size, if not, we should return error
-            if (field_pos >= elem_size) {
-                // we should do column revert if error
-                for (size_t j = 0; j < field_pos; j++) {
-                    struct_column.get_column(j).pop_back(1);
-                }
-                return Status::InvalidArgument(
-                        "Actual struct field number is more than schema field number {}.",
-                        field_pos, elem_size);
-            }
-            if (Status st = elem_serdes_ptrs[field_pos]->deserialize_one_cell_from_json(
-                        struct_column.get_column(field_pos), next, options);
-                st != Status::OK()) {
-                // we should do column revert if error
-                for (size_t j = 0; j < field_pos; j++) {
-                    struct_column.get_column(j).pop_back(1);
-                }
-                return st;
-            }
-            // skip delimiter
-            start_pos = idx + 1;
-            // reset key_added
-            key_added = false;
-            ++field_pos;
+            field_value.push_back(split_result[i + 1].element);
+            field_pos++;
         }
+    } else {
+        return Status::InvalidArgument(
+                "Struct field number {} is not equal to schema field number {}.",
+                split_result.size(), elem_size);
     }
-    // for last value elem
-    if (!has_quote && nested_level == 0 && idx == slice_size && idx != start_pos &&
-        (key_added || !is_explicit_names)) {
-        Slice next(slice.data + start_pos, idx - start_pos);
-        next.trim_prefix();
-        /// field_pos should always less than elem_size, if not, we should return error
-        if (field_pos >= elem_size) {
-            // we should do column revert if error
-            for (size_t j = 0; j < field_pos; j++) {
-                struct_column.get_column(j).pop_back(1);
-            }
-            return Status::InvalidArgument(
-                    "Actual struct field number is more than schema field number {}.", field_pos,
-                    elem_size);
-        }
+
+    for (int field_pos = 0; field_pos < elem_size; ++field_pos) {
         if (Status st = elem_serdes_ptrs[field_pos]->deserialize_one_cell_from_json(
-                    struct_column.get_column(field_pos), next, options);
+                    struct_column.get_column(field_pos), field_value[field_pos], options);
             st != Status::OK()) {
             // we should do column revert if error
             for (size_t j = 0; j < field_pos; j++) {
@@ -218,14 +161,6 @@ Status DataTypeStructSerDe::deserialize_one_cell_from_json(IColumn& column, Slic
             }
             return st;
         }
-        ++field_pos;
-    }
-
-    // check stuff:
-    if (field_pos < elem_size) {
-        return Status::InvalidArgument(
-                "Actual struct field number {} is less than schema field number {}.", field_pos,
-                elem_size);
     }
     return Status::OK();
 }

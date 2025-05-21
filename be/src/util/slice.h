@@ -156,6 +156,28 @@ public:
         }
     }
 
+    /// Remove trailing spaces.
+    ///
+    /// @pre n <= size
+    ///
+    /// @note Only the base and bounds of the slice are changed;
+    ///   the data is not modified.
+    ///
+    /// @param [in] n
+    ///   Number of bytes of space that should be dropped from the last.
+    void trim_suffix() {
+        int32_t end = size - 1;
+        while (end >= 0 && data[end] == ' ') {
+            size -= 1;
+            end -= 1;
+        }
+    }
+
+    void trim() {
+        trim_prefix();
+        trim_suffix();
+    }
+
     /// Remove quote char '"' or ''' which should exist as first and last char.
     ///
     /// @pre n <= size
