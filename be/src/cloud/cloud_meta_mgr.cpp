@@ -1287,6 +1287,12 @@ Status CloudMetaMgr::update_delete_bitmap(const CloudTablet& tablet, int64_t loc
                 lock_id);
     });
     auto st = retry_rpc("update delete bitmap", req, &res, &MetaService_Stub::update_delete_bitmap);
+    if (config::enable_update_delete_bitmap_kv_check_core &&
+        res.status().code() == MetaServiceCode::UPDATE_OVERRIDE_EXISTING_KV) {
+        auto& msg = res.status().msg();
+        LOG_WARNING(msg);
+        CHECK(false) << msg;
+    }
     if (res.status().code() == MetaServiceCode::LOCK_EXPIRED) {
         return Status::Error<ErrorCode::DELETE_BITMAP_LOCK_ERROR, false>(
                 "lock expired when update delete bitmap, tablet_id: {}, lock_id: {}, initiator: "
