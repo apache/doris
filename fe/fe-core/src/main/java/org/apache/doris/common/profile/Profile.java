@@ -484,6 +484,7 @@ public class Profile {
 
         if (this.executionProfiles.size() == 1) {
             builder.append("MergedProfile:\n");
+            List<TPlanNodeRuntimeStatsItem> planNodeRuntimeStatsItems = null;
             if (mergedProfile != null) {
                 mergedProfile.prettyPrint(builder, "     ");
                 planNodeRuntimeStatsItems = RuntimeProfile.toTPlanNodeRuntimeStatsItem(mergedProfile, null);
