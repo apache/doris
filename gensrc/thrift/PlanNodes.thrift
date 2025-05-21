@@ -530,6 +530,10 @@ struct TIcebergMetadataParams {
   2: optional string catalog
   3: optional string database
   4: optional string table
+  5: optional string serialized_table
+  6: optional list<string> column_names
+  7: optional list<string> column_types
+  8: optional list<string> nested_fields
 }
 
 struct THudiMetadataParams {

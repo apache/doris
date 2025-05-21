@@ -106,6 +106,7 @@ public abstract class IcebergMetadataJniScanner extends JniScanner {
     protected abstract void closeInner() throws IOException;
 
     private void parseRequiredTypes() {
+        // TODO: consider hard code the metadata column names and types
         HashMap<String, String> metadataColumnMap = new HashMap<>();
         for (int i = 0; i < metadataColumnNames.length; i++) {
             metadataColumnMap.put(metadataColumnNames[i], metadataColumnTypes[i]);
@@ -119,5 +120,6 @@ public abstract class IcebergMetadataJniScanner extends JniScanner {
             }
             requiredTypes[i] = ColumnType.parseType(field, type);
         }
+        // TODO: handle nested types
     }
 }
