@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -37,6 +38,13 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class ShowCopyCommandTest extends TestWithFeService {
+    public static final ImmutableList<String> LOAD_TITLE_NAMES = new ImmutableList.Builder<String>()
+            .add("JobId").add("Label").add("State").add("Progress")
+            .add("Type").add("EtlInfo").add("TaskInfo").add("ErrorMsg").add("CreateTime")
+            .add("EtlStartTime").add("EtlFinishTime").add("LoadStartTime").add("LoadFinishTime")
+            .add("URL").add("JobDetails").add("TransactionId").add("ErrorTablets").add("User").add("Comment")
+            .build();
+
     @Override
     protected void runBeforeAll() throws Exception {
         createDatabase("test");
@@ -89,9 +97,31 @@ public class ShowCopyCommandTest extends TestWithFeService {
         UnboundSlot key = new UnboundSlot(Lists.newArrayList("LABEL"));
         List<OrderKey> orderKeys = Lists.newArrayList(new OrderKey(key, true, true));
         ShowCopyCommand command = new ShowCopyCommand("test", orderKeys, null, -1, -1);
-        ArrayList<OrderByPair> orderByPairs = command.getOrderByPairs();
+        ArrayList<OrderByPair> orderByPairs = command.getOrderByPairs(orderKeys, LOAD_TITLE_NAMES);
         OrderByPair op = orderByPairs.get(0);
         Assertions.assertFalse(op.isDesc());
         Assertions.assertEquals(1, op.getIndex());
+    }
+
+    @Test
+    public void testApplyLimit() {
+        UnboundSlot key = new UnboundSlot(Lists.newArrayList("LABEL"));
+        List<OrderKey> orderKeys = Lists.newArrayList(new OrderKey(key, true, true));
+        long limit = 1;
+        long offset = 1;
+        ShowCopyCommand command = new ShowCopyCommand("test", orderKeys, null, limit, offset);
+        List<List<String>> rows = new ArrayList<>();
+        List<String> row1 = new ArrayList<>();
+        List<String> row2 = new ArrayList<>();
+        row1.add("a");
+        row1.add("b");
+        row2.add("x");
+        row2.add("y");
+        rows.add(row1);
+        rows.add(row2);
+        rows = command.applyLimit(limit, offset, rows);
+        Assertions.assertEquals(1, rows.size());
+        Assertions.assertEquals("x", rows.get(0).get(0));
+        Assertions.assertEquals("y", rows.get(0).get(1));
     }
 }
