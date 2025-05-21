@@ -237,4 +237,18 @@ public class TreeNode<NodeType extends TreeNode<NodeType>> {
         return null;
     }
 
+    /** anyMatch */
+    public boolean anyMatch(Predicate<TreeNode<? extends NodeType>> func) {
+        if (func.apply(this)) {
+            return true;
+        }
+
+        for (NodeType child : children) {
+            if (child.anyMatch(func)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
 }

@@ -21,6 +21,7 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.JoinOperator;
 import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
@@ -472,6 +473,7 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     }
 
     public boolean hasNullAwareLeftAntiJoin() {
-        return planRoot.isNullAwareLeftAntiJoin();
+        return planRoot.anyMatch(plan -> plan instanceof JoinNodeBase
+                && ((JoinNodeBase) plan).getJoinOp() == JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN);
     }
 }
