@@ -24,7 +24,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.PatternMatcherWrapper;
-import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
@@ -41,24 +40,15 @@ import java.util.List;
 public class ShowWorkloadGroupsCommand extends ShowCommand {
 
     private String pattern;
-    private Expression whereClause;
 
-    public ShowWorkloadGroupsCommand(String pattern, Expression whereClause) {
+    public ShowWorkloadGroupsCommand(String pattern) {
         super(PlanType.SHOW_WORKLOAD_GROUP_COMMAND);
         this.pattern = pattern;
-        this.whereClause = whereClause;
     }
 
     @Override
     public ShowResultSet doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        validate();
         return handleShowWorkloadGroups();
-    }
-
-    public void validate() throws AnalysisException {
-        if (this.whereClause != null) {
-            throw new AnalysisException("Where clause is not supported in show workload groups statement");
-        }
     }
 
     private ShowResultSet handleShowWorkloadGroups() throws AnalysisException {

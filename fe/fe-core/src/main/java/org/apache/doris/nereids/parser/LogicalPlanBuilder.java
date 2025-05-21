@@ -7616,15 +7616,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitShowWorkloadGroups(DorisParser.ShowWorkloadGroupsContext ctx) {
-        Expression whereClause = null;
         String likePattern = null;
-        if (ctx.wildWhere() != null) {
-            if (ctx.wildWhere().LIKE() != null) {
-                likePattern = stripQuotes(ctx.wildWhere().STRING_LITERAL().getText());
-            } else {
-                whereClause = (Expression) ctx.wildWhere().expression().accept(this);
-            }
+        if (ctx.LIKE() != null) {
+            likePattern = stripQuotes(ctx.STRING_LITERAL().getText());
         }
-        return new ShowWorkloadGroupsCommand(likePattern, whereClause);
+        return new ShowWorkloadGroupsCommand(likePattern);
     }
 }

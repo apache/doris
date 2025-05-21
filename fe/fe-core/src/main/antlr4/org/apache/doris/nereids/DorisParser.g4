@@ -394,7 +394,7 @@ supportedShowStatement
     | SHOW CATALOG RECYCLE BIN (WHERE expression)?                                  #showCatalogRecycleBin
     | SHOW TABLET tabletId=INTEGER_VALUE                                            #showTabletId
     | SHOW DICTIONARIES wildWhere?                                                  #showDictionaries
-    | SHOW WORKLOAD GROUPS wildWhere?                                               #showWorkloadGroups
+    | SHOW WORKLOAD GROUPS (LIKE STRING_LITERAL)?                                   #showWorkloadGroups
     | SHOW QUERY STATS ((FOR database=identifier)
             | (FROM tableName=multipartIdentifier (ALL VERBOSE?)?))?                #showQueryStats
     ;
