@@ -234,6 +234,11 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::add_add
         return;
     }
 #endif
+
+    if (!doris::config::crash_in_memory_tracker_inaccurate) {
+        return;
+    }
+
     doris::thread_context()->thread_mem_tracker()->add_address_sanitizers(buf, size);
 }
 
@@ -245,6 +250,11 @@ void Allocator<clear_memory_, mmap_populate, use_mmap, MemoryAllocator>::remove_
         return;
     }
 #endif
+
+    if (!doris::config::crash_in_memory_tracker_inaccurate) {
+        return;
+    }
+
     doris::thread_context()->thread_mem_tracker()->remove_address_sanitizers(buf, size);
 }
 

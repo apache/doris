@@ -233,7 +233,7 @@ public:
         // the root Node should be JSONB type when finalize
         bool is_root = false;
     };
-    using Subcolumns = SubcolumnsTree<Subcolumn>;
+    using Subcolumns = SubcolumnsTree<Subcolumn, false>;
 
 private:
     /// If true then all subcolumns are nullable.
