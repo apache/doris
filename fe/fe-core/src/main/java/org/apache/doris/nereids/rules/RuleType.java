@@ -377,6 +377,7 @@ public enum RuleType {
     LEADING_JOIN(RuleTypeClass.REWRITE),
     REWRITE_SENTINEL(RuleTypeClass.REWRITE),
     COLLECT_COLUMNS(RuleTypeClass.REWRITE),
+    COLLECT_PARTITIONS(RuleTypeClass.REWRITE),
 
     OPERATIVE_COLUMN_DERIVE(RuleTypeClass.REWRITE),
 

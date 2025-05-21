@@ -1271,6 +1271,9 @@ DECLARE_mBool(enable_merge_on_write_correctness_check);
 // USED FOR DEBUGING
 // core directly if the compaction found there's duplicate key on mow table
 DECLARE_mBool(enable_mow_compaction_correctness_check_core);
+// USED FOR DEBUGING
+// let compaction fail if the compaction found there's duplicate key on mow table
+DECLARE_mBool(enable_mow_compaction_correctness_check_fail);
 // rowid conversion correctness check when compaction for mow table
 DECLARE_mBool(enable_rowid_conversion_correctness_check);
 // missing rows correctness check when compaction for mow table
@@ -1563,6 +1566,8 @@ DECLARE_mInt64(base_compaction_interval_seconds_since_last_operation);
 DECLARE_mBool(enable_compaction_pause_on_high_memory);
 
 DECLARE_mBool(enable_calc_delete_bitmap_between_segments_concurrently);
+
+DECLARE_mBool(enable_update_delete_bitmap_kv_check_core);
 
 #ifdef BE_TEST
 // test s3

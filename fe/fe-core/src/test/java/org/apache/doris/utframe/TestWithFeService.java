@@ -158,13 +158,13 @@ public abstract class TestWithFeService {
         // this.enableAdvanceNextId may be reset by children classes
         Config.enable_advance_next_id = this.enableAdvanceNextId;
         FeConstants.enableInternalSchemaDb = false;
-        FeConstants.bindWgToComputeGroup = false;
+        FeConstants.disableWGCheckerForUT = true;
         beforeCreatingConnectContext();
         connectContext = createDefaultCtx();
         beforeCluster();
         createDorisCluster();
+        Env.getCurrentEnv().getWorkloadGroupMgr().createNormalWorkloadGroupForUT();
         runBeforeAll();
-        Env.getCurrentEnv().getWorkloadGroupMgr().tryCreateNormalWorkloadGroup("default");
     }
 
     protected void beforeCluster() {
