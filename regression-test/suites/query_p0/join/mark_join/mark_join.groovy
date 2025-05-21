@@ -87,7 +87,7 @@ suite("mark_join") {
     """
 
     sql """
-        CREATE TABLE `${table_tbl2` (
+        CREATE TABLE `${table_tbl2}` (
             `org_code` varchar(150) NOT NULL ,
             `org_name` varchar(300) NULL
         ) ENGINE=OLAP
