@@ -24,12 +24,20 @@
 
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
+#include <cstddef>
 #include <limits>
 #include <memory>
+#include <unordered_map>
 #include <vector>
 
 #include "common/status.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_nullable.h"
 #include "vec/common/arena.h"
+#include "vec/common/assert_cast.h"
+#include "vec/common/custom_allocator.h"
+#include "vec/common/hash_table/phmap_fwd_decl.h"
+#include "vec/common/string_ref.h"
 #include "vec/common/typeid_cast.h"
 #include "vec/common/unaligned.h"
 
@@ -491,6 +499,96 @@ ColumnPtr ColumnMap::replicate(const Offsets& offsets) const {
                                  assert_cast<const ColumnArray&>(*v_arr).get_data_ptr(),
                                  assert_cast<const ColumnArray&>(*k_arr).get_offsets_ptr());
     return res;
+}
+
+Status ColumnMap::deduplicate_keys(bool recursive) {
+    const auto inner_rows = keys_column->size();
+    const auto rows = offsets_column->size();
+
+    if (recursive) {
+        auto values_column_ = values_column;
+        if (values_column_->is_nullable()) {
+            values_column_ = (assert_cast<ColumnNullable&>(*values_column)).get_nested_column_ptr();
+        }
+
+        if (const auto* values_map = check_and_get_column<ColumnMap>(values_column_.get())) {
+            RETURN_IF_ERROR((const_cast<ColumnMap*>(values_map))->deduplicate_keys(recursive));
+        }
+    }
+
+    DorisVector<StringRef> serialized_keys(inner_rows);
+
+    const size_t max_one_row_byte_size = keys_column->get_max_row_byte_size();
+
+    size_t total_bytes = max_one_row_byte_size * inner_rows;
+    Arena pool;
+
+    if (total_bytes >= config::pre_serialize_keys_limit_bytes) {
+        // reach mem limit, don't serialize in batch
+        const char* begin = nullptr;
+        for (size_t i = 0; i != inner_rows; ++i) {
+            serialized_keys[i] = keys_column->serialize_value_into_arena(i, pool, begin);
+        }
+    } else {
+        auto* serialized_key_buffer = reinterpret_cast<uint8_t*>(pool.alloc(total_bytes));
+
+        for (size_t i = 0; i < inner_rows; ++i) {
+            serialized_keys[i].data =
+                    reinterpret_cast<char*>(serialized_key_buffer + i * max_one_row_byte_size);
+            serialized_keys[i].size = 0;
+        }
+
+        keys_column->serialize_vec(serialized_keys.data(), inner_rows, max_one_row_byte_size);
+    }
+
+    auto new_offsets = COffsets::create();
+    new_offsets->reserve(rows);
+    auto& new_offsets_data = new_offsets->get_data();
+
+    IColumn::Filter filter(inner_rows, 1);
+    auto& offsets = get_offsets();
+
+    Offset64 offset = 0;
+    bool has_duplicated_key = false;
+
+    for (size_t i = 0; i != rows; ++i) {
+        const auto count = offsets[i] - offsets[i - 1];
+        if (count == 0) {
+            new_offsets_data.push_back(offset);
+            continue;
+        }
+
+        if (count == 1) {
+            filter[offsets[i - 1]] = 1;
+            ++offset;
+            new_offsets_data.push_back(offset);
+            continue;
+        }
+
+        phmap::flat_hash_map<StringRef, size_t> keys_map;
+        keys_map.reserve(count);
+        for (size_t j = offsets[i - 1]; j < offsets[i]; ++j) {
+            const auto& serialized_key = serialized_keys[j];
+            if (keys_map.find(serialized_key) == keys_map.end()) {
+                ++offset;
+            } else {
+                filter[keys_map[serialized_key]] = 0;
+                has_duplicated_key = true;
+            }
+
+            filter[j] = 1;
+            keys_map[serialized_key] = j;
+        }
+        new_offsets_data.push_back(offset);
+    }
+
+    if (has_duplicated_key) {
+        offsets_column = std::move(new_offsets);
+        keys_column->filter(filter);
+        values_column->filter(filter);
+    }
+
+    return Status::OK();
 }
 
 void ColumnMap::shrink_padding_chars() {
