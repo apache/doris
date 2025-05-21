@@ -484,28 +484,6 @@ public:
         this->c_end += this->byte_size(1);
     }
 
-    template <typename U, typename... TAllocatorParams>
-    void add_num_element(U&& x, uint32_t num, TAllocatorParams&&... allocator_params) {
-        if (num != 0) {
-            const auto growth_size = this->byte_size(num);
-            if (UNLIKELY(this->c_end + growth_size > this->c_end_of_storage)) {
-                this->reserve(this->size() + num);
-            }
-            this->reset_resident_memory(this->c_end + growth_size);
-            std::fill(t_end(), t_end() + num, x);
-            this->c_end = this->c_end + growth_size;
-        }
-    }
-
-    template <typename U, typename... TAllocatorParams>
-    void add_num_element_without_reserve(U&& x, uint32_t num,
-                                         TAllocatorParams&&... allocator_params) {
-        const auto growth_size = sizeof(T) * num;
-        this->reset_resident_memory(this->c_end + growth_size);
-        std::fill(t_end(), t_end() + num, x);
-        this->c_end += growth_size;
-    }
-
     /**
      * you must make sure to reserve podarray before calling this method
      * remove branch if can improve performance
