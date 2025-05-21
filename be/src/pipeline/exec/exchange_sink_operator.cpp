@@ -33,6 +33,7 @@
 #include "pipeline/exec/sort_source_operator.h"
 #include "pipeline/local_exchange/local_exchange_sink_operator.h"
 #include "pipeline/pipeline_fragment_context.h"
+#include "pipeline/shuffle/writer.h"
 #include "util/runtime_profile.h"
 #include "util/uid_util.h"
 #include "vec/columns/column_const.h"
@@ -132,6 +133,7 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
         _profile->add_info_string("Partitioner",
                                   fmt::format("Crc32HashPartitioner({})", _partition_count));
     } else if (_part_type == TPartitionType::OLAP_TABLE_SINK_HASH_PARTITIONED) {
+        // in OlapWriter we rely on type of _partitioner here
         _partition_count = channels.size();
         _profile->add_info_string("Partitioner",
                                   fmt::format("TabletSinkHashPartitioner({})", _partition_count));
@@ -209,11 +211,15 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     RETURN_IF_ERROR(Base::open(state));
-    _writer.reset(new Writer());
+    if (_part_type == TPartitionType::OLAP_TABLE_SINK_HASH_PARTITIONED) {
+        _writer = std::make_unique<OlapWriter>();
+    } else {
+        _writer = std::make_unique<TrivialWriter>();
+    }
     auto& p = _parent->cast<ExchangeSinkOperatorX>();
 
-    for (int i = 0; i < channels.size(); ++i) {
-        RETURN_IF_ERROR(channels[i]->open(state));
+    for (auto& channel : channels) {
+        RETURN_IF_ERROR(channel->open(state));
     }
 
     PUniqueId id;
@@ -474,19 +480,12 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
                 (local_state.current_channel_idx + 1) % local_state.channels.size();
     } else if (_part_type == TPartitionType::HASH_PARTITIONED ||
                _part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED ||
-               _part_type == TPartitionType::OLAP_TABLE_SINK_HASH_PARTITIONED ||
                _part_type == TPartitionType::HIVE_TABLE_SINK_HASH_PARTITIONED) {
-        Status st = local_state._writer->write(&local_state, state, block);
-        // auto partition's batched block cut in line. send this unprocessed block again.
-        if (st.is<ErrorCode::NEED_SEND_AGAIN>()) {
-            RETURN_IF_ERROR(local_state._writer->write(&local_state, state, block));
-        } else if (!st.ok()) {
-            return st;
-        }
-        if (eos) {
-            vectorized::Block empty_block = block->clone_empty();
-            RETURN_IF_ERROR(local_state._writer->write_last(&local_state, state, &empty_block));
-        }
+        RETURN_IF_ERROR(static_cast<TrivialWriter*>(local_state._writer.get())
+                                ->write(&local_state, state, block, eos));
+    } else if (_part_type == TPartitionType::OLAP_TABLE_SINK_HASH_PARTITIONED) {
+        RETURN_IF_ERROR(static_cast<OlapWriter*>(local_state._writer.get())
+                                ->write(&local_state, state, block, eos));
     } else if (_part_type == TPartitionType::HIVE_TABLE_SINK_UNPARTITIONED) {
         // Control the number of channels according to the flow, thereby controlling the number of table sink writers.
         // 1. select channel
