@@ -224,7 +224,7 @@ public class CascadesContext implements ScheduleContext {
      * Init memo with plan
      */
     public void toMemo() {
-        this.memo = new Memo(getConnectContext(), plan);
+        this.memo = null;
         List<Plan> rewrittenPlansByMv = this.getStatementContext().getRewrittenPlansByMv();
         // only consider result sink to avoid Insert a plan into targetGroup but differ in logical properties
         boolean initMultiPlanMemo = Memo.needInitMultiPlanMemo(this, plan);
@@ -239,8 +239,17 @@ public class CascadesContext implements ScheduleContext {
                             getConnectContext().getQueryIdentifier());
                     continue;
                 }
-                this.memo.copyIn(rewrittenPlan, this.memo.getRoot(), false);
+                if (this.memo == null) {
+                    this.memo = new Memo(getConnectContext(), rewrittenPlan);
+                } else {
+                    this.memo.copyIn(rewrittenPlan, this.memo.getRoot(), false);
+                }
             }
+        }
+        if (this.memo != null) {
+            this.memo.copyIn(plan, this.memo.getRoot(), false);
+        } else {
+            this.memo = new Memo(getConnectContext(), plan);
         }
     }
 
@@ -363,6 +372,10 @@ public class CascadesContext implements ScheduleContext {
         return materializationContexts.values().stream()
                 .filter(MaterializationContext::isAvailable)
                 .collect(Collectors.toList());
+    }
+
+    public Map<List<String>, MaterializationContext> getAllMaterializationContexts() {
+        return materializationContexts;
     }
 
     public void addMaterializationContext(MaterializationContext materializationContext) {

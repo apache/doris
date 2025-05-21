@@ -194,8 +194,7 @@ public class StructInfo {
             List<CatalogRelation> nodeRelations = new ArrayList<>();
             nodePlan.accept(RELATION_COLLECTOR, nodeRelations);
             relations.addAll(nodeRelations);
-            nodeRelations.forEach(relation -> hyperTableBitSet.set(
-                    cascadesContext.getStatementContext().getTableId(relation.getTable()).asInt()));
+            nodeRelations.forEach(relation -> hyperTableBitSet.set(relation.getRelationId().asInt()));
             // plan relation collector and set to map
             StructInfoNode structInfoNode = (StructInfoNode) node;
             // record expressions in node

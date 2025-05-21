@@ -24,7 +24,6 @@ import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
-import org.apache.doris.catalog.constraint.TableIdentifier;
 import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.IdGenerator;
@@ -46,7 +45,6 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Placeholder;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.PlaceholderId;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -206,9 +204,6 @@ public class StatementContext implements Closeable {
     // and value is the new string used for replacement.
     private final TreeMap<Pair<Integer, Integer>, String> indexInSqlToString
             = new TreeMap<>(new Pair.PairComparator<>());
-    // Record table id mapping, the key is the hash code of union catalogId, databaseId, tableId
-    // the value is the auto-increment id in the cascades context
-    private final Map<TableIdentifier, TableId> tableIdMapping = new LinkedHashMap<>();
     // Record the materialization statistics by id which is used for cost estimation.
     // Maybe return null, which means the id according statistics should calc normally rather than getting
     // form this map
@@ -820,18 +815,6 @@ public class StatementContext implements Closeable {
 
     public boolean isKeySlot(SlotReference slot) {
         return keySlots.contains(slot);
-    }
-
-    /** Get table id with lazy */
-    public TableId getTableId(TableIf tableIf) {
-        TableIdentifier tableIdentifier = new TableIdentifier(tableIf);
-        TableId tableId = this.tableIdMapping.get(tableIdentifier);
-        if (tableId != null) {
-            return tableId;
-        }
-        tableId = StatementScopeIdGenerator.newTableId();
-        this.tableIdMapping.put(tableIdentifier, tableId);
-        return tableId;
     }
 
     public Optional<String> getDisableJoinReorderReason() {

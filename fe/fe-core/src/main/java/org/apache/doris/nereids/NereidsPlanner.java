@@ -834,7 +834,7 @@ public class NereidsPlanner extends Planner {
         if ((this.getPhysicalPlan() != null || this.getOptimizedPlan() != null) && cascadesContext != null) {
             mvSummary = cascadesContext.getMaterializationContexts().isEmpty() ? "" :
                     "\n\n========== MATERIALIZATIONS ==========\n"
-                            + MaterializationContext.toSummaryString(cascadesContext.getMaterializationContexts(),
+                            + MaterializationContext.toSummaryString(cascadesContext,
                             this.getPhysicalPlan() == null ? this.getOptimizedPlan() : this.getPhysicalPlan());
         }
         switch (explainLevel) {

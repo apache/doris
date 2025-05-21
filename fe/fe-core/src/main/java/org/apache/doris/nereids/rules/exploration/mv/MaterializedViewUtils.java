@@ -66,6 +66,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCatalogRelation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.trees.plans.visitor.NondeterministicFunctionCollector;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -82,6 +84,7 @@ import com.google.common.collect.Sets;
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -383,6 +386,40 @@ public class MaterializedViewUtils {
         Multimap<List<String>, Pair<RelationId, Set<String>>> tableUsedPartitionNameMap = HashMultimap.create();
         plan.accept(new QueryPartitionCollector(), tableUsedPartitionNameMap);
         return tableUsedPartitionNameMap;
+    }
+
+    /**
+     * Calc the chosen materialization context and all table used by final physical plan
+     */
+    public static Pair<Map<List<String>, MaterializationContext>, BitSet> getChosenMaterializationAndUsedTable(
+            Plan physicalPlan, Map<List<String>, MaterializationContext> materializationContexts) {
+        final Map<List<String>, MaterializationContext> chosenMaterializationMap = new HashMap<>();
+        BitSet usedRelation = new BitSet();
+        physicalPlan.accept(new DefaultPlanVisitor<Void, Map<List<String>, MaterializationContext>>() {
+            @Override
+            public Void visitPhysicalCatalogRelation(PhysicalCatalogRelation catalogRelation,
+                    Map<List<String>, MaterializationContext> chosenMaterializationMap) {
+                usedRelation.set(catalogRelation.getRelationId().asInt());
+                if (!(catalogRelation instanceof PhysicalOlapScan)) {
+                    return null;
+                }
+                PhysicalOlapScan physicalOlapScan = (PhysicalOlapScan) catalogRelation;
+                OlapTable table = physicalOlapScan.getTable();
+                List<String> materializationIdentifier
+                        = MaterializationContext.generateMaterializationIdentifierByIndexId(table,
+                        physicalOlapScan.getSelectedIndexId() == table.getBaseIndexId()
+                                ? null : physicalOlapScan.getSelectedIndexId());
+                MaterializationContext materializationContext = materializationContexts.get(materializationIdentifier);
+                if (materializationContext == null) {
+                    return null;
+                }
+                if (materializationContext.isFinalChosen(catalogRelation)) {
+                    chosenMaterializationMap.put(materializationIdentifier, materializationContext);
+                }
+                return null;
+            }
+        }, chosenMaterializationMap);
+        return Pair.of(chosenMaterializationMap, usedRelation);
     }
 
     /**

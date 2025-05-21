@@ -73,6 +73,7 @@ class StructInfoMapTest extends SqlTestBase {
         connectContext.getSessionVariable().enableMaterializedViewRewrite = true;
         connectContext.getSessionVariable().enableMaterializedViewNestRewrite = true;
 
+        dropMvByNereids("drop materialized view if exists mv1");
         createMvByNereids("create materialized view mv1 BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL\n"
                 + "        DISTRIBUTED BY RANDOM BUCKETS 1\n"
                 + "        PROPERTIES ('replication_num' = '1') \n"
@@ -133,6 +134,7 @@ class StructInfoMapTest extends SqlTestBase {
         };
         connectContext.getSessionVariable().enableMaterializedViewRewrite = true;
         connectContext.getSessionVariable().enableMaterializedViewNestRewrite = true;
+        dropMvByNereids("drop materialized view if exists mv1");
         createMvByNereids("create materialized view mv1 BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL\n"
                 + "        DISTRIBUTED BY RANDOM BUCKETS 1\n"
                 + "        PROPERTIES ('replication_num' = '1') \n"
@@ -183,6 +185,7 @@ class StructInfoMapTest extends SqlTestBase {
         };
         connectContext.getSessionVariable().enableMaterializedViewRewrite = true;
         connectContext.getSessionVariable().enableMaterializedViewNestRewrite = true;
+        dropMvByNereids("drop materialized view if exists mv1");
         createMvByNereids("create materialized view mv1 BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL\n"
                 + "        DISTRIBUTED BY RANDOM BUCKETS 1\n"
                 + "        PROPERTIES ('replication_num' = '1') \n"
@@ -211,7 +214,7 @@ class StructInfoMapTest extends SqlTestBase {
         System.out.println(structInfo.getOriginalPlan().treeString());
         BitSet bitSet = new BitSet();
         for (CatalogRelation relation : structInfo.getRelations()) {
-            bitSet.set(c1.getStatementContext().getTableId(relation.getTable()).asInt());
+            bitSet.set(relation.getRelationId().asInt());
         }
         Assertions.assertEquals(bitSet, mvMap);
         dropMvByNereids("drop materialized view mv1");

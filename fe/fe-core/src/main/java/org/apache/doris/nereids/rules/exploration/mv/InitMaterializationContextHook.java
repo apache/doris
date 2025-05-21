@@ -199,7 +199,7 @@ public class InitMaterializationContextHook implements PlannerHook {
                 StructInfo mvStructInfo = mtmvCache.getStructInfo();
                 BitSet tableBitSetInCurrentCascadesContext = new BitSet();
                 mvStructInfo.getRelations().forEach(relation -> tableBitSetInCurrentCascadesContext.set(
-                        cascadesContext.getStatementContext().getTableId(relation.getTable()).asInt()));
+                        relation.getRelationId().asInt()));
                 asyncMaterializationContext.add(new AsyncMaterializationContext(materializedView,
                         mtmvCache.getLogicalPlan(), mtmvCache.getOriginalPlan(), ImmutableList.of(),
                         ImmutableList.of(), cascadesContext,

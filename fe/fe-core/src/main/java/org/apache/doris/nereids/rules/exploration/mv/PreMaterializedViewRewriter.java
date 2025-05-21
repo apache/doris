@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.rules.exploration.mv;
 
-import org.apache.doris.catalog.MTMV;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.NereidsPlanner;
@@ -26,22 +25,23 @@ import org.apache.doris.nereids.jobs.executor.Optimizer;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
-import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 
 import org.apache.commons.lang3.EnumUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.BitSet;
 import java.util.HashSet;
-import java.util.Set;
+import java.util.List;
+import java.util.Map;
 
 /**
  * Individual materialized view rewriter based CBO
  */
 public class PreMaterializedViewRewriter {
-
     public static BitSet NEED_PRE_REWRITE_RULE_TYPES = new BitSet();
+    private static final Logger LOG = LogManager.getLogger(PreMaterializedViewRewriter.class);
 
     static {
         NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.PUSH_DOWN_TOP_N_THROUGH_JOIN.ordinal());
@@ -80,20 +80,10 @@ public class PreMaterializedViewRewriter {
         Group root = cascadesContext.getMemo().getRoot();
         PhysicalPlan physicalPlan = NereidsPlanner.chooseBestPlan(root,
                 cascadesContext.getCurrentJobContext().getRequiredProperties(), cascadesContext);
-        Pair<CascadesContext, BitSet> collectTableContext = Pair.of(cascadesContext, new BitSet());
-        final Set<Boolean> usedMv = new HashSet<>();
-        // If cte, how handle?
-        physicalPlan.accept(new DefaultPlanVisitor<Void, Pair<CascadesContext, BitSet>>() {
-            @Override
-            public Void visitPhysicalCatalogRelation(PhysicalCatalogRelation catalogRelation,
-                    Pair<CascadesContext, BitSet> ctx) {
-                ctx.value().set(ctx.key().getStatementContext().getTableId(catalogRelation.getTable()).asInt());
-                if (catalogRelation.getTable() instanceof MTMV) {
-                    usedMv.add(true);
-                }
-                return null;
-            }
-        }, collectTableContext);
+        // TODO: 2025/5/21 If cte, how handle?
+        Pair<Map<List<String>, MaterializationContext>, BitSet> chosenMaterializationAndUsedTable
+                = MaterializedViewUtils.getChosenMaterializationAndUsedTable(physicalPlan,
+                cascadesContext.getAllMaterializationContexts());
         // Calc the table id set which is used by physical plan
         boolean tmpEnableNestMaterializedViewRewrite =
                 cascadesContext.getConnectContext().getSessionVariable().enableMaterializedViewNestRewrite;
@@ -107,8 +97,12 @@ public class PreMaterializedViewRewriter {
         }
         // Extract logical plan by table id set by the corresponding best physical plan
         StructInfo structInfo = root.getstructInfoMap().getStructInfo(cascadesContext,
-                collectTableContext.second, root, null);
-        if (structInfo != null && !usedMv.isEmpty()) {
+                chosenMaterializationAndUsedTable.value(), root, null);
+        if (structInfo == null) {
+            LOG.warn("preMaterializedViewRewriter rewrite structInfo is null, query is is {}",
+                    cascadesContext.getConnectContext().getQueryIdentifier());
+        }
+        if (structInfo != null && !chosenMaterializationAndUsedTable.key().isEmpty()) {
             return structInfo.getOriginalPlan();
         }
         return null;

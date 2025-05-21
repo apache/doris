@@ -36,8 +36,6 @@ import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Relation;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
-import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
 
@@ -220,7 +218,7 @@ public abstract class MaterializationContext {
     public abstract List<String> generateMaterializationIdentifier();
 
     /**
-     * Common method for generating materialization identifier
+     * Common method for generating materialization identifier by index name
      */
     public static List<String> generateMaterializationIdentifier(OlapTable olapTable, String indexName) {
         return indexName == null
@@ -230,6 +228,19 @@ public abstract class MaterializationContext {
                 : ImmutableList.of(olapTable.getDatabase().getCatalog().getName(),
                         ClusterNamespace.getNameFromFullName(olapTable.getDatabase().getFullName()),
                         olapTable.getName(), indexName);
+    }
+
+    /**
+     * Common method for generating materialization identifier by index id
+     */
+    public static List<String> generateMaterializationIdentifierByIndexId(OlapTable olapTable, Long indexId) {
+        return indexId == null
+                ? ImmutableList.of(olapTable.getDatabase().getCatalog().getName(),
+                ClusterNamespace.getNameFromFullName(olapTable.getDatabase().getFullName()),
+                olapTable.getName())
+                : ImmutableList.of(olapTable.getDatabase().getCatalog().getName(),
+                        ClusterNamespace.getNameFromFullName(olapTable.getDatabase().getFullName()),
+                        olapTable.getName(), olapTable.getIndexNameById(indexId));
     }
 
     /**
@@ -379,27 +390,19 @@ public abstract class MaterializationContext {
     /**
      * ToSummaryString, this contains only summary info.
      */
-    public static String toSummaryString(List<MaterializationContext> materializationContexts,
+    public static String toSummaryString(CascadesContext cascadesContext,
             Plan physicalPlan) {
+        List<MaterializationContext> materializationContexts = cascadesContext.getMaterializationContexts();
         if (materializationContexts.isEmpty()) {
             return "";
         }
         Set<MaterializationContext> rewrittenSuccessMaterializationSet = materializationContexts.stream()
                 .filter(MaterializationContext::isSuccess)
                 .collect(Collectors.toSet());
-        Map<List<String>, MaterializationContext> chosenMaterializationMap = new HashMap<>();
-        physicalPlan.accept(new DefaultPlanVisitor<Void, Void>() {
-            @Override
-            public Void visitPhysicalRelation(PhysicalRelation physicalRelation, Void context) {
-                for (MaterializationContext rewrittenContext : rewrittenSuccessMaterializationSet) {
-                    if (rewrittenContext.isFinalChosen(physicalRelation)) {
-                        chosenMaterializationMap.put(
-                                rewrittenContext.generateMaterializationIdentifier(), rewrittenContext);
-                    }
-                }
-                return null;
-            }
-        }, null);
+        Pair<Map<List<String>, MaterializationContext>, BitSet> chosenMaterializationAndUsedTable
+                = MaterializedViewUtils.getChosenMaterializationAndUsedTable(physicalPlan,
+                cascadesContext.getAllMaterializationContexts());
+        Map<List<String>, MaterializationContext> chosenMaterializationMap = chosenMaterializationAndUsedTable.key();
 
         StringBuilder builder = new StringBuilder();
         builder.append("\nMaterializedView");

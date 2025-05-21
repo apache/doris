@@ -176,16 +176,15 @@ public class StructInfoMap {
         boolean enableMaterializedViewNestRewrite = cascadesContext.getConnectContext().getSessionVariable()
                 .isEnableMaterializedViewNestRewrite();
         if (plan instanceof LogicalCatalogRelation) {
-            TableIf table = ((LogicalCatalogRelation) plan).getTable();
+            LogicalCatalogRelation logicalCatalogRelation = (LogicalCatalogRelation) plan;
+            TableIf table = logicalCatalogRelation.getTable();
             // If disable materialized view nest rewrite, and mv already rewritten successfully once, doesn't construct
             // table id map for nest mv rewrite
             if (!enableMaterializedViewNestRewrite
                     && cascadesContext.getMaterializationRewrittenSuccessSet().contains(table.getFullQualifiers())) {
                 return tableMap;
-
             }
-            tableMap.set(cascadesContext.getStatementContext()
-                    .getTableId(table).asInt());
+            tableMap.set(logicalCatalogRelation.getRelationId().asInt());
         }
         // one row relation / CTE consumer
         return tableMap;
