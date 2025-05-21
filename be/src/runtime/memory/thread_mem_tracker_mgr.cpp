@@ -51,12 +51,13 @@ void ThreadMemTrackerMgr::attach_limiter_tracker(
         // _untracked_mem temporary store bytes that not synchronized to process reserved memory,
         // but bytes have been subtracted from thread _reserved_mem.
         doris::GlobalMemoryArbitrator::release_process_reserved_memory(_untracked_mem);
-        _limiter_tracker->release_reserved(_untracked_mem);
+        _limiter_tracker_sptr->release_reserved(_untracked_mem);
         _reserved_mem = 0;
         _untracked_mem = 0;
     }
     _consumer_tracker_stack.clear();
-    _limiter_tracker = mem_tracker;
+    _limiter_tracker_sptr = mem_tracker;
+    _limiter_tracker = _limiter_tracker_sptr.get();
 }
 
 void ThreadMemTrackerMgr::detach_limiter_tracker(
@@ -68,7 +69,8 @@ void ThreadMemTrackerMgr::detach_limiter_tracker(
     _reserved_mem = _last_attach_snapshots_stack.back().reserved_mem;
     _consumer_tracker_stack = _last_attach_snapshots_stack.back().consumer_tracker_stack;
     _last_attach_snapshots_stack.pop_back();
-    _limiter_tracker = old_mem_tracker;
+    _limiter_tracker_sptr = old_mem_tracker;
+    _limiter_tracker = _limiter_tracker_sptr.get();
 }
 
 void ThreadMemTrackerMgr::cancel_query(const std::string& exceed_msg) {
