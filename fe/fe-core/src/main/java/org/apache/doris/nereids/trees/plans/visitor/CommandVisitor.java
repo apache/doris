@@ -136,6 +136,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowBackendsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowBackupCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowBrokerCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCatalogCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowCatalogRecycleBinCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCharsetCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowClustersCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCollationCommand;
@@ -1026,6 +1027,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitShowTabletIdCommand(ShowTabletIdCommand showTabletIdCommand, C context) {
         return visitCommand(showTabletIdCommand, context);
+    }
+
+    default R visitShowCatalogRecycleBinCommand(ShowCatalogRecycleBinCommand showCatalogRecycleBinCommand, C context) {
+        return visitCommand(showCatalogRecycleBinCommand, context);
     }
 
     default R visitAlterTableStatsCommand(AlterTableStatsCommand alterTableStatsCommand, C context) {
