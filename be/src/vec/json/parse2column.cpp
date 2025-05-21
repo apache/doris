@@ -106,9 +106,9 @@ class FieldVisitorReplaceScalars : public StaticVisitor<Field> {
 public:
     FieldVisitorReplaceScalars(const Field& replacement_, size_t num_dimensions_to_keep_)
             : replacement(replacement_), num_dimensions_to_keep(num_dimensions_to_keep_) {}
-    template <typename T>
-    Field operator()(const T& x) const {
-        if constexpr (std::is_same_v<T, Array>) {
+    template <PrimitiveType T>
+    Field operator()(const typename PrimitiveTypeTraits<T>::NearestFieldType& x) const {
+        if constexpr (T == TYPE_ARRAY) {
             if (num_dimensions_to_keep == 0) {
                 return replacement;
             }
