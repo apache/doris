@@ -1156,7 +1156,7 @@ public class ShowExecutor {
         try {
             if (table.getType() == TableType.HMS_EXTERNAL_TABLE) {
                 rows.add(Arrays.asList(table.getName(),
-                        HiveMetaStoreClientHelper.showCreateTable(((HMSExternalTable) table).getRemoteTable())));
+                        HiveMetaStoreClientHelper.showCreateTable((HMSExternalTable) table)));
                 resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
                 return;
             }
