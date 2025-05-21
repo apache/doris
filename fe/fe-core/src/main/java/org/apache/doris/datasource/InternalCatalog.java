@@ -850,11 +850,9 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
     }
 
-    public void alterDatabaseProperty(AlterDatabasePropertyStmt stmt) throws DdlException {
-        String dbName = stmt.getDbName();
+    public void alterDatabaseProperty(String dbName, Map<String, String> properties) throws DdlException {
         Database db = (Database) getDbOrDdlException(dbName);
         long dbId = db.getId();
-        Map<String, String> properties = stmt.getProperties();
 
         db.writeLockOrDdlException();
         try {
@@ -868,6 +866,13 @@ public class InternalCatalog implements CatalogIf<Database> {
         } finally {
             db.writeUnlock();
         }
+    }
+
+    public void alterDatabaseProperty(AlterDatabasePropertyStmt stmt) throws DdlException {
+        String dbName = stmt.getDbName();
+        Map<String, String> properties = stmt.getProperties();
+
+        alterDatabaseProperty(dbName, properties);
     }
 
     public void replayAlterDatabaseProperty(String dbName, Map<String, String> properties)
