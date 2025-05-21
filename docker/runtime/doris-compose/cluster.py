@@ -464,6 +464,7 @@ class Node(object):
             "volumes": volumes,
         }
 
+        extra_hosts = []
         if self.cluster.is_host_network():
             content["network_mode"] = "host"
         else:
@@ -473,11 +474,14 @@ class Node(object):
                     "ipv4_address": self.get_ip(),
                 }
             }
-            content["extra_hosts"] = [
+            extra_hosts.extend([
                 "{}:{}".format(node.get_name(), node.get_ip())
                 for node in self.cluster.get_all_nodes()
-            ]
+            ])
             content["ports"] = self.docker_ports()
+        extra_hosts.extend(getattr(self.cluster, "extra_hosts", []))
+        if extra_hosts:
+            content["extra_hosts"] = extra_hosts
 
         if self.entrypoint():
             content["entrypoint"] = self.entrypoint()
@@ -780,8 +784,8 @@ class Cluster(object):
     def __init__(self, name, subnet, image, is_cloud, is_root_user, fe_config,
                  be_config, ms_config, recycle_config, remote_master_fe,
                  local_network_ip, fe_follower, be_disks, be_cluster, reg_be,
-                 coverage_dir, cloud_store_config, sql_mode_node_mgr,
-                 be_metaservice_endpoint, be_cluster_id):
+                 extra_hosts, coverage_dir, cloud_store_config,
+                 sql_mode_node_mgr, be_metaservice_endpoint, be_cluster_id):
         self.name = name
         self.subnet = subnet
         self.image = image
@@ -797,6 +801,7 @@ class Cluster(object):
         self.be_disks = be_disks
         self.be_cluster = be_cluster
         self.reg_be = reg_be
+        self.extra_hosts = extra_hosts
         self.coverage_dir = coverage_dir
         self.cloud_store_config = cloud_store_config
         self.groups = {
@@ -813,9 +818,9 @@ class Cluster(object):
     @staticmethod
     def new(name, image, is_cloud, is_root_user, fe_config, be_config,
             ms_config, recycle_config, remote_master_fe, local_network_ip,
-            fe_follower, be_disks, be_cluster, reg_be, coverage_dir,
-            cloud_store_config, sql_mode_node_mgr, be_metaservice_endpoint,
-            be_cluster_id):
+            fe_follower, be_disks, be_cluster, reg_be, extra_hosts,
+            coverage_dir, cloud_store_config, sql_mode_node_mgr,
+            be_metaservice_endpoint, be_cluster_id):
         if not os.path.exists(LOCAL_DORIS_PATH):
             os.makedirs(LOCAL_DORIS_PATH, exist_ok=True)
             os.chmod(LOCAL_DORIS_PATH, 0o777)
@@ -827,9 +832,10 @@ class Cluster(object):
             cluster = Cluster(name, subnet, image, is_cloud, is_root_user,
                               fe_config, be_config, ms_config, recycle_config,
                               remote_master_fe, local_network_ip, fe_follower,
-                              be_disks, be_cluster, reg_be, coverage_dir,
-                              cloud_store_config, sql_mode_node_mgr,
-                              be_metaservice_endpoint, be_cluster_id)
+                              be_disks, be_cluster, reg_be, extra_hosts,
+                              coverage_dir, cloud_store_config,
+                              sql_mode_node_mgr, be_metaservice_endpoint,
+                              be_cluster_id)
             os.makedirs(cluster.get_path(), exist_ok=True)
             os.makedirs(get_status_path(name), exist_ok=True)
             cluster._save_meta()
@@ -860,7 +866,7 @@ class Cluster(object):
         return os.path.join(get_cluster_path(name), "meta")
 
     def is_host_network(self):
-        return getattr(self, "remote_master_fe", "")
+        return self.remote_master_fe
 
     def get_remote_fe_node(self):
         if not self.is_host_network():

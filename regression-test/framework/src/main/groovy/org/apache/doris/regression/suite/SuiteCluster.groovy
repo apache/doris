@@ -64,6 +64,10 @@ class ClusterOptions {
 
     List<String> recycleConfigs = []
 
+    // host mapping(host:IP), for example: myhost:192.168.10.10
+    // just as `docker run --add-host myhost:192.168.10.10` do.
+    List<String> extraHosts = []
+
     boolean connectToFollower = false
 
     // 1. cloudMode = true, only create cloud cluster.
@@ -306,25 +310,29 @@ class SuiteCluster {
             cmd += ['--add-ms-num', String.valueOf(options.msNum)]
         }
         // TODO: need escape white space in config
-        if (options.feConfigs != null && options.feConfigs.size() > 0) {
+        if (!options.feConfigs.isEmpty()) {
             cmd += ['--fe-config']
             cmd += options.feConfigs
         }
-        if (options.beConfigs != null && options.beConfigs.size() > 0) {
+        if (!options.beConfigs.isEmpty()) {
             cmd += ['--be-config']
             cmd += options.beConfigs
         }
-        if (options.msConfigs != null && options.msConfigs.size() > 0) {
+        if (!options.msConfigs.isEmpty()) {
             cmd += ['--ms-config']
             cmd += options.msConfigs
         }
-        if (options.recycleConfigs != null && options.recycleConfigs.size() > 0) {
+        if (!options.recycleConfigs.isEmpty()) {
             cmd += ['--recycle-config']
             cmd += options.recycleConfigs
         }
         if (options.beDisks != null) {
             cmd += ['--be-disks']
             cmd += options.beDisks
+        }
+        if (!options.extraHosts.isEmpty()) {
+            cmd += ['--extra-hosts']
+            cmd += options.extraHosts
         }
         if (config.dockerCoverageOutputDir != null && config.dockerCoverageOutputDir != '') {
             cmd += ['--coverage-dir', config.dockerCoverageOutputDir]
