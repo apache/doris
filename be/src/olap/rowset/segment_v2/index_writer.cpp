@@ -43,7 +43,6 @@
 #endif
 
 #include "common/config.h"
-#include "gutil/strings/strip.h"
 #include "olap/field.h"
 #include "olap/inverted_index_parser.h"
 #include "olap/key_coder.h"

@@ -32,7 +32,6 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "io/fs/file_system.h"
-
 #include "io/fs/local_file_system.h"
 #include "olap/rowset/segment_v2/index_writer.h"
 
@@ -48,7 +47,6 @@
 #endif
 
 #include "common/config.h"
-#include "gutil/strings/strip.h"
 #include "olap/field.h"
 #include "olap/inverted_index_parser.h"
 #include "olap/key_coder.h"

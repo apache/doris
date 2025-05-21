@@ -41,7 +41,6 @@
 #include "olap/rowset/segment_creator.h"
 #include "segment_v2/index_file_writer.h"
 #include "segment_v2/segment.h"
-#include "segment_v2/x_index_file_writer.h"
 
 namespace doris {
 namespace vectorized {

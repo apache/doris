@@ -32,13 +32,15 @@ public:
 
     int32_t next_position() const { return _term_pos->nextPosition(); }
 
-    static TermPositions* ensure_term_position(IndexReader* reader, const std::wstring& field_name,
+    static TermPositions* ensure_term_position(lucene::index::IndexReader* reader,
+                                               const std::wstring& field_name,
                                                const std::string& term) {
         std::wstring ws_term = StringUtil::string_to_wstring(term);
         return ensure_term_position(reader, field_name, ws_term);
     }
 
-    static TermPositions* ensure_term_position(IndexReader* reader, const std::wstring& field_name,
+    static TermPositions* ensure_term_position(lucene::index::IndexReader* reader,
+                                               const std::wstring& field_name,
                                                const std::wstring& ws_term) {
         auto* t = _CLNEW Term(field_name.c_str(), ws_term.c_str());
         auto* term_pos = reader->termPositions(t);
