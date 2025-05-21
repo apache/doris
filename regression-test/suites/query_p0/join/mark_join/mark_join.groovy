@@ -63,12 +63,12 @@ suite("mark_join") {
     """
 
     
-    sql "drop table if exists tbl1;"
-    sql "drop table if exists tbl2;"
-    sql "drop table if exists tbl3;"
+    sql "drop table if exists mark_join_tbl1;"
+    sql "drop table if exists mark_join_tbl2;"
+    sql "drop table if exists mark_join_tbl3;"
 
     sql """
-        CREATE TABLE `tbl1` (
+        CREATE TABLE `mark_join_tbl1` (
             `unit_name` varchar(1080) NULL,
             `cur_unit_name` varchar(1080) NOT NULL
         ) ENGINE=OLAP
@@ -80,7 +80,7 @@ suite("mark_join") {
     """
 
     sql """
-        CREATE TABLE `tbl2` (
+        CREATE TABLE `mark_join_tbl2` (
             `org_code` varchar(150) NOT NULL ,
             `org_name` varchar(300) NULL
         ) ENGINE=OLAP
@@ -92,7 +92,7 @@ suite("mark_join") {
     """
 
     sql """
-        CREATE TABLE `tbl3` (
+        CREATE TABLE `mark_join_tbl3` (
             `id` bigint NOT NULL,
             `acntm_name` varchar(500) NULL ,
             `vendor_name` varchar(500) NULL
@@ -105,7 +105,7 @@ suite("mark_join") {
     """
 
     sql """
-        insert into tbl1 (unit_name, cur_unit_name) values
+        insert into mark_join_tbl1 (unit_name, cur_unit_name) values
             ('v1', 'o1'),
             ('v2', 'o2'),
             ('v3', 'o3'),
@@ -130,7 +130,7 @@ suite("mark_join") {
     """
 
     sql """
-        insert into tbl2(org_code, org_name) values
+        insert into mark_join_tbl2(org_code, org_name) values
             ('v1', 'o1'),
             ('v2', 'o2'),
             ('v3', 'o3'),
@@ -144,7 +144,7 @@ suite("mark_join") {
     """
 
     sql """
-        insert into tbl3 (id, vendor_name, acntm_name)
+        insert into mark_join_tbl3 (id, vendor_name, acntm_name)
             values(1, 'o1', 'v1'),
             (2, 'o2', 'v2'),
             (3, 'o3', 'v3'),
@@ -157,123 +157,123 @@ suite("mark_join") {
             (10, null, 'v5');
     """
 
-    sql " analyze table tbl1 with sync;"
-    sql " analyze table tbl2 with sync;"
-    sql " analyze table tbl3 with sync;"
+    sql " analyze table mark_join_tbl1 with sync;"
+    sql " analyze table mark_join_tbl2 with sync;"
+    sql " analyze table mark_join_tbl3 with sync;"
 
     sql "set disable_join_reorder=0;"
     qt_test_right_semi_mark_join """
         select
-            tbl3.id,
-            tbl3.acntm_name,
-            tbl3.vendor_name,
-            tbl3.vendor_name in (
+            mark_join_tbl3.id,
+            mark_join_tbl3.acntm_name,
+            mark_join_tbl3.vendor_name,
+            mark_join_tbl3.vendor_name in (
                 select
-                    tbl1.unit_name
+                    mark_join_tbl1.unit_name
                 from
-                    tbl2
-                    join tbl1 on tbl1.cur_unit_name = tbl2.org_name
+                    mark_join_tbl2
+                    join mark_join_tbl1 on mark_join_tbl1.cur_unit_name = mark_join_tbl2.org_name
                 where
-                    tbl2.org_code = tbl3.acntm_name
+                    mark_join_tbl2.org_code = mark_join_tbl3.acntm_name
             ) v1,
-            tbl3.vendor_name not in (
+            mark_join_tbl3.vendor_name not in (
                 select
-                    tbl1.unit_name
+                    mark_join_tbl1.unit_name
                 from
-                    tbl2
-                    join tbl1 on tbl1.cur_unit_name = tbl2.org_name
+                    mark_join_tbl2
+                    join mark_join_tbl1 on mark_join_tbl1.cur_unit_name = mark_join_tbl2.org_name
                 where
-                    tbl2.org_code = tbl3.acntm_name
+                    mark_join_tbl2.org_code = mark_join_tbl3.acntm_name
             ) v2
         from
-            tbl3 order by 1,2,3,4,5;
+            mark_join_tbl3 order by 1,2,3,4,5;
     """
 
     sql "set disable_join_reorder=1;"
     qt_test_right_semi_mark_join_2 """
         select
-            tbl3.id,
-            tbl3.acntm_name,
-            tbl3.vendor_name,
-            tbl3.vendor_name in (
+            mark_join_tbl3.id,
+            mark_join_tbl3.acntm_name,
+            mark_join_tbl3.vendor_name,
+            mark_join_tbl3.vendor_name in (
                 select
-                    tbl1.unit_name
+                    mark_join_tbl1.unit_name
                 from
-                    tbl2
-                    join tbl1 on tbl1.cur_unit_name = tbl2.org_name
+                    mark_join_tbl2
+                    join mark_join_tbl1 on mark_join_tbl1.cur_unit_name = mark_join_tbl2.org_name
                 where
-                    tbl2.org_code = tbl3.acntm_name
+                    mark_join_tbl2.org_code = mark_join_tbl3.acntm_name
             ) v1,
-            tbl3.vendor_name not in (
+            mark_join_tbl3.vendor_name not in (
                 select
-                    tbl1.unit_name
+                    mark_join_tbl1.unit_name
                 from
-                    tbl2
-                    join tbl1 on tbl1.cur_unit_name = tbl2.org_name
+                    mark_join_tbl2
+                    join mark_join_tbl1 on mark_join_tbl1.cur_unit_name = mark_join_tbl2.org_name
                 where
-                    tbl2.org_code = tbl3.acntm_name
+                    mark_join_tbl2.org_code = mark_join_tbl3.acntm_name
             ) v2
         from
-            tbl3 order by 1,2,3,4,5;
+            mark_join_tbl3 order by 1,2,3,4,5;
     """
 
     sql "set disable_join_reorder=0;"
     qt_test_right_semi_mark_join_no_null """
         select
-            tbl3.id,
-            tbl3.acntm_name,
-            tbl3.vendor_name,
-            tbl3.vendor_name in (
+            mark_join_tbl3.id,
+            mark_join_tbl3.acntm_name,
+            mark_join_tbl3.vendor_name,
+            mark_join_tbl3.vendor_name in (
                 select
-                    tbl1.unit_name
+                    mark_join_tbl1.unit_name
                 from
-                    tbl2
-                    join tbl1 on tbl1.cur_unit_name = tbl2.org_name
+                    mark_join_tbl2
+                    join mark_join_tbl1 on mark_join_tbl1.cur_unit_name = mark_join_tbl2.org_name
                 where
-                    tbl2.org_code = tbl3.acntm_name
-                    and tbl1.unit_name is not null
+                    mark_join_tbl2.org_code = mark_join_tbl3.acntm_name
+                    and mark_join_tbl1.unit_name is not null
             ) v1,
-            tbl3.vendor_name not in (
+            mark_join_tbl3.vendor_name not in (
                 select
-                    tbl1.unit_name
+                    mark_join_tbl1.unit_name
                 from
-                    tbl2
-                    join tbl1 on tbl1.cur_unit_name = tbl2.org_name
+                    mark_join_tbl2
+                    join mark_join_tbl1 on mark_join_tbl1.cur_unit_name = mark_join_tbl2.org_name
                 where
-                    tbl2.org_code = tbl3.acntm_name
-                    and tbl1.unit_name is not null
+                    mark_join_tbl2.org_code = mark_join_tbl3.acntm_name
+                    and mark_join_tbl1.unit_name is not null
             ) v2
         from
-            tbl3 order by 1,2,3,4,5;
+            mark_join_tbl3 order by 1,2,3,4,5;
     """
 
     sql "set disable_join_reorder=1;"
     qt_test_right_semi_mark_join_no_null_2 """
         select
-            tbl3.id,
-            tbl3.acntm_name,
-            tbl3.vendor_name,
-            tbl3.vendor_name in (
+            mark_join_tbl3.id,
+            mark_join_tbl3.acntm_name,
+            mark_join_tbl3.vendor_name,
+            mark_join_tbl3.vendor_name in (
                 select
-                    tbl1.unit_name
+                    mark_join_tbl1.unit_name
                 from
-                    tbl2
-                    join tbl1 on tbl1.cur_unit_name = tbl2.org_name
+                    mark_join_tbl2
+                    join mark_join_tbl1 on mark_join_tbl1.cur_unit_name = mark_join_tbl2.org_name
                 where
-                    tbl2.org_code = tbl3.acntm_name
-                    and tbl1.unit_name is not null
+                    mark_join_tbl2.org_code = mark_join_tbl3.acntm_name
+                    and mark_join_tbl1.unit_name is not null
             ) v1,
-            tbl3.vendor_name not in (
+            mark_join_tbl3.vendor_name not in (
                 select
-                    tbl1.unit_name
+                    mark_join_tbl1.unit_name
                 from
-                    tbl2
-                    join tbl1 on tbl1.cur_unit_name = tbl2.org_name
+                    mark_join_tbl2
+                    join mark_join_tbl1 on mark_join_tbl1.cur_unit_name = mark_join_tbl2.org_name
                 where
-                    tbl2.org_code = tbl3.acntm_name
-                    and tbl1.unit_name is not null
+                    mark_join_tbl2.org_code = mark_join_tbl3.acntm_name
+                    and mark_join_tbl1.unit_name is not null
             ) v2
         from
-            tbl3 order by 1,2,3,4,5;
+            mark_join_tbl3 order by 1,2,3,4,5;
     """
 }
