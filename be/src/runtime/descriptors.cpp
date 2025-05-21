@@ -34,16 +34,15 @@
 #include "common/object_pool.h"
 #include "util/string_util.h"
 #include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/columns/column_nothing.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_map.h"
 #include "vec/data_types/data_type_struct.h"
-#include "vec/functions/function_helpers.h"
-#include "vec/columns/column_nothing.h"
-#include "vec/data_types/data_type_factory.hpp"
 #include "vec/exprs/vexpr.h"
+#include "vec/functions/function_helpers.h"
 #include "vec/utils/util.hpp"
 
 namespace doris {

@@ -352,7 +352,7 @@ Status VectorizedFnCall::prepare_ann_range_search() {
 
     auto right_col = right_literal->get_column_ptr()->convert_to_full_column_if_const();
     auto right_type = right_literal->get_data_type();
-    if (right_type->get_type_id() != vectorized::TypeIndex::Float64) {
+    if (right_type->get_primitive_type() != PrimitiveType::TYPE_DOUBLE) {
         LOG_INFO("Right child is not a Float64Literal.");
         return Status::OK();
     }
