@@ -18,7 +18,6 @@
 #include "vec/sink/tablet_sink_hash_partitioner.h"
 
 #include <memory>
-#include <utility>
 
 #include "pipeline/exec/operator.h"
 
@@ -91,11 +90,10 @@ Status TabletSinkHashPartitioner::do_partitioning(RuntimeState* state, Block* bl
         return Status::OK();
     }
     std::fill(_hash_vals.begin(), _hash_vals.end(), -1);
-    int64_t ___ = 0; // _local_state->rows_input_counter() updated in sink and write.
+    int64_t dummy_stats = 0; // _local_state->rows_input_counter() updated in sink and write.
     std::shared_ptr<vectorized::Block> convert_block = std::make_shared<vectorized::Block>();
-    // add local_exchange before this node to deal row distribution
-    RETURN_IF_ERROR(_row_distribution.generate_rows_distribution(*block, convert_block,
-                                                                 _row_part_tablet_ids, ___));
+    RETURN_IF_ERROR(_row_distribution.generate_rows_distribution(
+            *block, convert_block, _row_part_tablet_ids, dummy_stats));
     _skipped = _row_distribution.get_skipped();
     const auto& row_ids = _row_part_tablet_ids[0].row_ids;
     const auto& tablet_ids = _row_part_tablet_ids[0].tablet_ids;
@@ -123,10 +121,6 @@ Status TabletSinkHashPartitioner::try_cut_in_line(Block& prior_block) const {
         VLOG_DEBUG << "sinking batched block:\n" << prior_block.dump_data();
     }
     return Status::OK();
-}
-
-void TabletSinkHashPartitioner::finish_cut_in_line() const {
-    _row_distribution._deal_batched = false;
 }
 
 ChannelField TabletSinkHashPartitioner::get_channel_ids() const {

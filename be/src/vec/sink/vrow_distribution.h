@@ -130,7 +130,6 @@ public:
     // mv where clause
     // v1 needs index->node->row_ids - tabletids
     // v2 needs index,tablet->rowids
-    // reentry means this block is batched block. so skip some transform.
     Status generate_rows_distribution(Block& input_block, std::shared_ptr<Block>& block,
                                       std::vector<RowPartTabletIds>& row_part_tablet_ids,
                                       int64_t& rows_stat_val);

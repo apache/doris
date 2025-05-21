@@ -49,15 +49,8 @@ public:
     virtual Status close(RuntimeState* state) = 0;
 
     virtual Status do_partitioning(RuntimeState* state, Block* block) const = 0;
-    /// those for auto-partitiion in TabletSinkHashPartitioner
-    virtual Status try_cut_in_line(Block& prior_block) const { return Status::OK(); }
-    virtual void finish_cut_in_line() const {}
-    virtual void mark_last_block() const {}
 
     virtual ChannelField get_channel_ids() const = 0;
-
-    // default skip nothing
-    virtual std::vector<bool> get_skipped(int size) const { return std::vector<bool>(size, false); }
 
     virtual Status clone(RuntimeState* state, std::unique_ptr<PartitionerBase>& partitioner) = 0;
 

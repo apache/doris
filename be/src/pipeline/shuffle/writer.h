@@ -31,26 +31,50 @@ namespace pipeline {
 #include "common/compile_check_begin.h"
 class ExchangeSinkLocalState;
 
-class Writer {
+class WriterBase {
 public:
-    Writer() = default;
+    WriterBase() = default;
 
-    Status write(ExchangeSinkLocalState* local_state, RuntimeState* state,
-                 vectorized::Block* block) const;
-    // write batched data(if exists)
-    Status write_last(ExchangeSinkLocalState* local_state, RuntimeState* state,
-                      vectorized::Block* block) const;
+protected:
+    template <typename ChannelPtrType>
+    void _handle_eof_channel(RuntimeState* state, ChannelPtrType channel, Status st) const;
+};
+
+class TrivialWriter final : public WriterBase {
+public:
+    TrivialWriter() = default;
+
+    Status write(ExchangeSinkLocalState* local_state, RuntimeState* state, vectorized::Block* block,
+                 bool eos) const;
 
 private:
     template <typename ChannelIdType>
     Status _channel_add_rows(RuntimeState* state,
                              std::vector<std::shared_ptr<vectorized::Channel>>& channels,
                              size_t partition_count, const ChannelIdType* __restrict channel_ids,
+                             size_t rows, vectorized::Block* block, bool eos) const;
+};
+
+// maybe auto partition
+class OlapWriter final : public WriterBase {
+public:
+    OlapWriter() = default;
+
+    Status write(ExchangeSinkLocalState* local_state, RuntimeState* state, vectorized::Block* block,
+                 bool eos) const;
+
+private:
+    Status _write_normal(ExchangeSinkLocalState* local_state, RuntimeState* state,
+                         vectorized::Block* block) const;
+    // write batched data(if exists)
+    Status _write_last(ExchangeSinkLocalState* local_state, RuntimeState* state,
+                       vectorized::Block* block) const;
+    template <typename ChannelIdType>
+    Status _channel_add_rows(RuntimeState* state,
+                             std::vector<std::shared_ptr<vectorized::Channel>>& channels,
+                             size_t partition_count, const ChannelIdType* __restrict channel_ids,
                              size_t rows, vectorized::Block* block, const std::vector<bool> skipped,
                              bool eos) const;
-
-    template <typename ChannelPtrType>
-    void _handle_eof_channel(RuntimeState* state, ChannelPtrType channel, Status st) const;
 };
 #include "common/compile_check_end.h"
 } // namespace pipeline
