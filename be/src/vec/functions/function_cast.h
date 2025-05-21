@@ -1594,8 +1594,8 @@ private:
 
     WrapperType create_hll_wrapper(FunctionContext* context, const DataTypePtr& from_type_untyped,
                                    const DataTypeHLL& to_type) const {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "CAST AS HLL Not support");
         DCHECK(false) << "CAST AS HLL Not support";
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "CAST AS HLL Not support");
         return create_unsupport_wrapper("CAST AS HLL Not support");
     }
 
