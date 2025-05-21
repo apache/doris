@@ -354,7 +354,8 @@ public class VectorColumn {
         for (int i = 0; i < rows; ++i) {
             if (batch[i] == null) {
                 throw new RuntimeException(
-                        "the result of " + i + "  row is null, but the return type is not nullable");
+                        "the result of " + i + " row is null, but the return type is not nullable, please check "
+                                + "the always_nullable property in create function statement, it's should be true");
             }
         }
     }
