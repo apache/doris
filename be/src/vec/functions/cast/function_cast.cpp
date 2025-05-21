@@ -24,6 +24,7 @@
 #include "cast_to_string.h"
 #include "cast_to_struct.h"
 #include "cast_to_variant.h"
+#include "vec/data_types/data_type_agg_state.h"
 #include "vec/functions/simple_function_factory.h"
 namespace doris::vectorized {
 
@@ -290,8 +291,10 @@ WrapperType prepare_remove_nullable(FunctionContext* context, const DataTypePtr&
 
 /// 'from_type' and 'to_type' are nested types in case of Nullable.
 /// 'requested_result_is_nullable' is true if CAST to Nullable type is requested.
-WrapperType prepare_impl(FunctionContext* context, const DataTypePtr& from_type,
-                         const DataTypePtr& to_type, bool requested_result_is_nullable) {
+WrapperType prepare_impl(FunctionContext* context, const DataTypePtr& origin_from_type,
+                         const DataTypePtr& origin_to_type, bool requested_result_is_nullable) {
+    auto to_type = get_serialized_type(origin_to_type);
+    auto from_type = get_serialized_type(origin_from_type);
     if (from_type->equals(*to_type)) {
         return create_identity_wrapper(from_type);
     }
