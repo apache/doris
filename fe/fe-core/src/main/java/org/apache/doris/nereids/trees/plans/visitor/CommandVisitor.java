@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.plans.commands.AlterCatalogCommentCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterCatalogPropertiesCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterCatalogRenameCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterColumnStatsCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterDatabasePropertiesCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterJobStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterRoleCommand;
@@ -746,6 +747,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitAlterCatalogPropertiesCommand(AlterCatalogPropertiesCommand alterCatalogPropsCmd, C context) {
         return visitCommand(alterCatalogPropsCmd, context);
+    }
+
+    default R visitAlterDatabasePropertiesCommand(AlterDatabasePropertiesCommand alterDatabasePropsCmd, C context) {
+        return visitCommand(alterDatabasePropsCmd, context);
     }
 
     default R visitRecoverDatabaseCommand(RecoverDatabaseCommand recoverDatabaseCommand, C context) {

@@ -274,6 +274,8 @@ supportedAlterStatement
         SET LEFT_PAREN propertyItemList RIGHT_PAREN                                         #alterTableProperties
     | ALTER DATABASE name=identifier SET (DATA | REPLICA | TRANSACTION)
             QUOTA (quota=identifier | INTEGER_VALUE)                                        #alterDatabaseSetQuota
+    | ALTER DATABASE name=identifier SET PROPERTIES
+            LEFT_PAREN propertyItemList RIGHT_PAREN                                         #alterDatabaseProperties
     | ALTER SYSTEM RENAME COMPUTE GROUP name=identifier newName=identifier                  #alterSystemRenameComputeGroup
     | ALTER REPOSITORY name=identifier properties=propertyClause?                           #alterRepository
     | ALTER USER (IF EXISTS)? grantUserIdentify
@@ -661,9 +663,7 @@ privilegeList
     ;
 
 unsupportedAlterStatement
-    : ALTER DATABASE name=identifier SET PROPERTIES
-        LEFT_PAREN propertyItemList RIGHT_PAREN                                     #alterDatabaseProperties
-    | ALTER RESOURCE name=identifierOrText properties=propertyClause?               #alterResource
+    : ALTER RESOURCE name=identifierOrText properties=propertyClause?               #alterResource
     | ALTER COLOCATE GROUP name=multipartIdentifier
         SET LEFT_PAREN propertyItemList RIGHT_PAREN                                 #alterColocateGroup
     | ALTER ROUTINE LOAD FOR name=multipartIdentifier properties=propertyClause?

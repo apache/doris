@@ -3472,6 +3472,10 @@ public class Env {
         getInternalCatalog().alterDatabaseProperty(stmt);
     }
 
+    public void alterDatabaseProperty(String dbName, Map<String, String> properties) throws DdlException {
+        getInternalCatalog().alterDatabaseProperty(dbName, properties);
+    }
+
     public void replayAlterDatabaseProperty(String dbName, Map<String, String> properties)
             throws MetaNotFoundException {
         getInternalCatalog().replayAlterDatabaseProperty(dbName, properties);

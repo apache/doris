@@ -92,6 +92,7 @@ import org.apache.doris.nereids.DorisParser.AliasedQueryContext;
 import org.apache.doris.nereids.DorisParser.AlterCatalogCommentContext;
 import org.apache.doris.nereids.DorisParser.AlterCatalogPropertiesContext;
 import org.apache.doris.nereids.DorisParser.AlterCatalogRenameContext;
+import org.apache.doris.nereids.DorisParser.AlterDatabasePropertiesContext;
 import org.apache.doris.nereids.DorisParser.AlterDatabaseRenameContext;
 import org.apache.doris.nereids.DorisParser.AlterDatabaseSetQuotaContext;
 import org.apache.doris.nereids.DorisParser.AlterMTMVContext;
@@ -562,6 +563,7 @@ import org.apache.doris.nereids.trees.plans.commands.AlterCatalogCommentCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterCatalogPropertiesCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterCatalogRenameCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterColumnStatsCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterDatabasePropertiesCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterSqlBlockRuleCommand;
@@ -5422,6 +5424,19 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             wildWhere = getWildWhere(ctx.wildWhere());
         }
         return new ShowRestoreCommand(dbName, wildWhere, ctx.BRIEF() != null);
+    }
+
+    @Override
+    public LogicalPlan visitAlterDatabaseProperties(AlterDatabasePropertiesContext ctx) {
+        String dbName = Optional.ofNullable(ctx.name)
+                .map(ParserRuleContext::getText)
+                .filter(s -> !s.isEmpty())
+                .orElseThrow(() -> new ParseException("Database name is empty or cannot be an empty string"));
+        Map<String, String> properties = ctx.propertyItemList() != null
+                ? Maps.newHashMap(visitPropertyItemList(ctx.propertyItemList()))
+                : Maps.newHashMap();
+
+        return new AlterDatabasePropertiesCommand(dbName, properties);
     }
 
     @Override
