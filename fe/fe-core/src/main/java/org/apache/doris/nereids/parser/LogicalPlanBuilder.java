@@ -6963,6 +6963,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return new CancelAlterTableCommand(tableNameInfo, alterType, jobIs);
     }
 
+    @Override
     public LogicalPlan visitAdminSetReplicaStatus(DorisParser.AdminSetReplicaStatusContext ctx) {
         Map<String, String> properties = visitPropertyItemList(ctx.propertyItemList());
         return new AdminSetReplicaStatusCommand(properties);
