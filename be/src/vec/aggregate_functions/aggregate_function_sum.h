@@ -59,21 +59,13 @@ struct AggregateFunctionSumData {
         sum += value;
     }
 
-    void merge(const AggregateFunctionSumData& rhs) {
-        sum += rhs.sum;
-    }
+    void merge(const AggregateFunctionSumData& rhs) { sum += rhs.sum; }
 
-    void write(BufferWritable& buf) const {
-        write_binary(sum, buf);
-    }
+    void write(BufferWritable& buf) const { write_binary(sum, buf); }
 
-    void read(BufferReadable& buf) {
-        read_binary(sum, buf);
-    }
+    void read(BufferReadable& buf) { read_binary(sum, buf); }
 
-    T get() const {
-        return sum;
-    }
+    T get() const { return sum; }
 };
 
 /// Counts the sum of the numbers.
