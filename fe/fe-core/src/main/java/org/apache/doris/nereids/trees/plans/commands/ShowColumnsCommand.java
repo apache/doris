@@ -227,11 +227,6 @@ public class ShowColumnsCommand extends ShowCommand {
             table.readUnlock();
         }
 
-        for (List<String> row : rows) {
-            String rawType = row.get(1);
-            row.set(1, normalizeSqlColumnType(rawType));
-        }
-
         return new ShowResultSet(metaData, rows);
     }
 
@@ -252,18 +247,10 @@ public class ShowColumnsCommand extends ShowCommand {
 
         type = type.toLowerCase().trim();
 
-        if (type.matches("^int\\(\\d+\\)$")) {
-            return "int";
-        } else if (type.matches("^tinyint\\(\\d+\\)$")) {
-            return "tinyint";
-        } else if (type.matches("^smallint\\(\\d+\\)$")) {
-            return "smallint";
-        } else if (type.matches("^mediumint\\(\\d+\\)$")) {
-            return "mediumint";
-        } else if (type.matches("^bigint\\(\\d+\\)$")) {
-            return "bigint";
+        if (type.matches("^[a-z]+\\s*\\(.*\\)$")) {
+            int parenIndex = type.indexOf('(');
+            return type.substring(0, parenIndex).trim();
         }
-
         return type;
     }
 }
