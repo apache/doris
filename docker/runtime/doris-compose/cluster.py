@@ -479,7 +479,9 @@ class Node(object):
                 for node in self.cluster.get_all_nodes()
             ])
             content["ports"] = self.docker_ports()
-        extra_hosts.extend(getattr(self.cluster, "extra_hosts", []))
+        user_hosts = getattr(self.cluster, "extra_hosts", [])
+        if user_hosts:
+            extra_hosts.extend(user_hosts)
         if extra_hosts:
             content["extra_hosts"] = extra_hosts
 
