@@ -559,7 +559,7 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
                                                 resp.stats(), req.idx(), &delete_bitmap, full_sync,
                                                 sync_stats);
             if (st.is<ErrorCode::ROWSETS_EXPIRED>() && tried++ < retry_times) {
-                LOG_WARNING("rowset meta is expired, need to retry")
+                LOG_INFO("rowset meta is expired, need to retry")
                         .tag("tablet", tablet->tablet_id())
                         .tag("tried", tried)
                         .error(st);

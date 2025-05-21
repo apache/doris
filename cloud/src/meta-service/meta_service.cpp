@@ -2037,6 +2037,7 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
     size_t total_txn_put_keys = 0;
     size_t total_txn_put_bytes = 0;
     size_t total_txn_size = 0;
+    size_t total_txn_count = 0;
     for (size_t i = 0; i < request->rowset_ids_size(); ++i) {
         auto& key = delete_bitmap_keys.delete_bitmap_keys(i);
         auto& val = request->segment_delete_bitmaps(i);
@@ -2046,12 +2047,13 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
         if (txn->approximate_bytes() + key.size() * 3 + val.size() > config::max_txn_commit_byte) {
             LOG(INFO) << "fdb txn size more than " << config::max_txn_commit_byte
                       << ", current size: " << txn->approximate_bytes()
-                      << " lock_id=" << request->lock_id() << " initiator=" << request->initiator()
-                      << ", need to commit";
+                      << ", tablet_id: " << tablet_id << " lock_id=" << request->lock_id()
+                      << " initiator=" << request->initiator() << ", need to commit";
             err = txn->commit();
             total_txn_put_keys += txn->num_put_keys();
             total_txn_put_bytes += txn->put_bytes();
             total_txn_size += txn->approximate_bytes();
+            total_txn_count++;
             if (err != TxnErrorCode::TXN_OK) {
                 code = cast_as<ErrCategory::COMMIT>(err);
                 ss << "failed to update delete bitmap, err=" << err << " tablet_id=" << tablet_id
@@ -2099,6 +2101,7 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
     total_txn_put_keys += txn->num_put_keys();
     total_txn_put_bytes += txn->put_bytes();
     total_txn_size += txn->approximate_bytes();
+    total_txn_count++;
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::COMMIT>(err);
         ss << "failed to update delete bitmap, err=" << err << " tablet_id=" << tablet_id
@@ -2117,7 +2120,7 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
               << " total_value_count=" << total_value_count << " unlock=" << unlock
               << " total_txn_put_keys=" << total_txn_put_keys
               << " total_txn_put_bytes=" << total_txn_put_bytes
-              << " total_txn_size=" << total_txn_size;
+              << " total_txn_size=" << total_txn_size << " total_txn_count=" << total_txn_count;
 }
 
 void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* controller,
