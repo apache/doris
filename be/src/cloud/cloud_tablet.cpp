@@ -33,7 +33,6 @@
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet_mgr.h"
-#include "common/cast_set.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "io/cache/block_file_cache_downloader.h"
@@ -618,62 +617,62 @@ void CloudTablet::get_compaction_status(std::string* json_result) {
     root.AddMember("cumulative point", _cumulative_point.load(), root.GetAllocator());
     rapidjson::Value cumu_value;
     std::string format_str = ToStringFromUnixMillis(_last_cumu_compaction_failure_millis.load());
-    cumu_value.SetString(format_str.c_str(), cast_set<uint>(format_str.length()),
+    cumu_value.SetString(format_str.c_str(), static_cast<uint>(format_str.length()),
                          root.GetAllocator());
     root.AddMember("last cumulative failure time", cumu_value, root.GetAllocator());
     rapidjson::Value base_value;
     format_str = ToStringFromUnixMillis(_last_base_compaction_failure_millis.load());
-    base_value.SetString(format_str.c_str(), cast_set<uint>(format_str.length()),
+    base_value.SetString(format_str.c_str(), static_cast<uint>(format_str.length()),
                          root.GetAllocator());
     root.AddMember("last base failure time", base_value, root.GetAllocator());
     rapidjson::Value full_value;
     format_str = ToStringFromUnixMillis(_last_full_compaction_failure_millis.load());
-    full_value.SetString(format_str.c_str(), cast_set<uint>(format_str.length()),
+    full_value.SetString(format_str.c_str(), static_cast<uint>(format_str.length()),
                          root.GetAllocator());
     root.AddMember("last full failure time", full_value, root.GetAllocator());
     rapidjson::Value cumu_success_value;
     format_str = ToStringFromUnixMillis(_last_cumu_compaction_success_millis.load());
-    cumu_success_value.SetString(format_str.c_str(), cast_set<uint>(format_str.length()),
+    cumu_success_value.SetString(format_str.c_str(), static_cast<uint>(format_str.length()),
                                  root.GetAllocator());
     root.AddMember("last cumulative success time", cumu_success_value, root.GetAllocator());
     rapidjson::Value base_success_value;
     format_str = ToStringFromUnixMillis(_last_base_compaction_success_millis.load());
-    base_success_value.SetString(format_str.c_str(), cast_set<uint>(format_str.length()),
+    base_success_value.SetString(format_str.c_str(), static_cast<uint>(format_str.length()),
                                  root.GetAllocator());
     root.AddMember("last base success time", base_success_value, root.GetAllocator());
     rapidjson::Value full_success_value;
     format_str = ToStringFromUnixMillis(_last_full_compaction_success_millis.load());
-    full_success_value.SetString(format_str.c_str(), cast_set<uint>(format_str.length()),
+    full_success_value.SetString(format_str.c_str(), static_cast<uint>(format_str.length()),
                                  root.GetAllocator());
     root.AddMember("last full success time", full_success_value, root.GetAllocator());
     rapidjson::Value cumu_schedule_value;
     format_str = ToStringFromUnixMillis(_last_cumu_compaction_schedule_millis.load());
-    cumu_schedule_value.SetString(format_str.c_str(), cast_set<uint>(format_str.length()),
+    cumu_schedule_value.SetString(format_str.c_str(), static_cast<uint>(format_str.length()),
                                   root.GetAllocator());
     root.AddMember("last cumulative schedule time", cumu_schedule_value, root.GetAllocator());
     rapidjson::Value base_schedule_value;
     format_str = ToStringFromUnixMillis(_last_base_compaction_schedule_millis.load());
-    base_schedule_value.SetString(format_str.c_str(), cast_set<uint>(format_str.length()),
+    base_schedule_value.SetString(format_str.c_str(), static_cast<uint>(format_str.length()),
                                   root.GetAllocator());
     root.AddMember("last base schedule time", base_schedule_value, root.GetAllocator());
     rapidjson::Value full_schedule_value;
     format_str = ToStringFromUnixMillis(_last_full_compaction_schedule_millis.load());
-    full_schedule_value.SetString(format_str.c_str(), cast_set<uint>(format_str.length()),
+    full_schedule_value.SetString(format_str.c_str(), static_cast<uint>(format_str.length()),
                                   root.GetAllocator());
     root.AddMember("last full schedule time", full_schedule_value, root.GetAllocator());
     rapidjson::Value cumu_compaction_status_value;
     cumu_compaction_status_value.SetString(_last_cumu_compaction_status.c_str(),
-                                           cast_set<uint>(_last_cumu_compaction_status.length()),
+                                           static_cast<uint>(_last_cumu_compaction_status.length()),
                                            root.GetAllocator());
     root.AddMember("last cumulative status", cumu_compaction_status_value, root.GetAllocator());
     rapidjson::Value base_compaction_status_value;
     base_compaction_status_value.SetString(_last_base_compaction_status.c_str(),
-                                           cast_set<uint>(_last_base_compaction_status.length()),
+                                           static_cast<uint>(_last_base_compaction_status.length()),
                                            root.GetAllocator());
     root.AddMember("last base status", base_compaction_status_value, root.GetAllocator());
     rapidjson::Value full_compaction_status_value;
     full_compaction_status_value.SetString(_last_full_compaction_status.c_str(),
-                                           cast_set<uint>(_last_full_compaction_status.length()),
+                                           static_cast<uint>(_last_full_compaction_status.length()),
                                            root.GetAllocator());
     root.AddMember("last full status", full_compaction_status_value, root.GetAllocator());
 
