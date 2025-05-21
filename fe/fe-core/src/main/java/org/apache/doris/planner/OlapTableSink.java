@@ -46,6 +46,7 @@ import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -1016,17 +1017,9 @@ public class OlapTableSink extends DataSink {
         TOlapTableLocationParam slaveLocationParam = new TOlapTableLocationParam();
         // BE id -> path hash
         Multimap<Long, Long> allBePathsMap = HashMultimap.create();
-        List<Partition> partitions = partitionIds.stream().map(partitionId -> table.getPartition(partitionId))
-                .collect(Collectors.toList());
-        List<Long> visibleVersions = null;
-        try {
-            visibleVersions = Partition.getVisibleVersions(partitions);
-        } catch (RpcException e) {
-            throw new UserException("OlapTableSink get partition visible version failed", e);
-        }
-        for (int i = 0; i < partitions.size(); i++) {
-            Partition partition = partitions.get(i);
-            long visibleVersion = visibleVersions.get(i);
+        for (long partitionId : partitionIds) {
+            Partition partition = table.getPartition(partitionId);
+            Long visibleVersion = Config.isCloudMode() ? null : partition.getVisibleVersion();
             int loadRequiredReplicaNum = table.getLoadRequiredReplicaNum(partition.getId());
             for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
                 // we should ensure the replica backend is alive
@@ -1056,7 +1049,9 @@ public class OlapTableSink extends DataSink {
                         throw new UserException(InternalErrorCode.INTERNAL_ERR, errMsg);
                     }
 
-                    debugWriteRandomChooseSink(tablet, visibleVersion, bePathsMap);
+                    if (visibleVersion != null) {
+                        debugWriteRandomChooseSink(tablet, visibleVersion, bePathsMap);
+                    }
                     if (bePathsMap.keySet().isEmpty()) {
                         throw new UserException(InternalErrorCode.REPLICA_FEW_ERR,
                                 "tablet " + tablet.getId() + " no available replica");

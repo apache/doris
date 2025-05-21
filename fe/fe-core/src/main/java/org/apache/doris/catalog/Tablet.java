@@ -374,10 +374,12 @@ public class Tablet extends MetaObject {
         return allQueryableReplica;
     }
 
-    public String getDetailsStatusForQuery(long visibleVersion) {
+    public String getDetailsStatusForQuery(Long visibleVersion) {
         StringBuilder sb = new StringBuilder("Visible Replicas:");
-        sb.append("Visible version: ").append(visibleVersion);
-        sb.append(", Replicas: ");
+        if (visibleVersion != null) {
+            sb.append("Visible version: ").append(visibleVersion).append(", ");
+        }
+        sb.append("Replicas: ");
         sb.append(Joiner.on(", ").join(replicas.stream().map(replica -> replica.toStringSimple(true))
                 .collect(Collectors.toList())));
         sb.append(".");
