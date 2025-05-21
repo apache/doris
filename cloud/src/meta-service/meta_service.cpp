@@ -2201,9 +2201,8 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
               << " total_value_count=" << total_value_count << " unlock=" << unlock
               << " total_txn_put_keys=" << total_txn_put_keys
               << " total_txn_put_bytes=" << total_txn_put_bytes
-              << " total_txn_size=" << total_txn_size
-              << " total_txn_count=" << total_txn_count << " instance_id=" << instance_id
-              << " use_version=" << use_version;
+              << " total_txn_size=" << total_txn_size << " total_txn_count=" << total_txn_count
+              << " instance_id=" << instance_id << " use_version=" << use_version;
 }
 
 void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* controller,
