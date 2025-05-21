@@ -160,7 +160,7 @@ TEST(TExprInvertedIndexTest, test_expr_evaluate_inverted_index) {
             common_expr_inverted_index_status;
     auto inverted_index_context = std::make_shared<doris::vectorized::InvertedIndexContext>(
             std::vector<doris::ColumnId>(),
-            std::vector<std::unique_ptr<doris::segment_v2::InvertedIndexIterator>>(),
+            std::vector<std::unique_ptr<doris::segment_v2::IndexIterator>>(),
             std::vector<doris::vectorized::IndexFieldNameAndTypePair>(),
             common_expr_inverted_index_status);
     expr_ctx.set_inverted_index_context(inverted_index_context);
