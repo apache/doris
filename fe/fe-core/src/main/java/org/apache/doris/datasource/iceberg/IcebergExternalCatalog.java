@@ -18,8 +18,7 @@
 package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.common.ThreadPoolManager;
-import org.apache.doris.common.security.authentication.AuthenticationConfig;
-import org.apache.doris.common.security.authentication.HadoopAuthenticator;
+import org.apache.doris.common.security.authentication.PreExecutionAuthenticator;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
@@ -56,11 +55,8 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
 
     @Override
     public synchronized void initPreExecutionAuthenticator() {
-        super.initPreExecutionAuthenticator();
-        if (preExecutionAuthenticator.getHadoopAuthenticator() == null) {
-            AuthenticationConfig config = AuthenticationConfig.getKerberosConfig(getConfiguration());
-            HadoopAuthenticator authenticator = HadoopAuthenticator.getHadoopAuthenticator(config);
-            preExecutionAuthenticator.setHadoopAuthenticator(authenticator);
+        if (preExecutionAuthenticator == null) {
+            preExecutionAuthenticator = new PreExecutionAuthenticator(getConfiguration());
         }
     }
 

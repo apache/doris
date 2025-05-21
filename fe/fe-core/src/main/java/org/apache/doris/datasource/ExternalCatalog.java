@@ -183,6 +183,11 @@ public abstract class ExternalCatalog
         this.comment = Strings.nullToEmpty(comment);
     }
 
+    /**
+     * Initializes the PreExecutionAuthenticator instance.
+     * This method ensures that the authenticator is created only once in a thread-safe manner.
+     * If additional authentication logic is required, it should be extended and implemented in subclasses.
+     */
     public synchronized void initPreExecutionAuthenticator() {
         if (preExecutionAuthenticator == null) {
             preExecutionAuthenticator = new PreExecutionAuthenticator();

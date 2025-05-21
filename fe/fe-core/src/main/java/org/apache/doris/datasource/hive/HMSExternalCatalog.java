@@ -23,8 +23,7 @@ import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ThreadPoolManager;
-import org.apache.doris.common.security.authentication.AuthenticationConfig;
-import org.apache.doris.common.security.authentication.HadoopAuthenticator;
+import org.apache.doris.common.security.authentication.PreExecutionAuthenticator;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
@@ -45,7 +44,6 @@ import org.apache.doris.transaction.TransactionManagerFactory;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Strings;
-import lombok.Getter;
 import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.iceberg.hive.HiveCatalog;
@@ -82,8 +80,6 @@ public class HMSExternalCatalog extends ExternalCatalog {
 
     private static final int FILE_SYSTEM_EXECUTOR_THREAD_NUM = 16;
     private ThreadPoolExecutor fileSystemExecutor;
-    @Getter
-    private HadoopAuthenticator authenticator;
 
     private int hmsEventsBatchSizePerRpc = -1;
     private boolean enableHmsEventsIncrementalSync = false;
@@ -162,15 +158,8 @@ public class HMSExternalCatalog extends ExternalCatalog {
 
     @Override
     public synchronized void initPreExecutionAuthenticator() {
-        super.initPreExecutionAuthenticator();
-        if (this.authenticator == null) {
-            try {
-                AuthenticationConfig config = AuthenticationConfig.getKerberosConfig(getConfiguration());
-                this.authenticator = HadoopAuthenticator.getHadoopAuthenticator(config);
-                this.preExecutionAuthenticator.setHadoopAuthenticator(authenticator);
-            } catch (Exception e) {
-                throw new RuntimeException("Failed to initialize authenticator", e);
-            }
+        if (preExecutionAuthenticator == null) {
+            preExecutionAuthenticator = new PreExecutionAuthenticator(getConfiguration());
         }
     }
 
