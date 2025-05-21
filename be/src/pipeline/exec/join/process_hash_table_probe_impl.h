@@ -289,6 +289,13 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
     output_block->swap(mutable_block.to_block());
 
     if constexpr (is_mark_join) {
+        if constexpr (JoinOpType == TJoinOp::RIGHT_SEMI_JOIN ||
+                      JoinOpType == TJoinOp::RIGHT_ANTI_JOIN) {
+            if (mark_join_flags.empty()) {
+                mark_join_flags.resize(hash_table_ctx.hash_table->size(), 0);
+            }
+        }
+
         return do_mark_join_conjuncts<with_other_conjuncts>(
                 output_block, hash_table_ctx.hash_table->get_bucket_size());
     } else if constexpr (with_other_conjuncts) {
@@ -377,12 +384,6 @@ Status ProcessHashTableProbe<JoinOpType>::do_mark_join_conjuncts(vectorized::Blo
     const auto row_count = output_block->rows();
     if (!row_count) {
         return Status::OK();
-    }
-
-    if constexpr (is_right_half_join) {
-        if (mark_join_flags.empty() && _build_block != nullptr) {
-            mark_join_flags.resize(_build_block->rows(), 0);
-        }
     }
 
     auto mark_column_mutable =
@@ -515,7 +516,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_mark_join_conjuncts(vectorized::Blo
             }
         }
         // For right semi/anti join, no rows will be output in probe phase.
-        output_block->swap(vectorized::Block());
+        output_block->clear();
         return Status::OK();
     } else {
         if constexpr (is_anti_join) {
@@ -690,8 +691,8 @@ Status ProcessHashTableProbe<JoinOpType>::finish_probing(HashTableType& hash_tab
         if constexpr (JoinOpType == TJoinOp::RIGHT_ANTI_JOIN ||
                       JoinOpType == TJoinOp::RIGHT_SEMI_JOIN) {
             if (is_mark_join) {
-                if (mark_join_flags.empty() && _build_block != nullptr) {
-                    mark_join_flags.resize(_build_block->rows(), 0);
+                if (mark_join_flags.empty()) {
+                    mark_join_flags.resize(hash_table_ctx.hash_table->size(), 0);
                 }
 
                 // mark column is nullable
