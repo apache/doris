@@ -89,7 +89,6 @@ public class ShowCopyCommandTest extends TestWithFeService {
         UnboundSlot key = new UnboundSlot(Lists.newArrayList("LABEL"));
         List<OrderKey> orderKeys = Lists.newArrayList(new OrderKey(key, true, true));
         ShowCopyCommand command = new ShowCopyCommand("test", orderKeys, null, -1, -1);
-        command.processOrderBy();
         ArrayList<OrderByPair> orderByPairs = command.getOrderByPairs();
         OrderByPair op = orderByPairs.get(0);
         Assertions.assertFalse(op.isDesc());
