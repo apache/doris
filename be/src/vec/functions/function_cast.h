@@ -1594,14 +1594,14 @@ private:
 
     WrapperType create_hll_wrapper(FunctionContext* context, const DataTypePtr& from_type_untyped,
                                    const DataTypeHLL& to_type) const {
-        throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "CAST AS HLL Not support");
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "CAST AS HLL Not support");
         return create_unsupport_wrapper("CAST AS HLL Not support");
     }
 
     WrapperType create_bitmap_wrapper(FunctionContext* context,
                                       const DataTypePtr& from_type_untyped,
                                       const DataTypeBitMap& to_type) const {
-        throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "CAST AS Bitmap Not support");
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "CAST AS Bitmap Not support");
 
         return create_unsupport_wrapper("CAST AS Bitmap Not support");
     }
