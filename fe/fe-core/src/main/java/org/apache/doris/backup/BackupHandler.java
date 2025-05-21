@@ -55,6 +55,7 @@ import org.apache.doris.fsv2.FileSystemFactory;
 import org.apache.doris.fsv2.remote.AzureFileSystem;
 import org.apache.doris.fsv2.remote.RemoteFileSystem;
 import org.apache.doris.fsv2.remote.S3FileSystem;
+import org.apache.doris.nereids.trees.plans.commands.CancelBackupCommand;
 import org.apache.doris.persist.BarrierLog;
 import org.apache.doris.task.DirMoveTask;
 import org.apache.doris.task.DownloadTask;
