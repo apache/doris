@@ -2078,7 +2078,6 @@ void clone_callback(StorageEngine& engine, const ClusterInfo* cluster_info,
         finish_task_request.__set_finish_tablet_infos(tablet_infos);
         finish_task_request.__set_copy_size(engine_task.get_copy_size());
         finish_task_request.__set_copy_time_ms(engine_task.get_copy_time_ms());
-
     }
 
     finish_task(finish_task_request);
