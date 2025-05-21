@@ -468,7 +468,7 @@ struct PrimitiveTypeTraits<TYPE_IPV4> {
     using ColumnItemType = CppType;
     using DataType = vectorized::DataTypeIPv4;
     using ColumnType = vectorized::ColumnIPv4;
-    using NearestFieldType = vectorized::UInt64;
+    using NearestFieldType = IPv4;
     using AvgNearestFieldType = IPv4;
     using AvgNearestFieldType256 = IPv4;
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_BIGINT;

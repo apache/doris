@@ -160,13 +160,13 @@ Field DataTypeNumberBase<T>::get_default() const {
         return Field::create_field<TYPE_DATETIMEV2>(
                 PrimitiveTypeTraits<TYPE_DATETIMEV2>::NearestFieldType());
     }
-    if constexpr (std::is_same_v<T, UInt32>) {
+    if constexpr (std::is_same_v<T, IPv4>) {
         return Field::create_field<TYPE_IPV4>(PrimitiveTypeTraits<TYPE_IPV4>::NearestFieldType());
     }
-    if constexpr (std::is_same_v<T, UInt128>) {
+    if constexpr (std::is_same_v<T, IPv6>) {
         return Field::create_field<TYPE_IPV6>(PrimitiveTypeTraits<TYPE_IPV6>::NearestFieldType());
     }
-    throw Exception(Status::FatalError("__builtin_unreachable"));
+    throw Exception(Status::FatalError("__builtin_unreachable: {}", get_name()));
 }
 
 template <typename T>

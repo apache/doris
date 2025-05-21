@@ -91,7 +91,7 @@ TEST_F(DataTypeIPTest, MetaInfoTest) {
             .is_value_represented_by_number = true,
             .pColumnMeta = col_meta.get(),
             .is_value_unambiguously_represented_in_contiguous_memory_region = true,
-            .default_field = Field::create_field<TYPE_IPV4>(UInt64(0)),
+            .default_field = Field::create_field<TYPE_IPV4>(IPv4(0)),
     };
     auto ipv6_type_descriptor =
             DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_IPV6, false);
