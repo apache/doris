@@ -129,7 +129,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
     protected TableAttributes tableAttributes = new TableAttributes();
 
     // check read lock leaky
-    private Map<Long, String> readLockThreads = null;
+    private Map<Long, String> readLockThreads =  Maps.newConcurrentMap();
 
     @SerializedName(value = "isTemporary")
     private boolean isTemporary = false;
@@ -139,10 +139,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
         this.type = type;
         this.fullSchema = Lists.newArrayList();
         this.nameToColumn = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
-        this.rwLock = new MonitoredReentrantReadWriteLock(true);
-        if (Config.check_table_lock_leaky) {
-            this.readLockThreads = Maps.newConcurrentMap();
-        }
+        this.rwLock = new MonitoredReentrantReadWriteLock(true, "Table[" + name + "]");
         this.commitLock = new MonitoredReentrantLock(true);
     }
 
@@ -168,11 +165,8 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
             // Only view in with-clause have null base
             Preconditions.checkArgument(type == TableType.VIEW, "Table has no columns");
         }
-        this.rwLock = new MonitoredReentrantReadWriteLock(true);
+        this.rwLock = new MonitoredReentrantReadWriteLock(true, "Table[" + name + "]");
         this.createTime = Instant.now().getEpochSecond();
-        if (Config.check_table_lock_leaky) {
-            this.readLockThreads = Maps.newConcurrentMap();
-        }
         this.commitLock = new MonitoredReentrantLock(true);
     }
 
@@ -186,7 +180,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
 
     public void readLock() {
         this.rwLock.readLock().lock();
-        if (this.readLockThreads != null && this.rwLock.getReadHoldCount() == 1) {
+        if (Config.check_table_lock_leaky && this.rwLock.getReadHoldCount() == 1) {
             Thread thread = Thread.currentThread();
             this.readLockThreads.put(thread.getId(),
                     "(" + thread.toString() + ", time " + System.currentTimeMillis() + ")");
@@ -206,7 +200,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
         try {
             boolean res = this.rwLock.readLock().tryLock(timeout, unit);
             if (res) {
-                if (this.readLockThreads != null && this.rwLock.getReadHoldCount() == 1) {
+                if (Config.check_table_lock_leaky && this.rwLock.getReadHoldCount() == 1) {
                     Thread thread = Thread.currentThread();
                     this.readLockThreads.put(thread.getId(),
                             "(" + thread.toString() + ", time " + System.currentTimeMillis() + ")");
@@ -226,7 +220,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
 
     public void readUnlock() {
         this.rwLock.readLock().unlock();
-        if (this.readLockThreads != null && this.rwLock.getReadHoldCount() == 0) {
+        if (this.rwLock.getReadHoldCount() == 0) {
             this.readLockThreads.remove(Thread.currentThread().getId());
         }
     }
@@ -251,14 +245,8 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
         try {
             boolean res = this.rwLock.writeLock().tryLock(timeout, unit);
             if (!res && unit.toSeconds(timeout) >= 1) {
-                if (readLockThreads == null) {
-                    LOG.warn("Failed to try table {}'s write lock. timeout {} {}. Current owner: {}",
-                            name, timeout, unit.name(), rwLock.getOwner());
-                } else {
-                    LOG.warn("Failed to try table {}'s write lock. timeout {} {}. Current owner: {}, "
-                            + "current reader: {}",
-                            name, timeout, unit.name(), rwLock.getOwner(), readLockThreads);
-                }
+                LOG.warn("Failed to try table {}'s write lock. timeout {} {}. Current owner: {}, "
+                            + "current reader: {}", name, timeout, unit.name(), rwLock.getOwner(), readLockThreads);
             }
             return res;
         } catch (InterruptedException e) {
