@@ -559,9 +559,13 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
         Preconditions.checkState(context.arity() == 2);
         Statistics leftStatistics = context.getChildStatistics(0);
         Statistics rightStatistics = context.getChildStatistics(1);
+        double nljPenalty = 1.0;
+        if (leftStatistics.getRowCount() < 10 * rightStatistics.getRowCount()) {
+            nljPenalty = Math.min(leftStatistics.getRowCount(), rightStatistics.getRowCount());
+        }
         return CostV1.of(context.getSessionVariable(),
                 leftStatistics.getRowCount() * rightStatistics.getRowCount(),
-                rightStatistics.getRowCount(),
+                rightStatistics.getRowCount() * nljPenalty,
                 0);
     }
 
