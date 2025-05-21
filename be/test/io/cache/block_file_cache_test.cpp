@@ -7406,6 +7406,22 @@ void move_dir_to_version1(const std::string& dirPath) {
     }
 }
 
+void copy_dir(const fs::path& sourceDir, const fs::path& destinationDir) {
+    if (!fs::exists(destinationDir)) {
+        fs::create_directories(destinationDir);
+    }
+
+    for (const auto& entry : fs::directory_iterator(sourceDir)) {
+        const auto& path = entry.path();
+        if (fs::is_directory(path)) {
+            copy_dir(path, destinationDir / path.filename());
+        } else {
+            fs::copy_file(path, destinationDir / path.filename(),
+                          fs::copy_options::overwrite_existing);
+        }
+    }
+}
+
 TEST_F(BlockFileCacheTest, test_upgrade_cache_dir_version) {
     config::enable_evict_file_cache_in_advance = false;
     config::file_cache_enter_disk_resource_limit_mode_percent = 99;
@@ -7612,6 +7628,7 @@ TEST_F(BlockFileCacheTest, test_upgrade_cache_dir_version) {
     }
     sp->clear_call_back("FSFileCacheStorage::collect_directory_entries");
 
+    LOG(INFO) << "upgrade_cache_dir_if_necessary_rename exception injected upgrade";
     sp->set_call_back("FSFileCacheStorage::upgrade_cache_dir_if_necessary_rename", [](auto&& args) {
         throw doris::Exception(
                 Status::InternalError("Inject exception to upgrade_cache_dir_if_necessary_rename"));
@@ -7620,7 +7637,6 @@ TEST_F(BlockFileCacheTest, test_upgrade_cache_dir_version) {
     move_dir_to_version1(cache_base_path);
     std::this_thread::sleep_for(std::chrono::milliseconds(1000));
     config::ignore_file_cache_dir_upgrade_failure = true;
-    LOG(INFO) << "upgrade_cache_dir_if_necessary_rename exception injected upgrade";
     {
         io::BlockFileCache cache(cache_base_path, settings);
         ASSERT_TRUE(cache.initialize());
@@ -7639,19 +7655,109 @@ TEST_F(BlockFileCacheTest, test_upgrade_cache_dir_version) {
             auto blocks = fromHolder(holder);
             ASSERT_EQ(blocks.size(), 1);
 
-            assert_range(7, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+            assert_range(9, blocks[0], io::FileBlock::Range(offset, offset + 99999),
                          io::FileBlock::State::EMPTY); // inject failure removed the files
             download(blocks[0]);
-            assert_range(8, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+            assert_range(10, blocks[0], io::FileBlock::Range(offset, offset + 99999),
                          io::FileBlock::State::DOWNLOADED);
             blocks.clear();
         }
     }
     sp->clear_call_back("FSFileCacheStorage::upgrade_cache_dir_if_necessary_rename");
 
-    // if (fs::exists(cache_base_path)) {
-    //     fs::remove_all(cache_base_path);
-    // }
+    // mock upgrade when delete
+    LOG(INFO) << "upgrade_cache_dir_if_necessary_rename delete old error injected upgrade";
+    sp->set_call_back("FSFileCacheStorage::upgrade_cache_dir_if_necessary_rename", [](auto&& args) {
+        std::string file_path = *try_any_cast<const std::string*>(args.at(0));
+        LOG(INFO) << "file_path=" << file_path;
+        std::error_code ec;
+        bool is_exist = std::filesystem::exists(file_path, ec);
+        ASSERT_TRUE(is_exist);
+        fs::remove_all(file_path);
+        is_exist = std::filesystem::exists(file_path, ec);
+        ASSERT_FALSE(is_exist);
+    });
+    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    move_dir_to_version1(cache_base_path);
+    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    config::ignore_file_cache_dir_upgrade_failure = true;
+    {
+        io::BlockFileCache cache(cache_base_path, settings);
+        ASSERT_TRUE(cache.initialize());
+        int i = 0;
+        for (; i < 1000; i++) {
+            if (cache.get_async_open_success()) {
+                break;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+        ASSERT_TRUE(cache.get_async_open_success());
+        int64_t offset = 0;
+        // fill the cache to its limit
+        for (; offset < limit; offset += 100000) {
+            auto holder = cache.get_or_set(key1, offset, 100000, context);
+            auto blocks = fromHolder(holder);
+            ASSERT_EQ(blocks.size(), 1);
+
+            assert_range(11, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                         io::FileBlock::State::EMPTY); // inject failure removed the files
+            download(blocks[0]);
+            assert_range(12, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                         io::FileBlock::State::DOWNLOADED);
+            blocks.clear();
+        }
+    }
+    sp->clear_call_back("FSFileCacheStorage::upgrade_cache_dir_if_necessary_rename");
+
+    // mock concurrent query create target file while upgrading
+    LOG(INFO) << "upgrade_cache_dir_if_necessary_rename new already exists error injected upgrade";
+    sp->set_call_back("FSFileCacheStorage::upgrade_cache_dir_if_necessary_rename", [](auto&& args) {
+        std::string file_path = *try_any_cast<const std::string*>(args.at(0));
+        LOG(INFO) << "file_path=" << file_path;
+        std::string new_file_path = *try_any_cast<const std::string*>(args.at(1));
+        LOG(INFO) << "new_file_path=" << new_file_path;
+        std::error_code ec;
+        bool is_exist = std::filesystem::exists(new_file_path, ec);
+        ASSERT_FALSE(is_exist);
+        is_exist = std::filesystem::exists(file_path, ec);
+        ASSERT_TRUE(is_exist);
+        copy_dir(file_path, new_file_path);
+        is_exist = std::filesystem::exists(new_file_path, ec);
+        ASSERT_TRUE(is_exist);
+        is_exist = std::filesystem::exists(file_path, ec);
+        ASSERT_TRUE(is_exist);
+    });
+    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    move_dir_to_version1(cache_base_path);
+    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    config::ignore_file_cache_dir_upgrade_failure = true;
+    {
+        io::BlockFileCache cache(cache_base_path, settings);
+        ASSERT_TRUE(cache.initialize());
+        int i = 0;
+        for (; i < 1000; i++) {
+            if (cache.get_async_open_success()) {
+                break;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+        ASSERT_TRUE(cache.get_async_open_success());
+        int64_t offset = 0;
+        // fill the cache to its limit
+        for (; offset < limit; offset += 100000) {
+            auto holder = cache.get_or_set(key1, offset, 100000, context);
+            auto blocks = fromHolder(holder);
+            ASSERT_EQ(blocks.size(), 1);
+            assert_range(13, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                         io::FileBlock::State::DOWNLOADED);
+            blocks.clear();
+        }
+    }
+    sp->clear_call_back("FSFileCacheStorage::upgrade_cache_dir_if_necessary_rename");
+
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
 }
 
 } // namespace doris::io

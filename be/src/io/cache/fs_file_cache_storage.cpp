@@ -482,16 +482,18 @@ Status FSFileCacheStorage::upgrade_cache_dir_if_necessary() const {
                             }
                         }
                         auto rename_status = Status::OK();
+                        const std::string new_file_path = key_prefix + "/" + cache_key;
                         TEST_SYNC_POINT_CALLBACK(
-                                "FSFileCacheStorage::upgrade_cache_dir_if_necessary_rename");
-                        rename_status = fs->rename(file_path, key_prefix / cache_key);
+                                "FSFileCacheStorage::upgrade_cache_dir_if_necessary_rename",
+                                &file_path, &new_file_path);
+                        rename_status = fs->rename(file_path, new_file_path);
                         if (rename_status.ok() ||
                             rename_status.code() == TStatusCode::type::DIRECTORY_NOT_EMPTY) {
                             ++rename_count;
                         } else {
-                            LOG(WARNING) << "Failed to rename directory from " << file_path
-                                         << " to " << (key_prefix / cache_key).native()
-                                         << ", error: " << rename_status.to_string();
+                            LOG(WARNING)
+                                    << "Failed to rename directory from " << file_path << " to "
+                                    << new_file_path << ", error: " << rename_status.to_string();
                             ++failure_count;
                             continue;
                         }
