@@ -2067,12 +2067,18 @@ void clone_callback(StorageEngine& engine, const ClusterInfo* cluster_info,
     } else {
         LOG_INFO("successfully clone tablet")
                 .tag("signature", req.signature)
-                .tag("tablet_id", clone_req.tablet_id);
+                .tag("tablet_id", clone_req.tablet_id)
+                .tag("copy_size", engine_task.get_copy_size())
+                .tag("copy_time_ms", engine_task.get_copy_time_ms());
+
         if (engine_task.is_new_tablet()) {
             increase_report_version();
             finish_task_request.__set_report_version(s_report_version);
         }
         finish_task_request.__set_finish_tablet_infos(tablet_infos);
+        finish_task_request.__set_copy_size(engine_task.get_copy_size());
+        finish_task_request.__set_copy_time_ms(engine_task.get_copy_time_ms());
+
     }
 
     finish_task(finish_task_request);

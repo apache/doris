@@ -56,6 +56,9 @@ public:
     ~EngineCloneTask() override = default;
 
     bool is_new_tablet() const { return _is_new_tablet; }
+    
+    int64_t get_copy_size() const { return _copy_size; }
+    int64_t get_copy_time_ms() const { return _copy_time_ms; }
 
 private:
     Status _do_clone();
