@@ -42,7 +42,7 @@ struct JsonBinaryValue {
     size_t len = 0;
     JsonbParser parser;
 
-    JsonBinaryValue() : ptr(nullptr), len(0) {}
+    JsonBinaryValue() = default;
     JsonBinaryValue(char* ptr, size_t len) {
         static_cast<void>(from_json_string(const_cast<const char*>(ptr), len));
     }
@@ -51,11 +51,11 @@ struct JsonBinaryValue {
     }
     JsonBinaryValue(const char* ptr, int len) { static_cast<void>(from_json_string(ptr, len)); }
 
-    const char* value() { return ptr; }
+    const char* value() const { return ptr; }
 
-    size_t size() { return len; }
+    size_t size() const { return len; }
 
-    void replace(char* ptr, int len) {
+    void replace(const char* ptr, int len) {
         this->ptr = ptr;
         this->len = len;
     }

@@ -210,6 +210,7 @@ public class OlapScanNode extends ScanNode {
 
     private SortInfo annSortInfo = null;
     private long annSortLimit = -1;
+    private long maxVersion = -1L;
 
     // cached for prepared statement to quickly prune partition
     // only used in short circuit plan at present
@@ -726,7 +727,8 @@ public class OlapScanNode extends ScanNode {
         }
     }
 
-    // Update the visible version of the scan range locations.
+    // Update the visible version of the scan range locations. for cloud mode. called as the end of
+    // NereidsPlanner.splitFragments
     public void updateScanRangeVersions(Map<Long, Long> visibleVersionMap) {
         if (LOG.isDebugEnabled() && ConnectContext.get() != null) {
             LOG.debug("query id: {}, selectedPartitionIds: {}, visibleVersionMap: {}",
@@ -751,12 +753,18 @@ public class OlapScanNode extends ScanNode {
                 scanRange.setVersion(visibleVersionStr);
             }
         }
+        this.maxVersion = visibleVersionMap.values().stream().max(Long::compareTo).orElse(0L);
     }
 
     public Long getTabletSingleReplicaSize(Long tabletId) {
         return tabletBytes.get(tabletId);
     }
 
+    public long getMaxVersion() {
+        return maxVersion;
+    }
+
+    // for non-cloud mode. for cloud mode see `updateScanRangeVersions`
     private void addScanRangeLocations(Partition partition,
             List<Tablet> tablets, Map<Long, Set<Long>> backendAlivePathHashs) throws UserException {
         long visibleVersion = Partition.PARTITION_INIT_VERSION;
@@ -766,6 +774,7 @@ public class OlapScanNode extends ScanNode {
         if (!(Config.isCloudMode() && Config.enable_cloud_snapshot_version)) {
             visibleVersion = partition.getVisibleVersion();
         }
+        maxVersion = Math.max(maxVersion, visibleVersion);
         String visibleVersionStr = String.valueOf(visibleVersion);
 
         int useFixReplica = -1;
@@ -800,6 +809,7 @@ public class OlapScanNode extends ScanNode {
                             tabletId, tabletVersion, partition.getId(), visibleVersion);
                     visibleVersion = tabletVersion;
                     visibleVersionStr = String.valueOf(visibleVersion);
+                    maxVersion = Math.max(maxVersion, visibleVersion);
                 }
             }
             TScanRangeLocations locations = new TScanRangeLocations();

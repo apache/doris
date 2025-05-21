@@ -18,6 +18,7 @@
 #include "runtime/snapshot_loader.h"
 
 // IWYU pragma: no_include <bthread/errno.h>
+#include <absl/strings/str_split.h>
 #include <errno.h> // IWYU pragma: keep
 #include <fmt/format.h>
 #include <gen_cpp/AgentService_types.h>
@@ -29,6 +30,7 @@
 #include <gen_cpp/Types_types.h>
 
 #include <algorithm>
+#include <cstddef>
 #include <cstring>
 #include <filesystem>
 #include <istream>
@@ -37,7 +39,6 @@
 
 #include "common/config.h"
 #include "common/logging.h"
-#include "gutil/strings/split.h"
 #include "http/http_client.h"
 #include "io/fs/broker_file_system.h"
 #include "io/fs/file_system.h"
@@ -96,6 +97,8 @@ public:
     void set_report_progress_callback(std::function<Status()> report_progress) {
         _report_progress_callback = std::move(report_progress);
     }
+
+    size_t get_download_file_num() { return _need_download_files.size(); }
 
     Status download();
 
@@ -350,7 +353,7 @@ Status SnapshotHttpDownloader::_list_remote_files() {
     };
     RETURN_IF_ERROR(HttpClient::execute_with_retry(kDownloadFileMaxRetry, 1, list_files_cb));
 
-    _remote_file_list = strings::Split(remote_file_list_str, "\n", strings::SkipWhitespace());
+    _remote_file_list = absl::StrSplit(remote_file_list_str, "\n", absl::SkipWhitespace());
 
     // find hdr file
     auto hdr_file =
@@ -426,6 +429,14 @@ Status SnapshotHttpDownloader::_link_same_rowset_files() {
         remote_rowset_metas.insert({rowset_meta.rowset_id_v2(), rowset_meta});
     }
 
+    std::unordered_map<std::string, const RowsetMetaPB&> local_rowset_metas;
+    for (const auto& rowset_meta : local_tablet_meta.rs_metas()) {
+        if (rowset_meta.has_resource_id()) {
+            continue;
+        }
+        local_rowset_metas.insert({rowset_meta.rowset_id_v2(), rowset_meta});
+    }
+
     for (const auto& local_rowset_meta : local_tablet_meta.rs_metas()) {
         if (local_rowset_meta.has_resource_id() || !local_rowset_meta.has_source_rowset_id()) {
             continue;
@@ -479,6 +490,66 @@ Status SnapshotHttpDownloader::_link_same_rowset_files() {
         }
     }
 
+    for (const auto& remote_rowset_meta : remote_tablet_meta.rs_metas()) {
+        if (remote_rowset_meta.has_resource_id() || !remote_rowset_meta.has_source_rowset_id()) {
+            continue;
+        }
+
+        auto local_rowset_meta = local_rowset_metas.find(remote_rowset_meta.source_rowset_id());
+        if (local_rowset_meta == local_rowset_metas.end()) {
+            continue;
+        }
+
+        const auto& local_rowset_id = local_rowset_meta->first;
+        const auto& local_rowset_meta_pb = local_rowset_meta->second;
+        const auto& remote_rowset_id = remote_rowset_meta.rowset_id_v2();
+        auto local_tablet_id = local_rowset_meta_pb.tablet_id();
+
+        if (remote_rowset_meta.start_version() != local_rowset_meta_pb.start_version() ||
+            remote_rowset_meta.end_version() != local_rowset_meta_pb.end_version()) {
+            continue;
+        }
+
+        LOG(INFO) << "remote rowset " << remote_rowset_id << " was derived from local tablet "
+                  << local_tablet_id << " rowset " << local_rowset_id
+                  << ", skip downloading these files";
+
+        for (const auto& remote_file : _remote_file_list) {
+            if (!remote_file.starts_with(remote_rowset_id)) {
+                continue;
+            }
+
+            std::string local_file = remote_file;
+            local_file.replace(0, remote_rowset_id.size(), local_rowset_id);
+            std::string local_file_path = _local_path + "/" + local_file;
+            std::string remote_file_path = _local_path + "/" + remote_file;
+
+            bool exist = false;
+            RETURN_IF_ERROR(io::global_local_filesystem()->exists(remote_file_path, &exist));
+            if (exist) {
+                continue;
+            }
+
+            LOG(INFO) << "link file from " << local_file_path << " to " << remote_file_path;
+            if (!io::global_local_filesystem()->link_file(local_file_path, remote_file_path)) {
+                std::string msg = fmt::format("link file failed from {} to {}, err: {}",
+                                              local_file_path, remote_file_path, strerror(errno));
+                LOG(WARNING) << msg;
+                return Status::InternalError(std::move(msg));
+            } else {
+                auto it = _local_files.find(local_file);
+                if (it != _local_files.end()) {
+                    _local_files[remote_file] = it->second;
+                } else {
+                    std::string msg =
+                            fmt::format("local file {} don't exist in _local_files, err: {}",
+                                        local_file, strerror(errno));
+                    LOG(WARNING) << msg;
+                    return Status::InternalError(std::move(msg));
+                }
+            }
+        }
+    }
     return Status::OK();
 }
 
@@ -673,7 +744,17 @@ SnapshotLoader::SnapshotLoader(StorageEngine& engine, ExecEnv* env, int64_t job_
           _job_id(job_id),
           _task_id(task_id),
           _broker_addr(broker_addr),
-          _prop(prop) {}
+          _prop(prop) {
+    _resource_ctx = ResourceContext::create_shared();
+    TUniqueId tid;
+    tid.hi = _job_id;
+    tid.lo = _task_id;
+    _resource_ctx->task_controller()->set_task_id(tid);
+    std::shared_ptr<MemTrackerLimiter> mem_tracker = MemTrackerLimiter::create_shared(
+            MemTrackerLimiter::Type::OTHER,
+            fmt::format("SnapshotLoader#Id={}", ((UniqueId)tid).to_string()));
+    _resource_ctx->memory_context()->set_mem_tracker(mem_tracker);
+}
 
 Status SnapshotLoader::init(TStorageBackendType::type type, const std::string& location) {
     if (TStorageBackendType::type::S3 == type) {
@@ -831,7 +912,9 @@ Status SnapshotLoader::download(const std::map<std::string, std::string>& src_to
         int32_t schema_hash = 0;
         RETURN_IF_ERROR(_get_tablet_id_and_schema_hash_from_file_path(local_path, &local_tablet_id,
                                                                       &schema_hash));
-        downloaded_tablet_ids->push_back(local_tablet_id);
+        if (downloaded_tablet_ids != nullptr) {
+            downloaded_tablet_ids->push_back(local_tablet_id);
+        }
 
         int64_t remote_tablet_id;
         RETURN_IF_ERROR(_get_tablet_id_from_remote_path(remote_path, &remote_tablet_id));
@@ -983,13 +1066,13 @@ Status SnapshotLoader::remote_http_download(
         const std::vector<TRemoteTabletSnapshot>& remote_tablet_snapshots,
         std::vector<int64_t>* downloaded_tablet_ids) {
     // check if job has already been cancelled
+
+#ifndef BE_TEST
     int tmp_counter = 1;
     RETURN_IF_ERROR(_report_every(0, &tmp_counter, 0, 0, TTaskType::type::DOWNLOAD));
+#endif
     Status status = Status::OK();
 
-    int report_counter = 0;
-    int finished_num = 0;
-    int total_num = remote_tablet_snapshots.size();
     for (const auto& remote_tablet_snapshot : remote_tablet_snapshots) {
         auto local_tablet_id = remote_tablet_snapshot.local_tablet_id;
         const auto& local_path = remote_tablet_snapshot.local_snapshot_path;
@@ -1006,15 +1089,28 @@ Status SnapshotLoader::remote_http_download(
             return Status::RuntimeError(std::move(msg));
         }
 
+        if (downloaded_tablet_ids != nullptr) {
+            downloaded_tablet_ids->push_back(local_tablet_id);
+        }
+
         SnapshotHttpDownloader downloader(remote_tablet_snapshot, std::move(tablet), *this);
+#ifndef BE_TEST
+        int report_counter = 0;
+        int finished_num = 0;
+        int total_num = remote_tablet_snapshots.size();
         downloader.set_report_progress_callback(
                 [this, &report_counter, &finished_num, &total_num]() {
                     return _report_every(10, &report_counter, finished_num, total_num,
                                          TTaskType::type::DOWNLOAD);
                 });
-        RETURN_IF_ERROR(downloader.download());
+#endif
 
+        RETURN_IF_ERROR(downloader.download());
+        _set_http_download_files_num(downloader.get_download_file_num());
+
+#ifndef BE_TEST
         ++finished_num;
+#endif
     }
 
     LOG(INFO) << "finished to download snapshots. job: " << _job_id << ", task id: " << _task_id;

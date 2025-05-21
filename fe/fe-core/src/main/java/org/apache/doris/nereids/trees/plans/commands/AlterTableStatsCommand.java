@@ -93,10 +93,13 @@ public class AlterTableStatsCommand extends AlterCommand {
         validate(ctx);
     }
 
-    private void validate(ConnectContext ctx) throws UserException {
+    /**
+     * validate
+     */
+    public void validate(ConnectContext ctx) throws UserException {
         if (!ConnectContext.get().getSessionVariable().enableStats) {
             throw new UserException("Analyze function is forbidden, you should add `enable_stats=true`"
-                + "in your FE conf file");
+                + " in your FE conf file");
         }
 
         tableNameInfo.analyze(ctx);
@@ -104,7 +107,7 @@ public class AlterTableStatsCommand extends AlterCommand {
         if (!Env.getCurrentEnv().getAccessManager()
                 .checkTblPriv(ConnectContext.get(), tableNameInfo.getCtl(), tableNameInfo.getDb(),
                 tableNameInfo.getTbl(), PrivPredicate.ALTER)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "ALTER COLUMN STATS",
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "ALTER TABLE STATS",
                     ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
                     tableNameInfo.getDb() + ": " + tableNameInfo.getTbl());
         }

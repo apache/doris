@@ -67,7 +67,7 @@ Usage: $0 <options>
   Environment variables:
     USE_AVX2                    If the CPU does not support AVX2 instruction set, please set USE_AVX2=0. Default is ON.
     STRIP_DEBUG_INFO            If set STRIP_DEBUG_INFO=ON, the debug information in the compiled binaries will be stored separately in the 'be/lib/debug_info' directory. Default is OFF.
-    DISABLE_BE_JAVA_EXTENSIONS  If set DISABLE_BE_JAVA_EXTENSIONS=ON, we will do not build binary with java-udf,hudi-scanner,jdbc-scanner and so on Default is OFF.
+    DISABLE_BE_JAVA_EXTENSIONS  If set DISABLE_BE_JAVA_EXTENSIONS=ON, we will do not build binary with java-udf,hadoop-hudi-scanner,jdbc-scanner and so on Default is OFF.
     DISABLE_JAVA_CHECK_STYLE    If set DISABLE_JAVA_CHECK_STYLE=ON, it will skip style check of java code in FE.
     DISABLE_BUILD_AZURE         If set DISABLE_BUILD_AZURE=ON, it will not build azure into BE.
     ENABLE_BUILD_FAISS          If set BUILD_FAISS=ON, it will link BE with faiss.
@@ -87,7 +87,7 @@ Usage: $0 <options>
     $0 --be --fe                            build Backend, Frontend, Spark Dpp application and Java UDF library
     $0 --be --coverage                      build Backend with coverage enabled
     $0 --be --output PATH                   build Backend, the result will be output to PATH(relative paths are available)
-    $0 --be-extension-ignore avro-scanner   build be-java-extensions, choose which modules to ignore. Multiple modules separated by commas, like --be-extension-ignore avro-scanner,hudi-scanner
+    $0 --be-extension-ignore avro-scanner   build be-java-extensions, choose which modules to ignore. Multiple modules separated by commas, like --be-extension-ignore avro-scanner,hadoop-hudi-scanner
 
     USE_AVX2=0 $0 --be                      build Backend and not using AVX2 instruction.
     USE_AVX2=0 STRIP_DEBUG_INFO=ON $0       build all and not using AVX2 instruction, and strip the debug info for Backend
@@ -362,9 +362,6 @@ if [[ "${CLEAN}" -eq 1 && "${BUILD_BE}" -eq 0 && "${BUILD_FE}" -eq 0 && "${BUILD
     exit 0
 fi
 
-if [[ -z "${WITH_MYSQL}" ]]; then
-    WITH_MYSQL='OFF'
-fi
 if [[ -z "${GLIBC_COMPATIBILITY}" ]]; then
     if [[ "${TARGET_SYSTEM}" != 'Darwin' ]]; then
         GLIBC_COMPATIBILITY='ON'
@@ -384,13 +381,6 @@ if [[ -z "${USE_LIBCPP}" ]]; then
 fi
 if [[ -z "${STRIP_DEBUG_INFO}" ]]; then
     STRIP_DEBUG_INFO='OFF'
-fi
-if [[ -z "${USE_MEM_TRACKER}" ]]; then
-    if [[ "${TARGET_SYSTEM}" != 'Darwin' ]]; then
-        USE_MEM_TRACKER='ON'
-    else
-        USE_MEM_TRACKER='OFF'
-    fi
 fi
 BUILD_TYPE_LOWWER=$(echo "${BUILD_TYPE}" | tr '[:upper:]' '[:lower:]')
 if [[ "${BUILD_TYPE_LOWWER}" == "asan" ]]; then
@@ -527,14 +517,12 @@ echo "Get params:
     BUILD_HIVE_UDF                      -- ${BUILD_HIVE_UDF}
     PARALLEL                            -- ${PARALLEL}
     CLEAN                               -- ${CLEAN}
-    WITH_MYSQL                          -- ${WITH_MYSQL}
     GLIBC_COMPATIBILITY                 -- ${GLIBC_COMPATIBILITY}
     USE_AVX2                            -- ${USE_AVX2}
     USE_LIBCPP                          -- ${USE_LIBCPP}
     USE_DWARF                           -- ${USE_DWARF}
     USE_UNWIND                          -- ${USE_UNWIND}
     STRIP_DEBUG_INFO                    -- ${STRIP_DEBUG_INFO}
-    USE_MEM_TRACKER                     -- ${USE_MEM_TRACKER}
     USE_JEMALLOC                        -- ${USE_JEMALLOC}
     USE_BTHREAD_SCANNER                 -- ${USE_BTHREAD_SCANNER}
     ENABLE_INJECTION_POINT              -- ${ENABLE_INJECTION_POINT}
@@ -567,7 +555,6 @@ if [[ "${BUILD_HIVE_UDF}" -eq 1 ]]; then
 fi
 if [[ "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 ]]; then
     modules+=("fe-common")
-    modules+=("be-java-extensions/hudi-scanner")
     modules+=("be-java-extensions/hadoop-hudi-scanner")
     modules+=("be-java-extensions/java-common")
     modules+=("be-java-extensions/java-udf")
@@ -628,7 +615,6 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DBUILD_BENCHMARK="${BUILD_BENCHMARK}" \
         -DBUILD_FS_BENCHMARK="${BUILD_FS_BENCHMARK}" \
         ${CMAKE_USE_CCACHE:+${CMAKE_USE_CCACHE}} \
-        -DWITH_MYSQL="${WITH_MYSQL}" \
         -DUSE_LIBCPP="${USE_LIBCPP}" \
         -DBUILD_META_TOOL="${BUILD_META_TOOL}" \
         -DBUILD_FILE_CACHE_MICROBENCH_TOOL="${BUILD_FILE_CACHE_MICROBENCH_TOOL}" \
@@ -638,7 +624,6 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DUSE_UNWIND="${USE_UNWIND}" \
         -DDISPLAY_BUILD_TIME="${DISPLAY_BUILD_TIME}" \
         -DENABLE_PCH="${ENABLE_PCH}" \
-        -DUSE_MEM_TRACKER="${USE_MEM_TRACKER}" \
         -DUSE_JEMALLOC="${USE_JEMALLOC}" \
         -DUSE_AVX2="${USE_AVX2}" \
         -DGLIBC_COMPATIBILITY="${GLIBC_COMPATIBILITY}" \
@@ -775,12 +760,12 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
 
     # copy jindofs jars, only support for Linux x64 or arm
     if [[ "${TARGET_SYSTEM}" == 'Linux' ]] && [[ "${TARGET_ARCH}" == 'x86_64' ]]; then
-        cp -r -p "${DORIS_THIRDPARTY}/installed/jindofs_libs/jindo-core-6.3.4.jar" "${DORIS_OUTPUT}/fe/lib"/
-        cp -r -p "${DORIS_THIRDPARTY}/installed/jindofs_libs/jindo-core-linux-ubuntu22-x86_64-6.3.4.jar" "${DORIS_OUTPUT}/fe/lib"/
-        cp -r -p "${DORIS_THIRDPARTY}/installed/jindofs_libs/jindo-sdk-6.3.4.jar" "${DORIS_OUTPUT}/fe/lib"/
+        cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-core-[0-9]*.jar "${DORIS_OUTPUT}/fe/lib"/
+        cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-core-linux-ubuntu22-x86_64-[0-9]*.jar "${DORIS_OUTPUT}/fe/lib"/
+        cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-sdk-[0-9]*.jar "${DORIS_OUTPUT}/fe/lib"/
     elif [[ "${TARGET_SYSTEM}" == 'Linux' ]] && [[ "${TARGET_ARCH}" == 'aarch64' ]]; then
-        cp -r -p "${DORIS_THIRDPARTY}/installed/jindofs_libs/jindo-core-linux-el7-aarch64-6.3.4.jar" "${DORIS_OUTPUT}/fe/lib"/
-        cp -r -p "${DORIS_THIRDPARTY}/installed/jindofs_libs/jindo-sdk-6.3.4.jar" "${DORIS_OUTPUT}/fe/lib"/
+        cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-core-linux-el7-aarch64-[0-9]*.jar "${DORIS_OUTPUT}/fe/lib"/
+        cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-sdk-[0-9]*.jar "${DORIS_OUTPUT}/fe/lib"/
     fi
 
     cp -r -p "${DORIS_HOME}/minidump" "${DORIS_OUTPUT}/fe"/
@@ -876,7 +861,6 @@ EOF
 
     extensions_modules=("java-udf")
     extensions_modules+=("jdbc-scanner")
-    extensions_modules+=("hudi-scanner")
     extensions_modules+=("hadoop-hudi-scanner")
     extensions_modules+=("paimon-scanner")
     extensions_modules+=("trino-connector-scanner")
@@ -923,12 +907,12 @@ EOF
 
     # copy jindofs jars, only support for Linux x64 or arm
     if [[ "${TARGET_SYSTEM}" == 'Linux' ]] && [[ "$TARGET_ARCH" == 'x86_64' ]]; then
-        cp -r -p "${DORIS_THIRDPARTY}/installed/jindofs_libs/jindo-core-6.3.4.jar" "${DORIS_OUTPUT}/be/lib/java_extensions/preload-extensions"/
-        cp -r -p "${DORIS_THIRDPARTY}/installed/jindofs_libs/jindo-core-linux-ubuntu22-x86_64-6.3.4.jar" "${DORIS_OUTPUT}/be/lib/java_extensions/preload-extensions"/
-        cp -r -p "${DORIS_THIRDPARTY}/installed/jindofs_libs/jindo-sdk-6.3.4.jar" "${DORIS_OUTPUT}/be/lib/java_extensions/preload-extensions"/
+        cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-core-[0-9]*.jar "${DORIS_OUTPUT}/be/lib/java_extensions/preload-extensions"/
+        cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-core-linux-ubuntu22-x86_64-[0-9]*.jar "${DORIS_OUTPUT}/be/lib/java_extensions/preload-extensions"/
+        cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-sdk-[0-9]*.jar "${DORIS_OUTPUT}/be/lib/java_extensions/preload-extensions"/
     elif [[ "${TARGET_SYSTEM}" == 'Linux' ]] && [[ "$TARGET_ARCH" == 'aarch64' ]]; then
-        cp -r -p "${DORIS_THIRDPARTY}/installed/jindofs_libs/jindo-core-linux-el7-aarch64-6.3.4.jar" "${DORIS_OUTPUT}/be/lib/java_extensions/preload-extensions"/
-        cp -r -p "${DORIS_THIRDPARTY}/installed/jindofs_libs/jindo-sdk-6.3.4.jar" "${DORIS_OUTPUT}/be/lib/java_extensions/preload-extensions"/
+        cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-core-linux-el7-aarch64-[0-9]*.jar "${DORIS_OUTPUT}/be/lib/java_extensions/preload-extensions"/
+        cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-sdk-[0-9]*.jar "${DORIS_OUTPUT}/be/lib/java_extensions/preload-extensions"/
     fi
 
     cp -r -p "${DORIS_THIRDPARTY}/installed/webroot"/* "${DORIS_OUTPUT}/be/www"/

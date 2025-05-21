@@ -27,7 +27,6 @@
 
 #include "common/factory_creator.h"
 #include "gen_cpp/olap_file.pb.h"
-#include "gutil/macros.h"
 #include "olap/column_mapping.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/rowset.h"

@@ -749,7 +749,7 @@ public:
             // arguments from query plan.
             Int16 result_scale = 0;
             if constexpr (IsDataTypeDecimal<DataType>) {
-                if (column_result.type->get_type_id() == TypeIndex::Nullable) {
+                if (column_result.type->is_nullable()) {
                     if (auto nullable_type = std::dynamic_pointer_cast<const DataTypeNullable>(
                                 column_result.type)) {
                         result_scale = nullable_type->get_nested_type()->get_scale();
@@ -806,7 +806,7 @@ public:
         }
 #endif
 
-        if (!call_on_index_and_data_type<void>(column_general.type->get_type_id(), call)) {
+        if (!call_on_index_and_data_type<void>(column_general.type->get_primitive_type(), call)) {
             return Status::InvalidArgument("Invalid argument type {} for function {}",
                                            column_general.type->get_name(), name);
         }

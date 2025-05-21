@@ -447,4 +447,13 @@ class ExpressionEstimationTest {
         Assertions.assertEquals(est.avgSizeByte, 1);
         Assertions.assertEquals(est.numNulls, 1);
     }
+
+    @Test
+    public void testThrowException() {
+        SlotReference a = new SlotReference("a", StringType.INSTANCE);
+        Cast cast = new Cast(a, DateType.INSTANCE);
+        // do not throw any exception
+        ColumnStatistic est = ExpressionEstimation.estimate(cast, null);
+        Assertions.assertTrue(est.isUnKnown());
+    }
 }

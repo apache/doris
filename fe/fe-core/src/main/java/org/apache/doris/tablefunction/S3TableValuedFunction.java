@@ -104,6 +104,14 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
             // For Azure's compatibility, we need bucket to connect to the blob storage's container
             locationProperties.put(S3Properties.BUCKET, s3uri.getBucket());
         }
+
+        if (properties.containsKey(S3Properties.ROLE_ARN)) {
+            locationProperties.put(S3Properties.ROLE_ARN, properties.get(S3Properties.ROLE_ARN));
+            if (properties.containsKey(S3Properties.EXTERNAL_ID)) {
+                locationProperties.put(S3Properties.EXTERNAL_ID, properties.get(S3Properties.EXTERNAL_ID));
+            }
+        }
+
         locationProperties.putAll(S3ClientBEProperties.getBeFSProperties(locationProperties));
         locationProperties.putAll(otherProps);
 

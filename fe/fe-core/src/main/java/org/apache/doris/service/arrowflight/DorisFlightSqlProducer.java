@@ -36,6 +36,8 @@ import com.google.protobuf.Any;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.Message;
 import org.apache.arrow.flight.CallStatus;
+import org.apache.arrow.flight.CloseSessionRequest;
+import org.apache.arrow.flight.CloseSessionResult;
 import org.apache.arrow.flight.Criteria;
 import org.apache.arrow.flight.FlightDescriptor;
 import org.apache.arrow.flight.FlightEndpoint;
@@ -110,7 +112,7 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
         this.flightSessionsManager = flightSessionsManager;
         sqlInfoBuilder = new SqlInfoBuilder();
         sqlInfoBuilder.withFlightSqlServerName("DorisFE").withFlightSqlServerVersion("1.0")
-                .withFlightSqlServerArrowVersion("13.0").withFlightSqlServerReadOnly(false)
+                .withFlightSqlServerArrowVersion("18.2.0").withFlightSqlServerReadOnly(false)
                 .withSqlIdentifierQuoteChar("`").withSqlDdlCatalog(true).withSqlDdlSchema(false).withSqlDdlTable(false)
                 .withSqlIdentifierCase(SqlSupportedCaseSensitivity.SQL_CASE_SENSITIVITY_CASE_INSENSITIVE)
                 .withSqlQuotedIdentifierCase(SqlSupportedCaseSensitivity.SQL_CASE_SENSITIVITY_CASE_INSENSITIVE);
@@ -139,7 +141,7 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
             final VectorSchemaRoot vectorSchemaRoot = flightSqlResultCacheEntry.getVectorSchemaRoot();
             listener.start(vectorSchemaRoot);
             listener.putNext();
-        } catch (Exception e) {
+        } catch (Throwable e) {
             String errMsg = "get stream statement failed, " + e.getMessage() + ", " + Util.getRootCauseMessage(e)
                     + ", error code: " + connectContext.getState().getErrorCode() + ", error msg: "
                     + connectContext.getState().getErrorMessage();
@@ -172,7 +174,7 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
                 String executedPeerIdentity = handleParts[0];
                 String preparedStatementId = handleParts[1];
                 flightSessionsManager.getConnectContext(executedPeerIdentity).removePreparedQuery(preparedStatementId);
-            } catch (final Exception e) {
+            } catch (final Throwable e) {
                 listener.onError(e);
                 return;
             }
@@ -274,7 +276,7 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
                     return new FlightInfo(flightSQLConnectProcessor.getArrowSchema(), descriptor, endpoints, -1, -1);
                 }
             }
-        } catch (Exception e) {
+        } catch (Throwable e) {
             String errMsg = "get flight info statement failed, " + e.getMessage() + ", " + Util.getRootCauseMessage(e)
                     + ", error code: " + connectContext.getState().getErrorCode() + ", error msg: "
                     + connectContext.getState().getErrorMessage();
@@ -288,8 +290,14 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
     @Override
     public FlightInfo getFlightInfoStatement(final CommandStatementQuery request, final CallContext context,
             final FlightDescriptor descriptor) {
-        ConnectContext connectContext = flightSessionsManager.getConnectContext(context.peerIdentity());
-        return executeQueryStatement(context.peerIdentity(), connectContext, request.getQuery(), descriptor);
+        try {
+            ConnectContext connectContext = flightSessionsManager.getConnectContext(context.peerIdentity());
+            return executeQueryStatement(context.peerIdentity(), connectContext, request.getQuery(), descriptor);
+        } catch (Throwable e) {
+            String errMsg = "get flight info statement failed, " + e.getMessage();
+            LOG.error(errMsg, e);
+            throw CallStatus.INTERNAL.withDescription(errMsg).withCause(e).toRuntimeException();
+        }
     }
 
     @Override
@@ -402,7 +410,7 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
                     }
                 }
                 ackStream.onCompleted();
-            } catch (Exception e) {
+            } catch (Throwable e) {
                 String errMsg = "acceptPutPreparedStatementUpdate failed, " + e.getMessage() + ", "
                         + Util.getRootCauseMessage(e);
                 LOG.error(errMsg, e);
@@ -461,7 +469,7 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
                 listener.putNext();
                 listener.completed();
             }
-        } catch (final Exception e) {
+        } catch (final Throwable e) {
             handleStreamException(e, "", listener);
         }
     }
@@ -488,7 +496,7 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
                 listener.putNext();
                 listener.completed();
             }
-        } catch (final Exception e) {
+        } catch (final Throwable e) {
             handleStreamException(e, "", listener);
         }
     }
@@ -520,7 +528,7 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
                 listener.putNext();
                 listener.completed();
             }
-        } catch (final Exception e) {
+        } catch (final Throwable e) {
             handleStreamException(e, "", listener);
         }
     }
@@ -584,6 +592,25 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
         throw CallStatus.UNIMPLEMENTED.withDescription("getStreamCrossReference unimplemented").toRuntimeException();
     }
 
+    @Override
+    public void closeSession(CloseSessionRequest request, final CallContext context,
+            final StreamListener<CloseSessionResult> listener) {
+        // https://github.com/apache/arrow-adbc/issues/2821
+        // currently FlightSqlConnection does not provide a separate interface for external calls to
+        // FlightSqlClient::closeSession(), nor will it automatically call closeSession
+        // when FlightSqlConnection::close(). Python flight sql Cursor.close() will call closeSession().
+        // Neither C++ nor Java seem to have similar behavior.
+        try {
+            flightSessionsManager.closeConnectContext(context.peerIdentity());
+        } catch (final Throwable e) {
+            LOG.error("closeSession failed", e);
+            listener.onError(
+                    CallStatus.INTERNAL.withDescription("closeSession failed").withCause(e).toRuntimeException());
+        }
+        listener.onNext(new CloseSessionResult(CloseSessionResult.Status.CLOSED));
+        listener.onCompleted();
+    }
+
     private <T extends Message> FlightInfo getFlightInfoForSchema(final T request, final FlightDescriptor descriptor,
             final Schema schema) {
         final Ticket ticket = new Ticket(Any.pack(request).toByteArray());
@@ -592,7 +619,7 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
         return new FlightInfo(schema, descriptor, endpoints, -1, -1);
     }
 
-    private static void handleStreamException(Exception e, String errMsg, ServerStreamListener listener) {
+    private static void handleStreamException(Throwable e, String errMsg, ServerStreamListener listener) {
         LOG.error(errMsg, e);
         listener.error(CallStatus.INTERNAL.withDescription(errMsg).withCause(e).toRuntimeException());
         throw CallStatus.INTERNAL.withDescription(errMsg).withCause(e).toRuntimeException();

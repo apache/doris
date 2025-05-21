@@ -196,7 +196,7 @@ public:
         std::vector<SingleSearcher> searchers;
         searchers.reserve(needles_size);
         for (const auto& needle : needles_arr) {
-            if (needle.get_type() != Field::Types::String) {
+            if (!is_string_type(needle.get_type())) {
                 return Status::InvalidArgument("invalid type of needle {}", needle.get_type_name());
             }
             searchers.emplace_back(needle.get<StringRef>().data, needle.get<StringRef>().size);

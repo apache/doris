@@ -200,9 +200,11 @@ Status TxnManager::commit_txn(TPartitionId partition_id, const Tablet& tablet,
 
 Status TxnManager::publish_txn(TPartitionId partition_id, const TabletSharedPtr& tablet,
                                TTransactionId transaction_id, const Version& version,
-                               TabletPublishStatistics* stats) {
+                               TabletPublishStatistics* stats,
+                               std::shared_ptr<TabletTxnInfo>& extend_tablet_txn_info) {
     return publish_txn(tablet->data_dir()->get_meta(), partition_id, transaction_id,
-                       tablet->tablet_id(), tablet->tablet_uid(), version, stats);
+                       tablet->tablet_id(), tablet->tablet_uid(), version, stats,
+                       extend_tablet_txn_info);
 }
 
 void TxnManager::abort_txn(TPartitionId partition_id, TTransactionId transaction_id,
@@ -457,7 +459,8 @@ Status TxnManager::commit_txn(OlapMeta* meta, TPartitionId partition_id,
 Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
                                TTransactionId transaction_id, TTabletId tablet_id,
                                TabletUid tablet_uid, const Version& version,
-                               TabletPublishStatistics* stats) {
+                               TabletPublishStatistics* stats,
+                               std::shared_ptr<TabletTxnInfo>& extend_tablet_txn_info) {
     auto tablet = _engine.tablet_manager()->get_tablet(tablet_id);
     if (tablet == nullptr) {
         return Status::OK();
@@ -483,6 +486,7 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
                 // found load for txn,tablet
                 // case 1: user commit rowset, then the load id must be equal
                 tablet_txn_info = txn_info_iter->second;
+                extend_tablet_txn_info = tablet_txn_info;
                 rowset = tablet_txn_info->rowset;
             }
         }
@@ -698,6 +702,7 @@ Status TxnManager::delete_txn(OlapMeta* meta, TPartitionId partition_id,
     if (it == txn_tablet_map.end()) {
         return Status::Error<TRANSACTION_NOT_EXIST>("key not founded from txn_tablet_map");
     }
+    Status st = Status::OK();
     auto load_itr = it->second.find(tablet_info);
     if (load_itr != it->second.end()) {
         // found load for txn,tablet
@@ -706,7 +711,7 @@ Status TxnManager::delete_txn(OlapMeta* meta, TPartitionId partition_id,
         auto& rowset = load_info->rowset;
         if (rowset != nullptr && meta != nullptr) {
             if (!rowset->is_pending()) {
-                return Status::Error<TRANSACTION_ALREADY_COMMITTED>(
+                st = Status::Error<TRANSACTION_ALREADY_COMMITTED>(
                         "could not delete transaction from engine, just remove it from memory not "
                         "delete from disk, because related rowset already published. partition_id: "
                         "{}, transaction_id: {}, tablet: {}, rowset id: {}, version: {}, state: {}",
@@ -731,7 +736,7 @@ Status TxnManager::delete_txn(OlapMeta* meta, TPartitionId partition_id,
         g_tablet_txn_info_txn_partitions_count << -1;
         _clear_txn_partition_map_unlocked(transaction_id, partition_id);
     }
-    return Status::OK();
+    return st;
 }
 
 void TxnManager::get_tablet_related_txns(TTabletId tablet_id, TabletUid tablet_uid,

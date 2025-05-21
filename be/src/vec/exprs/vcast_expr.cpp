@@ -118,6 +118,8 @@ doris::Status VCastExpr::execute(VExprContext* context, doris::vectorized::Block
         state = _function->execute(context->fn_context(_fn_context_index), *block,
                                    {static_cast<uint32_t>(column_id)}, num_columns_without_result,
                                    block->rows(), false);
+        RETURN_IF_ERROR(state);
+        // set the result column id only state is ok
         *result_column_id = num_columns_without_result;
     } catch (const Exception& e) {
         state = e.to_status();

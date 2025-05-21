@@ -43,7 +43,7 @@ public:
     size_t get_number_of_arguments() const override { return 1; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        if (!is_string_or_fixed_string(arguments[0])) {
+        if (!is_string_type(arguments[0]->get_primitive_type())) {
             throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
                                    "Illegal type {} of argument of function {}",
                                    arguments[0]->get_name(), get_name());

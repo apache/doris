@@ -818,6 +818,7 @@ suite("test_iceberg_write_insert", "p0,external,iceberg,external_docker,external
                 'iceberg.catalog.type'='hms',
                 'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}',
                 'fs.defaultFS' = 'hdfs://${externalEnvIp}:${hdfs_port}',
+                'warehouse' = 'hdfs://${externalEnvIp}:${hdfs_port}',
                 'use_meta_cache' = 'true'
             );"""
             sql """drop catalog if exists ${hive_catalog_name}"""
@@ -828,7 +829,9 @@ suite("test_iceberg_write_insert", "p0,external,iceberg,external_docker,external
                 'use_meta_cache' = 'true'
             );"""
 
-            sql """use `${iceberg_catalog_name}`.`write_test`"""
+            sql """drop database if exists `${iceberg_catalog_name}`.`iceberg_write_test` force"""
+            sql """create database `${iceberg_catalog_name}`.`iceberg_write_test`"""
+            sql """use `${iceberg_catalog_name}`.`iceberg_write_test`"""
 
             sql """set enable_fallback_to_original_planner=false;"""
 
@@ -842,6 +845,24 @@ suite("test_iceberg_write_insert", "p0,external,iceberg,external_docker,external
 
             sql """drop catalog if exists ${iceberg_catalog_name}"""
             sql """drop catalog if exists ${hive_catalog_name}"""
+
+            // test with wrong fs.defaultFS
+            sql """create catalog if not exists ${iceberg_catalog_name} properties (
+                'type'='iceberg',
+                'iceberg.catalog.type'='hms',
+                'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}',
+                'fs.defaultFS' = 'hdfs://${externalEnvIp}:${hdfs_port}/tmp',
+                'warehouse' = 'hdfs://${externalEnvIp}:${hdfs_port}/tmp',
+                'use_meta_cache' = 'true'
+            );"""
+
+            sql """drop database if exists `${iceberg_catalog_name}`.`wrong_fs_name` force"""
+            sql """create database `${iceberg_catalog_name}`.`wrong_fs_name`"""
+            sql """use `${iceberg_catalog_name}`.`wrong_fs_name`"""
+
+            q01("parquet_zstd", iceberg_catalog_name)
+
+            sql """drop catalog if exists ${iceberg_catalog_name}"""
         } finally {
         }
     }

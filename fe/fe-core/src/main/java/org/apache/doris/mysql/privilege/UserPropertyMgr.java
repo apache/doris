@@ -232,6 +232,15 @@ public class UserPropertyMgr implements Writable {
         return existProperty.getExecMemLimit();
     }
 
+    public String getInitCatalog(String qualifiedUser) {
+        UserProperty existProperty = propertyMap.get(qualifiedUser);
+        existProperty = getPropertyIfNull(qualifiedUser, existProperty);
+        if (existProperty == null) {
+            return null;
+        }
+        return existProperty.getInitCatalog();
+    }
+
     public String getWorkloadGroup(String qualifiedUser) {
         UserProperty existProperty = propertyMap.get(qualifiedUser);
         existProperty = getPropertyIfNull(qualifiedUser, existProperty);

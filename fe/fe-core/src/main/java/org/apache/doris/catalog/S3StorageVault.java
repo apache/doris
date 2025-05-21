@@ -19,9 +19,12 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.CreateResourceStmt;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.constants.S3Properties;
 
+import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableMap;
 import com.google.gson.annotations.SerializedName;
 
 import java.util.Arrays;
@@ -57,14 +60,24 @@ public class S3StorageVault extends StorageVault {
     // Reuse all the code from S3Resource
     private Resource resource;
 
-    private static final String TYPE = "type";
+
+    public static class PropertyKey {
+        public static final String ACCESS_KEY = S3Properties.ACCESS_KEY;
+        public static final String SECRET_KEY = S3Properties.SECRET_KEY;
+        public static final String USE_PATH_STYLE = PropertyConverter.USE_PATH_STYLE;
+        public static final String ROOT_PATH = S3Properties.ROOT_PATH;
+        public static final String PROVIDER = S3Properties.PROVIDER;
+        public static final String REGION = S3Properties.REGION;
+        public static final String ENDPOINT = S3Properties.ENDPOINT;
+        public static final String BUCKET = S3Properties.BUCKET;
+    }
 
     public static final HashSet<String> ALLOW_ALTER_PROPERTIES = new HashSet<>(Arrays.asList(
-            TYPE,
-            S3Properties.ACCESS_KEY,
-            S3Properties.SECRET_KEY,
-            VAULT_NAME,
-            PropertyConverter.USE_PATH_STYLE
+            StorageVault.PropertyKey.VAULT_NAME,
+            StorageVault.PropertyKey.TYPE,
+            PropertyKey.ACCESS_KEY,
+            PropertyKey.SECRET_KEY,
+            PropertyKey.USE_PATH_STYLE
     ));
 
     @SerializedName(value = "properties")
@@ -77,13 +90,24 @@ public class S3StorageVault extends StorageVault {
     }
 
     @Override
-    public void modifyProperties(Map<String, String> properties) throws DdlException {
+    public void modifyProperties(ImmutableMap<String, String> properties) throws DdlException {
         resource.setProperties(properties);
     }
 
     @Override
     public Map<String, String> getCopiedProperties() {
         return resource.getCopiedProperties();
+    }
+
+    @Override
+    public void checkCreationProperties(Map<String, String> properties) throws UserException {
+        super.checkCreationProperties(properties);
+        Preconditions.checkArgument(
+                properties.get(PropertyKey.ROOT_PATH) != null, "Missing property " + PropertyKey.ROOT_PATH);
+        Preconditions.checkArgument(
+                !properties.get(PropertyKey.ROOT_PATH).isEmpty(),
+                "Property " + PropertyKey.ROOT_PATH + " cannot be empty");
+
     }
 
 }

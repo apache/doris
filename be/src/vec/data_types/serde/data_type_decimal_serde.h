@@ -53,19 +53,19 @@ class DataTypeDecimalSerDe : public DataTypeSerDe {
 
 public:
     static constexpr PrimitiveType get_primitive_type() {
-        if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal32>>) {
+        if constexpr (std::is_same_v<T, Decimal32>) {
             return TYPE_DECIMAL32;
         }
-        if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal64>>) {
+        if constexpr (std::is_same_v<T, Decimal64>) {
             return TYPE_DECIMAL64;
         }
-        if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal128V3>>) {
+        if constexpr (std::is_same_v<T, Decimal128V3>) {
             return TYPE_DECIMAL128I;
         }
-        if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal128V2>>) {
+        if constexpr (std::is_same_v<T, Decimal128V2>) {
             return TYPE_DECIMALV2;
         }
-        if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal256>>) {
+        if constexpr (std::is_same_v<T, Decimal256>) {
             return TYPE_DECIMAL256;
         }
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,

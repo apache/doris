@@ -107,15 +107,9 @@ public class StructLiteral extends LiteralExpr {
     }
 
     @Override
-    public String getStringValueForArray(FormatOptions options) {
+    public String getStringValueForQuery(FormatOptions options) {
         List<String> list = new ArrayList<>(children.size());
-        children.forEach(v -> list.add(v.getStringValueForArray(options)));
-        return "{" + StringUtils.join(list, ", ") + "}";
-    }
-
-    @Override
-    public String getStringValueInFe(FormatOptions options) {
-        List<String> list = new ArrayList<>(children.size());
+        ++options.level;
         // same with be default field index start with 1
         for (int i = 0; i < children.size(); i++) {
             Expr child = children.get(i);
@@ -123,16 +117,21 @@ public class StructLiteral extends LiteralExpr {
                     + ((StructType) type).getFields().get(i).getName()
                     + options.getNestedStringWrapper()
                     + options.getMapKeyDelim()
-                    + getStringLiteralForComplexType(child, options));
+                    + child.getStringValueInComplexTypeForQuery(options));
         }
-        return "{" + StringUtils.join(list, ", ") + "}";
+        --options.level;
+        return "{" + StringUtils.join(list, options.getCollectionDelim()) + "}";
     }
 
     @Override
     public String getStringValueForStreamLoad(FormatOptions options) {
         List<String> list = new ArrayList<>(children.size());
-        children.forEach(v -> list.add(getStringLiteralForComplexType(v, options)));
-        return "{" + StringUtils.join(list, ", ") + "}";
+        // same with be default field index start with 1
+        for (int i = 0; i < children.size(); i++) {
+            Expr child = children.get(i);
+            list.add(child.getStringValueInComplexTypeForQuery(options));
+        }
+        return "{" + StringUtils.join(list, options.getCollectionDelim()) + "}";
     }
 
     @Override

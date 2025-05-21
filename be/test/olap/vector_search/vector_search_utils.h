@@ -63,7 +63,7 @@ class MockTabletColumn : public doris::TabletColumn {
 
 class MockTabletIndex : public doris::TabletIndex {
     MOCK_METHOD(doris::IndexType, index_type, (), (const));
-    MOCK_METHOD((const std::map<string, string>&), properties, (), (const));
+    MOCK_METHOD((const std::map<std::string, std::string>&), properties, (), (const));
 };
 
 class MockIndexFileWriter : public doris::segment_v2::IndexFileWriter {

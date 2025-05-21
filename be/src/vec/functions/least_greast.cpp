@@ -98,24 +98,204 @@ struct CompareMultiImpl {
             } else {
                 result_column->insert_range_from(*(cols[0]), 0, input_rows_count);
             }
-            WhichDataType which(data_type);
-
-#define DISPATCH(TYPE, COLUMN_TYPE)                                                               \
-    if (which.idx == TypeIndex::TYPE) {                                                           \
-        for (int i = 1; i < arguments.size(); ++i) {                                              \
-            if (col_const[i]) {                                                                   \
-                insert_result_data<COLUMN_TYPE, true>(result_column, cols[i], input_rows_count);  \
-            } else {                                                                              \
-                insert_result_data<COLUMN_TYPE, false>(result_column, cols[i], input_rows_count); \
-            }                                                                                     \
-        }                                                                                         \
-    }
-            NUMERIC_TYPE_TO_COLUMN_TYPE(DISPATCH)
-            DECIMAL_TYPE_TO_COLUMN_TYPE(DISPATCH)
-            TIME_TYPE_TO_COLUMN_TYPE(DISPATCH)
-#undef DISPATCH
+            switch (data_type->get_primitive_type()) {
+            case PrimitiveType::TYPE_BOOLEAN: {
+                for (int i = 1; i < arguments.size(); ++i) {
+                    if (col_const[i]) {
+                        insert_result_data<ColumnUInt8, true>(result_column, cols[i],
+                                                              input_rows_count);
+                    } else {
+                        insert_result_data<ColumnUInt8, false>(result_column, cols[i],
+                                                               input_rows_count);
+                    }
+                }
+                break;
+            }
+            case PrimitiveType::TYPE_TINYINT: {
+                for (int i = 1; i < arguments.size(); ++i) {
+                    if (col_const[i]) {
+                        insert_result_data<ColumnInt8, true>(result_column, cols[i],
+                                                             input_rows_count);
+                    } else {
+                        insert_result_data<ColumnInt8, false>(result_column, cols[i],
+                                                              input_rows_count);
+                    }
+                }
+                break;
+            }
+            case PrimitiveType::TYPE_SMALLINT: {
+                for (int i = 1; i < arguments.size(); ++i) {
+                    if (col_const[i]) {
+                        insert_result_data<ColumnInt16, true>(result_column, cols[i],
+                                                              input_rows_count);
+                    } else {
+                        insert_result_data<ColumnInt16, false>(result_column, cols[i],
+                                                               input_rows_count);
+                    }
+                }
+                break;
+            }
+            case PrimitiveType::TYPE_INT: {
+                for (int i = 1; i < arguments.size(); ++i) {
+                    if (col_const[i]) {
+                        insert_result_data<ColumnInt32, true>(result_column, cols[i],
+                                                              input_rows_count);
+                    } else {
+                        insert_result_data<ColumnInt32, false>(result_column, cols[i],
+                                                               input_rows_count);
+                    }
+                }
+                break;
+            }
+            case PrimitiveType::TYPE_BIGINT: {
+                for (int i = 1; i < arguments.size(); ++i) {
+                    if (col_const[i]) {
+                        insert_result_data<ColumnInt64, true>(result_column, cols[i],
+                                                              input_rows_count);
+                    } else {
+                        insert_result_data<ColumnInt64, false>(result_column, cols[i],
+                                                               input_rows_count);
+                    }
+                }
+                break;
+            }
+            case PrimitiveType::TYPE_LARGEINT: {
+                for (int i = 1; i < arguments.size(); ++i) {
+                    if (col_const[i]) {
+                        insert_result_data<ColumnInt128, true>(result_column, cols[i],
+                                                               input_rows_count);
+                    } else {
+                        insert_result_data<ColumnInt128, false>(result_column, cols[i],
+                                                                input_rows_count);
+                    }
+                }
+                break;
+            }
+            case PrimitiveType::TYPE_FLOAT: {
+                for (int i = 1; i < arguments.size(); ++i) {
+                    if (col_const[i]) {
+                        insert_result_data<ColumnFloat32, true>(result_column, cols[i],
+                                                                input_rows_count);
+                    } else {
+                        insert_result_data<ColumnFloat32, false>(result_column, cols[i],
+                                                                 input_rows_count);
+                    }
+                }
+                break;
+            }
+            case PrimitiveType::TYPE_DOUBLE: {
+                for (int i = 1; i < arguments.size(); ++i) {
+                    if (col_const[i]) {
+                        insert_result_data<ColumnFloat64, true>(result_column, cols[i],
+                                                                input_rows_count);
+                    } else {
+                        insert_result_data<ColumnFloat64, false>(result_column, cols[i],
+                                                                 input_rows_count);
+                    }
+                }
+                break;
+            }
+            case PrimitiveType::TYPE_DECIMAL32: {
+                for (int i = 1; i < arguments.size(); ++i) {
+                    if (col_const[i]) {
+                        insert_result_data<ColumnDecimal<Decimal32>, true>(result_column, cols[i],
+                                                                           input_rows_count);
+                    } else {
+                        insert_result_data<ColumnDecimal<Decimal32>, false>(result_column, cols[i],
+                                                                            input_rows_count);
+                    }
+                }
+                break;
+            }
+            case PrimitiveType::TYPE_DECIMAL64: {
+                for (int i = 1; i < arguments.size(); ++i) {
+                    if (col_const[i]) {
+                        insert_result_data<ColumnDecimal<Decimal64>, true>(result_column, cols[i],
+                                                                           input_rows_count);
+                    } else {
+                        insert_result_data<ColumnDecimal<Decimal64>, false>(result_column, cols[i],
+                                                                            input_rows_count);
+                    }
+                }
+                break;
+            }
+            case PrimitiveType::TYPE_DECIMALV2: {
+                for (int i = 1; i < arguments.size(); ++i) {
+                    if (col_const[i]) {
+                        insert_result_data<ColumnDecimal<Decimal128V2>, true>(
+                                result_column, cols[i], input_rows_count);
+                    } else {
+                        insert_result_data<ColumnDecimal<Decimal128V2>, false>(
+                                result_column, cols[i], input_rows_count);
+                    }
+                }
+                break;
+            }
+            case PrimitiveType::TYPE_DECIMAL128I: {
+                for (int i = 1; i < arguments.size(); ++i) {
+                    if (col_const[i]) {
+                        insert_result_data<ColumnDecimal<Decimal128V3>, true>(
+                                result_column, cols[i], input_rows_count);
+                    } else {
+                        insert_result_data<ColumnDecimal<Decimal128V3>, false>(
+                                result_column, cols[i], input_rows_count);
+                    }
+                }
+                break;
+            }
+            case PrimitiveType::TYPE_DECIMAL256: {
+                for (int i = 1; i < arguments.size(); ++i) {
+                    if (col_const[i]) {
+                        insert_result_data<ColumnDecimal<Decimal256>, true>(result_column, cols[i],
+                                                                            input_rows_count);
+                    } else {
+                        insert_result_data<ColumnDecimal<Decimal256>, false>(result_column, cols[i],
+                                                                             input_rows_count);
+                    }
+                }
+                break;
+            }
+            case PrimitiveType::TYPE_DATETIME:
+            case PrimitiveType::TYPE_DATE: {
+                for (int i = 1; i < arguments.size(); ++i) {
+                    if (col_const[i]) {
+                        insert_result_data<ColumnInt64, true>(result_column, cols[i],
+                                                              input_rows_count);
+                    } else {
+                        insert_result_data<ColumnInt64, false>(result_column, cols[i],
+                                                               input_rows_count);
+                    }
+                }
+                break;
+            }
+            case PrimitiveType::TYPE_DATEV2: {
+                for (int i = 1; i < arguments.size(); ++i) {
+                    if (col_const[i]) {
+                        insert_result_data<ColumnUInt32, true>(result_column, cols[i],
+                                                               input_rows_count);
+                    } else {
+                        insert_result_data<ColumnUInt32, false>(result_column, cols[i],
+                                                                input_rows_count);
+                    }
+                }
+                break;
+            }
+            case PrimitiveType::TYPE_DATETIMEV2: {
+                for (int i = 1; i < arguments.size(); ++i) {
+                    if (col_const[i]) {
+                        insert_result_data<ColumnUInt64, true>(result_column, cols[i],
+                                                               input_rows_count);
+                    } else {
+                        insert_result_data<ColumnUInt64, false>(result_column, cols[i],
+                                                                input_rows_count);
+                    }
+                }
+                break;
+            }
+            default:
+                break;
+            }
         }
-
         return result_column;
     }
 
@@ -184,9 +364,11 @@ struct FunctionFieldImpl {
         bool arg_const;
         std::tie(argument_columns[0], arg_const) = unpack_if_const(argument_columns[0]);
 
-        WhichDataType which(data_type);
         //TODO: maybe could use hashmap to save column data, not use for loop ervey time to test equals.
-        if (which.is_string_or_fixed_string()) {
+        switch (data_type->get_primitive_type()) {
+        case PrimitiveType::TYPE_STRING:
+        case PrimitiveType::TYPE_CHAR:
+        case PrimitiveType::TYPE_VARCHAR: {
             const auto& column_string = assert_cast<const ColumnString&>(*argument_columns[0]);
             for (int row = 0; row < input_rows_count; ++row) {
                 const auto& str_data = column_string.get_data_at(index_check_const(row, arg_const));
@@ -200,26 +382,235 @@ struct FunctionFieldImpl {
                     }
                 }
             }
-
-        } else { //string or not
-#define DISPATCH(TYPE, COLUMN_TYPE)                                                             \
-    if (which.idx == TypeIndex::TYPE) {                                                         \
-        for (int col = 1; col < arguments.size(); ++col) {                                      \
-            if (arg_const) {                                                                    \
-                insert_result_data<COLUMN_TYPE, true>(res_data, argument_columns[0],            \
-                                                      argument_columns[col], input_rows_count,  \
-                                                      col);                                     \
-            } else {                                                                            \
-                insert_result_data<COLUMN_TYPE, false>(res_data, argument_columns[0],           \
-                                                       argument_columns[col], input_rows_count, \
-                                                       col);                                    \
-            }                                                                                   \
-        }                                                                                       \
-    }
-            NUMERIC_TYPE_TO_COLUMN_TYPE(DISPATCH)
-            DECIMAL_TYPE_TO_COLUMN_TYPE(DISPATCH)
-            TIME_TYPE_TO_COLUMN_TYPE(DISPATCH)
-#undef DISPATCH
+            break;
+        }
+        case PrimitiveType::TYPE_BOOLEAN: {
+            for (int col = 1; col < arguments.size(); ++col) {
+                if (arg_const) {
+                    insert_result_data<ColumnUInt8, true>(res_data, argument_columns[0],
+                                                          argument_columns[col], input_rows_count,
+                                                          col);
+                } else {
+                    insert_result_data<ColumnUInt8, false>(res_data, argument_columns[0],
+                                                           argument_columns[col], input_rows_count,
+                                                           col);
+                }
+            }
+            break;
+        }
+        case PrimitiveType::TYPE_TINYINT: {
+            for (int col = 1; col < arguments.size(); ++col) {
+                if (arg_const) {
+                    insert_result_data<ColumnInt8, true>(res_data, argument_columns[0],
+                                                         argument_columns[col], input_rows_count,
+                                                         col);
+                } else {
+                    insert_result_data<ColumnInt8, false>(res_data, argument_columns[0],
+                                                          argument_columns[col], input_rows_count,
+                                                          col);
+                }
+            }
+            break;
+        }
+        case PrimitiveType::TYPE_SMALLINT: {
+            for (int col = 1; col < arguments.size(); ++col) {
+                if (arg_const) {
+                    insert_result_data<ColumnInt16, true>(res_data, argument_columns[0],
+                                                          argument_columns[col], input_rows_count,
+                                                          col);
+                } else {
+                    insert_result_data<ColumnInt16, false>(res_data, argument_columns[0],
+                                                           argument_columns[col], input_rows_count,
+                                                           col);
+                }
+            }
+            break;
+        }
+        case PrimitiveType::TYPE_INT: {
+            for (int col = 1; col < arguments.size(); ++col) {
+                if (arg_const) {
+                    insert_result_data<ColumnInt32, true>(res_data, argument_columns[0],
+                                                          argument_columns[col], input_rows_count,
+                                                          col);
+                } else {
+                    insert_result_data<ColumnInt32, false>(res_data, argument_columns[0],
+                                                           argument_columns[col], input_rows_count,
+                                                           col);
+                }
+            }
+            break;
+        }
+        case PrimitiveType::TYPE_BIGINT: {
+            for (int col = 1; col < arguments.size(); ++col) {
+                if (arg_const) {
+                    insert_result_data<ColumnInt64, true>(res_data, argument_columns[0],
+                                                          argument_columns[col], input_rows_count,
+                                                          col);
+                } else {
+                    insert_result_data<ColumnInt64, false>(res_data, argument_columns[0],
+                                                           argument_columns[col], input_rows_count,
+                                                           col);
+                }
+            }
+            break;
+        }
+        case PrimitiveType::TYPE_LARGEINT: {
+            for (int col = 1; col < arguments.size(); ++col) {
+                if (arg_const) {
+                    insert_result_data<ColumnInt128, true>(res_data, argument_columns[0],
+                                                           argument_columns[col], input_rows_count,
+                                                           col);
+                } else {
+                    insert_result_data<ColumnInt128, false>(res_data, argument_columns[0],
+                                                            argument_columns[col], input_rows_count,
+                                                            col);
+                }
+            }
+            break;
+        }
+        case PrimitiveType::TYPE_FLOAT: {
+            for (int col = 1; col < arguments.size(); ++col) {
+                if (arg_const) {
+                    insert_result_data<ColumnFloat32, true>(res_data, argument_columns[0],
+                                                            argument_columns[col], input_rows_count,
+                                                            col);
+                } else {
+                    insert_result_data<ColumnFloat32, false>(res_data, argument_columns[0],
+                                                             argument_columns[col],
+                                                             input_rows_count, col);
+                }
+            }
+            break;
+        }
+        case PrimitiveType::TYPE_DOUBLE: {
+            for (int col = 1; col < arguments.size(); ++col) {
+                if (arg_const) {
+                    insert_result_data<ColumnFloat64, true>(res_data, argument_columns[0],
+                                                            argument_columns[col], input_rows_count,
+                                                            col);
+                } else {
+                    insert_result_data<ColumnFloat64, false>(res_data, argument_columns[0],
+                                                             argument_columns[col],
+                                                             input_rows_count, col);
+                }
+            }
+            break;
+        }
+        case PrimitiveType::TYPE_DECIMAL32: {
+            for (int col = 1; col < arguments.size(); ++col) {
+                if (arg_const) {
+                    insert_result_data<ColumnDecimal<Decimal32>, true>(
+                            res_data, argument_columns[0], argument_columns[col], input_rows_count,
+                            col);
+                } else {
+                    insert_result_data<ColumnDecimal<Decimal32>, false>(
+                            res_data, argument_columns[0], argument_columns[col], input_rows_count,
+                            col);
+                }
+            }
+            break;
+        }
+        case PrimitiveType::TYPE_DECIMAL64: {
+            for (int col = 1; col < arguments.size(); ++col) {
+                if (arg_const) {
+                    insert_result_data<ColumnDecimal<Decimal64>, true>(
+                            res_data, argument_columns[0], argument_columns[col], input_rows_count,
+                            col);
+                } else {
+                    insert_result_data<ColumnDecimal<Decimal64>, false>(
+                            res_data, argument_columns[0], argument_columns[col], input_rows_count,
+                            col);
+                }
+            }
+            break;
+        }
+        case PrimitiveType::TYPE_DECIMALV2: {
+            for (int col = 1; col < arguments.size(); ++col) {
+                if (arg_const) {
+                    insert_result_data<ColumnDecimal<Decimal128V2>, true>(
+                            res_data, argument_columns[0], argument_columns[col], input_rows_count,
+                            col);
+                } else {
+                    insert_result_data<ColumnDecimal<Decimal128V2>, false>(
+                            res_data, argument_columns[0], argument_columns[col], input_rows_count,
+                            col);
+                }
+            }
+            break;
+        }
+        case PrimitiveType::TYPE_DECIMAL128I: {
+            for (int col = 1; col < arguments.size(); ++col) {
+                if (arg_const) {
+                    insert_result_data<ColumnDecimal<Decimal128V3>, true>(
+                            res_data, argument_columns[0], argument_columns[col], input_rows_count,
+                            col);
+                } else {
+                    insert_result_data<ColumnDecimal<Decimal128V3>, false>(
+                            res_data, argument_columns[0], argument_columns[col], input_rows_count,
+                            col);
+                }
+            }
+            break;
+        }
+        case PrimitiveType::TYPE_DECIMAL256: {
+            for (int col = 1; col < arguments.size(); ++col) {
+                if (arg_const) {
+                    insert_result_data<ColumnDecimal<Decimal256>, true>(
+                            res_data, argument_columns[0], argument_columns[col], input_rows_count,
+                            col);
+                } else {
+                    insert_result_data<ColumnDecimal<Decimal256>, false>(
+                            res_data, argument_columns[0], argument_columns[col], input_rows_count,
+                            col);
+                }
+            }
+            break;
+        }
+        case PrimitiveType::TYPE_DATETIME:
+        case PrimitiveType::TYPE_DATE: {
+            for (int col = 1; col < arguments.size(); ++col) {
+                if (arg_const) {
+                    insert_result_data<ColumnInt64, true>(res_data, argument_columns[0],
+                                                          argument_columns[col], input_rows_count,
+                                                          col);
+                } else {
+                    insert_result_data<ColumnInt64, false>(res_data, argument_columns[0],
+                                                           argument_columns[col], input_rows_count,
+                                                           col);
+                }
+            }
+            break;
+        }
+        case PrimitiveType::TYPE_DATEV2: {
+            for (int col = 1; col < arguments.size(); ++col) {
+                if (arg_const) {
+                    insert_result_data<ColumnUInt32, true>(res_data, argument_columns[0],
+                                                           argument_columns[col], input_rows_count,
+                                                           col);
+                } else {
+                    insert_result_data<ColumnUInt32, false>(res_data, argument_columns[0],
+                                                            argument_columns[col], input_rows_count,
+                                                            col);
+                }
+            }
+            break;
+        }
+        case PrimitiveType::TYPE_DATETIMEV2: {
+            for (int col = 1; col < arguments.size(); ++col) {
+                if (arg_const) {
+                    insert_result_data<ColumnUInt64, true>(res_data, argument_columns[0],
+                                                           argument_columns[col], input_rows_count,
+                                                           col);
+                } else {
+                    insert_result_data<ColumnUInt64, false>(res_data, argument_columns[0],
+                                                            argument_columns[col], input_rows_count,
+                                                            col);
+                }
+            }
+            break;
+        }
+        default:
+            break;
         }
 
         return result_column;

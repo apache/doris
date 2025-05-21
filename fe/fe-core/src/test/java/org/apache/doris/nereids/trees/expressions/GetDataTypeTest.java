@@ -17,13 +17,16 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Sum0;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.CharLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.FloatLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
@@ -35,6 +38,7 @@ import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.LargeIntType;
@@ -57,6 +61,7 @@ public class GetDataTypeTest {
     FloatLiteral floatLiteral = new FloatLiteral(1.0F);
     DoubleLiteral doubleLiteral = new DoubleLiteral(1.0);
     DecimalLiteral decimalLiteral = new DecimalLiteral(BigDecimal.ONE);
+    DecimalV3Literal decimalV3Literal = new DecimalV3Literal(new BigDecimal("123.123456"));
     CharLiteral charLiteral = new CharLiteral("hello", 5);
     VarcharLiteral varcharLiteral = new VarcharLiteral("hello", 5);
     StringLiteral stringLiteral = new StringLiteral("hello");
@@ -75,12 +80,53 @@ public class GetDataTypeTest {
         Assertions.assertEquals(DoubleType.INSTANCE, checkAndGetDataType(new Sum(floatLiteral)));
         Assertions.assertEquals(DoubleType.INSTANCE, checkAndGetDataType(new Sum(doubleLiteral)));
         Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(38, 0), checkAndGetDataType(new Sum(decimalLiteral)));
-        Assertions.assertEquals(BigIntType.INSTANCE, checkAndGetDataType(new Sum(bigIntLiteral)));
-        Assertions.assertThrows(RuntimeException.class, () -> checkAndGetDataType(new Sum(charLiteral)));
-        Assertions.assertThrows(RuntimeException.class, () -> checkAndGetDataType(new Sum(varcharLiteral)));
-        Assertions.assertThrows(RuntimeException.class, () -> checkAndGetDataType(new Sum(stringLiteral)));
+        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(38, 6), checkAndGetDataType(new Sum(decimalV3Literal)));
+        Assertions.assertEquals(DoubleType.INSTANCE, checkAndGetDataType(new Sum(charLiteral)));
+        Assertions.assertEquals(DoubleType.INSTANCE, checkAndGetDataType(new Sum(varcharLiteral)));
+        Assertions.assertEquals(DoubleType.INSTANCE, checkAndGetDataType(new Sum(stringLiteral)));
         Assertions.assertThrows(RuntimeException.class, () -> checkAndGetDataType(new Sum(dateLiteral)));
         Assertions.assertThrows(RuntimeException.class, () -> checkAndGetDataType(new Sum(dateTimeLiteral)));
+    }
+
+    @Test
+    public void testSum0() {
+        Assertions.assertEquals(BigIntType.INSTANCE, checkAndGetDataType(new Sum0(nullLiteral)));
+        Assertions.assertEquals(BigIntType.INSTANCE, checkAndGetDataType(new Sum0(booleanLiteral)));
+        Assertions.assertEquals(BigIntType.INSTANCE, checkAndGetDataType(new Sum0(tinyIntLiteral)));
+        Assertions.assertEquals(BigIntType.INSTANCE, checkAndGetDataType(new Sum0(smallIntLiteral)));
+        Assertions.assertEquals(BigIntType.INSTANCE, checkAndGetDataType(new Sum0(integerLiteral)));
+        Assertions.assertEquals(BigIntType.INSTANCE, checkAndGetDataType(new Sum0(bigIntLiteral)));
+        Assertions.assertEquals(LargeIntType.INSTANCE, checkAndGetDataType(new Sum0(largeIntLiteral)));
+        Assertions.assertEquals(DoubleType.INSTANCE, checkAndGetDataType(new Sum0(floatLiteral)));
+        Assertions.assertEquals(DoubleType.INSTANCE, checkAndGetDataType(new Sum0(doubleLiteral)));
+        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(38, 0), checkAndGetDataType(new Sum0(decimalLiteral)));
+        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(38, 6), checkAndGetDataType(new Sum0(decimalV3Literal)));
+        Assertions.assertEquals(DoubleType.INSTANCE, checkAndGetDataType(new Sum0(charLiteral)));
+        Assertions.assertEquals(DoubleType.INSTANCE, checkAndGetDataType(new Sum0(varcharLiteral)));
+        Assertions.assertEquals(DoubleType.INSTANCE, checkAndGetDataType(new Sum0(stringLiteral)));
+        Assertions.assertThrows(RuntimeException.class, () -> checkAndGetDataType(new Sum0(dateLiteral)));
+        Assertions.assertThrows(RuntimeException.class, () -> checkAndGetDataType(new Sum0(dateTimeLiteral)));
+    }
+
+    @Test
+    public void testAvg() {
+        Assertions.assertEquals(DoubleType.INSTANCE, checkAndGetDataType(new Avg(nullLiteral)));
+        Assertions.assertEquals(DoubleType.INSTANCE, checkAndGetDataType(new Avg(booleanLiteral)));
+        Assertions.assertEquals(DoubleType.INSTANCE, checkAndGetDataType(new Avg(tinyIntLiteral)));
+        Assertions.assertEquals(DoubleType.INSTANCE, checkAndGetDataType(new Avg(smallIntLiteral)));
+        Assertions.assertEquals(DoubleType.INSTANCE, checkAndGetDataType(new Avg(integerLiteral)));
+        Assertions.assertEquals(DoubleType.INSTANCE, checkAndGetDataType(new Avg(bigIntLiteral)));
+        Assertions.assertEquals(DoubleType.INSTANCE, checkAndGetDataType(new Avg(largeIntLiteral)));
+        Assertions.assertEquals(DoubleType.INSTANCE, checkAndGetDataType(new Avg(floatLiteral)));
+        Assertions.assertEquals(DoubleType.INSTANCE, checkAndGetDataType(new Avg(doubleLiteral)));
+        Assertions.assertEquals(DecimalV2Type.createDecimalV2Type(27, 9), checkAndGetDataType(new Avg(decimalLiteral)));
+        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(38, 6), checkAndGetDataType(new Avg(decimalV3Literal)));
+        Assertions.assertEquals(DoubleType.INSTANCE, checkAndGetDataType(new Avg(bigIntLiteral)));
+        Assertions.assertEquals(DoubleType.INSTANCE, checkAndGetDataType(new Avg(charLiteral)));
+        Assertions.assertEquals(DoubleType.INSTANCE, checkAndGetDataType(new Avg(varcharLiteral)));
+        Assertions.assertEquals(DoubleType.INSTANCE, checkAndGetDataType(new Avg(stringLiteral)));
+        Assertions.assertThrows(RuntimeException.class, () -> checkAndGetDataType(new Avg(dateLiteral)));
+        Assertions.assertThrows(RuntimeException.class, () -> checkAndGetDataType(new Avg(dateTimeLiteral)));
     }
 
     private DataType checkAndGetDataType(Expression expression) {

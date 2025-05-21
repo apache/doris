@@ -73,7 +73,7 @@ suite('test_decommission_mtmv', 'docker') {
 
         def decommissionBeIdx = 1
         def decommissionBe = cluster.getBeByIndex(decommissionBeIdx)
-        cluster.decommissionBackends(decommissionBeIdx)
+        cluster.decommissionBackends(true, decommissionBeIdx)
 
         def backends = sql_return_maparray  'show backends'
         assertEquals(3, backends.size())

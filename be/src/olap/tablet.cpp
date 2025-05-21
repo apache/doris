@@ -62,8 +62,6 @@
 #include "common/logging.h"
 #include "common/signal_handler.h"
 #include "common/status.h"
-#include "gutil/ref_counted.h"
-#include "gutil/strings/substitute.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/file_system.h"
@@ -711,6 +709,9 @@ void Tablet::_delete_stale_rowset_by_version(const Version& version) {
 }
 
 void Tablet::delete_expired_stale_rowset() {
+    if (config::enable_mow_verbose_log) {
+        LOG_INFO("begin delete_expired_stale_rowset for tablet={}", tablet_id());
+    }
     int64_t now = UnixSeconds();
     // hold write lock while processing stable rowset
     {
@@ -879,6 +880,9 @@ void Tablet::delete_expired_stale_rowset() {
         save_meta();
     }
 #endif
+    if (config::enable_mow_verbose_log) {
+        LOG_INFO("finish delete_expired_stale_rowset for tablet={}", tablet_id());
+    }
 }
 
 Status Tablet::capture_consistent_versions_unlocked(const Version& spec_version,
@@ -1398,15 +1402,33 @@ void Tablet::get_compaction_status(std::string* json_result) {
     format_str = ToStringFromUnixMillis(_last_full_compaction_success_millis.load());
     full_success_value.SetString(format_str.c_str(), format_str.length(), root.GetAllocator());
     root.AddMember("last full success time", full_success_value, root.GetAllocator());
+    rapidjson::Value cumu_schedule_value;
+    format_str = ToStringFromUnixMillis(_last_cumu_compaction_schedule_millis.load());
+    cumu_schedule_value.SetString(format_str.c_str(), format_str.length(), root.GetAllocator());
+    root.AddMember("last cumulative schedule time", cumu_schedule_value, root.GetAllocator());
     rapidjson::Value base_schedule_value;
     format_str = ToStringFromUnixMillis(_last_base_compaction_schedule_millis.load());
     base_schedule_value.SetString(format_str.c_str(), format_str.length(), root.GetAllocator());
     root.AddMember("last base schedule time", base_schedule_value, root.GetAllocator());
+    rapidjson::Value full_schedule_value;
+    format_str = ToStringFromUnixMillis(_last_full_compaction_schedule_millis.load());
+    full_schedule_value.SetString(format_str.c_str(), format_str.length(), root.GetAllocator());
+    root.AddMember("last full schedule time", full_schedule_value, root.GetAllocator());
+    rapidjson::Value cumu_compaction_status_value;
+    cumu_compaction_status_value.SetString(_last_cumu_compaction_status.c_str(),
+                                           _last_cumu_compaction_status.length(),
+                                           root.GetAllocator());
+    root.AddMember("last cumulative status", cumu_compaction_status_value, root.GetAllocator());
     rapidjson::Value base_compaction_status_value;
     base_compaction_status_value.SetString(_last_base_compaction_status.c_str(),
                                            _last_base_compaction_status.length(),
                                            root.GetAllocator());
     root.AddMember("last base status", base_compaction_status_value, root.GetAllocator());
+    rapidjson::Value full_compaction_status_value;
+    full_compaction_status_value.SetString(_last_full_compaction_status.c_str(),
+                                           _last_full_compaction_status.length(),
+                                           root.GetAllocator());
+    root.AddMember("last full status", full_compaction_status_value, root.GetAllocator());
 
     // last single replica compaction status
     // "single replica compaction status": {
@@ -1494,7 +1516,6 @@ bool Tablet::do_tablet_meta_checkpoint() {
         _newly_created_rowset_num < config::tablet_meta_checkpoint_min_new_rowsets_num) {
         return false;
     }
-
     // hold read-lock other than write-lock, because it will not modify meta structure
     std::shared_lock rdlock(_meta_lock);
     if (tablet_state() != TABLET_RUNNING) {
@@ -1758,7 +1779,7 @@ Status Tablet::prepare_compaction_and_calculate_permits(
             permits = 0;
             // if we meet a delete version, should increase the cumulative point to let base compaction handle the delete version.
             // no need to wait 5s.
-            if (!(res.msg() == "_last_delete_version.first not equal to -1") ||
+            if (!res.is<ErrorCode::CUMULATIVE_MEET_DELETE_VERSION>() ||
                 config::enable_sleep_between_delete_cumu_compaction) {
                 tablet->set_last_cumu_compaction_failure_time(UnixMillis());
             }
@@ -2032,6 +2053,12 @@ Status Tablet::cooldown(RowsetSharedPtr rowset) {
     if (_cooldown_conf.cooldown_replica_id <= 0) { // wait for FE to push cooldown conf
         return Status::InternalError("invalid cooldown_replica_id");
     }
+
+    auto mem_tracker = MemTrackerLimiter::create_shared(
+            MemTrackerLimiter::Type::OTHER,
+            fmt::format("Tablet::cooldown#tableId={}:replicaId={}", std::to_string(tablet_id()),
+                        std::to_string(replica_id())));
+    SCOPED_ATTACH_TASK(mem_tracker);
 
     if (_cooldown_conf.cooldown_replica_id == replica_id()) {
         // this replica is cooldown replica
@@ -2535,7 +2562,8 @@ CalcDeleteBitmapExecutor* Tablet::calc_delete_bitmap_executor() {
 
 Status Tablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t txn_id,
                                   DeleteBitmapPtr delete_bitmap, RowsetWriter* rowset_writer,
-                                  const RowsetIdUnorderedSet& cur_rowset_ids, int64_t lock_id) {
+                                  const RowsetIdUnorderedSet& cur_rowset_ids, int64_t lock_id,
+                                  int64_t next_visible_version) {
     RowsetSharedPtr rowset = txn_info->rowset;
     int64_t cur_version = rowset->start_version();
 

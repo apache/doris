@@ -20,7 +20,6 @@
 #include <bthread/mutex.h>
 #include <gen_cpp/olap_common.pb.h>
 
-#include <condition_variable>
 #include <memory>
 #include <mutex>
 #include <unordered_map>
@@ -31,6 +30,7 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "runtime/load_stream_writer.h"
+#include "runtime/workload_management/resource_context.h"
 #include "util/runtime_profile.h"
 
 namespace doris {

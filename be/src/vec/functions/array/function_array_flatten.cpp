@@ -45,7 +45,7 @@ public:
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         DataTypePtr arg = arguments[0];
-        while (is_array(arg)) {
+        while (arg->get_primitive_type() == TYPE_ARRAY) {
             arg = remove_nullable(assert_cast<const DataTypeArray*>(arg.get())->get_nested_type());
         }
         return std::make_shared<DataTypeArray>(make_nullable(arg));
@@ -70,7 +70,7 @@ public:
                                 ->get_data()
                                 .data();
 
-        while (WhichDataType(remove_nullable(src_data_type_array->get_nested_type())).is_array()) {
+        while (src_data_type_array->get_nested_type()->get_primitive_type() == TYPE_ARRAY) {
             nested_src_column_array_ptr = assert_cast<ColumnArray*>(
                     remove_nullable(src_column_array_ptr->get_data_ptr())->assume_mutable().get());
 

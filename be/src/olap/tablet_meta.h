@@ -39,7 +39,6 @@
 
 #include "common/logging.h"
 #include "common/status.h"
-#include "gutil/stringprintf.h"
 #include "io/fs/file_system.h"
 #include "olap/binlog_config.h"
 #include "olap/lru_cache.h"
@@ -131,7 +130,7 @@ public:
     Status create_from_file(const std::string& file_path);
     static Status load_from_file(const std::string& file_path, TabletMetaPB* tablet_meta_pb);
     Status save(const std::string& file_path);
-    Status save_as_json(const string& file_path);
+    Status save_as_json(const std::string& file_path);
     static Status save(const std::string& file_path, const TabletMetaPB& tablet_meta_pb);
     static std::string construct_header_file_path(const std::string& schema_hash_path,
                                                   int64_t tablet_id);

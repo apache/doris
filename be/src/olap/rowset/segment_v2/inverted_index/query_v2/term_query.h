@@ -31,10 +31,10 @@ public:
 
     void execute(const std::shared_ptr<roaring::Roaring>& result) {}
 
-    int32_t doc_id() const { return _iter.nextDoc(); }
-    int32_t next_doc() const { return _iter.nextDoc(); }
+    int32_t doc_id() const { return _iter.doc_id(); }
+    int32_t next_doc() const { return _iter.next_doc(); }
     int32_t advance(int32_t target) const { return _iter.advance(target); }
-    int64_t cost() const { return _iter.docFreq(); }
+    int64_t cost() const { return _iter.doc_freq(); }
 
 private:
     TermDocs* _term_docs = nullptr;

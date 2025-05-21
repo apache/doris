@@ -60,6 +60,11 @@ Status CloudTxnDeleteBitmapCache::get_tablet_txn_info(
     {
         std::shared_lock<std::shared_mutex> rlock(_rwlock);
         TxnKey key(transaction_id, tablet_id);
+        DBUG_EXECUTE_IF("CloudTxnDeleteBitmapCache.get_tablet_txn_info.not_found", {
+            return Status::Error<ErrorCode::NOT_FOUND>(
+                    "not found txn info for test, tablet_id={}, transaction_id={}", tablet_id,
+                    transaction_id);
+        });
         auto iter = _txn_map.find(key);
         if (iter == _txn_map.end()) {
             return Status::Error<ErrorCode::NOT_FOUND, false>(

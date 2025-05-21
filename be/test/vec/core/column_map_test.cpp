@@ -27,7 +27,7 @@
 #include "vec/core/field.h"
 
 namespace doris::vectorized {
-TEST(ColumnMapTest, StringKeyTest) {
+TEST(ColumnMapTest2, StringKeyTest) {
     auto col_map_str64 = ColumnMap(ColumnString64::create(), ColumnInt64::create(),
                                    ColumnArray::ColumnOffsets::create());
     Array k1 = {"a", "b", "c"};
@@ -90,7 +90,7 @@ TEST(ColumnMapTest, StringKeyTest) {
     }
 };
 
-TEST(ColumnMapTest, StringValueTest) {
+TEST(ColumnMapTest2, StringValueTest) {
     auto col_map_str64 = ColumnMap(ColumnInt64::create(), ColumnString64::create(),
                                    ColumnArray::ColumnOffsets::create());
     Array k1 = {1, 2, 3};

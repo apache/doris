@@ -38,6 +38,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.MysqlPassword;
@@ -1987,6 +1988,7 @@ public class AuthTest {
 
     @Test
     public void testWorkloadGroupPriv() throws UserException {
+        FeConstants.runningUnitTest = true;
         UserIdentity userIdentity = new UserIdentity("testUser", "%");
         String role = "role0";
         String workloadGroupName = "g1";
@@ -2447,6 +2449,7 @@ public class AuthTest {
 
     @Test
     public void testShowRoles() {
+        FeConstants.runningUnitTest = true;
         String role = "test_wg_role";
         CreateRoleStmt roleStmt = new CreateRoleStmt(role);
         try {

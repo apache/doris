@@ -20,10 +20,9 @@
 
 #pragma once
 
-#include "vec/common/arena.h"
-#if __has_include(<sanitizer/asan_interface.h>)
 #include <sanitizer/asan_interface.h>
-#endif
+
+#include "vec/common/arena.h"
 #include "vec/common/bit_helpers.h"
 
 namespace doris::vectorized {

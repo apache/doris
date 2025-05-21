@@ -67,12 +67,14 @@ import org.apache.doris.thrift.TUniqueId;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /** NereidsCoordinator */
 public class NereidsCoordinator extends Coordinator {
@@ -471,9 +473,14 @@ public class NereidsCoordinator extends Coordinator {
         // LoadTask does not have context, not controlled by queue now
         if (context != null && needEnqueue) {
             if (Config.enable_workload_group) {
-                coordinatorContext.setWorkloadGroups(context.getEnv().getWorkloadGroupMgr().getWorkloadGroup(context));
+                List<TPipelineWorkloadGroup> wgList = context.getEnv().getWorkloadGroupMgr().getWorkloadGroup(context);
+                this.setTWorkloadGroups(wgList);
                 if (shouldQueue(context)) {
-                    QueryQueue queryQueue = context.getEnv().getWorkloadGroupMgr().getWorkloadGroupQueryQueue(context);
+                    Set<Long> wgIdSet = Sets.newHashSet();
+                    for (TPipelineWorkloadGroup twg : wgList) {
+                        wgIdSet.add(twg.getId());
+                    }
+                    QueryQueue queryQueue = context.getEnv().getWorkloadGroupMgr().getWorkloadGroupQueryQueue(wgIdSet);
                     if (queryQueue == null) {
                         // This logic is actually useless, because when could not find query queue, it will
                         // throw exception during workload group manager.

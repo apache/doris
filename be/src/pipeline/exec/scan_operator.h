@@ -65,9 +65,7 @@ struct FilterPredicates {
 class ScanLocalStateBase : public PipelineXLocalState<> {
 public:
     ScanLocalStateBase(RuntimeState* state, OperatorXBase* parent)
-            : PipelineXLocalState<>(state, parent),
-              _helper(parent->node_id(), parent->runtime_filter_descs(), parent->row_descriptor()) {
-    }
+            : PipelineXLocalState<>(state, parent), _helper(parent->runtime_filter_descs()) {}
     ~ScanLocalStateBase() override = default;
 
     [[nodiscard]] virtual bool should_run_serial() const = 0;
@@ -301,7 +299,8 @@ protected:
     void get_cast_types_for_variants();
     void _filter_and_collect_cast_type_for_variant(
             const vectorized::VExpr* expr,
-            std::unordered_map<std::string, std::vector<TypeDescriptor>>& colname_to_cast_types);
+            std::unordered_map<std::string, std::vector<vectorized::DataTypePtr>>&
+                    colname_to_cast_types);
 
     Status _get_topn_filters(RuntimeState* state);
 
@@ -318,7 +317,7 @@ protected:
     std::vector<FunctionFilter> _push_down_functions;
 
     // colname -> cast dst type
-    std::map<std::string, TypeDescriptor> _cast_types_for_variants;
+    std::map<std::string, vectorized::DataTypePtr> _cast_types_for_variants;
 
     // slot id -> ColumnValueRange
     // Parsed from conjuncts
@@ -339,7 +338,7 @@ protected:
 
     std::mutex _block_lock;
 
-    std::vector<std::shared_ptr<RuntimeFilterDependency>> _filter_dependencies;
+    std::vector<std::shared_ptr<Dependency>> _filter_dependencies;
 
     // ScanLocalState owns the ownership of scanner, scanner context only has its weakptr
     std::list<std::shared_ptr<vectorized::ScannerDelegate>> _scanners;
@@ -399,6 +398,10 @@ public:
     using OperatorX<LocalStateType>::node_id;
     using OperatorX<LocalStateType>::operator_id;
     using OperatorX<LocalStateType>::get_local_state;
+
+#ifdef BE_TEST
+    ScanOperatorX() = default;
+#endif
 
 protected:
     using LocalState = LocalStateType;

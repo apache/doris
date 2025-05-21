@@ -31,6 +31,7 @@
 #include "util/runtime_profile.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 // Every task should have its own resource context. And BE may adjust the resource
 // context during running.
@@ -50,6 +51,7 @@ public:
         cpu_context_->set_resource_ctx(this);
         memory_context_->set_resource_ctx(this);
         io_context_->set_resource_ctx(this);
+        task_controller_->set_resource_ctx(this);
     }
     ~ResourceContext() = default;
 
@@ -74,6 +76,7 @@ public:
     }
     void set_task_controller(std::unique_ptr<TaskController> task_controller) {
         task_controller_ = std::move(task_controller);
+        task_controller_->set_resource_ctx(this);
     }
     void set_workload_group(WorkloadGroupPtr wg) { _workload_group = wg; }
 
@@ -111,4 +114,5 @@ private:
     MultiVersion<RuntimeProfile> resource_profile_;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris

@@ -40,7 +40,6 @@
 #include "cloud/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "gutil/strings/substitute.h"
 #include "http/http_channel.h"
 #include "http/http_headers.h"
 #include "http/http_request.h"

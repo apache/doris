@@ -21,6 +21,7 @@ import org.apache.doris.backup.Status;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.S3URI;
+import org.apache.doris.common.util.S3Util;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.constants.AzureProperties;
 import org.apache.doris.datasource.property.constants.S3Properties;
@@ -314,22 +315,6 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
         return String.format("s3://%s/%s", bucket, fileName);
     }
 
-    public static String getLongestPrefix(String globPattern) {
-        int length = globPattern.length();
-        int earliestSpecialCharIndex = length;
-
-        char[] specialChars = {'*', '?', '[', '{', '\\'};
-
-        for (char specialChar : specialChars) {
-            int index = globPattern.indexOf(specialChar);
-            if (index != -1 && index < earliestSpecialCharIndex) {
-                earliestSpecialCharIndex = index;
-            }
-        }
-
-        return globPattern.substring(0, earliestSpecialCharIndex);
-    }
-
     public Status globList(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
         long roundCnt = 0;
         long elementCnt = 0;
@@ -347,7 +332,7 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
             PathMatcher matcher = FileSystems.getDefault().getPathMatcher("glob:" + pathPattern.toString());
 
             HashSet<String> directorySet = new HashSet<>();
-            String listPrefix = getLongestPrefix(globPath);
+            String listPrefix = S3Util.getLongestPrefix(globPath);
             LOG.info("azure glob list prefix is {}", listPrefix);
             ListBlobsOptions options = new ListBlobsOptions().setPrefix(listPrefix);
             String newContinuationToken = null;

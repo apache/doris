@@ -545,11 +545,6 @@ Status FunctionLikeBase::execute_impl(FunctionContext* context, Block& block,
     return Status::OK();
 }
 
-Status FunctionLikeBase::close(FunctionContext* context,
-                               FunctionContext::FunctionStateScope scope) {
-    return Status::OK();
-}
-
 Status FunctionLikeBase::execute_substring(const ColumnString::Chars& values,
                                            const ColumnString::Offsets& value_offsets,
                                            ColumnUInt8::Container& result,

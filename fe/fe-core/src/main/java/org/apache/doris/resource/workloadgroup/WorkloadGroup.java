@@ -18,10 +18,9 @@
 package org.apache.doris.resource.workloadgroup;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.common.AnalysisException;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -49,8 +48,6 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
-import java.util.Set;
 
 public class WorkloadGroup implements Writable, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(WorkloadGroup.class);
@@ -93,6 +90,8 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
     public static final String SPILL_THRESHOLD_LOW_WATERMARK = "spill_threshold_low_watermark";
     public static final String SPILL_THRESHOLD_HIGH_WATERMARK = "spill_threshold_high_watermark";
 
+    public static final String COMPUTE_GROUP = "compute_group";
+
     // NOTE(wb): all property is not required, some properties default value is set in be
     // default value is as followed
     // cpu_share=1024, memory_limit=0%(0 means not limit), enable_memory_overcommit=true
@@ -101,7 +100,7 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
             .add(MAX_QUEUE_SIZE).add(QUEUE_TIMEOUT).add(CPU_HARD_LIMIT).add(SCAN_THREAD_NUM)
             .add(MAX_REMOTE_SCAN_THREAD_NUM).add(MIN_REMOTE_SCAN_THREAD_NUM)
             .add(MEMORY_LOW_WATERMARK).add(MEMORY_HIGH_WATERMARK)
-            .add(TAG).add(READ_BYTES_PER_SECOND).add(REMOTE_READ_BYTES_PER_SECOND)
+            .add(COMPUTE_GROUP).add(READ_BYTES_PER_SECOND).add(REMOTE_READ_BYTES_PER_SECOND)
             .add(WRITE_BUFFER_RATIO).add(SLOT_MEMORY_POLICY).build();
 
 
@@ -128,7 +127,7 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
         ALL_PROPERTIES_DEFAULT_VALUE_MAP.put(MIN_REMOTE_SCAN_THREAD_NUM, "-1");
         ALL_PROPERTIES_DEFAULT_VALUE_MAP.put(MEMORY_LOW_WATERMARK, "75%");
         ALL_PROPERTIES_DEFAULT_VALUE_MAP.put(MEMORY_HIGH_WATERMARK, "85%");
-        ALL_PROPERTIES_DEFAULT_VALUE_MAP.put(TAG, "");
+        ALL_PROPERTIES_DEFAULT_VALUE_MAP.put(COMPUTE_GROUP, "");
         ALL_PROPERTIES_DEFAULT_VALUE_MAP.put(READ_BYTES_PER_SECOND, "-1");
         ALL_PROPERTIES_DEFAULT_VALUE_MAP.put(REMOTE_READ_BYTES_PER_SECOND, "-1");
     }
@@ -215,9 +214,6 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
                 highWatermarkStr = highWatermarkStr.substring(0, highWatermarkStr.length() - 1);
             }
             this.properties.put(MEMORY_HIGH_WATERMARK, highWatermarkStr);
-        }
-        if (properties.containsKey(TAG)) {
-            this.properties.put(TAG, properties.get(TAG).toLowerCase());
         }
         resetQueueProperty(properties);
     }
@@ -534,19 +530,6 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
                         + " value should be -1 or an positive integer, but input value is " + readBytesVal);
             }
         }
-
-        String tagStr = properties.get(TAG);
-        if (!StringUtils.isEmpty(tagStr)) {
-            String[] tagArr = tagStr.split(",");
-            for (String tag : tagArr) {
-                try {
-                    FeNameFormat.checkCommonName("workload group tag", tag);
-                } catch (AnalysisException e) {
-                    throw new DdlException("tag format is illegal, " + tagStr);
-                }
-            }
-        }
-
     }
 
     public long getId() {
@@ -555,6 +538,10 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
 
     public String getName() {
         return name;
+    }
+
+    public WorkloadGroupKey getWorkloadGroupKey() {
+        return WorkloadGroupKey.get(this.getComputeGroup(), this.getName());
     }
 
     public Map<String, String> getProperties() {
@@ -589,6 +576,20 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
                 row.add(queryQueueDetail == null ? "0" : String.valueOf(queryQueueDetail.first));
             } else if (QueryQueue.WAITING_QUERY_NUM.equals(key)) {
                 row.add(queryQueueDetail == null ? "0" : String.valueOf(queryQueueDetail.second));
+            } else if (COMPUTE_GROUP.equals(key)) {
+                String val = properties.get(key);
+                if (!StringUtils.isEmpty(val) && Config.isCloudMode()) {
+                    try {
+                        String cgName = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getClusterNameByClusterId(
+                                val);
+                        if (!StringUtils.isEmpty(cgName)) {
+                            val = cgName;
+                        }
+                    } catch (Throwable t) {
+                        LOG.debug("get compute group failed, ", t);
+                    }
+                }
+                row.add(val);
             } else {
                 String val = properties.get(key);
                 if (StringUtils.isEmpty(val)) {
@@ -617,18 +618,9 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
         return memoryLimitPercent;
     }
 
-    public Optional<Set<String>> getTag() {
-        String tagStr = properties.get(TAG);
-        if (StringUtils.isEmpty(tagStr)) {
-            return Optional.empty();
-        }
-
-        Set<String> tagSet = new HashSet<>();
-        String[] ss = tagStr.split(",");
-        for (String str : ss) {
-            tagSet.add(str);
-        }
-        return Optional.of(tagSet);
+    public String getComputeGroup() {
+        String ret = properties.get(COMPUTE_GROUP);
+        return StringUtils.isEmpty(ret) ? WorkloadGroupMgr.EMPTY_COMPUTE_GROUP : ret;
     }
 
     @Override
@@ -729,9 +721,9 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
             tWorkloadGroupInfo.setRemoteReadBytesPerSecond(Long.valueOf(remoteReadBytesPerSecStr));
         }
 
-        String tagStr = properties.get(TAG);
-        if (!StringUtils.isEmpty(tagStr)) {
-            tWorkloadGroupInfo.setTag(tagStr);
+        String cgStr = properties.get(COMPUTE_GROUP);
+        if (!StringUtils.isEmpty(cgStr)) {
+            tWorkloadGroupInfo.setTag(cgStr);
         }
 
         String totalQuerySlotCountStr = properties.get(MAX_CONCURRENCY);

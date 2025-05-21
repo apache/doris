@@ -32,7 +32,7 @@ suite("grace_period") {
     CREATE TABLE IF NOT EXISTS orders_partition (
       o_orderkey       integer not null,
       o_custkey        integer not null,
-      o_orderstatus    char(1) not null,
+      o_orderstatus    char(20) not null,
       o_totalprice     decimalv3(15,2) not null,
       o_orderdate      date not null,
       o_orderpriority  char(15) not null,  
@@ -149,7 +149,7 @@ suite("grace_period") {
     """
 
     // force consistency when partition table, and query use the partition changed, should fail
-    mv_rewrite_fail("""
+    mv_not_part_in("""
         select l_shipdate, o_orderdate, l_partkey,
         l_suppkey, sum(o_totalprice) as sum_total
         from lineitem_partition
@@ -310,7 +310,7 @@ suite("grace_period") {
     sql "SET enable_materialized_view_rewrite=true"
     Thread.sleep(15000);
     // after 10s when partition table, and query use the partition changed, should fail
-    mv_rewrite_fail(
+    mv_not_part_in(
         """
         select l_shipdate, o_orderdate, l_partkey,
         l_suppkey, sum(o_totalprice) as sum_total

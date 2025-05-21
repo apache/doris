@@ -141,6 +141,8 @@ Status VMysqlResultWriter<is_binary_format>::_set_options(
         _options.map_key_delim = ':';
         _options.null_format = "null";
         _options.null_len = 4;
+        _options.mysql_collection_delim = ", ";
+        _options.is_bool_value_num = true;
         break;
     case TSerdeDialect::PRESTO:
         // eg:
@@ -151,6 +153,20 @@ Status VMysqlResultWriter<is_binary_format>::_set_options(
         _options.map_key_delim = '=';
         _options.null_format = "NULL";
         _options.null_len = 4;
+        _options.mysql_collection_delim = ", ";
+        _options.is_bool_value_num = true;
+        break;
+    case TSerdeDialect::HIVE:
+        // eg:
+        //  array: ["abc","def","",null]
+        //  map: {"k1":null,"k2":"v3"}
+        _options.nested_string_wrapper = "\"";
+        _options.wrapper_len = 1;
+        _options.map_key_delim = ':';
+        _options.null_format = "null";
+        _options.null_len = 4;
+        _options.mysql_collection_delim = ",";
+        _options.is_bool_value_num = false;
         break;
     default:
         return Status::InternalError("unknown serde dialect: {}", serde_dialect);
@@ -186,11 +202,12 @@ Status VMysqlResultWriter<is_binary_format>::_write_one_block(RuntimeState* stat
         for (size_t col_idx = 0; col_idx < num_cols; ++col_idx) {
             const auto& [column_ptr, col_const] =
                     unpack_if_const(block.get_by_position(col_idx).column);
-            int scale = _output_vexpr_ctxs[col_idx]->root()->type().scale;
+            int scale = _output_vexpr_ctxs[col_idx]->root()->data_type()->get_scale();
             // decimalv2 scale and precision is hard code, so we should get real scale and precision
             // from expr
             DataTypeSerDeSPtr serde;
-            if (_output_vexpr_ctxs[col_idx]->root()->type().is_decimal_v2_type()) {
+            if (_output_vexpr_ctxs[col_idx]->root()->data_type()->get_primitive_type() ==
+                PrimitiveType::TYPE_DECIMALV2) {
                 if (_output_vexpr_ctxs[col_idx]->root()->is_nullable()) {
                     auto nested_serde =
                             std::make_shared<DataTypeDecimalSerDe<vectorized::Decimal128V2>>(27,

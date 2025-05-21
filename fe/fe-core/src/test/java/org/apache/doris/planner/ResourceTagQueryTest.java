@@ -207,7 +207,7 @@ public class ResourceTagQueryTest {
         ComputeGroup cg2 = Env.getCurrentEnv().getAuth().getComputeGroup(Auth.ROOT_USER);
         Assert.assertTrue(cg2 instanceof MergedComputeGroup);
         MergedComputeGroup cg3 = (MergedComputeGroup) cg2;
-        Set<String> cgNameSet1 = cg3.getComputeGroupNameSet();
+        Set<String> cgNameSet1 = cg3.getNames();
         Assert.assertTrue(cgNameSet1.size() == 1);
         Assert.assertTrue(cgNameSet1.contains("default"));
 
@@ -224,8 +224,8 @@ public class ResourceTagQueryTest {
         ComputeGroup cg4 = Env.getCurrentEnv().getAuth().getComputeGroup(Auth.ROOT_USER);
         Assert.assertTrue(cg4 instanceof MergedComputeGroup);
         MergedComputeGroup cg5 = (MergedComputeGroup) cg4;
-        Assert.assertTrue(cg5.getComputeGroupNameSet().size() == 1);
-        Assert.assertTrue(cg5.getComputeGroupNameSet().contains("zone1"));
+        Assert.assertTrue(cg5.getNames().size() == 1);
+        Assert.assertTrue(cg5.getNames().contains("zone1"));
 
         // update connection context and query, it will failed because no zone1 backend
         connectContext.setComputeGroup(cg4);
@@ -287,7 +287,7 @@ public class ResourceTagQueryTest {
         Assert.assertEquals(1000000, execMemLimit);
 
         List<List<String>> userProps = Env.getCurrentEnv().getAuth().getUserProperties(Auth.ROOT_USER);
-        Assert.assertEquals(13, userProps.size());
+        Assert.assertEquals(14, userProps.size());
 
         // now :
         // be1 be2 be3 ==>tag1;

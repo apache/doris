@@ -23,6 +23,7 @@ import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.ImmutableList;
 
@@ -51,9 +52,26 @@ public class FoldConstantRule implements ExpressionPatternRuleFactory {
 
     /** evaluate by visitor */
     public static Expression evaluate(Expression expr, ExpressionRewriteContext ctx) {
-        if (ctx.cascadesContext != null
+        try {
+            return evaluateOrThrow(expr, ctx);
+        } catch (Exception e) {
+            if (ctx.cascadesContext != null
+                    && ctx.cascadesContext.getConnectContext() != null
+                    && ctx.cascadesContext.getConnectContext().getSessionVariable().feDebug) {
+                throw e;
+            }
+            return expr;
+        }
+    }
+
+    private static Expression evaluateOrThrow(Expression expr, ExpressionRewriteContext ctx) {
+        SessionVariable sessionVariable = ctx.cascadesContext != null
                 && ctx.cascadesContext.getConnectContext() != null
-                && ctx.cascadesContext.getConnectContext().getSessionVariable().isEnableFoldConstantByBe()) {
+                        ? ctx.cascadesContext.getConnectContext().getSessionVariable() : null;
+        if (sessionVariable != null && sessionVariable.isDebugSkipFoldConstant()) {
+            return expr;
+        }
+        if (sessionVariable != null && sessionVariable.isEnableFoldConstantByBe()) {
             return FULL_FOLD_REWRITER.rewrite(expr, ctx);
         } else {
             return FoldConstantRuleOnFE.VISITOR_INSTANCE.rewrite(expr, ctx);

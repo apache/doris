@@ -213,7 +213,7 @@ public class LoadingTaskPlanner {
                 ? false : Config.enable_single_replica_load;
         OlapTableSink olapTableSink = new OlapTableSink(table, destTupleDesc, partitionIds,
                 enableSingleReplicaLoad);
-        long txnTimeout = timeoutS == 0 ? ConnectContext.get().getExecTimeout() : timeoutS;
+        long txnTimeout = timeoutS == 0 ? ConnectContext.get().getExecTimeoutS() : timeoutS;
         olapTableSink.init(loadId, txnId, dbId, timeoutS, sendBatchParallelism, singleTabletLoadPerSink, strictMode,
                 txnTimeout);
         olapTableSink.setPartialUpdateInputColumns(isPartialUpdate, partialUpdateInputColumns);

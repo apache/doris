@@ -158,6 +158,9 @@
 -- !sql --
 
 -- !sql --
+10	20	aabc	
+
+-- !sql --
 -10	20	aabc	update val
 
 -- !point_select --

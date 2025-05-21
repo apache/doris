@@ -25,29 +25,6 @@
 #include "vec/data_types/data_type.h"
 #include "vec/utils/template_helpers.hpp"
 
-#define FOR_INTEGER_TYPES(M) \
-    M(UInt8)                 \
-    M(Int8)                  \
-    M(Int16)                 \
-    M(Int32)                 \
-    M(Int64)                 \
-    M(Int128)
-
-#define FOR_FLOAT_TYPES(M) \
-    M(Float32)             \
-    M(Float64)
-
-#define FOR_NUMERIC_TYPES(M) \
-    FOR_INTEGER_TYPES(M)     \
-    FOR_FLOAT_TYPES(M)
-
-#define FOR_DECIMAL_TYPES(M) \
-    M(Decimal32)             \
-    M(Decimal64)             \
-    M(Decimal128V2)          \
-    M(Decimal128V3)          \
-    M(Decimal256)
-
 /** If the serialized type is not the default type(string),
  * aggregation function need to override these functions:
  * 1. serialize_to_column
@@ -175,23 +152,63 @@ struct creator_with_type_base {
     template <typename Class, typename... TArgs>
     static AggregateFunctionPtr create_base(const DataTypes& argument_types,
                                             const bool result_is_nullable, TArgs&&... args) {
-        WhichDataType which(remove_nullable(argument_types[define_index]));
-#define DISPATCH(TYPE)                                                             \
-    if (which.idx == TypeIndex::TYPE) {                                            \
-        return creator_without_type::create<typename Class::template T<TYPE>>(     \
-                argument_types, result_is_nullable, std::forward<TArgs>(args)...); \
-    }
-
         if constexpr (allow_integer) {
-            FOR_INTEGER_TYPES(DISPATCH);
+            switch (argument_types[define_index]->get_primitive_type()) {
+            case PrimitiveType::TYPE_BOOLEAN:
+                return creator_without_type::create<typename Class::template T<UInt8>>(
+                        argument_types, result_is_nullable, std::forward<TArgs>(args)...);
+            case PrimitiveType::TYPE_TINYINT:
+                return creator_without_type::create<typename Class::template T<Int8>>(
+                        argument_types, result_is_nullable, std::forward<TArgs>(args)...);
+            case PrimitiveType::TYPE_SMALLINT:
+                return creator_without_type::create<typename Class::template T<Int16>>(
+                        argument_types, result_is_nullable, std::forward<TArgs>(args)...);
+            case PrimitiveType::TYPE_INT:
+                return creator_without_type::create<typename Class::template T<Int32>>(
+                        argument_types, result_is_nullable, std::forward<TArgs>(args)...);
+            case PrimitiveType::TYPE_BIGINT:
+                return creator_without_type::create<typename Class::template T<Int64>>(
+                        argument_types, result_is_nullable, std::forward<TArgs>(args)...);
+            case PrimitiveType::TYPE_LARGEINT:
+                return creator_without_type::create<typename Class::template T<Int128>>(
+                        argument_types, result_is_nullable, std::forward<TArgs>(args)...);
+            default:
+                break;
+            }
         }
         if constexpr (allow_float) {
-            FOR_FLOAT_TYPES(DISPATCH);
+            switch (argument_types[define_index]->get_primitive_type()) {
+            case PrimitiveType::TYPE_FLOAT:
+                return creator_without_type::create<typename Class::template T<Float32>>(
+                        argument_types, result_is_nullable, std::forward<TArgs>(args)...);
+            case PrimitiveType::TYPE_DOUBLE:
+                return creator_without_type::create<typename Class::template T<Float64>>(
+                        argument_types, result_is_nullable, std::forward<TArgs>(args)...);
+            default:
+                break;
+            }
         }
         if constexpr (allow_decimal) {
-            FOR_DECIMAL_TYPES(DISPATCH);
+            switch (argument_types[define_index]->get_primitive_type()) {
+            case PrimitiveType::TYPE_DECIMAL32:
+                return creator_without_type::create<typename Class::template T<Decimal32>>(
+                        argument_types, result_is_nullable, std::forward<TArgs>(args)...);
+            case PrimitiveType::TYPE_DECIMAL64:
+                return creator_without_type::create<typename Class::template T<Decimal64>>(
+                        argument_types, result_is_nullable, std::forward<TArgs>(args)...);
+            case PrimitiveType::TYPE_DECIMALV2:
+                return creator_without_type::create<typename Class::template T<Decimal128V2>>(
+                        argument_types, result_is_nullable, std::forward<TArgs>(args)...);
+            case PrimitiveType::TYPE_DECIMAL128I:
+                return creator_without_type::create<typename Class::template T<Decimal128V3>>(
+                        argument_types, result_is_nullable, std::forward<TArgs>(args)...);
+            case PrimitiveType::TYPE_DECIMAL256:
+                return creator_without_type::create<typename Class::template T<Decimal256>>(
+                        argument_types, result_is_nullable, std::forward<TArgs>(args)...);
+            default:
+                break;
+            }
         }
-#undef DISPATCH
         return nullptr;
     }
 

@@ -28,6 +28,7 @@ import org.apache.doris.metric.MetricRepo;
 import com.github.benmanes.caffeine.cache.LoadingCache;
 import com.google.common.collect.ImmutableList;
 import lombok.Data;
+import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -51,13 +52,16 @@ public class ExternalSchemaCache {
     }
 
     private void init(ExecutorService executor) {
+        long schemaCacheTtlSecond = NumberUtils.toLong(
+                (catalog.getProperties().get(ExternalCatalog.SCHEMA_CACHE_TTL_SECOND)), ExternalCatalog.CACHE_NO_TTL);
         CacheFactory schemaCacheFactory = new CacheFactory(
-                OptionalLong.of(86400L),
+                OptionalLong.of(schemaCacheTtlSecond >= ExternalCatalog.CACHE_TTL_DISABLE_CACHE
+                        ? schemaCacheTtlSecond : 86400),
                 OptionalLong.of(Config.external_cache_expire_time_minutes_after_access * 60),
                 Config.max_external_schema_cache_num,
                 false,
                 null);
-        schemaCache = schemaCacheFactory.buildCache(key -> loadSchema(key), null, executor);
+        schemaCache = schemaCacheFactory.buildCache(this::loadSchema, null, executor);
     }
 
     private void initMetrics() {
@@ -96,11 +100,9 @@ public class ExternalSchemaCache {
     }
 
     public void invalidateTableCache(String dbName, String tblName) {
-        SchemaCacheKey key = new SchemaCacheKey(dbName, tblName);
-        schemaCache.invalidate(key);
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("invalid schema cache for {}.{} in catalog {}", dbName, tblName, catalog.getName());
-        }
+        schemaCache.asMap().keySet().stream()
+            .filter(key -> key.dbName.equals(dbName) && key.tblName.equals(tblName))
+            .forEach(schemaCache::invalidate);
     }
 
     public void invalidateDbCache(String dbName) {

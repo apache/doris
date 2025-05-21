@@ -41,7 +41,7 @@ VSlotRef::VSlotRef(const doris::TExprNode& node)
         : VExpr(node), _slot_id(node.slot_ref.slot_id), _column_id(-1), _column_label(node.label) {}
 
 VSlotRef::VSlotRef(const SlotDescriptor* desc)
-        : VExpr(desc->type(), true, desc->is_nullable()), _slot_id(desc->id()), _column_id(-1) {}
+        : VExpr(desc->type(), true), _slot_id(desc->id()), _column_id(-1), _column_name(nullptr) {}
 
 Status VSlotRef::prepare(doris::RuntimeState* state, const doris::RowDescriptor& desc,
                          VExprContext* context) {

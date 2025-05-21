@@ -21,6 +21,7 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.JoinOperator;
 import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
@@ -104,10 +105,10 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     // root of plan tree executed by this fragment
     private PlanNode planRoot;
 
-    // exchange node to which this fragment sends its output
+    // exchange node which this fragment sends its output to
     private ExchangeNode destNode;
 
-    // if null, outputs the entire row produced by planRoot
+    // if null, set with the planRoot's output exprs when translate PhysicalPlan. see `translatePlan`
     private ArrayList<Expr> outputExprs;
 
     // created in finalize() or set in setSink()
@@ -401,6 +402,18 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         return destNode;
     }
 
+    public PlanNode getDeepestLinearSource() {
+        if (getChildren().size() > 1) {
+            throw new IllegalStateException("getDeepestLinearSource() called on a fragment with multiple children");
+        } else if (getChildren().isEmpty()) {
+            // this is the root fragment
+            return getPlanRoot();
+        } else {
+            // this is a non-root fragment
+            return getChild(0).getDeepestLinearSource();
+        }
+    }
+
     public PlanFragment getDestFragment() {
         if (destNode == null) {
             return null;
@@ -505,7 +518,8 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     }
 
     public boolean hasNullAwareLeftAntiJoin() {
-        return planRoot.isNullAwareLeftAntiJoin();
+        return planRoot.anyMatch(plan -> plan instanceof JoinNodeBase
+                && ((JoinNodeBase) plan).getJoinOp() == JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN);
     }
 
     public boolean useSerialSource(ConnectContext context) {

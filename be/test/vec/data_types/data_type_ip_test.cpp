@@ -19,9 +19,6 @@
 #include <gtest/gtest-test-part.h>
 #include <gtest/gtest.h>
 
-#include <filesystem>
-#include <iostream>
-
 #include "vec/columns/column.h"
 #include "vec/columns/columns_number.h"
 #include "vec/core/field.h"
@@ -32,6 +29,7 @@
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_struct.h"
+#include "vec/runtime/ipv4_value.h"
 
 // this test is gonna to be a data type test template for all DataType which should make ut test to coverage the function defined
 // for example DataTypeIPv4 should test this function:
@@ -69,16 +67,17 @@ public:
     DataTypePtr dt_ipv4_nullable = std::make_shared<vectorized::DataTypeNullable>(dt_ipv4);
     DataTypePtr dt_ipv6_nullable = std::make_shared<vectorized::DataTypeNullable>(dt_ipv6);
     // common ip data
-    std::vector<string> data_files;
+    std::vector<std::string> data_files;
 };
 
 TEST_F(DataTypeIPTest, MetaInfoTest) {
-    TypeDescriptor ipv4_type_descriptor = {PrimitiveType::TYPE_IPV4};
+    auto ipv4_type_descriptor =
+            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_IPV4, false);
     auto col_meta = std::make_shared<PColumnMeta>();
     col_meta->set_type(PGenericType_TypeId_IPV4);
     DataTypeMetaInfo ipv4_meta_info_to_assert = {
-            .type_id = TypeIndex::IPv4,
-            .type_as_type_descriptor = &ipv4_type_descriptor,
+            .type_id = PrimitiveType::TYPE_IPV4,
+            .type_as_type_descriptor = ipv4_type_descriptor,
             .family_name = "IPv4",
             .has_subtypes = false,
             .storage_field_type = doris::FieldType::OLAP_FIELD_TYPE_IPV4,
@@ -94,12 +93,13 @@ TEST_F(DataTypeIPTest, MetaInfoTest) {
             .is_value_unambiguously_represented_in_contiguous_memory_region = true,
             .default_field = UInt64(0),
     };
-    TypeDescriptor ipv6_type_descriptor = {PrimitiveType::TYPE_IPV6};
+    auto ipv6_type_descriptor =
+            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_IPV6, false);
     auto col_meta6 = std::make_shared<PColumnMeta>();
     col_meta6->set_type(PGenericType_TypeId_IPV6);
     DataTypeMetaInfo ipv6_meta_info = {
-            .type_id = TypeIndex::IPv6,
-            .type_as_type_descriptor = &ipv6_type_descriptor,
+            .type_id = PrimitiveType::TYPE_IPV6,
+            .type_as_type_descriptor = ipv6_type_descriptor,
             .family_name = "IPv6",
             .has_subtypes = false,
             .storage_field_type = doris::FieldType::OLAP_FIELD_TYPE_IPV6,
@@ -160,13 +160,13 @@ TEST_F(DataTypeIPTest, GetFieldTest) {
     TExprNode invalid_node_ipv6;
     invalid_node_ipv6.node_type = TExprNodeType::IPV6_LITERAL;
     // todo.(check) 2001:db8:::1 this is invalid ipv6 value, but it can pass the test
-    std::vector<string> invalid_ipv6 = {"2001:db8::12345",
-                                        "",
-                                        "::fffff:0:0",
-                                        "2001:db8::g123",
-                                        "2001:db8:85a3::8a2e:0370:",
-                                        "2001:0db8:85a3:0000:0000:8a2e:0370:7334:1234",
-                                        "::12345:abcd"};
+    std::vector<std::string> invalid_ipv6 = {"2001:db8::12345",
+                                             "",
+                                             "::fffff:0:0",
+                                             "2001:db8::g123",
+                                             "2001:db8:85a3::8a2e:0370:",
+                                             "2001:0db8:85a3:0000:0000:8a2e:0370:7334:1234",
+                                             "::12345:abcd"};
     for (auto& ipv6 : invalid_ipv6) {
         invalid_node_ipv6.ipv6_literal.value = ipv6;
         Field field;
@@ -276,8 +276,8 @@ TEST_F(DataTypeIPTest, SerdeTOJsonInComplex) {
     auto column_struct_ip = struct_ip->create_column();
 
     // insert some data into column
-    std::vector<string> ipv4_data = {"190.0.0.1", "127.0.0.1", "10.0.0.1"};
-    std::vector<string> ipv6_data = {"2001:db8::1234", "2001:db8::1234:5678", "::"};
+    std::vector<std::string> ipv4_data = {"190.0.0.1", "127.0.0.1", "10.0.0.1"};
+    std::vector<std::string> ipv6_data = {"2001:db8::1234", "2001:db8::1234:5678", "::"};
     std::vector<IPv4> ipv4_values;
     std::vector<IPv6> ipv6_values;
     // put data into column
@@ -326,7 +326,7 @@ TEST_F(DataTypeIPTest, SerdeTOJsonInComplex) {
     tuple.push_back(ipv6_map);
     column_struct_ip->insert(tuple);
 
-    auto assert_func = [](DataTypePtr dt, MutableColumnPtr& col, string assert_json_str) {
+    auto assert_func = [](DataTypePtr dt, MutableColumnPtr& col, std::string assert_json_str) {
         // serde to json
         auto from_serde = dt->get_serde(1);
         auto dst_str = ColumnString::create();
@@ -343,15 +343,15 @@ TEST_F(DataTypeIPTest, SerdeTOJsonInComplex) {
         ASSERT_EQ(json_str.to_string(), assert_json_str);
     };
 
-    std::vector<string> assert_json_arr_str = {
-            "[\"190.0.0.1\", \"127.0.0.1\", \"10.0.0.1\"]",
-            "[\"2001:db8::1234\", \"2001:db8::1234:5678\", \"::\"]"};
-    std::vector<string> assert_json_map_str = {
+    std::vector<std::string> assert_json_arr_str = {
+            R"(["190.0.0.1", "127.0.0.1", "10.0.0.1"])",
+            R"(["2001:db8::1234", "2001:db8::1234:5678", "::"])"};
+    std::vector<std::string> assert_json_map_str = {
             "{\"190.0.0.1\":\"2001:db8::1234\", \"127.0.0.1\":\"2001:db8::1234:5678\", "
             "\"10.0.0.1\":\"::\"}",
             "{\"2001:db8::1234\":\"190.0.0.1\", \"2001:db8::1234:5678\":\"127.0.0.1\", "
             "\"::\":\"10.0.0.1\"}"};
-    string assert_json_struct_str =
+    std::string assert_json_struct_str =
             "{\"1\": \"190.0.0.1\", \"2\": \"2001:db8::1234\", \"3\": [\"190.0.0.1\", "
             "\"127.0.0.1\", \"10.0.0.1\"], \"4\": [\"2001:db8::1234\", \"2001:db8::1234:5678\", "
             "\"::\"], \"5\": {\"190.0.0.1\":\"2001:db8::1234\", "

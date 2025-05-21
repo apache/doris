@@ -26,13 +26,11 @@
 #include "vec/columns/column.h"
 #include "vec/common/arena.h"
 #include "vec/common/string_ref.h"
-#include "vec/data_types/data_type.h"
 #include "vec/json/path_in_data.h"
 namespace doris::vectorized {
-/// Tree that represents paths in document
-/// with additional data in nodes.
-
-template <typename NodeData>
+// Tree that represents paths in document with additional data in nodes.
+// IsShared mean this object shared above multiple tasks, need swtich to subcolumns_tree_tracker
+template <typename NodeData, bool IsShared>
 class SubcolumnsTree {
 public:
     struct Node {
@@ -75,9 +73,11 @@ public:
         void add_child(std::string_view key, std::shared_ptr<Node> next_node, Arena& strings_pool) {
             next_node->parent = this;
             StringRef key_ref;
-            {
+            if constexpr (IsShared) {
                 SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
                         ExecEnv::GetInstance()->subcolumns_tree_tracker());
+                key_ref = {strings_pool.insert(key.data(), key.length()), key.length()};
+            } else {
                 key_ref = {strings_pool.insert(key.data(), key.length()), key.length()};
             }
             children[key_ref] = std::move(next_node);
@@ -256,7 +256,7 @@ public:
             /// for the last rows.
             /// If there are no leaves, skip current node and find
             /// the next node up to the current.
-            leaf = SubcolumnsTree<NodeData>::find_leaf(node_nested, pred);
+            leaf = SubcolumnsTree<NodeData, IsShared>::find_leaf(node_nested, pred);
 
             if (leaf) {
                 break;
@@ -308,14 +308,25 @@ public:
     const_iterator end() const { return leaves.end(); }
 
     ~SubcolumnsTree() {
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->subcolumns_tree_tracker());
-        strings_pool.reset();
+        if constexpr (IsShared) {
+            SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
+                    ExecEnv::GetInstance()->subcolumns_tree_tracker());
+            strings_pool.reset();
+        } else {
+            strings_pool.reset();
+        }
     }
 
     SubcolumnsTree() {
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->subcolumns_tree_tracker());
-        SCOPED_SKIP_MEMORY_CHECK();
-        strings_pool = std::make_shared<Arena>();
+        if constexpr (IsShared) {
+            SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
+                    ExecEnv::GetInstance()->subcolumns_tree_tracker());
+            SCOPED_SKIP_MEMORY_CHECK();
+            strings_pool = std::make_shared<Arena>();
+        } else {
+            SCOPED_SKIP_MEMORY_CHECK();
+            strings_pool = std::make_shared<Arena>();
+        }
     }
 
 private:

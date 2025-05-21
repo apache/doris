@@ -41,6 +41,7 @@ import org.apache.doris.nereids.rules.analysis.AnalyzeCTE;
 import org.apache.doris.nereids.rules.analysis.BindExpression;
 import org.apache.doris.nereids.rules.analysis.BindRelation;
 import org.apache.doris.nereids.rules.analysis.CheckPolicy;
+import org.apache.doris.nereids.rules.analysis.EliminateLogicalPreAggOnHint;
 import org.apache.doris.nereids.rules.analysis.EliminateLogicalSelectHint;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -62,6 +63,10 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalView;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.NullType;
+import org.apache.doris.nereids.types.TinyIntType;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 
@@ -161,8 +166,9 @@ public class BaseViewInfo {
     protected void createFinalCols(List<Slot> outputs) throws org.apache.doris.common.AnalysisException {
         if (simpleColumnDefinitions.isEmpty()) {
             for (Slot output : outputs) {
-                Column column = new Column(output.getName(), output.getDataType().toCatalogDataType(),
-                        output.nullable());
+                DataType dataType = TypeCoercionUtils.replaceSpecifiedType(output.getDataType(), NullType.class,
+                        TinyIntType.INSTANCE);
+                Column column = new Column(output.getName(), dataType.toCatalogDataType(), output.nullable());
                 finalCols.add(column);
             }
         } else {
@@ -170,8 +176,11 @@ public class BaseViewInfo {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_VIEW_WRONG_LIST);
             }
             for (int i = 0; i < simpleColumnDefinitions.size(); ++i) {
+                Slot output = outputs.get(i);
+                DataType dataType = TypeCoercionUtils.replaceSpecifiedType(output.getDataType(), NullType.class,
+                        TinyIntType.INSTANCE);
                 Column column = new Column(simpleColumnDefinitions.get(i).getName(),
-                        outputs.get(i).getDataType().toCatalogDataType(), outputs.get(i).nullable());
+                        dataType.toCatalogDataType(), output.nullable());
                 column.setComment(simpleColumnDefinitions.get(i).getComment());
                 finalCols.add(column);
             }
@@ -263,7 +272,8 @@ public class BaseViewInfo {
 
         private static List<RewriteJob> buildAnalyzeViewJobsForStar() {
             return jobs(
-                    topDown(new EliminateLogicalSelectHint()),
+                    topDown(new EliminateLogicalSelectHint(),
+                            new EliminateLogicalPreAggOnHint()),
                     topDown(new AnalyzeCTE()),
                     bottomUp(
                             new BindRelation(),

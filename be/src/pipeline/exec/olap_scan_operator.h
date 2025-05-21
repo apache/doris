@@ -90,8 +90,6 @@ private:
 
     Status _init_scanners(std::list<vectorized::ScannerSPtr>* scanners) override;
 
-    void add_filter_info(int id, const PredicateFilterInfo& info);
-
     Status _build_key_ranges_and_filters();
 
     std::vector<std::unique_ptr<TPaloScanRange>> _scan_ranges;
@@ -125,7 +123,6 @@ private:
     RuntimeProfile::Counter* _short_cond_timer = nullptr;
     RuntimeProfile::Counter* _expr_filter_timer = nullptr;
     RuntimeProfile::Counter* _output_col_timer = nullptr;
-    std::map<int, PredicateFilterInfo> _filter_info;
 
     RuntimeProfile::Counter* _stats_filtered_counter = nullptr;
     RuntimeProfile::Counter* _stats_rp_filtered_counter = nullptr;
@@ -138,6 +135,17 @@ private:
     RuntimeProfile::Counter* _block_fetch_timer = nullptr;
     RuntimeProfile::Counter* _delete_bitmap_get_agg_timer = nullptr;
     RuntimeProfile::Counter* _sync_rowset_timer = nullptr;
+    RuntimeProfile::Counter* _sync_rowset_get_remote_tablet_meta_rpc_timer = nullptr;
+    RuntimeProfile::Counter* _sync_rowset_tablet_meta_cache_hit = nullptr;
+    RuntimeProfile::Counter* _sync_rowset_tablet_meta_cache_miss = nullptr;
+    RuntimeProfile::Counter* _sync_rowset_tablets_rowsets_total_num = nullptr;
+    RuntimeProfile::Counter* _sync_rowset_get_remote_rowsets_num = nullptr;
+    RuntimeProfile::Counter* _sync_rowset_get_remote_rowsets_rpc_timer = nullptr;
+    RuntimeProfile::Counter* _sync_rowset_get_local_delete_bitmap_rowsets_num = nullptr;
+    RuntimeProfile::Counter* _sync_rowset_get_remote_delete_bitmap_rowsets_num = nullptr;
+    RuntimeProfile::Counter* _sync_rowset_get_remote_delete_bitmap_key_count = nullptr;
+    RuntimeProfile::Counter* _sync_rowset_get_remote_delete_bitmap_bytes = nullptr;
+    RuntimeProfile::Counter* _sync_rowset_get_remote_delete_bitmap_rpc_timer = nullptr;
     RuntimeProfile::Counter* _block_load_timer = nullptr;
     RuntimeProfile::Counter* _block_load_counter = nullptr;
     // Add more detail seek timer and counter profile
@@ -191,8 +199,6 @@ private:
     // total number of segment related to this scan node
     RuntimeProfile::Counter* _total_segment_counter = nullptr;
 
-    RuntimeProfile::Counter* _runtime_filter_info = nullptr;
-
     // timer about tablet reader
     RuntimeProfile::Counter* _tablet_reader_init_timer = nullptr;
     RuntimeProfile::Counter* _tablet_reader_capture_rs_readers_timer = nullptr;
@@ -220,7 +226,6 @@ private:
     RuntimeProfile::Counter* _segment_create_column_readers_timer = nullptr;
     RuntimeProfile::Counter* _segment_load_index_timer = nullptr;
 
-    std::mutex _profile_mtx;
     std::vector<TabletWithVersion> _tablets;
     std::vector<TabletReader::ReadSource> _read_sources;
 

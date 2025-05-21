@@ -41,7 +41,6 @@
 #pragma clang diagnostic pop
 #endif
 #include "common/signal_handler.h"
-#include "gutil/strings/strip.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"

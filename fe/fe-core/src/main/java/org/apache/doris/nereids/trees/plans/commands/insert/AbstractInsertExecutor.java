@@ -143,7 +143,7 @@ public abstract class AbstractInsertExecutor {
         QeProcessorImpl.INSTANCE.registerQuery(ctx.queryId(), queryInfo);
         executor.updateProfile(false);
         coordinator.exec();
-        int execTimeout = ctx.getExecTimeout();
+        int execTimeout = ctx.getExecTimeoutS();
         if (LOG.isDebugEnabled()) {
             LOG.debug("insert [{}] with query id {} execution timeout is {}", labelName, queryId, execTimeout);
         }
