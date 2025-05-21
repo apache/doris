@@ -80,6 +80,7 @@ unsupportedStatement
     | unsupportedAlterStatement
     | unsupportedGrantRevokeStatement
     | unsupportedAdminStatement
+    | unsupportedCancelStatement
     | unsupportedRefreshStatement
     | unsupportedLoadStatement
     | unsupportedShowStatement
@@ -571,11 +572,14 @@ supportedCancelStatement
     | CANCEL BUILD INDEX ON tableName=multipartIdentifier
         (LEFT_PAREN jobIds+=INTEGER_VALUE
             (COMMA jobIds+=INTEGER_VALUE)* RIGHT_PAREN)?                            #cancelBuildIndex
-    | CANCEL DECOMMISSION BACKEND hostPorts+=STRING_LITERAL
-        (COMMA hostPorts+=STRING_LITERAL)*                                          #cancelDecommisionBackend
     | CANCEL ALTER TABLE (ROLLUP | (MATERIALIZED VIEW) | COLUMN)
         FROM tableName=multipartIdentifier (LEFT_PAREN jobIds+=INTEGER_VALUE
             (COMMA jobIds+=INTEGER_VALUE)* RIGHT_PAREN)?                            #cancelAlterTable
+    ;
+
+unsupportedCancelStatement
+    : CANCEL DECOMMISSION BACKEND hostPorts+=STRING_LITERAL
+        (COMMA hostPorts+=STRING_LITERAL)*                                          #cancelDecommisionBackend
     ;
 
 supportedAdminStatement
