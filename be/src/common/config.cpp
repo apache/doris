@@ -1205,6 +1205,9 @@ DEFINE_mBool(enable_merge_on_write_correctness_check, "true");
 // USED FOR DEBUGING
 // core directly if the compaction found there's duplicate key on mow table
 DEFINE_mBool(enable_mow_compaction_correctness_check_core, "false");
+// USED FOR DEBUGING
+// let compaction fail if the compaction found there's duplicate key on mow table
+DEFINE_mBool(enable_mow_compaction_correctness_check_fail, "false");
 // rowid conversion correctness check when compaction for mow table
 DEFINE_mBool(enable_rowid_conversion_correctness_check, "false");
 // missing rows correctness check when compaction for mow table
@@ -1489,6 +1492,8 @@ DEFINE_mInt64(base_compaction_interval_seconds_since_last_operation, "86400");
 DEFINE_mBool(enable_compaction_pause_on_high_memory, "true");
 
 DEFINE_mBool(enable_calc_delete_bitmap_between_segments_concurrently, "false");
+
+DEFINE_mBool(enable_update_delete_bitmap_kv_check_core, "false");
 
 // clang-format off
 #ifdef BE_TEST

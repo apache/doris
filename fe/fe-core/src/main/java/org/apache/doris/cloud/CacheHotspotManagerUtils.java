@@ -17,7 +17,6 @@
 
 package org.apache.doris.cloud;
 
-import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.DbName;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.UserIdentity;
@@ -28,6 +27,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
@@ -195,11 +195,11 @@ public class CacheHotspotManagerUtils {
     }
 
     private static void execCreateDatabase() throws Exception {
-        CreateDbStmt createDbStmt = new CreateDbStmt(true,
-                new DbName(null, FeConstants.INTERNAL_DB_NAME),
-                null);
+        CreateDatabaseCommand command = new CreateDatabaseCommand(true,
+                new DbName("", FeConstants.INTERNAL_DB_NAME),
+                    null);
         try {
-            Env.getCurrentEnv().createDb(createDbStmt);
+            Env.getCurrentEnv().createDb(command);
         } catch (DdlException e) {
             LOG.warn("Failed to create database: {}, will try again later",
                     FeConstants.INTERNAL_DB_NAME, e);

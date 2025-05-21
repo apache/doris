@@ -275,13 +275,21 @@ CONF_Bool(enable_check_instance_id, "true");
 CONF_Bool(enable_loopback_address_for_ms, "false");
 
 // delete_bitmap_lock version config
-CONF_mString(use_delete_bitmap_lock_version, "v1");
+// here is some examples:
+// 1. If instance1,instance2 use v2, config should be
+// delete_bitmap_lock_v2_white_list = instance1;instance2
+// 2. If all instance use v2, config should be
+// delete_bitmap_lock_v2_white_list = *
+CONF_mString(delete_bitmap_lock_v2_white_list, "");
 // FOR DEBUGGING
 CONF_mBool(use_delete_bitmap_lock_random_version, "false");
 
 // Which vaults should be recycled. If empty, recycle all vaults.
 // Comma seprated list: recycler_storage_vault_white_list="aaa,bbb,ccc"
 CONF_Strings(recycler_storage_vault_white_list, "");
+
+// for test only
+CONF_mBool(enable_update_delete_bitmap_kv_check, "false");
 
 // aws sdk log level
 //    Off = 0,

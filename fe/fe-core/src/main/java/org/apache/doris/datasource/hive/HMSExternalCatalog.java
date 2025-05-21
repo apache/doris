@@ -73,11 +73,6 @@ public class HMSExternalCatalog extends ExternalCatalog {
     // from remoteTable object.
     public static final String GET_SCHEMA_FROM_TABLE = "get_schema_from_table";
 
-    // -1 means cache with no ttl
-    public static final int CACHE_NO_TTL = -1;
-    // 0 means cache is disabled; >0 means cache with ttl;
-    public static final int CACHE_TTL_DISABLE_CACHE = 0;
-
     private static final int FILE_SYSTEM_EXECUTOR_THREAD_NUM = 16;
     private ThreadPoolExecutor fileSystemExecutor;
 

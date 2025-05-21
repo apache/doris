@@ -57,7 +57,6 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunctio
 import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StructElement;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
@@ -101,7 +100,6 @@ import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.nereids.util.PlanUtils.CollectNonWindowedAggFuncs;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.nereids.util.Utils;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SqlModeHelper;
 
 import com.google.common.base.Preconditions;
@@ -114,7 +112,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
-import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.NotNull;
@@ -267,8 +264,7 @@ public class BindExpression implements AnalysisRuleFactory {
         Builder<Slot> outputSlots = ImmutableList.builder();
         Builder<Function> boundGenerators = ImmutableList.builder();
         List<Alias> expandAlias = Lists.newArrayList();
-        SimpleExprAnalyzer analyzer = buildSimpleExprAnalyzer(
-                generate, cascadesContext, generate.children(), true, true);
+        SimpleExprAnalyzer analyzer = buildSimpleExprAnalyzer(generate, cascadesContext, generate.children());
         for (int i = 0; i < generate.getGeneratorOutput().size(); i++) {
             UnboundSlot slot = (UnboundSlot) generate.getGeneratorOutput().get(i);
             Preconditions.checkState(slot.getNameParts().size() == 2,
@@ -338,7 +334,7 @@ public class BindExpression implements AnalysisRuleFactory {
         Builder<Plan> newChildren = ImmutableList.builderWithExpectedSize(childrenProjectionSize);
         for (int i = 0; i < childrenProjectionSize; i++) {
             Plan newChild;
-            if (childrenProjections.stream().allMatch(SlotReference.class::isInstance)) {
+            if (childrenProjections.get(i).stream().allMatch(SlotReference.class::isInstance)) {
                 newChild = setOperation.child(i);
             } else {
                 newChild = new LogicalProject<>(childrenProjections.get(i), setOperation.child(i));
@@ -355,8 +351,7 @@ public class BindExpression implements AnalysisRuleFactory {
     private LogicalOneRowRelation bindOneRowRelation(MatchingContext<UnboundOneRowRelation> ctx) {
         UnboundOneRowRelation oneRowRelation = ctx.root;
         CascadesContext cascadesContext = ctx.cascadesContext;
-        SimpleExprAnalyzer analyzer = buildSimpleExprAnalyzer(
-                oneRowRelation, cascadesContext, ImmutableList.of(), true, true);
+        SimpleExprAnalyzer analyzer = buildSimpleExprAnalyzer(oneRowRelation, cascadesContext, ImmutableList.of());
         List<NamedExpression> projects = analyzer.analyzeToList(oneRowRelation.getProjects());
         return new LogicalOneRowRelation(oneRowRelation.getRelationId(), projects);
     }
@@ -555,8 +550,7 @@ public class BindExpression implements AnalysisRuleFactory {
         CascadesContext cascadesContext = ctx.cascadesContext;
 
         List<Slot> childOutput = sort.child().getOutput();
-        SimpleExprAnalyzer analyzer = buildSimpleExprAnalyzer(
-                sort, cascadesContext, sort.children(), true, true);
+        SimpleExprAnalyzer analyzer = buildSimpleExprAnalyzer(sort, cascadesContext, sort.children());
         Builder<OrderKey> boundKeys = ImmutableList.builderWithExpectedSize(sort.getOrderKeys().size());
         for (OrderKey orderKey : sort.getOrderKeys()) {
             Expression boundKey = bindWithOrdinal(orderKey.getExpr(), analyzer, childOutput);
@@ -571,8 +565,7 @@ public class BindExpression implements AnalysisRuleFactory {
 
         checkConflictAlias(join);
 
-        SimpleExprAnalyzer analyzer = buildSimpleExprAnalyzer(
-                join, cascadesContext, join.children(), true, true);
+        SimpleExprAnalyzer analyzer = buildSimpleExprAnalyzer(join, cascadesContext, join.children());
 
         Builder<Expression> hashJoinConjuncts = ImmutableList.builderWithExpectedSize(
                 join.getHashJoinConjuncts().size());
@@ -670,9 +663,7 @@ public class BindExpression implements AnalysisRuleFactory {
         LogicalProject<Plan> project = ctx.root;
         CascadesContext cascadesContext = ctx.cascadesContext;
 
-        SimpleExprAnalyzer analyzer = buildSimpleExprAnalyzer(
-                project, cascadesContext, project.children(), true, true);
-
+        SimpleExprAnalyzer analyzer = buildSimpleExprAnalyzer(project, cascadesContext, project.children());
         Builder<NamedExpression> boundProjectionsBuilder
                 = ImmutableList.builderWithExpectedSize(project.getProjects().size());
         StatementContext statementContext = ctx.statementContext;
@@ -756,9 +747,7 @@ public class BindExpression implements AnalysisRuleFactory {
         LogicalLoadProject<Plan> project = ctx.root;
         CascadesContext cascadesContext = ctx.cascadesContext;
 
-        SimpleExprAnalyzer analyzer = buildSimpleExprAnalyzer(
-                project, cascadesContext, project.children(), true, true);
-
+        SimpleExprAnalyzer analyzer = buildSimpleExprAnalyzer(project, cascadesContext, project.children());
         Builder<NamedExpression> boundProjections = ImmutableList.builderWithExpectedSize(project.getProjects().size());
         StatementContext statementContext = ctx.statementContext;
         for (Expression expression : project.getProjects()) {
@@ -824,8 +813,7 @@ public class BindExpression implements AnalysisRuleFactory {
         LogicalFilter<Plan> filter = ctx.root;
         CascadesContext cascadesContext = ctx.cascadesContext;
 
-        SimpleExprAnalyzer analyzer = buildSimpleExprAnalyzer(
-                filter, cascadesContext, filter.children(), true, true);
+        SimpleExprAnalyzer analyzer = buildSimpleExprAnalyzer(filter, cascadesContext, filter.children());
         ImmutableSet.Builder<Expression> boundConjuncts = ImmutableSet.builderWithExpectedSize(
                 filter.getConjuncts().size());
         for (Expression conjunct : filter.getConjuncts()) {
@@ -840,8 +828,7 @@ public class BindExpression implements AnalysisRuleFactory {
         LogicalPreFilter<Plan> filter = ctx.root;
         CascadesContext cascadesContext = ctx.cascadesContext;
 
-        SimpleExprAnalyzer analyzer = buildSimpleExprAnalyzer(
-                filter, cascadesContext, filter.children(), true, true);
+        SimpleExprAnalyzer analyzer = buildSimpleExprAnalyzer(filter, cascadesContext, filter.children());
         ImmutableSet.Builder<Expression> boundConjuncts = ImmutableSet.builderWithExpectedSize(
                 filter.getConjuncts().size());
         for (Expression conjunct : filter.getConjuncts()) {
@@ -1052,8 +1039,7 @@ public class BindExpression implements AnalysisRuleFactory {
         LogicalAggregate<Plan> agg = ctx.root;
         CascadesContext cascadesContext = ctx.cascadesContext;
 
-        SimpleExprAnalyzer aggOutputAnalyzer = buildSimpleExprAnalyzer(
-                agg, cascadesContext, agg.children(), true, true);
+        SimpleExprAnalyzer aggOutputAnalyzer = buildSimpleExprAnalyzer(agg, cascadesContext, agg.children());
         List<NamedExpression> boundAggOutput = aggOutputAnalyzer.analyzeToList(agg.getOutputExpressions());
         List<NamedExpression> boundProjections = new ArrayList<>(boundAggOutput.size());
         for (int i = 0; i < boundAggOutput.size(); i++) {
@@ -1090,8 +1076,7 @@ public class BindExpression implements AnalysisRuleFactory {
         LogicalRepeat<Plan> repeat = ctx.root;
         CascadesContext cascadesContext = ctx.cascadesContext;
 
-        SimpleExprAnalyzer repeatOutputAnalyzer = buildSimpleExprAnalyzer(
-                repeat, cascadesContext, repeat.children(), true, true);
+        SimpleExprAnalyzer repeatOutputAnalyzer = buildSimpleExprAnalyzer(repeat, cascadesContext, repeat.children());
         List<NamedExpression> boundRepeatOutput = repeatOutputAnalyzer.analyzeToList(repeat.getOutputExpressions());
         Supplier<Scope> aggOutputScopeWithoutAggFun =
                 buildAggOutputScopeWithoutAggFun(boundRepeatOutput, cascadesContext);
@@ -1367,12 +1352,6 @@ public class BindExpression implements AnalysisRuleFactory {
                 break;
             }
         }
-
-        if (isGroupByContainAlias
-                && ConnectContext.get() != null
-                && ConnectContext.get().getSessionVariable().isGroupByAndHavingUseAliasFirst()) {
-            throw new AnalysisException("group_by_and_having_use_alias=true is unsupported for Nereids");
-        }
     }
 
     private boolean isAggregateFunction(UnboundFunction unboundFunction, FunctionRegistry functionRegistry) {
@@ -1395,25 +1374,6 @@ public class BindExpression implements AnalysisRuleFactory {
         }
     }
 
-    private <E extends Expression> E checkBoundExceptLambda(E expression, Plan plan) {
-        if (expression instanceof Lambda) {
-            return expression;
-        }
-        if (expression instanceof UnboundSlot) {
-            UnboundSlot unboundSlot = (UnboundSlot) expression;
-            String tableName = StringUtils.join(unboundSlot.getQualifier(), ".");
-            if (tableName.isEmpty()) {
-                tableName = "table list";
-            }
-            throw new AnalysisException("Unknown column '"
-                    + unboundSlot.getNameParts().get(unboundSlot.getNameParts().size() - 1)
-                    + "' in '" + tableName + "' in "
-                    + plan.getType().toString().substring("LOGICAL_".length()) + " clause");
-        }
-        expression.children().forEach(e -> checkBoundExceptLambda(e, plan));
-        return expression;
-    }
-
     private Scope toScope(CascadesContext cascadesContext, List<Slot> slots) {
         Optional<Scope> outerScope = cascadesContext.getOuterScope();
         if (outerScope.isPresent()) {
@@ -1433,19 +1393,12 @@ public class BindExpression implements AnalysisRuleFactory {
     }
 
     private SimpleExprAnalyzer buildSimpleExprAnalyzer(
-            Plan currentPlan, CascadesContext cascadesContext, List<Plan> children,
-            boolean enableExactMatch, boolean bindSlotInOuterScope) {
+            Plan currentPlan, CascadesContext cascadesContext, List<Plan> children) {
         Scope scope = toScope(cascadesContext, PlanUtils.fastGetChildrenOutputs(children),
                 PlanUtils.fastGetChildrenAsteriskOutputs(children));
-        return buildSimpleExprAnalyzer(currentPlan, cascadesContext, scope, enableExactMatch, bindSlotInOuterScope);
-    }
-
-    private SimpleExprAnalyzer buildSimpleExprAnalyzer(
-            Plan currentPlan, CascadesContext cascadesContext, Scope scope,
-            boolean enableExactMatch, boolean bindSlotInOuterScope) {
         ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(cascadesContext);
         ExpressionAnalyzer expressionAnalyzer = new ExpressionAnalyzer(currentPlan,
-                scope, cascadesContext, enableExactMatch, bindSlotInOuterScope);
+                scope, cascadesContext, true, true);
         return expr -> expressionAnalyzer.analyze(expr, rewriteContext);
     }
 

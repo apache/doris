@@ -634,6 +634,9 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_SYNC_MV_COST_BASED_REWRITE
             = "enable_sync_mv_cost_based_rewrite";
 
+    public static final String MATERIALIZED_VIEW_REWRITE_DURATION_THRESHOLD_MS
+            = "materialized_view_rewrite_duration_threshold_ms";
+
     public static final String MATERIALIZED_VIEW_RELATION_MAPPING_MAX_COUNT
             = "materialized_view_relation_mapping_max_count";
 
@@ -733,6 +736,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_TEXT_VALIDATE_UTF8 = "enable_text_validate_utf8";
 
     public static final String ENABLE_SQL_CONVERTOR_FEATURES = "enable_sql_convertor_features";
+
+    public static final String SQL_CONVERTOR_CONFIG = "sql_convertor_config";
 
     /**
      * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
@@ -2225,6 +2230,12 @@ public class SessionVariable implements Serializable, Writable {
                     "Whether enable cost based rewrite for sync mv"})
     public boolean enableSyncMvCostBasedRewrite = true;
 
+    @VariableMgr.VarAttr(name = MATERIALIZED_VIEW_REWRITE_DURATION_THRESHOLD_MS, needForward = true,
+            description = {"物化视图透明改写允许的最长耗时，超过此时长不再进行透明改写",
+                    "The maximum duration allowed for transparent rewriting of materialized views; "
+                            + "if this duration is exceeded, transparent rewriting will no longer be performed."})
+    public long materializedViewRewriteDurationThresholdMs = 1000L;
+
     @VariableMgr.VarAttr(name = CREATE_TABLE_PARTITION_MAX_NUM, needForward = true,
             description = {"建表时创建分区的最大数量",
                     "The maximum number of partitions created during table creation"})
@@ -2584,6 +2595,13 @@ public class SessionVariable implements Serializable, Writable {
                     "enable SQL convertor features. Multiple features are separated by commas"
             })
     public String enableSqlConvertorFeatures = "";
+
+    @VariableMgr.VarAttr(name = SQL_CONVERTOR_CONFIG, needForward = true,
+            description = {
+                    "SQL 转换器的相关配置，使用 Json 格式。以 {} 为根元素。",
+                    "SQL convertor config, use Json format. The root element is {}"
+            })
+    public String sqlConvertorConfig = "{}";
 
     public void setEnableEsParallelScroll(boolean enableESParallelScroll) {
         this.enableESParallelScroll = enableESParallelScroll;
@@ -3532,6 +3550,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public String[] getSqlConvertorFeatures() {
         return enableSqlConvertorFeatures.split(",");
+    }
+
+    public String getSqlConvertorConfig() {
+        return sqlConvertorConfig;
     }
 
     public Dialect getSqlParseDialect() {

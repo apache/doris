@@ -215,7 +215,7 @@ string EasyJson::ToString() const {
     return buffer.GetString();
 }
 
-EasyJson::EasyJson(Value* value, scoped_refptr<EasyJsonAllocator> alloc)
+EasyJson::EasyJson(Value* value, std::shared_ptr<EasyJsonAllocator> alloc)
         : alloc_(std::move(alloc)), value_(value) {}
 
 } // namespace doris

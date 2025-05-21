@@ -149,6 +149,10 @@ public class ShowLoadCommand extends ShowCommand {
         return isAccurateMatch;
     }
 
+    protected boolean isStreamLoad() {
+        return isStreamLoad;
+    }
+
     public ArrayList<OrderByPair> getOrderByPairs() {
         return this.orderByPairs;
     }
@@ -187,7 +191,8 @@ public class ShowLoadCommand extends ShowCommand {
         }
 
         // then process the order by
-        orderByPairs = processOrderBy();
+        ImmutableList<String> titles = isStreamLoad ? STREAM_LOAD_TITLE_NAMES : LOAD_TITLE_NAMES;
+        orderByPairs = getOrderByPairs(orderKeys, titles);
 
         Set<EtlJobType> jobTypes = Sets.newHashSet(EnumSet.allOf(EtlJobType.class));
         jobTypes.remove(EtlJobType.COPY);
@@ -251,16 +256,7 @@ public class ShowLoadCommand extends ShowCommand {
         }
 
         // filter by limit
-        long offsetValue = offset == -1L ? 0 : offset;
-        if (offsetValue >= rows.size()) {
-            rows = Lists.newArrayList();
-        } else if (limit != -1L) {
-            if ((limit + offsetValue) < rows.size()) {
-                rows = rows.subList((int) offsetValue, (int) (limit + offsetValue));
-            } else {
-                rows = rows.subList((int) offsetValue, rows.size());
-            }
-        }
+        rows = applyLimit(limit, offset, rows);
 
         return new ShowResultSet(getMetaData(), rows);
     }
@@ -298,28 +294,6 @@ public class ShowLoadCommand extends ShowCommand {
             states.add(LoadJob.JobState.QUORUM_FINISHED);
         }
         return states;
-    }
-
-    @VisibleForTesting
-    protected ArrayList<OrderByPair> processOrderBy() throws AnalysisException {
-        if (orderKeys != null && !orderKeys.isEmpty()) {
-            orderByPairs = new ArrayList<>();
-            for (OrderKey orderKey : orderKeys) {
-                if (!(orderKey.getExpr() instanceof UnboundSlot)) {
-                    throw new AnalysisException("Should order by column");
-                }
-
-                UnboundSlot slot = (UnboundSlot) orderKey.getExpr();
-                if (slot != null) {
-                    String colName = slot.getName();
-                    int index = LoadProcDir.analyzeColumn(colName);
-                    OrderByPair orderByPair = new OrderByPair(index, !orderKey.isAsc());
-                    orderByPairs.add(orderByPair);
-                }
-            }
-        }
-
-        return orderByPairs;
     }
 
     private boolean analyzeCompoundPredicate(Expression expr) throws AnalysisException {
