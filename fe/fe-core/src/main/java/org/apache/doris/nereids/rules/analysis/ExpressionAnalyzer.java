@@ -74,6 +74,7 @@ import org.apache.doris.nereids.trees.expressions.functions.udf.UdfBuilder;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.PlaceholderLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
 import org.apache.doris.nereids.trees.plans.PlaceholderId;
@@ -199,6 +200,9 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     @Override
     public Expression visit(Expression expr, ExpressionRewriteContext context) {
         expr = super.visit(expr, context);
+        if (expr.containsType(PlaceholderLiteral.class)) {
+            return expr;
+        }
 
         expr.checkLegalityBeforeTypeCoercion();
         // this cannot be removed, because some function already construct in parser.
@@ -344,11 +348,15 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     public Expression visitUnboundStar(UnboundStar unboundStar, ExpressionRewriteContext context) {
         List<String> qualifier = unboundStar.getQualifier();
         boolean showHidden = Util.showHiddenColumns();
-        List<Slot> slots = getScope().getAsteriskSlots()
-                .stream()
-                .filter(slot -> !(slot instanceof SlotReference)
-                        || (((SlotReference) slot).isVisible()) || showHidden)
-                .collect(Collectors.toList());
+
+        List<Slot> scopeSlots = getScope().getAsteriskSlots();
+        ImmutableList.Builder<Slot> showSlots = ImmutableList.builderWithExpectedSize(scopeSlots.size());
+        for (Slot slot : scopeSlots) {
+            if (!(slot instanceof SlotReference) || (((SlotReference) slot).isVisible()) || showHidden) {
+                showSlots.add(slot);
+            }
+        }
+        ImmutableList<Slot> slots = showSlots.build();
         switch (qualifier.size()) {
             case 0: // select *
                 return new BoundStar(slots);
@@ -479,6 +487,9 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     @Override
     public Expression visitBoundFunction(BoundFunction boundFunction, ExpressionRewriteContext context) {
         boundFunction = (BoundFunction) super.visitBoundFunction(boundFunction, context);
+        if (boundFunction.containsType(PlaceholderLiteral.class)) {
+            return boundFunction;
+        }
         return TypeCoercionUtils.processBoundFunction(boundFunction);
     }
 
@@ -490,6 +501,10 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     public Expression visitTimestampArithmetic(TimestampArithmetic arithmetic, ExpressionRewriteContext context) {
         Expression left = arithmetic.left().accept(this, context);
         Expression right = arithmetic.right().accept(this, context);
+
+        if (left.containsType(PlaceholderLiteral.class) || right.containsType(PlaceholderLiteral.class)) {
+            return arithmetic.withChildren(left, right);
+        }
 
         arithmetic = (TimestampArithmetic) arithmetic.withChildren(left, right);
         // bind function
@@ -514,6 +529,9 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     @Override
     public Expression visitBitNot(BitNot bitNot, ExpressionRewriteContext context) {
         Expression child = bitNot.child().accept(this, context);
+        if (child.containsType(PlaceholderLiteral.class)) {
+            return bitNot.withChildren(child);
+        }
         return TypeCoercionUtils.processBitNot((BitNot) bitNot.withChildren(child));
     }
 
@@ -522,6 +540,9 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         Expression left = divide.left().accept(this, context);
         Expression right = divide.right().accept(this, context);
         divide = (Divide) divide.withChildren(left, right);
+        if (divide.containsType(PlaceholderLiteral.class)) {
+            return divide;
+        }
         // type coercion
         return TypeCoercionUtils.processDivide(divide);
     }
@@ -531,6 +552,9 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         Expression left = integralDivide.left().accept(this, context);
         Expression right = integralDivide.right().accept(this, context);
         integralDivide = (IntegralDivide) integralDivide.withChildren(left, right);
+        if (integralDivide.containsType(PlaceholderLiteral.class)) {
+            return integralDivide;
+        }
         // type coercion
         return TypeCoercionUtils.processIntegralDivide(integralDivide);
     }
@@ -540,6 +564,9 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         Expression left = binaryArithmetic.left().accept(this, context);
         Expression right = binaryArithmetic.right().accept(this, context);
         binaryArithmetic = (BinaryArithmetic) binaryArithmetic.withChildren(left, right);
+        if (binaryArithmetic.containsType(PlaceholderLiteral.class)) {
+            return binaryArithmetic;
+        }
         return TypeCoercionUtils.processBinaryArithmetic(binaryArithmetic);
     }
 
@@ -555,11 +582,11 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
             }
             if (newChild.getDataType().isNullType()) {
                 newChild = new NullLiteral(BooleanType.INSTANCE);
-            } else {
+            } else if (!newChild.containsType(PlaceholderLiteral.class)) {
                 newChild = TypeCoercionUtils.castIfNotSameType(newChild, BooleanType.INSTANCE);
             }
 
-            if (! child.equals(newChild)) {
+            if (!child.equals(newChild)) {
                 hasNewChild = true;
             }
             newChildren.add(newChild);
@@ -583,7 +610,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
             }
             if (newChild.getDataType().isNullType()) {
                 newChild = new NullLiteral(BooleanType.INSTANCE);
-            } else {
+            } else if (!newChild.containsType(PlaceholderLiteral.class)) {
                 newChild = TypeCoercionUtils.castIfNotSameType(newChild, BooleanType.INSTANCE);
             }
 
@@ -654,6 +681,9 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         // Used to replace expression in ShortCircuit plan
         registerPlaceholderIdToSlot(cp, context, left, right);
         cp = (ComparisonPredicate) cp.withChildren(left, right);
+        if (cp.containsType(PlaceholderLiteral.class)) {
+            return cp;
+        }
         return TypeCoercionUtils.processComparisonPredicate(cp);
     }
 
@@ -664,15 +694,21 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
             rewrittenChildren.add(child.accept(this, context));
         }
         CaseWhen newCaseWhen = caseWhen.withChildren(rewrittenChildren.build());
+        if (caseWhen.containsType(PlaceholderLiteral.class)) {
+            return newCaseWhen;
+        }
         newCaseWhen.checkLegalityBeforeTypeCoercion();
         return TypeCoercionUtils.processCaseWhen(newCaseWhen);
     }
 
     @Override
     public Expression visitWhenClause(WhenClause whenClause, ExpressionRewriteContext context) {
-        return whenClause.withChildren(TypeCoercionUtils.castIfNotSameType(
-                        whenClause.getOperand().accept(this, context), BooleanType.INSTANCE),
-                whenClause.getResult().accept(this, context));
+        Expression operand = whenClause.getOperand().accept(this, context);
+        Expression result = whenClause.getResult().accept(this, context);
+        if (operand.containsType(PlaceholderLiteral.class) || result.containsType(PlaceholderLiteral.class)) {
+            return whenClause.withChildren(operand, result);
+        }
+        return whenClause.withChildren(TypeCoercionUtils.castIfNotSameType(operand, BooleanType.INSTANCE), result);
     }
 
     @Override
@@ -680,6 +716,9 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         List<Expression> rewrittenChildren = inPredicate.children().stream()
                 .map(e -> e.accept(this, context)).collect(Collectors.toList());
         InPredicate newInPredicate = inPredicate.withChildren(rewrittenChildren);
+        if (newInPredicate.containsType(PlaceholderLiteral.class)) {
+            return newInPredicate;
+        }
         return TypeCoercionUtils.processInPredicate(newInPredicate);
     }
 
@@ -725,6 +764,11 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     public Expression visitMatch(Match match, ExpressionRewriteContext context) {
         Expression left = match.left().accept(this, context);
         Expression right = match.right().accept(this, context);
+
+        if (left.containsType(PlaceholderLiteral.class) || right.containsType(PlaceholderLiteral.class)) {
+            return match.withChildren(left, right);
+        }
+
         // check child type
         if (!left.getDataType().isStringLikeType()
                 && !(left.getDataType() instanceof ArrayType
@@ -753,6 +797,10 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     @Override
     public Expression visitCast(Cast cast, ExpressionRewriteContext context) {
         cast = (Cast) super.visitCast(cast, context);
+        if (cast.containsType(PlaceholderLiteral.class)) {
+            return cast;
+        }
+
         // NOTICE: just for compatibility with legacy planner.
         if (cast.child().getDataType().isComplexType() || cast.getDataType().isComplexType()) {
             TypeCoercionUtils.checkCanCastTo(cast.child().getDataType(), cast.getDataType());

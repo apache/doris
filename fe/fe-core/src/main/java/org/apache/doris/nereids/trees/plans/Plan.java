@@ -36,6 +36,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 
+import java.util.BitSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -127,26 +128,25 @@ public interface Plan extends TreeNode<Plan> {
         return exprIds.build();
     }
 
-    /** getChildrenOutputExprIdSet */
-    default Set<ExprId> getChildrenOutputExprIdSet() {
-        switch (arity()) {
-            case 0: return ImmutableSet.of();
-            case 1: return child(0).getOutputExprIdSet();
-            default: {
-                int exprIdSize = 0;
-                for (Plan child : children()) {
-                    exprIdSize += child.getOutput().size();
-                }
+    /** getOutputExprIdBitSet */
+    default BitSet getOutputExprIdBitSet() {
+        BitSet ids = new BitSet();
+        for (Slot slot : getOutput()) {
+            ids.set(slot.getExprId().asInt());
+        }
+        return ids;
+    }
 
-                ImmutableSet.Builder<ExprId> exprIds = ImmutableSet.builderWithExpectedSize(exprIdSize);
-                for (Plan child : children()) {
-                    for (Slot slot : child.getOutput()) {
-                        exprIds.add(slot.getExprId());
-                    }
-                }
-                return exprIds.build();
+    /** getChildrenOutputExprIdSet */
+    default BitSet getChildrenOutputExprIdBitSet() {
+        BitSet ids = new BitSet();
+        for (Plan child : children()) {
+            List<Slot> output = child.getOutput();
+            for (Slot slot : output) {
+                ids.set(slot.getExprId().asInt());
             }
         }
+        return ids;
     }
 
     /**
@@ -179,12 +179,29 @@ public interface Plan extends TreeNode<Plan> {
         return relationIdSet;
     }
 
-    String treeString();
+    default String treeString() {
+        return treeString(false);
+    }
+
+    String treeString(boolean printStates);
 
     Plan withGroupExpression(Optional<GroupExpression> groupExpression);
 
     Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children);
+
+    /** getUsedSlotExprIds */
+    default BitSet getUsedSlotExprIds() {
+        BitSet ids = new BitSet();
+        for (Expression expression : getExpressions()) {
+            expression.foreach(e -> {
+                if (e instanceof Slot) {
+                    ids.set(((Slot) e).getExprId().asInt());
+                }
+            });
+        }
+        return ids;
+    }
 
     /**
      * a simple version of explain, used to verify plan shape

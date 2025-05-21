@@ -87,6 +87,7 @@ public enum RuleType {
 
     RESOLVE_PROJECT_ALIAS(RuleTypeClass.REWRITE),
     RESOLVE_AGGREGATE_ALIAS(RuleTypeClass.REWRITE),
+    ONE_ROW_RELATION_TO_PROJECT(RuleTypeClass.REWRITE),
     PROJECT_TO_GLOBAL_AGGREGATE(RuleTypeClass.REWRITE),
     HAVING_TO_FILTER(RuleTypeClass.REWRITE),
     QUALIFY_TO_FILTER(RuleTypeClass.REWRITE),
@@ -255,6 +256,7 @@ public enum RuleType {
 
     // Merge Consecutive plan
     MERGE_PROJECTS(RuleTypeClass.REWRITE),
+    MERGE_PROJECTABLE(RuleTypeClass.REWRITE),
     MERGE_FILTERS(RuleTypeClass.REWRITE),
     MERGE_LIMITS(RuleTypeClass.REWRITE),
     MERGE_GENERATES(RuleTypeClass.REWRITE),
