@@ -1958,6 +1958,45 @@ static bool check_partition_version_when_update_delete_bitmap(
     return true;
 }
 
+// return false if the delete bitmap key already exists
+[[maybe_unused]] static bool check_delete_bitmap_kv_exists(MetaServiceCode& code, std::string& msg,
+                                                           std::unique_ptr<Transaction>& txn,
+                                                           const std::string& key,
+                                                           std::string& instance_id,
+                                                           int64_t tablet_id, int64_t lock_id) {
+    std::string start_key {key};
+    std::string end_key {start_key};
+    encode_int64(INT64_MAX, &end_key);
+    std::unique_ptr<RangeGetIterator> it;
+    TxnErrorCode err = txn->get(start_key, end_key, &it);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::READ>(err);
+        msg = fmt::format("failed to get delete bitmap, err={}, tablet_id={}, lock_id={}", err,
+                          tablet_id, lock_id);
+        return true; // skip to check if failed to get delete bitmap
+    }
+    if (it->has_next()) {
+        auto [k, v] = it->next();
+        std::string_view k1 = k;
+        k1.remove_prefix(1);
+        std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
+        decode_key(&k1, &out);
+        // 0x01 "meta" ${instance_id} "delete_bitmap" ${tablet_id} ${rowset_id} ${version} ${segment_id} -> roaringbitmap
+        auto rowset_id = std::get<std::string>(std::get<0>(out[4]));
+        auto version = std::get<std::int64_t>(std::get<0>(out[5]));
+        auto segment_id = std::get<std::int64_t>(std::get<0>(out[6]));
+
+        code = MetaServiceCode::UPDATE_OVERRIDE_EXISTING_KV;
+        msg = fmt::format(
+                "trying to update a existing delete bitmap KV, tablet_id={}, rowset_id={}, "
+                "version={}, segment_id={}, lock_id={}, instance_id={}",
+                tablet_id, rowset_id, version, segment_id, lock_id, instance_id);
+        LOG_WARNING(msg);
+        return false;
+    }
+    return true;
+}
+
 void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* controller,
                                            const UpdateDeleteBitmapRequest* request,
                                            UpdateDeleteBitmapResponse* response,
@@ -2163,6 +2202,14 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
                 }
             }
         }
+#ifdef ENABLE_INJECTION_POINT
+        if (config::enable_update_delete_bitmap_kv_check) {
+            if (!check_delete_bitmap_kv_exists(code, msg, txn, key, instance_id, tablet_id,
+                                               request->lock_id())) {
+                return;
+            }
+        }
+#endif
         // splitting large values (>90*1000) into multiple KVs
         cloud::put(txn.get(), key, val, 0);
         current_key_count++;
