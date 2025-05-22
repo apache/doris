@@ -25,19 +25,19 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.property.constants.S3Properties;
-import org.apache.doris.fs.FileSystemFactory;
-import org.apache.doris.fs.PersistentFileSystem;
-import org.apache.doris.fs.remote.AzureFileSystem;
-import org.apache.doris.fs.remote.BrokerFileSystem;
-import org.apache.doris.fs.remote.RemoteFile;
-import org.apache.doris.fs.remote.RemoteFileSystem;
-import org.apache.doris.fs.remote.S3FileSystem;
-import org.apache.doris.fs.remote.dfs.DFSFileSystem;
+import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.fsv2.FileSystemFactory;
+import org.apache.doris.fsv2.PersistentFileSystem;
+import org.apache.doris.fsv2.remote.BrokerFileSystem;
+import org.apache.doris.fsv2.remote.RemoteFile;
+import org.apache.doris.fsv2.remote.RemoteFileSystem;
+import org.apache.doris.fsv2.remote.S3FileSystem;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.system.Backend;
@@ -132,18 +132,28 @@ public class Repository implements Writable, GsonPostProcessable {
     private String location;
 
     @SerializedName("fs")
+    private org.apache.doris.fs.PersistentFileSystem oldfs;
+
+    // Temporary field: currently still using the legacy fs config (oldfs).
+    // This field can be removed once the new fs configuration is fully enabled.
     private PersistentFileSystem fileSystem;
+
+    public org.apache.doris.fs.PersistentFileSystem getOldfs() {
+        return oldfs;
+    }
 
     private Repository() {
         // for persist
     }
 
-    public Repository(long id, String name, boolean isReadOnly, String location, RemoteFileSystem fileSystem) {
+    public Repository(long id, String name, boolean isReadOnly, String location, RemoteFileSystem fileSystem,
+                      org.apache.doris.fs.PersistentFileSystem oldFs) {
         this.id = id;
         this.name = name;
         this.isReadOnly = isReadOnly;
         this.location = location;
         this.fileSystem = fileSystem;
+        this.oldfs = oldFs;
         this.createTime = System.currentTimeMillis();
     }
 
@@ -203,17 +213,53 @@ public class Repository implements Writable, GsonPostProcessable {
         }
     }
 
+    //todo why only support alter S3 properties
+    public Status alterRepositoryS3Properties(Map<String, String> properties) {
+        if (this.fileSystem instanceof S3FileSystem) {
+            Map<String, String> oldProperties = new HashMap<>(this.getRemoteFileSystem().getProperties());
+            oldProperties.remove(S3Properties.ACCESS_KEY);
+            oldProperties.remove(S3Properties.SECRET_KEY);
+            oldProperties.remove(S3Properties.SESSION_TOKEN);
+            oldProperties.remove(S3Properties.Env.ACCESS_KEY);
+            oldProperties.remove(S3Properties.Env.SECRET_KEY);
+            oldProperties.remove(S3Properties.Env.TOKEN);
+            for (Map.Entry<String, String> entry : properties.entrySet()) {
+                if (Objects.equals(entry.getKey(), S3Properties.ACCESS_KEY)
+                        || Objects.equals(entry.getKey(), S3Properties.Env.ACCESS_KEY)) {
+                    oldProperties.putIfAbsent(S3Properties.ACCESS_KEY, entry.getValue());
+                }
+                if (Objects.equals(entry.getKey(), S3Properties.SECRET_KEY)
+                        || Objects.equals(entry.getKey(), S3Properties.Env.SECRET_KEY)) {
+                    oldProperties.putIfAbsent(S3Properties.SECRET_KEY, entry.getValue());
+                }
+                if (Objects.equals(entry.getKey(), S3Properties.SESSION_TOKEN)
+                        || Objects.equals(entry.getKey(), S3Properties.Env.TOKEN)) {
+                    oldProperties.putIfAbsent(S3Properties.SESSION_TOKEN, entry.getValue());
+                }
+            }
+            properties.clear();
+            properties.putAll(oldProperties);
+            return Status.OK;
+        } else {
+            return new Status(ErrCode.COMMON_ERROR, "Only support alter s3 repository");
+        }
+    }
+
     @Override
     public void gsonPostProcess() {
         StorageBackend.StorageType type = StorageBackend.StorageType.BROKER;
-        if (this.fileSystem.properties.containsKey(PersistentFileSystem.STORAGE_TYPE)) {
+        if (this.oldfs.properties.containsKey(org.apache.doris.fs.PersistentFileSystem.STORAGE_TYPE)) {
             type = StorageBackend.StorageType.valueOf(
-                    this.fileSystem.properties.get(PersistentFileSystem.STORAGE_TYPE));
-            this.fileSystem.properties.remove(PersistentFileSystem.STORAGE_TYPE);
+                    this.oldfs.properties.get(org.apache.doris.fs.PersistentFileSystem.STORAGE_TYPE));
+            this.oldfs.properties.remove(org.apache.doris.fs.PersistentFileSystem.STORAGE_TYPE);
         }
-        this.fileSystem = FileSystemFactory.get(this.fileSystem.getName(),
+        this.oldfs = org.apache.doris.fs.FileSystemFactory.get(this.oldfs.getName(),
                 type,
-                this.fileSystem.getProperties());
+                this.oldfs.getProperties());
+        if (!type.equals(StorageBackend.StorageType.BROKER)) {
+            StorageProperties storageProperties = StorageProperties.createPrimary(this.oldfs.properties);
+            this.fileSystem = FileSystemFactory.get(storageProperties);
+        }
     }
 
     public long getId() {
@@ -229,7 +275,18 @@ public class Repository implements Writable, GsonPostProcessable {
     }
 
     public String getLocation() {
-        return location;
+        if (null == fileSystem) {
+            return location;
+        }
+        try {
+            if (null == fileSystem.getStorageProperties()) {
+                return location;
+            } else {
+                return fileSystem.getStorageProperties().validateAndNormalizeUri(location);
+            }
+        } catch (UserException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     public String getErrorMsg() {
@@ -277,7 +334,7 @@ public class Repository implements Writable, GsonPostProcessable {
                 if (name.compareTo((String) root.get("name")) != 0) {
                     return new Status(ErrCode.COMMON_ERROR,
                             "Invalid repository __repo_info, expected repo '" + name + "', but get name '"
-                                + (String) root.get("name") + "' from " + repoInfoFilePath);
+                                    + (String) root.get("name") + "' from " + repoInfoFilePath);
                 }
                 name = (String) root.get("name");
                 createTime = TimeUtils.timeStringToLong((String) root.get("create_time"));
@@ -307,54 +364,23 @@ public class Repository implements Writable, GsonPostProcessable {
         }
     }
 
-    public Status alterRepositoryS3Properties(Map<String, String> properties) {
-        if (fileSystem instanceof S3FileSystem) {
-            Map<String, String> oldProperties = new HashMap<>(this.getRemoteFileSystem().getProperties());
-            oldProperties.remove(S3Properties.ACCESS_KEY);
-            oldProperties.remove(S3Properties.SECRET_KEY);
-            oldProperties.remove(S3Properties.SESSION_TOKEN);
-            oldProperties.remove(S3Properties.Env.ACCESS_KEY);
-            oldProperties.remove(S3Properties.Env.SECRET_KEY);
-            oldProperties.remove(S3Properties.Env.TOKEN);
-            for (Map.Entry<String, String> entry : properties.entrySet()) {
-                if (Objects.equals(entry.getKey(), S3Properties.ACCESS_KEY)
-                        || Objects.equals(entry.getKey(), S3Properties.Env.ACCESS_KEY)) {
-                    oldProperties.putIfAbsent(S3Properties.ACCESS_KEY, entry.getValue());
-                }
-                if (Objects.equals(entry.getKey(), S3Properties.SECRET_KEY)
-                        || Objects.equals(entry.getKey(), S3Properties.Env.SECRET_KEY)) {
-                    oldProperties.putIfAbsent(S3Properties.SECRET_KEY, entry.getValue());
-                }
-                if (Objects.equals(entry.getKey(), S3Properties.SESSION_TOKEN)
-                        || Objects.equals(entry.getKey(), S3Properties.Env.TOKEN)) {
-                    oldProperties.putIfAbsent(S3Properties.SESSION_TOKEN, entry.getValue());
-                }
-            }
-            properties.clear();
-            properties.putAll(oldProperties);
-            return Status.OK;
-        } else {
-            return new Status(ErrCode.COMMON_ERROR, "Only support alter s3 repository");
-        }
-    }
-
     // eg: location/__palo_repository_repo_name/__repo_info
     public String assembleRepoInfoFilePath() {
-        return Joiner.on(PATH_DELIMITER).join(location,
+        return Joiner.on(PATH_DELIMITER).join(getLocation(),
                 joinPrefix(PREFIX_REPO, name),
                 FILE_REPO_INFO);
     }
 
     // eg: location/__palo_repository_repo_name/__my_sp1/__meta
     public String assembleMetaInfoFilePath(String label) {
-        return Joiner.on(PATH_DELIMITER).join(location, joinPrefix(PREFIX_REPO, name),
+        return Joiner.on(PATH_DELIMITER).join(getLocation(), joinPrefix(PREFIX_REPO, name),
                 joinPrefix(PREFIX_SNAPSHOT_DIR, label),
                 FILE_META_INFO);
     }
 
     // eg: location/__palo_repository_repo_name/__my_sp1/__info_2018-01-01-08-00-00
     public String assembleJobInfoFilePath(String label, long createTime) {
-        return Joiner.on(PATH_DELIMITER).join(location, joinPrefix(PREFIX_REPO, name),
+        return Joiner.on(PATH_DELIMITER).join(getLocation(), joinPrefix(PREFIX_REPO, name),
                 joinPrefix(PREFIX_SNAPSHOT_DIR, label),
                 jobInfoFileNameWithTimestamp(createTime));
     }
@@ -362,7 +388,7 @@ public class Repository implements Writable, GsonPostProcessable {
     // eg:
     // __palo_repository_repo_name/__ss_my_ss1/__ss_content/__db_10001/__tbl_10020/__part_10031/__idx_10020/__10022/
     public String getRepoTabletPathBySnapshotInfo(String label, SnapshotInfo info) {
-        String path = Joiner.on(PATH_DELIMITER).join(location, joinPrefix(PREFIX_REPO, name),
+        String path = Joiner.on(PATH_DELIMITER).join(getLocation(), joinPrefix(PREFIX_REPO, name),
                 joinPrefix(PREFIX_SNAPSHOT_DIR, label),
                 DIR_SNAPSHOT_CONTENT,
                 joinPrefix(PREFIX_DB, info.getDbId()),
@@ -381,7 +407,7 @@ public class Repository implements Writable, GsonPostProcessable {
     }
 
     public String getRepoPath(String label, String childPath) {
-        String path = Joiner.on(PATH_DELIMITER).join(location, joinPrefix(PREFIX_REPO, name),
+        String path = Joiner.on(PATH_DELIMITER).join(getLocation(), joinPrefix(PREFIX_REPO, name),
                 joinPrefix(PREFIX_SNAPSHOT_DIR, label),
                 DIR_SNAPSHOT_CONTENT,
                 childPath);
@@ -568,23 +594,9 @@ public class Repository implements Writable, GsonPostProcessable {
             if (!st.ok()) {
                 return st;
             }
-        } else if (fileSystem instanceof S3FileSystem || fileSystem instanceof AzureFileSystem) {
+        } else {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("get md5sum of file: {}. final remote path: {}", localFilePath, finalRemotePath);
-            }
-            st = fileSystem.delete(finalRemotePath);
-            if (!st.ok()) {
-                return st;
-            }
-
-            // upload final file
-            st = fileSystem.upload(localFilePath, finalRemotePath);
-            if (!st.ok()) {
-                return st;
-            }
-        } else if (fileSystem instanceof DFSFileSystem) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("hdfs get md5sum of file: {}. final remote path: {}", localFilePath, finalRemotePath);
             }
             st = fileSystem.delete(finalRemotePath);
             if (!st.ok()) {
@@ -637,7 +649,7 @@ public class Repository implements Writable, GsonPostProcessable {
 
         // 2. download
         status = fileSystem.downloadWithFileSize(remoteFilePathWithChecksum, localFilePath,
-                    remoteFiles.get(0).getSize());
+                remoteFiles.get(0).getSize());
         if (!status.ok()) {
             return status;
         }
@@ -855,7 +867,13 @@ public class Repository implements Writable, GsonPostProcessable {
         name = Text.readString(in);
         isReadOnly = in.readBoolean();
         location = Text.readString(in);
-        fileSystem = PersistentFileSystem.read(in);
+        oldfs = org.apache.doris.fs.PersistentFileSystem.read(in);
+        try {
+            fileSystem = FileSystemFactory.get(oldfs.getStorageType(), oldfs.getProperties());
+        } catch (UserException e) {
+            // do we ignore this exception?
+            throw new IOException("Failed to create file system: " + e.getMessage());
+        }
         createTime = in.readLong();
     }
 }

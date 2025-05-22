@@ -60,7 +60,7 @@ public class HttpStreamTableValuedFunction extends ExternalFileTableValuedFuncti
 
     @Override
     public BrokerDesc getBrokerDesc() {
-        return new BrokerDesc("HttpStreamTvfBroker", StorageType.STREAM, locationProperties);
+        return new BrokerDesc("HttpStreamTvfBroker", StorageType.STREAM, processedParams);
     }
 
     // =========== implement abstract methods of TableValuedFunctionIf =================

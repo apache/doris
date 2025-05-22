@@ -170,7 +170,7 @@ public class NereidsLoadPlanInfoCollector extends DefaultPlanVisitor<Void, PlanT
                 params.addToRequiredSlots(slotInfo);
             }
 
-            Map<String, String> properties = fileGroupInfo.getBrokerDesc().getProperties();
+            Map<String, String> properties = fileGroupInfo.getBrokerDesc().getBackendConfigProperties();
             if (fileGroupInfo.getBrokerDesc().getFileType() == TFileType.FILE_HDFS) {
                 THdfsParams tHdfsParams = HdfsResource.generateHdfsParam(properties);
                 params.setHdfsParams(tHdfsParams);
