@@ -93,8 +93,7 @@ public:
                                          const TFetchRoutineLoadJobRequest& request,
                                          TFetchRoutineLoadJobResult* result);
     static Status get_metrics(const std::string& ip, const int32_t port,
-                              const TGetMetricsRequest& request,
-                              TGetMetricsResult* result);
+                              const TGetMetricsRequest& request, TGetMetricsResult* result);
 };
 
 } // namespace doris
