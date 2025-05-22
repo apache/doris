@@ -90,10 +90,10 @@ public class PhysicalFileScan extends PhysicalCatalogRelation {
 
     protected PhysicalFileScan(RelationId id, PlanType type, ExternalTable table, List<String> qualifier,
             DistributionSpec distributionSpec, Optional<GroupExpression> groupExpression,
-            LogicalProperties logicalProperties, PhysicalProperties physicalProperties,
-            Statistics statistics, SelectedPartitions selectedPartitions,
-            Optional<TableSample> tableSample, Optional<TableSnapshot> tableSnapshot,
-            Collection<Slot> operativeSlots) {
+            LogicalProperties logicalProperties,
+            PhysicalProperties physicalProperties, Statistics statistics,
+            SelectedPartitions selectedPartitions, Optional<TableSample> tableSample,
+            Optional<TableSnapshot> tableSnapshot, Collection<Slot> operativeSlots) {
         super(id, type, table, qualifier, groupExpression, logicalProperties,
                 physicalProperties, statistics, operativeSlots);
         this.distributionSpec = distributionSpec;
