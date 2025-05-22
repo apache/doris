@@ -90,7 +90,7 @@ public class HdfsPropertiesUtilsTest {
         Map<String, String> props = new HashMap<>();
         props.put("uri", "hdfs://localhost:8020/data");
 
-        String result = HdfsPropertiesUtils.constructDefaultFsFromUri(props);
+        String result = HdfsPropertiesUtils.extractDefaultFsFromUri(props);
         Assertions.assertEquals("hdfs://localhost:8020", result);
     }
 
@@ -99,7 +99,7 @@ public class HdfsPropertiesUtilsTest {
         Map<String, String> props = new HashMap<>();
         props.put("uri", "viewfs://cluster/path");
 
-        String result = HdfsPropertiesUtils.constructDefaultFsFromUri(props);
+        String result = HdfsPropertiesUtils.extractDefaultFsFromUri(props);
         Assertions.assertEquals("viewfs://cluster", result);
     }
 
@@ -107,17 +107,13 @@ public class HdfsPropertiesUtilsTest {
     public void testConstructDefaultFsFromUri_invalidSchema() {
         Map<String, String> props = new HashMap<>();
         props.put("uri", "obs://bucket/test");
-
-        Exception exception = Assertions.assertThrows(IllegalArgumentException.class, () -> {
-            HdfsPropertiesUtils.constructDefaultFsFromUri(props);
-        });
-        Assertions.assertTrue(exception.getMessage().contains("Invalid export path"));
+        Assertions.assertNull(HdfsPropertiesUtils.extractDefaultFsFromUri(props));
     }
 
     @Test
     public void testConstructDefaultFsFromUri_emptyProps() {
         Map<String, String> props = new HashMap<>();
-        String result = HdfsPropertiesUtils.constructDefaultFsFromUri(props);
+        String result = HdfsPropertiesUtils.extractDefaultFsFromUri(props);
         Assertions.assertNull(result);
     }
 
@@ -126,7 +122,7 @@ public class HdfsPropertiesUtilsTest {
         Map<String, String> props = new HashMap<>();
         props.put("x", "y");
 
-        String result = HdfsPropertiesUtils.constructDefaultFsFromUri(props);
+        String result = HdfsPropertiesUtils.extractDefaultFsFromUri(props);
         Assertions.assertNull(result);
     }
 
@@ -135,7 +131,7 @@ public class HdfsPropertiesUtilsTest {
         Map<String, String> props = new HashMap<>();
         props.put("uri", "  ");
 
-        String result = HdfsPropertiesUtils.constructDefaultFsFromUri(props);
+        String result = HdfsPropertiesUtils.extractDefaultFsFromUri(props);
         Assertions.assertNull(result);
     }
 

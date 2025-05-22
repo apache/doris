@@ -43,6 +43,23 @@ public class HdfsPropertiesUtils {
         return validateAndNormalizeUri(uriStr);
     }
 
+    public static boolean validateUriIsHdfsUri(Map<String, String> props) {
+        String uriStr = getUri(props);
+        if (StringUtils.isBlank(uriStr)) {
+            return false;
+        }
+        try {
+            URI uri = URI.create(uriStr);
+            String schema = uri.getScheme();
+            if (StringUtils.isBlank(schema)) {
+                throw new IllegalArgumentException("Invalid uri: " + uriStr + ", extract schema is null");
+            }
+            return isSupportedSchema(schema);
+        } catch (AnalysisException e) {
+            throw new IllegalArgumentException("Invalid uri: " + uriStr, e);
+        }
+    }
+
     public static String extractDefaultFsFromPath(String filePath) {
         if (StringUtils.isBlank(filePath)) {
             return null;
@@ -68,44 +85,6 @@ public class HdfsPropertiesUtils {
             return uri.getScheme() + "://" + uri.getAuthority();
         } catch (AnalysisException e) {
             throw new IllegalArgumentException("Invalid uri: " + uriStr, e);
-        }
-    }
-
-    public static boolean validateUriIsHdfsUri(Map<String, String> props) {
-        String uriStr = getUri(props);
-        if (StringUtils.isBlank(uriStr)) {
-            return false;
-        }
-        try {
-            URI uri = URI.create(uriStr);
-            String schema = uri.getScheme();
-            if (StringUtils.isBlank(schema)) {
-                throw new IllegalArgumentException("Invalid uri: " + uriStr + ", extract schema is null");
-            }
-            return isSupportedSchema(schema);
-        } catch (AnalysisException e) {
-            throw new IllegalArgumentException("Invalid uri: " + uriStr, e);
-        }
-    }
-
-    public static String constructDefaultFsFromUri(Map<String, String> props) {
-        String uriStr = getUri(props);
-        if (StringUtils.isBlank(uriStr)) {
-            return null;
-        }
-        try {
-            URI uri = URI.create(uriStr);
-            String schema = uri.getScheme();
-            if (StringUtils.isBlank(schema)) {
-                throw new IllegalArgumentException("Invalid uri: " + uriStr + ", extract schema is null");
-            }
-            if (!isSupportedSchema(schema)) {
-                throw new IllegalArgumentException("Invalid export path:"
-                        + schema + " , please use valid 'hdfs://' or 'viewfs://' path.");
-            }
-            return uri.getScheme() + "://" + uri.getAuthority();
-        } catch (AnalysisException e) {
-            return null;
         }
     }
 

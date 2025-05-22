@@ -262,11 +262,18 @@ public class BackupHandler extends MasterDaemon implements Writable {
             Map<String, String> mergedProps = mergeProperties(oldRepo, newProps, strictCheck);
             // Create new remote file system with merged properties
             RemoteFileSystem fileSystem = FileSystemFactory.get(StorageProperties.createPrimary(mergedProps));
+            org.apache.doris.fs.remote.RemoteFileSystem oldfs = null;
+            if (oldRepo.getRemoteFileSystem() instanceof S3FileSystem) {
+                oldfs = org.apache.doris.fs.FileSystemFactory.get(oldRepo.getRemoteFileSystem().getName(),
+                        StorageBackend.StorageType.S3, mergedProps);
+            } else if (oldRepo.getRemoteFileSystem() instanceof AzureFileSystem) {
+                oldfs = org.apache.doris.fs.FileSystemFactory.get(oldRepo.getRemoteFileSystem().getName(),
+                        StorageBackend.StorageType.AZURE, mergedProps);
+            }
             // Create new Repository instance with updated file system
             Repository newRepo = new Repository(
                     oldRepo.getId(), oldRepo.getName(), oldRepo.isReadOnly(),
-                    oldRepo.getLocation(), fileSystem,
-                    oldRepo.getOldfs()
+                    oldRepo.getLocation(), fileSystem, oldfs
             );
             // Verify the repository can be connected with new settings
             if (!newRepo.ping()) {

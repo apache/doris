@@ -33,7 +33,6 @@ import java.util.Map;
 
 public class HdfsPropertiesTest {
 
-
     @Test
     public void testBasicHdfsCreate() throws UserException {
         // Test 1: Check default authentication type (should be "simple")
