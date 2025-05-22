@@ -2534,4 +2534,11 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             return v.isEmpty() ? null : v;
         });
     }
+
+    public void clearTableCachedDeleteBitmapLock(long dbId, long tableId) {
+        cachedDeleteBitmapLockMgr.computeIfPresent(dbId, (k, v) -> {
+            v.remove(tableId);
+            return v.isEmpty() ? null : v;
+        });
+    }
 }
