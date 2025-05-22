@@ -141,10 +141,10 @@ TEST_F(VectorSearchTest, CompareResultWithNativeFaiss1) {
                 vector_counts[std::uniform_int_distribution<>(0, vector_counts.size() - 1)(gen)];
 
         // Step 1: Create indexes
-        auto doris_index =
-                doris::vector_search_utils::create_doris_index(doris::vector_search_utils::IndexType::HNSW, dimension, max_connection);
-        auto native_index =
-                doris::vector_search_utils::create_native_index(doris::vector_search_utils::IndexType::HNSW,dimension, max_connection);
+        auto doris_index = doris::vector_search_utils::create_doris_index(
+                doris::vector_search_utils::IndexType::HNSW, dimension, max_connection);
+        auto native_index = doris::vector_search_utils::create_native_index(
+                doris::vector_search_utils::IndexType::HNSW, dimension, max_connection);
 
         // Step 2: Generate vectors and add to indexes
         auto vectors =
@@ -189,7 +189,8 @@ TEST_F(VectorSearchTest, CompareResultWithNativeFaiss2) {
 
     for (size_t i = 0; i < iterations; ++i) {
         // Randomly select parameters from the fixed sets
-        const int dimension = dimensions[std::uniform_int_distribution<>(0, dimensions.size() - 1)(gen)];
+        const int dimension =
+                dimensions[std::uniform_int_distribution<>(0, dimensions.size() - 1)(gen)];
         const int max_connection = max_connections[std::uniform_int_distribution<>(
                 0, max_connections.size() - 1)(gen)];
         const int num_vectors =
@@ -205,8 +206,7 @@ TEST_F(VectorSearchTest, CompareResultWithNativeFaiss2) {
         std::vector<std::vector<float>> vectors =
                 doris::vector_search_utils::generate_test_vectors_matrix(num_vectors, dimension);
         doris::vector_search_utils::add_vectors_to_indexes_serial_mode(doris_index.get(),
-                                                                      native_index.get(),
-                                                                      vectors);
+                                                                       native_index.get(), vectors);
 
         // Step 3: Search
         int query_idx = num_vectors / 2;
@@ -317,7 +317,7 @@ TEST_F(VectorSearchTest, CompRangeSearch) {
         std::unique_ptr<faiss::Index> native_index =
                 std::make_unique<faiss::IndexHNSWFlat>(params.d, params.m);
         doris::vector_search_utils::add_vectors_to_indexes_serial_mode(index1.get(),
-                                                                      native_index.get(), vectors);
+                                                                       native_index.get(), vectors);
 
         std::vector<float> query_vec = vectors.front();
 
