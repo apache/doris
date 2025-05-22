@@ -57,6 +57,7 @@ import org.apache.doris.utframe.TestWithFeService;
 import com.aliyun.datalake.metastore.common.DataLakeConfig;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
+import org.apache.hadoop.fs.obs.OBSConstants;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -562,6 +563,25 @@ public class PropertyConverterTest extends TestWithFeService {
         MetaContext metaContext = new MetaContext();
         metaContext.setMetaVersion(FeMetaVersion.VERSION_CURRENT);
         metaContext.setThreadLocalInfo();
+    }
+
+    @Test
+    public void tests3BrokerConvertToOBSProperties() {
+        Map<String, String> origProp = Maps.newHashMap();
+        origProp.put(S3Properties.Env.ACCESS_KEY, "ak");
+        origProp.put(S3Properties.Env.SECRET_KEY, "sk");
+        origProp.put(S3Properties.PROVIDER, "OBS");
+        origProp.put(S3Properties.Env.ENDPOINT, "endpoint");
+        PropertyConverter.s3BrokerConvertToHadoopProperties(origProp);
+        // check Properties
+        Assertions.assertEquals("ak", origProp.get(OBSConstants.ACCESS_KEY));
+        Assertions.assertEquals("sk", origProp.get(OBSConstants.SECRET_KEY));
+        Assertions.assertEquals("org.apache.hadoop.fs.obs.OBSFileSystem", origProp.get("fs.obs.impl"));
+        // check schema
+        Assertions.assertEquals("obs://abc/aaa",
+                PropertyConverter.s3SchemaConvertToFileSystem("obs://abc/aaa", "OBS"));
+        Assertions.assertEquals("s3://abc/aaa",
+                PropertyConverter.fileSystemSchemaConvertTos3("obs://abc/aaa", "OBS"));
     }
 
     @Test
