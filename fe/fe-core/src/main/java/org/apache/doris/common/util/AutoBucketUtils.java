@@ -94,7 +94,7 @@ public class AutoBucketUtils {
         } else {
             if (Config.autobucket_partition_size_per_bucket_gb <= 0) {
                 if (Config.isCloudMode()) {
-                    Config.autobucket_partition_size_per_bucket_gb = 5;
+                    Config.autobucket_partition_size_per_bucket_gb = 10;
                 } else {
                     Config.autobucket_partition_size_per_bucket_gb = 1;
                 }
