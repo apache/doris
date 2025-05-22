@@ -25,9 +25,11 @@
 #include <iomanip>
 #include <roaring/roaring.hh>
 
-#include "vector/faiss_vector_index.h"
+#include "olap/vector_search/vector_search_utils.h"
 
+namespace doris::vector_search_utils {
 std::vector<float> generate_random_vector(int dim);
+}
 
 class NativeFaissTest : public ::testing::Test {
 public:
@@ -233,7 +235,7 @@ TEST_F(NativeFaissTest, TestRangeSearch10000Random) {
     int n = 1000;
     std::vector<float> data_vectors;
     for (int i = 0; i < n; ++i) {
-        auto random_vector = generate_random_vector(dim);
+        auto random_vector = doris::vector_search_utils::generate_random_vector(dim);
         data_vectors.insert(data_vectors.end(), random_vector.begin(), random_vector.end());
     }
 
@@ -287,7 +289,7 @@ TEST_F(NativeFaissTest, TestRangeSearchRandomVectorsSearchMedian) {
                 // Generate random vectors
                 std::vector<float> data_vectors;
                 for (int i = 0; i < n; ++i) {
-                    auto random_vector = generate_random_vector(dim);
+                    auto random_vector = doris::vector_search_utils::generate_random_vector(dim);
                     data_vectors.insert(data_vectors.end(), random_vector.begin(),
                                         random_vector.end());
                 }
@@ -367,13 +369,15 @@ TEST_F(NativeFaissTest, TestTopNRandomVectorSearchMedian) {
                     // Generate random vectors
                     std::vector<float> data_vectors;
                     for (int i = 0; i < n; ++i) {
-                        auto random_vector = generate_random_vector(dim);
+                        auto random_vector =
+                                doris::vector_search_utils::generate_random_vector(dim);
                         data_vectors.insert(data_vectors.end(), random_vector.begin(),
                                             random_vector.end());
                     }
 
                     // Use a random vector as query
-                    std::vector<float> query_vector = generate_random_vector(dim);
+                    std::vector<float> query_vector =
+                            doris::vector_search_utils::generate_random_vector(dim);
 
                     // Brute force search to find ground truth top-k
                     std::vector<std::pair<int, float>> all_distances(n);
@@ -436,7 +440,7 @@ TEST_F(NativeFaissTest, SameTypeIndexDiffObject) {
     int n = 1000;
     std::vector<float> data_vectors;
     for (int i = 0; i < n; ++i) {
-        auto random_vector = generate_random_vector(dim);
+        auto random_vector = doris::vector_search_utils::generate_random_vector(dim);
         data_vectors.insert(data_vectors.end(), random_vector.begin(), random_vector.end());
     }
 
@@ -474,5 +478,42 @@ TEST_F(NativeFaissTest, SameTypeIndexDiffObject) {
         ASSERT_EQ(actual_results1[i].first, actual_results3[i].first);
         ASSERT_FLOAT_EQ(actual_results1[i].second, actual_results2[i].second);
         ASSERT_FLOAT_EQ(actual_results1[i].second, actual_results3[i].second);
+    }
+}
+
+TEST_F(NativeFaissTest, BatchInsert) {
+    size_t iterations = 5;
+    for (size_t i = 0; i < iterations; ++i) {
+        const size_t d = 100;
+        const size_t m = 32;
+        const int num_vectors = 1000;
+
+        auto index1 = doris::vector_search_utils::create_native_index(
+                doris::vector_search_utils::IndexType::HNSW, d, m);
+
+        auto index2 = doris::vector_search_utils::create_native_index(
+                doris::vector_search_utils::IndexType::HNSW, d, m);
+
+        auto flatten_vectors =
+                doris::vector_search_utils::generate_test_vectors_flatten(num_vectors, d);
+
+        doris::vector_search_utils::add_vectors_to_indexes_batch_mode(nullptr, index1.get(),
+                                                                      num_vectors, flatten_vectors);
+        doris::vector_search_utils::add_vectors_to_indexes_batch_mode(nullptr, index2.get(),
+                                                                      num_vectors, flatten_vectors);
+
+        // Use a random vector as query
+        std::vector<float> query_vector = doris::vector_search_utils::generate_random_vector(d);
+        float radius = doris::vector_search_utils::get_radius_from_flatten(query_vector.data(), d,
+                                                                           flatten_vectors, 0.4);
+
+        // Get index-based results using HNSW index
+        auto res1 = doris::vector_search_utils::perform_native_index_range_search(
+                index1.get(), query_vector.data(), radius);
+        auto res2 = doris::vector_search_utils::perform_native_index_range_search(
+                index2.get(), query_vector.data(), radius);
+        // Insert vector using batch insert will make result is different.
+        std::cout << "res1 size: " << res1.size() << std::endl;
+        std::cout << "res2 size: " << res2.size() << std::endl;
     }
 }

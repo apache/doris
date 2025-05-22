@@ -886,14 +886,15 @@ TEST_F(VectorSearchTest, TestEvaluateAnnRangeSearch) {
     idx_to_cid[3] = 3;
     std::vector<std::unique_ptr<segment_v2::IndexIterator>> cid_to_index_iterators;
     cid_to_index_iterators.resize(4);
-    cid_to_index_iterators[1] = std::make_unique<doris::vec_search_mock::MockAnnIndexIterator>();
+    cid_to_index_iterators[1] =
+            std::make_unique<doris::vector_search_utils::MockAnnIndexIterator>();
     std::vector<std::unique_ptr<segment_v2::ColumnIterator>> column_iterators;
     column_iterators.resize(4);
     column_iterators[3] = std::make_unique<doris::segment_v2::VirtualColumnIterator>();
 
     roaring::Roaring row_bitmap;
-    doris::vec_search_mock::MockAnnIndexIterator* mock_ann_index_iter =
-            dynamic_cast<doris::vec_search_mock::MockAnnIndexIterator*>(
+    doris::vector_search_utils::MockAnnIndexIterator* mock_ann_index_iter =
+            dynamic_cast<doris::vector_search_utils::MockAnnIndexIterator*>(
                     cid_to_index_iterators[1].get());
 
     // Explain:
@@ -978,14 +979,15 @@ TEST_F(VectorSearchTest, TestEvaluateAnnRangeSearch2) {
     idx_to_cid[3] = 3;
     std::vector<std::unique_ptr<segment_v2::IndexIterator>> cid_to_index_iterators;
     cid_to_index_iterators.resize(4);
-    cid_to_index_iterators[1] = std::make_unique<doris::vec_search_mock::MockAnnIndexIterator>();
+    cid_to_index_iterators[1] =
+            std::make_unique<doris::vector_search_utils::MockAnnIndexIterator>();
     std::vector<std::unique_ptr<segment_v2::ColumnIterator>> column_iterators;
     column_iterators.resize(4);
     column_iterators[3] = std::make_unique<doris::segment_v2::VirtualColumnIterator>();
 
     roaring::Roaring row_bitmap;
-    doris::vec_search_mock::MockAnnIndexIterator* mock_ann_index_iter =
-            dynamic_cast<doris::vec_search_mock::MockAnnIndexIterator*>(
+    doris::vector_search_utils::MockAnnIndexIterator* mock_ann_index_iter =
+            dynamic_cast<doris::vector_search_utils::MockAnnIndexIterator*>(
                     cid_to_index_iterators[1].get());
 
     // Explain:
