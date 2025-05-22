@@ -86,42 +86,6 @@ suite("test_file_tvf_s3", "p0") {
     }
 
 
-    /*******************************************************************************************************
-     *****************************      TEST AWS      *****************************************************
-     *******************************************************************************************************/
-    try {
-        ak = context.config.otherConfigs.get("AWSAK")
-        sk = context.config.otherConfigs.get("AWSSK")
-        s3_endpoint = "s3.ap-northeast-1.amazonaws.com"
-        region = "ap-northeast-1"
-        bucket = "selectdb-qa-datalake-test"
-
-        outfile_url = outfile_to_S3(bucket, s3_endpoint, region, ak, sk)
-
-        file_s3_tvf("http://${bucket}.${s3_endpoint}", "", "s3.access_key" , "s3.secret_key", "region", "false");
-        file_s3_tvf("http://${bucket}.${s3_endpoint}", "", "AWS_ACCESS_KEY" , "AWS_SECRET_KEY", "region", "false");
-        file_s3_tvf("http://${bucket}.${s3_endpoint}", "", "s3.access_key" , "s3.secret_key", "s3.region", "false");
-        // file_s3_tvf("http://${bucket}.${s3_endpoint}", "", "cos.access_key" , "cos.secret_key", "region", "false");
-        // file_s3_tvf("http://${bucket}.${s3_endpoint}", "", "s3.access_key" , "s3.secret_key", "region", "true");
-        // file_s3_tvf("http://${bucket}.${s3_endpoint}", "cos.endpoint", "s3.access_key" , "s3.secret_key", "region", "false");
-        file_s3_tvf("http://${bucket}.${s3_endpoint}", "s3.endpoint", "s3.access_key" , "s3.secret_key", "region", "false");
-        file_s3_tvf("http://${s3_endpoint}/${bucket}", "", "s3.access_key" , "s3.secret_key", "region", "true");
-        // file_s3_tvf("http://${s3_endpoint}/${bucket}", "", "s3.access_key" , "s3.secret_key", "region", "false");
-        // file_s3_tvf("s3://${s3_endpoint}/${bucket}", "", "s3.access_key" , "s3.secret_key", "region", "false");
-        file_s3_tvf("s3://${bucket}", "s3.endpoint", "s3.access_key" , "s3.secret_key", "region", "false");
-        file_s3_tvf("s3://${bucket}", "s3.endpoint", "s3.access_key" , "s3.secret_key", "s3.region", "true");
-        // file_s3_tvf("s3://${bucket}", "AWS_ENDPOINT", "AWS_ACCESS_KEY" , "AWS_SECRET_KEY", "region", "false");
-        // file_s3_tvf("s3://${bucket}", "AWS_ENDPOINT", "AWS_ACCESS_KEY" , "AWS_SECRET_KEY", "s3.region", "false");
-        // file_s3_tvf("s3://${bucket}", "AWS_ENDPOINT", "AWS_ACCESS_KEY" , "AWS_SECRET_KEY", "AWS_REGION", "false");
-        file_s3_tvf("s3://${bucket}", "s3.endpoint", "AWS_ACCESS_KEY" , "AWS_SECRET_KEY", "region", "false");
-        // file_s3_tvf("s3://${bucket}", "s3.endpoint", "s3.access_key" , "AWS_SECRET_KEY", "region", "false");
-        // file_s3_tvf("s3://${bucket}", "cos.endpoint", "cos.access_key" , "cos.secret_key", "cos.region", "false");
-        // file_s3_tvf("s3://${bucket}", "s3.endpoint", "cos.access_key" , "cos.secret_key", "cos.region", "false");
-        file_s3_tvf("cos://${bucket}", "s3.endpoint", "s3.access_key" , "s3.secret_key", "region", "false");
-        file_s3_tvf("cos://${bucket}", "s3.endpoint", "s3.access_key" , "s3.secret_key", "region", "false");
-
-    } finally {
-    }
 
     /*******************************************************************************************************
      *****************************      TEST COS & COSN    *************************************************
@@ -241,6 +205,44 @@ suite("test_file_tvf_s3", "p0") {
         // file_s3_tvf("s3://${bucket}", "s3.endpoint", "cos.access_key" , "cos.secret_key", "cos.region", "false");
         file_s3_tvf("cos://${bucket}", "s3.endpoint", "s3.access_key" , "s3.secret_key", "region", "false");
         file_s3_tvf("cos://${bucket}", "s3.endpoint", "s3.access_key" , "s3.secret_key", "region", "false");
+    } finally {
+    }
+
+    /*******************************************************************************************************
+     *****************************      TEST AWS      *****************************************************
+     *******************************************************************************************************/
+    try {
+        ak = context.config.otherConfigs.get("AWSAK")
+        sk = context.config.otherConfigs.get("AWSSK")
+        s3_endpoint = "s3.ap-northeast-1.amazonaws.com"
+        region = "ap-northeast-1"
+        bucket = "selectdb-qa-datalake-test"
+
+        if (ak != null && sk != null) {
+            outfile_url = outfile_to_S3(bucket, s3_endpoint, region, ak, sk)
+
+            file_s3_tvf("http://${bucket}.${s3_endpoint}", "", "s3.access_key" , "s3.secret_key", "region", "false");
+            file_s3_tvf("http://${bucket}.${s3_endpoint}", "", "AWS_ACCESS_KEY" , "AWS_SECRET_KEY", "region", "false");
+            file_s3_tvf("http://${bucket}.${s3_endpoint}", "", "s3.access_key" , "s3.secret_key", "s3.region", "false");
+            // file_s3_tvf("http://${bucket}.${s3_endpoint}", "", "cos.access_key" , "cos.secret_key", "region", "false");
+            // file_s3_tvf("http://${bucket}.${s3_endpoint}", "", "s3.access_key" , "s3.secret_key", "region", "true");
+            // file_s3_tvf("http://${bucket}.${s3_endpoint}", "cos.endpoint", "s3.access_key" , "s3.secret_key", "region", "false");
+            file_s3_tvf("http://${bucket}.${s3_endpoint}", "s3.endpoint", "s3.access_key" , "s3.secret_key", "region", "false");
+            file_s3_tvf("http://${s3_endpoint}/${bucket}", "", "s3.access_key" , "s3.secret_key", "region", "true");
+            // file_s3_tvf("http://${s3_endpoint}/${bucket}", "", "s3.access_key" , "s3.secret_key", "region", "false");
+            // file_s3_tvf("s3://${s3_endpoint}/${bucket}", "", "s3.access_key" , "s3.secret_key", "region", "false");
+            file_s3_tvf("s3://${bucket}", "s3.endpoint", "s3.access_key" , "s3.secret_key", "region", "false");
+            file_s3_tvf("s3://${bucket}", "s3.endpoint", "s3.access_key" , "s3.secret_key", "s3.region", "true");
+            // file_s3_tvf("s3://${bucket}", "AWS_ENDPOINT", "AWS_ACCESS_KEY" , "AWS_SECRET_KEY", "region", "false");
+            // file_s3_tvf("s3://${bucket}", "AWS_ENDPOINT", "AWS_ACCESS_KEY" , "AWS_SECRET_KEY", "s3.region", "false");
+            // file_s3_tvf("s3://${bucket}", "AWS_ENDPOINT", "AWS_ACCESS_KEY" , "AWS_SECRET_KEY", "AWS_REGION", "false");
+            file_s3_tvf("s3://${bucket}", "s3.endpoint", "AWS_ACCESS_KEY" , "AWS_SECRET_KEY", "region", "false");
+            // file_s3_tvf("s3://${bucket}", "s3.endpoint", "s3.access_key" , "AWS_SECRET_KEY", "region", "false");
+            // file_s3_tvf("s3://${bucket}", "cos.endpoint", "cos.access_key" , "cos.secret_key", "cos.region", "false");
+            // file_s3_tvf("s3://${bucket}", "s3.endpoint", "cos.access_key" , "cos.secret_key", "cos.region", "false");
+            file_s3_tvf("cos://${bucket}", "s3.endpoint", "s3.access_key" , "s3.secret_key", "region", "false");
+            file_s3_tvf("cos://${bucket}", "s3.endpoint", "s3.access_key" , "s3.secret_key", "region", "false");
+        }
     } finally {
     }
 }
