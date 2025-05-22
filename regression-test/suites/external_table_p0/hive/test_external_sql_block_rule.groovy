@@ -98,7 +98,7 @@ suite("test_external_sql_block_rule", "external_docker,hive,external_docker_hive
     // login as external_block_user3
     def result3 = connect('external_block_user3', '', context.config.jdbcUrl) {
         test {
-            sql """select * from ${catalog_name}.`default`.parquet_partition_table order by l_linenumber limit 10;"""
+            sql """select * from ${catalog_name}.`default`.parquet_partition_table order by l_linenumber;"""
             exception """sql hits sql block rule: external_hive_partition3, reach cardinality : 3"""
         }
     }

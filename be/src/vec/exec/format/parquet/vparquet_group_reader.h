@@ -183,7 +183,8 @@ protected:
 
 private:
     void _merge_read_ranges(std::vector<RowRange>& row_ranges);
-    Status _read_empty_batch(size_t batch_size, size_t* read_rows, bool* batch_eof);
+    Status _read_empty_batch(size_t batch_size, size_t* read_rows, bool* batch_eof,
+                             bool* modify_row_ids);
     Status _read_column_data(Block* block, const std::vector<std::string>& columns,
                              size_t batch_size, size_t* read_rows, bool* batch_eof,
                              FilterMap& filter_map);
@@ -210,7 +211,7 @@ private:
     void _convert_dict_cols_to_string_cols(Block* block);
 
     Status _get_current_batch_row_id(size_t read_rows);
-    Status _fill_row_id_columns(Block* block, size_t read_rows);
+    Status _fill_row_id_columns(Block* block, size_t read_rows, bool is_current_row_ids);
 
     io::FileReaderSPtr _file_reader;
     std::unordered_map<std::string, std::unique_ptr<ParquetColumnReader>> _column_readers;
