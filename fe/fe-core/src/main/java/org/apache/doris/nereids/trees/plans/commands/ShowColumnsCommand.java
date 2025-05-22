@@ -75,7 +75,6 @@ public class ShowColumnsCommand extends ShowCommand {
                     .addColumn(new Column("Comment", ScalarType.createVarchar(20)))
                     .build();
 
-    private ShowResultSetMetaData metaData;
     private final boolean isFull;
     private TableNameInfo tableNameInfo;
     private final String databaseName;
@@ -103,11 +102,6 @@ public class ShowColumnsCommand extends ShowCommand {
             tableNameInfo.setDb(databaseName);
         }
         tableNameInfo.analyze(ctx);
-        if (isFull) {
-            metaData = META_DATA_VERBOSE;
-        } else {
-            metaData = META_DATA;
-        }
         if (!Env.getCurrentEnv().getAccessManager()
                 .checkTblPriv(ConnectContext.get(), tableNameInfo.getCtl(), tableNameInfo.getDb(),
                         tableNameInfo.getTbl(), PrivPredicate.SHOW)) {
@@ -176,7 +170,7 @@ public class ShowColumnsCommand extends ShowCommand {
                 row.set(1, normalizeSqlColumnType(rawType));
             }
 
-            return new ShowResultSet(metaData, rows);
+            return new ShowResultSet(getMetaData(), rows);
         }
         List<List<String>> rows = Lists.newArrayList();
         String ctl = tableNameInfo.getCtl();
@@ -227,7 +221,7 @@ public class ShowColumnsCommand extends ShowCommand {
             table.readUnlock();
         }
 
-        return new ShowResultSet(metaData, rows);
+        return new ShowResultSet(getMetaData(), rows);
     }
 
     @Override
@@ -237,7 +231,11 @@ public class ShowColumnsCommand extends ShowCommand {
 
     @Override
     public ShowResultSetMetaData getMetaData() {
-        return metaData;
+        if (isFull) {
+            return META_DATA_VERBOSE;
+        } else {
+            return META_DATA;
+        }
     }
 
     private static String normalizeSqlColumnType(String type) {
