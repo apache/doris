@@ -29,6 +29,7 @@ suite("test_upgrade_downgrade_job_mtmv","p0,mtmv,restart_fe") {
     String mvNameReplaceNoSwap1 = "${suiteName}_mv_no_swap1"
     String mvNameReplaceNoSwap2 = "${suiteName}_mv_no_swap2"
     String mvNameDrop = "${suiteName}_mv_drop"
+    String mvNameEvery = "${suiteName}_mv_every"
 
     order_qt_create "select MvName,ExecuteType,Status from jobs('type'='mv') where MvName='${mvNameCreate}' and MvDatabaseName='${dbName}';"
     order_qt_refresh "select MvName,ExecuteType,Status from jobs('type'='mv') where MvName='${mvNameRefresh}' and MvDatabaseName='${dbName}';"
@@ -47,4 +48,22 @@ suite("test_upgrade_downgrade_job_mtmv","p0,mtmv,restart_fe") {
     order_qt_replace_no_swap1 "select MvName,ExecuteType,Status from jobs('type'='mv') where MvName='${mvNameReplaceNoSwap1}' and MvDatabaseName='${dbName}';"
     order_qt_replace_no_swap2 "select MvName,ExecuteType,Status from jobs('type'='mv') where MvName='${mvNameReplaceNoSwap2}' and MvDatabaseName='${dbName}';"
     order_qt_drop "select MvName,ExecuteType,Status from jobs('type'='mv') where MvName='${mvNameDrop}' and MvDatabaseName='${dbName}';"
+
+    sql """drop materialized view if exists ${mvNameEvery};"""
+    order_qt_every1 "select MvName,ExecuteType,Status from jobs('type'='mv') where MvName='${mvNameEvery}' and MvDatabaseName='${dbName}';"
+    sql """
+        CREATE MATERIALIZED VIEW ${mvNameEvery}
+        BUILD DEFERRED REFRESH AUTO ON manual
+        DISTRIBUTED BY RANDOM BUCKETS 2
+        PROPERTIES (
+        'replication_num' = '1'
+        )
+        AS
+        SELECT * from ${tableName};
+        """
+    sql """
+            REFRESH MATERIALIZED VIEW ${mvNameEvery} complete
+        """
+    waitingMTMVTaskFinishedByMvName(mvNameEvery)
+    order_qt_every2 "select MvName,ExecuteType,Status from jobs('type'='mv') where MvName='${mvNameEvery}' and MvDatabaseName='${dbName}';"
 }
