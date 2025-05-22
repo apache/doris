@@ -147,8 +147,9 @@ Status AnnTopNDescriptor::evaluate_vector_ann_search(
     result_column = ColumnFloat64::create();
     ColumnFloat64* result_column_float = assert_cast<ColumnFloat64*>(result_column.get());
 
-    result_column_float->resize(ann_query_params.distance->size());
-    for (size_t i = 0; i < ann_query_params.distance->size(); ++i) {
+    size_t num_results = ann_query_params.distance->size();
+    result_column_float->resize(num_results);
+    for (size_t i = 0; i < num_results; ++i) {
         result_column_float->get_data()[i] = (*ann_query_params.distance)[i];
     }
     row_ids = std::move(ann_query_params.row_ids);

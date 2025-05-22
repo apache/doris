@@ -31,7 +31,7 @@
 #include "vector_index.h"
 #include "vector_search_utils.h"
 
-using namespace doris::vec_search_mock;
+using namespace doris::vector_search_utils;
 
 namespace doris {
 
