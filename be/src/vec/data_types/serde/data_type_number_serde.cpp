@@ -451,8 +451,10 @@ Status DataTypeNumberSerDe<T>::from_string_strict_mode_batch(const ColumnString&
     const auto size = str.size();
     column.resize(size);
     auto& column_to = assert_cast<ColumnType&>(column.get_nested_column());
+    auto& null_map = column.get_null_map_data();
     for (size_t i = 0; i < size; ++i) {
         StringRef from_str = str.get_data_at(i);
+        null_map[i] = false;
         if (!read_number_text_impl<T, true>(from_str, column_to.get_data()[i])) {
             return Status::InvalidArgument("parse number fail, string: '{}'", from_str.to_string());
         }
