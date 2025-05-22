@@ -22,6 +22,9 @@ import org.apache.hadoop.hive.ql.exec.UDF;
 
 public class StringTest extends UDF {
     public String evaluate(String field, Integer a, Integer b) {
+        if (field == null || a == null || b == null) {
+            return null;
+        }
         return field.substring(0, a) + StringUtils.repeat("*", field.length() - a -b) + field.substring(field.length()-b);
     }
 }
