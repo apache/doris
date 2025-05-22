@@ -54,8 +54,8 @@ public class AnyValue extends NullableAggregateFunction
         this(distinct, false, arg);
     }
 
-    public AnyValue(boolean distinct, boolean alwaysNullable, Expression arg) {
-        super("any_value", distinct, alwaysNullable, arg);
+    private AnyValue(boolean distinct, boolean alwaysNullable, Expression arg) {
+        super("any_value", false, alwaysNullable, arg);
     }
 
     /**

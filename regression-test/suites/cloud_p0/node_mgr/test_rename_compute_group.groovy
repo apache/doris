@@ -108,7 +108,7 @@ suite('test_rename_compute_group', 'docker, p0') {
             assertTrue(e.getMessage().contains("compute group 'newcluster1' has existed in warehouse, unable to rename"))
         }
         // 4. test admin user can rename compute group
-        connectInDocker(user = user1, password = 'Cloud123456') {
+        connectInDocker(user1, 'Cloud123456') {
             sql """ALTER SYSTEM RENAME COMPUTE GROUP compute_cluster compute_cluster1;"""
             sql """sync"""
             result = sql_return_maparray """SHOW COMPUTE GROUPS;"""
@@ -139,7 +139,7 @@ suite('test_rename_compute_group', 'docker, p0') {
         }
 
         // 5. test non admin user can't rename compute group
-        connectInDocker(user = user2, password = 'Cloud123456') {
+        connectInDocker(user2, 'Cloud123456') {
             try {
                 sql """ALTER SYSTEM RENAME COMPUTE GROUP compute_cluster1 compute_cluster2;"""
             } catch (Exception e ) {
