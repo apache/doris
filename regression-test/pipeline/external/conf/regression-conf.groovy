@@ -123,6 +123,8 @@ hive3PgPort=5732
 // See `docker/thirdparties/start-thirdparties-docker.sh`
 enableKafkaTest=true
 kafka_port=19193
+// refactor params
+enableRefactorParamsTest=true
 
 // iceberg test config
 iceberg_rest_uri_port=18181

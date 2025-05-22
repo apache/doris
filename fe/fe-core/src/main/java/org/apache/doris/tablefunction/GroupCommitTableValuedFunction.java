@@ -106,7 +106,7 @@ public class GroupCommitTableValuedFunction extends ExternalFileTableValuedFunct
 
     @Override
     public BrokerDesc getBrokerDesc() {
-        return new BrokerDesc("GroupCommitTvfBroker", StorageType.STREAM, locationProperties);
+        return new BrokerDesc("GroupCommitTvfBroker", StorageType.STREAM, processedParams);
     }
 
     // =========== implement abstract methods of TableValuedFunctionIf =================

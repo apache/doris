@@ -951,7 +951,7 @@ public class SparkLoadJob extends BulkLoadJob {
             // scan range params
             TBrokerScanRangeParams params = new TBrokerScanRangeParams();
             params.setStrictMode(false);
-            params.setProperties(brokerDesc.getProperties());
+            params.setProperties(brokerDesc.getBackendConfigProperties());
             TupleDescriptor srcTupleDesc = descTable.createTupleDescriptor();
             Map<String, SlotDescriptor> srcSlotDescByName = Maps.newHashMap();
             for (Column column : columns) {

@@ -32,10 +32,10 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.ParseUtil;
 import org.apache.doris.common.util.PrintableMap;
-import org.apache.doris.datasource.property.PropertyConverter;
-import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
+import org.apache.doris.datasource.property.storage.HdfsProperties;
+import org.apache.doris.datasource.property.storage.HdfsPropertiesUtils;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TParquetDataType;
 import org.apache.doris.thrift.TParquetRepetitionType;
@@ -47,14 +47,12 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import org.apache.hadoop.fs.Path;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.ArrayList;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -114,10 +112,7 @@ public class OutFileClause {
     }
 
     public static final String LOCAL_FILE_PREFIX = "file:///";
-    private static final String S3_FILE_PREFIX = "S3://";
     private static final String HDFS_FILE_PREFIX = "hdfs://";
-    private static final String HADOOP_FS_PROP_PREFIX = "dfs.";
-    private static final String HADOOP_PROP_PREFIX = "hadoop.";
     private static final String BROKER_PROP_PREFIX = "broker.";
     public static final String PROP_BROKER_NAME = "broker.name";
     public static final String PROP_COLUMN_SEPARATOR = "column_separator";
@@ -520,7 +515,7 @@ public class OutFileClause {
 
         if (copiedProps.containsKey(PROP_DELETE_EXISTING_FILES)) {
             deleteExistingFiles = Boolean.parseBoolean(copiedProps.get(PROP_DELETE_EXISTING_FILES))
-                                    & Config.enable_delete_existing_files;
+                    & Config.enable_delete_existing_files;
             copiedProps.remove(PROP_DELETE_EXISTING_FILES);
         }
 
@@ -540,22 +535,12 @@ public class OutFileClause {
             copiedProps.remove(PROP_SUCCESS_FILE_NAME);
         }
 
-        // For Azure compatibility, this is temporarily added to the map without further processing.
-        // The validity of each provider's value will be checked later in S3Properties' check.
-        if (copiedProps.containsKey(S3Properties.PROVIDER)) {
-            copiedProps.remove(S3Properties.PROVIDER);
-        }
-
         if (fileFormatProperties.getFileFormatType() == TFileFormatType.FORMAT_PARQUET) {
             getParquetProperties(copiedProps);
         }
 
         if (fileFormatProperties.getFileFormatType() == TFileFormatType.FORMAT_ORC) {
             getOrcProperties(copiedProps);
-        }
-
-        if (!copiedProps.isEmpty()) {
-            throw new AnalysisException("Unknown properties: " + copiedProps.keySet());
         }
     }
 
@@ -565,63 +550,48 @@ public class OutFileClause {
      * 2. s3: with s3 pattern path, without broker name
      */
     private void analyzeBrokerDesc(Map<String, String> copiedProps) throws UserException {
-        String brokerName = copiedProps.get(PROP_BROKER_NAME);
-        StorageBackend.StorageType storageType;
-        if (copiedProps.containsKey(PROP_BROKER_NAME)) {
-            copiedProps.remove(PROP_BROKER_NAME);
-            storageType = StorageBackend.StorageType.BROKER;
-        } else if (filePath.toUpperCase().startsWith(S3_FILE_PREFIX)) {
-            brokerName = StorageBackend.StorageType.S3.name();
-            storageType = StorageBackend.StorageType.S3;
-        } else if (filePath.toUpperCase().startsWith(HDFS_FILE_PREFIX.toUpperCase())) {
-            brokerName = StorageBackend.StorageType.HDFS.name();
-            storageType = StorageBackend.StorageType.HDFS;
-        } else {
+        /**
+         * If the output is intended to be written to the local file system, skip BrokerDesc analysis.
+         * This is because Broker properties are not required when writing files locally,
+         * and the upper layer logic ensures that brokerDesc must be null in this case.
+         */
+        if (isLocalOutput) {
             return;
         }
-
-        Map<String, String> brokerProps = Maps.newHashMap();
-        Iterator<Map.Entry<String, String>> iterator = copiedProps.entrySet().iterator();
-        while (iterator.hasNext()) {
-            Map.Entry<String, String> entry = iterator.next();
-            if (entry.getKey().startsWith(BROKER_PROP_PREFIX) && !entry.getKey().equals(PROP_BROKER_NAME)) {
-                brokerProps.put(entry.getKey().substring(BROKER_PROP_PREFIX.length()), entry.getValue());
-                iterator.remove();
-            } else if (entry.getKey().toLowerCase().startsWith(S3Properties.S3_PREFIX)
-                    || entry.getKey().toUpperCase().startsWith(S3Properties.Env.PROPERTIES_PREFIX)) {
-                brokerProps.put(entry.getKey(), entry.getValue());
-                iterator.remove();
-            } else if (entry.getKey().contains(HdfsResource.HADOOP_FS_NAME)
-                    && storageType == StorageBackend.StorageType.HDFS) {
-                brokerProps.put(entry.getKey(), entry.getValue());
-                iterator.remove();
-            } else if ((entry.getKey().startsWith(HADOOP_FS_PROP_PREFIX)
-                    || entry.getKey().startsWith(HADOOP_PROP_PREFIX))
-                    && storageType == StorageBackend.StorageType.HDFS) {
-                brokerProps.put(entry.getKey(), entry.getValue());
-                iterator.remove();
-            }
+        String brokerName = copiedProps.get(PROP_BROKER_NAME);
+        brokerDesc = new BrokerDesc(brokerName, copiedProps);
+        /*
+         * Note on HDFS export behavior and URI handling:
+         *
+         * 1. Currently, URI extraction from user input supports case-insensitive key matching
+         *    (e.g., "URI", "Uri", "uRI", etc.), to tolerate non-standard input from users.
+         *
+         * 2. In OUTFILE scenarios, if FE  fails to pass 'fs.defaultFS' to the BE ,
+         *    it may lead to data export failure *without* triggering an actual error (appears as success),
+         *    which is misleading and can cause silent data loss or inconsistencies.
+         *
+         * 3. As a temporary safeguard, the following logic forcibly extracts the default FS from the provided
+         *    file path and injects it into the broker descriptor config:
+         *
+         *      if (brokerDesc.getStorageType() == HDFS) {
+         *          extract default FS from file path
+         *          and put into BE config as 'fs.defaultFS'
+         *      }
+         *
+         * 4. Long-term solution: We should define and enforce a consistent parameter specification
+         *    across all user-facing entry points (including FE input validation, broker desc normalization, etc.),
+         *    to prevent missing critical configs like 'fs.defaultFS'.
+         *
+         * 5. Suggested improvements:
+         *    - Normalize all parameter keys (e.g., to lowercase)
+         *    - Centralize HDFS URI parsing logic
+         *    - Add validation in FE to reject incomplete or malformed configs
+         */
+        if (null != brokerDesc.getStorageType() && brokerDesc.getStorageType()
+                .equals(StorageBackend.StorageType.HDFS)) {
+            String defaultFs = HdfsPropertiesUtils.extractDefaultFsFromPath(filePath);
+            brokerDesc.getBackendConfigProperties().put(HdfsProperties.HDFS_DEFAULT_FS_NAME, defaultFs);
         }
-
-        if (storageType == StorageBackend.StorageType.S3) {
-            if (copiedProps.containsKey(PropertyConverter.USE_PATH_STYLE)) {
-                brokerProps.put(PropertyConverter.USE_PATH_STYLE, copiedProps.get(PropertyConverter.USE_PATH_STYLE));
-                copiedProps.remove(PropertyConverter.USE_PATH_STYLE);
-            }
-            S3Properties.requiredS3Properties(brokerProps);
-        } else if (storageType == StorageBackend.StorageType.HDFS) {
-            if (!brokerProps.containsKey(HdfsResource.HADOOP_FS_NAME)) {
-                brokerProps.put(HdfsResource.HADOOP_FS_NAME, getFsName(filePath));
-            }
-        }
-        brokerDesc = new BrokerDesc(brokerName, storageType, brokerProps);
-    }
-
-    public static String getFsName(String path) {
-        Path hdfsPath = new Path(path);
-        String fullPath = hdfsPath.toUri().toString();
-        String filePath = hdfsPath.toUri().getPath();
-        return fullPath.replace(filePath, "");
     }
 
     /**
@@ -759,7 +729,7 @@ public class OutFileClause {
         sinkOptions.setWithBom(withBom);
 
         if (brokerDesc != null) {
-            sinkOptions.setBrokerProperties(brokerDesc.getProperties());
+            sinkOptions.setBrokerProperties(brokerDesc.getBackendConfigProperties());
             // broker_addresses of sinkOptions will be set in Coordinator.
             // Because we need to choose the nearest broker with the result sink node.
         }

@@ -248,6 +248,7 @@ enableTrinoConnectorTest = false
 enableKerberosTest=false
 kerberosHmsPort=9883
 kerberosHdfsPort=8820
+enableRefactorParamsHdfsTest=true
 
 // cloud
 metaServiceToken = "greedisgood9999"

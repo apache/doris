@@ -80,6 +80,12 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
     @Getter
     protected String forceParsingByStandardUrl = "false";
 
+    @Getter
+    @ConnectorProperty(names = {"s3.session_token", "session_token"},
+            required = false,
+            description = "The session token of S3.")
+    protected String sessionToken = "";
+
     /**
      * Constructor to initialize the object storage properties with the provided type and original properties map.
      *
@@ -135,6 +141,9 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
         s3Props.put("AWS_REQUEST_TIMEOUT_MS", requestTimeoutMs);
         s3Props.put("AWS_CONNECTION_TIMEOUT_MS", connectionTimeoutMs);
         s3Props.put("use_path_style", usePathStyle);
+        if (StringUtils.isNotBlank(getSessionToken())) {
+            s3Props.put("AWS_TOKEN", getSessionToken());
+        }
         return s3Props;
     }
 
@@ -145,7 +154,7 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
 
 
     @Override
-    protected void initNormalizeAndCheckProps() throws UserException {
+    protected void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
         setEndpointIfNotSet();
         if (!isValidEndpoint(getEndpoint())) {
@@ -184,7 +193,7 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
         return endpointPattern().matcher(endpoint).matches();
     }
 
-    private void setEndpointIfNotSet() throws UserException {
+    private void setEndpointIfNotSet() {
         if (StringUtils.isNotBlank(getEndpoint())) {
             return;
         }

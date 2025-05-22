@@ -15,16 +15,19 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.fs.obj;
+package org.apache.doris.fsv2.obj;
 
 import org.apache.doris.backup.Repository;
 import org.apache.doris.backup.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.S3URI;
 import org.apache.doris.datasource.property.PropertyConverter;
-import org.apache.doris.fs.FileSystemFactory;
-import org.apache.doris.fs.remote.RemoteFile;
-import org.apache.doris.fs.remote.S3FileSystem;
+import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
+import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.fs.obj.MockedS3Client;
+import org.apache.doris.fsv2.FileSystemFactory;
+import org.apache.doris.fsv2.remote.RemoteFile;
+import org.apache.doris.fsv2.remote.S3FileSystem;
 
 import mockit.Mock;
 import mockit.MockUp;
@@ -70,7 +73,7 @@ public class S3FileSystemTest {
         properties = new HashMap<>();
         properties.put("AWS_ACCESS_KEY", System.getenv().getOrDefault("AWS_AK", ""));
         properties.put("AWS_SECRET_KEY", System.getenv().getOrDefault("AWS_SK", ""));
-        properties.put("AWS_ENDPOINT", "http://s3.bj.bcebos.com");
+        properties.put("AWS_ENDPOINT", "http://s3.ap-northeast-1.amazonaws.com");
         properties.put(PropertyConverter.USE_PATH_STYLE, "false");
         properties.put("AWS_REGION", "bj");
         content =
@@ -102,10 +105,10 @@ public class S3FileSystemTest {
                     return mockedClient;
                 }
             };
-            S3ObjStorage mockedStorage = new S3ObjStorage(properties);
+            S3ObjStorage mockedStorage = new S3ObjStorage((AbstractS3CompatibleProperties) StorageProperties.createPrimary(properties));
             Assertions.assertTrue(mockedStorage.getClient() instanceof MockedS3Client);
             // inject storage to file system.
-            fileSystem = new S3FileSystem(mockedStorage);
+            fileSystem = (S3FileSystem) FileSystemFactory.get(properties);
             new MockUp<S3FileSystem>(S3FileSystem.class) {
                 @Mock
                 public Status globList(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
@@ -124,7 +127,7 @@ public class S3FileSystemTest {
             };
         } else {
             // can also real file system to test.
-            fileSystem = (S3FileSystem) FileSystemFactory.getS3FileSystem(properties);
+            fileSystem = (S3FileSystem) FileSystemFactory.get(properties);
         }
         testFile = bucket + basePath + "/Ode_to_the_West_Wind";
         Assertions.assertEquals(Status.OK, fileSystem.directUpload(content, testFile));
@@ -168,7 +171,8 @@ public class S3FileSystemTest {
 
     @Test
     public void testRepositoryUpload() throws IOException {
-        Repository repo = new Repository(10000, "repo", false, bucket + basePath, fileSystem);
+        Repository repo = new Repository(10000, "repo", false, bucket + basePath, fileSystem,
+                null);
         File localFile = File.createTempFile("s3unittest", ".dat");
         localFile.deleteOnExit();
         String remote = bucket + basePath + "/" + localFile.getName();

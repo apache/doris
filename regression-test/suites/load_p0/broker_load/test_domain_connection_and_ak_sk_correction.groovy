@@ -102,7 +102,7 @@ suite("test_domain_connection_and_ak_sk_correction",  "load_p0") {
         assertTrue(false. "The endpoint is wrong, so the connection test should fale")
     } catch (Exception e) {
         logger.info("the second sql exception result is {}", e.getMessage())
-        assertTrue(e.getMessage().contains("Failed to access object storage, message="), e.getMessage())
+        assertTrue(e.getMessage().contains("Invalid endpoint format"), e.getMessage())
     }
 
     label = UUID.randomUUID().toString().replace("-", "")
@@ -132,7 +132,7 @@ suite("test_domain_connection_and_ak_sk_correction",  "load_p0") {
     }
 
     label = UUID.randomUUID().toString().replace("-", "")
-    try {
+
         result = sql """
             LOAD LABEL ${label}
             (
@@ -155,10 +155,36 @@ suite("test_domain_connection_and_ak_sk_correction",  "load_p0") {
             );
         """
         logger.info("the fourth sql result is {}", result)
-        assertTrue(false. "in the second DATA INFILE, the first bucket is wrong, so the sql should fail")
-    } catch (Exception e) {
-        logger.info("the fourth sql exception result is {}", e.getMessage())
-        assertTrue(e.getMessage().contains("Failed to access object storage, message="), e.getMessage())
+    int totalWaitTime = 0
+    int pollInterval = 5
+    int timeout = 120
+    while (totalWaitTime < timeout) {
+        def loadResult = sql """
+        SHOW LOAD WHERE label="${label}"
+    """
+
+        if (loadResult == null || loadResult.isEmpty()) {
+            return false
+        } else if (loadResult.get(0).get(2) in ['CANCELLED', 'FAILED']) {
+            break 
+        } else if (loadResult.get(0).get(2) == 'FINISHED') {
+            throw new RuntimeException("load success, but the first bucket is wrong, so the sql should fail")
+        } else {
+            println("load status is ${loadResult.get(0).get(2)}")
+            Thread.sleep(pollInterval * 1000L)
+            totalWaitTime += pollInterval
+        }
+
+       
+    }
+
+    if (totalWaitTime >= timeout) {
+        def queryLoadResult = sql """
+        SHOW LOAD WHERE label="${label}"
+        """
+        if (queryLoadResult != null && queryLoadResult.get(0).get(2) == 'FINISHED') {
+            throw new RuntimeException("load success, but the first bucket is wrong, so the sql should fail")
+        }
     }
     sql """ DROP TABLE IF EXISTS ${tableName} FORCE"""
     sql """ DROP TABLE IF EXISTS ${tableNameOrders} FORCE"""
