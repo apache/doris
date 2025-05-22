@@ -527,7 +527,8 @@ Status ProcessHashTableProbe<JoinOpType>::do_mark_join_conjuncts(vectorized::Blo
         }
 
         auto result_column_id = output_block->columns();
-        output_block->insert({std::move(filter_column), std::make_shared<DataTypeUInt8>(), ""});
+        output_block->insert(
+                {std::move(filter_column), std::make_shared<vectorized::DataTypeUInt8>(), ""});
         return vectorized::Block::filter_block(output_block, result_column_id, result_column_id);
     }
 }
