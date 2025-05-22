@@ -108,7 +108,7 @@ PhysicalResultSink
 
 -- !test_min_null_safe_equal --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((t.c1 = t2.a)) otherCondition=()
+--NestedLoopJoin[INNER_JOIN]
 ----filter((c1 = 1))
 ------hashAgg[GLOBAL]
 --------hashAgg[LOCAL]
