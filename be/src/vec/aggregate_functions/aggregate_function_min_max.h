@@ -55,41 +55,46 @@ class ColumnVector;
 namespace doris::vectorized {
 
 /// For numeric values.
-template <typename T>
+template <PrimitiveType T>
 struct SingleValueDataFixed {
 private:
     using Self = SingleValueDataFixed;
 
     bool has_value =
             false; /// We need to remember if at least one value has been passed. This is necessary for AggregateFunctionIf.
-    T value;
+    typename PrimitiveTypeTraits<T>::ColumnItemType value;
 
 public:
     SingleValueDataFixed() = default;
-    SingleValueDataFixed(bool has_value_, T value_) : has_value(has_value_), value(value_) {}
+    SingleValueDataFixed(bool has_value_, typename PrimitiveTypeTraits<T>::ColumnItemType value_)
+            : has_value(has_value_), value(value_) {}
     bool has() const { return has_value; }
 
     constexpr static bool IsFixedLength = true;
 
-    void set_to_min_max(bool max) { value = max ? type_limit<T>::max() : type_limit<T>::min(); }
+    void set_to_min_max(bool max) {
+        value = max ? type_limit<typename PrimitiveTypeTraits<T>::ColumnItemType>::max()
+                    : type_limit<typename PrimitiveTypeTraits<T>::ColumnItemType>::min();
+    }
 
     void change_if(const IColumn& column, size_t row_num, bool less) {
         has_value = true;
-        value = less ? std::min(assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(
-                                        column)
+        value = less ? std::min(assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
+                                            TypeCheckOnRelease::DISABLE>(column)
                                         .get_data()[row_num],
                                 value)
-                     : std::max(assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(
-                                        column)
+                     : std::max(assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
+                                            TypeCheckOnRelease::DISABLE>(column)
                                         .get_data()[row_num],
                                 value);
     }
 
     void insert_result_into(IColumn& to) const {
         if (has()) {
-            assert_cast<ColumnVector<T>&>(to).get_data().push_back(value);
+            assert_cast<typename PrimitiveTypeTraits<T>::ColumnType&>(to).get_data().push_back(
+                    value);
         } else {
-            assert_cast<ColumnVector<T>&>(to).insert_default();
+            assert_cast<typename PrimitiveTypeTraits<T>::ColumnType&>(to).insert_default();
         }
     }
 
@@ -115,7 +120,8 @@ public:
 
     void change(const IColumn& column, size_t row_num, Arena*) {
         has_value = true;
-        value = assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(column)
+        value = assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
+                            TypeCheckOnRelease::DISABLE>(column)
                         .get_data()[row_num];
     }
 
@@ -126,7 +132,8 @@ public:
     }
 
     bool change_if_less(const IColumn& column, size_t row_num, Arena*) {
-        if (!has() || assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(column)
+        if (!has() || assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
+                                  TypeCheckOnRelease::DISABLE>(column)
                                       .get_data()[row_num] < value) {
             change(column, row_num, nullptr);
             return true;
@@ -145,7 +152,8 @@ public:
     }
 
     bool change_if_greater(const IColumn& column, size_t row_num, Arena*) {
-        if (!has() || assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(column)
+        if (!has() || assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
+                                  TypeCheckOnRelease::DISABLE>(column)
                                       .get_data()[row_num] > value) {
             change(column, row_num, nullptr);
             return true;
@@ -177,41 +185,46 @@ public:
 };
 
 /// For decimal values.
-template <typename T>
+template <PrimitiveType T>
 struct SingleValueDataDecimal {
 private:
     using Self = SingleValueDataDecimal;
 
     bool has_value =
             false; /// We need to remember if at least one value has been passed. This is necessary for AggregateFunctionIf.
-    T value;
+    typename PrimitiveTypeTraits<T>::ColumnItemType value;
 
 public:
     SingleValueDataDecimal() = default;
-    SingleValueDataDecimal(bool has_value_, T value_) : has_value(has_value_), value(value_) {}
+    SingleValueDataDecimal(bool has_value_, typename PrimitiveTypeTraits<T>::ColumnItemType value_)
+            : has_value(has_value_), value(value_) {}
     bool has() const { return has_value; }
 
     constexpr static bool IsFixedLength = true;
 
-    void set_to_min_max(bool max) { value = max ? type_limit<T>::max() : type_limit<T>::min(); }
+    void set_to_min_max(bool max) {
+        value = max ? type_limit<typename PrimitiveTypeTraits<T>::ColumnItemType>::max()
+                    : type_limit<typename PrimitiveTypeTraits<T>::ColumnItemType>::min();
+    }
 
     void change_if(const IColumn& column, size_t row_num, bool less) {
         has_value = true;
-        value = less ? std::min(assert_cast<const ColumnDecimal<T>&, TypeCheckOnRelease::DISABLE>(
-                                        column)
+        value = less ? std::min(assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
+                                            TypeCheckOnRelease::DISABLE>(column)
                                         .get_data()[row_num],
                                 value)
-                     : std::max(assert_cast<const ColumnDecimal<T>&, TypeCheckOnRelease::DISABLE>(
-                                        column)
+                     : std::max(assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
+                                            TypeCheckOnRelease::DISABLE>(column)
                                         .get_data()[row_num],
                                 value);
     }
 
     void insert_result_into(IColumn& to) const {
         if (has()) {
-            assert_cast<ColumnDecimal<T>&>(to).insert_data((const char*)&value, 0);
+            assert_cast<typename PrimitiveTypeTraits<T>::ColumnType&>(to).insert_data(
+                    (const char*)&value, 0);
         } else {
-            assert_cast<ColumnDecimal<T>&>(to).insert_default();
+            assert_cast<typename PrimitiveTypeTraits<T>::ColumnType&>(to).insert_default();
         }
     }
 
@@ -237,7 +250,8 @@ public:
 
     void change(const IColumn& column, size_t row_num, Arena*) {
         has_value = true;
-        value = assert_cast<const ColumnDecimal<T>&, TypeCheckOnRelease::DISABLE>(column)
+        value = assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
+                            TypeCheckOnRelease::DISABLE>(column)
                         .get_data()[row_num];
     }
 
@@ -248,7 +262,8 @@ public:
     }
 
     bool change_if_less(const IColumn& column, size_t row_num, Arena*) {
-        if (!has() || assert_cast<const ColumnDecimal<T>&, TypeCheckOnRelease::DISABLE>(column)
+        if (!has() || assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
+                                  TypeCheckOnRelease::DISABLE>(column)
                                       .get_data()[row_num] < value) {
             change(column, row_num, nullptr);
             return true;
@@ -267,7 +282,8 @@ public:
     }
 
     bool change_if_greater(const IColumn& column, size_t row_num, Arena*) {
-        if (!has() || assert_cast<const ColumnDecimal<T>&, TypeCheckOnRelease::DISABLE>(column)
+        if (!has() || assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
+                                  TypeCheckOnRelease::DISABLE>(column)
                                       .get_data()[row_num] > value) {
             change(column, row_num, nullptr);
             return true;
