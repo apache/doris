@@ -8,12 +8,6 @@
 -- !if --
 2222
 
--- !array_product --
-6000.0
-
--- !array_avg --
-1001.0
-
 -- !array_pushfront --
 [4444, 1, 2, 3, 555555]
 
