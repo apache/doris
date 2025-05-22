@@ -22,6 +22,7 @@ import com.google.common.collect.Maps;
 import java.util.Map;
 
 public class DeleteBitmapUpdateLockContext {
+    private long lockId;
     private Map<Long, Long> baseCompactionCnts;
     private Map<Long, Long> cumulativeCompactionCnts;
     private Map<Long, Long> cumulativePoints;
@@ -32,6 +33,14 @@ public class DeleteBitmapUpdateLockContext {
         cumulativeCompactionCnts = Maps.newHashMap();
         cumulativePoints = Maps.newHashMap();
         tabletStates = Maps.newHashMap();
+    }
+
+    public long getLockId() {
+        return lockId;
+    }
+
+    public void setLockId(long lockId) {
+        this.lockId = lockId;
     }
 
     public Map<Long, Long> getBaseCompactionCnts() {

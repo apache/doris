@@ -930,7 +930,7 @@ Status CloudTablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t tx
     }
 
     RETURN_IF_ERROR(save_delete_bitmap_to_ms(cur_version, txn_id, delete_bitmap, lock_id,
-                                             next_visible_version));
+                                             next_visible_version, txn_info->is_txn_load));
 
     // store the delete bitmap with sentinel marks in txn_delete_bitmap_cache because if the txn is retried for some reason,
     // it will use the delete bitmap from txn_delete_bitmap_cache when re-calculating the delete bitmap, during which it will do
@@ -961,7 +961,7 @@ Status CloudTablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t tx
 
 Status CloudTablet::save_delete_bitmap_to_ms(int64_t cur_version, int64_t txn_id,
                                              DeleteBitmapPtr delete_bitmap, int64_t lock_id,
-                                             int64_t next_visible_version) {
+                                             int64_t next_visible_version, bool is_explicit_txn) {
     DeleteBitmapPtr new_delete_bitmap = std::make_shared<DeleteBitmap>(tablet_id());
     for (auto iter = delete_bitmap->delete_bitmap.begin();
          iter != delete_bitmap->delete_bitmap.end(); ++iter) {
@@ -972,11 +972,7 @@ Status CloudTablet::save_delete_bitmap_to_ms(int64_t cur_version, int64_t txn_id
                     iter->second);
         }
     }
-    // lock_id != -1 means this is in an explict txn
-    bool is_explicit_txn = (lock_id != -1);
-    auto ms_lock_id = !is_explicit_txn ? txn_id : lock_id;
-
-    RETURN_IF_ERROR(_engine.meta_mgr().update_delete_bitmap(*this, ms_lock_id, LOAD_INITIATOR_ID,
+    RETURN_IF_ERROR(_engine.meta_mgr().update_delete_bitmap(*this, lock_id, LOAD_INITIATOR_ID,
                                                             new_delete_bitmap.get(), txn_id,
                                                             is_explicit_txn, next_visible_version));
     return Status::OK();

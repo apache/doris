@@ -82,6 +82,7 @@ Status CloudEngineCalcDeleteBitmapTask::execute() {
                                     partition.__isset.cumulative_compaction_cnts &&
                                     partition.__isset.cumulative_points;
         bool has_tablet_states = partition.__isset.tablet_states;
+        bool has_lock_id = partition.__isset.lock_id;
         for (size_t i = 0; i < partition.tablet_ids.size(); i++) {
             auto tablet_id = partition.tablet_ids[i];
             auto tablet_calc_delete_bitmap_ptr = std::make_shared<CloudTabletCalcDeleteBitmapTask>(
@@ -93,6 +94,9 @@ Status CloudEngineCalcDeleteBitmapTask::execute() {
             }
             if (has_tablet_states) {
                 tablet_calc_delete_bitmap_ptr->set_tablet_state(partition.tablet_states[i]);
+            }
+            if (has_lock_id) {
+                tablet_calc_delete_bitmap_ptr->set_lock_id(partition.lock_id);
             }
             auto submit_st = token->submit_func([tablet_id, tablet_calc_delete_bitmap_ptr, this]() {
                 auto st = tablet_calc_delete_bitmap_ptr->handle();
@@ -142,6 +146,10 @@ void CloudTabletCalcDeleteBitmapTask::set_compaction_stats(int64_t ms_base_compa
 }
 void CloudTabletCalcDeleteBitmapTask::set_tablet_state(int64_t tablet_state) {
     _ms_tablet_state = tablet_state;
+}
+
+void CloudTabletCalcDeleteBitmapTask::set_lock_id(int64_t lock_id) {
+    _lock_id = lock_id;
 }
 
 Status CloudTabletCalcDeleteBitmapTask::handle() const {
@@ -311,6 +319,9 @@ Status CloudTabletCalcDeleteBitmapTask::_handle_rowset(
                              .base_compaction_cnt = _ms_base_compaction_cnt,
                              .cumulative_compaction_cnt = _ms_cumulative_compaction_cnt,
                              .cumulative_point = _ms_cumulative_point};
+    txn_info.is_txn_load = (invisible_rowsets != nullptr);
+    txn_info.lock_id = _lock_id.has_value() ? _lock_id.value() : _transaction_id;
+    txn_info.next_visible_version = _version;
     if (txn_info.publish_status && (*(txn_info.publish_status) == PublishStatus::SUCCEED) &&
         version == previous_publish_info.publish_version &&
         _ms_base_compaction_cnt == previous_publish_info.base_compaction_cnt &&
@@ -322,11 +333,9 @@ Status CloudTabletCalcDeleteBitmapTask::_handle_rowset(
 
         // we still need to update delete bitmap KVs to MS when we skip to calcalate delete bitmaps,
         // because the pending delete bitmap KVs in MS we wrote before may have been removed and replaced by other txns
-        int64_t lock_id = txn_info.is_txn_load ? txn_info.lock_id : -1;
-        int64_t next_visible_version =
-                txn_info.is_txn_load ? txn_info.next_visible_version : version;
-        RETURN_IF_ERROR(tablet->save_delete_bitmap_to_ms(version, transaction_id, delete_bitmap,
-                                                         lock_id, next_visible_version));
+        RETURN_IF_ERROR(tablet->save_delete_bitmap_to_ms(
+                version, transaction_id, delete_bitmap, txn_info.lock_id,
+                txn_info.next_visible_version, txn_info.is_txn_load));
 
         LOG(INFO) << "tablet=" << _tablet_id << ", " << txn_str
                   << ", publish_status=SUCCEED, not need to re-calculate delete_bitmaps.";
@@ -348,10 +357,7 @@ Status CloudTabletCalcDeleteBitmapTask::_handle_rowset(
             status = CloudTablet::update_delete_bitmap(tablet, &txn_info, transaction_id,
                                                        txn_expiration);
         } else {
-            txn_info.is_txn_load = true;
             txn_info.invisible_rowsets = *invisible_rowsets;
-            txn_info.lock_id = _transaction_id;
-            txn_info.next_visible_version = _version;
             status = CloudTablet::update_delete_bitmap(tablet, &txn_info, transaction_id,
                                                        txn_expiration, tablet_delete_bitmap);
         }

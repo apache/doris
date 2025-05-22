@@ -41,6 +41,7 @@ public:
     void set_compaction_stats(int64_t ms_base_compaction_cnt, int64_t ms_cumulative_compaction_cnt,
                               int64_t ms_cumulative_point);
     void set_tablet_state(int64_t tablet_state);
+    void set_lock_id(int64_t lock_id);
 
     Status handle() const;
 
@@ -62,6 +63,7 @@ private:
     int64_t _ms_cumulative_point {-1};
     std::optional<int64_t> _ms_tablet_state;
     std::shared_ptr<MemTrackerLimiter> _mem_tracker;
+    std::optional<int64_t> _lock_id;
 };
 
 class CloudEngineCalcDeleteBitmapTask : public EngineTask {
