@@ -103,6 +103,14 @@ suite("test_hive_refresh_mtmv", "p0,external,hive,external_docker,external_docke
 
         // hive data change
         logger.info("hive sql: " + insert_str)
+
+        // If we didn't refresh the catalog, the data in mv should still be old
+        sql """
+            REFRESH MATERIALIZED VIEW ${mvName} auto
+        """
+        waitingMTMVTaskFinished(jobName)
+        order_qt_mtmv_2 "SELECT * FROM ${mvName} order by user_id"
+
         hive_docker """ ${insert_str} """
         sql """
                 REFRESH catalog ${catalog_name}
@@ -111,7 +119,7 @@ suite("test_hive_refresh_mtmv", "p0,external,hive,external_docker,external_docke
             REFRESH MATERIALIZED VIEW ${mvName} auto
         """
         waitingMTMVTaskFinished(jobName)
-        order_qt_mtmv_2 "SELECT * FROM ${mvName} order by user_id"
+        order_qt_mtmv_3 "SELECT * FROM ${mvName} order by user_id"
 
         // hive add partition
         def add_partition2021_str = """
