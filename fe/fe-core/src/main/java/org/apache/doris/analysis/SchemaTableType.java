@@ -92,7 +92,8 @@ public enum SchemaTableType {
     SCH_BACKEND_KERBEROS_TICKET_CACHE("BACKEND_KERBEROS_TICKET_CACHE", "BACKEND_KERBEROS_TICKET_CACHE",
             TSchemaTableType.SCH_BACKEND_KERBEROS_TICKET_CACHE),
     SCH_ROUTINE_LOAD_JOBS("ROUTINE_LOAD_JOBS", "ROUTINE_LOAD_JOBS",
-            TSchemaTableType.SCH_ROUTINE_LOAD_JOBS);
+            TSchemaTableType.SCH_ROUTINE_LOAD_JOBS),
+    SCH_METRICS("METRICS", "METRICS", TSchemaTableType.SCH_METRICS);
 
     private static final String dbName = "INFORMATION_SCHEMA";
     private static SelectList fullSelectLists;

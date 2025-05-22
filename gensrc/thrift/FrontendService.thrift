@@ -1593,6 +1593,19 @@ struct TFetchRoutineLoadJobResult {
     1: optional list<TRoutineLoadJob> routineLoadJobs
 }
 
+struct TMetric {
+    1: optional string metric
+    2: optional string value
+    3: optional string description
+}
+
+struct TGetMetricsRequest {
+}
+
+struct TGetMetricsResult {
+    1: optional list<TMetric> metrics
+}
+
 struct TPlanNodeRuntimeStatsItem {
     // node_id means PlanNodeId, add this field so that we can merge RuntimeProfile of same node more easily
     1: optional i32 node_id
@@ -1711,4 +1724,5 @@ service FrontendService {
     TFetchRunningQueriesResult fetchRunningQueries(1: TFetchRunningQueriesRequest request)
 
     TFetchRoutineLoadJobResult fetchRoutineLoadJob(1: TFetchRoutineLoadJobRequest request)
+    TGetMetricsResult getMetrics(1: TGetMetricsRequest request)
 }
