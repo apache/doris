@@ -1379,29 +1379,38 @@ void Tablet::get_compaction_status(std::string* json_result) {
     root.AddMember("cumulative policy type", cumulative_policy_type, root.GetAllocator());
     root.AddMember("cumulative point", _cumulative_point.load(), root.GetAllocator());
 
-#define FORMAT_UNIXMILLIS_ADD_JSON_NODE(root, key, unixmillis_value)\
-    {\
-        rapidjson::Value value;\
-        std::string format_str = ToStringFromUnixMillis(unixmillis_value.load());\
-        value.SetString(format_str.c_str(), format_str.length(), root.GetAllocator());\
-        root.AddMember(key, value, root.GetAllocator());\
+#define FORMAT_UNIXMILLIS_ADD_JSON_NODE(root, key, unixmillis_value)                   \
+    {                                                                                  \
+        rapidjson::Value value;                                                        \
+        std::string format_str = ToStringFromUnixMillis(unixmillis_value.load());      \
+        value.SetString(format_str.c_str(), format_str.length(), root.GetAllocator()); \
+        root.AddMember(key, value, root.GetAllocator());                               \
     }
-#define FORMAT_STRING_ADD_JSON_NODE(root, key, str_value)\
-    {\
-        rapidjson::Value value;\
-        value.SetString(str_value.c_str(), str_value.length(), root.GetAllocator());\
-        root.AddMember(key, value, root.GetAllocator());\
+#define FORMAT_STRING_ADD_JSON_NODE(root, key, str_value)                            \
+    {                                                                                \
+        rapidjson::Value value;                                                      \
+        value.SetString(str_value.c_str(), str_value.length(), root.GetAllocator()); \
+        root.AddMember(key, value, root.GetAllocator());                             \
     }
 
-    FORMAT_UNIXMILLIS_ADD_JSON_NODE(root, "last cumulative failure time", _last_cumu_compaction_failure_millis)
-    FORMAT_UNIXMILLIS_ADD_JSON_NODE(root, "last base failure time", _last_base_compaction_failure_millis)
-    FORMAT_UNIXMILLIS_ADD_JSON_NODE(root, "last full failure time", _last_full_compaction_failure_millis)
-    FORMAT_UNIXMILLIS_ADD_JSON_NODE(root, "last cumulative success time", _last_cumu_compaction_success_millis)
-    FORMAT_UNIXMILLIS_ADD_JSON_NODE(root, "last base success time", _last_base_compaction_success_millis)
-    FORMAT_UNIXMILLIS_ADD_JSON_NODE(root, "last full success time", _last_full_compaction_success_millis)
-    FORMAT_UNIXMILLIS_ADD_JSON_NODE(root, "last cumulative schedule time", _last_cumu_compaction_schedule_millis)
-    FORMAT_UNIXMILLIS_ADD_JSON_NODE(root, "last base schedule time", _last_base_compaction_schedule_millis)
-    FORMAT_UNIXMILLIS_ADD_JSON_NODE(root, "last full schedule time", _last_full_compaction_schedule_millis)
+    FORMAT_UNIXMILLIS_ADD_JSON_NODE(root, "last cumulative failure time",
+                                    _last_cumu_compaction_failure_millis)
+    FORMAT_UNIXMILLIS_ADD_JSON_NODE(root, "last base failure time",
+                                    _last_base_compaction_failure_millis)
+    FORMAT_UNIXMILLIS_ADD_JSON_NODE(root, "last full failure time",
+                                    _last_full_compaction_failure_millis)
+    FORMAT_UNIXMILLIS_ADD_JSON_NODE(root, "last cumulative success time",
+                                    _last_cumu_compaction_success_millis)
+    FORMAT_UNIXMILLIS_ADD_JSON_NODE(root, "last base success time",
+                                    _last_base_compaction_success_millis)
+    FORMAT_UNIXMILLIS_ADD_JSON_NODE(root, "last full success time",
+                                    _last_full_compaction_success_millis)
+    FORMAT_UNIXMILLIS_ADD_JSON_NODE(root, "last cumulative schedule time",
+                                    _last_cumu_compaction_schedule_millis)
+    FORMAT_UNIXMILLIS_ADD_JSON_NODE(root, "last base schedule time",
+                                    _last_base_compaction_schedule_millis)
+    FORMAT_UNIXMILLIS_ADD_JSON_NODE(root, "last full schedule time",
+                                    _last_full_compaction_schedule_millis)
     FORMAT_STRING_ADD_JSON_NODE(root, "last cumulative status", _last_cumu_compaction_status)
     FORMAT_STRING_ADD_JSON_NODE(root, "last base status", _last_base_compaction_status)
     FORMAT_STRING_ADD_JSON_NODE(root, "last full status", _last_full_compaction_status)
