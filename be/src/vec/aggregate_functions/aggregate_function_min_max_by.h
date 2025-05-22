@@ -202,55 +202,55 @@ AggregateFunctionPtr create_aggregate_function_min_max_by_impl(const DataTypes& 
     switch (argument_types[1]->get_primitive_type()) {
     case PrimitiveType::TYPE_BOOLEAN:
         return creator_without_type::create<
-                AggregateFunctionTemplate<Data<VT, SingleValueDataFixed<UInt8>>>>(
+                AggregateFunctionTemplate<Data<VT, SingleValueDataFixed<TYPE_BOOLEAN>>>>(
                 argument_types, result_is_nullable);
     case PrimitiveType::TYPE_TINYINT:
         return creator_without_type::create<
-                AggregateFunctionTemplate<Data<VT, SingleValueDataFixed<Int8>>>>(
+                AggregateFunctionTemplate<Data<VT, SingleValueDataFixed<TYPE_TINYINT>>>>(
                 argument_types, result_is_nullable);
     case PrimitiveType::TYPE_SMALLINT:
         return creator_without_type::create<
-                AggregateFunctionTemplate<Data<VT, SingleValueDataFixed<Int16>>>>(
+                AggregateFunctionTemplate<Data<VT, SingleValueDataFixed<TYPE_SMALLINT>>>>(
                 argument_types, result_is_nullable);
     case PrimitiveType::TYPE_INT:
         return creator_without_type::create<
-                AggregateFunctionTemplate<Data<VT, SingleValueDataFixed<Int32>>>>(
+                AggregateFunctionTemplate<Data<VT, SingleValueDataFixed<TYPE_INT>>>>(
                 argument_types, result_is_nullable);
     case PrimitiveType::TYPE_BIGINT:
         return creator_without_type::create<
-                AggregateFunctionTemplate<Data<VT, SingleValueDataFixed<Int64>>>>(
+                AggregateFunctionTemplate<Data<VT, SingleValueDataFixed<TYPE_BIGINT>>>>(
                 argument_types, result_is_nullable);
     case PrimitiveType::TYPE_LARGEINT:
         return creator_without_type::create<
-                AggregateFunctionTemplate<Data<VT, SingleValueDataFixed<Int128>>>>(
+                AggregateFunctionTemplate<Data<VT, SingleValueDataFixed<TYPE_LARGEINT>>>>(
                 argument_types, result_is_nullable);
     case PrimitiveType::TYPE_FLOAT:
         return creator_without_type::create<
-                AggregateFunctionTemplate<Data<VT, SingleValueDataFixed<Float32>>>>(
+                AggregateFunctionTemplate<Data<VT, SingleValueDataFixed<TYPE_FLOAT>>>>(
                 argument_types, result_is_nullable);
     case PrimitiveType::TYPE_DOUBLE:
         return creator_without_type::create<
-                AggregateFunctionTemplate<Data<VT, SingleValueDataFixed<Float64>>>>(
+                AggregateFunctionTemplate<Data<VT, SingleValueDataFixed<TYPE_DOUBLE>>>>(
                 argument_types, result_is_nullable);
     case PrimitiveType::TYPE_DECIMAL32:
         return creator_without_type::create<
-                AggregateFunctionTemplate<Data<VT, SingleValueDataDecimal<Decimal32>>>>(
+                AggregateFunctionTemplate<Data<VT, SingleValueDataDecimal<TYPE_DECIMAL32>>>>(
                 argument_types, result_is_nullable);
     case PrimitiveType::TYPE_DECIMAL64:
         return creator_without_type::create<
-                AggregateFunctionTemplate<Data<VT, SingleValueDataDecimal<Decimal64>>>>(
+                AggregateFunctionTemplate<Data<VT, SingleValueDataDecimal<TYPE_DECIMAL64>>>>(
                 argument_types, result_is_nullable);
     case PrimitiveType::TYPE_DECIMAL128I:
         return creator_without_type::create<
-                AggregateFunctionTemplate<Data<VT, SingleValueDataDecimal<Decimal128V3>>>>(
+                AggregateFunctionTemplate<Data<VT, SingleValueDataDecimal<TYPE_DECIMAL128I>>>>(
                 argument_types, result_is_nullable);
     case PrimitiveType::TYPE_DECIMALV2:
         return creator_without_type::create<
-                AggregateFunctionTemplate<Data<VT, SingleValueDataDecimal<Decimal128V2>>>>(
+                AggregateFunctionTemplate<Data<VT, SingleValueDataDecimal<TYPE_DECIMALV2>>>>(
                 argument_types, result_is_nullable);
     case PrimitiveType::TYPE_DECIMAL256:
         return creator_without_type::create<
-                AggregateFunctionTemplate<Data<VT, SingleValueDataDecimal<Decimal256>>>>(
+                AggregateFunctionTemplate<Data<VT, SingleValueDataDecimal<TYPE_DECIMAL256>>>>(
                 argument_types, result_is_nullable);
     case PrimitiveType::TYPE_CHAR:
     case PrimitiveType::TYPE_VARCHAR:
@@ -259,17 +259,20 @@ AggregateFunctionPtr create_aggregate_function_min_max_by_impl(const DataTypes& 
                 AggregateFunctionTemplate<Data<VT, SingleValueDataString>>>(argument_types,
                                                                             result_is_nullable);
     case PrimitiveType::TYPE_DATE:
+        return creator_without_type::create<
+                AggregateFunctionTemplate<Data<VT, SingleValueDataFixed<TYPE_DATE>>>>(
+                argument_types, result_is_nullable);
     case PrimitiveType::TYPE_DATETIME:
         return creator_without_type::create<
-                AggregateFunctionTemplate<Data<VT, SingleValueDataFixed<Int64>>>>(
+                AggregateFunctionTemplate<Data<VT, SingleValueDataFixed<TYPE_DATETIME>>>>(
                 argument_types, result_is_nullable);
     case PrimitiveType::TYPE_DATEV2:
         return creator_without_type::create<
-                AggregateFunctionTemplate<Data<VT, SingleValueDataFixed<UInt32>>>>(
+                AggregateFunctionTemplate<Data<VT, SingleValueDataFixed<TYPE_DATEV2>>>>(
                 argument_types, result_is_nullable);
     case PrimitiveType::TYPE_DATETIMEV2:
         return creator_without_type::create<
-                AggregateFunctionTemplate<Data<VT, SingleValueDataFixed<UInt64>>>>(
+                AggregateFunctionTemplate<Data<VT, SingleValueDataFixed<TYPE_DATETIMEV2>>>>(
                 argument_types, result_is_nullable);
     default:
         return nullptr;
@@ -289,55 +292,55 @@ AggregateFunctionPtr create_aggregate_function_min_max_by(const String& name,
     switch (argument_types[0]->get_primitive_type()) {
     case PrimitiveType::TYPE_BOOLEAN:
         return create_aggregate_function_min_max_by_impl<AggregateFunctionTemplate, Data,
-                                                         SingleValueDataFixed<UInt8>>(
+                                                         SingleValueDataFixed<TYPE_BOOLEAN>>(
                 argument_types, result_is_nullable);
     case PrimitiveType::TYPE_TINYINT:
         return create_aggregate_function_min_max_by_impl<AggregateFunctionTemplate, Data,
-                                                         SingleValueDataFixed<Int8>>(
+                                                         SingleValueDataFixed<TYPE_TINYINT>>(
                 argument_types, result_is_nullable);
     case PrimitiveType::TYPE_SMALLINT:
         return create_aggregate_function_min_max_by_impl<AggregateFunctionTemplate, Data,
-                                                         SingleValueDataFixed<Int16>>(
+                                                         SingleValueDataFixed<TYPE_SMALLINT>>(
                 argument_types, result_is_nullable);
     case PrimitiveType::TYPE_INT:
         return create_aggregate_function_min_max_by_impl<AggregateFunctionTemplate, Data,
-                                                         SingleValueDataFixed<Int32>>(
+                                                         SingleValueDataFixed<TYPE_INT>>(
                 argument_types, result_is_nullable);
     case PrimitiveType::TYPE_BIGINT:
         return create_aggregate_function_min_max_by_impl<AggregateFunctionTemplate, Data,
-                                                         SingleValueDataFixed<Int64>>(
+                                                         SingleValueDataFixed<TYPE_BIGINT>>(
                 argument_types, result_is_nullable);
     case PrimitiveType::TYPE_LARGEINT:
         return create_aggregate_function_min_max_by_impl<AggregateFunctionTemplate, Data,
-                                                         SingleValueDataFixed<Int128>>(
+                                                         SingleValueDataFixed<TYPE_LARGEINT>>(
                 argument_types, result_is_nullable);
     case PrimitiveType::TYPE_FLOAT:
         return create_aggregate_function_min_max_by_impl<AggregateFunctionTemplate, Data,
-                                                         SingleValueDataFixed<Float32>>(
+                                                         SingleValueDataFixed<TYPE_FLOAT>>(
                 argument_types, result_is_nullable);
     case PrimitiveType::TYPE_DOUBLE:
         return create_aggregate_function_min_max_by_impl<AggregateFunctionTemplate, Data,
-                                                         SingleValueDataFixed<Float64>>(
+                                                         SingleValueDataFixed<TYPE_DOUBLE>>(
                 argument_types, result_is_nullable);
     case PrimitiveType::TYPE_DECIMAL32:
         return create_aggregate_function_min_max_by_impl<AggregateFunctionTemplate, Data,
-                                                         SingleValueDataDecimal<Decimal32>>(
+                                                         SingleValueDataDecimal<TYPE_DECIMAL32>>(
                 argument_types, result_is_nullable);
     case PrimitiveType::TYPE_DECIMAL64:
         return create_aggregate_function_min_max_by_impl<AggregateFunctionTemplate, Data,
-                                                         SingleValueDataDecimal<Decimal64>>(
+                                                         SingleValueDataDecimal<TYPE_DECIMAL64>>(
                 argument_types, result_is_nullable);
     case PrimitiveType::TYPE_DECIMAL128I:
         return create_aggregate_function_min_max_by_impl<AggregateFunctionTemplate, Data,
-                                                         SingleValueDataDecimal<Decimal128V3>>(
+                                                         SingleValueDataDecimal<TYPE_DECIMAL128I>>(
                 argument_types, result_is_nullable);
     case PrimitiveType::TYPE_DECIMALV2:
         return create_aggregate_function_min_max_by_impl<AggregateFunctionTemplate, Data,
-                                                         SingleValueDataDecimal<Decimal128V2>>(
+                                                         SingleValueDataDecimal<TYPE_DECIMALV2>>(
                 argument_types, result_is_nullable);
     case PrimitiveType::TYPE_DECIMAL256:
         return create_aggregate_function_min_max_by_impl<AggregateFunctionTemplate, Data,
-                                                         SingleValueDataDecimal<Decimal256>>(
+                                                         SingleValueDataDecimal<TYPE_DECIMAL256>>(
                 argument_types, result_is_nullable);
     case PrimitiveType::TYPE_STRING:
     case PrimitiveType::TYPE_CHAR:
@@ -346,17 +349,20 @@ AggregateFunctionPtr create_aggregate_function_min_max_by(const String& name,
                                                          SingleValueDataString>(argument_types,
                                                                                 result_is_nullable);
     case PrimitiveType::TYPE_DATE:
+        return create_aggregate_function_min_max_by_impl<AggregateFunctionTemplate, Data,
+                                                         SingleValueDataFixed<TYPE_DATE>>(
+                argument_types, result_is_nullable);
     case PrimitiveType::TYPE_DATETIME:
         return create_aggregate_function_min_max_by_impl<AggregateFunctionTemplate, Data,
-                                                         SingleValueDataFixed<Int64>>(
+                                                         SingleValueDataFixed<TYPE_DATETIME>>(
                 argument_types, result_is_nullable);
     case PrimitiveType::TYPE_DATEV2:
         return create_aggregate_function_min_max_by_impl<AggregateFunctionTemplate, Data,
-                                                         SingleValueDataFixed<UInt32>>(
+                                                         SingleValueDataFixed<TYPE_DATEV2>>(
                 argument_types, result_is_nullable);
     case PrimitiveType::TYPE_DATETIMEV2:
         return create_aggregate_function_min_max_by_impl<AggregateFunctionTemplate, Data,
-                                                         SingleValueDataFixed<UInt64>>(
+                                                         SingleValueDataFixed<TYPE_DATETIMEV2>>(
                 argument_types, result_is_nullable);
     case PrimitiveType::TYPE_OBJECT:
         return create_aggregate_function_min_max_by_impl<AggregateFunctionTemplate, Data,

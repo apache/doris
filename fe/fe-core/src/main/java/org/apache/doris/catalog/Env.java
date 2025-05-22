@@ -207,6 +207,7 @@ import org.apache.doris.nereids.trees.plans.commands.AdminSetReplicaStatusComman
 import org.apache.doris.nereids.trees.plans.commands.AlterSystemCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.AnalyzeCommand;
+import org.apache.doris.nereids.trees.plans.commands.CancelAlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelBackupCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelBuildIndexCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
@@ -367,7 +368,7 @@ public class Env {
     private static final Logger LOG = LogManager.getLogger(Env.class);
     // 0 ~ 9999 used for qe
     public static final long NEXT_ID_INIT_VALUE = 10000;
-    private static final int HTTP_TIMEOUT_SECOND = 5;
+    private static final int HTTP_TIMEOUT_SECOND = Config.sync_image_timeout_second;
     private static final int STATE_CHANGE_CHECK_INTERVAL_MS = 100;
     private static final int REPLAY_INTERVAL_MS = 1;
     private static final String BDB_DIR = "/bdb";
@@ -4988,6 +4989,21 @@ public class Env {
 
     public void dropMaterializedView(DropMaterializedViewStmt stmt) throws DdlException, MetaNotFoundException {
         this.alter.processDropMaterializedView(stmt);
+    }
+
+    /*
+     * used for handling CancelAlterCommand (for client is the CANCEL ALTER
+     * command). including SchemaChangeHandler and RollupHandler
+     */
+    public void cancelAlter(CancelAlterTableCommand command) throws DdlException {
+        if (command.getAlterType() == CancelAlterTableCommand.AlterType.ROLLUP
+                || command.getAlterType() == CancelAlterTableCommand.AlterType.MV) {
+            this.getMaterializedViewHandler().cancel(command);
+        } else if (command.getAlterType() == CancelAlterTableCommand.AlterType.COLUMN) {
+            this.getSchemaChangeHandler().cancel(command);
+        } else {
+            throw new DdlException("Cancel " + command.getAlterType() + " does not implement yet");
+        }
     }
 
     /*

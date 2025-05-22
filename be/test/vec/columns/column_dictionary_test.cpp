@@ -54,13 +54,10 @@ protected:
         column_dict_data = ColumnString::create();
         column_dict_indices = ColumnInt32::create();
 
-        column_dict_char =
-                ColumnDictionary<doris::vectorized::Int32>::create(FieldType::OLAP_FIELD_TYPE_CHAR);
+        column_dict_char = ColumnDictI32::create(FieldType::OLAP_FIELD_TYPE_CHAR);
         EXPECT_TRUE(column_dict_char->is_dict_empty());
-        column_dict_varchar = ColumnDictionary<doris::vectorized::Int32>::create(
-                FieldType::OLAP_FIELD_TYPE_STRING);
-        column_dict_str = ColumnDictionary<doris::vectorized::Int32>::create(
-                FieldType::OLAP_FIELD_TYPE_STRING);
+        column_dict_varchar = ColumnDictI32::create(FieldType::OLAP_FIELD_TYPE_STRING);
+        column_dict_str = ColumnDictI32::create(FieldType::OLAP_FIELD_TYPE_STRING);
 
         load_columns_data();
     }
@@ -71,9 +68,9 @@ protected:
     static ColumnInt32::MutablePtr column_dict_indices;
     static std::vector<StringRef> dict_array;
 
-    static ColumnDictionary<doris::vectorized::Int32>::MutablePtr column_dict_char;
-    static ColumnDictionary<doris::vectorized::Int32>::MutablePtr column_dict_varchar;
-    static ColumnDictionary<doris::vectorized::Int32>::MutablePtr column_dict_str;
+    static ColumnDictI32::MutablePtr column_dict_char;
+    static ColumnDictI32::MutablePtr column_dict_varchar;
+    static ColumnDictI32::MutablePtr column_dict_str;
 
     static void load_columns_data() {
         std::cout << "loading test dataset" << std::endl;
@@ -288,8 +285,8 @@ TEST_F(ColumnDictionaryTest, filter_by_selector) {
     test_func(column_dict_char);
 }
 TEST_F(ColumnDictionaryTest, insert_many_dict_data) {
-    ColumnDictionary<Int32>::MutablePtr tmp_column_dict =
-            ColumnDictionary<Int32>::create(FieldType::OLAP_FIELD_TYPE_CHAR);
+    ColumnDictI32::MutablePtr tmp_column_dict =
+            ColumnDictI32::create(FieldType::OLAP_FIELD_TYPE_CHAR);
     tmp_column_dict->insert_many_dict_data(dict_array.data(), dict_array.size());
     for (size_t i = 0; i != dict_array.size(); ++i) {
         EXPECT_EQ(tmp_column_dict->get_value(i), dict_array[i]);
@@ -297,8 +294,8 @@ TEST_F(ColumnDictionaryTest, insert_many_dict_data) {
 }
 TEST_F(ColumnDictionaryTest, convert_dict_codes_if_necessary) {
     {
-        ColumnDictionary<Int32>::MutablePtr tmp_column_dict =
-                ColumnDictionary<Int32>::create(FieldType::OLAP_FIELD_TYPE_CHAR);
+        ColumnDictI32::MutablePtr tmp_column_dict =
+                ColumnDictI32::create(FieldType::OLAP_FIELD_TYPE_CHAR);
         tmp_column_dict->convert_dict_codes_if_necessary();
         EXPECT_FALSE(tmp_column_dict->is_dict_sorted());
         EXPECT_FALSE(tmp_column_dict->is_dict_code_converted());
@@ -322,8 +319,8 @@ TEST_F(ColumnDictionaryTest, find_code) {
 }
 /*
 TEST_F(ColumnDictionaryTest, initialize_hash_values_for_runtime_filter) {
-    ColumnDictionary<Int32>::MutablePtr tmp_column_dict =
-            ColumnDictionary<Int32>::create(FieldType::OLAP_FIELD_TYPE_CHAR);
+    ColumnDictI32::MutablePtr tmp_column_dict =
+            ColumnDictI32::create(FieldType::OLAP_FIELD_TYPE_CHAR);
     auto dict_data_row_count = column_dict_data->size();
     auto dict_indices_row_count = column_dict_indices->size();
     tmp_column_dict->reserve(dict_indices_row_count);
@@ -351,8 +348,8 @@ TEST_F(ColumnDictionaryTest, rowset_segment_id) {
     EXPECT_EQ(ids.second, segment_id);
 }
 TEST_F(ColumnDictionaryTest, convert_to_predicate_column_if_dictionary) {
-    ColumnDictionary<Int32>::MutablePtr tmp_column_dict =
-            ColumnDictionary<Int32>::create(FieldType::OLAP_FIELD_TYPE_CHAR);
+    ColumnDictI32::MutablePtr tmp_column_dict =
+            ColumnDictI32::create(FieldType::OLAP_FIELD_TYPE_CHAR);
     auto dict_data_row_count = column_dict_data->size();
     auto dict_indices_row_count = column_dict_indices->size();
     tmp_column_dict->reserve(dict_indices_row_count);
@@ -373,7 +370,7 @@ ColumnString::MutablePtr ColumnDictionaryTest::column_dict_data;
 ColumnInt32::MutablePtr ColumnDictionaryTest::column_dict_indices;
 std::vector<StringRef> ColumnDictionaryTest::dict_array;
 
-ColumnDictionary<doris::vectorized::Int32>::MutablePtr ColumnDictionaryTest::column_dict_char;
-ColumnDictionary<doris::vectorized::Int32>::MutablePtr ColumnDictionaryTest::column_dict_varchar;
-ColumnDictionary<doris::vectorized::Int32>::MutablePtr ColumnDictionaryTest::column_dict_str;
+ColumnDictI32::MutablePtr ColumnDictionaryTest::column_dict_char;
+ColumnDictI32::MutablePtr ColumnDictionaryTest::column_dict_varchar;
+ColumnDictI32::MutablePtr ColumnDictionaryTest::column_dict_str;
 } // namespace doris::vectorized

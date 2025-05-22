@@ -52,7 +52,7 @@ TEST_P(AggMinMaxTest, min_max_test) {
     // Prepare test data.
     auto column_vector_int32 = ColumnVector<Int32>::create();
     for (int i = 0; i < agg_test_batch_size; i++) {
-        column_vector_int32->insert(cast_to_nearest_field_type(i));
+        column_vector_int32->insert(Field::create_field<TYPE_INT>(cast_to_nearest_field_type(i)));
     }
 
     // Prepare test function and parameters.
@@ -83,8 +83,8 @@ TEST_P(AggMinMaxTest, min_max_decimal_test) {
     // Prepare test data.
     auto column_vector_decimal128 = data_type->create_column();
     for (int i = 0; i < agg_test_batch_size; i++) {
-        column_vector_decimal128->insert(
-                cast_to_nearest_field_type(DecimalField<Decimal128V2>(Decimal128V2(i), 9)));
+        column_vector_decimal128->insert(Field::create_field<TYPE_DECIMALV2>(
+                cast_to_nearest_field_type(DecimalField<Decimal128V2>(Decimal128V2(i), 9))));
     }
 
     // Prepare test function and parameters.
