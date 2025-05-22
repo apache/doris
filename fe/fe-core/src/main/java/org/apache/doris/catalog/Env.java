@@ -3516,10 +3516,6 @@ public class Env {
         return catalogIf.createTable(stmt);
     }
 
-    public void createTableLike(CreateTableLikeStmt stmt) throws DdlException {
-        getInternalCatalog().createTableLike(stmt);
-    }
-
     public void createTableAsSelect(CreateTableAsSelectStmt stmt) throws DdlException {
         getInternalCatalog().createTableAsSelect(stmt);
     }
