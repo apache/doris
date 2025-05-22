@@ -70,7 +70,6 @@ import org.apache.doris.analysis.CreateFileStmt;
 import org.apache.doris.analysis.CreateFunctionStmt;
 import org.apache.doris.analysis.CreateJobStmt;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
-import org.apache.doris.analysis.CreatePolicyStmt;
 import org.apache.doris.analysis.CreateRepositoryStmt;
 import org.apache.doris.analysis.CreateResourceStmt;
 import org.apache.doris.analysis.CreateRoleStmt;
@@ -372,8 +371,6 @@ public class DdlExecutor {
             env.getColocateTableIndex().alterColocateGroup((AlterColocateGroupStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterWorkloadGroupStmt) {
             env.getWorkloadGroupMgr().alterWorkloadGroup((AlterWorkloadGroupStmt) ddlStmt);
-        } else if (ddlStmt instanceof CreatePolicyStmt) {
-            env.getPolicyMgr().createPolicy((CreatePolicyStmt) ddlStmt);
         } else if (ddlStmt instanceof DropPolicyStmt) {
             env.getPolicyMgr().dropPolicy((DropPolicyStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterPolicyStmt) {
@@ -435,7 +432,9 @@ public class DdlExecutor {
             DropAnalyzeJobStmt analyzeJobStmt = (DropAnalyzeJobStmt) ddlStmt;
             Env.getCurrentEnv().getAnalysisManager().dropAnalyzeJob(analyzeJobStmt);
         } else if (ddlStmt instanceof AlterRepositoryStmt) {
-            env.getBackupHandler().alterRepository((AlterRepositoryStmt) ddlStmt);
+            AlterRepositoryStmt alterRepositoryStmt = (AlterRepositoryStmt) ddlStmt;
+            env.getBackupHandler().alterRepository(alterRepositoryStmt.getName(), alterRepositoryStmt.getProperties(),
+                    false);
         } else if (ddlStmt instanceof CreateStorageVaultStmt) {
             env.getStorageVaultMgr().createStorageVaultResource((CreateStorageVaultStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateStageStmt) {

@@ -36,15 +36,11 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/serde/data_type_serde.h"
 
-namespace doris {
-namespace vectorized {
+namespace doris::vectorized {
 class BufferReadable;
 class BufferWritable;
 class IColumn;
-} // namespace vectorized
-} // namespace doris
 
-namespace doris::vectorized {
 class DataTypeBitMap : public IDataType {
 public:
     DataTypeBitMap() = default;
@@ -92,12 +88,13 @@ public:
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
     Status from_string(ReadBuffer& rb, IColumn* column) const override;
 
-    Field get_default() const override { return BitmapValue::empty_bitmap(); }
+    Field get_default() const override {
+        return Field::create_field<TYPE_OBJECT>(BitmapValue::empty_bitmap());
+    }
 
     [[noreturn]] Field get_field(const TExprNode& node) const override {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Unimplemented get_field for BitMap");
-        __builtin_unreachable();
     }
 
     static void serialize_as_stream(const BitmapValue& value, BufferWritable& buf);

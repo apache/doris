@@ -22,7 +22,9 @@
 
 #include <gtest/gtest.h>
 
+#include "runtime/primitive_type.h"
 #include "vec/common/allocator_fwd.h"
+#include "vec/core/field.h"
 
 namespace doris {
 

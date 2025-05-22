@@ -645,6 +645,8 @@ inline constexpr bool IsDecimalNumber<Decimal128V2> = true;
 template <>
 inline constexpr bool IsDecimalNumber<Decimal128V3> = true;
 template <>
+inline constexpr bool IsDecimalNumber<DecimalV2Value> = true;
+template <>
 inline constexpr bool IsDecimalNumber<Decimal256> = true;
 
 template <typename T>

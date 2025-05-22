@@ -30,35 +30,35 @@
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
-template <template <typename> class Function, template <typename> class Data>
+template <template <typename> class Function, template <PrimitiveType> class Data>
 AggregateFunctionPtr create_function_single_value(const String& name,
                                                   const DataTypes& argument_types,
                                                   const bool result_is_nullable) {
     switch (argument_types[0]->get_primitive_type()) {
     case PrimitiveType::TYPE_BOOLEAN:
-        return creator_without_type::create<Function<Data<UInt8>>>(argument_types,
-                                                                   result_is_nullable);
+        return creator_without_type::create<Function<Data<TYPE_BOOLEAN>>>(argument_types,
+                                                                          result_is_nullable);
     case PrimitiveType::TYPE_TINYINT:
-        return creator_without_type::create<Function<Data<Int8>>>(argument_types,
-                                                                  result_is_nullable);
+        return creator_without_type::create<Function<Data<TYPE_TINYINT>>>(argument_types,
+                                                                          result_is_nullable);
     case PrimitiveType::TYPE_SMALLINT:
-        return creator_without_type::create<Function<Data<Int16>>>(argument_types,
-                                                                   result_is_nullable);
+        return creator_without_type::create<Function<Data<TYPE_SMALLINT>>>(argument_types,
+                                                                           result_is_nullable);
     case PrimitiveType::TYPE_INT:
-        return creator_without_type::create<Function<Data<Int32>>>(argument_types,
-                                                                   result_is_nullable);
+        return creator_without_type::create<Function<Data<TYPE_INT>>>(argument_types,
+                                                                      result_is_nullable);
     case PrimitiveType::TYPE_BIGINT:
-        return creator_without_type::create<Function<Data<Int64>>>(argument_types,
-                                                                   result_is_nullable);
+        return creator_without_type::create<Function<Data<TYPE_BIGINT>>>(argument_types,
+                                                                         result_is_nullable);
     case PrimitiveType::TYPE_LARGEINT:
-        return creator_without_type::create<Function<Data<Int128>>>(argument_types,
-                                                                    result_is_nullable);
+        return creator_without_type::create<Function<Data<TYPE_LARGEINT>>>(argument_types,
+                                                                           result_is_nullable);
     case PrimitiveType::TYPE_FLOAT:
-        return creator_without_type::create<Function<Data<Float32>>>(argument_types,
-                                                                     result_is_nullable);
+        return creator_without_type::create<Function<Data<TYPE_FLOAT>>>(argument_types,
+                                                                        result_is_nullable);
     case PrimitiveType::TYPE_DOUBLE:
-        return creator_without_type::create<Function<Data<Float64>>>(argument_types,
-                                                                     result_is_nullable);
+        return creator_without_type::create<Function<Data<TYPE_DOUBLE>>>(argument_types,
+                                                                         result_is_nullable);
     default:
         LOG(WARNING) << fmt::format("create_function_single_value with unknowed type {}",
                                     argument_types[0]->get_name());
