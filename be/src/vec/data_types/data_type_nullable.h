@@ -79,7 +79,7 @@ public:
 
     Field get_field(const TExprNode& node) const override {
         if (node.node_type == TExprNodeType::NULL_LITERAL) {
-            return Null();
+            return Field();
         }
         return nested_data_type->get_field(node);
     }
