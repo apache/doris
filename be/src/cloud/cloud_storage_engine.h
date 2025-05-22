@@ -24,6 +24,7 @@
 //#include "cloud/cloud_full_compaction.h"
 #include "cloud/cloud_cumulative_compaction_policy.h"
 #include "cloud/cloud_tablet.h"
+#include "cloud/config.h"
 #include "cloud/schema_cloud_dictionary_cache.h"
 #include "cloud_txn_delete_bitmap_cache.h"
 #include "io/cache/block_file_cache_factory.h"
@@ -136,7 +137,7 @@ public:
     std::shared_ptr<CloudCumulativeCompactionPolicy> cumu_compaction_policy(
             std::string_view compaction_policy);
 
-    void sync_storage_vault();
+    void sync_storage_vault(bool check = false);
 
     io::FileCacheBlockDownloader& file_cache_block_downloader() const {
         return *_file_cache_block_downloader;
@@ -170,6 +171,8 @@ private:
                                                   std::shared_ptr<CloudCompactionMixin> compaction);
     void _lease_compaction_thread_callback();
     void _check_tablet_delete_bitmap_score_callback();
+
+    bool _enable_check_storage_vault() { return config::enable_check_storage_vault; };
 
     std::atomic_bool _stopped {false};
 
