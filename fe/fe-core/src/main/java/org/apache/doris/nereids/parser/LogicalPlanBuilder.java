@@ -7659,6 +7659,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return new ShowWorkloadGroupsCommand(likePattern);
     }
 
+    @Override
     public LogicalPlan visitShowCopy(DorisParser.ShowCopyContext ctx) {
         String dbName = null;
         if (ctx.database != null) {
