@@ -59,7 +59,6 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.commands.AlterCommand;
-import org.apache.doris.nereids.trees.plans.commands.CancelCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelAlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
 import org.apache.doris.persist.BatchDropInfo;

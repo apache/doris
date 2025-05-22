@@ -71,6 +71,7 @@ public class CancelDecommissionBackendCommandTest {
 
     @Test
     public void testValidateNormal() {
+        runBefore();
         List<String> params = new ArrayList<>();
         params.add("192.168.1.120:30111");
         params.add("192.168.1.121:30111");

@@ -88,7 +88,6 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.commands.AlterCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelAlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelBuildIndexCommand;
-import org.apache.doris.nereids.trees.plans.commands.CancelCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.persist.AlterLightSchemaChangeInfo;
 import org.apache.doris.persist.RemoveAlterJobV2OperationLog;
