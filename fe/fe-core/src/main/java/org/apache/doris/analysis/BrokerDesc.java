@@ -25,6 +25,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TFileType;
 
@@ -92,7 +93,7 @@ public class BrokerDesc extends StorageDesc implements Writable {
                 this.storageProperties = StorageProperties.createPrimary(this.properties);
                 // Override the storage type based on property configuration
                 this.storageType = StorageBackend.StorageType.valueOf(storageProperties.getStorageName());
-            } catch (RuntimeException e) {
+            } catch (StoragePropertiesException e) {
                 // Currently ignored: these properties might be broker-specific.
                 // Support for broker properties will be added in the future.
                 LOG.info("Failed to create storage properties for broker: {}, properties: {}", name, properties, e);
