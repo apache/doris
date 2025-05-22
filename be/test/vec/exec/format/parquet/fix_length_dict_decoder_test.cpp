@@ -481,10 +481,10 @@ TEST_F(FixLengthDictDecoderTest, test_read_dict_values_to_column) {
 TEST_F(FixLengthDictDecoderTest, test_convert_dict_column_to_string_column) {
     // Create a ColumnInt32 with some dictionary codes
     MutableColumnPtr dict_column = ColumnInt32::create();
-    dict_column->insert(0);
-    dict_column->insert(1);
-    dict_column->insert(2);
-    dict_column->insert(1);
+    dict_column->insert(vectorized::Field::create_field<TYPE_INT>(0));
+    dict_column->insert(vectorized::Field::create_field<TYPE_INT>(1));
+    dict_column->insert(vectorized::Field::create_field<TYPE_INT>(2));
+    dict_column->insert(vectorized::Field::create_field<TYPE_INT>(1));
 
     // Convert to string column
     MutableColumnPtr string_column = _decoder.convert_dict_column_to_string_column(
