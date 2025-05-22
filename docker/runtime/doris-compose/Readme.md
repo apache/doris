@@ -51,6 +51,25 @@ docker build -f docker/runtime/doris-compose/Dockerfile -t <image> .
 
 The `<image>` is the name you want the docker image to have.
 
+User can also download a doris release package from [Doris Home](https://doris.apache.org/docs/releasenotes/all-release) or [Doris Github](https://github.com/apache/doris/releases), extract it, then build its image with arg `OUTPUT_PATH`
+
+for example:
+
+ ```shell
+cd ~/tmp
+wget https://apache-doris-releases.oss-accelerate.aliyuncs.com/apache-doris-3.0.5-bin-x64.tar.gz
+tar xvf apache-doris-3.0.5-bin-x64.tar.gz  # after extract, there will be a directory ./apache-doris-3.0.5-bin-x64/{fe, be, ms}
+
+# -f: the Dockerfile file
+# -t: the builded image
+# . : current directory, here it's ~/tmp, then output path is ~/tmp/apache-doris-3.0.5-bin-x64
+docker build \
+     --build-arg OUTPUT_PATH=./apache-doris-3.0.5-bin-x64 \
+     -f ~/workspace/doris/docker/runtime/doris-compose/Dockerfile \
+     -t my-doris:v3.0.5 \
+     .
+```
+
 ### 3. Install the dependent python library in 'docker/runtime/doris-compose/requirements.txt'
 
 `PyYAML` of certain version not always fit other libraries' requirements. So we suggest to use a individual environment using `venv` or `conda`.
