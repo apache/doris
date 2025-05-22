@@ -26,10 +26,7 @@ suite("test_variant_array_function", "p0") {
     sql """
        CREATE TABLE IF NOT EXISTS ${tableName} (
               `id` INT(11) null COMMENT "",
-              `var` variant<
-              MATCH_NAME_GLOB 'a*':array<int>,
-              MATCH_NAME_GLOB 'b*':array<string>
-              > null
+              `var` variant  null
             ) ENGINE=OLAP
             DUPLICATE KEY(`id`)
             DISTRIBUTED BY HASH(`id`) BUCKETS 1
