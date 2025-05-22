@@ -317,6 +317,7 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
                 return;
             }
             jobId = jobs.get(0).getJobId();
+            job.setJobId(jobId);
         }
 
         if (!jobMap.containsKey(jobId)) {
