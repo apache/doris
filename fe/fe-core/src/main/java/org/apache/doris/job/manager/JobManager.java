@@ -309,7 +309,7 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
         // In previous versions, the job ID in MTMV was not fixed (a new ID would be generated each time the editLog
         // was replayed), but the name was constant and unique. However, since job updates use jobId as the key,
         // it is possible that this jobId no longer exists. Therefore, we now look up the ID based on the name.
-        if (!jobMap.contains(jobId) && job instanceof MTMVJob) {
+        if (!jobMap.containsKey(jobId) && job instanceof MTMVJob) {
             List<T> jobs = queryJobs(JobType.MV, job.getJobName());
             if (CollectionUtils.isEmpty(jobs) || jobs.size() != 1) {
                 LOG.warn("jobs by name: {} not normal,should have one job,but job num is: {}", job.getJobName(),
@@ -318,7 +318,8 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
             }
             jobId = jobs.get(0).getJobId();
         }
-        if (!jobMap.contains(jobId)) {
+
+        if (!jobMap.containsKey(jobId)) {
             LOG.warn("replayUpdateJob not normal, job: {}, jobId: {}, jobMap: {}", job, jobId, jobMap);
             return;
         }
