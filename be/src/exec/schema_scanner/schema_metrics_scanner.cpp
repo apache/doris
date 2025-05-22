@@ -45,7 +45,7 @@ Status SchemaMetricsScanner::start(RuntimeState* state) {
 
     TGetMetricsRequest request;
     RETURN_IF_ERROR(SchemaHelper::get_metrics(
-        *(_param->common_param->ip), _param->common_param->port, request, &_metrics_result));
+            *(_param->common_param->ip), _param->common_param->port, request, &_metrics_result));
     return Status::OK();
 }
 
