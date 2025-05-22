@@ -210,6 +210,18 @@ suite("test_doris_jdbc_catalog", "p0,external,doris,external_docker,external_doc
     sql """ switch doris_jdbc_catalog """
     qt_sql """select current_catalog()"""
     sql """ use regression_test_jdbc_catalog_p0 """
+
+    def yxctest = 
+    sql """
+       desc verbose select pin_id, hll_union_agg(user_log_acct) from doris_jdbc_catalog.regression_test_jdbc_catalog_p0.bowen_hll_test group by pin_id; 
+    """
+
+    println "yxctest结果:"
+
+    for (int i = 0; i < yxctest.size(); i++) {
+        println yxctest[i]
+    }   
+
     order_qt_tb2 """ select pin_id, hll_union_agg(user_log_acct) from doris_jdbc_catalog.regression_test_jdbc_catalog_p0.bowen_hll_test group by pin_id; """
     order_qt_base2 """ select * from doris_jdbc_catalog.regression_test_jdbc_catalog_p0.base order by int_col; """
     order_qt_all_null2 """ select * from doris_jdbc_catalog.regression_test_jdbc_catalog_p0.all_null_tbl order by int_col; """
