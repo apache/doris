@@ -82,3 +82,18 @@ Spark
 -- !sql_gcm_8 --
 Spark SQL
 
+-- !sql_empty1 --
+1AA197B230C9488519819C2D25AF4CB0
+
+-- !sql_empty2 --
+1AA197B230C9488519819C2D25AF4CB0
+
+-- !sql_empty3 --
+1AA197B230C9488519819C2D25AF4CB0
+
+-- !sql_empty4 --
+0D56319E329CDA9ABDF5870B9D5ACA57
+
+-- !sql_empty5 --
+
+
