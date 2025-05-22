@@ -71,7 +71,7 @@ public:
         DateV2Value<DateV2ValueType> value;
         if (value.from_date_str(node.date_literal.value.c_str(),
                                 cast_set<Int32>(node.date_literal.value.size()))) {
-            return value.to_date_int_val();
+            return Field::create_field<TYPE_DATEV2>(value.to_date_int_val());
         } else {
             throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
                                    "Invalid value: {} for type DateV2", node.date_literal.value);
@@ -149,7 +149,7 @@ public:
                 node.type.types.empty() ? -1 : node.type.types.front().scalar_type.scale;
         if (value.from_date_str(node.date_literal.value.c_str(),
                                 cast_set<int32_t>(node.date_literal.value.size()), scale)) {
-            return value.to_date_int_val();
+            return Field::create_field<TYPE_DATETIMEV2>(value.to_date_int_val());
         } else {
             throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
                                    "Invalid value: {} for type DateTimeV2({})",

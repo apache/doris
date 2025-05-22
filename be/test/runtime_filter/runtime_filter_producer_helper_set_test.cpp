@@ -70,8 +70,8 @@ TEST_F(RuntimeFilterProducerHelperSetTest, basic) {
 
     vectorized::Block block;
     auto column = vectorized::ColumnInt32::create();
-    column->insert(1);
-    column->insert(2);
+    column->insert(vectorized::Field::create_field<TYPE_INT>(1));
+    column->insert(vectorized::Field::create_field<TYPE_INT>(2));
     block.insert({std::move(column), std::make_shared<vectorized::DataTypeInt32>(), "col1"});
 
     std::map<int, std::shared_ptr<RuntimeFilterWrapper>> runtime_filters;
