@@ -30,7 +30,7 @@
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
-template <typename T>
+template <PrimitiveType T>
 AggregateFunctionPtr create_agg_function_histogram(const DataTypes& argument_types,
                                                    const bool result_is_nullable) {
     bool has_input_param = (argument_types.size() == 2);
@@ -52,42 +52,45 @@ AggregateFunctionPtr create_aggregate_function_histogram(const std::string& name
                                                          const AggregateFunctionAttr& attr) {
     switch (argument_types[0]->get_primitive_type()) {
     case PrimitiveType::TYPE_BOOLEAN:
-        return create_agg_function_histogram<UInt8>(argument_types, result_is_nullable);
+        return create_agg_function_histogram<TYPE_BOOLEAN>(argument_types, result_is_nullable);
     case PrimitiveType::TYPE_TINYINT:
-        return create_agg_function_histogram<Int8>(argument_types, result_is_nullable);
+        return create_agg_function_histogram<TYPE_TINYINT>(argument_types, result_is_nullable);
     case PrimitiveType::TYPE_SMALLINT:
-        return create_agg_function_histogram<Int16>(argument_types, result_is_nullable);
+        return create_agg_function_histogram<TYPE_SMALLINT>(argument_types, result_is_nullable);
     case PrimitiveType::TYPE_INT:
-        return create_agg_function_histogram<Int32>(argument_types, result_is_nullable);
+        return create_agg_function_histogram<TYPE_INT>(argument_types, result_is_nullable);
     case PrimitiveType::TYPE_BIGINT:
-        return create_agg_function_histogram<Int64>(argument_types, result_is_nullable);
+        return create_agg_function_histogram<TYPE_BIGINT>(argument_types, result_is_nullable);
     case PrimitiveType::TYPE_LARGEINT:
-        return create_agg_function_histogram<Int128>(argument_types, result_is_nullable);
+        return create_agg_function_histogram<TYPE_LARGEINT>(argument_types, result_is_nullable);
     case PrimitiveType::TYPE_FLOAT:
-        return create_agg_function_histogram<Float32>(argument_types, result_is_nullable);
+        return create_agg_function_histogram<TYPE_FLOAT>(argument_types, result_is_nullable);
     case PrimitiveType::TYPE_DOUBLE:
-        return create_agg_function_histogram<Float64>(argument_types, result_is_nullable);
+        return create_agg_function_histogram<TYPE_DOUBLE>(argument_types, result_is_nullable);
     case PrimitiveType::TYPE_DECIMAL32:
-        return create_agg_function_histogram<Decimal32>(argument_types, result_is_nullable);
+        return create_agg_function_histogram<TYPE_DECIMAL32>(argument_types, result_is_nullable);
     case PrimitiveType::TYPE_DECIMAL64:
-        return create_agg_function_histogram<Decimal64>(argument_types, result_is_nullable);
+        return create_agg_function_histogram<TYPE_DECIMAL64>(argument_types, result_is_nullable);
     case PrimitiveType::TYPE_DECIMAL128I:
-        return create_agg_function_histogram<Decimal128V3>(argument_types, result_is_nullable);
+        return create_agg_function_histogram<TYPE_DECIMAL128I>(argument_types, result_is_nullable);
     case PrimitiveType::TYPE_DECIMALV2:
-        return create_agg_function_histogram<Decimal128V2>(argument_types, result_is_nullable);
+        return create_agg_function_histogram<TYPE_DECIMALV2>(argument_types, result_is_nullable);
     case PrimitiveType::TYPE_DECIMAL256:
-        return create_agg_function_histogram<Decimal256>(argument_types, result_is_nullable);
+        return create_agg_function_histogram<TYPE_DECIMAL256>(argument_types, result_is_nullable);
     case PrimitiveType::TYPE_CHAR:
+        return create_agg_function_histogram<TYPE_CHAR>(argument_types, result_is_nullable);
     case PrimitiveType::TYPE_VARCHAR:
+        return create_agg_function_histogram<TYPE_VARCHAR>(argument_types, result_is_nullable);
     case PrimitiveType::TYPE_STRING:
-        return create_agg_function_histogram<String>(argument_types, result_is_nullable);
+        return create_agg_function_histogram<TYPE_STRING>(argument_types, result_is_nullable);
     case PrimitiveType::TYPE_DATE:
+        return create_agg_function_histogram<TYPE_DATE>(argument_types, result_is_nullable);
     case PrimitiveType::TYPE_DATETIME:
-        return create_agg_function_histogram<Int64>(argument_types, result_is_nullable);
+        return create_agg_function_histogram<TYPE_DATETIME>(argument_types, result_is_nullable);
     case PrimitiveType::TYPE_DATEV2:
-        return create_agg_function_histogram<UInt32>(argument_types, result_is_nullable);
+        return create_agg_function_histogram<TYPE_DATEV2>(argument_types, result_is_nullable);
     case PrimitiveType::TYPE_DATETIMEV2:
-        return create_agg_function_histogram<UInt64>(argument_types, result_is_nullable);
+        return create_agg_function_histogram<TYPE_DATETIMEV2>(argument_types, result_is_nullable);
     default:
         LOG(WARNING) << fmt::format("unsupported input type {} for aggregate function {}",
                                     argument_types[0]->get_name(), name);
