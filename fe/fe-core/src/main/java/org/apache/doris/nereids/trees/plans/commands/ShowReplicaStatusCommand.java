@@ -28,10 +28,10 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Not;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
@@ -105,16 +105,32 @@ public class ShowReplicaStatusCommand extends ShowCommand {
             return true;
         }
 
-        if (!(where instanceof EqualTo) || !(where instanceof Not)) {
+        if (!(where instanceof EqualTo || where instanceof Not)) {
             return false;
         }
 
-        Expression leftExpr = where.child(0);
-        if (!(leftExpr instanceof Slot)) {
+        if (where instanceof Not) {
+            if (!(where.child(0) instanceof EqualTo)) {
+                return false;
+            }
+        }
+
+        Expression leftExpr = null;
+        if (where instanceof EqualTo) {
+            leftExpr = where.child(0);
+        } else if (where instanceof Not) {
+            leftExpr = where.child(0).child(0);
+        }
+
+        if (leftExpr == null) {
             return false;
         }
 
-        String leftKey = ((Slot) leftExpr).getName();
+        if (!(leftExpr instanceof UnboundSlot)) {
+            return false;
+        }
+
+        String leftKey = ((UnboundSlot) leftExpr).getName();
         if (!leftKey.equalsIgnoreCase("status")) {
             return false;
         }

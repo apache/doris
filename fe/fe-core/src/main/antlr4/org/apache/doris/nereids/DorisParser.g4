@@ -394,7 +394,7 @@ supportedShowStatement
     | SHOW CATALOG RECYCLE BIN (WHERE expression)?                                  #showCatalogRecycleBin
     | SHOW TABLET tabletId=INTEGER_VALUE                                            #showTabletId
     | SHOW DICTIONARIES wildWhere?                                                  #showDictionaries
-    | SHOW REPLICA STATUS FROM baseTableRef wildWhere?                              #showReplicaStatus
+    | SHOW REPLICA STATUS FROM baseTableRef whereClause?                            #showReplicaStatus
     | SHOW COPY ((FROM | IN) database=identifier)?
         whereClause? sortClause? limitClause?                                       #showCopy
     | SHOW QUERY STATS ((FOR database=identifier)

@@ -7654,14 +7654,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public LogicalPlan visitShowReplicaStatus(DorisParser.ShowReplicaStatusContext ctx) {
         TableRefInfo tableRefInfo = visitBaseTableRefContext(ctx.baseTableRef());
         Expression whereClause = null;
-        if (ctx.wildWhere() != null) {
-            if (ctx.wildWhere().WHERE() != null) {
-                whereClause = getExpression(ctx.wildWhere().expression());
-            }
+        if (ctx.whereClause() != null) {
+            whereClause = getExpression(ctx.whereClause().booleanExpression());
         }
         return new ShowReplicaStatusCommand(tableRefInfo, whereClause);
     }
 
+    @Override
     public LogicalPlan visitShowCopy(DorisParser.ShowCopyContext ctx) {
         String dbName = null;
         if (ctx.database != null) {
