@@ -26,7 +26,7 @@
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
-template <template <typename> class Data>
+template <template <PrimitiveType> class Data>
 AggregateFunctionPtr create_aggregate_function_uniq(const std::string& name,
                                                     const DataTypes& argument_types,
                                                     const bool result_is_nullable,
@@ -41,25 +41,25 @@ AggregateFunctionPtr create_aggregate_function_uniq(const std::string& name,
             switch (argument_types[0]->get_primitive_type()) {
             case PrimitiveType::TYPE_DECIMAL32:
                 return creator_without_type::create<
-                        AggregateFunctionUniqDistributeKey<Decimal32, Data<Int32>>>(
+                        AggregateFunctionUniqDistributeKey<TYPE_DECIMAL32, Data<TYPE_DECIMAL32>>>(
                         argument_types, result_is_nullable);
             case PrimitiveType::TYPE_DECIMAL64:
                 return creator_without_type::create<
-                        AggregateFunctionUniqDistributeKey<Decimal64, Data<Int64>>>(
+                        AggregateFunctionUniqDistributeKey<TYPE_DECIMAL32, Data<TYPE_DECIMAL64>>>(
                         argument_types, result_is_nullable);
             case PrimitiveType::TYPE_DECIMAL128I:
                 return creator_without_type::create<
-                        AggregateFunctionUniqDistributeKey<Decimal128V3, Data<Int128>>>(
+                        AggregateFunctionUniqDistributeKey<TYPE_DECIMAL32, Data<TYPE_DECIMAL128I>>>(
                         argument_types, result_is_nullable);
             case PrimitiveType::TYPE_DECIMALV2:
                 return creator_without_type::create<
-                        AggregateFunctionUniqDistributeKey<Decimal128V2, Data<Int128>>>(
+                        AggregateFunctionUniqDistributeKey<TYPE_DECIMAL32, Data<TYPE_DECIMALV2>>>(
                         argument_types, result_is_nullable);
             case PrimitiveType::TYPE_STRING:
             case PrimitiveType::TYPE_CHAR:
             case PrimitiveType::TYPE_VARCHAR:
                 return creator_without_type::create<
-                        AggregateFunctionUniqDistributeKey<String, Data<String>>>(
+                        AggregateFunctionUniqDistributeKey<TYPE_STRING, Data<TYPE_STRING>>>(
                         argument_types, result_is_nullable);
             default:
                 break;
