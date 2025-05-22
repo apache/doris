@@ -173,18 +173,22 @@ Status ParallelScannerBuilder::_load() {
         bool enable_segment_cache = _state->query_options().__isset.enable_segment_cache
                                             ? _state->query_options().enable_segment_cache
                                             : true;
-        for (auto& rs_split : read_source.rs_splits) {
+        for (const auto& rs_split : read_source.rs_splits) {
             auto rowset = rs_split.rs_reader->rowset();
             RETURN_IF_ERROR(rowset->load());
             const auto rowset_id = rowset->rowset_id();
             SegmentCacheHandle segment_cache_handle;
 
+            auto beta_rowset = std::dynamic_pointer_cast<BetaRowset>(rowset);
+            std::vector<uint32_t> segment_rows;
+            RETURN_IF_ERROR(beta_rowset->get_segment_num_rows(&segment_rows));
+
             RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(
                     std::dynamic_pointer_cast<BetaRowset>(rowset), &segment_cache_handle,
                     enable_segment_cache, false));
 
-            for (const auto& segment : segment_cache_handle.get_segments()) {
-                _all_segments_rows[rowset_id].emplace_back(segment->num_rows());
+            for (const auto& rows : segment_rows) {
+                _all_segments_rows[rowset_id].emplace_back(rows);
             }
             _total_rows += rowset->num_rows();
         }

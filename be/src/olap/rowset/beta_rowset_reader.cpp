@@ -24,7 +24,6 @@
 #include <ostream>
 #include <roaring/roaring.hh>
 #include <set>
-#include <string>
 #include <unordered_map>
 #include <utility>
 
@@ -34,9 +33,6 @@
 #include "olap/block_column_predicate.h"
 #include "olap/column_predicate.h"
 #include "olap/delete_handler.h"
-#include "olap/olap_define.h"
-#include "olap/row_cursor.h"
-#include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_reader_context.h"
 #include "olap/rowset/segment_v2/lazy_init_segment_iterator.h"
 #include "olap/rowset/segment_v2/segment.h"
@@ -220,6 +216,43 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
                     : 0;
     if (_read_options.io_ctx.expiration_time <= UnixSeconds()) {
         _read_options.io_ctx.expiration_time = 0;
+    }
+
+    if (config::enable_rowset_zone_map_cache) {
+        RETURN_IF_ERROR(_rowset->load_segment_rows_and_zone_maps());
+        const auto& zone_maps = _rowset->get_zone_maps();
+        for (auto& col_to_predicate : _read_options.col_id_to_predicates) {
+            auto col_id = col_to_predicate.first;
+            auto& predicate = col_to_predicate.second;
+
+            if (zone_maps.find(col_id) == zone_maps.end()) {
+                continue;
+            }
+
+            const auto& zone_map = zone_maps.at(col_id);
+
+            if (!zone_map->has_not_null && !zone_map->has_null) {
+                LOG(INFO) << "zone map filter failed for column id: " << col_id << " empty rowset.";
+                return Status::OK();
+            }
+
+            if (zone_map->pass_all || !zone_map->min_value || !zone_map->max_value) {
+                continue;
+            }
+
+            if (!predicate->can_do_apply_safely(zone_map->primitive_type, false)) {
+                LOG(INFO) << "predicate can not apply safely, col id: " << col_id
+                          << ", primitive_type: " << static_cast<int32_t>(zone_map->primitive_type);
+                continue;
+            }
+
+            if (!predicate->evaluate_and({zone_map->min_value.get(), zone_map->max_value.get()})) {
+                LOG(INFO) << "zone map filter failed for column id: " << col_id
+                          << ", min_value: " << zone_map->min_value->to_string()
+                          << ", max_value: " << zone_map->max_value->to_string();
+                return Status::OK();
+            }
+        }
     }
 
     // load segments

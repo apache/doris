@@ -699,6 +699,84 @@ Status Segment::_create_column_readers(const SegmentFooterPB& footer) {
     return Status::OK();
 }
 
+std::map<uint32_t, std::unique_ptr<Segment::ParsedZoneMap>> Segment::get_zone_maps() {
+    std::map<uint32_t, std::unique_ptr<ParsedZoneMap>> zone_maps;
+    const auto& schema_columns = _tablet_schema->columns();
+    const auto pb_columns_count = _footer_pb->columns().size();
+    if (pb_columns_count <= 0) {
+        return {};
+    }
+
+    const auto columns_count =
+            std::min(schema_columns.size(), static_cast<size_t>(pb_columns_count));
+
+    if (columns_count >= 100) {
+        return {};
+    }
+
+    for (uint32_t ordinal = 0; ordinal != columns_count; ++ordinal) {
+        const auto& column_pb = _footer_pb->columns(ordinal);
+        const auto& column = _tablet_schema->column(ordinal);
+        if (column.unique_id() < 0 || column.unique_id() != column_pb.unique_id()) {
+            VLOG_DEBUG << "skip zone map for unmatched col id: " << column.unique_id() << " : "
+                       << column_pb.unique_id() << ", column name: " << column.name();
+            continue;
+        }
+
+        for (int i = 0; i < column_pb.indexes_size(); i++) {
+            const auto& index_meta = column_pb.indexes(i);
+            if (index_meta.type() != ZONE_MAP_INDEX) {
+                continue;
+            }
+
+            ZoneMapPB zone_map_pb(index_meta.zone_map_index().segment_zone_map());
+
+            auto parsed_zone_map = std::make_unique<ParsedZoneMap>();
+            std::unique_ptr<WrapperField> min_value(
+                    WrapperField::create_by_type((FieldType)column_pb.type(), column_pb.length()));
+            std::unique_ptr<WrapperField> max_value(
+                    WrapperField::create_by_type((FieldType)column_pb.type(), column_pb.length()));
+
+            parsed_zone_map->min_value = std::move(min_value);
+            parsed_zone_map->max_value = std::move(max_value);
+            parsed_zone_map->primitive_type =
+                    column.get_vec_type()->get_type_as_type_descriptor().type;
+
+            if (zone_map_pb.has_not_null()) {
+                if (auto st = parsed_zone_map->min_value->from_string(zone_map_pb.min());
+                    !st.ok()) {
+                    return {};
+                }
+                if (auto st = parsed_zone_map->max_value->from_string(zone_map_pb.max());
+                    !st.ok()) {
+                    return {};
+                }
+                parsed_zone_map->has_not_null = true;
+            }
+
+            // for compatible original Cond eval logic
+            if (zone_map_pb.has_null()) {
+                // for compatible, if exist null, original logic treat null as min
+                parsed_zone_map->min_value->set_null();
+                if (!zone_map_pb.has_not_null()) {
+                    // for compatible OlapCond's 'is not null'
+                    parsed_zone_map->max_value->set_null();
+                }
+            }
+
+            parsed_zone_map->has_null = zone_map_pb.has_null();
+            parsed_zone_map->pass_all = zone_map_pb.pass_all();
+
+            VLOG_DEBUG << "got zone map for col: " << column.unique_id()
+                       << ", min: " << parsed_zone_map->min_value->to_string()
+                       << ", max: " << parsed_zone_map->max_value->to_string();
+            zone_maps[column.unique_id()] = std::move(parsed_zone_map);
+            break;
+        }
+    }
+    return zone_maps;
+}
+
 static Status new_default_iterator(const TabletColumn& tablet_column,
                                    std::unique_ptr<ColumnIterator>* iter) {
     if (!tablet_column.has_default_value() && !tablet_column.is_nullable()) {

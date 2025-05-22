@@ -40,6 +40,7 @@
 #include "olap/rowset/segment_v2/stream_reader.h"
 #include "olap/schema.h"
 #include "olap/tablet_schema.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
 #include "util/once.h"
 #include "util/slice.h"
@@ -213,6 +214,17 @@ public:
     }
 
     const TabletSchemaSPtr& tablet_schema() { return _tablet_schema; }
+
+    struct ParsedZoneMap {
+        std::unique_ptr<WrapperField> min_value;
+        std::unique_ptr<WrapperField> max_value;
+        PrimitiveType primitive_type;
+        bool has_null = false;
+        bool has_not_null = false;
+        bool pass_all = false;
+    };
+
+    std::map<uint32_t, std::unique_ptr<ParsedZoneMap>> get_zone_maps();
 
 private:
     DISALLOW_COPY_AND_ASSIGN(Segment);

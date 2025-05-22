@@ -42,6 +42,7 @@
 #include "olap/rowset/segment_v2/inverted_index_cache.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/rowset/segment_v2/inverted_index_file_reader.h"
+#include "olap/segment_loader.h"
 #include "olap/tablet_schema.h"
 #include "olap/utils.h"
 #include "util/crc32c.h"
@@ -66,6 +67,85 @@ BetaRowset::~BetaRowset() = default;
 
 Status BetaRowset::init() {
     return Status::OK(); // no op
+}
+
+Status BetaRowset::get_segment_num_rows(std::vector<uint32_t>* segment_rows) {
+    RETURN_IF_ERROR(load_segment_rows_and_zone_maps());
+    segment_rows->assign(_segments_rows.cbegin(), _segments_rows.cend());
+    return Status::OK();
+}
+
+Status BetaRowset::load_segment_rows_and_zone_maps() {
+    DCHECK(_rowset_state_machine.rowset_state() == ROWSET_LOADED);
+
+    RETURN_IF_ERROR(_load_segment_rows_and_zone_maps_once.call([this] {
+        auto segment_count = num_segments();
+        _segments_rows.resize(segment_count);
+
+        bool has_invalid_segment = false;
+        size_t columns_has_zone_map_count = 0;
+        for (int64_t i = 0; i != segment_count; ++i) {
+            segment_v2::SegmentSharedPtr segment;
+            RETURN_IF_ERROR(load_segment(i, &segment, nullptr));
+            _segments_rows[i] = segment->num_rows();
+
+            if (!config::enable_rowset_zone_map_cache) {
+                continue;
+            }
+
+            auto zone_maps = segment->get_zone_maps();
+            if (zone_maps.empty()) {
+                if (_segments_rows[i] != 0) {
+                    has_invalid_segment = true;
+                }
+                continue;
+            }
+
+            if (has_invalid_segment) {
+                continue;
+            }
+
+            if (columns_has_zone_map_count == 0) {
+                columns_has_zone_map_count = zone_maps.size();
+            } else if (columns_has_zone_map_count != zone_maps.size()) {
+                has_invalid_segment = true;
+                continue;
+            }
+
+            for (auto&& [uid, zone_map] : zone_maps) {
+                if (_parsed_zone_maps.find(uid) == _parsed_zone_maps.end()) {
+                    _parsed_zone_maps[uid] = std::move(zone_map);
+                    continue;
+                }
+
+                if (zone_map->has_not_null) {
+                    if (!_parsed_zone_maps[uid]->has_not_null) {
+                        _parsed_zone_maps[uid]->min_value = std::move(zone_map->min_value);
+                        _parsed_zone_maps[uid]->max_value = std::move(zone_map->max_value);
+                    } else {
+                        if (_parsed_zone_maps[uid]->min_value->cmp(zone_map->min_value.get()) > 0) {
+                            _parsed_zone_maps[uid]->min_value = std::move(zone_map->min_value);
+                        }
+                        if (_parsed_zone_maps[uid]->max_value->cmp(zone_map->max_value.get()) < 0) {
+                            _parsed_zone_maps[uid]->max_value = std::move(zone_map->max_value);
+                        }
+                    }
+                    _parsed_zone_maps[uid]->has_not_null = true;
+                }
+
+                _parsed_zone_maps[uid]->has_null |= zone_map->has_null;
+                _parsed_zone_maps[uid]->pass_all |= zone_map->pass_all;
+            }
+        }
+
+        if (has_invalid_segment) {
+            LOG(INFO) << "has invalid segment, rowset_id=" << rowset_id();
+            _parsed_zone_maps.clear();
+        }
+        return Status::OK();
+    }));
+
+    return Status::OK();
 }
 
 Status BetaRowset::do_load(bool /*use_cache*/) {
