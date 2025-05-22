@@ -325,7 +325,8 @@ private:
                     res);
 
             block.replace_by_position(
-                    result, DataTypeUInt8().create_column_const(col_left->size(), to_field(res)));
+                    result, DataTypeUInt8().create_column_const(col_left->size(),
+                                                                to_field<TYPE_BOOLEAN>(res)));
             return true;
         }
 
@@ -494,8 +495,8 @@ private:
         if (c0_const && c1_const) {
             UInt8 res = 0;
             GenericComparisonImpl<Op<int, int>>::constant_constant(*c0, *c1, res);
-            block.replace_by_position(
-                    result, DataTypeUInt8().create_column_const(c0->size(), to_field(res)));
+            block.replace_by_position(result, DataTypeUInt8().create_column_const(
+                                                      c0->size(), to_field<TYPE_BOOLEAN>(res)));
         } else {
             auto c_res = ColumnUInt8::create();
             ColumnUInt8::Container& vec_res = c_res->get_data();
@@ -622,13 +623,15 @@ public:
                           std::is_same_v<Op<int, int>, GreaterOrEqualsOp<int, int>>) {
                 block.get_by_position(result).column =
                         DataTypeUInt8()
-                                .create_column_const(input_rows_count, 1u)
+                                .create_column_const(input_rows_count,
+                                                     Field::create_field<TYPE_BOOLEAN>(1))
                                 ->convert_to_full_column_if_const();
                 return Status::OK();
             } else {
                 block.get_by_position(result).column =
                         DataTypeUInt8()
-                                .create_column_const(input_rows_count, 0u)
+                                .create_column_const(input_rows_count,
+                                                     Field::create_field<TYPE_BOOLEAN>(0))
                                 ->convert_to_full_column_if_const();
                 return Status::OK();
             }

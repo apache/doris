@@ -251,7 +251,7 @@ MutableColumnPtr DataTypeNullable::create_column() const {
 }
 
 Field DataTypeNullable::get_default() const {
-    return Null();
+    return Field();
 }
 
 bool DataTypeNullable::equals(const IDataType& rhs) const {

@@ -105,7 +105,7 @@ Array create_empty_array_field(size_t num_dimensions) {
     Array array;
     Array* current_array = &array;
     for (size_t i = 1; i < num_dimensions; ++i) {
-        current_array->push_back(Array());
+        current_array->push_back(Field::create_field<TYPE_ARRAY>(Array()));
         current_array = &current_array->back().get<Array&>();
     }
     return array;
@@ -574,7 +574,8 @@ Status extract(ColumnPtr source, const PathInData& path, MutableColumnPtr& dst) 
                                  : std::make_shared<DataTypeJsonb>();
     ColumnsWithTypeAndName arguments {
             {source, json_type, ""},
-            {type_string->create_column_const(1, Field(String(jsonpath.data(), jsonpath.size()))),
+            {type_string->create_column_const(
+                     1, Field::create_field<TYPE_STRING>(String(jsonpath.data(), jsonpath.size()))),
              type_string, ""}};
     auto function =
             SimpleFunctionFactory::instance().get_function("jsonb_extract", arguments, json_type);

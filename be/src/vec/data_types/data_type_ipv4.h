@@ -64,7 +64,9 @@ public:
     std::string to_string(const IPv4& value) const;
     Status from_string(ReadBuffer& rb, IColumn* column) const override;
 
-    Field get_field(const TExprNode& node) const override { return (IPv4)node.ipv4_literal.value; }
+    Field get_field(const TExprNode& node) const override {
+        return Field::create_field<TYPE_IPV4>(node.ipv4_literal.value);
+    }
 
     MutableColumnPtr create_column() const override;
 
