@@ -419,10 +419,26 @@ public class NereidsPlanner extends Planner {
         if (statementContext.getConnectContext().getExecutor() != null) {
             statementContext.getConnectContext().getExecutor().getSummaryProfile().setNereidsRewriteTime();
         }
+        if (PreMaterializedViewRewriter.needPreRewrite(statementContext)) {
+            return;
+        }
+        // Collect table for final cbo rewrite and init materialization context for mv rewrite
+        cascadesContext.getStatementContext().setTableUsedPartitionNameMap(
+                MaterializedViewUtils.collectTableUsedPartitions(cascadesContext.getRewritePlan()));
+        if (statementContext.getConnectContext().getExecutor() != null) {
+            statementContext.getConnectContext().getExecutor().getSummaryProfile()
+                    .setNereidsCollectTablePartitionFinishTime();
+        }
+        // Init materialize plan hook
+        cascadesContext.getStatementContext().getPlannerHooks().forEach(hook -> hook.afterRewrite(
+                this.getCascadesContext()));
     }
 
     protected void preRewriteByMv() {
-        if (PreMaterializedViewRewriter.needPreRewrite(statementContext)) {
+        if (!PreMaterializedViewRewriter.needPreRewrite(statementContext)) {
+            return;
+        }
+        try {
             // collect partitions table used, this is for query rewrite by materialized view
             // this is needed before init hook
             Multimap<List<String>, Pair<RelationId, Set<String>>> globalTableUsedPartitions = HashMultimap.create();
@@ -437,72 +453,67 @@ public class NereidsPlanner extends Planner {
             // init materialization context for mv rewrite
             cascadesContext.getStatementContext().getPlannerHooks().forEach(hook -> hook.afterRewrite(
                     this.getCascadesContext()));
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("Start pre rewrite plan by mv");
-            }
-            List<Plan> tmpPlanForMvRewrite = cascadesContext.getStatementContext().getTmpPlanForMvRewrite();
-            if (tmpPlanForMvRewrite.isEmpty()) {
-                return;
-            }
-            List<Plan> plansWhichContainMv = new ArrayList<>();
-            for (Plan planForRewrite : tmpPlanForMvRewrite) {
-                try {
-                    MaterializedViewUtils.rewriteByRules(cascadesContext,
-                            childContext -> {
-                                // pre rewrite
-                                Plan rewrittenPlan = PreMaterializedViewRewriter.rewrite(childContext);
-                                if (rewrittenPlan == null) {
-                                    return childContext.getRewritePlan();
-                                }
-                                plansWhichContainMv.add(
-                                        // rewritten plan optimize and normalize
-                                        MaterializedViewUtils.rewriteByRules(cascadesContext,
-                                                childOptContext -> {
-                                                    Rewriter.getWholeTreeRewriterWithoutCostBasedJobs(childOptContext)
-                                                            .execute();
-                                                    return childOptContext.getRewritePlan();
-                                                }, rewrittenPlan, planForRewrite,
-                                                false, false)
-                                );
+        } catch (Exception e) {
+            LOG.error("pre mv rewrite in rbo collect table and init hook fail, sql hash is {}",
+                    cascadesContext.getConnectContext().getSqlHash(), e);
+            return;
+        }
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Start pre rewrite plan by mv");
+        }
+        List<Plan> tmpPlanForMvRewrite = cascadesContext.getStatementContext().getTmpPlanForMvRewrite();
+        if (tmpPlanForMvRewrite.isEmpty()) {
+            return;
+        }
+        List<Plan> plansWhichContainMv = new ArrayList<>();
+        for (Plan planForRewrite : tmpPlanForMvRewrite) {
+            try {
+                MaterializedViewUtils.rewriteByRules(cascadesContext,
+                        childContext -> {
+                            // pre rewrite
+                            Plan rewrittenPlan = PreMaterializedViewRewriter.rewrite(childContext);
+                            if (rewrittenPlan == null) {
+                                // rewrite fail
                                 return childContext.getRewritePlan();
-                            }, planForRewrite, planForRewrite, false, true);
-                } catch (Exception e) {
-                    LOG.error("mv rewrite in rbo rewrite fail, sql hash is {}",
-                            cascadesContext.getConnectContext().getSqlHash(), e);
-                }
+                            }
+                            plansWhichContainMv.add(
+                                    // rewritten plan optimize and normalize
+                                    MaterializedViewUtils.rewriteByRules(cascadesContext,
+                                            childOptContext -> {
+                                                Rewriter.getWholeTreeRewriterWithoutCostBasedJobs(childOptContext)
+                                                        .execute();
+                                                return childOptContext.getRewritePlan();
+                                            }, rewrittenPlan, planForRewrite,
+                                            false, false)
+                            );
+                            return childContext.getRewritePlan();
+                        }, planForRewrite, planForRewrite, false, true);
+            } catch (Exception e) {
+                LOG.error("pre mv rewrite in rbo rewrite fail, sql hash is {}",
+                        cascadesContext.getConnectContext().getSqlHash(), e);
             }
-            if (plansWhichContainMv.isEmpty()) {
-                return;
+        }
+        // if rule-based optimized, would not be rewritten by cbo, so clear materialized hooks
+        this.cascadesContext.getStatementContext().clearMaterializedHooks();
+        if (plansWhichContainMv.isEmpty()) {
+            return;
+        }
+        // clear the rewritten plans which are tmp optimized, should be filled by full optimize later
+        statementContext.getRewrittenPlansByMv().clear();
+        for (Plan planWhichContainMv : plansWhichContainMv) {
+            // Such as EliminateGroupByKeyByUniform would change out put expr id
+            Plan normalizedPlan = MaterializedViewUtils.normalizeExpressions(planWhichContainMv,
+                    cascadesContext.getRewritePlan());
+            if (normalizedPlan == null) {
+                LOG.warn("RBO rewrite plan normalize expressions fail query is is {}",
+                        cascadesContext.getConnectContext().getQueryIdentifier());
+                continue;
             }
-            // clear the rewritten plans which are tmp optimized, should be filled by full optimize later
-            statementContext.getRewrittenPlansByMv().clear();
-            for (Plan planWhichContainMv : plansWhichContainMv) {
-                // Such as EliminateGroupByKeyByUniform would change out put expr id
-                Plan normalizedPlan = MaterializedViewUtils.normalizeExpressions(planWhichContainMv,
-                        cascadesContext.getRewritePlan());
-                if (normalizedPlan == null) {
-                    LOG.warn("RBO rewrite plan normalize expressions fail query is is {}",
-                            cascadesContext.getConnectContext().getQueryIdentifier());
-                    continue;
-                }
-                statementContext.addRewrittenPlanByMv(normalizedPlan);
-            }
-            NereidsTracer.logImportantTime("EndPreRewritePlanByMv");
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("End pre rewrite plan by mv");
-            }
-            // if rule-based optimized, not rewritten by cbo
-            this.cascadesContext.getStatementContext().clearMaterializedHooks();
-        } else {
-            // Collect table for final cbo rewrite and init materialization context for mv rewrite
-            cascadesContext.getStatementContext().setTableUsedPartitionNameMap(
-                    MaterializedViewUtils.collectTableUsedPartitions(cascadesContext.getRewritePlan()));
-            if (statementContext.getConnectContext().getExecutor() != null) {
-                statementContext.getConnectContext().getExecutor().getSummaryProfile()
-                        .setNereidsCollectTablePartitionFinishTime();
-            }
-            cascadesContext.getStatementContext().getPlannerHooks().forEach(hook -> hook.afterRewrite(
-                    this.getCascadesContext()));
+            statementContext.addRewrittenPlanByMv(normalizedPlan);
+        }
+        NereidsTracer.logImportantTime("EndPreRewritePlanByMv");
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("End pre rewrite plan by mv");
         }
         if (statementContext.getConnectContext().getExecutor() != null) {
             statementContext.getConnectContext().getExecutor().getSummaryProfile()

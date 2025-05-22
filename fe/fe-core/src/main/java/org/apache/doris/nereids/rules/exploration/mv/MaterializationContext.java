@@ -403,7 +403,6 @@ public abstract class MaterializationContext {
                 = MaterializedViewUtils.getChosenMaterializationAndUsedTable(physicalPlan,
                 cascadesContext.getAllMaterializationContexts());
         Map<List<String>, MaterializationContext> chosenMaterializationMap = chosenMaterializationAndUsedTable.key();
-
         StringBuilder builder = new StringBuilder();
         builder.append("\nMaterializedView");
         // rewrite success and chosen

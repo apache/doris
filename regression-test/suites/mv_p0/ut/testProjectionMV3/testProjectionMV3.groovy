@@ -18,6 +18,9 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("testProjectionMV3") {
+    String db = context.config.getDbNameByFile(context.file)
+    sql "use ${db}"
+
     sql """ DROP TABLE IF EXISTS emps; """
 
     sql """
@@ -35,8 +38,8 @@ suite ("testProjectionMV3") {
     sql """insert into emps values("2020-01-02",2,"b",2,2,2);"""
 
     def result = "null"
-
-    createMV("create materialized view emps_mv as select deptno, empid, name from emps order by deptno;")
+    create_sync_mv(db, "emps", "emps_mv",
+            "select deptno, empid, name from emps order by deptno;")
 
     sql """insert into emps values("2020-01-01",1,"a",1,1,1);"""
 

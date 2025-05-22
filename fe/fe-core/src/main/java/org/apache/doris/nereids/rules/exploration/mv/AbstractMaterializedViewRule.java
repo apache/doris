@@ -427,6 +427,8 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
     }
 
     // Set materialization context statistics to statementContext for cost estimate later
+    // this should be called before MaterializationContext.clearScanPlan because clearScanPlan change the
+    // mv scan plan relation id
     private static void trySetStatistics(MaterializationContext context, CascadesContext cascadesContext) {
         Optional<Pair<Id, Statistics>> materializationPlanStatistics = context.getPlanStatistics(cascadesContext);
         if (materializationPlanStatistics.isPresent() && materializationPlanStatistics.get().key() != null) {

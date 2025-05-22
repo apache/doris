@@ -224,9 +224,8 @@ public class CascadesContext implements ScheduleContext {
      * Init memo with plan
      */
     public void toMemo() {
-        this.memo = null;
+        this.memo = new Memo(getConnectContext(), plan);
         List<Plan> rewrittenPlansByMv = this.getStatementContext().getRewrittenPlansByMv();
-        // only consider result sink to avoid Insert a plan into targetGroup but differ in logical properties
         boolean initMultiPlanMemo = Memo.needInitMultiPlanMemo(this, plan);
         if (initMultiPlanMemo) {
             // copy tmp plan for mv rewrite firstly
@@ -239,17 +238,8 @@ public class CascadesContext implements ScheduleContext {
                             getConnectContext().getQueryIdentifier());
                     continue;
                 }
-                if (this.memo == null) {
-                    this.memo = new Memo(getConnectContext(), rewrittenPlan);
-                } else {
-                    this.memo.copyIn(rewrittenPlan, this.memo.getRoot(), false);
-                }
+                this.memo.copyIn(rewrittenPlan, this.memo.getRoot(), false);
             }
-        }
-        if (this.memo != null) {
-            this.memo.copyIn(plan, this.memo.getRoot(), false);
-        } else {
-            this.memo = new Memo(getConnectContext(), plan);
         }
     }
 
