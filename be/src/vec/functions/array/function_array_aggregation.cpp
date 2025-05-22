@@ -245,7 +245,8 @@ struct ArrayAggregateImpl {
             execute_type<Date>(res, type, data, offsets) ||
             execute_type<DateTime>(res, type, data, offsets) ||
             execute_type<DateV2>(res, type, data, offsets) ||
-            execute_type<DateTimeV2>(res, type, data, offsets)) {
+            execute_type<DateTimeV2>(res, type, data, offsets) ||
+            execute_type<String>(res, type, data, offsets)) {
             block.replace_by_position(result, std::move(res));
             return Status::OK();
         } else {
@@ -276,6 +277,48 @@ struct ArrayAggregateImpl {
         } else {
             res_column = ColVecResultType::create();
         }
+        res_column = make_nullable(res_column);
+        static_cast<ColumnNullable&>(res_column->assume_mutable_ref()).reserve(offsets.size());
+
+        auto function = Function::create(type);
+        auto guard = AggregateFunctionGuard(function.get());
+        Arena arena;
+        auto nullable_column = make_nullable(data->get_ptr());
+        const IColumn* columns[] = {nullable_column.get()};
+        for (int64_t i = 0; i < offsets.size(); ++i) {
+            auto start = offsets[i - 1]; // -1 is ok.
+            auto end = offsets[i];
+            bool is_empty = (start == end);
+            if (is_empty) {
+                res_column->assume_mutable()->insert_default();
+                continue;
+            }
+            function->reset(guard.data());
+            function->add_batch_range(start, end - 1, guard.data(), columns, &arena,
+                                      data->is_nullable());
+            function->insert_result_into(guard.data(), res_column->assume_mutable_ref());
+        }
+        res_ptr = std::move(res_column);
+        return true;
+    };
+
+    template <>
+    static bool execute_type<String>(ColumnPtr& res_ptr, const DataTypePtr& type,
+                                     const IColumn* data, const ColumnArray::Offsets64& offsets) {
+        using ColumnType = ColumnString;
+        using Function = AggregateFunction<AggregateFunctionImpl<operation, enable_decimal256>>;
+
+        const ColumnType* column =
+                data->is_nullable()
+                        ? check_and_get_column<ColumnType>(
+                                  static_cast<const ColumnNullable*>(data)->get_nested_column())
+                        : check_and_get_column<ColumnType>(&*data);
+        if (!column) {
+            return false;
+        }
+
+        ColumnPtr res_column;
+        res_column = ColumnString::create();
         res_column = make_nullable(res_column);
         static_cast<ColumnNullable&>(res_column->assume_mutable_ref()).reserve(offsets.size());
 
