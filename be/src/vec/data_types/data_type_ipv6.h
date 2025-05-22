@@ -69,7 +69,7 @@ public:
             throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
                                    "Invalid value: {} for type IPv6", node.ipv6_literal.value);
         }
-        return value;
+        return Field::create_field<TYPE_IPV6>(value);
     }
 
     MutableColumnPtr create_column() const override;

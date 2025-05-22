@@ -688,8 +688,8 @@ public:
         if (data_type_with_name.second->get_primitive_type() == TYPE_IPV4 &&
             cidr._address.as_v4()) {
             auto range = apply_cidr_mask(cidr._address.as_v4(), cidr._prefix);
-            min_ip = range.first;
-            max_ip = range.second;
+            min_ip = Field::create_field<TYPE_IPV4>(range.first);
+            max_ip = Field::create_field<TYPE_IPV4>(range.second);
         } else if (data_type_with_name.second->get_primitive_type() == TYPE_IPV6 &&
                    cidr._address.as_v6()) {
             auto cidr_range_ipv6_col = ColumnIPv6::create(2, 0);
@@ -697,8 +697,8 @@ public:
             apply_cidr_mask(reinterpret_cast<const char*>(cidr._address.as_v6()),
                             reinterpret_cast<char*>(&cidr_range_ipv6_data[0]),
                             reinterpret_cast<char*>(&cidr_range_ipv6_data[1]), cidr._prefix);
-            min_ip = cidr_range_ipv6_data[0];
-            max_ip = cidr_range_ipv6_data[1];
+            min_ip = Field::create_field<TYPE_IPV6>(cidr_range_ipv6_data[0]);
+            max_ip = Field::create_field<TYPE_IPV6>(cidr_range_ipv6_data[1]);
         } else {
             // if here param is invalid for current column to calcute min_ip|max_ip we just return
             return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(

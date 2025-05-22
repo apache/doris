@@ -50,9 +50,9 @@ inline std::string to_string(STATISTICS_FUNCTION_KIND kind) {
     }
 }
 
-template <typename T, std::size_t _level>
+template <PrimitiveType T, std::size_t _level>
 struct StatFuncOneArg {
-    using Type = T;
+    using Type = typename PrimitiveTypeTraits<T>::CppType;
     using Data = VarMoments<Float64, _level>;
     using DataType = Float64;
 };

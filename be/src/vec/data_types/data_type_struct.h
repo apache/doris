@@ -87,7 +87,6 @@ public:
     Field get_field(const TExprNode& node) const override {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Unimplemented get_field for struct");
-        __builtin_unreachable();
     }
 
     bool equals(const IDataType& rhs) const override;

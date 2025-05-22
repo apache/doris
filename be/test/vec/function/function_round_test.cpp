@@ -971,7 +971,7 @@ static void decimal_checker(const DecimalTestDataSet& round_test_cases, bool dec
             auto scale_arg = std::get<1>(test_date);
             auto expectation = std::get<2>(test_date);
             col_general->get_element(rid) = DecimalType(input);
-            col_scale->insert(scale_arg);
+            col_scale->insert(Field::create_field<TYPE_INT>(scale_arg));
             col_res_expected->get_element(rid) = DecimalType(expectation);
             rid++;
         }
@@ -1028,7 +1028,7 @@ static void float_checker(const FloatTestDataSet& round_test_cases, bool float_c
         auto scale_arg = std::get<1>(test_case);
         auto expectation = std::get<2>(test_case);
         col_general->get_element(rid) = FloatType(input);
-        col_scale->insert(scale_arg);
+        col_scale->insert(Field::create_field<TYPE_INT>(scale_arg));
         col_res_expected->get_element(rid) = FloatType(expectation);
         rid++;
 

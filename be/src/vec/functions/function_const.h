@@ -93,7 +93,8 @@ private:
                         uint32_t result, size_t input_rows_count) const override {
         block.get_by_position(result).column =
                 block.get_by_position(result).type->create_column_const(
-                        input_rows_count == 0 ? 1 : input_rows_count, Impl::value);
+                        input_rows_count == 0 ? 1 : input_rows_count,
+                        Field::create_field<TYPE_DOUBLE>(Impl::value));
         return Status::OK();
     }
 };

@@ -47,14 +47,9 @@
 
 class SipHash;
 
-namespace doris {
-namespace vectorized {
-class Arena;
-} // namespace vectorized
-} // namespace doris
-
 namespace doris::vectorized {
 
+class Arena;
 /** A column of map values.
   */
 class ColumnMap final : public COWHelper<IColumn, ColumnMap> {

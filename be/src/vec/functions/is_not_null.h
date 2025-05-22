@@ -78,8 +78,8 @@ public:
             block.replace_by_position(result, std::move(res_column));
         } else {
             /// Since no element is nullable, return a constant one.
-            block.get_by_position(result).column =
-                    DataTypeUInt8().create_column_const(elem.column->size(), 1u);
+            block.get_by_position(result).column = DataTypeUInt8().create_column_const(
+                    elem.column->size(), Field::create_field<TYPE_BOOLEAN>(1));
         }
         return Status::OK();
     }

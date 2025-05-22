@@ -96,11 +96,11 @@ TEST(ResizeTest, ArrayTypeWithValuesTest) {
     DataTypePtr a = std::make_shared<DataTypeArray>(d);
     auto col_a = a->create_column();
     Array af;
-    af.push_back(Int64(1));
-    af.push_back(Int64(2));
-    af.push_back(Int64(3));
-    col_a->insert(af);
-    col_a->insert(af);
+    af.push_back(Field::create_field<TYPE_BIGINT>(Int64(1)));
+    af.push_back(Field::create_field<TYPE_BIGINT>(Int64(2)));
+    af.push_back(Field::create_field<TYPE_BIGINT>(Int64(3)));
+    col_a->insert(Field::create_field<TYPE_ARRAY>(af));
+    col_a->insert(Field::create_field<TYPE_ARRAY>(af));
 
     col_a->resize(10);
     MutableColumnPtr b = a->create_column();

@@ -203,7 +203,7 @@ private:
                 A a = c0_const->template get_value<A>();
                 B b = c1_const->template get_value<B>();
                 UInt8 res = apply<scale_left, scale_right>(a, b, scale);
-                return DataTypeUInt8().create_column_const(c0->size(), to_field(res));
+                return DataTypeUInt8().create_column_const(c0->size(), to_field<TYPE_BOOLEAN>(res));
             }
 
             auto c_res = ColumnUInt8::create(c0->size());

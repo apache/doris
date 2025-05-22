@@ -35,11 +35,11 @@
 namespace doris::vectorized {
 
 TEST(ColumnNullableTest, NullTest) {
-    ColumnNullable::MutablePtr null_col = create_column_nullable<Int64>(500, true);
+    ColumnNullable::MutablePtr null_col = create_column_nullable<TYPE_BIGINT>(500, true);
     EXPECT_TRUE(null_col->has_null());
 
     ColumnNullable::MutablePtr dst_col =
-            ColumnNullable::create(create_nested_column<Int64>(10), ColumnUInt8::create(10));
+            ColumnNullable::create(create_nested_column<TYPE_BIGINT>(10), ColumnUInt8::create(10));
     EXPECT_FALSE(dst_col->has_null());
 
     ColumnInt64::MutablePtr source_col = ColumnInt64::create();
@@ -65,8 +65,8 @@ TEST(ColumnNullableTest, NullTest) {
     dst_col->insert_from(*null_col, 100);
     EXPECT_TRUE(dst_col->has_null());
 
-    auto tmp_col =
-            ColumnNullable::create(create_nested_column<Int64>(10), ColumnUInt8::create(10, 1));
+    auto tmp_col = ColumnNullable::create(create_nested_column<TYPE_BIGINT>(10),
+                                          ColumnUInt8::create(10, 1));
 
     dst_col->clear();
     EXPECT_FALSE(dst_col->has_null());

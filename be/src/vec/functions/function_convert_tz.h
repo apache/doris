@@ -263,7 +263,19 @@ private:
                 continue;
             }
 
-            result_column->insert(binary_cast<ReturnDateValueType, ReturnNativeType>(ts_value2));
+            if constexpr (std::is_same_v<ArgDateType, DataTypeDateTimeV2>) {
+                result_column->insert(Field::create_field<TYPE_DATETIMEV2>(
+                        binary_cast<ReturnDateValueType, ReturnNativeType>(ts_value2)));
+            } else if constexpr (std::is_same_v<ArgDateType, DataTypeDateV2>) {
+                result_column->insert(Field::create_field<TYPE_DATEV2>(
+                        binary_cast<ReturnDateValueType, ReturnNativeType>(ts_value2)));
+            } else if constexpr (std::is_same_v<ArgDateType, DataTypeDateTime>) {
+                result_column->insert(Field::create_field<TYPE_DATETIME>(
+                        binary_cast<ReturnDateValueType, ReturnNativeType>(ts_value2)));
+            } else {
+                result_column->insert(Field::create_field<TYPE_DATE>(
+                        binary_cast<ReturnDateValueType, ReturnNativeType>(ts_value2)));
+            }
         }
     }
 
@@ -326,7 +338,19 @@ private:
             return;
         }
 
-        result_column->insert(binary_cast<ReturnDateValueType, ReturnNativeType>(ts_value2));
+        if constexpr (std::is_same_v<ArgDateType, DataTypeDateTimeV2>) {
+            result_column->insert(Field::create_field<TYPE_DATETIMEV2>(
+                    binary_cast<ReturnDateValueType, ReturnNativeType>(ts_value2)));
+        } else if constexpr (std::is_same_v<ArgDateType, DataTypeDateV2>) {
+            result_column->insert(Field::create_field<TYPE_DATEV2>(
+                    binary_cast<ReturnDateValueType, ReturnNativeType>(ts_value2)));
+        } else if constexpr (std::is_same_v<ArgDateType, DataTypeDateTime>) {
+            result_column->insert(Field::create_field<TYPE_DATETIME>(
+                    binary_cast<ReturnDateValueType, ReturnNativeType>(ts_value2)));
+        } else {
+            result_column->insert(Field::create_field<TYPE_DATE>(
+                    binary_cast<ReturnDateValueType, ReturnNativeType>(ts_value2)));
+        }
     }
 };
 

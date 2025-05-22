@@ -334,7 +334,20 @@ void DataTypeDecimal<T>::to_pb_column_meta(PColumnMeta* col_meta) const {
 
 template <typename T>
 Field DataTypeDecimal<T>::get_default() const {
-    return DecimalField(T(), scale);
+    if constexpr (std::is_same_v<T, Decimal32>) {
+        return Field::create_field<TYPE_DECIMAL32>(DecimalField<Decimal32>(Decimal32(), scale));
+    } else if constexpr (std::is_same_v<T, Decimal64>) {
+        return Field::create_field<TYPE_DECIMAL64>(DecimalField<Decimal64>(Decimal64(), scale));
+    } else if constexpr (std::is_same_v<T, Decimal128V2>) {
+        return Field::create_field<TYPE_DECIMALV2>(
+                DecimalField<Decimal128V2>(Decimal128V2(), scale));
+    } else if constexpr (std::is_same_v<T, Decimal128V3>) {
+        return Field::create_field<TYPE_DECIMAL128I>(
+                DecimalField<Decimal128V3>(Decimal128V3(), scale));
+    } else if constexpr (std::is_same_v<T, Decimal256>) {
+        return Field::create_field<TYPE_DECIMAL256>(DecimalField<Decimal256>(Decimal256(), scale));
+    }
+    throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT, "Invalid type {}", do_get_name());
 }
 template <typename T>
 MutableColumnPtr DataTypeDecimal<T>::create_column() const {

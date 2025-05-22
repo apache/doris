@@ -227,7 +227,7 @@ TEST(DataTypeSerDeTest, DataTypeRowStoreSerDeTest) {
         auto vec = vectorized::ColumnVector<IPv6>::create();
         IPv6Value ipv6;
         EXPECT_TRUE(ipv6.from_string(ip));
-        vec->insert(ipv6.value());
+        vec->insert(Field::create_field<TYPE_IPV6>(ipv6.value()));
 
         vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeIPv6>());
         auto serde = data_type->get_serde(0);
@@ -257,7 +257,7 @@ TEST(DataTypeSerDeTest, DataTypeRowStoreSerDeTest) {
         auto vec = vectorized::ColumnVector<IPv4>::create();
         IPv4Value ipv4;
         EXPECT_TRUE(ipv4.from_string(ip));
-        vec->insert(ipv4.value());
+        vec->insert(Field::create_field<TYPE_IPV4>(ipv4.value()));
 
         vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeIPv4>());
         auto serde = data_type->get_serde(0);
