@@ -116,10 +116,39 @@ TEST_F(VectorSearchTest, AnnTopNDescriptorEvaluateTopN) {
     ASSERT_TRUE(st.ok()) << fmt::format("st: {}, expr {}", st.to_string(),
                                         predicate->get_order_by_expr_ctx()->root()->debug_string());
 
-    std::shared_ptr<std::vector<float>> query_value = std::make_shared<std::vector<float>>(10, 0.0);
-    for (size_t i = 0; i < 10; ++i) {
-        (*query_value)[i] = static_cast<float>(i);
+    const ColumnConst* const_column =
+            assert_cast<const ColumnConst*>(predicate->_query_array.get());
+    const ColumnArray* column_array =
+            assert_cast<const ColumnArray*>(const_column->get_data_column_ptr().get());
+    const ColumnNullable* column_nullable =
+            assert_cast<const ColumnNullable*>(column_array->get_data_ptr().get());
+    const ColumnFloat64* cf64 =
+            assert_cast<const ColumnFloat64*>(column_nullable->get_nested_column_ptr().get());
+
+    const double* query_value = cf64->get_data().data();
+    const size_t query_value_size = cf64->get_data().size();
+    ASSERT_EQ(query_value_size, 8);
+    std::vector<float> query_value_f32;
+    for (size_t i = 0; i < query_value_size; ++i) {
+        query_value_f32.push_back(static_cast<float>(query_value[i]));
     }
+    ASSERT_FLOAT_EQ(query_value_f32[0], 1.0f) << "query_value_f32[0] = " << query_value_f32[0];
+    ASSERT_FLOAT_EQ(query_value_f32[1], 2.0f) << "query_value_f32[1] = " << query_value_f32[1];
+    ASSERT_FLOAT_EQ(query_value_f32[2], 3.0f) << "query_value_f32[2] = " << query_value_f32[2];
+    ASSERT_FLOAT_EQ(query_value_f32[3], 4.0f) << "query_value_f32[3] = " << query_value_f32[3];
+    ASSERT_FLOAT_EQ(query_value_f32[4], 5.0f) << "query_value_f32[4] = " << query_value_f32[4];
+    ASSERT_FLOAT_EQ(query_value_f32[5], 6.0f) << "query_value_f32[5] = " << query_value_f32[5];
+    ASSERT_FLOAT_EQ(query_value_f32[6], 7.0f) << "query_value_f32[6] = " << query_value_f32[6];
+    ASSERT_FLOAT_EQ(query_value_f32[7], 20.0f) << "query_value_f32[7] = " << query_value_f32[7];
+
+    std::shared_ptr<std::vector<float>> query_vector =
+            std::make_shared<std::vector<float>>(10, 0.0);
+    for (size_t i = 0; i < 10; ++i) {
+        (*query_vector)[i] = static_cast<float>(i);
+    }
+
+    std::cout << "query_vector: " << fmt::format("[{}]", fmt::join(*query_vector, ","))
+              << std::endl;
 
     EXPECT_CALL(*_ann_index_iterator, read_from_index(testing::_))
             .Times(1)
@@ -136,17 +165,16 @@ TEST_F(VectorSearchTest, AnnTopNDescriptorEvaluateTopN) {
 
     _result_column = ColumnFloat64::create(0, 0);
     std::unique_ptr<std::vector<uint64_t>> row_ids = std::make_unique<std::vector<uint64_t>>();
-    // roaring is empry
+
     roaring::Roaring roaring;
     st = predicate->evaluate_vector_ann_search(_ann_index_iterator.get(), roaring, _result_column,
                                                row_ids);
     ColumnFloat64* result_column_float = assert_cast<ColumnFloat64*>(_result_column.get());
-    for (size_t i = 0; i < query_value->size(); ++i) {
-        EXPECT_EQ(result_column_float->get_data()[i], (*query_value)[i]);
+    for (size_t i = 0; i < query_vector->size(); ++i) {
+        EXPECT_EQ(result_column_float->get_data()[i], (*query_vector)[i]);
     }
     ASSERT_TRUE(st.ok());
-    ASSERT_EQ(row_ids->size(), 0);
-    ASSERT_EQ(row_ids->size(), roaring.cardinality());
+    ASSERT_EQ(row_ids->size(), 10);
 }
 
 } // namespace doris::vectorized

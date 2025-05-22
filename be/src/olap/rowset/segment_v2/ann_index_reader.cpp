@@ -39,9 +39,7 @@ void AnnIndexReader::update_result(const IndexSearchResult& search_result,
     for (size_t i = 0; i < limit; ++i) {
         distance[i] = search_result.distances[i];
     }
-    // Use the search result's row_ids to update the input row_id
-    // by calculating the union in-place
-    roaring &= *search_result.roaring;
+    roaring = *search_result.roaring;
 }
 
 AnnIndexReader::AnnIndexReader(const TabletIndex* index_meta,
