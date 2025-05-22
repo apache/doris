@@ -25,6 +25,7 @@ import lombok.Setter;
 
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
@@ -45,7 +46,7 @@ public class COSProperties extends AbstractS3CompatibleProperties {
     protected String region = "";
 
     @Getter
-    @ConnectorProperty(names = {"cos.access_key", "AWS_ACCESS_KEY", "ACCESS_KEY", "access_key"},
+    @ConnectorProperty(names = {"cos.access_key", "s3.access_key", "AWS_ACCESS_KEY", "access_key", "ACCESS_KEY"},
             description = "The access key of COS.")
     protected String accessKey = "";
 
@@ -75,12 +76,13 @@ public class COSProperties extends AbstractS3CompatibleProperties {
                 .findFirst()
                 .orElse(null);
         if (!Strings.isNullOrEmpty(value)) {
-            return ENDPOINT_PATTERN.matcher(value).matches();
+            return value.contains("myqcloud.com");
         }
-        if (!origProps.containsKey("uri")) {
-            return false;
-        }
-        return origProps.get("uri").contains("myqcloud.com");
+        Optional<String> uriValue = origProps.entrySet().stream()
+                .filter(e -> e.getKey().equalsIgnoreCase("uri"))
+                .map(Map.Entry::getValue)
+                .findFirst();
+        return uriValue.isPresent() && uriValue.get().contains("myqcloud.com");
     }
 
     @Override

@@ -31,9 +31,10 @@ IAggregateFunction* create_with_extra_types(const DataTypePtr& nested_type,
                         "We don't support array<date> or array<datetime> for "
                         "group_array_intersect(), please use array<datev2> or array<datetimev2>.");
     } else if (nested_type->get_primitive_type() == PrimitiveType::TYPE_DATEV2) {
-        return new AggregateFunctionGroupArrayIntersect<DateV2>(argument_types);
+        return new AggregateFunctionGroupArrayIntersect<PrimitiveType::TYPE_DATEV2>(argument_types);
     } else if (nested_type->get_primitive_type() == PrimitiveType::TYPE_DATETIMEV2) {
-        return new AggregateFunctionGroupArrayIntersect<DateTimeV2>(argument_types);
+        return new AggregateFunctionGroupArrayIntersect<PrimitiveType::TYPE_DATETIMEV2>(
+                argument_types);
     } else {
         /// Check that we can use plain version of AggregateFunctionGroupArrayIntersectGeneric
         if (nested_type->is_value_unambiguously_represented_in_contiguous_memory_region())
@@ -51,35 +52,35 @@ inline AggregateFunctionPtr create_aggregate_function_group_array_intersect_impl
 
     switch (nested_type->get_primitive_type()) {
     case PrimitiveType::TYPE_BOOLEAN:
-        res = creator_without_type::create<AggregateFunctionGroupArrayIntersect<UInt8>>(
+        res = creator_without_type::create<AggregateFunctionGroupArrayIntersect<TYPE_BOOLEAN>>(
                 argument_types, result_is_nullable);
         break;
     case PrimitiveType::TYPE_TINYINT:
-        res = creator_without_type::create<AggregateFunctionGroupArrayIntersect<Int8>>(
+        res = creator_without_type::create<AggregateFunctionGroupArrayIntersect<TYPE_TINYINT>>(
                 argument_types, result_is_nullable);
         break;
     case PrimitiveType::TYPE_SMALLINT:
-        res = creator_without_type::create<AggregateFunctionGroupArrayIntersect<Int16>>(
+        res = creator_without_type::create<AggregateFunctionGroupArrayIntersect<TYPE_SMALLINT>>(
                 argument_types, result_is_nullable);
         break;
     case PrimitiveType::TYPE_INT:
-        res = creator_without_type::create<AggregateFunctionGroupArrayIntersect<Int32>>(
+        res = creator_without_type::create<AggregateFunctionGroupArrayIntersect<TYPE_INT>>(
                 argument_types, result_is_nullable);
         break;
     case PrimitiveType::TYPE_BIGINT:
-        res = creator_without_type::create<AggregateFunctionGroupArrayIntersect<Int64>>(
+        res = creator_without_type::create<AggregateFunctionGroupArrayIntersect<TYPE_BIGINT>>(
                 argument_types, result_is_nullable);
         break;
     case PrimitiveType::TYPE_LARGEINT:
-        res = creator_without_type::create<AggregateFunctionGroupArrayIntersect<Int128>>(
+        res = creator_without_type::create<AggregateFunctionGroupArrayIntersect<TYPE_LARGEINT>>(
                 argument_types, result_is_nullable);
         break;
     case PrimitiveType::TYPE_FLOAT:
-        res = creator_without_type::create<AggregateFunctionGroupArrayIntersect<Float32>>(
+        res = creator_without_type::create<AggregateFunctionGroupArrayIntersect<TYPE_FLOAT>>(
                 argument_types, result_is_nullable);
         break;
     case PrimitiveType::TYPE_DOUBLE:
-        res = creator_without_type::create<AggregateFunctionGroupArrayIntersect<Float64>>(
+        res = creator_without_type::create<AggregateFunctionGroupArrayIntersect<TYPE_DOUBLE>>(
                 argument_types, result_is_nullable);
         break;
     default:

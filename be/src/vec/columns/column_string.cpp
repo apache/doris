@@ -24,6 +24,7 @@
 #include <boost/iterator/iterator_facade.hpp>
 #include <cstring>
 
+#include "runtime/primitive_type.h"
 #include "util/memcpy_inlined.h"
 #include "util/simd/bits.h"
 #include "vec/columns/columns_common.h"
@@ -723,6 +724,28 @@ void ColumnStr<T>::erase(size_t start, size_t length) {
     for (size_t i = start; i < remain_size; ++i) {
         offsets[i] -= char_length;
     }
+}
+
+template <typename T>
+Field ColumnStr<T>::operator[](size_t n) const {
+    assert(n < size());
+    sanity_check_simple();
+    return Field::create_field<TYPE_STRING>(
+            String(reinterpret_cast<const char*>(&chars[offset_at(n)]), size_at(n)));
+}
+
+template <typename T>
+void ColumnStr<T>::get(size_t n, Field& res) const {
+    assert(n < size());
+    sanity_check_simple();
+    if (res.get_type() == PrimitiveType::TYPE_JSONB) {
+        // Handle JsonbField
+        res = Field::create_field<TYPE_JSONB>(
+                JsonbField(reinterpret_cast<const char*>(&chars[offset_at(n)]), size_at(n)));
+        return;
+    }
+    res = Field::create_field<TYPE_STRING>(
+            String(reinterpret_cast<const char*>(&chars[offset_at(n)]), size_at(n)));
 }
 
 template <typename T>

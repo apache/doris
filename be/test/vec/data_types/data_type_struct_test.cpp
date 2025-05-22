@@ -362,50 +362,50 @@ TEST_F(DataTypeStructTest, SerdeNestedTypeArrowTest) {
 
         // nested Array
         Array a1, a2;
-        a1.push_back(Field("array"));
-        a1.push_back(Null());
-        a2.push_back(Field("lucky array"));
-        a2.push_back(Field("cute array"));
+        a1.push_back(Field::create_field<TYPE_STRING>("array"));
+        a1.push_back(Field());
+        a2.push_back(Field::create_field<TYPE_STRING>("lucky array"));
+        a2.push_back(Field::create_field<TYPE_STRING>("cute array"));
 
         // nested Map
         Array k1, k2, v1, v2;
-        k1.push_back(1);
-        k1.push_back(2);
-        k2.push_back(11);
-        k2.push_back(22);
-        v1.push_back(Field("map"));
-        v1.push_back(Null());
-        v2.push_back(Field("clever map"));
-        v2.push_back(Field("hello map"));
+        k1.push_back(Field::create_field<TYPE_INT>(1));
+        k1.push_back(Field::create_field<TYPE_INT>(2));
+        k2.push_back(Field::create_field<TYPE_INT>(11));
+        k2.push_back(Field::create_field<TYPE_INT>(22));
+        v1.push_back(Field::create_field<TYPE_STRING>("map"));
+        v1.push_back(Field());
+        v2.push_back(Field::create_field<TYPE_STRING>("clever map"));
+        v2.push_back(Field::create_field<TYPE_STRING>("hello map"));
 
         Map m1, m2;
-        m1.push_back(k1);
-        m1.push_back(v1);
-        m2.push_back(k2);
-        m2.push_back(v2);
+        m1.push_back(Field::create_field<TYPE_ARRAY>(k1));
+        m1.push_back(Field::create_field<TYPE_ARRAY>(v1));
+        m2.push_back(Field::create_field<TYPE_ARRAY>(k2));
+        m2.push_back(Field::create_field<TYPE_ARRAY>(v2));
 
         // nested Struct
         Tuple t1, t2;
-        t1.push_back(Field("clever"));
-        t1.push_back(__int128_t(37));
-        t1.push_back(true);
-        t2.push_back("null");
-        t2.push_back(__int128_t(26));
-        t2.push_back(false);
+        t1.push_back(Field::create_field<TYPE_STRING>("clever"));
+        t1.push_back(Field::create_field<TYPE_LARGEINT>(__int128_t(37)));
+        t1.push_back(Field::create_field<TYPE_BOOLEAN>(true));
+        t2.push_back(Field::create_field<TYPE_STRING>("null"));
+        t2.push_back(Field::create_field<TYPE_LARGEINT>(__int128_t(26)));
+        t2.push_back(Field::create_field<TYPE_BOOLEAN>(false));
 
         // Struct
         Tuple tt1, tt2;
-        tt1.push_back(a1);
-        tt1.push_back(m1);
-        tt1.push_back(t1);
-        tt2.push_back(a2);
-        tt2.push_back(m2);
-        tt2.push_back(t2);
+        tt1.push_back(Field::create_field<TYPE_ARRAY>(a1));
+        tt1.push_back(Field::create_field<TYPE_MAP>(m1));
+        tt1.push_back(Field::create_field<TYPE_STRUCT>(t1));
+        tt2.push_back(Field::create_field<TYPE_ARRAY>(a2));
+        tt2.push_back(Field::create_field<TYPE_MAP>(m2));
+        tt2.push_back(Field::create_field<TYPE_STRUCT>(t2));
 
         MutableColumnPtr struct_column = st->create_column();
         struct_column->reserve(2);
-        struct_column->insert(tt1);
-        struct_column->insert(tt2);
+        struct_column->insert(Field::create_field<TYPE_STRUCT>(tt1));
+        struct_column->insert(Field::create_field<TYPE_STRUCT>(tt2));
         vectorized::ColumnWithTypeAndName type_and_name(struct_column->get_ptr(), st, col_name);
         block->insert(type_and_name);
     }

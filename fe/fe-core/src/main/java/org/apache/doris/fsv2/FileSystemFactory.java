@@ -17,8 +17,11 @@
 
 package org.apache.doris.fsv2;
 
+import org.apache.doris.analysis.BrokerDesc;
+import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.fsv2.remote.BrokerFileSystem;
 import org.apache.doris.fsv2.remote.RemoteFileSystem;
 
 import java.util.Map;
@@ -30,7 +33,33 @@ public class FileSystemFactory {
         return get(storageProperties);
     }
 
+    public static RemoteFileSystem get(StorageBackend.StorageType storageType, Map<String, String> properties)
+            throws UserException {
+        if (storageType.equals(StorageBackend.StorageType.BROKER)) {
+            return new BrokerFileSystem("broker", properties);
+        }
+        StorageProperties storageProperties = StorageProperties.createPrimary(properties);
+        return get(storageProperties);
+    }
+
     public static RemoteFileSystem get(StorageProperties storageProperties) {
         return StorageTypeMapper.create(storageProperties);
+    }
+
+    // This method is a temporary workaround for handling properties.
+    // It will be removed when broker properties are officially supported.
+    public static RemoteFileSystem get(String name, Map<String, String> properties) {
+        return new BrokerFileSystem(name, properties);
+    }
+
+    public static RemoteFileSystem get(BrokerDesc brokerDesc) {
+        if (null != brokerDesc.getStorageProperties()) {
+            return get(brokerDesc.getStorageProperties());
+        }
+        if (null != brokerDesc.getStorageType()
+                && brokerDesc.getStorageType().equals(StorageBackend.StorageType.BROKER)) {
+            return new BrokerFileSystem(brokerDesc.getName(), brokerDesc.getProperties());
+        }
+        throw new RuntimeException("Unexpected storage type: " + brokerDesc.getStorageType());
     }
 }

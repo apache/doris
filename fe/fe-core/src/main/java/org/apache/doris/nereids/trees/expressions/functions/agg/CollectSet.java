@@ -64,14 +64,14 @@ public class CollectSet extends NotNullableAggregateFunction
      * constructor with 1 argument.
      */
     public CollectSet(boolean distinct, Expression arg) {
-        super("collect_set", distinct, arg);
+        this(arg);
     }
 
     /**
      * constructor with 1 argument.
      */
     public CollectSet(boolean distinct, Expression arg0, Expression arg1) {
-        super("collect_set", distinct, arg0, arg1);
+        this(arg0, arg1);
     }
 
     @Override
