@@ -92,24 +92,22 @@ public class ShowWarmUpCommand extends ShowCommand {
     }
 
     private boolean isWhereClauseValid(Expression expr) {
-        boolean valid = true;
         if (!(expr instanceof EqualTo)) {
-            valid = false;
+            return false;
         }
 
         // left child
         if (!(expr.child(0) instanceof UnboundSlot)) {
-            valid = false;
+            return false;
         }
 
         String leftKey = ((UnboundSlot) expr.child(0)).getName();
         if (leftKey.equalsIgnoreCase("id") && (expr.child(1) instanceof IntegerLiteral)) {
             jobId = ((IntegerLiteral) expr.child(1)).getLongValue();
+            return true;
         } else {
-            valid = false;
+            return false;
         }
-
-        return valid;
     }
 
     @Override

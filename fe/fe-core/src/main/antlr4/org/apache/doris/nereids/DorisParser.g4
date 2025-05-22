@@ -481,9 +481,6 @@ unsupportedShowStatement
     | SHOW BUILD INDEX ((FROM | IN) database=multipartIdentifier)?
         wildWhere? sortClause? limitClause?                                         #showBuildIndex
     | SHOW REPLICA STATUS FROM baseTableRef wildWhere?                              #showReplicaStatus
-    | SHOW COPY ((FROM | IN) database=multipartIdentifier)?
-        whereClause? sortClause? limitClause?                                       #showCopy
-    | SHOW WARM UP JOB wildWhere?                                                   #showWarmUpJob
     ;
 
 createRoutineLoad
