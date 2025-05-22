@@ -1585,10 +1585,6 @@ public class MaterializedViewHandler extends AlterHandler {
     }
 
     @Override
-    public void cancel(CancelCommand command) throws DdlException {
-    }
-
-    @Override
     public void cancel(CancelStmt stmt) throws DdlException {
         CancelAlterTableStmt cancelAlterTableStmt = (CancelAlterTableStmt) stmt;
 
