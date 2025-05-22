@@ -292,7 +292,7 @@ template <typename ResultType, bool ResultNullable = false, int ResultScale = -1
           int ResultPrecision = -1, bool datetime_is_string_format = true>
 Status check_function(const std::string& func_name, const InputTypeSet& input_types,
                       const DataSet& data_set, bool expect_execute_fail = false,
-                      bool expect_result_ne = false) {
+                      bool expect_result_ne = false, bool is_strict_mode = false) {
     TestCaseInfo::arg_size = static_cast<int>(input_types.size());
     TestCaseInfo::func_call_index++;
     // 1.0 create data type
@@ -365,6 +365,12 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
     fn_ctx->set_constant_cols(constant_cols);
     static_cast<void>(func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
     static_cast<void>(func->open(fn_ctx, FunctionContext::THREAD_LOCAL));
+
+    if (is_strict_mode) {
+        fn_ctx->set_enable_strict_mode(true);
+    } else {
+        fn_ctx->set_enable_strict_mode(false);
+    }
 
     block.insert({nullptr, return_type, "result"});
 

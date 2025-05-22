@@ -86,5 +86,65 @@ struct FunctionCastTest : public testing::Test {
             }
         }
     }
+
+    // we always need return nullable=true for cast function because of its' get_return_type weird
+    template <typename ResultDataType, int ResultScale = -1, int ResultPrecision = -1>
+    void check_function_for_cast_strict_mode(InputTypeSet input_types, DataSet data_set,
+                                             std::string expect_error = "",
+                                             bool datetime_is_string_format = true) {
+        constexpr bool expect_result_ne = false;
+
+        const bool expect_execute_fail = !expect_error.empty();
+        std::string func_name = "CAST";
+
+        InputTypeSet add_input_types = input_types;
+        if constexpr (IsDataTypeDecimal<ResultDataType>) {
+            add_input_types.emplace_back(ConstedNotnull {
+                    ResultDataType {ResultPrecision, ResultScale}.get_primitive_type()});
+        } else {
+            add_input_types.emplace_back(ConstedNotnull {ResultDataType {}.get_primitive_type()});
+        }
+        // add_input_types.push_back(ConstedNotnull {TypeId<typename ResultDataType::FieldType>::value});
+
+        // the column-1(target type placeholder) must be const. so we must split the data_set into const_datasets with
+        // only 1 row.
+        for (const auto& row : data_set) {
+            auto add_row = row;
+            add_row.first.push_back(ut_type::ut_input_type_default_v<ResultDataType>);
+            DataSet const_dataset = {add_row};
+
+            if (datetime_is_string_format) {
+                if (expect_execute_fail) {
+                    Status st = check_function<ResultDataType, true, ResultScale, ResultPrecision,
+                                               true>(func_name, add_input_types, const_dataset,
+                                                     expect_execute_fail, expect_result_ne, true);
+                    EXPECT_TRUE(st.msg().find(expect_error) != std::string::npos)
+                            << ""
+                            << "expect error: " << expect_error << ", but got: " << st.msg();
+
+                } else {
+                    static_cast<void>(
+                            check_function<ResultDataType, true, ResultScale, ResultPrecision,
+                                           true>(func_name, add_input_types, const_dataset,
+                                                 expect_execute_fail, expect_result_ne, true));
+                }
+            } else {
+                if (expect_execute_fail) {
+                    Status st = check_function<ResultDataType, true, ResultScale, ResultPrecision,
+                                               false>(func_name, add_input_types, const_dataset,
+                                                      expect_execute_fail, expect_result_ne, true);
+                    EXPECT_TRUE(st.msg().find(expect_error) != std::string::npos)
+                            << ""
+                            << "expect error: " << expect_error << ", but got: " << st.msg();
+
+                } else {
+                    static_cast<void>(
+                            check_function<ResultDataType, true, ResultScale, ResultPrecision,
+                                           false>(func_name, add_input_types, const_dataset,
+                                                  expect_execute_fail, expect_result_ne, true));
+                }
+            }
+        }
+    }
 };
 } // namespace doris::vectorized
