@@ -103,4 +103,30 @@ suite("test_array_map_function") {
         }             
 
         sql "DROP TABLE IF EXISTS ${tableName}"
+
+sql "DROP TABLE IF EXISTS array_map_test"
+        sql """ CREATE TABLE IF NOT EXISTS array_map_test (
+            id INT,
+            int_array ARRAY<INT>,
+            string_array ARRAY<STRING>,
+            double_array ARRAY<DOUBLE>,
+            nested_array ARRAY<ARRAY<INT>>,
+            nullable_array ARRAY<INT> NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 10
+        PROPERTIES (
+            "replication_num" = "1"
+        );
+        """
+        sql """ INSERT INTO array_map_test VALUES
+            (1, [1,2,3], ['a','b','c'], [1.1,2.2,3.3], [[1,2],[3,4]], NULL),
+            (2, [10,20], ['x','y'], [10.5,20.5], [[5,6],[7,8]], [1,2,3]),
+            (3, [], [], [], [], []),
+            (4, [100,200,300], ['one','two','three'], [100.1,200.2,300.3], [[9,10],[11,12]], [4,5,6]),
+            (5, [5], ['single'], [5.5], [[13]], [7]);
+        """
+        qt_select_25 """ 
+            SELECT id, array_map(x -> array_map(y -> y * 10, x), nested_array) FROM array_map_test order by id;
+        """ 
 }
