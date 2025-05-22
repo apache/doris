@@ -31,108 +31,9 @@
 #include "vector_index.h"
 #include "vector_search_utils.h"
 
-// Generate random vectors for testing
-std::vector<float> generate_random_vector(int dim) {
-    std::vector<float> vector(dim);
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::uniform_real_distribution<float> dis(-1.0f, 1.0f);
-
-    for (int i = 0; i < dim; i++) {
-        vector[i] = dis(gen);
-    }
-    return vector;
-}
-
 using namespace doris::segment_v2;
 
 namespace doris::vectorized {
-
-// Helper function to create and configure a Doris Faiss index
-static std::unique_ptr<FaissVectorIndex> create_doris_index(
-        int dimension, int m,
-        FaissBuildParameter::IndexType index_type = FaissBuildParameter::IndexType::HNSW,
-        FaissBuildParameter::Quantilizer quantilizer = FaissBuildParameter::Quantilizer::FLAT) {
-    auto index = std::make_unique<FaissVectorIndex>();
-
-    FaissBuildParameter params;
-    params.d = dimension;
-    params.m = m;
-    params.index_type = index_type;
-    params.quantilizer = quantilizer;
-    index->set_build_params(params);
-
-    return index;
-}
-
-// Helper function to create a native Faiss HNSW index
-static std::unique_ptr<faiss::IndexHNSWFlat> create_native_index(int dimension, int m) {
-    return std::make_unique<faiss::IndexHNSWFlat>(dimension, m);
-}
-
-// Helper function to generate a batch of random vectors
-static std::vector<std::vector<float>> generate_test_vectors(int num_vectors, int dimension) {
-    std::vector<std::vector<float>> vectors;
-    vectors.reserve(num_vectors);
-
-    for (int i = 0; i < num_vectors; i++) {
-        vectors.push_back(generate_random_vector(dimension));
-    }
-
-    return vectors;
-}
-
-// Helper function to add vectors to both Doris and native indexes
-static void add_vectors_to_indexes(FaissVectorIndex* doris_index,
-                                   faiss::IndexHNSWFlat* native_index,
-                                   const std::vector<std::vector<float>>& vectors) {
-    for (size_t i = 0; i < vectors.size(); i++) {
-        auto status = doris_index->add(1, vectors[i].data());
-        ASSERT_TRUE(status.ok()) << "Failed to add vector to Doris index: " << status.to_string();
-
-        native_index->add(1, vectors[i].data());
-    }
-}
-
-// Helper function to print search results for comparison
-[[maybe_unused]] static void print_search_results(const IndexSearchResult& doris_results,
-                                                  const std::vector<float>& native_distances,
-                                                  const std::vector<faiss::idx_t>& native_indices,
-                                                  int query_idx) {
-    std::cout << "Query vector index: " << query_idx << std::endl;
-
-    std::cout << "Doris Index Results:" << std::endl;
-    for (int i = 0; i < doris_results.roaring->cardinality(); i++) {
-        std::cout << "ID: " << doris_results.roaring->getIndex(i)
-                  << ", Distance: " << doris_results.distances[i] << std::endl;
-    }
-
-    std::cout << "Native Faiss Results:" << std::endl;
-    for (size_t i = 0; i < native_indices.size(); i++) {
-        if (native_indices[i] == -1) continue;
-        std::cout << "ID: " << native_indices[i] << ", Distance: " << native_distances[i]
-                  << std::endl;
-    }
-}
-
-// Helper function to compare search results between Doris and native Faiss
-static void compare_search_results(const IndexSearchResult& doris_results,
-                                   const std::vector<float>& native_distances,
-                                   const std::vector<faiss::idx_t>& native_indices,
-                                   float epsilon = 1e-5) {
-    EXPECT_EQ(doris_results.roaring->cardinality(),
-              std::count_if(native_indices.begin(), native_indices.end(),
-                            [](faiss::idx_t id) { return id != -1; }));
-
-    for (size_t i = 0; i < native_indices.size(); i++) {
-        if (native_indices[i] == -1) continue;
-
-        EXPECT_TRUE(doris_results.roaring->contains(native_indices[i]))
-                << "ID mismatch at rank " << i;
-        EXPECT_NEAR(doris_results.distances[i], native_distances[i], epsilon)
-                << "Distance mismatch at rank " << i;
-    }
-}
 
 // Test saving and loading an index
 TEST_F(VectorSearchTest, TestSaveAndLoad) {
@@ -151,7 +52,7 @@ TEST_F(VectorSearchTest, TestSaveAndLoad) {
     const int num_vectors = 100;
     std::vector<float> vectors;
     for (int i = 0; i < num_vectors; i++) {
-        auto tmp = generate_random_vector(params.d);
+        auto tmp = vector_search_utils::generate_random_vector(params.d);
         vectors.insert(vectors.end(), tmp.begin(), tmp.end());
     }
 
@@ -169,7 +70,7 @@ TEST_F(VectorSearchTest, TestSaveAndLoad) {
     ASSERT_TRUE(load_status.ok()) << "Failed to load index: " << load_status.to_string();
 
     // Step 7: Verify the loaded index works by searching
-    auto query_vec = generate_random_vector(params.d);
+    auto query_vec = vector_search_utils::generate_random_vector(params.d);
     const int top_k = 10;
 
     IndexSearchParameters search_params;
@@ -229,7 +130,7 @@ TEST_F(VectorSearchTest, CompareResultWithNativeFaiss1) {
 
     // Step 2: Generate vectors and add to indexes
     const int num_vectors = 200;
-    auto vectors = generate_test_vectors(num_vectors, dimension);
+    auto vectors = generate_test_vectors_matrix(num_vectors, dimension);
     add_vectors_to_indexes(doris_index.get(), native_index.get(), vectors);
 
     // Step 3: Search
@@ -263,7 +164,7 @@ TEST_F(VectorSearchTest, CompareResultWithNativeFaiss2) {
 
     // Step 2: Generate vectors and add to indexes
     const int num_vectors = 500;
-    auto vectors = generate_test_vectors(num_vectors, dimension);
+    auto vectors = generate_test_vectors_matrix(num_vectors, dimension);
     add_vectors_to_indexes(doris_index.get(), native_index.get(), vectors);
 
     // Step 3: Search
@@ -285,7 +186,7 @@ TEST_F(VectorSearchTest, CompareResultWithNativeFaiss2) {
 
     // Step 4: Print and compare results
     // print_search_results(doris_results, native_distances, native_indices, query_idx);
-    compare_search_results(doris_results, native_distances, native_indices);
+    vector_search_utils::compare_search_results(doris_results, native_distances, native_indices);
 }
 
 TEST_F(VectorSearchTest, SearchAllVectors) {
@@ -303,7 +204,7 @@ TEST_F(VectorSearchTest, SearchAllVectors) {
     const int num_vectors = 500;
     std::vector<float> vectors;
     for (int i = 0; i < num_vectors; i++) {
-        auto vec = generate_random_vector(params.d);
+        auto vec = vector_search_utils::generate_random_vector(params.d);
         vectors.insert(vectors.end(), vec.begin(), vec.end());
     }
 
@@ -369,7 +270,7 @@ TEST_F(VectorSearchTest, CompRangeSearch) {
         const int num_vectors = random_n;
         std::vector<float> vectors;
         for (int i = 0; i < num_vectors; i++) {
-            auto vec = generate_random_vector(params.d);
+            auto vec = vector_search_utils::generate_random_vector(params.d);
             vectors.insert(vectors.end(), vec.begin(), vec.end());
         }
         std::unique_ptr<faiss::Index> native_index =
@@ -454,7 +355,7 @@ TEST_F(VectorSearchTest, RangeSearchNoSelector1) {
         const int num_vectors = random_n;
         std::vector<float> vectors;
         for (int i = 0; i < num_vectors; i++) {
-            auto vec = generate_random_vector(params.d);
+            auto vec = vector_search_utils::generate_random_vector(params.d);
             vectors.insert(vectors.end(), vec.begin(), vec.end());
         }
 
@@ -570,7 +471,7 @@ TEST_F(VectorSearchTest, RangeSearchWithSelector1) {
         const int num_vectors = 1000;
         std::vector<float> vectors;
         for (int i = 0; i < num_vectors; i++) {
-            auto vec = generate_random_vector(params.d);
+            auto vec = vector_search_utils::generate_random_vector(params.d);
             vectors.insert(vectors.end(), vec.begin(), vec.end());
         }
 
@@ -659,14 +560,12 @@ TEST_F(VectorSearchTest, RangeSearchWithSelector1) {
 
 TEST_F(VectorSearchTest, RangeSearchEmptyResult) {
     for (size_t i = 0; i < 10; ++i) {
-        auto index1 = std::make_unique<FaissVectorIndex>();
-        FaissBuildParameter params;
-        params.d = 10;
-        params.m = 32;
-        params.index_type = FaissBuildParameter::IndexType::HNSW;
-        index1->set_build_params(params);
-
+        const size_t d = 10;
+        const size_t m = 32;
         const int num_vectors = 1000;
+        auto index1 = vector_search_utils::create_doris_index(
+            vector_search_utils::IndexType::HNSW,d, m);
+
         std::vector<float> vectors;
         // Create 1000 vectors and make sure their l2_distance with [1,2,3,4,5,6,7,8,9,10] is less than 100
         // [1,2,3,4,5,6,7,8,9,10]
@@ -679,73 +578,66 @@ TEST_F(VectorSearchTest, RangeSearchEmptyResult) {
                 rowid = rowid % 10;
             }
 
-            std::vector<float> vec(params.d);
-            for (int colid = 0; colid < params.d; colid++) {
+            std::vector<float> vec(d);
+            for (int colid = 0; colid < d; colid++) {
                 vec[colid] = (rowid + colid) % 10 + 1;
             }
             vectors.insert(vectors.end(), vec.begin(), vec.end());
         }
-        // Find the min
-        float radius = 5.0f;
-
-        std::unique_ptr<faiss::Index> native_index =
-                std::make_unique<faiss::IndexHNSWFlat>(params.d, params.m, faiss::METRIC_L2);
-
-        native_index->add(num_vectors, vectors.data());
-        std::ignore = index1->add(num_vectors, vectors.data());
+        std::unique_ptr<faiss::Index> native_index = vector_search_utils::create_native_index(
+                vector_search_utils::IndexType::HNSW, d, m);
+        vector_search_utils::add_vectors_to_indexes_batch_mode(
+            index1.get(), native_index.get(), num_vectors, vectors);
 
         std::vector<float> query_vec;
-        for (int i = 0; i < params.d; i++) {
+        for (int i = 0; i < d; i++) {
             query_vec.push_back(5.0f);
         }
-        // L2 distance between [5,5,5,5,5,5,5,5,5,5] with any vector add added is large than 5 and less than 250.
 
+        // L2 distance between [5,5,5,5,5,5,5,5,5,5] with any other vector is large than 5 and less than 250.
+        // Find the min
+        float radius = 5.0f;
         faiss::SearchParametersHNSW search_params;
         search_params.efSearch = 1000; // Set efSearch for better accuracy
-        faiss::RangeSearchResult native_search_result(1, true);
-        native_index->range_search(1, query_vec.data(), radius * radius, &native_search_result);
+        auto doris_search_result = vector_search_utils::perform_doris_index_range_search(
+            index1.get(), query_vec.data(), radius, search_params);
+        auto native_search_result = vector_search_utils::perform_native_index_range_search(
+            native_index.get(), query_vec.data(), radius);    
+        
+        ASSERT_EQ(doris_search_result.roaring->cardinality(), 0);
+        ASSERT_EQ(native_search_result.size(), 0);
 
-        std::vector<std::pair<int, float>> native_results;
-        size_t begin = native_search_result.lims[0];
-        size_t end = native_search_result.lims[1];
-        for (size_t i = begin; i < end; i++) {
-            native_results.push_back(
-                    {native_search_result.labels[i], native_search_result.distances[i]});
-        }
-
-        HNSWSearchParameters doris_search_params;
-        doris_search_params.ef_search = 1000; // Set efSearch for better accuracy
-        doris_search_params.is_le_or_lt = true;
+        // Search all rows.
+        HNSWSearchParameters search_params_all_rows;
+        search_params_all_rows.ef_search = 1000; // Set efSearch for better accuracy
+        search_params_all_rows.is_le_or_lt = true;
         std::unique_ptr<roaring::Roaring> sel_rows = std::make_unique<roaring::Roaring>();
         for (size_t i = 0; i < num_vectors; ++i) {
             sel_rows->add(i);
         }
-
-        // Search all rows.
-        doris_search_params.roaring = sel_rows.get();
-        IndexSearchResult doris_search_result;
-
-        ASSERT_EQ(index1->range_search(query_vec.data(), radius, doris_search_params,
-                                       doris_search_result)
-                          .ok(),
-                  true);
-
-        ASSERT_EQ(native_results.size(), doris_search_result.roaring->cardinality());
+        search_params_all_rows.roaring = sel_rows.get();
+        doris_search_result = vector_search_utils::perform_doris_index_range_search(
+            index1.get(), query_vec.data(), radius, search_params_all_rows);
         ASSERT_EQ(doris_search_result.distances != nullptr, true);
-        for (size_t i = 0; i < native_results.size(); i++) {
-            const size_t rowid = native_results[i].first;
-            const float dis = native_results[i].second;
+
+        native_search_result = vector_search_utils::perform_native_index_range_search(
+            native_index.get(), query_vec.data(), radius, sel_rows.get());
+        
+        // Make sure result is same
+        for (size_t i = 0; i < native_search_result.size(); i++) {
+            const size_t rowid = native_search_result[i].first;
+            const float dis = native_search_result[i].second;
             ASSERT_EQ(doris_search_result.roaring->contains(rowid), true)
                     << "Row ID mismatch at rank " << i;
             ASSERT_FLOAT_EQ(doris_search_result.distances[i], sqrt(dis))
                     << "Distance mismatch at rank " << i;
         }
 
-        doris_search_params.is_le_or_lt = false;
-        roaring::Roaring ge_rows = *doris_search_params.roaring;
+        search_params_all_rows.is_le_or_lt = false;
+        roaring::Roaring ge_rows = *search_params_all_rows.roaring;
         roaring::Roaring less_rows;
-        for (size_t i = 0; i < native_results.size(); ++i) {
-            less_rows.add(native_results[i].first);
+        for (size_t i = 0; i < native_search_result.size(); ++i) {
+            less_rows.add(native_search_result[i].first);
         }
         roaring::Roaring and_row_id = ge_rows & less_rows;
         roaring::Roaring or_row_id = ge_rows | less_rows;
@@ -762,4 +654,5 @@ TEST_F(VectorSearchTest, TestIdSelectorWithEmptyRoaring) {
         ASSERT_EQ(sel->is_member(i), false) << "Selector should be empty";
     }
 }
+
 } // namespace doris::vectorized

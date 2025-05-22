@@ -20,6 +20,7 @@
 #include <gen_cpp/Descriptors_types.h>
 #include <gen_cpp/Exprs_types.h>
 #include <gen_cpp/Types_types.h>
+#include <gen_cpp/olap_file.pb.h>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include <stdint.h>
@@ -36,12 +37,72 @@
 #include "olap/tablet_schema.h"
 #include "runtime/descriptors.h"
 #include "vec/exprs/vexpr_context.h"
+#include "vector_index.h"
 // Add CLucene RAM Directory header
 #include <CLucene/store/RAMDirectory.h>
+#include <faiss/MetricType.h>
 
 using doris::segment_v2::DorisCompoundReader;
 
-namespace doris::vec_search_mock {
+namespace faiss{
+    class Index;
+    class IndexHNSWFlat;
+}
+
+namespace doris::segment_v2 {
+    class FaissVectorIndex;
+}
+
+namespace doris::vector_search_utils {
+
+// Generate random vectors for testing
+std::vector<float> generate_random_vector(int dim);
+// Generate random vectors in matrix form
+std::vector<std::vector<float>> generate_test_vectors_matrix(int num_vectors, int dimension);
+// Generate random vectors as a flatten vector
+std::vector<float> generate_test_vectors_flatten(int num_vectors, int dimension);
+
+// Enum for different index types
+enum class IndexType {
+    FLAT_L2,
+    HNSW,
+    // Add more index types as needed
+};
+std::unique_ptr<faiss::Index> create_native_index(IndexType type, int dimension, int m);
+std::unique_ptr<doris::segment_v2::VectorIndex> create_doris_index(IndexType index_type, int dimension, int m);
+
+// Helper function to add vectors to both Doris and native indexes
+void add_vectors_to_indexes_serial_mode(segment_v2::FaissVectorIndex* doris_index,
+                                   faiss::Index* native_index,
+                                   const std::vector<std::vector<float>>& vectors);
+
+void add_vectors_to_indexes_batch_mode(segment_v2::FaissVectorIndex* doris_index,
+                                   faiss::Index* native_index,
+                                   size_t num_vectors,
+                                   const std::vector<float>& flatten_vectors);
+
+void print_search_results(const segment_v2::IndexSearchResult& doris_results,
+                                                  const std::vector<float>& native_distances,
+                                                  const std::vector<faiss::idx_t>& native_indices,
+                                                  int query_idx);
+
+float get_radius_from_flatten(const float* vector, int dim, const std::vector<float>& flatten_vectors, float percentile);
+float get_radius_from_matrix(const float* vector, int dim, const std::vector<std::vector<float>>& matrix_vectors, float percentile);
+// Helper function to compare search results between Doris and native Faiss
+void compare_search_results(const segment_v2::IndexSearchResult& doris_results,
+                                   const std::vector<float>& native_distances,
+                                   const std::vector<faiss::idx_t>& native_indices,
+                                   float abs_error = 1e-5);
+
+// result is a vector of pairs, where each pair contains the labels and distance
+// result is sorted by labels
+std::vector<std::pair<int, float>> perform_native_index_range_search(
+        faiss::Index* index, const float* query_vector, float radius);
+
+std::unique_ptr<doris::segment_v2::IndexSearchResult> perform_doris_index_range_search(
+        segment_v2::VectorIndex* index, const float* query_vector, float radius,
+        const segment_v2::IndexSearchParameters& params);
+
 class MockIndexFileReader : public ::doris::segment_v2::IndexFileReader {
 public:
     MockIndexFileReader()
@@ -83,8 +144,6 @@ public:
 
     ~MockAnnIndexIterator() override = default;
 
-    IndexType type() override { return IndexType::ANN; }
-
     MOCK_METHOD(Status, read_from_index, (const doris::segment_v2::IndexParam& param), (override));
     MOCK_METHOD(Status, range_search,
                 (const segment_v2::RangeSearchParams& params,
@@ -95,7 +154,7 @@ public:
 private:
     io::IOContext _io_ctx_mock;
 };
-} // namespace doris::vec_search_mock
+} // namespace doris::vector_search_utils
 
 namespace doris::vectorized {
 template <typename T>
@@ -189,7 +248,7 @@ protected:
         virtual_slot_ref_node.__isset.opcode = false;
 
         _virtual_slot_ref_expr.nodes.push_back(virtual_slot_ref_node);
-        _ann_index_iterator = std::make_unique<vec_search_mock::MockAnnIndexIterator>();
+        _ann_index_iterator = std::make_unique<vector_search_utils::MockAnnIndexIterator>();
 
         _row_desc = RowDescriptor(*_desc_tbl, {0}, {false});
 
@@ -210,7 +269,7 @@ protected:
 private:
     doris::ObjectPool obj_pool;
     RowDescriptor _row_desc;
-    std::unique_ptr<vec_search_mock::MockAnnIndexIterator> _ann_index_iterator;
+    std::unique_ptr<vector_search_utils::MockAnnIndexIterator> _ann_index_iterator;
     vectorized::IColumn::MutablePtr _result_column;
     doris::TExpr _virtual_slot_ref_expr;
     DescriptorTbl* _desc_tbl;
@@ -284,4 +343,4 @@ private:
     const std::string _distance_function_call_thrift =
             R"xxx({"1":{"lst":["rec",12,{"1":{"i32":20},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":8}}}}]},"3":{"i64":-1}}},"4":{"i32":2},"20":{"i32":-1},"26":{"rec":{"1":{"rec":{"2":{"str":"l2_distance"}}},"2":{"i32":0},"3":{"lst":["rec",2,{"1":{"lst":["rec",2,{"1":{"i32":1},"4":{"tf":1},"5":{"lst":["tf",1,1]}},{"1":{"i32":0},"2":{"rec":{"1":{"i32":8}}}}]},"3":{"i64":-1}},{"1":{"lst":["rec",2,{"1":{"i32":1},"4":{"tf":1},"5":{"lst":["tf",1,1]}},{"1":{"i32":0},"2":{"rec":{"1":{"i32":8}}}}]},"3":{"i64":-1}}]},"4":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":8}}}}]},"3":{"i64":-1}}},"5":{"tf":0},"7":{"str":"l2_distance(array<double>, array<double>)"},"9":{"rec":{"1":{"str":""}}},"11":{"i64":0},"13":{"tf":1},"14":{"tf":0},"15":{"tf":0},"16":{"i64":360}}},"29":{"tf":1}},{"1":{"i32":5},"2":{"rec":{"1":{"lst":["rec",2,{"1":{"i32":1},"4":{"tf":1},"5":{"lst":["tf",1,1]}},{"1":{"i32":0},"2":{"rec":{"1":{"i32":8}}}}]},"3":{"i64":-1}}},"3":{"i32":4},"4":{"i32":1},"20":{"i32":-1},"26":{"rec":{"1":{"rec":{"2":{"str":"casttoarray"}}},"2":{"i32":0},"3":{"lst":["rec",1,{"1":{"lst":["rec",2,{"1":{"i32":1},"4":{"tf":1},"5":{"lst":["tf",1,1]}},{"1":{"i32":0},"2":{"rec":{"1":{"i32":7}}}}]},"3":{"i64":-1}}]},"4":{"rec":{"1":{"lst":["rec",2,{"1":{"i32":1},"4":{"tf":1},"5":{"lst":["tf",1,1]}},{"1":{"i32":0},"2":{"rec":{"1":{"i32":8}}}}]},"3":{"i64":-1}}},"5":{"tf":0},"7":{"str":"casttoarray(array<float>)"},"9":{"rec":{"1":{"str":""}}},"11":{"i64":0},"13":{"tf":1},"14":{"tf":0},"15":{"tf":0},"16":{"i64":360}}},"29":{"tf":0}},{"1":{"i32":16},"2":{"rec":{"1":{"lst":["rec",2,{"1":{"i32":1},"4":{"tf":1},"5":{"lst":["tf",1,1]}},{"1":{"i32":0},"2":{"rec":{"1":{"i32":7}}}}]},"3":{"i64":-1}}},"4":{"i32":0},"15":{"rec":{"1":{"i32":1},"2":{"i32":0},"3":{"i32":1}}},"20":{"i32":-1},"29":{"tf":0},"36":{"str":"embedding"}},{"1":{"i32":21},"2":{"rec":{"1":{"lst":["rec",2,{"1":{"i32":1},"4":{"tf":1},"5":{"lst":["tf",1,1]}},{"1":{"i32":0},"2":{"rec":{"1":{"i32":8}}}}]},"3":{"i64":-1}}},"4":{"i32":8},"20":{"i32":-1},"28":{"i32":8},"29":{"tf":0}},{"1":{"i32":8},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":8}}}}]},"3":{"i64":-1}}},"4":{"i32":0},"9":{"rec":{"1":{"dbl":1}}},"20":{"i32":-1},"29":{"tf":0}},{"1":{"i32":8},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":8}}}}]},"3":{"i64":-1}}},"4":{"i32":0},"9":{"rec":{"1":{"dbl":2}}},"20":{"i32":-1},"29":{"tf":0}},{"1":{"i32":8},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":8}}}}]},"3":{"i64":-1}}},"4":{"i32":0},"9":{"rec":{"1":{"dbl":3}}},"20":{"i32":-1},"29":{"tf":0}},{"1":{"i32":8},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":8}}}}]},"3":{"i64":-1}}},"4":{"i32":0},"9":{"rec":{"1":{"dbl":4}}},"20":{"i32":-1},"29":{"tf":0}},{"1":{"i32":8},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":8}}}}]},"3":{"i64":-1}}},"4":{"i32":0},"9":{"rec":{"1":{"dbl":5}}},"20":{"i32":-1},"29":{"tf":0}},{"1":{"i32":8},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":8}}}}]},"3":{"i64":-1}}},"4":{"i32":0},"9":{"rec":{"1":{"dbl":6}}},"20":{"i32":-1},"29":{"tf":0}},{"1":{"i32":8},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":8}}}}]},"3":{"i64":-1}}},"4":{"i32":0},"9":{"rec":{"1":{"dbl":7}}},"20":{"i32":-1},"29":{"tf":0}},{"1":{"i32":8},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":8}}}}]},"3":{"i64":-1}}},"4":{"i32":0},"9":{"rec":{"1":{"dbl":20}}},"20":{"i32":-1},"29":{"tf":0}}]}})xxx";
 };
-} // namespace doris::vectorized
+} 

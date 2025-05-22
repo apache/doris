@@ -26,7 +26,7 @@
 
 namespace doris::segment_v2 {
 
-using namespace vec_search_mock;
+using namespace vector_search_utils;
 class AnnIndexReaderTest : public testing::Test {};
 
 TEST_F(AnnIndexReaderTest, TestLoadIndex) {
