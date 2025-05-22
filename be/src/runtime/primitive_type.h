@@ -353,7 +353,7 @@ struct PrimitiveTypeTraits<TYPE_DATE> {
     using NearestFieldType = vectorized::Int64;
     using AvgNearestFieldType = vectorized::Int64;
     using AvgNearestFieldType256 = vectorized::Int64;
-    static constexpr PrimitiveType NearestPrimitiveType = TYPE_BIGINT;
+    static constexpr PrimitiveType NearestPrimitiveType = TYPE_DATE;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_DATETIME> {
@@ -366,7 +366,7 @@ struct PrimitiveTypeTraits<TYPE_DATETIME> {
     using NearestFieldType = vectorized::Int64;
     using AvgNearestFieldType = vectorized::Int64;
     using AvgNearestFieldType256 = vectorized::Int64;
-    static constexpr PrimitiveType NearestPrimitiveType = TYPE_BIGINT;
+    static constexpr PrimitiveType NearestPrimitiveType = TYPE_DATETIME;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_DATETIMEV2> {
@@ -379,7 +379,7 @@ struct PrimitiveTypeTraits<TYPE_DATETIMEV2> {
     using NearestFieldType = vectorized::UInt64;
     using AvgNearestFieldType = vectorized::UInt64;
     using AvgNearestFieldType256 = vectorized::UInt64;
-    static constexpr PrimitiveType NearestPrimitiveType = TYPE_BIGINT;
+    static constexpr PrimitiveType NearestPrimitiveType = TYPE_DATETIMEV2;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_DATEV2> {
@@ -392,7 +392,7 @@ struct PrimitiveTypeTraits<TYPE_DATEV2> {
     using NearestFieldType = vectorized::UInt64;
     using AvgNearestFieldType = vectorized::UInt32;
     using AvgNearestFieldType256 = vectorized::UInt32;
-    static constexpr PrimitiveType NearestPrimitiveType = TYPE_BIGINT;
+    static constexpr PrimitiveType NearestPrimitiveType = TYPE_DATEV2;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_DECIMALV2> {
@@ -471,7 +471,7 @@ struct PrimitiveTypeTraits<TYPE_IPV4> {
     using NearestFieldType = IPv4;
     using AvgNearestFieldType = IPv4;
     using AvgNearestFieldType256 = IPv4;
-    static constexpr PrimitiveType NearestPrimitiveType = TYPE_BIGINT;
+    static constexpr PrimitiveType NearestPrimitiveType = TYPE_IPV4;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_IPV6> {
