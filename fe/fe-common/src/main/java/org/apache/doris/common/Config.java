@@ -1270,6 +1270,13 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int max_get_kafka_meta_timeout_second = 60;
 
+
+    /**
+     * the expire time of routine load blacklist.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int routine_load_blacklist_expire_time_second = 300;
+
     /**
      * The max number of files store in SmallFileMgr
      */

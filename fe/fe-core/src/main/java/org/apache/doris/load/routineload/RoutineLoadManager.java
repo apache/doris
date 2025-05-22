@@ -91,6 +91,9 @@ public class RoutineLoadManager implements Writable {
 
     private ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
 
+    // Map<beId, timestamp when added to blacklist>
+    private Map<Long, Long> blacklist = new ConcurrentHashMap<>();
+
     private void readLock() {
         lock.readLock().lock();
     }
@@ -108,6 +111,10 @@ public class RoutineLoadManager implements Writable {
     }
 
     public RoutineLoadManager() {
+    }
+
+    public Map<Long, Long> getBlacklist() {
+        return blacklist;
     }
 
     public List<RoutineLoadJob> getAllRoutineLoadJobs() {
@@ -915,5 +922,23 @@ public class RoutineLoadManager implements Writable {
                 Env.getCurrentGlobalTransactionMgr().getCallbackFactory().addCallback(routineLoadJob);
             }
         }
+    }
+
+    public void addToBlacklist(long beId) {
+        blacklist.put(beId, System.currentTimeMillis());
+    }
+
+    public boolean isInBlacklist(long beId) {
+        Long timestamp = blacklist.get(beId);
+        if (timestamp == null) {
+            return false;
+        }
+
+        if (System.currentTimeMillis() - timestamp > Config.routine_load_blacklist_expire_time_second * 1000) {
+            blacklist.remove(beId);
+            LOG.info("remove beId {} from blacklist, blacklist: {}", beId, blacklist);
+            return false;
+        }
+        return true;
     }
 }
