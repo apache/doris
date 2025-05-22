@@ -33,6 +33,7 @@ import org.apache.doris.datasource.DorisTypeVisitor;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.operations.ExternalMetadataOps;
+import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
@@ -146,6 +147,19 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     }
 
     @Override
+    public void createDbImpl(CreateDatabaseCommand command) throws DdlException {
+        try {
+            preExecutionAuthenticator.execute(() -> {
+                performCreateDb(command);
+                return null;
+            });
+        } catch (Exception e) {
+            throw new DdlException("Failed to create database: "
+                + command.getDbName() + ": " + Util.getRootCauseMessage(e), e);
+        }
+    }
+
+    @Override
     public void afterCreateDb(String dbName) {
         dorisCatalog.onRefreshCache(true);
     }
@@ -156,6 +170,28 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         Map<String, String> properties = stmt.getProperties();
         if (databaseExist(dbName)) {
             if (stmt.isSetIfNotExists()) {
+                LOG.info("create database[{}] which already exists", dbName);
+                return;
+            } else {
+                ErrorReport.reportDdlException(ErrorCode.ERR_DB_CREATE_EXISTS, dbName);
+            }
+        }
+        if (!properties.isEmpty() && dorisCatalog instanceof IcebergExternalCatalog) {
+            String icebergCatalogType = ((IcebergExternalCatalog) dorisCatalog).getIcebergCatalogType();
+            if (!IcebergExternalCatalog.ICEBERG_HMS.equals(icebergCatalogType)) {
+                throw new DdlException(
+                    "Not supported: create database with properties for iceberg catalog type: " + icebergCatalogType);
+            }
+        }
+        nsCatalog.createNamespace(getNamespace(dbName), properties);
+    }
+
+    private void performCreateDb(CreateDatabaseCommand command) throws DdlException {
+        SupportsNamespaces nsCatalog = (SupportsNamespaces) catalog;
+        String dbName = command.getDbName();
+        Map<String, String> properties = command.getProperties();
+        if (databaseExist(dbName)) {
+            if (command.isIfNotExists()) {
                 LOG.info("create database[{}] which already exists", dbName);
                 return;
             } else {
