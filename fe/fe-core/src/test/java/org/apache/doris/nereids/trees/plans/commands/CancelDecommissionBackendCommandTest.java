@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -82,6 +81,6 @@ public class CancelDecommissionBackendCommandTest {
         //test hostInfos and ids are empty
         List<String> params02 = new ArrayList<>();
         CancelDecommissionBackendCommand command02 = new CancelDecommissionBackendCommand(params02);
-        Assertions.assertThrows(AnalysisException.class, () -> command02.validate());
+        Assertions.assertThrows(IllegalStateException.class, () -> command02.validate());
     }
 }
