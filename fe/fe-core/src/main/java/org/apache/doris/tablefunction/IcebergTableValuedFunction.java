@@ -24,12 +24,16 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.iceberg.IcebergMetadataCache;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TIcebergMetadataParams;
 import org.apache.doris.thrift.TIcebergQueryType;
 import org.apache.doris.thrift.TMetaScanRange;
 import org.apache.doris.thrift.TMetadataType;
+import org.apache.iceberg.Table;
+import org.apache.iceberg.util.SerializationUtil;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -60,7 +64,6 @@ public class IcebergTableValuedFunction extends MetadataTableValuedFunction {
             // todo: compress manifest_list string
             new Column("manifest_list", PrimitiveType.STRING, false),
             new Column("summary", PrimitiveType.STRING, false));
-
 
     private static final ImmutableMap<String, Integer> COLUMN_TO_INDEX;
 
@@ -130,9 +133,19 @@ public class IcebergTableValuedFunction extends MetadataTableValuedFunction {
         // set iceberg metadata params
         TIcebergMetadataParams icebergMetadataParams = new TIcebergMetadataParams();
         icebergMetadataParams.setIcebergQueryType(queryType);
+        // TODO: remove this after iceberg metadata cache is ready
         icebergMetadataParams.setCatalog(icebergTableName.getCtl());
         icebergMetadataParams.setDatabase(icebergTableName.getDb());
         icebergMetadataParams.setTable(icebergTableName.getTbl());
+        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(icebergTableName.getCtl());
+        IcebergMetadataCache icebergMetadataCache = Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache();
+        Table table = icebergMetadataCache.getIcebergTable(catalog, icebergTableName.getDb(),
+                icebergTableName.getTbl());
+        // if (table == null) {
+        // throw new AnalysisException("Iceberg table not found: " + icebergTableName);
+        // }
+        String serializedTable = SerializationUtil.serializeToBase64(table);
+        icebergMetadataParams.setSerializedTable(serializedTable);
         metaScanRange.setIcebergParams(icebergMetadataParams);
         return metaScanRange;
     }
