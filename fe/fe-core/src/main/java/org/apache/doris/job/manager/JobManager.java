@@ -318,6 +318,10 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
             }
             jobId = jobs.get(0).getJobId();
         }
+        if (!jobMap.contains(jobId)) {
+            LOG.warn("replayUpdateJob not normal, job: {}, jobId: {}, jobMap: {}", job, jobId, jobMap);
+            return;
+        }
         jobMap.put(jobId, job);
         log.info(new LogBuilder(LogKey.SCHEDULER_JOB, jobId)
                 .add("msg", "replay update scheduler job").build());
@@ -375,6 +379,10 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
         int size = in.readInt();
         for (int i = 0; i < size; i++) {
             AbstractJob job = AbstractJob.readFields(in);
+            // for compatible
+            if (job instanceof MTMVJob) {
+                job.setJobId(((MTMVJob) job).getMtmvId());
+            }
             jobMap.putIfAbsent(job.getJobId(), (T) job);
         }
     }

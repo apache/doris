@@ -269,6 +269,10 @@ public class MTMVJob extends AbstractJob<MTMVTask, MTMVTaskContext> {
         return (MTMV) db.getTableOrMetaException(mtmvId, TableType.MATERIALIZED_VIEW);
     }
 
+    public long getMtmvId() {
+        return mtmvId;
+    }
+
     @Override
     public boolean needPersist() {
         return false;
