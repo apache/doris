@@ -82,7 +82,6 @@ public class CancelDecommissionBackendCommandTest {
         //test hostInfos and ids are empty
         List<String> params02 = new ArrayList<>();
         CancelDecommissionBackendCommand command02 = new CancelDecommissionBackendCommand(params02);
-        Assertions.assertThrows(AnalysisException.class, () -> command02.validate(),
-                "hostInfos or ids can not be empty");
+        Assertions.assertThrows(AnalysisException.class, () -> command02.validate());
     }
 }
