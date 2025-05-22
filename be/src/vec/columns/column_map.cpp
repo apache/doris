@@ -29,6 +29,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "runtime/primitive_type.h"
 #include "vec/common/arena.h"
 #include "vec/common/typeid_cast.h"
 #include "vec/common/unaligned.h"
@@ -118,7 +119,8 @@ Field ColumnMap::operator[](size_t n) const {
         v[i] = get_values()[start_offset + i];
     }
 
-    return Map {k, v};
+    return Field::create_field<TYPE_MAP>(
+            Map {Field::create_field<TYPE_ARRAY>(k), Field::create_field<TYPE_ARRAY>(v)});
 }
 
 // here to compare to below

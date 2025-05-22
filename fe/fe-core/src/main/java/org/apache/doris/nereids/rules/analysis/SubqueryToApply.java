@@ -374,7 +374,7 @@ public class SubqueryToApply implements AnalysisRuleFactory {
 
             if (!ctx.subqueryIsAnalyzed(subqueryExpr)) {
                 tmpPlan = addApply(subqueryExpr, tmpPlan.first,
-                    subqueryToMarkJoinSlot, ctx, conjunct,
+                    subqueryToMarkJoinSlot, ctx, tmpPlan.second,
                     isProject, subqueryExprs.size() == 1, isMarkJoinSlotNotNull);
             }
         }
