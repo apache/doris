@@ -57,9 +57,11 @@ public class LogicalPlanBuilderForEncryption extends LogicalPlanBuilder {
     // export into outfile clause
     @Override
     public BrokerDesc visitWithRemoteStorageSystem(DorisParser.WithRemoteStorageSystemContext ctx) {
-        Map<String, String> properties = visitPropertyItemList(ctx.brokerProperties);
-        encryptProperty(properties, ctx.brokerProperties.start.getStartIndex(),
-                ctx.brokerProperties.stop.getStopIndex());
+        if (ctx.brokerProperties != null) {
+            Map<String, String> properties = visitPropertyItemList(ctx.brokerProperties);
+            encryptProperty(properties, ctx.brokerProperties.start.getStartIndex(),
+                    ctx.brokerProperties.stop.getStopIndex());
+        }
         return super.visitWithRemoteStorageSystem(ctx);
     }
 
@@ -120,9 +122,11 @@ public class LogicalPlanBuilderForEncryption extends LogicalPlanBuilder {
     // select from tvf
     @Override
     public LogicalPlan visitTableValuedFunction(DorisParser.TableValuedFunctionContext ctx) {
-        DorisParser.PropertyItemListContext properties = ctx.properties;
-        encryptProperty(visitPropertyItemList(properties), properties.start.getStartIndex(),
-                properties.stop.getStopIndex());
+        if (ctx.properties != null) {
+            DorisParser.PropertyItemListContext properties = ctx.properties;
+            encryptProperty(visitPropertyItemList(properties), properties.start.getStartIndex(),
+                    properties.stop.getStopIndex());
+        }
         return super.visitTableValuedFunction(ctx);
     }
 
