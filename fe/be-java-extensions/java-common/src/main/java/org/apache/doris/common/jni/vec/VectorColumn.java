@@ -67,6 +67,7 @@ public class VectorColumn {
     private int capacity;
     // Upper limit for the maximum capacity for this column.
     private static final int MAX_CAPACITY = Integer.MAX_VALUE - 15;
+    private static final byte[] EMPTY_BYTES = new byte[0];
     private final ColumnType columnType;
 
     private int numNulls;
@@ -414,7 +415,7 @@ public class VectorColumn {
             case VARCHAR:
             case STRING:
             case BINARY:
-                return appendBytesAndOffset(new byte[0]);
+                return appendBytesAndOffset(EMPTY_BYTES);
             case ARRAY:
                 return appendArray(Collections.emptyList());
             case MAP:
@@ -438,24 +439,28 @@ public class VectorColumn {
     }
 
     public void appendBoolean(Boolean[] batch, boolean isNullable) {
-        int rows = batch.length;
+        appendBoolean(batch, isNullable, 0, batch.length);
+    }
+
+    public void appendBoolean(Boolean[] batch, boolean isNullable, int startRow, int endRow) {
+        int rows = endRow - startRow;
         reserve(appendIndex + rows);
         byte[] batchData = new byte[rows];
         if (isNullable) {
             byte[] batchNulls = new byte[rows];
             for (int i = 0; i < rows; ++i) {
-                if (batch[i] == null) {
+                if (batch[i + startRow] == null) {
                     batchNulls[i] = 1;
                     numNulls++;
                 } else {
                     batchNulls[i] = 0;
-                    batchData[i] = (byte) (batch[i] ? 1 : 0);
+                    batchData[i] = (byte) (batch[i + startRow] ? 1 : 0);
                 }
             }
             OffHeap.UNSAFE.copyMemory(batchNulls, OffHeap.BYTE_ARRAY_OFFSET, null, nullMap + appendIndex, rows);
         } else {
             for (int i = 0; i < rows; ++i) {
-                batchData[i] = (byte) (batch[i] ? 1 : 0);
+                batchData[i] = (byte) (batch[i + startRow] ? 1 : 0);
             }
         }
         OffHeap.UNSAFE.copyMemory(batchData, OffHeap.BYTE_ARRAY_OFFSET, null, data + appendIndex, rows);
@@ -495,24 +500,28 @@ public class VectorColumn {
     }
 
     public void appendByte(Byte[] batch, boolean isNullable) {
-        int rows = batch.length;
+        appendByte(batch, isNullable, 0, batch.length);
+    }
+
+    public void appendByte(Byte[] batch, boolean isNullable, int startRow, int endRow) {
+        int rows = endRow - startRow;
         reserve(appendIndex + rows);
         byte[] batchData = new byte[rows];
         if (isNullable) {
             byte[] batchNulls = new byte[rows];
             for (int i = 0; i < rows; ++i) {
-                if (batch[i] == null) {
+                if (batch[i + startRow] == null) {
                     batchNulls[i] = 1;
                     numNulls++;
                 } else {
                     batchNulls[i] = 0;
-                    batchData[i] = batch[i];
+                    batchData[i] = batch[i + startRow];
                 }
             }
             OffHeap.UNSAFE.copyMemory(batchNulls, OffHeap.BYTE_ARRAY_OFFSET, null, nullMap + appendIndex, rows);
         } else {
             for (int i = 0; i < rows; ++i) {
-                batchData[i] = batch[i];
+                batchData[i] = batch[i + startRow];
             }
         }
         OffHeap.UNSAFE.copyMemory(batchData, OffHeap.BYTE_ARRAY_OFFSET, null, data + appendIndex, rows);
@@ -552,24 +561,28 @@ public class VectorColumn {
     }
 
     public void appendShort(Short[] batch, boolean isNullable) {
-        int rows = batch.length;
+        appendShort(batch, isNullable, 0, batch.length);
+    }
+
+    public void appendShort(Short[] batch, boolean isNullable, int startRow, int endRow) {
+        int rows = endRow - startRow;
         reserve(appendIndex + rows);
         short[] batchData = new short[rows];
         if (isNullable) {
             byte[] batchNulls = new byte[rows];
             for (int i = 0; i < rows; ++i) {
-                if (batch[i] == null) {
+                if (batch[i + startRow] == null) {
                     batchNulls[i] = 1;
                     numNulls++;
                 } else {
                     batchNulls[i] = 0;
-                    batchData[i] = batch[i];
+                    batchData[i] = batch[i + startRow];
                 }
             }
             OffHeap.UNSAFE.copyMemory(batchNulls, OffHeap.BYTE_ARRAY_OFFSET, null, nullMap + appendIndex, rows);
         } else {
             for (int i = 0; i < rows; ++i) {
-                batchData[i] = batch[i];
+                batchData[i] = batch[i + startRow];
             }
         }
         OffHeap.UNSAFE.copyMemory(batchData, OffHeap.SHORT_ARRAY_OFFSET, null, data + 2L * appendIndex, 2L * rows);
@@ -609,24 +622,28 @@ public class VectorColumn {
     }
 
     public void appendInt(Integer[] batch, boolean isNullable) {
-        int rows = batch.length;
+        appendInt(batch, isNullable, 0, batch.length);
+    }
+
+    public void appendInt(Integer[] batch, boolean isNullable, int startRow, int endRow) {
+        int rows = endRow - startRow;
         reserve(appendIndex + rows);
         int[] batchData = new int[rows];
         if (isNullable) {
             byte[] batchNulls = new byte[rows];
             for (int i = 0; i < rows; ++i) {
-                if (batch[i] == null) {
+                if (batch[i + startRow] == null) {
                     batchNulls[i] = 1;
                     numNulls++;
                 } else {
                     batchNulls[i] = 0;
-                    batchData[i] = batch[i];
+                    batchData[i] = batch[i + startRow];
                 }
             }
             OffHeap.UNSAFE.copyMemory(batchNulls, OffHeap.BYTE_ARRAY_OFFSET, null, nullMap + appendIndex, rows);
         } else {
             for (int i = 0; i < rows; ++i) {
-                batchData[i] = batch[i];
+                batchData[i] = batch[i + startRow];
             }
         }
         OffHeap.UNSAFE.copyMemory(batchData, OffHeap.INT_ARRAY_OFFSET, null, data + 4L * appendIndex, 4L * rows);
@@ -666,24 +683,28 @@ public class VectorColumn {
     }
 
     public void appendFloat(Float[] batch, boolean isNullable) {
-        int rows = batch.length;
+        appendFloat(batch, isNullable, 0, batch.length);
+    }
+
+    public void appendFloat(Float[] batch, boolean isNullable, int startRow, int endRow) {
+        int rows = endRow - startRow;
         reserve(appendIndex + rows);
         float[] batchData = new float[rows];
         if (isNullable) {
             byte[] batchNulls = new byte[rows];
             for (int i = 0; i < rows; ++i) {
-                if (batch[i] == null) {
+                if (batch[i + startRow] == null) {
                     batchNulls[i] = 1;
                     numNulls++;
                 } else {
                     batchNulls[i] = 0;
-                    batchData[i] = batch[i];
+                    batchData[i] = batch[i + startRow];
                 }
             }
             OffHeap.UNSAFE.copyMemory(batchNulls, OffHeap.BYTE_ARRAY_OFFSET, null, nullMap + appendIndex, rows);
         } else {
             for (int i = 0; i < rows; ++i) {
-                batchData[i] = batch[i];
+                batchData[i] = batch[i + startRow];
             }
         }
         OffHeap.UNSAFE.copyMemory(batchData, OffHeap.FLOAT_ARRAY_OFFSET, null, data + 4L * appendIndex, 4L * rows);
@@ -723,24 +744,28 @@ public class VectorColumn {
     }
 
     public void appendLong(Long[] batch, boolean isNullable) {
-        int rows = batch.length;
+        appendLong(batch, isNullable, 0, batch.length);
+    }
+
+    public void appendLong(Long[] batch, boolean isNullable, int startRow, int endRow) {
+        int rows = endRow - startRow;
         reserve(appendIndex + rows);
         long[] batchData = new long[rows];
         if (isNullable) {
             byte[] batchNulls = new byte[rows];
             for (int i = 0; i < rows; ++i) {
-                if (batch[i] == null) {
+                if (batch[i + startRow] == null) {
                     batchNulls[i] = 1;
                     numNulls++;
                 } else {
                     batchNulls[i] = 0;
-                    batchData[i] = batch[i];
+                    batchData[i] = batch[i + startRow];
                 }
             }
             OffHeap.UNSAFE.copyMemory(batchNulls, OffHeap.BYTE_ARRAY_OFFSET, null, nullMap + appendIndex, rows);
         } else {
             for (int i = 0; i < rows; ++i) {
-                batchData[i] = batch[i];
+                batchData[i] = batch[i + startRow];
             }
         }
         OffHeap.UNSAFE.copyMemory(batchData, OffHeap.LONG_ARRAY_OFFSET, null, data + 8L * appendIndex, 8L * rows);
@@ -780,24 +805,28 @@ public class VectorColumn {
     }
 
     public void appendDouble(Double[] batch, boolean isNullable) {
-        int rows = batch.length;
+        appendDouble(batch, isNullable, 0, batch.length);
+    }
+
+    public void appendDouble(Double[] batch, boolean isNullable, int startRow, int endRow) {
+        int rows = endRow - startRow;
         reserve(appendIndex + rows);
         double[] batchData = new double[rows];
         if (isNullable) {
             byte[] batchNulls = new byte[rows];
             for (int i = 0; i < rows; ++i) {
-                if (batch[i] == null) {
+                if (batch[i + startRow] == null) {
                     batchNulls[i] = 1;
                     numNulls++;
                 } else {
                     batchNulls[i] = 0;
-                    batchData[i] = batch[i];
+                    batchData[i] = batch[i + startRow];
                 }
             }
             OffHeap.UNSAFE.copyMemory(batchNulls, OffHeap.BYTE_ARRAY_OFFSET, null, nullMap + appendIndex, rows);
         } else {
             for (int i = 0; i < rows; ++i) {
-                batchData[i] = batch[i];
+                batchData[i] = batch[i + startRow];
             }
         }
         OffHeap.UNSAFE.copyMemory(batchData, OffHeap.DOUBLE_ARRAY_OFFSET, null, data + 8L * appendIndex, 8L * rows);
@@ -837,13 +866,18 @@ public class VectorColumn {
     }
 
     public void appendBigInteger(BigInteger[] batch, boolean isNullable) {
-        reserve(appendIndex + batch.length);
-        for (BigInteger v : batch) {
-            if (v == null) {
+        appendBigInteger(batch, isNullable, 0, batch.length);
+    }
+
+    public void appendBigInteger(BigInteger[] batch, boolean isNullable, int startRow, int endRow) {
+        int rows = endRow - startRow;
+        reserve(appendIndex + rows);
+        for (int i = 0; i < rows; ++i) {
+            if (batch[i + startRow] == null) {
                 putNull(appendIndex);
                 putBigInteger(appendIndex, BigInteger.ZERO);
             } else {
-                putBigInteger(appendIndex, v);
+                putBigInteger(appendIndex, batch[i + startRow]);
             }
             appendIndex++;
         }
@@ -904,9 +938,14 @@ public class VectorColumn {
     }
 
     public void appendInetAddress(InetAddress[] batch, boolean isNullable) {
+        appendInetAddress(batch, isNullable, 0, batch.length);
+    }
+
+    public void appendInetAddress(InetAddress[] batch, boolean isNullable, int startRow, int endRow) {
+        int rows = endRow - startRow;
         reserve(appendIndex + batch.length);
-        for (InetAddress v : batch) {
-            if (v == null) {
+        for (int i = 0; i < rows; ++i) {
+            if (batch[i + startRow] == null) {
                 putNull(appendIndex);
                 if (columnType.isIpv4()) {
                     putInetAddress(appendIndex, DEFAULT_IPV4);
@@ -914,7 +953,7 @@ public class VectorColumn {
                     putInetAddress(appendIndex, DEFAULT_IPV6);
                 }
             } else {
-                putInetAddress(appendIndex, v);
+                putInetAddress(appendIndex, batch[i + startRow]);
             }
             appendIndex++;
         }
@@ -933,13 +972,18 @@ public class VectorColumn {
     }
 
     public void appendDecimal(BigDecimal[] batch, boolean isNullable) {
-        reserve(appendIndex + batch.length);
-        for (BigDecimal v : batch) {
-            if (v == null) {
+        appendDecimal(batch, isNullable, 0, batch.length);
+    }
+
+    public void appendDecimal(BigDecimal[] batch, boolean isNullable, int startRow, int endRow) {
+        int rows = endRow - startRow;
+        reserve(appendIndex + rows);
+        for (int i = 0; i < rows; ++i) {
+            if (batch[i + startRow] == null) {
                 putNull(appendIndex);
                 putDecimal(appendIndex, new BigDecimal(0));
             } else {
-                putDecimal(appendIndex, v);
+                putDecimal(appendIndex, batch[i + startRow]);
             }
             appendIndex++;
         }
@@ -979,13 +1023,18 @@ public class VectorColumn {
     }
 
     public void appendDate(LocalDate[] batch, boolean isNullable) {
-        reserve(appendIndex + batch.length);
-        for (LocalDate v : batch) {
-            if (v == null) {
+        appendDate(batch, isNullable, 0, batch.length);
+    }
+
+    public void appendDate(LocalDate[] batch, boolean isNullable, int startRow, int endRow) {
+        int rows = endRow - startRow;
+        reserve(appendIndex + rows);
+        for (int i = 0; i < rows; ++i) {
+            if (batch[i + startRow] == null) {
                 putNull(appendIndex);
                 putDate(appendIndex, LocalDate.MIN);
             } else {
-                putDate(appendIndex, v);
+                putDate(appendIndex, batch[i + startRow]);
             }
             appendIndex++;
         }
@@ -1045,13 +1094,18 @@ public class VectorColumn {
     }
 
     public void appendDateTime(LocalDateTime[] batch, boolean isNullable) {
-        reserve(appendIndex + batch.length);
-        for (LocalDateTime v : batch) {
-            if (v == null) {
+        appendDateTime(batch, isNullable, 0, batch.length);
+    }
+
+    public void appendDateTime(LocalDateTime[] batch, boolean isNullable, int startRow, int endRow) {
+        int rows = endRow - startRow;
+        reserve(appendIndex + rows);
+        for (int i = 0; i < rows; ++i) {
+            if (batch[i + startRow] == null) {
                 putNull(appendIndex);
                 putDateTime(appendIndex, LocalDateTime.MIN);
             } else {
-                putDateTime(appendIndex, v);
+                putDateTime(appendIndex, batch[i + startRow]);
             }
             appendIndex++;
         }
@@ -1146,14 +1200,19 @@ public class VectorColumn {
     }
 
     public void appendStringAndOffset(String[] batch, boolean isNullable) {
-        reserve(appendIndex + batch.length);
-        for (String v : batch) {
+        appendStringAndOffset(batch, isNullable, 0, batch.length);
+    }
+
+    public void appendStringAndOffset(String[] batch, boolean isNullable, int startRow, int endRow) {
+        int rows = endRow - startRow;
+        reserve(appendIndex + rows);
+        for (int i = 0; i < rows; ++i) {
             byte[] bytes;
-            if (v == null) {
+            if (batch[i + startRow] == null) {
                 putNull(appendIndex);
-                bytes = new byte[0];
+                bytes = EMPTY_BYTES;
             } else {
-                bytes = v.getBytes(StandardCharsets.UTF_8);
+                bytes = batch[i + startRow].getBytes(StandardCharsets.UTF_8);
             }
             int startOffset = childColumns[0].appendBytes(bytes, 0, bytes.length);
             OffHeap.putInt(null, offsets + 4L * appendIndex, startOffset + bytes.length);
@@ -1162,12 +1221,19 @@ public class VectorColumn {
     }
 
     public void appendBinaryAndOffset(byte[][] batch, boolean isNullable) {
-        reserve(appendIndex + batch.length);
-        for (byte[] v : batch) {
-            byte[] bytes = v;
-            if (bytes == null) {
+        appendBinaryAndOffset(batch, isNullable, 0, batch.length);
+    }
+
+    public void appendBinaryAndOffset(byte[][] batch, boolean isNullable, int startRow, int endRow) {
+        int rows = endRow - startRow;
+        reserve(appendIndex + rows);
+        for (int i = 0; i < rows; ++i) {
+            byte[] bytes;
+            if (batch[i + startRow] == null) {
                 putNull(appendIndex);
-                bytes = new byte[0];
+                bytes = EMPTY_BYTES;
+            } else {
+                bytes = batch[i + startRow];
             }
             int startOffset = childColumns[0].appendBytes(bytes, 0, bytes.length);
             if (startOffset + bytes.length < 0) {
@@ -1215,9 +1281,15 @@ public class VectorColumn {
     }
 
     public void appendArray(List<Object>[] batch, boolean isNullable) {
-        reserve(appendIndex + batch.length);
+        appendArray(batch, isNullable, 0, batch.length);
+    }
+
+    public void appendArray(List<Object>[] batch, boolean isNullable, int startRow, int endRow) {
+        int rows = endRow - startRow;
+        reserve(appendIndex + rows);
         int offset = childColumns[0].appendIndex;
-        for (List<Object> v : batch) {
+        for (int i = 0; i < rows; ++i) {
+            List<Object> v = batch[i + startRow];
             if (v == null) {
                 putNull(appendIndex);
             } else {
@@ -1229,7 +1301,8 @@ public class VectorColumn {
         Object[] nested = newObjectContainerArray(childColumns[0].getColumnPrimitiveType(),
                 offset - childColumns[0].appendIndex);
         int index = 0;
-        for (List<Object> v : batch) {
+        for (int i = 0; i < rows; ++i) {
+            List<Object> v = batch[i + startRow];
             if (v != null) {
                 for (Object o : v) {
                     nested[index++] = o;
@@ -1275,9 +1348,15 @@ public class VectorColumn {
     }
 
     public void appendMap(Map<Object, Object>[] batch, boolean isNullable) {
-        reserve(appendIndex + batch.length);
+        appendMap(batch, isNullable, 0, batch.length);
+    }
+
+    public void appendMap(Map<Object, Object>[] batch, boolean isNullable, int startRow, int endRow) {
+        int rows = endRow - startRow;
+        reserve(appendIndex + rows);
         int offset = childColumns[0].appendIndex;
-        for (Map<Object, Object> v : batch) {
+        for (int i = 0; i < rows; ++i) {
+            Map<Object, Object> v = batch[i + startRow];
             if (v == null) {
                 putNull(appendIndex);
             } else {
@@ -1291,7 +1370,8 @@ public class VectorColumn {
         Object[] values = newObjectContainerArray(childColumns[1].getColumnPrimitiveType(),
                 offset - childColumns[0].appendIndex);
         int index = 0;
-        for (Map<Object, Object> v : batch) {
+        for (int i = 0; i < rows; ++i) {
+            Map<Object, Object> v = batch[i + startRow];
             if (v != null) {
                 for (Map.Entry<Object, Object> entry : v.entrySet()) {
                     keys[index] = entry.getKey();
@@ -1341,14 +1421,19 @@ public class VectorColumn {
     }
 
     public void appendStruct(Map<String, Object>[] batch, boolean isNullable) {
-        reserve(appendIndex + batch.length);
+        appendStruct(batch, isNullable, 0, batch.length);
+    }
+
+    public void appendStruct(Map<String, Object>[] batch, boolean isNullable, int startRow, int endRow) {
+        int rows = endRow - startRow;
+        reserve(appendIndex + rows);
         Object[][] columnData = new Object[childColumns.length][];
-        Preconditions.checkArgument(this.getColumnType().getChildNames().size() == childColumns.length);
         for (int j = 0; j < childColumns.length; ++j) {
-            columnData[j] = newObjectContainerArray(childColumns[j].getColumnPrimitiveType(), batch.length);
+            columnData[j] = newObjectContainerArray(childColumns[j].getColumnPrimitiveType(), rows);
         }
         int index = 0;
-        for (Map<String, Object> v : batch) {
+        for (int i = 0; i < rows; ++i) {
+            Map<String, Object> v = batch[i + startRow];
             if (v == null) {
                 putNull(appendIndex);
                 for (int j = 0; j < childColumns.length; ++j) {
@@ -1544,6 +1629,73 @@ public class VectorColumn {
                 break;
             case STRUCT:
                 appendStruct((Map<String, Object>[]) batch, isNullable);
+                break;
+            default:
+                throw new RuntimeException("Unknown type value: " + columnType.getType());
+        }
+    }
+
+    public void appendObjectColumn(Object[] batch, boolean isNullable, int startRow, int endRow) {
+        switch (columnType.getType()) {
+            case BOOLEAN:
+                appendBoolean((Boolean[]) batch, isNullable, startRow, endRow);
+                break;
+            case TINYINT:
+                appendByte((Byte[]) batch, isNullable, startRow, endRow);
+                break;
+            case SMALLINT:
+                appendShort((Short[]) batch, isNullable, startRow, endRow);
+                break;
+            case INT:
+                appendInt((Integer[]) batch, isNullable, startRow, endRow);
+                break;
+            case BIGINT:
+                appendLong((Long[]) batch, isNullable, startRow, endRow);
+                break;
+            case LARGEINT:
+                appendBigInteger((BigInteger[]) batch, isNullable, startRow, endRow);
+                break;
+            case IPV4:
+            case IPV6:
+                appendInetAddress((InetAddress[]) batch, isNullable, startRow, endRow);
+                break;
+            case FLOAT:
+                appendFloat((Float[]) batch, isNullable, startRow, endRow);
+                break;
+            case DOUBLE:
+                appendDouble((Double[]) batch, isNullable, startRow, endRow);
+                break;
+            case DECIMALV2:
+            case DECIMAL32:
+            case DECIMAL64:
+            case DECIMAL128:
+                appendDecimal((BigDecimal[]) batch, isNullable, startRow, endRow);
+                break;
+            case DATE:
+            case DATEV2:
+                appendDate((LocalDate[]) batch, isNullable, startRow, endRow);
+                break;
+            case DATETIME:
+            case DATETIMEV2:
+                appendDateTime((LocalDateTime[]) batch, isNullable, startRow, endRow);
+                break;
+            case CHAR:
+            case VARCHAR:
+            case STRING:
+                if (batch instanceof String[]) {
+                    appendStringAndOffset((String[]) batch, isNullable, startRow, endRow);
+                } else {
+                    appendBinaryAndOffset((byte[][]) batch, isNullable, startRow, endRow);
+                }
+                break;
+            case ARRAY:
+                appendArray((List<Object>[]) batch, isNullable, startRow, endRow);
+                break;
+            case MAP:
+                appendMap((Map<Object, Object>[]) batch, isNullable, startRow, endRow);
+                break;
+            case STRUCT:
+                appendStruct((Map<String, Object>[]) batch, isNullable, startRow, endRow);
                 break;
             default:
                 throw new RuntimeException("Unknown type value: " + columnType.getType());
