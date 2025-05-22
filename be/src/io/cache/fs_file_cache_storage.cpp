@@ -103,6 +103,8 @@ size_t FDCache::file_reader_cache_size() {
 }
 
 Status FSFileCacheStorage::init(BlockFileCache* _mgr) {
+    _iterator_dir_retry_cnt = std::make_shared<bvar::LatencyRecorder>(
+            _cache_base_path.c_str(), "file_cache_fs_storage_iterator_dir_retry_cnt");
     _cache_base_path = _mgr->_cache_base_path;
     _cache_background_load_thread = std::thread([this, mgr = _mgr]() {
         auto mem_tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER,
@@ -341,7 +343,7 @@ void FSFileCacheStorage::remove_old_version_directories() {
     // the dir is concurrently accessed, so handle invalid iter with retry
     bool success = false;
     size_t retry_count = 0;
-    const size_t max_retry = 30;
+    const size_t max_retry = 5;
     while (!success && retry_count < max_retry) {
         try {
             ++retry_count;
@@ -396,8 +398,7 @@ Status FSFileCacheStorage::collect_directory_entries(const std::filesystem::path
             if (ec) {
                 LOG(WARNING) << "Failed to list directory: " << dir_path
                              << ", error: " << ec.message();
-                return Status::InternalError("Failed to list dir {}: {}", dir_path.native(),
-                                             ec.message());
+                continue;
             }
 
             file_list.clear();
@@ -411,6 +412,8 @@ Status FSFileCacheStorage::collect_directory_entries(const std::filesystem::path
             file_list.clear();
         }
     }
+
+    *_iterator_dir_retry_cnt << retry_count;
 
     if (!success) {
         LOG_WARNING("iteration of cache dir still failed after retry {} times.", max_retry);
@@ -450,6 +453,7 @@ Status FSFileCacheStorage::upgrade_cache_dir_if_necessary() const {
     if (USE_CACHE_VERSION2 && version != "2.0") {
         // move directories format as version 2.0
         std::vector<std::string> file_list;
+        file_list.reserve(10000);
         RETURN_IF_ERROR(collect_directory_entries(_cache_base_path, file_list));
 
         // this directory_iterator should be a problem in concurrent access
@@ -507,6 +511,7 @@ Status FSFileCacheStorage::upgrade_cache_dir_if_necessary() const {
         }
 
         std::vector<std::string> rebuilt_file_list;
+        rebuilt_file_list.reserve(10000);
         RETURN_IF_ERROR(collect_directory_entries(_cache_base_path, rebuilt_file_list));
 
         for (const auto& key_it : rebuilt_file_list) {

@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <bvar/bvar.h>
+
 #include <memory>
 #include <shared_mutex>
 #include <thread>
@@ -116,6 +118,7 @@ private:
     // TODO(Lchangliang): use a more efficient data structure
     std::mutex _mtx;
     std::unordered_map<FileWriterMapKey, FileWriterPtr, FileWriterMapKeyHash> _key_to_writer;
+    std::shared_ptr<bvar::LatencyRecorder> _iterator_dir_retry_cnt;
 };
 
 } // namespace doris::io
