@@ -436,6 +436,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 }
                 DeleteBitmapUpdateLockContext lockContext = new DeleteBitmapUpdateLockContext();
                 MowPublishInfo mowPublishInfo = new MowPublishInfo();
+                getPartitionInfo(mowTableList, tabletCommitInfos, mowPublishInfo);
                 if (Config.enable_share_mow_lock_for_load) {
                     getCachedDeleteBitmapUpdateLock(dbId, transactionId, mowTableList, tabletCommitInfos,
                             lockContext, mowPublishInfo);
@@ -995,7 +996,6 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         String retryMsg = "";
         boolean res = false;
         try {
-            getPartitionInfo(mowTableList, tabletCommitInfos, mowPublishInfo);
             for (Map.Entry<Long, Set<Long>> entry : mowPublishInfo.getTableToPartitions().entrySet()) {
                 GetDeleteBitmapUpdateLockRequest.Builder builder = GetDeleteBitmapUpdateLockRequest.newBuilder();
                 builder.setTableId(entry.getKey()).setLockId(transactionId).setInitiator(-1)
@@ -1395,6 +1395,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 }
                 DeleteBitmapUpdateLockContext lockContext = new DeleteBitmapUpdateLockContext();
                 MowPublishInfo mowPublishInfo = new MowPublishInfo();
+                getPartitionInfo(mowTableList, tabletCommitInfos, mowPublishInfo);
                 getDeleteBitmapUpdateLock(transactionId, mowTableList, tabletCommitInfos, lockContext, mowPublishInfo);
                 if (mowPublishInfo.getBackendToPartitionTablets().isEmpty()) {
                     throw new UserException(
