@@ -581,6 +581,7 @@ import org.apache.doris.nereids.trees.plans.commands.AlterWorkloadPolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.AnalyzeDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.AnalyzeTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CallCommand;
+import org.apache.doris.nereids.trees.plans.commands.CancelAlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelBackupCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelBuildIndexCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelDecommissionBackendCommand;
@@ -6949,6 +6950,29 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             index,
             columnName,
             properties);
+    }
+
+    @Override
+    public LogicalPlan visitCancelAlterTable(DorisParser.CancelAlterTableContext ctx) {
+        TableNameInfo tableNameInfo = new TableNameInfo(visitMultipartIdentifier(ctx.tableName));
+
+        CancelAlterTableCommand.AlterType alterType;
+        if (ctx.ROLLUP() != null) {
+            alterType = CancelAlterTableCommand.AlterType.ROLLUP;
+        } else if (ctx.MATERIALIZED() != null && ctx.VIEW() != null) {
+            alterType = CancelAlterTableCommand.AlterType.MV;
+        } else if (ctx.COLUMN() != null) {
+            alterType = CancelAlterTableCommand.AlterType.COLUMN;
+        } else {
+            throw new AnalysisException("invalid AlterOpType, it must be one of 'ROLLUP',"
+                    + "'MATERIALIZED VIEW' or 'COLUMN'");
+        }
+
+        List<Long> jobIs = new ArrayList<>();
+        for (Token token : ctx.jobIds) {
+            jobIs.add(Long.parseLong(token.getText()));
+        }
+        return new CancelAlterTableCommand(tableNameInfo, alterType, jobIs);
     }
 
     @Override
