@@ -9260,4 +9260,67 @@ TEST(MetaServiceTest, AddObjInfoWithRole) {
     SyncPoint::get_instance()->disable_processing();
     SyncPoint::get_instance()->clear_all_call_backs();
 }
+
+TEST(MetaServiceTest, StalePrepareRowset) {
+    auto meta_service = get_meta_service();
+
+    int64_t table_id = 1;
+    int64_t partition_id = 1;
+    int64_t tablet_id = 1;
+    int64_t db_id = 100201;
+    std::string label = "test_prepare_rowset";
+    create_tablet(meta_service.get(), table_id, 1, partition_id, tablet_id);
+
+    int64_t txn_id = 0;
+    ASSERT_NO_FATAL_FAILURE(begin_txn(meta_service.get(), db_id, label, table_id, txn_id));
+    CreateRowsetResponse res;
+    auto rowset = create_rowset(txn_id, tablet_id, partition_id);
+    prepare_rowset(meta_service.get(), rowset, res);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << label;
+    res.Clear();
+    ASSERT_NO_FATAL_FAILURE(commit_rowset(meta_service.get(), rowset, res));
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << label;
+
+    prepare_rowset(meta_service.get(), rowset, res);
+    ASSERT_TRUE(res.status().msg().find("rowset already exists") != std::string::npos)
+            << res.status().msg();
+    ASSERT_EQ(res.status().code(), MetaServiceCode::ALREADY_EXISTED) << res.status().code();
+
+    commit_txn(meta_service.get(), db_id, txn_id, label);
+    prepare_rowset(meta_service.get(), rowset, res);
+    ASSERT_TRUE(res.status().msg().find("txn is not in") != std::string::npos)
+            << res.status().msg();
+    ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT) << res.status().code();
+}
+
+TEST(MetaServiceTest, StaleCommitRowset) {
+    auto meta_service = get_meta_service();
+
+    int64_t table_id = 1;
+    int64_t partition_id = 1;
+    int64_t tablet_id = 1;
+    int64_t db_id = 100201;
+    std::string label = "test_prepare_rowset";
+    create_tablet(meta_service.get(), table_id, 1, partition_id, tablet_id);
+
+    int64_t txn_id = 0;
+    ASSERT_NO_FATAL_FAILURE(begin_txn(meta_service.get(), db_id, label, table_id, txn_id));
+    CreateRowsetResponse res;
+    auto rowset = create_rowset(txn_id, tablet_id, partition_id);
+    prepare_rowset(meta_service.get(), rowset, res);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << label;
+    res.Clear();
+    ASSERT_NO_FATAL_FAILURE(commit_rowset(meta_service.get(), rowset, res));
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << label;
+
+    ASSERT_NO_FATAL_FAILURE(commit_rowset(meta_service.get(), rowset, res));
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << label;
+
+    commit_txn(meta_service.get(), db_id, txn_id, label);
+    ASSERT_NO_FATAL_FAILURE(commit_rowset(meta_service.get(), rowset, res));
+    ASSERT_TRUE(res.status().msg().find("txn is not in") != std::string::npos)
+            << res.status().msg();
+    ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT) << res.status().code();
+}
+
 } // namespace doris::cloud
