@@ -16,14 +16,23 @@
 // under the License.
 
 suite("test_backend_configuration", "p0, external_table,information_schema,backend_configuration") {
-    sql("use information_schema")
-    // dont select be_id
-    qt_sql01 """ 
-         select CONFIGURATION, CONFIGURATION_TYPE, CONFIGURATION_VALUE, IS_MUTABLE from backend_configuration where CONFIGURATION = "disable_auto_compaction" and CONFIGURATION_TYPE = "bool";
-    """
+    def options = new ClusterOptions()
+    options.setFeNum(1)
+    options.setBeNum(3)
+    docker(options) {
+          // dont select be_id
+          def res = sql """ SHOW BACKENDS """
 
-    qt_sql02 """ 
-         select CONFIGURATION, CONFIGURATION_TYPE, CONFIGURATION_VALUE, IS_MUTABLE from backend_configuration where CONFIGURATION = "LZ4_HC_compression_level" and CONFIGURATION_TYPE = "int64_t";
-    """
+          assertTrue(res.size() == 3)
+          
+          sql """ 
+               select CONFIGURATION, CONFIGURATION_TYPE, CONFIGURATION_VALUE, IS_MUTABLE from information_schema.backend_configuration where CONFIGURATION = "disable_auto_compaction" and CONFIGURATION_TYPE = "bool";
+          """
+          assertTrue(res.size() == 3)
 
+          res = sql """ 
+               select CONFIGURATION, CONFIGURATION_TYPE, CONFIGURATION_VALUE, IS_MUTABLE from information_schema.backend_configuration where CONFIGURATION = "LZ4_HC_compression_level" and CONFIGURATION_TYPE = "int64_t";
+          """
+          assertTrue(res.size() == 3)
+    }
 }
