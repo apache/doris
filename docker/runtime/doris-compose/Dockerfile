@@ -22,7 +22,14 @@
 # docker build -f docker/runtime/doris-compose/Dockerfile -t <your-image-name>:<version> .
 
 # choose a base image
+# doris 2.1, 3.0+, master use JDK 17
 ARG JDK_IMAGE=openjdk:17-jdk-slim
+
+# doris 2.0 use JDK 8
+# build 2.0 image, example:
+# docker build --build-arg JDK_IMAGE=openjdk:8u342-jdk \
+#     -f docker/runtime/doris-compose/Dockerfile \
+#     -t <your-image-name>:<version> .
 #ARG JDK_IMAGE=openjdk:8u342-jdk
 
 # user can download a doris release package, extract it, then build its image used arg `OUTPUT_PATH`
