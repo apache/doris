@@ -33,9 +33,9 @@ suite("window_skew_rewrite") {
     (10, 'value10', 1000, 'd010');
     """
 
-    // 1.只有一个window expression
+    // 1.only one window expression
     qt_one_window_expr """select sum(w) from (select sum(a) over(partition by [skew] b order by d rows between unbounded PRECEDING and current row) w from  test_skew_window ) t;"""
-    // 2.有两个window expression，属于一个windowFrameGroup
+    // 2.two window expression，belong to same same windowFrameGroup
     qt_two_window_expr_in_same_windowFrameGroup """select sum(w1), sum(w3) from (select 
         sum(a) over(partition by [skew] b order by d) w1,
         rank() over(partition by [skew] b order by d) w3
@@ -51,7 +51,7 @@ suite("window_skew_rewrite") {
         rank() over(partition by [skew] b order by d) w3
         from  test_skew_window ) t;"""
 
-    // 3.有两个window expression，属于一个orderGroup
+    // 3.two window expression，belong to same orderGroup
     qt_two_window_expr_in_same_orderGroup """
         select sum(w1), sum(w2) from (select sum(a) over(partition by [skew] b order by d rows between unbounded PRECEDING and 1 FOLLOWING) w1,
         min(a) over(partition by [skew] b order by d rows between unbounded PRECEDING and 2 FOLLOWING) w2
@@ -67,7 +67,7 @@ suite("window_skew_rewrite") {
         min(a) over(partition by [skew] b order by d rows between unbounded PRECEDING and 2 FOLLOWING) w2
         from  test_skew_window) t;"""
 
-    // 4.有两个orderGroup，属于一个partitionGroup,
+    // 4.two orderGroup，belong to same partitionGroup,
     qt_two_orderGroup_in_same_partitionGroup"""
         select sum(w1), sum(w2) from (select sum(a) over(partition by [skew] b order by d rows between unbounded PRECEDING and 1 FOLLOWING) w1,
         min(a) over(partition by [skew] b order by a rows between unbounded PRECEDING and 2 FOLLOWING) w2
@@ -86,7 +86,7 @@ suite("window_skew_rewrite") {
     from  test_skew_window) t;
     """
 
-    // 5.不属于一个partitionGroup
+    // 5. not belong to same partitionGroup
     qt_two_partitionGroup """
     select sum(w1),sum(w2) from (select sum(a) over(partition by [skew] b order by d rows between unbounded PRECEDING and 1 FOLLOWING) w1,
     min(a) over(partition by [skew] c order by a rows between unbounded PRECEDING and 2 FOLLOWING) w2
