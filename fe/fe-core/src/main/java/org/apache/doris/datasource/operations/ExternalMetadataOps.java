@@ -23,6 +23,7 @@ import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 
 import java.util.List;
 
@@ -41,7 +42,19 @@ public interface ExternalMetadataOps {
         afterCreateDb(stmt.getFullDbName());
     }
 
+    /**
+     * create db in external metastore
+     * @param command
+     * @throws DdlException
+     */
+    default void createDb(CreateDatabaseCommand command) throws DdlException {
+        createDbImpl(command);
+        afterCreateDb(command.getDbName());
+    }
+
     void createDbImpl(CreateDbStmt stmt) throws DdlException;
+
+    void createDbImpl(CreateDatabaseCommand command) throws DdlException;
 
     default void afterCreateDb(String dbName) {
     }

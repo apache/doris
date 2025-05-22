@@ -209,6 +209,10 @@ supportedCreateStatement
         ON tableName=multipartIdentifier identifierList
         (USING (BITMAP | NGRAM_BF | INVERTED))?
         properties=propertyClause? (COMMENT STRING_LITERAL)?                    #createIndex
+    | CREATE WORKLOAD POLICY (IF NOT EXISTS)? name=identifierOrText
+        (CONDITIONS LEFT_PAREN workloadPolicyConditions RIGHT_PAREN)?
+        (ACTIONS LEFT_PAREN workloadPolicyActions RIGHT_PAREN)?
+        properties=propertyClause?                                              #createWorkloadPolicy
     | CREATE SQL_BLOCK_RULE (IF NOT EXISTS)?
         name=identifier properties=propertyClause?                        #createSqlBlockRule
     | CREATE ENCRYPTKEY (IF NOT EXISTS)? multipartIdentifier AS STRING_LITERAL  #createEncryptkey
@@ -223,7 +227,9 @@ supportedCreateStatement
             AS expression                                                           #createAliasFunction
     | CREATE USER (IF NOT EXISTS)? grantUserIdentify
             (SUPERUSER | DEFAULT ROLE role=STRING_LITERAL)?
-            passwordOption commentSpec?                            #createUser
+            passwordOption commentSpec?                                             #createUser
+    | CREATE (DATABASE | SCHEMA) (IF NOT EXISTS)? name=multipartIdentifier
+              properties=propertyClause?                                            #createDatabase
     | CREATE EXTERNAL? RESOURCE (IF NOT EXISTS)?
             name=identifierOrText properties=propertyClause?                        #createResource
     | CREATE DICTIONARY (IF NOT EXISTS)? name = multipartIdentifier
@@ -268,6 +274,8 @@ supportedAlterStatement
         SET LEFT_PAREN propertyItemList RIGHT_PAREN                                         #alterTableProperties
     | ALTER DATABASE name=identifier SET (DATA | REPLICA | TRANSACTION)
             QUOTA (quota=identifier | INTEGER_VALUE)                                        #alterDatabaseSetQuota
+    | ALTER DATABASE name=identifier SET PROPERTIES
+            LEFT_PAREN propertyItemList RIGHT_PAREN                                         #alterDatabaseProperties
     | ALTER SYSTEM RENAME COMPUTE GROUP name=identifier newName=identifier                  #alterSystemRenameComputeGroup
     | ALTER REPOSITORY name=identifier properties=propertyClause?                           #alterRepository
     | ALTER USER (IF EXISTS)? grantUserIdentify
@@ -361,6 +369,7 @@ supportedShowStatement
         sortClause? limitClause?                                                    #showLoad
     | SHOW FULL? TRIGGERS ((FROM | IN) database=multipartIdentifier)? wildWhere?    #showTriggers
     | SHOW TABLET DIAGNOSIS tabletId=INTEGER_VALUE                                  #showDiagnoseTablet
+    | SHOW OPEN TABLES ((FROM | IN) database=multipartIdentifier)? wildWhere?       #showOpenTables
     | SHOW FRONTENDS name=identifier?                                               #showFrontends
     | SHOW DATABASE databaseId=INTEGER_VALUE                                        #showDatabaseId
     | SHOW TABLE tableId=INTEGER_VALUE                                              #showTableId
@@ -382,9 +391,12 @@ supportedShowStatement
     | SHOW (DATABASES | SCHEMAS) (FROM catalog=identifier)? wildWhere?              #showDatabases
     | SHOW TABLETS FROM tableName=multipartIdentifier partitionSpec?
         wildWhere? sortClause? limitClause?                                         #showTabletsFromTable
+    | SHOW CATALOG RECYCLE BIN (WHERE expression)?                                  #showCatalogRecycleBin
     | SHOW TABLET tabletId=INTEGER_VALUE                                            #showTabletId
     | SHOW DICTIONARIES wildWhere?                                                  #showDictionaries
     | SHOW REPLICA STATUS FROM baseTableRef wildWhere?                              #showReplicaStatus
+    | SHOW COPY ((FROM | IN) database=identifier)?
+        whereClause? sortClause? limitClause?                                       #showCopy
     | SHOW QUERY STATS ((FOR database=identifier)
             | (FROM tableName=multipartIdentifier (ALL VERBOSE?)?))?                #showQueryStats
     ;
@@ -407,20 +419,20 @@ supportedLoadStatement
           properties=propertyClause?                                                #createDataSyncJob
     ;
 
-supportedOtherStatement
-    : HELP mark=identifierOrText                                                    #help
-    | UNLOCK TABLES                                                                 #unlockTables
-    ;
-
 supportedKillStatement
     : KILL (CONNECTION)? INTEGER_VALUE                                              #killConnection
     | KILL QUERY (INTEGER_VALUE | STRING_LITERAL)                                   #killQuery
     ;
 
-unsupportedOtherStatement 
-    : INSTALL PLUGIN FROM source=identifierOrText properties=propertyClause?        #installPlugin
-    | UNINSTALL PLUGIN name=identifierOrText                                        #uninstallPlugin
-    | LOCK TABLES (lockTable (COMMA lockTable)*)?                                   #lockTables 
+supportedOtherStatement
+    : HELP mark=identifierOrText                                                    #help
+    | UNLOCK TABLES                                                                 #unlockTables
+    | INSTALL PLUGIN FROM source=identifierOrText properties=propertyClause?        #installPlugin
+    ;
+
+unsupportedOtherStatement
+    : UNINSTALL PLUGIN name=identifierOrText                                        #uninstallPlugin
+    | LOCK TABLES (lockTable (COMMA lockTable)*)?                                   #lockTables
     | WARM UP (CLUSTER | COMPUTE GROUP) destination=identifier WITH
         ((CLUSTER | COMPUTE GROUP) source=identifier |
             (warmUpItem (AND warmUpItem)*)) FORCE?                                  #warmUpCluster
@@ -444,7 +456,6 @@ lockTable
 
 unsupportedShowStatement
     : SHOW STORAGE (VAULT | VAULTS)                                                 #showStorageVault
-    | SHOW OPEN TABLES ((FROM | IN) database=multipartIdentifier)? wildWhere?       #showOpenTables
     | SHOW CREATE MATERIALIZED VIEW name=multipartIdentifier                        #showMaterializedView
     | SHOW CREATE statementScope? FUNCTION functionIdentifier
         LEFT_PAREN functionArguments? RIGHT_PAREN
@@ -467,11 +478,8 @@ unsupportedShowStatement
         ((FROM | IN) database=multipartIdentifier)?                                 #showIndex
     | SHOW TRANSACTION ((FROM | IN) database=multipartIdentifier)? wildWhere?       #showTransaction
     | SHOW CACHE HOTSPOT tablePath=STRING_LITERAL                                   #showCacheHotSpot
-    | SHOW CATALOG RECYCLE BIN wildWhere?                                           #showCatalogRecycleBin
     | SHOW BUILD INDEX ((FROM | IN) database=multipartIdentifier)?
         wildWhere? sortClause? limitClause?                                         #showBuildIndex
-    | SHOW COPY ((FROM | IN) database=multipartIdentifier)?
-        whereClause? sortClause? limitClause?                                       #showCopy
     | SHOW WARM UP JOB wildWhere?                                                   #showWarmUpJob
     ;
 
@@ -559,19 +567,19 @@ supportedCancelStatement
     : CANCEL LOAD ((FROM | IN) database=identifier)? wildWhere?                     #cancelLoad
     | CANCEL EXPORT ((FROM | IN) database=identifier)? wildWhere?                   #cancelExport
     | CANCEL WARM UP JOB wildWhere?                                                 #cancelWarmUpJob
-    | CANCEL ALTER TABLE (ROLLUP | (MATERIALIZED VIEW) | COLUMN)
-        FROM tableName=multipartIdentifier (LEFT_PAREN jobIds+=INTEGER_VALUE
-            (COMMA jobIds+=INTEGER_VALUE)* RIGHT_PAREN)?                            #cancelAlterTable
+    | CANCEL BACKUP ((FROM | IN) database=identifier)?                              #cancelBackup
+    | CANCEL RESTORE ((FROM | IN) database=identifier)?                             #cancelRestore
     | CANCEL BUILD INDEX ON tableName=multipartIdentifier
         (LEFT_PAREN jobIds+=INTEGER_VALUE
             (COMMA jobIds+=INTEGER_VALUE)* RIGHT_PAREN)?                            #cancelBuildIndex
+    | CANCEL ALTER TABLE (ROLLUP | (MATERIALIZED VIEW) | COLUMN)
+        FROM tableName=multipartIdentifier (LEFT_PAREN jobIds+=INTEGER_VALUE
+            (COMMA jobIds+=INTEGER_VALUE)* RIGHT_PAREN)?                            #cancelAlterTable
     ;
 
 unsupportedCancelStatement
     : CANCEL DECOMMISSION BACKEND hostPorts+=STRING_LITERAL
         (COMMA hostPorts+=STRING_LITERAL)*                                          #cancelDecommisionBackend
-    | CANCEL BACKUP ((FROM | IN) database=identifier)?                              #cancelBackup
-    | CANCEL RESTORE ((FROM | IN) database=identifier)?                             #cancelRestore
     ;
 
 supportedAdminStatement
@@ -655,9 +663,7 @@ privilegeList
     ;
 
 unsupportedAlterStatement
-    : ALTER DATABASE name=identifier SET PROPERTIES
-        LEFT_PAREN propertyItemList RIGHT_PAREN                                     #alterDatabaseProperties
-    | ALTER RESOURCE name=identifierOrText properties=propertyClause?               #alterResource
+    : ALTER RESOURCE name=identifierOrText properties=propertyClause?               #alterResource
     | ALTER COLOCATE GROUP name=multipartIdentifier
         SET LEFT_PAREN propertyItemList RIGHT_PAREN                                 #alterColocateGroup
     | ALTER ROUTINE LOAD FOR name=multipartIdentifier properties=propertyClause?
@@ -802,15 +808,9 @@ analyzeProperties
     ;
 
 unsupportedCreateStatement
-    : CREATE (DATABASE | SCHEMA) (IF NOT EXISTS)? name=multipartIdentifier
-        properties=propertyClause?                                              #createDatabase
-    | CREATE (READ ONLY)? REPOSITORY name=identifier WITH storageBackend        #createRepository
+    : CREATE (READ ONLY)? REPOSITORY name=identifier WITH storageBackend        #createRepository
     | CREATE STORAGE VAULT (IF NOT EXISTS)?
         name=identifierOrText properties=propertyClause?                        #createStorageVault
-    | CREATE WORKLOAD POLICY (IF NOT EXISTS)? name=identifierOrText
-        (CONDITIONS LEFT_PAREN workloadPolicyConditions RIGHT_PAREN)?
-        (ACTIONS LEFT_PAREN workloadPolicyActions RIGHT_PAREN)?
-        properties=propertyClause?                                              #createWorkloadPolicy
     ;
 
 workloadPolicyActions

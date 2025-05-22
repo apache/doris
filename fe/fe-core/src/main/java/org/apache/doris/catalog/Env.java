@@ -207,7 +207,10 @@ import org.apache.doris.nereids.trees.plans.commands.AdminSetReplicaStatusComman
 import org.apache.doris.nereids.trees.plans.commands.AlterSystemCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.AnalyzeCommand;
+import org.apache.doris.nereids.trees.plans.commands.CancelAlterTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.CancelBackupCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelBuildIndexCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand.IdType;
 import org.apache.doris.nereids.trees.plans.commands.TruncateTableCommand;
@@ -3368,6 +3371,17 @@ public class Env {
         catalogIf.createDb(stmt);
     }
 
+    // The interface which DdlExecutor needs.
+    public void createDb(CreateDatabaseCommand command) throws DdlException {
+        CatalogIf<?> catalogIf;
+        if (StringUtils.isEmpty(command.getCtlName())) {
+            catalogIf = getCurrentCatalog();
+        } else {
+            catalogIf = catalogMgr.getCatalog(command.getCtlName());
+        }
+        catalogIf.createDb(command);
+    }
+
     // For replay edit log, need't lock metadata
     public void unprotectCreateDb(Database db) {
         getInternalCatalog().unprotectCreateDb(db);
@@ -3457,6 +3471,10 @@ public class Env {
 
     public void alterDatabaseProperty(AlterDatabasePropertyStmt stmt) throws DdlException {
         getInternalCatalog().alterDatabaseProperty(stmt);
+    }
+
+    public void alterDatabaseProperty(String dbName, Map<String, String> properties) throws DdlException {
+        getInternalCatalog().alterDatabaseProperty(dbName, properties);
     }
 
     public void replayAlterDatabaseProperty(String dbName, Map<String, String> properties)
@@ -4974,6 +4992,21 @@ public class Env {
     }
 
     /*
+     * used for handling CancelAlterCommand (for client is the CANCEL ALTER
+     * command). including SchemaChangeHandler and RollupHandler
+     */
+    public void cancelAlter(CancelAlterTableCommand command) throws DdlException {
+        if (command.getAlterType() == CancelAlterTableCommand.AlterType.ROLLUP
+                || command.getAlterType() == CancelAlterTableCommand.AlterType.MV) {
+            this.getMaterializedViewHandler().cancel(command);
+        } else if (command.getAlterType() == CancelAlterTableCommand.AlterType.COLUMN) {
+            this.getSchemaChangeHandler().cancel(command);
+        } else {
+            throw new DdlException("Cancel " + command.getAlterType() + " does not implement yet");
+        }
+    }
+
+    /*
      * used for handling CancelIndexCommand
      */
     public void cancelBuildIndex(CancelBuildIndexCommand command) throws DdlException {
@@ -5004,6 +5037,10 @@ public class Env {
 
     public void restore(RestoreStmt stmt) throws DdlException {
         getBackupHandler().process(stmt);
+    }
+
+    public void cancelBackup(CancelBackupCommand command) throws DdlException {
+        getBackupHandler().cancel(command);
     }
 
     public void cancelBackup(CancelBackupStmt stmt) throws DdlException {
@@ -5924,6 +5961,7 @@ public class Env {
             AlterViewStmt alterViewStmt = new AlterViewStmt(stmt.getTableName(), stmt.getColWithComments(),
                     stmt.getViewDefStmt(), comment);
             alterViewStmt.setInlineViewDef(stmt.getInlineViewDef());
+            alterViewStmt.setFinalColumns(stmt.getColumns());
             try {
                 alterView(alterViewStmt);
             } catch (UserException e) {

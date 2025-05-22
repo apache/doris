@@ -118,7 +118,7 @@ public:
                 res[i] = apply_visitor(
                         FieldVisitorReplaceScalars(replacement, num_dimensions_to_keep - 1), x[i]);
             }
-            return res;
+            return Field::create_field<TYPE_ARRAY>(res);
         } else {
             return replacement;
         }
@@ -149,7 +149,7 @@ void parse_json_to_variant(IColumn& column, const char* src, size_t length,
         }
         // Treat as string
         PathInData root_path;
-        Field field(String(src, length));
+        Field field = Field::create_field<TYPE_STRING>(String(src, length));
         result = ParseResult {{root_path}, {field}};
     }
     auto& [paths, values] = *result;

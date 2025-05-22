@@ -17,7 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands.insert;
 
-import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.dictionary.Dictionary;
@@ -74,15 +74,17 @@ public class DictionaryInsertExecutor extends AbstractInsertExecutor {
 
     @Override
     protected void onFail(Throwable t) {
-        errMsg = t.getMessage() == null ? "unknown reason" : t.getMessage();
+        // must from AbstractInsertExecutor so got DdlException
+        DdlException ddlException = (DdlException) t;
+        errMsg = t.getMessage() == null ? "unknown reason" : ddlException.getMessage();
         String queryId = DebugUtil.printId(ctx.queryId());
-        LOG.warn("dictionary insert [{}] with query id {} failed", labelName, queryId, t);
-        StringBuilder sb = new StringBuilder(t.getMessage());
+        LOG.warn("dictionary insert [{}] with query id {} failed", labelName, queryId, ddlException);
+        StringBuilder sb = new StringBuilder(errMsg);
         if (!Strings.isNullOrEmpty(coordinator.getTrackingUrl())) {
             sb.append(". url: ").append(coordinator.getTrackingUrl());
         }
         // we should set the context to make the caller know the command failed
-        ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, sb.toString());
+        ctx.getState().setError(ddlException.getMysqlErrorCode(), sb.toString());
     }
 
     @Override

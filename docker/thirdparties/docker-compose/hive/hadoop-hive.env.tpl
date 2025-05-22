@@ -53,3 +53,6 @@ YARN_CONF_yarn_timeline___service_hostname=historyserver
 YARN_CONF_yarn_resourcemanager_address=resourcemanager:8032
 YARN_CONF_yarn_resourcemanager_scheduler_address=resourcemanager:8030
 YARN_CONF_yarn_resourcemanager_resource__tracker_address=resourcemanager:8031
+
+NEED_LOAD_DATA=${NEED_LOAD_DATA}
+
