@@ -3167,6 +3167,7 @@ void MetaServiceImpl::begin_sub_txn(::google::protobuf::RpcController* controlle
     std::string index_val;
     TxnIndexPB index_pb;
     index_pb.mutable_tablet_index()->set_db_id(db_id);
+    index_pb.set_parent_txn_id(txn_id);
     if (!index_pb.SerializeToString(&index_val)) {
         code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
         ss << "failed to serialize txn_index_pb "

@@ -1025,13 +1025,14 @@ static bool check_transaction_status(TxnStatusPB expect_status, Transaction* txn
     DCHECK(index_pb.has_tablet_index() == true);
     DCHECK(index_pb.tablet_index().has_db_id() == true);
     auto db_id = index_pb.tablet_index().db_id();
+    txn_id = index_pb.has_parent_txn_id() ? index_pb.parent_txn_id() : txn_id;
 
     const std::string info_key = txn_info_key({instance_id, db_id, txn_id});
     std::string info_val;
     err = txn->get(info_key, &info_val);
     if (err != TxnErrorCode::TXN_OK) {
         code = MetaServiceCode::INVALID_ARGUMENT;
-        msg = fmt::format("failed to get txn, txn_id={}, err={}", err, txn_id);
+        msg = fmt::format("failed to get txn, txn_id={}, err={}", txn_id, err);
         return false;
     }
     TxnInfoPB txn_info;

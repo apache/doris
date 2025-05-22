@@ -385,6 +385,7 @@ message TxnLabelPB {
 // txn_id -> db_id
 message TxnIndexPB {
     optional TabletIndexPB tablet_index = 1;
+    optional int64 parent_txn_id = 2;
 }
 
 message TxnInfoPB {
