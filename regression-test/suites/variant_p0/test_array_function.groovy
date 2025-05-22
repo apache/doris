@@ -37,13 +37,28 @@ suite("test_variant_array_function", "p0") {
     """
     sql """
     insert into ${tableName} values
-    (1, '{"a":[1, 2,3],"b": ["a", "b", "c"]}')
+    (1, '{"a":[1, 2,3],"b": ["a", "b", "c"], "c": [1.1, 2.2, 3.3]}')
    """
+
 
    qt_sql """
        select array_min(cast(var['a'] as array<int>)), array_min(cast(var['b'] as array<string>)), array_max(cast(var['a'] as array<int>)), array_max(cast(var['b'] as array<string>)) from ${tableName} order by id;
    """
 
+    qt_sql """
+        select array_join(cast(var['a'] as array<int>), ',', 'replaced'), array_join(cast(var['b'] as array<string>), ',', 'replaced'), array_join(cast(var['c'] as array<double>), ',', 'replaced') from ${tableName} order by id;
+    """
 
+    qt_sql """
+        select array_sum(cast(var['a'] as array<int>)), array_sum(cast(var['b'] as array<string>)), array_sum(cast(var['c'] as array<double>)) from ${tableName} order by id;
+    """
+
+    qt_sql """
+        select array_avg(cast(var['a'] as array<int>)), array_avg(cast(var['b'] as array<string>)), array_avg(cast(var['c'] as array<double>)) from ${tableName} order by id;
+    """
+    
+    qt_sql """
+        select array_product(cast(var['a'] as array<int>)), array_product(cast(var['b'] as array<string>)), array_product(cast(var['c'] as array<double>)) from ${tableName} order by id;
+    """
   
 }

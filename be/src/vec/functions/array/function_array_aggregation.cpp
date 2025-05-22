@@ -260,52 +260,34 @@ struct ArrayAggregateImpl {
         using ColVecType = ColumnVectorOrDecimal<Element>;
         using ResultType = ArrayAggregateResult<Element, operation, enable_decimal256>;
         using ColVecResultType = ColumnVectorOrDecimal<ResultType>;
-        using Function = AggregateFunction<AggregateFunctionImpl<operation, enable_decimal256>>;
 
-        const ColVecType* column =
-                data->is_nullable()
-                        ? check_and_get_column<ColVecType>(
-                                  static_cast<const ColumnNullable*>(data)->get_nested_column())
-                        : check_and_get_column<ColVecType>(&*data);
-        if (!column) {
-            return false;
-        }
-
-        ColumnPtr res_column;
-        if constexpr (IsDecimalNumber<Element>) {
-            res_column = ColVecResultType::create(0, column->get_scale());
-        } else {
-            res_column = ColVecResultType::create();
-        }
-        res_column = make_nullable(res_column);
-        static_cast<ColumnNullable&>(res_column->assume_mutable_ref()).reserve(offsets.size());
-
-        auto function = Function::create(type);
-        auto guard = AggregateFunctionGuard(function.get());
-        Arena arena;
-        auto nullable_column = make_nullable(data->get_ptr());
-        const IColumn* columns[] = {nullable_column.get()};
-        for (int64_t i = 0; i < offsets.size(); ++i) {
-            auto start = offsets[i - 1]; // -1 is ok.
-            auto end = offsets[i];
-            bool is_empty = (start == end);
-            if (is_empty) {
-                res_column->assume_mutable()->insert_default();
-                continue;
+        auto create_column = [](const ColVecType* column) -> ColumnPtr {
+            if constexpr (IsDecimalNumber<Element>) {
+                return ColVecResultType::create(0, column->get_scale());
+            } else {
+                return ColVecResultType::create();
             }
-            function->reset(guard.data());
-            function->add_batch_range(start, end - 1, guard.data(), columns, &arena,
-                                      data->is_nullable());
-            function->insert_result_into(guard.data(), res_column->assume_mutable_ref());
-        }
-        res_ptr = std::move(res_column);
-        return true;
-    };
+        };
+
+        return execute_type_impl<Element, ColVecType, decltype(create_column)>(
+                res_ptr, type, data, offsets, create_column);
+    }
 
     template <>
     static bool execute_type<String>(ColumnPtr& res_ptr, const DataTypePtr& type,
                                      const IColumn* data, const ColumnArray::Offsets64& offsets) {
         using ColumnType = ColumnString;
+
+        auto create_column = [](const ColumnType*) -> ColumnPtr { return ColumnString::create(); };
+
+        return execute_type_impl<String, ColumnType, decltype(create_column)>(
+                res_ptr, type, data, offsets, create_column);
+    }
+
+    template <typename Element, typename ColumnType, typename CreateColumnFunc>
+    static bool execute_type_impl(ColumnPtr& res_ptr, const DataTypePtr& type, const IColumn* data,
+                                  const ColumnArray::Offsets64& offsets,
+                                  CreateColumnFunc create_column_func) {
         using Function = AggregateFunction<AggregateFunctionImpl<operation, enable_decimal256>>;
 
         const ColumnType* column =
@@ -317,8 +299,7 @@ struct ArrayAggregateImpl {
             return false;
         }
 
-        ColumnPtr res_column;
-        res_column = ColumnString::create();
+        ColumnPtr res_column = create_column_func(column);
         res_column = make_nullable(res_column);
         static_cast<ColumnNullable&>(res_column->assume_mutable_ref()).reserve(offsets.size());
 
@@ -342,7 +323,7 @@ struct ArrayAggregateImpl {
         }
         res_ptr = std::move(res_column);
         return true;
-    };
+    }
 };
 
 struct NameArrayMin {
