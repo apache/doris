@@ -527,9 +527,11 @@ Status CsvReader::_create_line_reader() {
                 _trim_tailing_spaces, false, _value_separator, _value_separator_length, -1);
 
     } else {
+        // in load task, the _file_slot_descs is empty vector, so we need to set col_sep_num to 0
+        size_t col_sep_num = _file_slot_descs.size() > 1 ? _file_slot_descs.size() - 1 : 0;
         text_line_reader_ctx = std::make_shared<EncloseCsvLineReaderCtx>(
                 _line_delimiter, _line_delimiter_length, _value_separator, _value_separator_length,
-                _file_slot_descs.size() - 1, _enclose, _escape, _keep_cr);
+                col_sep_num, _enclose, _escape, _keep_cr);
 
         _fields_splitter = std::make_unique<EncloseCsvTextFieldSplitter>(
                 _trim_tailing_spaces, !_not_trim_enclose,
