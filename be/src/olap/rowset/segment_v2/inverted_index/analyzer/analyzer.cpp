@@ -32,6 +32,8 @@
 #include "olap/rowset/segment_v2/inverted_index/analyzer/icu/icu_analyzer.h"
 #include "olap/rowset/segment_v2/inverted_index/analyzer/ik/IKAnalyzer.h"
 #include "olap/rowset/segment_v2/inverted_index/char_filter/char_filter_factory.h"
+#include "runtime/exec_env.h"
+#include "runtime/index_policy/index_policy_mgr.h"
 
 namespace doris::segment_v2::inverted_index {
 #include "common/compile_check_begin.h"
@@ -49,58 +51,63 @@ std::unique_ptr<lucene::util::Reader> InvertedIndexAnalyzer::create_reader(
     return reader;
 }
 
-std::unique_ptr<lucene::analysis::Analyzer> InvertedIndexAnalyzer::create_analyzer(
+std::shared_ptr<lucene::analysis::Analyzer> InvertedIndexAnalyzer::create_analyzer(
         const InvertedIndexCtx* inverted_index_ctx) {
-    std::unique_ptr<lucene::analysis::Analyzer> analyzer;
-    auto analyser_type = inverted_index_ctx->parser_type;
-    if (analyser_type == InvertedIndexParserType::PARSER_STANDARD ||
-        analyser_type == InvertedIndexParserType::PARSER_UNICODE) {
-        analyzer = std::make_unique<lucene::analysis::standard95::StandardAnalyzer>();
-    } else if (analyser_type == InvertedIndexParserType::PARSER_ENGLISH) {
-        analyzer = std::make_unique<lucene::analysis::SimpleAnalyzer<char>>();
-    } else if (analyser_type == InvertedIndexParserType::PARSER_CHINESE) {
-        auto chinese_analyzer =
-                std::make_unique<lucene::analysis::LanguageBasedAnalyzer>(L"chinese", false);
-        chinese_analyzer->initDict(config::inverted_index_dict_path);
-        auto mode = inverted_index_ctx->parser_mode;
-        if (mode == INVERTED_INDEX_PARSER_COARSE_GRANULARITY) {
-            chinese_analyzer->setMode(lucene::analysis::AnalyzerMode::Default);
-        } else {
-            chinese_analyzer->setMode(lucene::analysis::AnalyzerMode::All);
-        }
-        analyzer = std::move(chinese_analyzer);
-    } else if (analyser_type == InvertedIndexParserType::PARSER_ICU) {
-        analyzer = std::make_unique<ICUAnalyzer>();
-        analyzer->initDict(config::inverted_index_dict_path + "/icu");
-    } else if (analyser_type == InvertedIndexParserType::PARSER_BASIC) {
-        analyzer = std::make_unique<BasicAnalyzer>();
-    } else if (analyser_type == InvertedIndexParserType::PARSER_IK) {
-        auto ik_analyzer = std::make_unique<IKAnalyzer>();
-        ik_analyzer->initDict(config::inverted_index_dict_path + "/ik");
-        auto mode = inverted_index_ctx->parser_mode;
-        if (mode == INVERTED_INDEX_PARSER_SMART) {
-            ik_analyzer->setMode(true);
-        } else {
-            ik_analyzer->setMode(false);
-        }
-        analyzer = std::move(ik_analyzer);
+    std::shared_ptr<lucene::analysis::Analyzer> analyzer;
+    if (!inverted_index_ctx->custom_analyzer.empty()) {
+        analyzer = doris::ExecEnv::GetInstance()->index_policy_mgr()->get_policy_by_name(
+                inverted_index_ctx->custom_analyzer);
     } else {
-        // default
-        analyzer = std::make_unique<lucene::analysis::SimpleAnalyzer<char>>();
-    }
-    // set lowercase
-    auto lowercase = inverted_index_ctx->lower_case;
-    if (lowercase == INVERTED_INDEX_PARSER_TRUE) {
-        analyzer->set_lowercase(true);
-    } else if (lowercase == INVERTED_INDEX_PARSER_FALSE) {
-        analyzer->set_lowercase(false);
-    }
-    // set stop words
-    auto stop_words = inverted_index_ctx->stop_words;
-    if (stop_words == "none") {
-        analyzer->set_stopwords(nullptr);
-    } else {
-        analyzer->set_stopwords(&lucene::analysis::standard95::stop_words);
+        auto analyser_type = inverted_index_ctx->parser_type;
+        if (analyser_type == InvertedIndexParserType::PARSER_STANDARD ||
+            analyser_type == InvertedIndexParserType::PARSER_UNICODE) {
+            analyzer = std::make_shared<lucene::analysis::standard95::StandardAnalyzer>();
+        } else if (analyser_type == InvertedIndexParserType::PARSER_ENGLISH) {
+            analyzer = std::make_shared<lucene::analysis::SimpleAnalyzer<char>>();
+        } else if (analyser_type == InvertedIndexParserType::PARSER_CHINESE) {
+            auto chinese_analyzer =
+                    std::make_shared<lucene::analysis::LanguageBasedAnalyzer>(L"chinese", false);
+            chinese_analyzer->initDict(config::inverted_index_dict_path);
+            auto mode = inverted_index_ctx->parser_mode;
+            if (mode == INVERTED_INDEX_PARSER_COARSE_GRANULARITY) {
+                chinese_analyzer->setMode(lucene::analysis::AnalyzerMode::Default);
+            } else {
+                chinese_analyzer->setMode(lucene::analysis::AnalyzerMode::All);
+            }
+            analyzer = std::move(chinese_analyzer);
+        } else if (analyser_type == InvertedIndexParserType::PARSER_ICU) {
+            analyzer = std::make_shared<ICUAnalyzer>();
+            analyzer->initDict(config::inverted_index_dict_path + "/icu");
+        } else if (analyser_type == InvertedIndexParserType::PARSER_BASIC) {
+            analyzer = std::make_shared<BasicAnalyzer>();
+        } else if (analyser_type == InvertedIndexParserType::PARSER_IK) {
+            auto ik_analyzer = std::make_shared<IKAnalyzer>();
+            ik_analyzer->initDict(config::inverted_index_dict_path + "/ik");
+            auto mode = inverted_index_ctx->parser_mode;
+            if (mode == INVERTED_INDEX_PARSER_SMART) {
+                ik_analyzer->setMode(true);
+            } else {
+                ik_analyzer->setMode(false);
+            }
+            analyzer = std::move(ik_analyzer);
+        } else {
+            // default
+            analyzer = std::make_shared<lucene::analysis::SimpleAnalyzer<char>>();
+        }
+        // set lowercase
+        auto lowercase = inverted_index_ctx->lower_case;
+        if (lowercase == INVERTED_INDEX_PARSER_TRUE) {
+            analyzer->set_lowercase(true);
+        } else if (lowercase == INVERTED_INDEX_PARSER_FALSE) {
+            analyzer->set_lowercase(false);
+        }
+        // set stop words
+        auto stop_words = inverted_index_ctx->stop_words;
+        if (stop_words == "none") {
+            analyzer->set_stopwords(nullptr);
+        } else {
+            analyzer->set_stopwords(&lucene::analysis::standard95::stop_words);
+        }
     }
     return analyzer;
 }
@@ -138,9 +145,11 @@ std::vector<std::string> InvertedIndexAnalyzer::get_analyse_result(
         const std::string& search_str, const std::string& field_name,
         InvertedIndexQueryType query_type, const std::map<std::string, std::string>& properties) {
     InvertedIndexCtxSPtr inverted_index_ctx = std::make_shared<InvertedIndexCtx>(
+            get_custom_analyzer_string_from_properties(properties),
             get_inverted_index_parser_type_from_string(
                     get_parser_string_from_properties(properties)),
             get_parser_mode_string_from_properties(properties),
+            get_parser_phrase_support_string_from_properties(properties),
             get_parser_char_filter_map_from_properties(properties),
             get_parser_lowercase_from_properties(properties),
             get_parser_stopwords_from_properties(properties));
@@ -149,6 +158,37 @@ std::vector<std::string> InvertedIndexAnalyzer::get_analyse_result(
     auto reader = create_reader(inverted_index_ctx->char_filter_map);
     reader->init(search_str.data(), static_cast<int32_t>(search_str.size()), true);
     return get_analyse_result(reader.get(), analyzer.get(), field_name, query_type);
+}
+
+std::vector<InvertedIndexAnalyzer::AnalyzerToken> InvertedIndexAnalyzer::get_analyse_result(
+        lucene::util::Reader* reader, lucene::analysis::Analyzer* analyzer) {
+    std::vector<AnalyzerToken> analyse_result;
+    std::unique_ptr<lucene::analysis::TokenStream> token_stream;
+    token_stream.reset(analyzer->tokenStream(L"", reader));
+    lucene::analysis::Token token;
+    int32_t position = 0;
+    while (token_stream->next(&token)) {
+        AnalyzerToken analyse_token;
+        analyse_token.token.append(token.termBuffer<char>(), token.termLength<char>());
+        position += token.getPositionIncrement();
+        analyse_token.position = position;
+        analyse_result.emplace_back(std::move(analyse_token));
+    }
+    return analyse_result;
+}
+
+bool InvertedIndexAnalyzer::should_analyzer(const std::map<std::string, std::string>& properties) {
+    auto parser_type = get_inverted_index_parser_type_from_string(
+            get_parser_string_from_properties(properties));
+    auto analyzer_name = get_custom_analyzer_string_from_properties(properties);
+    if (!analyzer_name.empty()) {
+        return true;
+    }
+    if (parser_type != InvertedIndexParserType::PARSER_UNKNOWN &&
+        parser_type != InvertedIndexParserType::PARSER_NONE) {
+        return true;
+    }
+    return false;
 }
 
 } // namespace doris::segment_v2::inverted_index
