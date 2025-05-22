@@ -49,6 +49,7 @@ suite ("k123p_nereids") {
     qt_select_star "select * from d_table order by k1;"
 
     sql "analyze table d_table with sync;"
+    sql """alter table d_table modify column k1 set stats ('row_count'='4');"""
 
     mv_rewrite_all_fail("select k1,k2+k3 from d_table order by k1;", ["k123p1w", "k123p4w", "kwh1", "kwh2"])
     

@@ -41,7 +41,7 @@ suite ("testOrderByQueryOnProjectView") {
 
     sql "analyze table emps with sync;"
     sql """alter table emps modify column time_col set stats ('row_count'='4');"""
-    sql """set enable_stats=false;"""
+    sql """set enable_stats=true;"""
 
     mv_rewrite_fail("select * from emps order by empid;", "emps_mv")
     qt_select_star "select * from emps order by empid;"

@@ -42,20 +42,21 @@ suite ("testNDVToHll") {
     sql """set enable_stats=false;"""
 
     mv_rewrite_fail("select * from user_tags order by time_col;", "user_tags_mv")
+
+    mv_rewrite_all_success_without_check_chosen("select user_id, ndv(tag_id) a from user_tags group by user_id order by user_id;", "user_tags_mv")
+
+    mv_rewrite_all_success_without_check_chosen("select user_id, approx_count_distinct(tag_id) a from user_tags group by user_id order by user_id;", "user_tags_mv")
+
+    sql """set enable_stats=true;"""
+
+    mv_rewrite_fail("select * from user_tags order by time_col;", "user_tags_mv")
     qt_select_star "select * from user_tags order by time_col,tag_id;"
 
     mv_rewrite_success("select user_id, ndv(tag_id) a from user_tags group by user_id order by user_id;", "user_tags_mv")
     qt_select_mv "select user_id, ndv(tag_id) a from user_tags group by user_id order by user_id;"
 
+
     mv_rewrite_success("select user_id, approx_count_distinct(tag_id) a from user_tags group by user_id order by user_id;", "user_tags_mv")
     qt_select_mv "select user_id, approx_count_distinct(tag_id) a from user_tags group by user_id order by user_id;"
-
-    sql """set enable_stats=true;"""
-
-    mv_rewrite_fail("select * from user_tags order by time_col;", "user_tags_mv")
-
-    mv_rewrite_success("select user_id, ndv(tag_id) a from user_tags group by user_id order by user_id;", "user_tags_mv")
-
-    mv_rewrite_success("select user_id, approx_count_distinct(tag_id) a from user_tags group by user_id order by user_id;", "user_tags_mv")
 
 }
