@@ -25,6 +25,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergMetadataCache;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -41,6 +42,7 @@ import com.google.common.collect.Maps;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.util.SerializationUtil;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -141,11 +143,11 @@ public class IcebergTableValuedFunction extends MetadataTableValuedFunction {
         IcebergMetadataCache icebergMetadataCache = Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache();
         Table table = icebergMetadataCache.getIcebergTable(catalog, icebergTableName.getDb(),
                 icebergTableName.getTbl());
-        // if (table == null) {
-        // throw new AnalysisException("Iceberg table not found: " + icebergTableName);
-        // }
         String serializedTable = SerializationUtil.serializeToBase64(table);
         icebergMetadataParams.setSerializedTable(serializedTable);
+        ExternalCatalog externalCatalog = (ExternalCatalog) catalog;
+        Map<String, String> hadoopProps = externalCatalog.getCatalogProperty().getHadoopProperties();
+        icebergMetadataParams.setHadoopProps(hadoopProps);
         metaScanRange.setIcebergParams(icebergMetadataParams);
         return metaScanRange;
     }

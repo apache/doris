@@ -22,6 +22,8 @@
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
+const std::string PaimonJniReader::HADOOP_OPTION_PREFIX = "hadoop.";
+
 IcebergMetadataJniReader::IcebergMetadataJniReader(
         const std::vector<SlotDescriptor*>& file_slot_descs, RuntimeState* state,
         RuntimeProfile* profile, const TIcebergMetadataParams* range_params)
@@ -33,9 +35,10 @@ IcebergMetadataJniReader::IcebergMetadataJniReader(
     std::map<std::string, std::string> params;
     params["serialized_table"] = range_params->serialized_table;
     params["required_fields"] = join(required_fields, ",");
-    params["metadata_column_names"] = join(range_params->column_names, ",");
-    params["metadata_column_types"] = join(range_params->column_types, "#");
-    // TODO: set time_zone and nested column
+    // TODO: set time_zone
+    for (const auto& kv : range_params->hadoop_props) {
+        params[HADOOP_OPTION_PREFIX + kv.first] = kv.second;
+    }
 
     switch (range_params->iceberg_query_type) {
     case TIcebergQueryType::SNAPSHOTS:
