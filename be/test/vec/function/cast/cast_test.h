@@ -17,12 +17,17 @@
 
 #pragma once
 
+#include <memory>
 #include <string>
 #include <type_traits>
+#include <vector>
 
 #include "runtime/primitive_type.h"
+#include "testutil/column_helper.h"
+#include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"
 #include "vec/function/function_test_util.h"
+#include "vec/functions/cast/cast_base.h"
 
 namespace doris::vectorized {
 using namespace ut_type;
@@ -46,9 +51,43 @@ inline auto get_decimal_ctor() {
     __builtin_unreachable();
 }
 
+struct NullTag {};
 struct FunctionCastTest : public testing::Test {
     void SetUp() override { TimezoneUtils::load_timezones_to_cache(); }
     void TearDown() override {}
+
+    std::shared_ptr<FunctionContext> create_context(bool is_strict_mode) {
+        auto ctx = std::make_shared<FunctionContext>();
+        ctx->set_enable_strict_mode(is_strict_mode);
+        return ctx;
+    }
+
+    void check_cast(ColumnWithTypeAndName from, ColumnWithTypeAndName to, bool is_strict_mode) {
+        auto ctx = create_context(is_strict_mode);
+
+        DataTypePtr from_type = from.type;
+        DataTypePtr to_type = to.type;
+        auto fn = get_cast_wrapper(ctx.get(), from_type, to_type);
+        ASSERT_TRUE(fn != nullptr);
+
+        Block block = {
+                from,
+                {nullptr, to_type, "to"},
+        };
+
+        EXPECT_TRUE(fn(ctx.get(), block, {0}, 1, block.rows()));
+
+        auto result = block.get_by_position(1).column;
+        auto expected = to.column;
+        for (int i = 0; i < block.rows(); i++) {
+            EXPECT_EQ(result->compare_at(i, i, *expected, 1), 0)
+                    << "from: " << from_type->to_string(*from.column, i)
+                    << ", result: " << to_type->to_string(*result, i)
+                    << ", expected: " << to_type->to_string(*expected, i);
+        }
+
+        std::cout << "block \n" << block.dump_data() << "\n";
+    }
 
     // we always need return nullable=true for cast function because of its' get_return_type weird
     template <typename ResultDataType, int ResultScale = -1, int ResultPrecision = -1,
