@@ -57,8 +57,6 @@ public:
     static constexpr bool is_parametric = true;
 
     DataTypeMap(const DataTypePtr& key_type_, const DataTypePtr& value_type_);
-
-    TypeIndex get_type_id() const override { return TypeIndex::Map; }
     PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_MAP; }
     doris::FieldType get_storage_field_type() const override {
         return doris::FieldType::OLAP_FIELD_TYPE_MAP;
@@ -74,7 +72,6 @@ public:
 
     [[noreturn]] Field get_field(const TExprNode& node) const override {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Unimplemented get_field for map");
-        __builtin_unreachable();
     }
 
     bool equals(const IDataType& rhs) const override;

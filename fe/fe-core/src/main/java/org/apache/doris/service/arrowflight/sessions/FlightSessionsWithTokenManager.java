@@ -41,7 +41,8 @@ public class FlightSessionsWithTokenManager implements FlightSessionsManager {
     @Override
     public ConnectContext getConnectContext(String peerIdentity) {
         try {
-            ConnectContext connectContext = ExecuteEnv.getInstance().getScheduler().getContext(peerIdentity);
+            ConnectContext connectContext = ExecuteEnv.getInstance().getScheduler().getFlightSqlConnectPoolMgr()
+                    .getContextWithFlightToken(peerIdentity);
             if (null == connectContext) {
                 connectContext = createConnectContext(peerIdentity);
                 return connectContext;
@@ -68,18 +69,21 @@ public class FlightSessionsWithTokenManager implements FlightSessionsManager {
                 flightTokenDetails.getUserIdentity(), flightTokenDetails.getRemoteIp());
         ConnectScheduler connectScheduler = ExecuteEnv.getInstance().getScheduler();
         connectScheduler.submit(connectContext);
-        int res = connectScheduler.registerConnection(connectContext);
+        int res = connectScheduler.getFlightSqlConnectPoolMgr().registerConnection(connectContext);
         if (res >= 0) {
-            long userConnLimit = connectContext.getEnv().getAuth().getMaxConn(connectContext.getQualifiedUser());
             String errMsg = String.format(
-                    "Reach limit of connections. Total: %d, User: %d, Current: %d. "
-                            + "Increase `qe_max_connection` in fe.conf or user's `max_user_connections`,"
-                            + " or decrease `arrow_flight_token_cache_size` "
-                            + "to evict unused bearer tokens and it connections faster",
-                    connectScheduler.getMaxConnections(), userConnLimit, res);
-            connectContext.getState().setError(ErrorCode.ERR_TOO_MANY_USER_CONNECTIONS, errMsg);
+                    "Register arrow flight sql connection failed, Unknown Error, the number of arrow flight "
+                            + "bearer tokens should be equal to arrow flight sql max connections, "
+                            + "max connections: %d, used: %d.",
+                    connectScheduler.getFlightSqlConnectPoolMgr().getMaxConnections(), res);
+            connectContext.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, errMsg);
             throw new IllegalArgumentException(errMsg);
         }
         return connectContext;
+    }
+
+    @Override
+    public void closeConnectContext(String peerIdentity) {
+        flightTokenManager.invalidateToken(peerIdentity);
     }
 }

@@ -15,8 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/data_types/data_type_time_v2.h"
-
 #include <gen_cpp/Types_types.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
@@ -36,6 +34,7 @@
 #include "vec/core/types.h"
 #include "vec/data_types/common_data_type_serder_test.h"
 #include "vec/data_types/common_data_type_test.h"
+#include "vec/data_types/data_type_date_or_datetime_v2.h"
 #include "vec/data_types/data_type_time.h"
 
 namespace doris::vectorized {
@@ -132,11 +131,11 @@ TEST_F(DataTypeDateTimeV2Test, simple_func_test) {
     EXPECT_THROW(DataTypeTimeV2(7), Exception);
 }
 TEST_F(DataTypeDateTimeV2Test, get_default) {
-    EXPECT_EQ(dt_datetime_v2_0.get_default(), 0UL);
-    EXPECT_EQ(dt_datetime_v2_5.get_default(), 0UL);
-    EXPECT_EQ(dt_datetime_v2_6.get_default(), 0UL);
-    EXPECT_EQ(dt_date_v2.get_default(), 0UL);
-    EXPECT_EQ(dt_time_v2_6.get_default(), 0.0);
+    EXPECT_EQ(dt_datetime_v2_0.get_default(), Field::create_field<TYPE_DATETIMEV2>(0UL));
+    EXPECT_EQ(dt_datetime_v2_5.get_default(), Field::create_field<TYPE_DATETIMEV2>(0UL));
+    EXPECT_EQ(dt_datetime_v2_6.get_default(), Field::create_field<TYPE_DATETIMEV2>(0UL));
+    EXPECT_EQ(dt_date_v2.get_default(), Field::create_field<TYPE_DATEV2>(0UL));
+    EXPECT_EQ(dt_time_v2_6.get_default(), Field::create_field<TYPE_TIMEV2>(0.0));
 }
 TEST_F(DataTypeDateTimeV2Test, get_field) {
     {

@@ -17,6 +17,7 @@
 
 #include "vec/data_types/data_type_decimal.h"
 
+#include <fast_float/float_common.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 #include <gtest/gtest.h>
@@ -197,7 +198,7 @@ TEST_F(DataTypeDecimalTest, MetaInfoTest) {
     auto col_meta = std::make_shared<PColumnMeta>();
     col_meta->set_type(PGenericType_TypeId_DECIMAL32);
     CommonDataTypeTest::DataTypeMetaInfo meta_info_to_assert = {
-            .type_id = TypeIndex::Decimal32,
+            .type_id = PrimitiveType::TYPE_DECIMAL32,
             .type_as_type_descriptor = type_descriptor,
             .family_name = tmp_dt->get_family_name(),
             .has_subtypes = false,
@@ -212,7 +213,8 @@ TEST_F(DataTypeDecimalTest, MetaInfoTest) {
             .is_value_represented_by_number = true,
             .pColumnMeta = col_meta.get(),
             .is_value_unambiguously_represented_in_contiguous_memory_region = true,
-            .default_field = DecimalField<Decimal32>(0, tmp_dt->get_scale()),
+            .default_field = Field::create_field<TYPE_DECIMAL32>(
+                    DecimalField<Decimal32>(0, tmp_dt->get_scale())),
     };
     helper->meta_info_assert(tmp_dt, meta_info_to_assert);
 }
@@ -278,26 +280,26 @@ TEST_F(DataTypeDecimalTest, simple_func_test) {
     EXPECT_EQ(dt_decimal32_1.max_precision(), 9);
     EXPECT_TRUE(dt_decimal32_1.equals(dt_decimal32_1));
     EXPECT_FALSE(dt_decimal32_1.equals(dt_decimal32_2));
-    EXPECT_EQ(dt_decimal32_1.get_type_id(), TypeIndex::Decimal32);
+    EXPECT_EQ(dt_decimal32_1.get_primitive_type(), TYPE_DECIMAL32);
     test_func(dt_decimal32_2);
     test_func(dt_decimal32_3);
     test_func(dt_decimal32_4);
     test_func(dt_decimal32_5);
 
     EXPECT_EQ(dt_decimal64_1.max_precision(), 18);
-    EXPECT_EQ(dt_decimal64_1.get_type_id(), TypeIndex::Decimal64);
+    EXPECT_EQ(dt_decimal64_1.get_primitive_type(), TYPE_DECIMAL64);
     test_func(dt_decimal64_1);
     test_func(dt_decimal64_2);
     test_func(dt_decimal64_3);
 
     EXPECT_EQ(dt_decimal128v3_1.max_precision(), 38);
-    EXPECT_EQ(dt_decimal128v3_1.get_type_id(), TypeIndex::Decimal128V3);
+    EXPECT_EQ(dt_decimal128v3_1.get_primitive_type(), TYPE_DECIMAL128I);
     test_func(dt_decimal128v3_1);
     test_func(dt_decimal128v3_2);
     test_func(dt_decimal128v3_3);
 
     EXPECT_EQ(dt_decimal256_1.max_precision(), 76);
-    EXPECT_EQ(dt_decimal256_1.get_type_id(), TypeIndex::Decimal256);
+    EXPECT_EQ(dt_decimal256_1.get_primitive_type(), TYPE_DECIMAL256);
     test_func(dt_decimal256_1);
     test_func(dt_decimal256_2);
     test_func(dt_decimal256_3);

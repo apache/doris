@@ -389,23 +389,28 @@ public:
             const auto& nested_column = nested_nullable_column.get_nested_column();
             const auto& nested_null_map = nested_nullable_column.get_null_map_column().get_data();
 
-            WhichDataType which_type(argument_type);
-            if (which_type.is_int8()) {
+            switch (argument_type->get_primitive_type()) {
+            case PrimitiveType::TYPE_TINYINT:
                 RETURN_IF_ERROR(Impl::template vector<ColumnInt8>(offset_column_data, nested_column,
                                                                   nested_null_map, res, null_map));
-            } else if (which_type.is_uint8()) {
+                break;
+            case PrimitiveType::TYPE_BOOLEAN:
                 RETURN_IF_ERROR(Impl::template vector<ColumnUInt8>(
                         offset_column_data, nested_column, nested_null_map, res, null_map));
-            } else if (which_type.is_int16()) {
+                break;
+            case PrimitiveType::TYPE_SMALLINT:
                 RETURN_IF_ERROR(Impl::template vector<ColumnInt16>(
                         offset_column_data, nested_column, nested_null_map, res, null_map));
-            } else if (which_type.is_int32()) {
+                break;
+            case PrimitiveType::TYPE_INT:
                 RETURN_IF_ERROR(Impl::template vector<ColumnInt32>(
                         offset_column_data, nested_column, nested_null_map, res, null_map));
-            } else if (which_type.is_int64()) {
+                break;
+            case PrimitiveType::TYPE_BIGINT:
                 RETURN_IF_ERROR(Impl::template vector<ColumnInt64>(
                         offset_column_data, nested_column, nested_null_map, res, null_map));
-            } else {
+                break;
+            default:
                 return Status::RuntimeError("Illegal column {} of argument of function {}",
                                             block.get_by_position(arguments[0]).column->get_name(),
                                             get_name());
@@ -693,7 +698,8 @@ ColumnPtr handle_bitmap_op_count_null_value(ColumnPtr& src, const Block& block,
         bool is_const = is_column_const(*elem.column);
         /// Const Nullable that are NULL.
         if (is_const && assert_cast<const ColumnConst*>(elem.column.get())->only_null()) {
-            return block.get_by_position(result).type->create_column_const(input_rows_count, 0);
+            return block.get_by_position(result).type->create_column_const(
+                    input_rows_count, Field::create_field<TYPE_BIGINT>(0));
         }
         if (is_const) {
             continue;

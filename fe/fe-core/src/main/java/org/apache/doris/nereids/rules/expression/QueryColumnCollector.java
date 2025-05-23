@@ -193,8 +193,8 @@ public class QueryColumnCollector extends DefaultPlanRewriter<CollectorContext> 
         path.add(slot);
         if (slot instanceof SlotReference) {
             SlotReference slotReference = (SlotReference) slot;
-            Optional<Column> col = slotReference.getColumn();
-            Optional<TableIf> table = slotReference.getTable();
+            Optional<Column> col = slotReference.getOriginalColumn();
+            Optional<TableIf> table = slotReference.getOriginalTable();
             if (col.isPresent() && table.isPresent()) {
                 return Collections.singleton(slot);
             }

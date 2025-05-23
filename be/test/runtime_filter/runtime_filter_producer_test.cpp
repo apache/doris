@@ -175,4 +175,20 @@ TEST_F(RuntimeFilterProducerTest, set_disable) {
     ASSERT_EQ(consumer->_wrapper->_state, RuntimeFilterWrapper::State::DISABLED);
 }
 
+TEST_F(RuntimeFilterProducerTest, publish_release_wrapper) {
+    auto desc = TRuntimeFilterDescBuilder()
+                        .set_build_bf_by_runtime_size(false)
+                        .set_is_broadcast_join(false)
+                        .add_planId_to_target_expr(0)
+                        .build();
+
+    std::shared_ptr<RuntimeFilterProducer> producer;
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
+            _runtime_states[0]->register_producer_runtime_filter(desc, &producer));
+
+    producer->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::DISABLED);
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(producer->publish(_runtime_states[0].get(), true));
+    ASSERT_EQ(producer->_wrapper, nullptr);
+}
+
 } // namespace doris

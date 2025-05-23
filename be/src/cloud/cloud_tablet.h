@@ -28,13 +28,17 @@ class CloudStorageEngine;
 
 struct SyncRowsetStats {
     int64_t get_remote_rowsets_num {0};
-    int64_t get_remote_rowsets_rpc_ms {0};
+    int64_t get_remote_rowsets_rpc_ns {0};
 
     int64_t get_local_delete_bitmap_rowsets_num {0};
     int64_t get_remote_delete_bitmap_rowsets_num {0};
     int64_t get_remote_delete_bitmap_key_count {0};
     int64_t get_remote_delete_bitmap_bytes {0};
-    int64_t get_remote_delete_bitmap_rpc_ms {0};
+    int64_t get_remote_delete_bitmap_rpc_ns {0};
+
+    int64_t get_remote_tablet_meta_rpc_ns {0};
+    int64_t tablet_meta_cache_hit {0};
+    int64_t tablet_meta_cache_miss {0};
 };
 
 struct SyncOptions {
@@ -159,10 +163,38 @@ public:
         _last_full_compaction_success_millis = millis;
     }
 
+    int64_t last_cumu_compaction_schedule_time() { return _last_cumu_compaction_schedule_millis; }
+    void set_last_cumu_compaction_schedule_time(int64_t millis) {
+        _last_cumu_compaction_schedule_millis = millis;
+    }
+
     int64_t last_base_compaction_schedule_time() { return _last_base_compaction_schedule_millis; }
     void set_last_base_compaction_schedule_time(int64_t millis) {
         _last_base_compaction_schedule_millis = millis;
     }
+
+    int64_t last_full_compaction_schedule_time() { return _last_full_compaction_schedule_millis; }
+    void set_last_full_compaction_schedule_time(int64_t millis) {
+        _last_full_compaction_schedule_millis = millis;
+    }
+
+    void set_last_cumu_compaction_status(std::string status) {
+        _last_cumu_compaction_status = std::move(status);
+    }
+
+    std::string get_last_cumu_compaction_status() { return _last_cumu_compaction_status; }
+
+    void set_last_base_compaction_status(std::string status) {
+        _last_base_compaction_status = std::move(status);
+    }
+
+    std::string get_last_base_compaction_status() { return _last_base_compaction_status; }
+
+    void set_last_full_compaction_status(std::string status) {
+        _last_full_compaction_status = std::move(status);
+    }
+
+    std::string get_last_full_compaction_status() { return _last_full_compaction_status; }
 
     int64_t alter_version() const { return _alter_version; }
     void set_alter_version(int64_t alter_version) { _alter_version = alter_version; }
@@ -202,7 +234,8 @@ public:
                                              ReaderType compaction_type, int64_t merged_rows,
                                              int64_t filtered_rows, int64_t initiator,
                                              DeleteBitmapPtr& output_rowset_delete_bitmap,
-                                             bool allow_delete_in_cumu_compaction);
+                                             bool allow_delete_in_cumu_compaction,
+                                             int64_t& get_delete_bitmap_lock_start_time);
 
     // Find the missed versions until the spec_version.
     //
@@ -270,8 +303,16 @@ private:
     std::atomic<int64_t> _last_base_compaction_success_millis;
     // timestamp of last full compaction success
     std::atomic<int64_t> _last_full_compaction_success_millis;
+    // timestamp of last cumu compaction schedule time
+    std::atomic<int64_t> _last_cumu_compaction_schedule_millis;
     // timestamp of last base compaction schedule time
     std::atomic<int64_t> _last_base_compaction_schedule_millis;
+    // timestamp of last full compaction schedule time
+    std::atomic<int64_t> _last_full_compaction_schedule_millis;
+
+    std::string _last_cumu_compaction_status;
+    std::string _last_base_compaction_status;
+    std::string _last_full_compaction_status;
 
     int64_t _base_compaction_cnt = 0;
     int64_t _cumulative_compaction_cnt = 0;
@@ -281,6 +322,9 @@ private:
 
     std::mutex _base_compaction_lock;
     std::mutex _cumulative_compaction_lock;
+
+    // To avoid multiple calc delete bitmap tasks on same (txn_id, tablet_id) with different
+    // signatures being executed concurrently, we use _rowset_update_lock to serialize them
     mutable std::mutex _rowset_update_lock;
 
     // Schema will be merged from all rowsets when sync_rowsets

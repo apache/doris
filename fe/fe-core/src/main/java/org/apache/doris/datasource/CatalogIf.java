@@ -31,6 +31,8 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
+import org.apache.doris.nereids.trees.plans.commands.TruncateTableCommand;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -186,6 +188,8 @@ public interface CatalogIf<T extends DatabaseIf> {
 
     void createDb(CreateDbStmt stmt) throws DdlException;
 
+    void createDb(CreateDatabaseCommand command) throws DdlException;
+
     default void dropDb(DropDbStmt stmt) throws DdlException {
         dropDb(stmt.getDbName(), stmt.isSetIfExists(), stmt.isForceDrop());
     }
@@ -204,6 +208,8 @@ public interface CatalogIf<T extends DatabaseIf> {
                    boolean force) throws DdlException;
 
     void truncateTable(TruncateTableStmt truncateTableStmt) throws DdlException;
+
+    void truncateTable(TruncateTableCommand truncateTableCommand) throws DdlException;
 
     // Convert from remote database name to local database name, overridden by subclass if necessary
     default String fromRemoteDatabaseName(String remoteDatabaseName) {

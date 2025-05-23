@@ -131,29 +131,42 @@ public:
     MutableColumnPtr clone_resized(size_t size) const override;
 
     void insert(const Field& x) override {
-        DCHECK_EQ(x.get_type(), TypeToPrimitiveType<T>::value);
         const T& s = doris::vectorized::get<const T&>(x);
         data.push_back(s);
     }
 
     Field operator[](size_t n) const override {
         assert(n < size());
-        return Field(data[n]);
+        if constexpr (std::is_same_v<BitmapValue, T>) {
+            return Field::create_field<TYPE_OBJECT>(data[n]);
+        } else if constexpr (std::is_same_v<HyperLogLog, T>) {
+            return Field::create_field<TYPE_HLL>(data[n]);
+        } else if constexpr (std::is_same_v<QuantileState, T>) {
+            return Field::create_field<TYPE_QUANTILE_STATE>(data[n]);
+        } else {
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR, "INVALID TYPE");
+        }
     }
 
     void get(size_t n, Field& res) const override {
         assert(n < size());
-        res = Field(data[n]);
+        if constexpr (std::is_same_v<BitmapValue, T>) {
+            res = Field::create_field<TYPE_OBJECT>(data[n]);
+        } else if constexpr (std::is_same_v<HyperLogLog, T>) {
+            res = Field::create_field<TYPE_HLL>(data[n]);
+        } else if constexpr (std::is_same_v<QuantileState, T>) {
+            res = Field::create_field<TYPE_QUANTILE_STATE>(data[n]);
+        } else {
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR, "INVALID TYPE");
+        }
     }
 
     [[noreturn]] bool get_bool(size_t n) const override {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR, "get field not implemented");
-        __builtin_unreachable();
     }
 
     [[noreturn]] Int64 get_int(size_t n) const override {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR, "get field not implemented");
-        __builtin_unreachable();
     }
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override {

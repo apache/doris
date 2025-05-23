@@ -38,9 +38,9 @@
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
-template <typename T>
+template <PrimitiveType T>
 struct AggregateFunctionRegrData {
-    using Type = T;
+    using Type = typename PrimitiveTypeTraits<T>::ColumnItemType;
     UInt64 count = 0;
     Float64 sum_x {};
     Float64 sum_y {};
@@ -82,7 +82,8 @@ struct AggregateFunctionRegrData {
         count += rhs.count;
     }
 
-    void add(T value_y, T value_x) {
+    void add(typename PrimitiveTypeTraits<T>::ColumnItemType value_y,
+             typename PrimitiveTypeTraits<T>::ColumnItemType value_x) {
         sum_x += (double)value_x;
         sum_y += (double)value_y;
         sum_of_x_mul_y += (double)value_x * (double)value_y;
@@ -100,14 +101,14 @@ struct AggregateFunctionRegrData {
     }
 };
 
-template <typename T>
+template <PrimitiveType T>
 struct RegrSlopeFunc : AggregateFunctionRegrData<T> {
     static constexpr const char* name = "regr_slope";
 
     Float64 get_result() const { return this->get_slope(); }
 };
 
-template <typename T>
+template <PrimitiveType T>
 struct RegrInterceptFunc : AggregateFunctionRegrData<T> {
     static constexpr const char* name = "regr_intercept";
 

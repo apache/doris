@@ -325,7 +325,8 @@ private:
                     res);
 
             block.replace_by_position(
-                    result, DataTypeUInt8().create_column_const(col_left->size(), to_field(res)));
+                    result, DataTypeUInt8().create_column_const(col_left->size(),
+                                                                to_field<TYPE_BOOLEAN>(res)));
             return true;
         }
 
@@ -494,8 +495,8 @@ private:
         if (c0_const && c1_const) {
             UInt8 res = 0;
             GenericComparisonImpl<Op<int, int>>::constant_constant(*c0, *c1, res);
-            block.replace_by_position(
-                    result, DataTypeUInt8().create_column_const(c0->size(), to_field(res)));
+            block.replace_by_position(result, DataTypeUInt8().create_column_const(
+                                                      c0->size(), to_field<TYPE_BOOLEAN>(res)));
         } else {
             auto c_res = ColumnUInt8::create();
             ColumnUInt8::Container& vec_res = c_res->get_data();
@@ -622,26 +623,29 @@ public:
                           std::is_same_v<Op<int, int>, GreaterOrEqualsOp<int, int>>) {
                 block.get_by_position(result).column =
                         DataTypeUInt8()
-                                .create_column_const(input_rows_count, 1u)
+                                .create_column_const(input_rows_count,
+                                                     Field::create_field<TYPE_BOOLEAN>(1))
                                 ->convert_to_full_column_if_const();
                 return Status::OK();
             } else {
                 block.get_by_position(result).column =
                         DataTypeUInt8()
-                                .create_column_const(input_rows_count, 0u)
+                                .create_column_const(input_rows_count,
+                                                     Field::create_field<TYPE_BOOLEAN>(0))
                                 ->convert_to_full_column_if_const();
                 return Status::OK();
             }
         }
 
-        WhichDataType which_left {left_type};
-        WhichDataType which_right {right_type};
+        auto can_compare = [](PrimitiveType t) -> bool {
+            return is_int_or_bool(t) || is_float_or_double(t) || t == TYPE_IPV4 || t == TYPE_IPV6 ||
+                   t == TYPE_DATEV2 || t == TYPE_DATETIMEV2;
+        };
+        const bool left_is_num_can_compare = can_compare(left_type->get_primitive_type());
+        const bool right_is_num_can_compare = can_compare(right_type->get_primitive_type());
 
-        const bool left_is_num_can_compare = which_left.is_num_can_compare();
-        const bool right_is_num_can_compare = which_right.is_num_can_compare();
-
-        const bool left_is_string = which_left.is_string_or_fixed_string();
-        const bool right_is_string = which_right.is_string_or_fixed_string();
+        const bool left_is_string = is_string_type(left_type->get_primitive_type());
+        const bool right_is_string = is_string_type(right_type->get_primitive_type());
 
         if (left_is_num_can_compare && right_is_num_can_compare) {
             if (!(execute_num_left_type<UInt8>(block, result, col_left_untyped,
@@ -671,7 +675,8 @@ public:
             }
             return Status::OK();
         }
-        if (is_decimal_v2(left_type) || is_decimal_v2(right_type)) {
+        if (left_type->get_primitive_type() == TYPE_DECIMALV2 ||
+            right_type->get_primitive_type() == TYPE_DECIMALV2) {
             if (!allow_decimal_comparison(left_type, right_type)) {
                 return Status::RuntimeError("No operation {} between {} and {}", get_name(),
                                             left_type->get_name(), right_type->get_name());
@@ -680,7 +685,8 @@ public:
                                    col_with_type_and_name_right);
         }
 
-        if (is_decimal(left_type) || is_decimal(right_type)) {
+        if (is_decimal(left_type->get_primitive_type()) ||
+            is_decimal(right_type->get_primitive_type())) {
             if (!allow_decimal_comparison(left_type, right_type)) {
                 return Status::RuntimeError("No operation {} between {} and {}", get_name(),
                                             left_type->get_name(), right_type->get_name());
@@ -689,7 +695,10 @@ public:
                                    col_with_type_and_name_right);
         }
 
-        if (which_left.idx != which_right.idx) {
+        // Types from left and right hand should be same (char/varchar/string are string type.)
+        if (!(left_type->get_primitive_type() == right_type->get_primitive_type() ||
+              (is_string_type(left_type->get_primitive_type()) &&
+               is_string_type(right_type->get_primitive_type())))) {
             return Status::InternalError(
                     "comparison must input two same type column or column type is "
                     "decimalv3/numeric, lhs={}, rhs={}",

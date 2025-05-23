@@ -1406,6 +1406,7 @@ enum MetaServiceCode {
     LOCK_CONFLICT = 8002;
     ROWSETS_EXPIRED = 8003;
     VERSION_NOT_MATCH = 8004;
+    UPDATE_OVERRIDE_EXISTING_KV = 8005;
 
     // partial update
     ROWSET_META_NOT_FOUND = 9001;

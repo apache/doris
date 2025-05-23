@@ -24,6 +24,7 @@
 #include <boost/iterator/iterator_facade.hpp>
 #include <cstring>
 
+#include "runtime/primitive_type.h"
 #include "util/memcpy_inlined.h"
 #include "util/simd/bits.h"
 #include "vec/columns/columns_common.h"
@@ -726,6 +727,28 @@ void ColumnStr<T>::erase(size_t start, size_t length) {
 }
 
 template <typename T>
+Field ColumnStr<T>::operator[](size_t n) const {
+    assert(n < size());
+    sanity_check_simple();
+    return Field::create_field<TYPE_STRING>(
+            String(reinterpret_cast<const char*>(&chars[offset_at(n)]), size_at(n)));
+}
+
+template <typename T>
+void ColumnStr<T>::get(size_t n, Field& res) const {
+    assert(n < size());
+    sanity_check_simple();
+    if (res.get_type() == PrimitiveType::TYPE_JSONB) {
+        // Handle JsonbField
+        res = Field::create_field<TYPE_JSONB>(
+                JsonbField(reinterpret_cast<const char*>(&chars[offset_at(n)]), size_at(n)));
+        return;
+    }
+    res = Field::create_field<TYPE_STRING>(
+            String(reinterpret_cast<const char*>(&chars[offset_at(n)]), size_at(n)));
+}
+
+template <typename T>
 void ColumnStr<T>::insert(const Field& x) {
     StringRef s;
     if (x.get_type() == PrimitiveType::TYPE_JSONB) {
@@ -747,6 +770,8 @@ void ColumnStr<T>::insert(const Field& x) {
     check_chars_length(new_size, old_size + 1);
 
     chars.resize(new_size);
+    DCHECK(s.data != nullptr);
+    DCHECK(chars.data() != nullptr);
     memcpy(chars.data() + old_size, s.data, size_to_append);
     offsets.push_back(new_size);
     sanity_check_simple();

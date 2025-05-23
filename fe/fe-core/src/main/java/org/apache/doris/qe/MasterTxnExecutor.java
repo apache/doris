@@ -41,8 +41,8 @@ public class MasterTxnExecutor {
 
     public MasterTxnExecutor(ConnectContext ctx) {
         this.ctx = ctx;
-        this.waitTimeoutMs = ctx.getExecTimeout() * 1000;
-        this.thriftTimeoutMs = ctx.getExecTimeout() * 1000;
+        this.waitTimeoutMs = ctx.getExecTimeoutS() * 1000;
+        this.thriftTimeoutMs = ctx.getExecTimeoutS() * 1000;
     }
 
     private TNetworkAddress getMasterAddress() throws TException {

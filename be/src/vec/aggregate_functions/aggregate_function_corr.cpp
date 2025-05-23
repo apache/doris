@@ -39,16 +39,14 @@ AggregateFunctionPtr create_aggregate_corr_welford_function(const std::string& n
                                                             const AggregateFunctionAttr& attr) {
     assert_binary(name, argument_types);
 
-    WhichDataType which0(remove_nullable(argument_types[0]));
-    WhichDataType which1(remove_nullable(argument_types[1]));
-
-    if (!which0.is_float64() || !which1.is_float64()) {
+    if (argument_types[0]->get_primitive_type() != TYPE_DOUBLE ||
+        argument_types[1]->get_primitive_type() != TYPE_DOUBLE) {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                "Aggregate function {} only support double", name);
     }
 
     return creator_without_type::create<
-            AggregateFunctionBinary<StatFunc<double, double, CorrMomentWelford>>>(
+            AggregateFunctionBinary<StatFunc<TYPE_DOUBLE, TYPE_DOUBLE, CorrMomentWelford>>>(
             argument_types, result_is_nullable);
 }
 

@@ -175,7 +175,6 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalSqlCache;
 import org.apache.doris.planner.GroupCommitPlanner;
 import org.apache.doris.planner.GroupCommitScanNode;
 import org.apache.doris.planner.OlapScanNode;
-import org.apache.doris.planner.OriginalPlanner;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ScanNode;
@@ -190,7 +189,6 @@ import org.apache.doris.qe.QeProcessorImpl.QueryInfo;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.cache.Cache;
 import org.apache.doris.qe.cache.CacheAnalyzer;
-import org.apache.doris.qe.cache.CacheAnalyzer.CacheMode;
 import org.apache.doris.qe.cache.SqlCache;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.rewrite.mvrewrite.MVSelectFailedException;
@@ -493,14 +491,14 @@ public class StmtExecutor {
         if (masterOpExecutor == null) {
             return MysqlStateType.UNKNOWN.ordinal();
         }
-        return masterOpExecutor.getProxyStatusCode();
+        return masterOpExecutor.getStatusCode();
     }
 
     public String getProxyErrMsg() {
         if (masterOpExecutor == null) {
             return MysqlStateType.UNKNOWN.name();
         }
-        return masterOpExecutor.getProxyErrMsg();
+        return masterOpExecutor.getErrMsg();
     }
 
     public boolean isSyncLoadKindStmt() {
@@ -1202,8 +1200,6 @@ public class StmtExecutor {
 
     /**
      * get variables in stmt.
-     *
-     * @throws DdlException
      */
     private void analyzeVariablesInStmt() throws DdlException {
         analyzeVariablesInStmt(parsedStmt);
@@ -1609,10 +1605,6 @@ public class StmtExecutor {
             }
         }
         profile.getSummaryProfile().setQueryAnalysisFinishTime();
-        planner = new OriginalPlanner(analyzer);
-        if (parsedStmt instanceof QueryStmt || parsedStmt instanceof InsertStmt) {
-            planner.plan(parsedStmt, tQueryOptions);
-        }
         profile.getSummaryProfile().setQueryPlanFinishTime();
     }
 
@@ -1855,7 +1847,6 @@ public class StmtExecutor {
             }
         }
 
-        CacheMode mode = cacheAnalyzer.getCacheMode();
         Queriable queryStmt = (Queriable) parsedStmt;
         boolean isSendFields = false;
         if (cacheResult != null) {
@@ -1863,23 +1854,6 @@ public class StmtExecutor {
             if (cacheAnalyzer.getHitRange() == Cache.HitRange.Full) {
                 sendCachedValues(channel, cacheResult.getValuesList(), queryStmt, isSendFields, true);
                 return;
-            }
-            // rewrite sql
-            if (mode == CacheMode.Partition) {
-                if (cacheAnalyzer.getHitRange() == Cache.HitRange.Left) {
-                    isSendFields = sendCachedValues(channel, cacheResult.getValuesList(),
-                            queryStmt, isSendFields, false);
-                }
-                StatementBase newSelectStmt = cacheAnalyzer.getRewriteStmt();
-                newSelectStmt.reset();
-                analyzer = new Analyzer(context.getEnv(), context);
-                newSelectStmt.analyze(analyzer);
-                if (parsedStmt instanceof LogicalPlanAdapter) {
-                    planner = new NereidsPlanner(statementContext);
-                } else {
-                    planner = new OriginalPlanner(analyzer);
-                }
-                planner.plan(newSelectStmt, context.getSessionVariable().toThrift());
             }
         }
         executeAndSendResult(false, isSendFields, queryStmt, channel, cacheAnalyzer, cacheResult);
@@ -2324,7 +2298,7 @@ public class StmtExecutor {
         TransactionEntry txnEntry = context.getTxnEntry();
         TTxnParams txnConf = txnEntry.getTxnConf();
         SessionVariable sessionVariable = context.getSessionVariable();
-        long timeoutSecond = context.getExecTimeout();
+        long timeoutSecond = context.getExecTimeoutS();
 
         TransactionState.LoadJobSourceType sourceType = TransactionState.LoadJobSourceType.INSERT_STREAMING;
         Database dbObj = Env.getCurrentInternalCatalog()
@@ -2502,9 +2476,9 @@ public class StmtExecutor {
                     coord.getQueryOptions().setEnableMemtableOnSinkNode(isEnableMemtableOnSinkNode);
                 }
                 coord.exec();
-                int execTimeout = context.getExecTimeout();
+                int execTimeout = context.getExecTimeoutS();
                 if (LOG.isDebugEnabled()) {
-                    LOG.debug("Insert {} execution timeout:{}", DebugUtil.printId(context.queryId()), execTimeout);
+                    LOG.debug("Insert {} execution timeout:{}ms", DebugUtil.printId(context.queryId()), execTimeout);
                 }
                 boolean notTimeout = coord.join(execTimeout);
                 if (!coord.isDone()) {
@@ -2910,11 +2884,11 @@ public class StmtExecutor {
             for (Slot slot : output) {
                 serializer.reset();
                 if (slot instanceof SlotReference
-                        && ((SlotReference) slot).getColumn().isPresent()
-                        && ((SlotReference) slot).getTable().isPresent()) {
+                        && ((SlotReference) slot).getOriginalColumn().isPresent()
+                        && ((SlotReference) slot).getOriginalTable().isPresent()) {
                     SlotReference slotReference = (SlotReference) slot;
-                    TableIf table = slotReference.getTable().get();
-                    Column column = slotReference.getColumn().get();
+                    TableIf table = slotReference.getOriginalTable().get();
+                    Column column = slotReference.getOriginalColumn().get();
                     DatabaseIf database = table.getDatabase();
                     String dbName = database == null ? "" : database.getFullName();
                     serializer.writeField(dbName, table.getName(), column, false);

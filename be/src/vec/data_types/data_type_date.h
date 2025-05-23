@@ -47,7 +47,6 @@ namespace doris::vectorized {
 
 class DataTypeDate final : public DataTypeNumberBase<Int64> {
 public:
-    TypeIndex get_type_id() const override { return TypeIndex::Date; }
     PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_DATE; }
 
     doris::FieldType get_storage_field_type() const override {
@@ -78,7 +77,7 @@ public:
         VecDateTimeValue value;
         if (value.from_date_str(node.date_literal.value.c_str(), node.date_literal.value.size())) {
             value.cast_to_date();
-            return Int64(*reinterpret_cast<__int64_t*>(&value));
+            return Field::create_field<TYPE_DATE>(Int64(*reinterpret_cast<__int64_t*>(&value)));
         } else {
             throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
                                    "Invalid value: {} for type Date", node.date_literal.value);
