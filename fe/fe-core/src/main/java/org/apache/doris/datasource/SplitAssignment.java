@@ -59,6 +59,7 @@ public class SplitAssignment {
 
     private UserException exception = null;
     private final List<Closeable> closeableResources = new ArrayList<>();
+    private Thread thread;
 
     public SplitAssignment(
             FederationBackendPolicy backendPolicy,
@@ -76,11 +77,18 @@ public class SplitAssignment {
     public void init() throws UserException {
         splitGenerator.startSplit(backendPolicy.numBackends());
         synchronized (assignLock) {
+            int waitIntervalTimeMillis = 100;
+            int initTimeoutMillis = 5000; // 5s
+            int waitTotalTime = 0;
             while (sampleSplit == null && waitFirstSplit()) {
                 try {
-                    assignLock.wait(100);
+                    assignLock.wait(waitIntervalTimeMillis);
                 } catch (InterruptedException e) {
                     throw new UserException(e.getMessage(), e);
+                }
+                waitTotalTime += waitIntervalTimeMillis;
+                if (waitTotalTime > initTimeoutMillis) {
+                    throw new UserException("timeout to get first split");
                 }
             }
         }
@@ -102,6 +110,9 @@ public class SplitAssignment {
             }
             try {
                 assignment.computeIfAbsent(backend, be -> new LinkedBlockingQueue<>(10000)).put(locations);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                LOG.info("Thread interrupted while putting batch split", e);
             } catch (Exception e) {
                 throw new UserException("Failed to offer batch split", e);
             }
@@ -186,6 +197,9 @@ public class SplitAssignment {
                 // ignore
             }
         });
+        if (this.thread != null) {
+            this.thread.interrupt();
+        }
         notifyAssignment();
     }
 
@@ -195,5 +209,9 @@ public class SplitAssignment {
 
     public void addCloseable(Closeable resource) {
         closeableResources.add(resource);
+    }
+
+    public void addFetchSplitThread(Thread thread) {
+        this.thread = thread;
     }
 }
