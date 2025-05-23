@@ -237,6 +237,49 @@ void Field::create(const Field& field) {
     }
 }
 
+void Field::destroy() {
+    switch (type) {
+    case PrimitiveType::TYPE_STRING:
+        destroy<typename PrimitiveTypeTraits<TYPE_STRING>::NearestFieldType>();
+        break;
+    case PrimitiveType::TYPE_CHAR:
+        destroy<typename PrimitiveTypeTraits<TYPE_CHAR>::NearestFieldType>();
+        break;
+    case PrimitiveType::TYPE_VARCHAR:
+        destroy<typename PrimitiveTypeTraits<TYPE_VARCHAR>::NearestFieldType>();
+        break;
+    case PrimitiveType::TYPE_JSONB:
+        destroy<typename PrimitiveTypeTraits<TYPE_JSONB>::NearestFieldType>();
+        break;
+    case PrimitiveType::TYPE_ARRAY:
+        destroy<typename PrimitiveTypeTraits<TYPE_ARRAY>::NearestFieldType>();
+        break;
+    case PrimitiveType::TYPE_STRUCT:
+        destroy<typename PrimitiveTypeTraits<TYPE_STRUCT>::NearestFieldType>();
+        break;
+    case PrimitiveType::TYPE_MAP:
+        destroy<typename PrimitiveTypeTraits<TYPE_MAP>::NearestFieldType>();
+        break;
+    case PrimitiveType::TYPE_VARIANT:
+        destroy<typename PrimitiveTypeTraits<TYPE_VARIANT>::NearestFieldType>();
+        break;
+    case PrimitiveType::TYPE_OBJECT:
+        destroy<typename PrimitiveTypeTraits<TYPE_OBJECT>::NearestFieldType>();
+        break;
+    case PrimitiveType::TYPE_HLL:
+        destroy<typename PrimitiveTypeTraits<TYPE_HLL>::NearestFieldType>();
+        break;
+    case PrimitiveType::TYPE_QUANTILE_STATE:
+        destroy<typename PrimitiveTypeTraits<TYPE_QUANTILE_STATE>::NearestFieldType>();
+        break;
+    default:
+        break;
+    }
+
+    type = PrimitiveType::
+            TYPE_NULL; /// for exception safety in subsequent calls to destroy and create, when create fails.
+}
+
 void Field::assign(const Field& field) {
     switch (field.type) {
     case PrimitiveType::TYPE_NULL:

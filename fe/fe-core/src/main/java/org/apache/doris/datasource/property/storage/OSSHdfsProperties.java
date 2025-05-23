@@ -82,7 +82,7 @@ public class OSSHdfsProperties extends HdfsCompatibleProperties {
     }
 
     @Override
-    protected void initNormalizeAndCheckProps() throws UserException {
+    protected void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
         initConfigurationParams();
 
