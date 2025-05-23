@@ -956,18 +956,22 @@ Status OrcReader::set_fill_columns(
         }
     }
 
-    if (!_slot_id_to_filter_conjuncts) {
-        return Status::OK();
+    if (!_not_single_slot_filter_conjuncts.empty()) {
+        _filter_conjuncts.insert(_filter_conjuncts.end(), _not_single_slot_filter_conjuncts.begin(),
+                                 _not_single_slot_filter_conjuncts.end());
+        _disable_dict_filter = true;
     }
 
-    // Add predicate_partition_columns in _slot_id_to_filter_conjuncts(single slot conjuncts)
-    // to _filter_conjuncts, others should be added from not_single_slot_filter_conjuncts.
-    for (auto& kv : _lazy_read_ctx.predicate_partition_columns) {
-        auto& [value, slot_desc] = kv.second;
-        auto iter = _slot_id_to_filter_conjuncts->find(slot_desc->id());
-        if (iter != _slot_id_to_filter_conjuncts->end()) {
-            for (auto& ctx : iter->second) {
-                _filter_conjuncts.push_back(ctx);
+    if (_slot_id_to_filter_conjuncts && !_slot_id_to_filter_conjuncts->empty()) {
+        // Add predicate_partition_columns in _slot_id_to_filter_conjuncts(single slot conjuncts)
+        // to _filter_conjuncts, others should be added from not_single_slot_filter_conjuncts.
+        for (auto& kv : _lazy_read_ctx.predicate_partition_columns) {
+            auto& [value, slot_desc] = kv.second;
+            auto iter = _slot_id_to_filter_conjuncts->find(slot_desc->id());
+            if (iter != _slot_id_to_filter_conjuncts->end()) {
+                for (const auto& ctx : iter->second) {
+                    _filter_conjuncts.push_back(ctx);
+                }
             }
         }
     }
@@ -1716,16 +1720,8 @@ Status OrcReader::get_next_block_impl(Block* block, size_t* read_rows, bool* eof
             RETURN_IF_CATCH_EXCEPTION(
                     Block::filter_block_internal(block, columns_to_filter, *_filter));
         }
-        if (!_not_single_slot_filter_conjuncts.empty()) {
-            RETURN_IF_ERROR(_convert_dict_cols_to_string_cols(block, &batch_vec));
-            RETURN_IF_CATCH_EXCEPTION(
-                    RETURN_IF_ERROR(VExprContext::execute_conjuncts_and_filter_block(
-                            _not_single_slot_filter_conjuncts, block, columns_to_filter,
-                            column_to_keep)));
-        } else {
-            Block::erase_useless_column(block, column_to_keep);
-            RETURN_IF_ERROR(_convert_dict_cols_to_string_cols(block, &batch_vec));
-        }
+        Block::erase_useless_column(block, column_to_keep);
+        RETURN_IF_ERROR(_convert_dict_cols_to_string_cols(block, &batch_vec));
         *read_rows = block->rows();
     } else {
         uint64_t rr;
@@ -1842,17 +1838,8 @@ Status OrcReader::get_next_block_impl(Block* block, size_t* read_rows, bool* eof
                 RETURN_IF_CATCH_EXCEPTION(
                         Block::filter_block_internal(block, columns_to_filter, result_filter));
             }
-            //_not_single_slot_filter_conjuncts check : missing column1 == missing column2 , missing column == exists column  ...
-            if (!_not_single_slot_filter_conjuncts.empty()) {
-                RETURN_IF_ERROR(_convert_dict_cols_to_string_cols(block, &batch_vec));
-                RETURN_IF_CATCH_EXCEPTION(
-                        RETURN_IF_ERROR(VExprContext::execute_conjuncts_and_filter_block(
-                                _not_single_slot_filter_conjuncts, block, columns_to_filter,
-                                column_to_keep)));
-            } else {
-                Block::erase_useless_column(block, column_to_keep);
-                RETURN_IF_ERROR(_convert_dict_cols_to_string_cols(block, &batch_vec));
-            }
+            Block::erase_useless_column(block, column_to_keep);
+            RETURN_IF_ERROR(_convert_dict_cols_to_string_cols(block, &batch_vec));
         } else {
             if (_delete_rows_filter_ptr) {
                 _execute_filter_position_delete_rowids(*_delete_rows_filter_ptr);
@@ -2033,8 +2020,8 @@ Status OrcReader::fill_dict_filter_column_names(
     int i = 0;
     for (auto& predicate_col_name : predicate_col_names) {
         int slot_id = predicate_col_slot_ids[i];
-        if (_can_filter_by_dict(slot_id)) {
-            _dict_filter_cols.emplace_back(std::make_pair(predicate_col_name, slot_id));
+        if (!_disable_dict_filter && _can_filter_by_dict(slot_id)) {
+            _dict_filter_cols.emplace_back(predicate_col_name, slot_id);
             column_names.emplace_back(_col_name_to_file_col_name[predicate_col_name]);
         } else {
             if (_slot_id_to_filter_conjuncts->find(slot_id) !=
