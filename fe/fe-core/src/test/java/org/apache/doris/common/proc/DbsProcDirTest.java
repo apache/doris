@@ -212,9 +212,9 @@ public class DbsProcDirTest {
                 "LastConsistencyCheckTime", "ReplicaCount", "ReplicaQuota", "RunningTransactionNum", "TransactionQuota",
                 "LastUpdateTime"), result.getColumnNames());
         List<List<String>> rows = Lists.newArrayList();
-        rows.add(Arrays.asList(String.valueOf(db1.getId()), db1.getFullName(), "0", "0.000 ", "1024.000 TB",
+        rows.add(Arrays.asList(String.valueOf(db1.getId()), db1.getFullName(), "0", "0.000 ", "8388608.000 TB",
                 FeConstants.null_string, "0", "1073741824", "10", "1000", FeConstants.null_string));
-        rows.add(Arrays.asList(String.valueOf(db2.getId()), db2.getFullName(), "0", "0.000 ", "1024.000 TB",
+        rows.add(Arrays.asList(String.valueOf(db2.getId()), db2.getFullName(), "0", "0.000 ", "8388608.000 TB",
                 FeConstants.null_string, "0", "1073741824", "20", "1000", FeConstants.null_string));
         Assert.assertEquals(rows, result.getRows());
     }
