@@ -810,7 +810,7 @@ TEST_F(ColumnArrayTest, MaxArraySizeAsFieldTest) {
             EXPECT_EQ(af.size(), start_size + max_array_size_as_field)
                     << "array size is not equal to start size + max_array_size_as_field";
             auto cloned = column->clone_resized(0);
-            cloned->insert(af);
+            cloned->insert(Field::create_field<TYPE_ARRAY>(af));
             // get cloned offset size
             auto cloned_offset_size =
                     check_and_get_column<ColumnArray>(cloned.get())->get_offsets().back();

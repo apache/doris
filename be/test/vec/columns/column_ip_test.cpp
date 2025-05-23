@@ -136,7 +136,8 @@ TEST_F(ColumnIPTest, GetRawDataTest) {
     // insert from data csv and assert insert result
     MutableColumns ip_cols;
     ip_cols.push_back(column_ipv6->get_ptr());
-    check_data(ip_cols, {serde[1]}, ';', {2}, data_files[0], assert_get_raw_data_callback<IPv6>);
+    check_data(ip_cols, {serde[1]}, ';', {2}, data_files[0],
+               assert_get_raw_data_callback<TYPE_IPV6>);
 }
 
 TEST_F(ColumnIPTest, GetBoolTest) {
