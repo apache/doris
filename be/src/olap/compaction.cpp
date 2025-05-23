@@ -252,12 +252,10 @@ Status Compaction::merge_input_rowsets() {
     int64_t cached_bytes_total {};
     for (auto& reader : input_rs_readers) {
         auto beta_rowset_ptr = std::dynamic_pointer_cast<BetaRowsetReader>(reader);
-        auto* stats = beta_rowset_ptr->get_stats();
-        auto file_chche_stats =
-                stats == nullptr ? io::FileCacheStatistics {} : stats->file_cache_stats;
-        _local_read_bytes_total += file_chche_stats.bytes_read_from_local;
-        _remote_read_bytes_total += file_chche_stats.bytes_read_from_remote;
-        cached_bytes_total += file_chche_stats.bytes_write_into_cache;
+        auto stats = beta_rowset_ptr->get_stats()->file_cache_stats;
+        _local_read_bytes_total += stats.bytes_read_from_local;
+        _remote_read_bytes_total += stats.bytes_read_from_remote;
+        cached_bytes_total += stats.bytes_write_into_cache;
     }
     DorisMetrics::instance()->local_compaction_read_bytes_total->increment(_local_read_bytes_total);
     DorisMetrics::instance()->remote_compaction_read_bytes_total->increment(
