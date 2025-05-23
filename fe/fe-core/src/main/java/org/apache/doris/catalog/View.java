@@ -17,21 +17,15 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.ParseNode;
 import org.apache.doris.analysis.QueryStmt;
-import org.apache.doris.analysis.SqlParser;
-import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.DeepCopy;
 import org.apache.doris.common.io.Text;
-import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.codec.digest.DigestUtils;
@@ -40,8 +34,6 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.IOException;
-import java.io.StringReader;
-import java.lang.ref.SoftReference;
 import java.util.List;
 
 /**
@@ -78,14 +70,6 @@ public class View extends Table implements GsonPostProcessable {
     // for persist
     @SerializedName("sm")
     private long sqlMode = 0L;
-
-    // View definition created by parsing inlineViewDef_ into a QueryStmt.
-    // 'queryStmt' is a strong reference, which is used when this view is created directly from a QueryStmt
-    // 'queryStmtRef' is a soft reference, it is created from parsing query stmt, and it will be cleared if
-    // JVM memory is not enough.
-    private QueryStmt queryStmt;
-    private SoftReference<QueryStmt> queryStmtRef = new SoftReference<QueryStmt>(null);
-
     // Set if this View is from a WITH clause and not persisted in the catalog.
     private boolean isLocalView;
 
@@ -110,7 +94,6 @@ public class View extends Table implements GsonPostProcessable {
     public View(String alias, QueryStmt queryStmt, List<String> colLabels) {
         super(-1, alias, TableType.VIEW, null);
         this.isLocalView = true;
-        this.queryStmt = queryStmt;
         this.colLabels = colLabels;
     }
 
@@ -119,24 +102,8 @@ public class View extends Table implements GsonPostProcessable {
     }
 
     public QueryStmt getQueryStmt() {
-        if (queryStmt != null) {
-            return queryStmt;
-        }
-        QueryStmt retStmt = queryStmtRef.get();
-        if (retStmt == null) {
-            synchronized (this) {
-                retStmt = queryStmtRef.get();
-                if (retStmt == null) {
-                    try {
-                        retStmt = init();
-                    } catch (UserException e) {
-                        // should not happen
-                        LOG.error("unexpected exception", e);
-                    }
-                }
-            }
-        }
-        return retStmt;
+        // should no use
+        return null;
     }
 
     public void setInlineViewDefWithSqlMode(String inlineViewDef, long sqlMode) {
@@ -154,37 +121,6 @@ public class View extends Table implements GsonPostProcessable {
 
     public String getInlineViewDef() {
         return inlineViewDef;
-    }
-
-    /**
-     * Initializes the originalViewDef, inlineViewDef, and queryStmt members
-     * by parsing the expanded view definition SQL-string.
-     * Throws a TableLoadingException if there was any error parsing the
-     * the SQL or if the view definition did not parse into a QueryStmt.
-     */
-    public synchronized QueryStmt init() throws UserException {
-        Preconditions.checkNotNull(inlineViewDef);
-        // Parse the expanded view definition SQL-string into a QueryStmt and
-        // populate a view definition.
-        SqlScanner input = new SqlScanner(new StringReader(inlineViewDef), sqlMode);
-        SqlParser parser = new SqlParser(input);
-        ParseNode node;
-        try {
-            node = (ParseNode) SqlParserUtils.getFirstStmt(parser);
-        } catch (Exception e) {
-            // Do not pass e as the exception cause because it might reveal the existence
-            // of tables that the user triggering this load may not have privileges on.
-            throw new UserException(
-                    String.format("Failed to parse view-definition statement of view: %s, stmt is %s, reason is %s",
-                            name, inlineViewDef, e.getMessage()));
-        }
-        // Make sure the view definition parses to a query statement.
-        if (!(node instanceof QueryStmt)) {
-            throw new UserException(String.format("View definition of %s "
-                    + "is not a query statement", name));
-        }
-        queryStmtRef = new SoftReference<QueryStmt>((QueryStmt) node);
-        return (QueryStmt) node;
     }
 
     /**
