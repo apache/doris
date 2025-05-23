@@ -53,6 +53,21 @@ suite("test_transactional_hive", "p0,external,hive,external_docker,external_dock
         """
     }
 
+    def q01_par_limit = {
+        qt_q01_limit """
+        select * from orc_full_acid_par order by id limit 3;
+        """
+        qt_q02_limit """
+        select value from orc_full_acid_par order by id limit 3;
+        """
+        qt_q03_limit """
+        select * from orc_full_acid_par where value = 'BB' order by id limit 3;
+        """
+        qt_q04_limit """
+        select * from orc_full_acid_par_empty limit 3;
+        """
+    }
+
     def test_acid = {
         
         sql """set enable_fallback_to_original_planner=false;"""
@@ -77,6 +92,10 @@ suite("test_transactional_hive", "p0,external,hive,external_docker,external_dock
         qt_12 """ select * from orc_acid_major order by id """
         qt_15 """ select * from orc_acid_major where id < 3 order by id """
         qt_16 """ select * from orc_acid_major where id > 3 order by id """
+    
+        qt_17 """ select * from orc_acid_major order by id limit 1 """
+        qt_18 """ select * from orc_acid_major where id < 3 order by id limit 1 """
+        qt_19 """ select * from orc_acid_major where id > 3 order by id limit 1"""
     }
 
     def test_acid_write = {
@@ -159,6 +178,7 @@ suite("test_transactional_hive", "p0,external,hive,external_docker,external_dock
 
             test_acid_count()
             
+            q01_par_limit()
             
             sql """drop catalog if exists ${catalog_name}"""
         } finally {
