@@ -329,6 +329,7 @@ import org.apache.doris.nereids.DorisParser.ShowCharsetContext;
 import org.apache.doris.nereids.DorisParser.ShowClustersContext;
 import org.apache.doris.nereids.DorisParser.ShowCollationContext;
 import org.apache.doris.nereids.DorisParser.ShowColumnHistogramStatsContext;
+import org.apache.doris.nereids.DorisParser.ShowColumnsContext;
 import org.apache.doris.nereids.DorisParser.ShowConfigContext;
 import org.apache.doris.nereids.DorisParser.ShowConstraintContext;
 import org.apache.doris.nereids.DorisParser.ShowConvertLscContext;
@@ -683,6 +684,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowCharsetCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowClustersCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCollationCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowColumnHistogramStatsCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowColumnsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConfigCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConstraintsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConvertLSCCommand;
@@ -755,6 +757,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowWarningErrorCountCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowWarningErrorsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowWhiteListCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowWorkloadGroupsCommand;
 import org.apache.doris.nereids.trees.plans.commands.SyncCommand;
 import org.apache.doris.nereids.trees.plans.commands.TransactionBeginCommand;
 import org.apache.doris.nereids.trees.plans.commands.TransactionCommitCommand;
@@ -2104,8 +2107,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return ParserUtils.withOrigin(ctx, () -> {
             // TODO: need to add withQueryResultClauses and withCTE
             LogicalPlan query = plan(ctx.queryTerm());
-            query = withCte(query, ctx.cte());
-            return withQueryOrganization(query, ctx.queryOrganization());
+            query = withQueryOrganization(query, ctx.queryOrganization());
+            return withCte(query, ctx.cte());
         });
     }
 
@@ -5973,6 +5976,24 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
+    public LogicalPlan visitShowColumns(ShowColumnsContext ctx) {
+        boolean isFull = ctx.FULL() != null;
+        List<String> nameParts = visitMultipartIdentifier(ctx.tableName);
+        String databaseName = ctx.database != null ? ctx.database.getText() : null;
+        String likePattern = null;
+        Expression expr = null;
+        if (ctx.wildWhere() != null) {
+            if (ctx.wildWhere().LIKE() != null) {
+                likePattern = stripQuotes(ctx.wildWhere().STRING_LITERAL().getText());
+            } else {
+                expr = (Expression) ctx.wildWhere().expression().accept(this);
+            }
+        }
+
+        return new ShowColumnsCommand(isFull, new TableNameInfo(nameParts), databaseName, likePattern, expr);
+    }
+
+    @Override
     public LogicalPlan visitDropFile(DropFileContext ctx) {
         String dbName = null;
         if (ctx.database != null) {
@@ -7664,6 +7685,16 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return new ShowRoutineLoadTaskCommand(dbName, whereClause);
     }
 
+    @Override
+    public LogicalPlan visitShowWorkloadGroups(DorisParser.ShowWorkloadGroupsContext ctx) {
+        String likePattern = null;
+        if (ctx.LIKE() != null) {
+            likePattern = stripQuotes(ctx.STRING_LITERAL().getText());
+        }
+        return new ShowWorkloadGroupsCommand(likePattern);
+    }
+
+    @Override
     public LogicalPlan visitShowCopy(DorisParser.ShowCopyContext ctx) {
         String dbName = null;
         if (ctx.database != null) {
