@@ -353,7 +353,7 @@ struct PrimitiveTypeTraits<TYPE_DATE> {
     using NearestFieldType = vectorized::Int64;
     using AvgNearestFieldType = vectorized::Int64;
     using AvgNearestFieldType256 = vectorized::Int64;
-    static constexpr PrimitiveType NearestPrimitiveType = TYPE_BIGINT;
+    static constexpr PrimitiveType NearestPrimitiveType = TYPE_DATE;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_DATETIME> {
@@ -366,7 +366,7 @@ struct PrimitiveTypeTraits<TYPE_DATETIME> {
     using NearestFieldType = vectorized::Int64;
     using AvgNearestFieldType = vectorized::Int64;
     using AvgNearestFieldType256 = vectorized::Int64;
-    static constexpr PrimitiveType NearestPrimitiveType = TYPE_BIGINT;
+    static constexpr PrimitiveType NearestPrimitiveType = TYPE_DATETIME;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_DATETIMEV2> {
@@ -379,7 +379,7 @@ struct PrimitiveTypeTraits<TYPE_DATETIMEV2> {
     using NearestFieldType = vectorized::UInt64;
     using AvgNearestFieldType = vectorized::UInt64;
     using AvgNearestFieldType256 = vectorized::UInt64;
-    static constexpr PrimitiveType NearestPrimitiveType = TYPE_BIGINT;
+    static constexpr PrimitiveType NearestPrimitiveType = TYPE_DATETIMEV2;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_DATEV2> {
@@ -392,7 +392,7 @@ struct PrimitiveTypeTraits<TYPE_DATEV2> {
     using NearestFieldType = vectorized::UInt64;
     using AvgNearestFieldType = vectorized::UInt32;
     using AvgNearestFieldType256 = vectorized::UInt32;
-    static constexpr PrimitiveType NearestPrimitiveType = TYPE_BIGINT;
+    static constexpr PrimitiveType NearestPrimitiveType = TYPE_DATEV2;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_DECIMALV2> {
@@ -471,7 +471,7 @@ struct PrimitiveTypeTraits<TYPE_IPV4> {
     using NearestFieldType = IPv4;
     using AvgNearestFieldType = IPv4;
     using AvgNearestFieldType256 = IPv4;
-    static constexpr PrimitiveType NearestPrimitiveType = TYPE_BIGINT;
+    static constexpr PrimitiveType NearestPrimitiveType = TYPE_IPV4;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_IPV6> {
@@ -672,98 +672,6 @@ struct PrimitiveTypeConvertor<TYPE_DECIMALV2> {
     static inline StorageFieldType to_storage_field_type(const CppType& value) {
         return {value.int_value(), value.frac_value()};
     }
-};
-
-template <typename T>
-struct TypeToPrimitiveType {
-    static constexpr PrimitiveType value = PrimitiveType::INVALID_TYPE;
-};
-template <>
-struct TypeToPrimitiveType<vectorized::Null> {
-    static constexpr PrimitiveType value = PrimitiveType::TYPE_NULL;
-};
-template <>
-struct TypeToPrimitiveType<vectorized::Int64> {
-    static constexpr PrimitiveType value = PrimitiveType::TYPE_BIGINT;
-};
-template <>
-struct TypeToPrimitiveType<vectorized::UInt64> {
-    static constexpr PrimitiveType value = PrimitiveType::TYPE_DATETIMEV2;
-};
-template <>
-struct TypeToPrimitiveType<vectorized::UInt32> {
-    static constexpr PrimitiveType value = PrimitiveType::TYPE_DATEV2;
-};
-template <>
-struct TypeToPrimitiveType<vectorized::Int128> {
-    static constexpr PrimitiveType value = PrimitiveType::TYPE_LARGEINT;
-};
-template <>
-struct TypeToPrimitiveType<vectorized::Float64> {
-    static constexpr PrimitiveType value = PrimitiveType::TYPE_DOUBLE;
-};
-template <>
-struct TypeToPrimitiveType<IPv6> {
-    static constexpr PrimitiveType value = PrimitiveType::TYPE_IPV6;
-};
-template <>
-struct TypeToPrimitiveType<vectorized::String> {
-    static constexpr PrimitiveType value = PrimitiveType::TYPE_STRING;
-};
-template <>
-struct TypeToPrimitiveType<vectorized::JsonbField> {
-    static const PrimitiveType value = PrimitiveType::TYPE_JSONB;
-};
-template <>
-struct TypeToPrimitiveType<vectorized::Array> {
-    static constexpr PrimitiveType value = PrimitiveType::TYPE_ARRAY;
-};
-template <>
-struct TypeToPrimitiveType<vectorized::Tuple> {
-    static constexpr PrimitiveType value = PrimitiveType::TYPE_STRUCT;
-};
-template <>
-struct TypeToPrimitiveType<vectorized::Map> {
-    static const PrimitiveType value = PrimitiveType::TYPE_MAP;
-};
-template <>
-struct TypeToPrimitiveType<vectorized::DecimalField<vectorized::Decimal<vectorized::Int32>>> {
-    static constexpr PrimitiveType value = PrimitiveType::TYPE_DECIMAL32;
-};
-template <>
-struct TypeToPrimitiveType<vectorized::DecimalField<vectorized::Decimal<vectorized::Int64>>> {
-    static constexpr PrimitiveType value = PrimitiveType::TYPE_DECIMAL64;
-};
-template <>
-struct TypeToPrimitiveType<vectorized::DecimalField<vectorized::Decimal<vectorized::Int128>>> {
-    static constexpr PrimitiveType value = PrimitiveType::TYPE_DECIMALV2;
-};
-template <>
-struct TypeToPrimitiveType<vectorized::DecimalField<vectorized::Decimal128V3>> {
-    static constexpr PrimitiveType value = PrimitiveType::TYPE_DECIMAL128I;
-};
-template <>
-struct TypeToPrimitiveType<vectorized::DecimalField<vectorized::Decimal<wide::Int256>>> {
-    static constexpr PrimitiveType value = PrimitiveType::TYPE_DECIMAL256;
-};
-template <>
-struct TypeToPrimitiveType<vectorized::VariantMap> {
-    static constexpr PrimitiveType value = PrimitiveType::TYPE_VARIANT;
-};
-
-template <>
-struct TypeToPrimitiveType<BitmapValue> {
-    static constexpr PrimitiveType value = PrimitiveType::TYPE_OBJECT;
-};
-
-template <>
-struct TypeToPrimitiveType<HyperLogLog> {
-    static constexpr PrimitiveType value = PrimitiveType::TYPE_HLL;
-};
-
-template <>
-struct TypeToPrimitiveType<QuantileState> {
-    static constexpr PrimitiveType value = PrimitiveType::TYPE_QUANTILE_STATE;
 };
 
 } // namespace doris

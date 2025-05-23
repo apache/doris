@@ -58,43 +58,17 @@ namespace doris::vectorized {
 // TODO support more types
 class FieldVisitorToStringSimple : public StaticVisitor<String> {
 public:
-    String operator()(const Null& x) const { return "NULL"; }
-    String operator()(const UInt64& x) const { return std::to_string(x); }
-    String operator()(const Int64& x) const { return std::to_string(x); }
-    String operator()(const Float64& x) const { return std::to_string(x); }
-    String operator()(const String& x) const { return x; }
-    [[noreturn]] String operator()(const UInt128& x) const {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
-    }
-    [[noreturn]] String operator()(const Int128& x) const {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
-    }
-    [[noreturn]] String operator()(const Array& x) const {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
-    }
-    [[noreturn]] String operator()(const Tuple& x) const {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
-    }
-    [[noreturn]] String operator()(const DecimalField<Decimal32>& x) const {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
-    }
-    [[noreturn]] String operator()(const DecimalField<Decimal64>& x) const {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
-    }
-    [[noreturn]] String operator()(const DecimalField<Decimal128V2>& x) const {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
-    }
-    [[noreturn]] String operator()(const DecimalField<Decimal128V3>& x) const {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
-    }
-    [[noreturn]] String operator()(const DecimalField<Decimal256>& x) const {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
-    }
-    [[noreturn]] String operator()(const JsonbField& x) const {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
-    }
-    [[noreturn]] String operator()(const VariantMap& x) const {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
+    template <PrimitiveType T>
+    String apply(const typename PrimitiveTypeTraits<T>::NearestFieldType& x) const {
+        if constexpr (T == TYPE_NULL) {
+            return "NULL";
+        } else if constexpr (T == TYPE_BIGINT || T == TYPE_DOUBLE) {
+            return std::to_string(x);
+        } else if constexpr (is_string_type(T)) {
+            return x;
+        } else {
+            throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Not implemeted");
+        }
     }
 };
 
@@ -234,7 +208,8 @@ void convert_field_to_typeImpl(const Field& src, const IDataType& type,
             return;
         }
         // TODO this is a very simple translator, support more complex types
-        *to = Field::create_field<TYPE_STRING>(apply_visitor(FieldVisitorToStringSimple(), src));
+        FieldVisitorToStringSimple v;
+        *to = Field::create_field<TYPE_STRING>(apply_visitor(v, src));
         return;
     } else if (type.get_primitive_type() == PrimitiveType::TYPE_JSONB) {
         if (src.get_type() == PrimitiveType::TYPE_JSONB) {
