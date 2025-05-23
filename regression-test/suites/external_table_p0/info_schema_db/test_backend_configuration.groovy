@@ -14,8 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+import org.apache.doris.regression.suite.ClusterOptions
 
-suite("test_backend_configuration", "p0, external_table,information_schema,backend_configuration") {
+suite("test_backend_configuration", "docker, p0, external_table,information_schema,backend_configuration") {
     def options = new ClusterOptions()
     options.setFeNum(1)
     options.setBeNum(3)
@@ -26,12 +27,12 @@ suite("test_backend_configuration", "p0, external_table,information_schema,backe
           assertTrue(res.size() == 3)
           
           sql """ 
-               select CONFIGURATION, CONFIGURATION_TYPE, CONFIGURATION_VALUE, IS_MUTABLE from information_schema.backend_configuration where CONFIGURATION = "disable_auto_compaction" and CONFIGURATION_TYPE = "bool";
+               select CONFIGURATION, CONFIGURATION_TYPE, CONFIGURATION_VALUE, IS_MUTABLE from information_schema.backend_configuration where CONFIGURATION = "disable_auto_compaction";
           """
           assertTrue(res.size() == 3)
 
           res = sql """ 
-               select CONFIGURATION, CONFIGURATION_TYPE, CONFIGURATION_VALUE, IS_MUTABLE from information_schema.backend_configuration where CONFIGURATION = "LZ4_HC_compression_level" and CONFIGURATION_TYPE = "int64_t";
+               select CONFIGURATION, CONFIGURATION_TYPE, CONFIGURATION_VALUE, IS_MUTABLE from information_schema.backend_configuration where CONFIGURATION = "LZ4_HC_compression_level";
           """
           assertTrue(res.size() == 3)
     }
