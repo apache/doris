@@ -585,6 +585,7 @@ import org.apache.doris.nereids.trees.plans.commands.CallCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelAlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelBackupCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelBuildIndexCommand;
+import org.apache.doris.nereids.trees.plans.commands.CancelDecommissionBackendCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelExportCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelJobTaskCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelLoadCommand;
@@ -7709,6 +7710,15 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
 
         return new RefreshDictionaryCommand(dbName, dictName);
+    }
+
+    @Override
+    public LogicalPlan visitCancelDecommisionBackend(DorisParser.CancelDecommisionBackendContext ctx) {
+        List<String> parts = new ArrayList<>();
+        for (TerminalNode terminalNode : ctx.STRING_LITERAL()) {
+            parts.add(terminalNode.getText());
+        }
+        return new CancelDecommissionBackendCommand(parts);
     }
 
     @Override
