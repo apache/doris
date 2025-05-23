@@ -4261,7 +4261,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             List<Boolean> nullables = dataTypeWithNullables.stream()
                     .map(dt -> dt.second)
                     .collect(ImmutableList.toImmutableList());
-            String functionName = ctx.functionNameIdentifier().getText().toLowerCase(Locale.ROOT);
+            String functionName = ctx.functionNameIdentifier().getText();
             if (!BuiltinAggregateFunctions.INSTANCE.aggFuncNames.contains(functionName)) {
                 // TODO use function binder to check function exists
                 throw new ParseException("Can not found function '" + functionName + "'", ctx);
