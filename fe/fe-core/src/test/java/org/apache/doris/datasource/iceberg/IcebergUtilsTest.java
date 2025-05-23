@@ -203,4 +203,9 @@ public class IcebergUtilsTest {
             partitionFieldSummaries,
             null);
     }
+
+    @Test
+    public void testGetQuerySpecSnapshot() {
+
+    }
 }

@@ -56,6 +56,7 @@ import org.apache.doris.datasource.CacheException;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalSchemaCache;
 import org.apache.doris.datasource.SchemaCacheValue;
+import org.apache.doris.datasource.iceberg.source.IcebergTableQueryInfo;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.datasource.property.constants.HMSProperties;
@@ -117,6 +118,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
@@ -156,6 +159,9 @@ public class IcebergUtils {
     public static final String HOUR = "hour";
     public static final String IDENTITY = "identity";
     public static final int PARTITION_DATA_ID_START = 1000; // org.apache.iceberg.PartitionSpec
+
+    private static final Pattern BRANCH = Pattern.compile("branch_(.*)");
+    private static final Pattern TAG = Pattern.compile("tag_(.*)");
 
     public static Expression convertToIcebergExpr(Expr expr, Schema schema) {
         if (expr == null) {
@@ -783,16 +789,43 @@ public class IcebergUtils {
     }
 
     // get snapshot id from query like 'for version/time as of'
-    public static long getQuerySpecSnapshot(Table table, TableSnapshot queryTableSnapshot) {
+    public static IcebergTableQueryInfo getQuerySpecSnapshot(Table table, TableSnapshot queryTableSnapshot) {
+        String value = queryTableSnapshot.getValue();
         TableSnapshot.VersionType type = queryTableSnapshot.getType();
         if (type == TableSnapshot.VersionType.VERSION) {
-            return queryTableSnapshot.getVersion();
-        } else {
-            long timestamp = TimeUtils.timeStringToLong(queryTableSnapshot.getTime(), TimeUtils.getTimeZone());
-            if (timestamp < 0) {
-                throw new DateTimeException("can't parse time: " + queryTableSnapshot.getTime());
+            String refName = null;
+            Matcher branchRef = BRANCH.matcher(value);
+            if (branchRef.matches()) {
+                refName = branchRef.group(1);
             }
-            return SnapshotUtil.snapshotIdAsOfTime(table, timestamp);
+            Matcher tagRef = TAG.matcher(value);
+            if (tagRef.matches()) {
+                refName = tagRef.group(1);
+            }
+            if (refName != null) {
+                return new IcebergTableQueryInfo(
+                    table.refs().get(refName).snapshotId(),
+                    refName,
+                    SnapshotUtil.schemaFor(table, refName).schemaId()
+                );
+            }
+            long snapshotId = Long.parseLong(value);
+            return new IcebergTableQueryInfo(
+                snapshotId,
+                null,
+                table.snapshot(snapshotId).schemaId()
+            );
+        } else {
+            long timestamp = TimeUtils.timeStringToLong(value, TimeUtils.getTimeZone());
+            if (timestamp < 0) {
+                throw new DateTimeException("can't parse time: " + value);
+            }
+            long snapshotId = SnapshotUtil.snapshotIdAsOfTime(table, timestamp);
+            return new IcebergTableQueryInfo(
+                snapshotId,
+                null,
+                table.snapshot(snapshotId).schemaId()
+                );
         }
     }
 
@@ -1054,10 +1087,10 @@ public class IcebergUtils {
             // use the specified snapshot and the corresponding schema(not the latest schema).
             Table icebergTable = getIcebergTable(catalog, dbName, tbName);
             TableSnapshot snapshot = tableSnapshot.get();
-            long querySpecSnapshot = getQuerySpecSnapshot(icebergTable, snapshot);
+            IcebergTableQueryInfo info = getQuerySpecSnapshot(icebergTable, snapshot);
             return new IcebergSnapshotCacheValue(
-                IcebergPartitionInfo.empty(),
-                    new IcebergSnapshot(querySpecSnapshot, icebergTable.snapshot(querySpecSnapshot).schemaId()));
+                    IcebergPartitionInfo.empty(),
+                    new IcebergSnapshot(info.getSnapshotId(), info.getSchemaId()));
         } else {
             // Otherwise, use the latest snapshot and the latest schema.
             return snapshotCache;

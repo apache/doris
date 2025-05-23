@@ -28,47 +28,44 @@ public class TableSnapshot {
     }
 
     private final VersionType type;
-    private String time;
-    private long version;
-
-    public TableSnapshot(long version) {
-        this.version = version;
-        this.type = VersionType.VERSION;
-    }
-
-    public TableSnapshot(String time) {
-        this.time = time;
-        this.type = VersionType.TIME;
-    }
+    private String value;
 
     public TableSnapshot(TableSnapshot other) {
         this.type = other.type;
-        this.time = other.time;
-        this.version = other.version;
+        this.value = other.value;
+    }
+
+    public TableSnapshot(String value, VersionType type) {
+        this.value = value;
+        this.type = type;
+    }
+
+    public static TableSnapshot timeOf(String time) {
+        return new TableSnapshot(time, VersionType.TIME);
+    }
+
+    public static TableSnapshot versionOf(String time) {
+        return new TableSnapshot(time, VersionType.VERSION);
+    }
+
+    public String getValue() {
+        return value;
     }
 
     public VersionType getType() {
         return type;
     }
 
-    public String getTime() {
-        return time;
-    }
-
-    public void setTime(String time) {
-        this.time = time;
-    }
-
-    public long getVersion() {
-        return version;
+    public void setValue(String value) {
+        this.value = value;
     }
 
     @Override
     public String toString() {
         if (this.type == VersionType.VERSION) {
-            return " FOR VERSION AS OF " + version;
+            return " FOR VERSION AS OF " + value;
         } else {
-            return " FOR TIME AS OF '" + time + "'";
+            return " FOR TIME AS OF '" + value + "'";
         }
     }
 }

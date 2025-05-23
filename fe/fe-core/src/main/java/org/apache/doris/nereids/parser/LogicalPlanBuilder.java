@@ -2312,9 +2312,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         TableSnapshot tableSnapshot = null;
         if (ctx.tableSnapshot() != null) {
             if (ctx.tableSnapshot().TIME() != null) {
-                tableSnapshot = new TableSnapshot(stripQuotes(ctx.tableSnapshot().time.getText()));
+                tableSnapshot = TableSnapshot.timeOf(ctx.tableSnapshot().time.getText());
             } else {
-                tableSnapshot = new TableSnapshot(Long.parseLong(ctx.tableSnapshot().version.getText()));
+                tableSnapshot = TableSnapshot.versionOf(ctx.tableSnapshot().version.getText());
             }
         }
 
@@ -5494,9 +5494,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     private TableSnapshot visitTableSnapshotContext(TableSnapshotContext ctx) {
         if (ctx != null) {
             if (ctx.TIME() != null) {
-                return new TableSnapshot(stripQuotes(ctx.time.getText()));
+                return TableSnapshot.timeOf(ctx.time.getText());
             } else {
-                return new TableSnapshot(Long.parseLong(ctx.version.getText()));
+                return TableSnapshot.versionOf(ctx.version.getText());
             }
         }
         return null;
