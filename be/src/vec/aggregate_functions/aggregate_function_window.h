@@ -592,6 +592,26 @@ struct WindowFunctionLastImpl : Data {
     static const char* name() { return "last_value"; }
 };
 
+template <typename Data, bool = false>
+struct WindowFunctionNthValueImpl : Data {
+    void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
+                                int64_t frame_end, const IColumn** columns) {
+        DCHECK_LE(frame_start, frame_end);
+        frame_start = std::max<int64_t>(frame_start, partition_start);
+        frame_end = std::min<int64_t>(frame_end, partition_end);
+        int64_t offset = assert_cast<const ColumnInt64&, TypeCheckOnRelease::DISABLE>(*columns[1])
+                                 .get_data()[0] -
+                         1;
+        if (frame_end - frame_start <= offset) {
+            this->set_is_null();
+            return;
+        }
+        this->set_value(columns, offset + frame_start);
+    }
+
+    static const char* name() { return "nth_value"; }
+};
+
 template <typename Data>
 class WindowFunctionData final
         : public IAggregateFunctionDataHelper<Data, WindowFunctionData<Data>> {
