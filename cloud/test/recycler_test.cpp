@@ -338,8 +338,13 @@ static void create_delete_bitmaps(Transaction* txn, int64_t tablet_id, std::stri
     for (int64_t ver : versions) {
         for (int64_t segment_id {0}; segment_id < segment_num; segment_id++) {
             auto key = meta_delete_bitmap_key({instance_id, tablet_id, rowset_id, ver, segment_id});
-            std::string val {"test_data"};
-            txn->put(key, val);
+            if (segment_id % 2 == 0) {
+                std::string val {"test_data"};
+                txn->put(key, val);
+            } else {
+                std::string val(1000, 'A');
+                cloud::put(txn, key, val, 0, 300);
+            }
         }
     }
 }
@@ -2795,13 +2800,21 @@ TEST(CheckerTest, delete_bitmap_inverted_check_normal) {
     constexpr int table_id = 10000, index_id = 10001, partition_id = 10002;
     // create some rowsets with delete bitmaps in merge-on-write tablet
     for (int tablet_id = 600001; tablet_id <= 600010; ++tablet_id) {
+        // for last tablet, create pending delete bitmap
+        bool is_last_tablet = tablet_id == 600010;
         ASSERT_EQ(0,
                   create_tablet(txn_kv.get(), table_id, index_id, partition_id, tablet_id, true));
         int64_t rowset_start_id = 400;
+        std::vector<std::string> rowset_ids;
         for (int ver = 2; ver <= 10; ++ver) {
             std::string rowset_id = std::to_string(rowset_start_id++);
-            create_committed_rowset_with_rowset_id(txn_kv.get(), accessor.get(), "1", tablet_id,
-                                                   ver, ver, rowset_id, false, 1);
+            bool is_last_version = ver == 10;
+            bool skip_create_rowset = is_last_tablet && is_last_version;
+            rowset_ids.push_back(rowset_id);
+            if (!skip_create_rowset) {
+                create_committed_rowset_with_rowset_id(txn_kv.get(), accessor.get(), "1", tablet_id,
+                                                       ver, ver, rowset_id, false, 1);
+            }
             if (ver >= 5) {
                 auto delete_bitmap_key =
                         meta_delete_bitmap_key({instance_id, tablet_id, rowset_id, ver, 0});
@@ -2814,6 +2827,19 @@ TEST(CheckerTest, delete_bitmap_inverted_check_normal) {
                 std::string delete_bitmap_val(1000, 'A');
                 cloud::put(txn.get(), delete_bitmap_key, delete_bitmap_val, 0, 300);
             }
+        }
+        if (is_last_tablet) {
+            std::string pending_key = meta_pending_delete_bitmap_key({instance_id, tablet_id});
+            std::string pending_val;
+            PendingDeleteBitmapPB delete_bitmap_keys;
+            for (int j = 0; j < rowset_ids.size(); j++) {
+                MetaDeleteBitmapInfo key_info {instance_id, tablet_id, rowset_ids[j], 10, 0};
+                std::string key;
+                meta_delete_bitmap_key(key_info, &key);
+                delete_bitmap_keys.add_delete_bitmap_keys(key);
+            }
+            delete_bitmap_keys.SerializeToString(&pending_val);
+            txn->put(pending_key, pending_val);
         }
     }
 
@@ -3329,9 +3355,14 @@ TEST(CheckerTest, delete_bitmap_storage_optimize_v2_check_abnormal) {
         int64_t create_time;
         int segment_num;
         bool is_abnormal;
+        std::string rowset_id;
     };
     struct Tablet {
         std::vector<Rowset> rowsets;
+        bool skip_create_rowset = false;
+        std::unordered_set<int> skip_create_rowset_index;
+        bool create_pending_delete_bitmap;
+        int64_t pending_delete_bitmap_version;
     };
 
     std::vector<Tablet> tablets;
@@ -3346,20 +3377,32 @@ TEST(CheckerTest, delete_bitmap_storage_optimize_v2_check_abnormal) {
                         {4, 4, {7, 11}, expire_time, 3, false},
                         {5, 7, {8, 10}, expire_time, 1, true},
                         {8, 11, {12}, expire_time, 1, true}}});
-    // skip create rowset (put it in the last tablet)
+    // skip create rowset
     tablets.push_back({{{2, 2, {5}, expire_time, 2, false},
                         {3, 3, {4}, expire_time, 1, false} /*skip create rowset*/,
-                        {3, 5, {}, expire_time, 2, false}}});
+                        {3, 5, {}, expire_time, 2, false}},
+                       true /* skip_create_rowset */,
+                       {1}});
+    // pending delete bitmap
+    Tablet tablet3 {{{{2, 2, {3, 4, 5}, expire_time, 2, false},
+                      {3, 3, {4, 5}, expire_time, 1, false},
+                      {4, 4, {5}, expire_time, 3, false}}}};
+    tablet3.create_pending_delete_bitmap = true;
+    tablet3.pending_delete_bitmap_version = 5;
+    tablets.push_back(tablet3);
 
     for (int i = 0; i < tablets.size(); ++i) {
         int tablet_id = 900021 + i;
         ASSERT_EQ(0,
                   create_tablet(txn_kv.get(), table_id, index_id, partition_id, tablet_id, true));
-        auto& rowsets = tablets[i].rowsets;
+        auto& tablet = tablets[i];
+        auto& rowsets = tablet.rowsets;
         for (int j = 0; j < rowsets.size(); j++) {
             auto& rowset = rowsets[j];
             std::string rowset_id = std::to_string(rowset_start_id++);
-            bool skip_create_rowset = i == tablets.size() - 1 && j == 1;
+            rowset.rowset_id = rowset_id;
+            bool skip_create_rowset =
+                    tablet.skip_create_rowset && tablet.skip_create_rowset_index.contains(j);
             if (!skip_create_rowset) {
                 create_committed_rowset_with_rowset_id(txn_kv.get(), accessor.get(), "1", tablet_id,
                                                        rowset.start_version, rowset.end_version,
@@ -3370,6 +3413,20 @@ TEST(CheckerTest, delete_bitmap_storage_optimize_v2_check_abnormal) {
             if (rowset.is_abnormal) {
                 expected_abnormal_rowsets[tablet_id].insert(rowset_id);
             }
+        }
+        if (tablet.create_pending_delete_bitmap) {
+            std::string pending_key = meta_pending_delete_bitmap_key({instance_id, tablet_id});
+            std::string pending_val;
+            PendingDeleteBitmapPB delete_bitmap_keys;
+            for (int j = 0; j < rowsets.size(); j++) {
+                MetaDeleteBitmapInfo key_info {instance_id, tablet_id, rowsets[j].rowset_id,
+                                               tablet.pending_delete_bitmap_version, 0};
+                std::string key;
+                meta_delete_bitmap_key(key_info, &key);
+                delete_bitmap_keys.add_delete_bitmap_keys(key);
+            }
+            delete_bitmap_keys.SerializeToString(&pending_val);
+            txn->put(pending_key, pending_val);
         }
     }
     ASSERT_EQ(TxnErrorCode::TXN_OK, txn->commit());

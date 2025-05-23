@@ -128,6 +128,8 @@ private:
     int collect_tablet_rowsets(
             int64_t tablet_id,
             const std::function<void(const doris::RowsetMetaCloudPB&)>& collect_cb);
+    int get_pending_delete_bitmap_keys(int64_t tablet_id,
+                                       std::unordered_set<std::string>& pending_delete_bitmaps);
 
     int check_delete_bitmap_storage_optimize(int64_t tablet_id);
     int check_delete_bitmap_storage_optimize_v2(int64_t tablet_id, int64_t& abnormal_rowsets_num);

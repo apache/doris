@@ -966,6 +966,7 @@ int InstanceChecker::do_delete_bitmap_inverted_check() {
         int64_t tablet_id {-1};
         bool enable_merge_on_write {false};
         std::unordered_set<std::string> rowsets {};
+        std::unordered_set<std::string> pending_delete_bitmaps {};
     } tablet_rowsets_cache {};
 
     std::unique_ptr<RangeGetIterator> it;
@@ -1022,6 +1023,7 @@ int InstanceChecker::do_delete_bitmap_inverted_check() {
                 tablet_rowsets_cache.enable_merge_on_write =
                         tablet_meta.enable_unique_key_merge_on_write();
                 tablet_rowsets_cache.rowsets.clear();
+                tablet_rowsets_cache.pending_delete_bitmaps.clear();
 
                 if (tablet_rowsets_cache.enable_merge_on_write) {
                     // only collect rowsets for merge-on-write tablet
@@ -1030,6 +1032,12 @@ int InstanceChecker::do_delete_bitmap_inverted_check() {
                                 tablet_rowsets_cache.rowsets.insert(rowset.rowset_id_v2());
                             };
                     ret = collect_tablet_rowsets(tablet_id, collect_cb);
+                    if (ret < 0) {
+                        return ret;
+                    }
+                    // get pending delete bitmaps
+                    ret = get_pending_delete_bitmap_keys(
+                            tablet_id, tablet_rowsets_cache.pending_delete_bitmaps);
                     if (ret < 0) {
                         return ret;
                     }
@@ -1053,7 +1061,8 @@ int InstanceChecker::do_delete_bitmap_inverted_check() {
                 continue;
             }
 
-            if (!tablet_rowsets_cache.rowsets.contains(rowset_id)) {
+            if (!tablet_rowsets_cache.rowsets.contains(rowset_id) &&
+                !tablet_rowsets_cache.pending_delete_bitmaps.contains(std::string(k))) {
                 TEST_SYNC_POINT_CALLBACK(
                         "InstanceChecker::do_delete_bitmap_inverted_check.get_leaked_delete_bitmap",
                         &tablet_id, &rowset_id, &version, &segment_id);
@@ -1178,6 +1187,34 @@ int InstanceChecker::check_delete_bitmap_storage_optimize(int64_t tablet_id) {
     return (abnormal_rowsets_num > 1 ? 1 : 0);
 }
 
+int InstanceChecker::get_pending_delete_bitmap_keys(
+        int64_t tablet_id, std::unordered_set<std::string>& pending_delete_bitmaps) {
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG(WARNING) << "failed to create txn";
+        return -1;
+    }
+    std::string pending_key = meta_pending_delete_bitmap_key({instance_id_, tablet_id});
+    std::string pending_val;
+    err = txn->get(pending_key, &pending_val);
+    if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        LOG(WARNING) << "failed to get pending delete bitmap kv, err=" << err;
+        return -1;
+    }
+    if (err == TxnErrorCode::TXN_OK) {
+        PendingDeleteBitmapPB pending_info;
+        if (!pending_info.ParseFromString(pending_val)) [[unlikely]] {
+            LOG(WARNING) << "failed to parse PendingDeleteBitmapPB, tablet=" << tablet_id;
+            return -1;
+        }
+        for (auto& delete_bitmap_key : pending_info.delete_bitmap_keys()) {
+            pending_delete_bitmaps.emplace(std::string(delete_bitmap_key));
+        }
+    }
+    return 0;
+}
+
 int InstanceChecker::check_delete_bitmap_storage_optimize_v2(
         int64_t tablet_id, int64_t& rowsets_with_useless_delete_bitmap_version) {
     // end_version: create_time
@@ -1195,6 +1232,11 @@ int InstanceChecker::check_delete_bitmap_storage_optimize_v2(
                 std::make_pair(rowset.start_version(), rowset.end_version());
     };
     if (int ret = collect_tablet_rowsets(tablet_id, collect_cb); ret != 0) {
+        return ret;
+    }
+
+    std::unordered_set<std::string> pending_delete_bitmaps;
+    if (auto ret = get_pending_delete_bitmap_keys(tablet_id, pending_delete_bitmaps); ret < 0) {
         return ret;
     }
 
@@ -1299,6 +1341,9 @@ int InstanceChecker::check_delete_bitmap_storage_optimize_v2(
             }
             if (rowset_version_map.find(rowset_id) == rowset_version_map.end()) {
                 // checked in do_delete_bitmap_inverted_check
+                continue;
+            }
+            if (pending_delete_bitmaps.contains(std::string(k))) {
                 continue;
             }
             // there may be an interval in this situation:
