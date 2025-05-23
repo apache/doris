@@ -1166,8 +1166,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public String visitCommentSpec(DorisParser.CommentSpecContext ctx) {
         String commentSpec = ctx == null ? "''" : ctx.STRING_LITERAL().getText();
-        return
-                LogicalPlanBuilderAssistant.escapeBackSlash(commentSpec.substring(1, commentSpec.length() - 1));
+        return LogicalPlanBuilderAssistant.escapeBackSlash(commentSpec.substring(1, commentSpec.length() - 1));
     }
 
     /**
@@ -1571,7 +1570,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             info = new AlterViewInfo(new TableNameInfo(nameParts), comment);
         } else {
             String querySql = getOriginSql(ctx.query());
-            info = new AlterViewInfo(new TableNameInfo(nameParts), querySql,
+            if (ctx.STRING_LITERAL() != null) {
+                comment = ctx.STRING_LITERAL().getText();
+                comment = LogicalPlanBuilderAssistant.escapeBackSlash(comment.substring(1, comment.length() - 1));
+            }
+            info = new AlterViewInfo(new TableNameInfo(nameParts), comment, querySql,
                     ctx.cols == null ? Lists.newArrayList() : visitSimpleColumnDefs(ctx.cols));
         }
         return new AlterViewCommand(info);

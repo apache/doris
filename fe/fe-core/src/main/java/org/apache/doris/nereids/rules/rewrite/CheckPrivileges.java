@@ -96,8 +96,8 @@ public class CheckPrivileges extends ColumnPruning {
             Slot slot = idToSlot.get(requiredSlot.getExprId().asInt());
             if (slot != null) {
                 // don't check privilege for hidden column, e.g. __DORIS_DELETE_SIGN__
-                if (slot instanceof SlotReference && ((SlotReference) slot).getColumn().isPresent()
-                        && !((SlotReference) slot).getColumn().get().isVisible()) {
+                if (slot instanceof SlotReference && ((SlotReference) slot).getOriginalColumn().isPresent()
+                        && !((SlotReference) slot).getOriginalColumn().get().isVisible()) {
                     continue;
                 }
                 usedColumns.add(slot.getName());
