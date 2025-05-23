@@ -117,8 +117,19 @@ suite("test_javaudf_array") {
         ); """
         qt_select_13 """ SELECT java_udf_array_date_test(array(datev2_col)), tinyint_col as result FROM ${tableName} ORDER BY result; """
 
+        sql """ CREATE FUNCTION java_udf_array_list_test_not_nullable(array<string>) RETURNS array<string> PROPERTIES (
+            "file"="file://${jarPath}",
+            "symbol"="org.apache.doris.udf.ArrayReturnArrayStringTest",
+            "always_nullable"="false",
+            "type"="JAVA_UDF"
+        ); """
+        test {
+            sql """ SELECT java_udf_array_list_test_not_nullable(NULL); """
+            exception "but the return type is not nullable"
+        }
     } finally {
         try_sql("DROP FUNCTION IF EXISTS java_udf_array_int_test(array<int>);")
+        try_sql("DROP FUNCTION IF EXISTS java_udf_array_list_test_not_nullable(array<string>);")
         try_sql("DROP FUNCTION IF EXISTS java_udf_array_return_int_test(array<int>);")
         try_sql("DROP FUNCTION IF EXISTS java_udf_array_return_string_test(array<string>);")
         try_sql("DROP FUNCTION IF EXISTS java_udf_array_string_test(array<string>);")
