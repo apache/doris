@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.property.storage;
 
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -175,6 +176,6 @@ public class S3PropertiesTest {
         s3EndpointProps.put("oss.region", "cn-hangzhou");
         origProps.put("uri", "s3://examplebucket-1250000000/test/file.txt");
         //not support
-        Assertions.assertThrowsExactly(RuntimeException.class, () -> StorageProperties.createPrimary(s3EndpointProps), "Property cos.endpoint is required.");
+        Assertions.assertThrowsExactly(StoragePropertiesException.class, () -> StorageProperties.createPrimary(s3EndpointProps), "Property cos.endpoint is required.");
     }
 }
