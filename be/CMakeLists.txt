@@ -312,6 +312,7 @@ if (COMPILER_CLANG)
                         -Wunused-template
                         -Wunused-member-function
                         -Wunused-macros
+                        -Wdeprecated-declarations
                         -Wconversion)
     add_compile_options( -Wno-gnu-statement-expression
                         -Wno-implicit-float-conversion
