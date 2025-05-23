@@ -237,6 +237,7 @@ public class IcebergScanNode extends FileQueryScanNode {
                             // 1. this task should stop when all splits are assigned
                             // 2. if we want to stop this plan, we can close the fileScanTasks to stop
                             splitAssignment.addCloseable(fileScanTasks);
+                            splitAssignment.addFetchSplitThread(Thread.currentThread());
 
                             fileScanTasks.forEach(fileScanTask ->
                                     splitAssignment.addToQueue(Lists.newArrayList(createIcebergSplit(fileScanTask))));
