@@ -232,7 +232,7 @@ public:
     ThreadPool* non_block_close_thread_pool();
     ThreadPool* s3_file_system_thread_pool() { return _s3_file_system_thread_pool.get(); }
 
-    Status init_pipeline_task_scheduler();
+    Status init_dummy_workload_group();
     void init_file_cache_factory(std::vector<doris::CachePath>& cache_paths);
     io::FileCacheFactory* file_cache_factory() { return _file_cache_factory; }
     UserFunctionCache* user_function_cache() { return _user_function_cache; }
@@ -274,6 +274,8 @@ public:
 
     kerberos::KerberosTicketMgr* kerberos_ticket_mgr() { return _kerberos_ticket_mgr; }
     io::HdfsMgr* hdfs_mgr() { return _hdfs_mgr; }
+
+    std::shared_ptr<WorkloadGroup> dummy_workload_group() { return _dummpy_workload_group; }
 
 #ifdef BE_TEST
     void set_tmp_file_dir(std::unique_ptr<segment_v2::TmpFileDirs> tmp_file_dirs) {
@@ -364,6 +366,8 @@ public:
     void set_stream_mgr(vectorized::VDataStreamMgr* vstream_mgr) { _vstream_mgr = vstream_mgr; }
     void clear_stream_mgr();
 
+    void init_runtime_filter_timer_queue();
+
 private:
     ExecEnv();
 
@@ -435,6 +439,7 @@ private:
     FragmentMgr* _fragment_mgr = nullptr;
     pipeline::TaskScheduler* _without_group_task_scheduler = nullptr;
     WorkloadGroupMgr* _workload_group_manager = nullptr;
+    std::shared_ptr<WorkloadGroup> _dummpy_workload_group = nullptr;
 
     ResultCache* _result_cache = nullptr;
     ClusterInfo* _cluster_info = nullptr;
