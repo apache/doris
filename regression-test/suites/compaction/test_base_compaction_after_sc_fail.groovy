@@ -21,6 +21,10 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 import org.awaitility.Awaitility
 
 suite("test_base_compaction_after_sc_fail", "nonConcurrent") {
+    if (!isCloudMode()) {
+        return
+    }
+    
     def tableName = "test_base_compaction_after_sc_fail"
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
