@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.property.storage;
 
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -51,10 +52,10 @@ public class HdfsPropertiesUtilsTest {
         Map<String, String> props = new HashMap<>();
         props.put("path", "xxx");
 
-        Exception exception = Assertions.assertThrows(UserException.class, () -> {
+        Exception exception = Assertions.assertThrows(StoragePropertiesException.class, () -> {
             HdfsPropertiesUtils.validateAndGetUri(props);
         });
-        Assertions.assertEquals("errCode = 2, detailMessage = props must contain uri", exception.getMessage());
+        Assertions.assertEquals("props must contain uri", exception.getMessage());
     }
 
     @Test
@@ -81,7 +82,7 @@ public class HdfsPropertiesUtilsTest {
         Exception exception = Assertions.assertThrows(IllegalArgumentException.class, () -> {
             HdfsPropertiesUtils.convertUrlToFilePath(uri);
         });
-        Assertions.assertTrue(exception.getMessage().contains("uri is null"));
+        Assertions.assertTrue(exception.getMessage().contains("Properties 'uri' is required"));
     }
 
     @Test
@@ -89,7 +90,7 @@ public class HdfsPropertiesUtilsTest {
         Map<String, String> props = new HashMap<>();
         props.put("uri", "hdfs://localhost:8020/data");
 
-        String result = HdfsPropertiesUtils.constructDefaultFsFromUri(props);
+        String result = HdfsPropertiesUtils.extractDefaultFsFromUri(props);
         Assertions.assertEquals("hdfs://localhost:8020", result);
     }
 
@@ -98,7 +99,7 @@ public class HdfsPropertiesUtilsTest {
         Map<String, String> props = new HashMap<>();
         props.put("uri", "viewfs://cluster/path");
 
-        String result = HdfsPropertiesUtils.constructDefaultFsFromUri(props);
+        String result = HdfsPropertiesUtils.extractDefaultFsFromUri(props);
         Assertions.assertEquals("viewfs://cluster", result);
     }
 
@@ -106,17 +107,13 @@ public class HdfsPropertiesUtilsTest {
     public void testConstructDefaultFsFromUri_invalidSchema() {
         Map<String, String> props = new HashMap<>();
         props.put("uri", "obs://bucket/test");
-
-        Exception exception = Assertions.assertThrows(IllegalArgumentException.class, () -> {
-            HdfsPropertiesUtils.constructDefaultFsFromUri(props);
-        });
-        Assertions.assertTrue(exception.getMessage().contains("Invalid export path"));
+        Assertions.assertNull(HdfsPropertiesUtils.extractDefaultFsFromUri(props));
     }
 
     @Test
     public void testConstructDefaultFsFromUri_emptyProps() {
         Map<String, String> props = new HashMap<>();
-        String result = HdfsPropertiesUtils.constructDefaultFsFromUri(props);
+        String result = HdfsPropertiesUtils.extractDefaultFsFromUri(props);
         Assertions.assertNull(result);
     }
 
@@ -125,7 +122,7 @@ public class HdfsPropertiesUtilsTest {
         Map<String, String> props = new HashMap<>();
         props.put("x", "y");
 
-        String result = HdfsPropertiesUtils.constructDefaultFsFromUri(props);
+        String result = HdfsPropertiesUtils.extractDefaultFsFromUri(props);
         Assertions.assertNull(result);
     }
 
@@ -134,7 +131,7 @@ public class HdfsPropertiesUtilsTest {
         Map<String, String> props = new HashMap<>();
         props.put("uri", "  ");
 
-        String result = HdfsPropertiesUtils.constructDefaultFsFromUri(props);
+        String result = HdfsPropertiesUtils.extractDefaultFsFromUri(props);
         Assertions.assertNull(result);
     }
 
