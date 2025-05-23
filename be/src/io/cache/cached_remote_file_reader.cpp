@@ -136,16 +136,6 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
             _update_stats(stats, &fcache_stats_increment, io_ctx->is_inverted_index);
             io::FileCacheProfile::instance().update(&fcache_stats_increment);
         }
-        // update metrics
-        if (stats.hit_cache) {
-            DorisMetrics::instance()->local_compaction_read_bytes_total->increment(
-                    stats.bytes_read);
-        } else {
-            DorisMetrics::instance()->remote_compaction_read_bytes_total->increment(
-                    stats.bytes_read);
-        }
-        DorisMetrics::instance()->local_compaction_write_bytes_total->increment(
-                stats.bytes_write_into_file_cache);
     };
     std::unique_ptr<int, decltype(defer_func)> defer((int*)0x01, std::move(defer_func));
     stats.bytes_read += bytes_req;

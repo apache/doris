@@ -53,6 +53,7 @@
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset.h"
+#include "olap/rowset/beta_rowset_reader.h"
 #include "olap/rowset/beta_rowset_writer.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_fwd.h"
@@ -247,6 +248,21 @@ Status Compaction::merge_input_rowsets() {
             _output_rowset->rowset_meta()->set_delete_predicate(std::move(delete_predicate));
         }
     }
+
+    int64_t cached_bytes_total {};
+    for (auto& reader : input_rs_readers) {
+        auto beta_rowset_ptr = std::dynamic_pointer_cast<BetaRowsetReader>(reader);
+        auto* stats = beta_rowset_ptr->get_stats();
+        auto file_chche_stats =
+                stats == nullptr ? io::FileCacheStatistics {} : stats->file_cache_stats;
+        _local_read_bytes_total += file_chche_stats.bytes_read_from_local;
+        _remote_read_bytes_total += file_chche_stats.bytes_read_from_remote;
+        cached_bytes_total += file_chche_stats.bytes_write_into_cache;
+    }
+    DorisMetrics::instance()->local_compaction_read_bytes_total->increment(_local_read_bytes_total);
+    DorisMetrics::instance()->remote_compaction_read_bytes_total->increment(
+            _remote_read_bytes_total);
+    DorisMetrics::instance()->local_compaction_write_bytes_total->increment(cached_bytes_total);
 
     COUNTER_UPDATE(_output_rowset_data_size_counter, _output_rowset->data_disk_size());
     COUNTER_UPDATE(_output_row_num_counter, _output_rowset->num_rows());
