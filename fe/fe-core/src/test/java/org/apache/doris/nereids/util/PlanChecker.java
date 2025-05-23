@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.util;
 
 import org.apache.doris.analysis.ExplainOptions;
-import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.PlanProcess;
@@ -57,7 +56,6 @@ import org.apache.doris.nereids.rules.exploration.mv.PreMaterializedViewRewriter
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
@@ -68,10 +66,8 @@ import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 
-import com.google.common.collect.HashMultimap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Assertions;
 
@@ -275,8 +271,8 @@ public class PlanChecker {
             return;
         }
         // Collect table for final cbo rewrite and init materialization context for mv rewrite
-        cascadesContext.getStatementContext().setTableUsedPartitionNameMap(
-                MaterializedViewUtils.collectTableUsedPartitions(cascadesContext.getRewritePlan()));
+        MaterializedViewUtils.collectTableInfoForRewrite(cascadesContext.getRewritePlan(),
+                cascadesContext.getStatementContext());
         cascadesContext.getStatementContext().getPlannerHooks().forEach(hook -> hook.afterRewrite(
                 this.getCascadesContext()));
     }
@@ -288,11 +284,8 @@ public class PlanChecker {
         }
         // collect partitions table used, this is for query rewrite by materialized view
         // this is needed before init hook
-        Multimap<List<String>, Pair<RelationId, Set<String>>> globalTableUsedPartitions = HashMultimap.create();
-        for (Plan tmpPlanForRewrite : cascadesContext.getStatementContext().getTmpPlanForMvRewrite()) {
-            globalTableUsedPartitions.putAll(MaterializedViewUtils.collectTableUsedPartitions(tmpPlanForRewrite));
-        }
-        cascadesContext.getStatementContext().setTableUsedPartitionNameMap(globalTableUsedPartitions);
+        MaterializedViewUtils.collectTableInfoForRewrite(cascadesContext.getRewritePlan(),
+                cascadesContext.getStatementContext());
         // init materialization context for mv rewrite
         cascadesContext.getStatementContext().getPlannerHooks().forEach(hook -> hook.afterRewrite(
                 this.getCascadesContext()));
@@ -301,6 +294,7 @@ public class PlanChecker {
             return this;
         }
         List<Plan> plansWhichContainMv = new ArrayList<>();
+        this.cascadesContext.getStatementContext().setPreMaterializeRewrite(true);
         for (Plan planForRewrite : tmpPlanForMvRewrite) {
             MaterializedViewUtils.rewriteByRules(cascadesContext,
                     childContext -> {
@@ -331,6 +325,7 @@ public class PlanChecker {
                     }, planForRewrite, planForRewrite, false, true);
 
         }
+        this.cascadesContext.getStatementContext().clearMaterializedHooks();
         if (plansWhichContainMv.isEmpty()) {
             return this;
         }
@@ -346,8 +341,6 @@ public class PlanChecker {
             statementContext.addRewrittenPlanByMv(normalizedPlan);
         }
         NereidsTracer.logImportantTime("EndPreRewritePlanByMv");
-        // if rule-based optimized, not rewritten by cbo
-        this.cascadesContext.getStatementContext().clearMaterializedHooks();
         return this;
     }
 

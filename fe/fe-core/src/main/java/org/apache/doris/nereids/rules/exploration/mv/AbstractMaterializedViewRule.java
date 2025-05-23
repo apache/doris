@@ -128,8 +128,11 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 continue;
             }
             // get query struct infos according to the view strut info, if valid query struct infos is empty, bail out
-            List<StructInfo> queryStructInfos = getValidQueryStructInfos(queryPlan, cascadesContext,
-                    context.getStructInfo().getTableBitSet());
+            Map<Integer, Integer> relationIdToTableIdMap = MaterializedViewUtils.getRelationIdToCommonTableIdMap(
+                    statementContext, context.getStructInfo());
+            BitSet commonTableId = new BitSet();
+            relationIdToTableIdMap.values().forEach(commonTableId::set);
+            List<StructInfo> queryStructInfos = getValidQueryStructInfos(queryPlan, cascadesContext, commonTableId);
             if (queryStructInfos.isEmpty()) {
                 continue;
             }
@@ -281,11 +284,13 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             // Rewrite query by view
             rewrittenPlan = rewriteQueryByView(matchMode, queryStructInfo, viewStructInfo, viewToQuerySlotMapping,
                     rewrittenPlan, materializationContext, cascadesContext);
-            rewrittenPlan = MaterializedViewUtils.rewriteByRules(cascadesContext,
-                    childContext -> {
-                        Rewriter.getWholeTreeRewriter(childContext).execute();
-                        return childContext.getRewritePlan();
-                    }, rewrittenPlan, queryPlan, true, false);
+            if (!cascadesContext.getStatementContext().isPreMaterializeRewrite()) {
+                rewrittenPlan = MaterializedViewUtils.rewriteByRules(cascadesContext,
+                        childContext -> {
+                            Rewriter.getWholeTreeRewriter(childContext).execute();
+                            return childContext.getRewritePlan();
+                        }, rewrittenPlan, queryPlan, true, false);
+            }
             if (rewrittenPlan == null) {
                 continue;
             }

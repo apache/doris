@@ -128,12 +128,11 @@ public class IdStatisticsMapTest extends SqlTestBase {
                 .setIsQuery()
                 .analyze()
                 .rewrite();
+        tmpPlanChecker.preMvRewrite();
         Set<Slot> materializationScanOutput = c1.getMaterializationContexts().get(0)
                 .getScanPlan(null, c1).getOutputSet();
-        tmpPlanChecker.preMvRewrite();
         // scan plan output will be refreshed after mv rewrite successfully, so need tmp store
         tmpPlanChecker
-                .preMvRewrite()
                 .optimize()
                 .printlnBestPlanTree();
         Map<RelationId, Statistics> idStatisticsMap = c1.getStatementContext().getRelationIdToStatisticsMap();

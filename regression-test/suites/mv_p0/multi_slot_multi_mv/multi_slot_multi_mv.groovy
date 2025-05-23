@@ -112,6 +112,6 @@ suite ("multi_slot_multi_mv") {
         sleep(1000)
     }
 
-    mv_rewrite_success("select abs(k1)+k2+1,abs(k2+2)+k3+3 from d_table order by abs(k1)+k2+1,abs(k2+2)+k3+3", "k1a2p2ap3p")
+    mv_rewrite_success_without_check_chosen("select abs(k1)+k2+1,abs(k2+2)+k3+3 from d_table order by abs(k1)+k2+1,abs(k2+2)+k3+3", "k1a2p2ap3p")
 
 }

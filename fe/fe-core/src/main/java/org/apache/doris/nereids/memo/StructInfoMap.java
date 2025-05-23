@@ -46,7 +46,13 @@ import javax.annotation.Nullable;
 public class StructInfoMap {
 
     public static final Logger LOG = LogManager.getLogger(StructInfoMap.class);
+    /**
+     * The map key is the relation id bit set to get corresponding plan accurately
+     */
     private final Map<BitSet, Pair<GroupExpression, List<BitSet>>> groupExpressionMap = new HashMap<>();
+    /**
+     * The map key is the relation id bit set to get corresponding plan accurately
+     */
     private final Map<BitSet, StructInfo> infoMap = new HashMap<>();
     private long refreshVersion = 0;
 
@@ -68,10 +74,9 @@ public class StructInfoMap {
             group.getstructInfoMap().setRefreshVersion(cascadesContext.getMemo().getRefreshVersion());
         }
         if (groupExpressionMap.containsKey(tableMap)) {
-            Pair<GroupExpression, List<BitSet>> groupExpressionBitSetPair = getGroupExpressionWithChildren(
-                    tableMap);
+            Pair<GroupExpression, List<BitSet>> groupExpressionBitSetPair = getGroupExpressionWithChildren(tableMap);
             structInfo = constructStructInfo(groupExpressionBitSetPair.first, groupExpressionBitSetPair.second,
-                    tableMap, originPlan, cascadesContext);
+                    originPlan, cascadesContext);
             infoMap.put(tableMap, structInfo);
         }
         return structInfo;
@@ -79,10 +84,6 @@ public class StructInfoMap {
 
     public Set<BitSet> getTableMaps() {
         return groupExpressionMap.keySet();
-    }
-
-    public Collection<StructInfo> getStructInfos() {
-        return infoMap.values();
     }
 
     public Pair<GroupExpression, List<BitSet>> getGroupExpressionWithChildren(BitSet tableMap) {
@@ -94,14 +95,14 @@ public class StructInfoMap {
     }
 
     private StructInfo constructStructInfo(GroupExpression groupExpression, List<BitSet> children,
-            BitSet tableMap, Plan originPlan, CascadesContext cascadesContext) {
+            Plan originPlan, CascadesContext cascadesContext) {
         // this plan is not origin plan, should record origin plan in struct info
-        Plan plan = constructPlan(groupExpression, children, tableMap);
+        Plan plan = constructPlan(groupExpression, children);
         return originPlan == null ? StructInfo.of(plan, cascadesContext)
                 : StructInfo.of(plan, originPlan, cascadesContext);
     }
 
-    private Plan constructPlan(GroupExpression groupExpression, List<BitSet> children, BitSet tableMap) {
+    private Plan constructPlan(GroupExpression groupExpression, List<BitSet> children) {
         List<Plan> childrenPlan = new ArrayList<>();
         for (int i = 0; i < children.size(); i++) {
             StructInfoMap structInfoMap = groupExpression.child(i).getstructInfoMap();
@@ -109,7 +110,7 @@ public class StructInfoMap {
             Pair<GroupExpression, List<BitSet>> groupExpressionBitSetPair
                     = structInfoMap.getGroupExpressionWithChildren(childMap);
             childrenPlan.add(
-                    constructPlan(groupExpressionBitSetPair.first, groupExpressionBitSetPair.second, childMap));
+                    constructPlan(groupExpressionBitSetPair.first, groupExpressionBitSetPair.second));
         }
         // need to clear current group expression info by using withGroupExpression
         // this plan would copy into memo, if with group expression, would cause err

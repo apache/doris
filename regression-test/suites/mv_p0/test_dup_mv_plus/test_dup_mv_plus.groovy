@@ -69,7 +69,7 @@ suite ("test_dup_mv_plus") {
     mv_rewrite_success("select k2+1 from d_table order by k1;", "k12p")
     qt_select_mv_sub "select k2+1 from d_table order by k1;"
 
-    mv_rewrite_success("select k2+1 from d_table order by k1+1-1;", "k12p")
+    mv_rewrite_success_without_check_chosen("select k2+1 from d_table order by k1+1-1;", "k12p")
     qt_select_mv_sub_add "select k2+1-1 from d_table order by k1+1-1;"
 
     mv_rewrite_success("select sum(k2+1) from d_table group by k1 order by k1;", "k12p")

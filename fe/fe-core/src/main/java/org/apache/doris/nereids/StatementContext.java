@@ -24,6 +24,7 @@ import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
+import org.apache.doris.catalog.constraint.TableIdentifier;
 import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.IdGenerator;
@@ -45,6 +46,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Placeholder;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.PlaceholderId;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -66,6 +68,7 @@ import com.google.common.base.Stopwatch;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.base.Throwables;
+import com.google.common.collect.HashMultimap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
@@ -204,6 +207,9 @@ public class StatementContext implements Closeable {
     // and value is the new string used for replacement.
     private final TreeMap<Pair<Integer, Integer>, String> indexInSqlToString
             = new TreeMap<>(new Pair.PairComparator<>());
+    // Record table id mapping, the key is the hash code of union catalogId, databaseId, tableId
+    // the value is the auto-increment id in the cascades context
+    private final Map<TableIdentifier, TableId> tableIdMapping = new LinkedHashMap<>();
     // Record the materialization statistics by id which is used for cost estimation.
     // Maybe return null, which means the id according statistics should calc normally rather than getting
     // form this map
@@ -231,7 +237,10 @@ public class StatementContext implements Closeable {
     private long materializedViewRewriteDuration = 0L;
 
     // Record used table and it's used partitions
-    private Multimap<List<String>, Pair<RelationId, Set<String>>> tableUsedPartitionNameMap;
+    private final Multimap<List<String>, Pair<RelationId, Set<String>>> tableUsedPartitionNameMap =
+            HashMultimap.create();
+    private final Map<Integer, Integer> relationIdToTransformedTableIdMap = new HashMap<>();
+    private boolean preMaterializeRewrite = false;
 
     // Record mtmv and valid partitions map because this is time-consuming behavior
     private final Map<BaseTableInfo, Collection<Partition>> mvCanRewritePartitionsMap = new HashMap<>();
@@ -817,6 +826,18 @@ public class StatementContext implements Closeable {
         return keySlots.contains(slot);
     }
 
+    /** Get table id with lazy */
+    public TableId getTableId(TableIf tableIf) {
+        TableIdentifier tableIdentifier = new TableIdentifier(tableIf);
+        TableId tableId = this.tableIdMapping.get(tableIdentifier);
+        if (tableId != null) {
+            return tableId;
+        }
+        tableId = StatementScopeIdGenerator.newTableId();
+        this.tableIdMapping.put(tableIdentifier, tableId);
+        return tableId;
+    }
+
     public Optional<String> getDisableJoinReorderReason() {
         return Optional.ofNullable(disableJoinReorderReason);
     }
@@ -906,9 +927,16 @@ public class StatementContext implements Closeable {
         return tableUsedPartitionNameMap;
     }
 
-    public void setTableUsedPartitionNameMap(
-            Multimap<List<String>, Pair<RelationId, Set<String>>> tableUsedPartitionNameMap) {
-        this.tableUsedPartitionNameMap = tableUsedPartitionNameMap;
+    public Map<Integer, Integer> getRelationIdToTransformedTableIdMap() {
+        return relationIdToTransformedTableIdMap;
+    }
+
+    public boolean isPreMaterializeRewrite() {
+        return preMaterializeRewrite;
+    }
+
+    public void setPreMaterializeRewrite(boolean preMaterializeRewrite) {
+        this.preMaterializeRewrite = preMaterializeRewrite;
     }
 
     public Map<BaseTableInfo, Collection<Partition>> getMvCanRewritePartitionsMap() {

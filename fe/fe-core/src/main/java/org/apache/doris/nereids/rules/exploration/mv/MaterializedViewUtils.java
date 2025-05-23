@@ -25,19 +25,20 @@ import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.constraint.TableIdentifier;
 import org.apache.doris.common.Pair;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.PlannerHook;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.StructInfoNode;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.StructInfoMap;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.analysis.BindRelation;
 import org.apache.doris.nereids.rules.expression.ExpressionNormalization;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
-import org.apache.doris.nereids.rules.rewrite.QueryPartitionCollector;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -58,6 +59,7 @@ import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
@@ -182,6 +184,36 @@ public class MaterializedViewUtils {
     }
 
     /**
+     * Transform to common table id, this is used by get query struct info, maybe little err when same table occur
+     * more than once, this is not a problem because the process of query rewrite by mv would consider more
+     */
+    public static BitSet transformToCommonTableId(BitSet relationIdSet, Map<Integer, Integer> relationIdToTableIdMap) {
+        BitSet transformedBitset = new BitSet();
+        for (int i = relationIdSet.nextSetBit(0); i >= 0; i = relationIdSet.nextSetBit(i + 1)) {
+            Integer commonTableId = relationIdToTableIdMap.get(i);
+            if (commonTableId != null) {
+                transformedBitset.set(commonTableId);
+            }
+        }
+        return transformedBitset;
+    }
+
+    /**
+     * get relationIdToTableIdMap by given statementContext
+     */
+    public static Map<Integer, Integer> getRelationIdToCommonTableIdMap(StatementContext statementContext,
+            StructInfo structInfo) {
+        Map<Integer, Integer> result = new HashMap<>();
+        for (StructInfoNode node : structInfo.getRelationIdStructInfoNodeMap().values()) {
+            for (CatalogRelation catalogRelation : node.getCatalogRelation()) {
+                result.put(catalogRelation.getRelationId().asInt(),
+                        statementContext.getTableId(catalogRelation.getTable()).asInt());
+            }
+        }
+        return result;
+    }
+
+    /**
      * Extract struct info from plan, support to get struct info from logical plan or plan in group.
      * @param plan maybe remove unnecessary plan node, and the logical output maybe wrong
      * @param originalPlan original plan, the output is right
@@ -201,8 +233,11 @@ public class MaterializedViewUtils {
             if (!queryTableSets.isEmpty()) {
                 for (BitSet queryTableSet : queryTableSets) {
                     // TODO As only support MatchMode.COMPLETE, so only get equaled query table struct info
+                    BitSet queryCommonTableSet = MaterializedViewUtils.transformToCommonTableId(queryTableSet,
+                            cascadesContext.getStatementContext().getRelationIdToTransformedTableIdMap());
+                    // compare relation id corresponding table id
                     if (!materializedViewTableSet.isEmpty()
-                            && !materializedViewTableSet.equals(queryTableSet)) {
+                            && !materializedViewTableSet.equals(queryCommonTableSet)) {
                         continue;
                     }
                     StructInfo structInfo = structInfoMap.getStructInfo(cascadesContext,
@@ -382,10 +417,47 @@ public class MaterializedViewUtils {
         return false;
     }
 
-    public static Multimap<List<String>, Pair<RelationId, Set<String>>> collectTableUsedPartitions(Plan plan) {
-        Multimap<List<String>, Pair<RelationId, Set<String>>> tableUsedPartitionNameMap = HashMultimap.create();
-        plan.accept(new QueryPartitionCollector(), tableUsedPartitionNameMap);
-        return tableUsedPartitionNameMap;
+    /**
+     * Collect table info for rewrite
+     */
+    public static void collectTableInfoForRewrite(Plan plan, StatementContext statementContext) {
+        Multimap<List<String>, Pair<RelationId, Set<String>>> tableUsedPartitionNameMap =
+                statementContext.getTableUsedPartitionNameMap();
+        Map<Integer, Integer> relationIdToTableId = statementContext.getRelationIdToTransformedTableIdMap();
+        plan.accept(new DefaultPlanVisitor<Void, Void>() {
+            @Override
+            public Void visitLogicalCatalogRelation(LogicalCatalogRelation catalogRelation, Void context) {
+                TableIf table = catalogRelation.getTable();
+                if (table.getDatabase() == null) {
+                    return null;
+                }
+                // collect relation id to common table id
+                relationIdToTableId.put(catalogRelation.getRelationId().asInt(),
+                        statementContext.getTableId(catalogRelation.getTable()).asInt());
+                Set<String> tablePartitions = new HashSet<>();
+                if (catalogRelation instanceof LogicalOlapScan) {
+                    // Handle olap table
+                    LogicalOlapScan logicalOlapScan = (LogicalOlapScan) catalogRelation;
+                    for (Long partitionId : logicalOlapScan.getSelectedPartitionIds()) {
+                        tablePartitions.add(logicalOlapScan.getTable().getPartition(partitionId).getName());
+                    }
+                    tableUsedPartitionNameMap.put(table.getFullQualifiers(),
+                            Pair.of(catalogRelation.getRelationId(), tablePartitions));
+                } else if (catalogRelation instanceof LogicalFileScan
+                        && catalogRelation.getTable() != null
+                        && ((ExternalTable) catalogRelation.getTable()).supportInternalPartitionPruned()) {
+                    LogicalFileScan logicalFileScan = (LogicalFileScan) catalogRelation;
+                    SelectedPartitions selectedPartitions = logicalFileScan.getSelectedPartitions();
+                    tablePartitions.addAll(selectedPartitions.selectedPartitions.keySet());
+                    tableUsedPartitionNameMap.put(table.getFullQualifiers(),
+                            Pair.of(catalogRelation.getRelationId(), tablePartitions));
+                } else {
+                    // not support get partition scene, we consider query all partitions from table
+                    tableUsedPartitionNameMap.put(table.getFullQualifiers(), PartitionCompensator.ALL_PARTITIONS);
+                }
+                return null;
+            }
+        }, null);
     }
 
     /**
