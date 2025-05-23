@@ -190,14 +190,11 @@ public class StructInfo {
         // Collect relations from hyper graph which in the bottom plan firstly
         hyperGraph.getNodes().forEach(node -> {
             // plan relation collector and set to map
-            Plan nodePlan = node.getPlan();
-            List<CatalogRelation> nodeRelations = new ArrayList<>();
-            nodePlan.accept(RELATION_COLLECTOR, nodeRelations);
-            relations.addAll(nodeRelations);
-            nodeRelations.forEach(relation -> hyperTableBitSet.set(
-                    cascadesContext.getStatementContext().getTableId(relation.getTable()).asInt()));
-            // plan relation collector and set to map
             StructInfoNode structInfoNode = (StructInfoNode) node;
+            // plan relation collector and set to map
+            Set<CatalogRelation> nodeRelations = structInfoNode.getCatalogRelation();
+            relations.addAll(structInfoNode.getCatalogRelation());
+            nodeRelations.forEach(relation -> hyperTableBitSet.set(relation.getRelationId().asInt()));
             // record expressions in node
             List<Expression> nodeExpressions = structInfoNode.getExpressions();
             if (nodeExpressions != null) {
@@ -212,7 +209,7 @@ public class StructInfo {
             }
             // every node should only have one relation, this is for LogicalCompatibilityContext
             if (!nodeRelations.isEmpty()) {
-                relationIdStructInfoNodeMap.put(nodeRelations.get(0).getRelationId(), structInfoNode);
+                relationIdStructInfoNodeMap.put(nodeRelations.iterator().next().getRelationId(), structInfoNode);
             }
         });
         // Collect expression from join condition in hyper graph
@@ -281,6 +278,9 @@ public class StructInfo {
      * Maybe return multi structInfo when original plan already be rewritten by mv
      */
     public static StructInfo of(Plan derivedPlan, Plan originalPlan, CascadesContext cascadesContext) {
+        if (originalPlan == null) {
+            originalPlan = derivedPlan;
+        }
         // Split plan by the boundary which contains multi child
         LinkedHashSet<Class<? extends Plan>> set = Sets.newLinkedHashSet();
         set.add(LogicalJoin.class);
@@ -755,7 +755,7 @@ public class StructInfo {
         return Pair.of(MaterializedViewUtils.rewriteByRules(parentCascadesContext, context -> {
             Rewriter.getWholeTreeRewriter(context).execute();
             return context.getRewritePlan();
-        }, queryPlanWithUnionFilter, queryPlan), true);
+        }, queryPlanWithUnionFilter, queryPlan, true, false), true);
     }
 
     /**

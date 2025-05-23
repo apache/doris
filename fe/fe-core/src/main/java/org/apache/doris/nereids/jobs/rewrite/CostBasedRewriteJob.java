@@ -19,6 +19,7 @@ package org.apache.doris.nereids.jobs.rewrite;
 
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.PlannerHook;
 import org.apache.doris.nereids.cost.Cost;
 import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.hint.UseCboRuleHint;
@@ -28,6 +29,7 @@ import org.apache.doris.nereids.jobs.executor.Rewriter;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
@@ -168,9 +170,16 @@ public class CostBasedRewriteJob implements RewriteJob {
         }
         // Do post tree rewrite
         CascadesContext rootCtxCopy = CascadesContext.newCurrentTreeContext(rootCtx);
-        Rewriter.getWholeTreeRewriterWithoutCostBasedJobs(rootCtxCopy).execute();
-        // Do optimize
-        new Optimizer(rootCtxCopy).execute();
+        // Disable mv rewrite
+        List<PlannerHook> tmpMaterializedViewHooks = MaterializedViewUtils.removeMaterializedViewHooks(
+                rootCtxCopy.getStatementContext());
+        try {
+            Rewriter.getWholeTreeRewriterWithoutCostBasedJobs(rootCtxCopy).execute();
+            // Do optimize
+            new Optimizer(rootCtxCopy).execute();
+        } finally {
+            rootCtxCopy.getStatementContext().getPlannerHooks().addAll(tmpMaterializedViewHooks);
+        }
         return rootCtxCopy.getMemo().getRoot().getLowestCostPlan(
                 rootCtxCopy.getCurrentJobContext().getRequiredProperties());
     }

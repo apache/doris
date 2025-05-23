@@ -17,11 +17,13 @@
 
 package org.apache.doris.nereids.jobs.cascades;
 
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.JobType;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.rules.Rule;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
 
 import com.google.common.collect.ImmutableList;
 
@@ -47,7 +49,7 @@ public class OptimizeGroupExpressionJob extends Job {
 
         countJobExecutionTimesOfGroupExpressions(groupExpression);
         List<Rule> implementationRules = getRuleSet().getImplementationRules();
-        List<Rule> explorationRules = getExplorationRules();
+        List<Rule> explorationRules = getExplorationRules(context.getCascadesContext());
 
         for (Rule rule : explorationRules) {
             if (rule.isInvalid(disableRules, groupExpression)) {
@@ -64,10 +66,10 @@ public class OptimizeGroupExpressionJob extends Job {
         }
     }
 
-    private List<Rule> getExplorationRules() {
+    private List<Rule> getExplorationRules(CascadesContext cascadesContext) {
         return ImmutableList.<Rule>builder()
                 .addAll(getJoinRules())
-                .addAll(getMvRules())
+                .addAll(getMvRules(cascadesContext))
                 .build();
     }
 
@@ -100,7 +102,10 @@ public class OptimizeGroupExpressionJob extends Job {
         }
     }
 
-    private List<Rule> getMvRules() {
+    private List<Rule> getMvRules(CascadesContext cascadesContext) {
+        if (!MaterializedViewUtils.containMaterializedViewHook(cascadesContext.getStatementContext())) {
+            return ImmutableList.of();
+        }
         return getRuleSet().getMaterializedViewRules();
     }
 }

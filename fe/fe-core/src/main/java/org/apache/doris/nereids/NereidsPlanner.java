@@ -51,6 +51,8 @@ import org.apache.doris.nereids.processor.post.PlanPostProcessors;
 import org.apache.doris.nereids.processor.pre.PlanPreprocessors;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializationContext;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
+import org.apache.doris.nereids.rules.exploration.mv.PreMaterializedViewRewriter;
 import org.apache.doris.nereids.stats.StatsCalculator;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -271,6 +273,8 @@ public class NereidsPlanner extends Planner {
 
         // rule-based optimize
         rewrite(showRewriteProcess(explainLevel, showPlanProcess));
+        // try to pre mv rewrite
+        preRewriteByMv();
         if (explainLevel == ExplainLevel.REWRITTEN_PLAN || explainLevel == ExplainLevel.ALL_PLAN) {
             rewrittenPlan = cascadesContext.getRewritePlan();
             if (explainLevel == ExplainLevel.REWRITTEN_PLAN) {
@@ -380,27 +384,11 @@ public class NereidsPlanner extends Planner {
         }
     }
 
-    protected void collectTableUsedPartitions(boolean showPlanProcess) {
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("Start to collect table used partition");
-        }
-        keepOrShowPlanProcess(showPlanProcess, () -> cascadesContext.newTablePartitionCollector().execute());
-        NereidsTracer.logImportantTime("EndCollectTablePartitions");
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("Start to collect table used partition");
-        }
-        if (statementContext.getConnectContext().getExecutor() != null) {
-            statementContext.getConnectContext().getExecutor().getSummaryProfile()
-                    .setNereidsCollectTablePartitionFinishTime();
-        }
-    }
-
     protected void analyze(boolean showPlanProcess) {
         if (LOG.isDebugEnabled()) {
             LOG.debug("Start analyze plan");
         }
         keepOrShowPlanProcess(showPlanProcess, () -> cascadesContext.newAnalyzer().analyze());
-        this.statementContext.getPlannerHooks().forEach(hook -> hook.afterAnalyze(this));
         NereidsTracer.logImportantTime("EndAnalyzePlan");
         if (LOG.isDebugEnabled()) {
             LOG.debug("End analyze plan");
@@ -427,10 +415,108 @@ public class NereidsPlanner extends Planner {
         if (statementContext.getConnectContext().getExecutor() != null) {
             statementContext.getConnectContext().getExecutor().getSummaryProfile().setNereidsRewriteTime();
         }
-        // collect partitions table used, this is for query rewrite by materialized view
-        // this is needed before init hook
-        collectTableUsedPartitions(showPlanProcess);
-        cascadesContext.getStatementContext().getPlannerHooks().forEach(hook -> hook.afterRewrite(this));
+        if (PreMaterializedViewRewriter.needPreRewrite(statementContext)) {
+            return;
+        }
+        // Collect table for final cbo rewrite and init materialization context for mv rewrite
+        MaterializedViewUtils.collectTableInfoForRewrite(cascadesContext.getRewritePlan(),
+                cascadesContext.getStatementContext());
+        if (statementContext.getConnectContext().getExecutor() != null) {
+            statementContext.getConnectContext().getExecutor().getSummaryProfile()
+                    .setNereidsCollectTablePartitionFinishTime();
+        }
+        // Init materialize plan hook
+        cascadesContext.getStatementContext().getPlannerHooks().forEach(hook -> hook.afterRewrite(
+                this.getCascadesContext()));
+    }
+
+    protected void preRewriteByMv() {
+        if (!PreMaterializedViewRewriter.needPreRewrite(statementContext)) {
+            return;
+        }
+        try {
+            // collect partitions table used, this is for query rewrite by materialized view
+            // this is needed before init hook
+            for (Plan tmpPlanForRewrite : cascadesContext.getStatementContext().getTmpPlanForMvRewrite()) {
+                MaterializedViewUtils.collectTableInfoForRewrite(tmpPlanForRewrite,
+                        cascadesContext.getStatementContext());
+            }
+            if (statementContext.getConnectContext().getExecutor() != null) {
+                statementContext.getConnectContext().getExecutor().getSummaryProfile()
+                        .setNereidsCollectTablePartitionFinishTime();
+            }
+            // init materialization context for mv rewrite
+            cascadesContext.getStatementContext().getPlannerHooks().forEach(hook -> hook.afterRewrite(
+                    this.getCascadesContext()));
+        } catch (Exception e) {
+            LOG.error("pre mv rewrite in rbo collect table and init hook fail, sql hash is {}",
+                    cascadesContext.getConnectContext().getSqlHash(), e);
+            return;
+        } finally {
+            // if rule-based optimized, would not be rewritten by cbo, so clear materialized hooks
+            this.cascadesContext.getStatementContext().setPreMaterializeRewrite(true);
+        }
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Start pre rewrite plan by mv");
+        }
+        List<Plan> tmpPlanForMvRewrite = cascadesContext.getStatementContext().getTmpPlanForMvRewrite();
+        if (tmpPlanForMvRewrite.isEmpty()) {
+            return;
+        }
+        List<Plan> plansWhichContainMv = new ArrayList<>();
+        for (Plan planForRewrite : tmpPlanForMvRewrite) {
+            try {
+                MaterializedViewUtils.rewriteByRules(cascadesContext,
+                        childContext -> {
+                            // pre rewrite
+                            Plan rewrittenPlan = PreMaterializedViewRewriter.rewrite(childContext);
+                            if (rewrittenPlan == null) {
+                                // rewrite fail
+                                return childContext.getRewritePlan();
+                            }
+                            plansWhichContainMv.add(
+                                    // rewritten plan optimize and normalize
+                                    MaterializedViewUtils.rewriteByRules(cascadesContext,
+                                            childOptContext -> {
+                                                Rewriter.getWholeTreeRewriterWithoutCostBasedJobs(childOptContext)
+                                                        .execute();
+                                                return childOptContext.getRewritePlan();
+                                            }, rewrittenPlan, planForRewrite,
+                                            false, false)
+                            );
+                            return childContext.getRewritePlan();
+                        }, planForRewrite, planForRewrite, false, true);
+            } catch (Exception e) {
+                LOG.error("pre mv rewrite in rbo rewrite fail, sql hash is {}",
+                        cascadesContext.getConnectContext().getSqlHash(), e);
+            }
+        }
+        // if rule-based optimized, would not be rewritten by cbo, so clear materialized hooks
+        this.cascadesContext.getStatementContext().clearMaterializedHooks();
+        if (plansWhichContainMv.isEmpty()) {
+            return;
+        }
+        // clear the rewritten plans which are tmp optimized, should be filled by full optimize later
+        statementContext.getRewrittenPlansByMv().clear();
+        for (Plan planWhichContainMv : plansWhichContainMv) {
+            // Such as EliminateGroupByKeyByUniform would change out put expr id
+            Plan normalizedPlan = MaterializedViewUtils.normalizeExpressions(planWhichContainMv,
+                    cascadesContext.getRewritePlan());
+            if (normalizedPlan == null) {
+                LOG.warn("RBO rewrite plan normalize expressions fail query is is {}",
+                        cascadesContext.getConnectContext().getQueryIdentifier());
+                continue;
+            }
+            statementContext.addRewrittenPlanByMv(normalizedPlan);
+        }
+        NereidsTracer.logImportantTime("EndPreRewritePlanByMv");
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("End pre rewrite plan by mv");
+        }
+        if (statementContext.getConnectContext().getExecutor() != null) {
+            statementContext.getConnectContext().getExecutor().getSummaryProfile()
+                    .setNereidsPreRewriteByMvFinishTime();
+        }
     }
 
     // DependsRules: EnsureProjectOnTopJoin.class
@@ -650,7 +736,7 @@ public class NereidsPlanner extends Planner {
             cost = rootGroup.getLowestCostPlan(physicalProperties).orElseThrow(
                     () -> new AnalysisException("lowestCostPlans with physicalProperties("
                             + physicalProperties + ") doesn't exist in root group")).first.getValue();
-            return chooseBestPlan(rootGroup, physicalProperties);
+            return chooseBestPlan(rootGroup, physicalProperties, cascadesContext);
         }
         Memo memo = cascadesContext.getMemo();
 
@@ -659,7 +745,11 @@ public class NereidsPlanner extends Planner {
         return memo.unrank(idCost.first);
     }
 
-    private PhysicalPlan chooseBestPlan(Group rootGroup, PhysicalProperties physicalProperties)
+    /**
+     * Doc
+     */
+    public static PhysicalPlan chooseBestPlan(Group rootGroup, PhysicalProperties physicalProperties,
+            CascadesContext cascadesContext)
             throws AnalysisException {
         try {
             GroupExpression groupExpression = rootGroup.getLowestCostPlan(physicalProperties).orElseThrow(
@@ -675,7 +765,7 @@ public class NereidsPlanner extends Planner {
             List<PhysicalProperties> inputPropertiesList = groupExpression.getInputPropertiesList(physicalProperties);
             List<Plan> planChildren = Lists.newArrayList();
             for (int i = 0; i < groupExpression.arity(); i++) {
-                planChildren.add(chooseBestPlan(groupExpression.child(i), inputPropertiesList.get(i)));
+                planChildren.add(chooseBestPlan(groupExpression.child(i), inputPropertiesList.get(i), cascadesContext));
             }
 
             Plan plan = groupExpression.getPlan().withChildren(planChildren);
@@ -753,7 +843,7 @@ public class NereidsPlanner extends Planner {
         if ((this.getPhysicalPlan() != null || this.getOptimizedPlan() != null) && cascadesContext != null) {
             mvSummary = cascadesContext.getMaterializationContexts().isEmpty() ? "" :
                     "\n\n========== MATERIALIZATIONS ==========\n"
-                            + MaterializationContext.toSummaryString(cascadesContext.getMaterializationContexts(),
+                            + MaterializationContext.toSummaryString(cascadesContext,
                             this.getPhysicalPlan() == null ? this.getOptimizedPlan() : this.getPhysicalPlan());
         }
         switch (explainLevel) {
@@ -806,6 +896,8 @@ public class NereidsPlanner extends Planner {
                         + "========== REWRITTEN PLAN "
                         + getTimeMetricString(SummaryProfile::getPrettyNereidsRewriteTime) + " ==========\n"
                         + rewrittenPlan.treeString() + "\n\n"
+                        + "========== PRE REWRITTEN BY MV "
+                        + getTimeMetricString(SummaryProfile::getPrettyNereidsPreRewriteByMvTime) + " ==========\n"
                         + "========== OPTIMIZED PLAN "
                         + getTimeMetricString(SummaryProfile::getPrettyNereidsOptimizeTime) + " ==========\n"
                         + optimizedPlan.treeString() + "\n\n";

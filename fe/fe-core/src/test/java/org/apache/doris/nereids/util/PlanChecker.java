@@ -37,6 +37,7 @@ import org.apache.doris.nereids.jobs.rewrite.RootPlanTreeRewriteJob;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.memo.Memo;
+import org.apache.doris.nereids.minidump.NereidsTracer;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.pattern.GroupExpressionMatching;
 import org.apache.doris.nereids.pattern.MatchingContext;
@@ -49,7 +50,9 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleFactory;
 import org.apache.doris.nereids.rules.RuleSet;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.rules.exploration.mv.InitMaterializationContextHook;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializationContext;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
+import org.apache.doris.nereids.rules.exploration.mv.PreMaterializedViewRewriter;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -69,6 +72,7 @@ import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Assertions;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.function.Consumer;
@@ -114,33 +118,40 @@ public class PlanChecker {
 
     public PlanChecker parse(String sql) {
         this.cascadesContext = MemoTestUtils.createCascadesContext(connectContext, sql);
-        this.cascadesContext.toMemo();
+        MemoTestUtils.initMemoAndValidState(cascadesContext);
+        return this;
+    }
+
+    public PlanChecker setIsQuery() {
+        this.cascadesContext.getConnectContext().getState().setIsQuery(true);
         return this;
     }
 
     public PlanChecker analyze() {
+        this.cascadesContext.newTableCollector().collect();
         this.cascadesContext.newAnalyzer().analyze();
-        this.cascadesContext.toMemo();
+        MemoTestUtils.initMemoAndValidState(cascadesContext);
         return this;
     }
 
     public PlanChecker analyze(Plan plan) {
         this.cascadesContext = MemoTestUtils.createCascadesContext(connectContext, plan);
+        this.cascadesContext.newTableCollector().collect();
         Set<String> originDisableRules = connectContext.getSessionVariable().getDisableNereidsRuleNames();
         Set<String> disableRuleWithAuth = Sets.newHashSet(originDisableRules);
         disableRuleWithAuth.add(RuleType.RELATION_AUTHENTICATION.name());
         connectContext.getSessionVariable().setDisableNereidsRules(String.join(",", disableRuleWithAuth));
         this.cascadesContext.newAnalyzer().analyze();
         connectContext.getSessionVariable().setDisableNereidsRules(String.join(",", originDisableRules));
-        this.cascadesContext.toMemo();
-        MemoValidator.validate(cascadesContext.getMemo());
+        MemoTestUtils.initMemoAndValidState(cascadesContext);
         return this;
     }
 
     public PlanChecker analyze(String sql) {
         this.cascadesContext = MemoTestUtils.createCascadesContext(connectContext, sql);
+        this.cascadesContext.newTableCollector().collect();
         this.cascadesContext.newAnalyzer().analyze();
-        this.cascadesContext.toMemo();
+        MemoTestUtils.initMemoAndValidState(cascadesContext);
         return this;
     }
 
@@ -148,8 +159,10 @@ public class PlanChecker {
         Rewriter.getWholeTreeRewriterWithCustomJobs(cascadesContext,
                         ImmutableList.of(Rewriter.custom(RuleType.TEST_REWRITE, () -> customRewriter)))
                 .execute();
-        cascadesContext.toMemo();
-        MemoValidator.validate(cascadesContext.getMemo());
+        MemoTestUtils.initMemoAndValidState(cascadesContext);
+        if (PreMaterializedViewRewriter.needPreRewrite(cascadesContext.getStatementContext())) {
+            return this;
+        }
         return this;
     }
 
@@ -178,15 +191,17 @@ public class PlanChecker {
     }
 
     public PlanChecker applyTopDown(RuleFactory ruleFactory) {
-        return applyTopDown(ruleFactory.buildRules());
+        PlanChecker planChecker = applyTopDown(ruleFactory.buildRules());
+        collectTableUsedPartitionAndInitHook(cascadesContext.getStatementContext());
+        return planChecker;
     }
 
     public PlanChecker applyTopDown(List<Rule> rule) {
         Rewriter.getWholeTreeRewriterWithCustomJobs(cascadesContext,
                         ImmutableList.of(new RootPlanTreeRewriteJob(rule, PlanTreeRewriteTopDownJob::new, true)))
                 .execute();
-        cascadesContext.toMemo();
-        MemoValidator.validate(cascadesContext.getMemo());
+        MemoTestUtils.initMemoAndValidState(cascadesContext);
+        collectTableUsedPartitionAndInitHook(cascadesContext.getStatementContext());
         return this;
     }
 
@@ -204,6 +219,7 @@ public class PlanChecker {
             }
         });
         MemoValidator.validate(cascadesContext.getMemo());
+        collectTableUsedPartitionAndInitHook(cascadesContext.getStatementContext());
         return this;
     }
 
@@ -211,8 +227,8 @@ public class PlanChecker {
         Rewriter.getWholeTreeRewriterWithCustomJobs(cascadesContext,
                         ImmutableList.of(Rewriter.bottomUp(rule)))
                 .execute();
-        cascadesContext.toMemo();
-        MemoValidator.validate(cascadesContext.getMemo());
+        MemoTestUtils.initMemoAndValidState(cascadesContext);
+        collectTableUsedPartitionAndInitHook(cascadesContext.getStatementContext());
         return this;
     }
 
@@ -220,8 +236,8 @@ public class PlanChecker {
         Rewriter.getWholeTreeRewriterWithCustomJobs(cascadesContext,
                         ImmutableList.of(new RootPlanTreeRewriteJob(rule, PlanTreeRewriteBottomUpJob::new, true)))
                 .execute();
-        cascadesContext.toMemo();
-        MemoValidator.validate(cascadesContext.getMemo());
+        MemoTestUtils.initMemoAndValidState(cascadesContext);
+        collectTableUsedPartitionAndInitHook(cascadesContext.getStatementContext());
         return this;
     }
 
@@ -239,14 +255,92 @@ public class PlanChecker {
             }
         });
         MemoValidator.validate(cascadesContext.getMemo());
+        collectTableUsedPartitionAndInitHook(cascadesContext.getStatementContext());
         return this;
     }
 
     public PlanChecker rewrite() {
         Rewriter.getWholeTreeRewriter(cascadesContext).execute();
-        cascadesContext.newTablePartitionCollector().execute();
-        InitMaterializationContextHook.INSTANCE.initMaterializationContext(this.cascadesContext);
         cascadesContext.toMemo();
+        collectTableUsedPartitionAndInitHook(cascadesContext.getStatementContext());
+        return this;
+    }
+
+    private void collectTableUsedPartitionAndInitHook(StatementContext statementContext) {
+        if (PreMaterializedViewRewriter.needPreRewrite(statementContext)) {
+            return;
+        }
+        // Collect table for final cbo rewrite and init materialization context for mv rewrite
+        MaterializedViewUtils.collectTableInfoForRewrite(cascadesContext.getRewritePlan(),
+                cascadesContext.getStatementContext());
+        cascadesContext.getStatementContext().getPlannerHooks().forEach(hook -> hook.afterRewrite(
+                this.getCascadesContext()));
+    }
+
+    public PlanChecker preMvRewrite() {
+        StatementContext statementContext = cascadesContext.getStatementContext();
+        if (!PreMaterializedViewRewriter.needPreRewrite(statementContext)) {
+            return this;
+        }
+        // collect partitions table used, this is for query rewrite by materialized view
+        // this is needed before init hook
+        MaterializedViewUtils.collectTableInfoForRewrite(cascadesContext.getRewritePlan(),
+                cascadesContext.getStatementContext());
+        // init materialization context for mv rewrite
+        cascadesContext.getStatementContext().getPlannerHooks().forEach(hook -> hook.afterRewrite(
+                this.getCascadesContext()));
+        List<Plan> tmpPlanForMvRewrite = cascadesContext.getStatementContext().getTmpPlanForMvRewrite();
+        if (tmpPlanForMvRewrite.isEmpty()) {
+            return this;
+        }
+        List<Plan> plansWhichContainMv = new ArrayList<>();
+        this.cascadesContext.getStatementContext().setPreMaterializeRewrite(true);
+        for (Plan planForRewrite : tmpPlanForMvRewrite) {
+            MaterializedViewUtils.rewriteByRules(cascadesContext,
+                    childContext -> {
+                        // pre rewrite
+                        Plan rewrittenPlan = PreMaterializedViewRewriter.rewrite(childContext);
+                        if (rewrittenPlan == null) {
+                            return childContext.getRewritePlan();
+                        }
+                        plansWhichContainMv.add(
+                                // rewritten plan optimize and normalize
+                                MaterializedViewUtils.rewriteByRules(cascadesContext,
+                                        childOptContext -> {
+                                            Rewriter.getWholeTreeRewriterWithoutCostBasedJobs(childOptContext)
+                                                    .execute();
+                                            return childOptContext.getRewritePlan();
+                                        }, rewrittenPlan, planForRewrite, true, false)
+
+                        );
+                        // copy the child's materialization context to root
+                        // cascades for showing explain message
+                        for (MaterializationContext context : childContext.getMaterializationContexts()) {
+                            // Mark the rewrite success occurs in RBO
+                            if (context.isSuccess()) {
+                                context.setRewrittenInRbo(true);
+                            }
+                        }
+                        return childContext.getRewritePlan();
+                    }, planForRewrite, planForRewrite, false, true);
+
+        }
+        this.cascadesContext.getStatementContext().clearMaterializedHooks();
+        if (plansWhichContainMv.isEmpty()) {
+            return this;
+        }
+        // clear the rewritten plans which are tmp optimized, should be filled by full optimize later
+        statementContext.getRewrittenPlansByMv().clear();
+        for (Plan planWhichContainMv : plansWhichContainMv) {
+            // Such as EliminateGroupByKeyByUniform would change out put expr id
+            Plan normalizedPlan = MaterializedViewUtils.normalizeExpressions(planWhichContainMv,
+                    cascadesContext.getRewritePlan());
+            if (normalizedPlan == null) {
+                continue;
+            }
+            statementContext.addRewrittenPlanByMv(normalizedPlan);
+        }
+        NereidsTracer.logImportantTime("EndPreRewritePlanByMv");
         return this;
     }
 
@@ -277,6 +371,7 @@ public class PlanChecker {
     public PlanChecker dpHypOptimize() {
         double now = System.currentTimeMillis();
         cascadesContext.getStatementContext().setDpHyp(true);
+        MemoTestUtils.initMemoAndValidState(cascadesContext);
         cascadesContext.getConnectContext().getSessionVariable().enableDPHypOptimizer = true;
         Group root = cascadesContext.getMemo().getRoot();
         cascadesContext.pushJob(new JoinOrderJob(root, cascadesContext.getCurrentJobContext()));
@@ -289,6 +384,7 @@ public class PlanChecker {
     }
 
     public PlanChecker implement() {
+        MemoTestUtils.initMemoAndValidState(cascadesContext);
         Plan plan = transformToPhysicalPlan(cascadesContext.getMemo().getRoot());
         Assertions.assertTrue(plan instanceof PhysicalPlan);
         if (plan instanceof PhysicalQuickSort && !((PhysicalQuickSort) plan).getSortPhase().isLocal()) {
@@ -455,9 +551,9 @@ public class PlanChecker {
     }
 
     public PlanChecker deriveStats() {
-        cascadesContext.pushJob(
-                new DeriveStatsJob(cascadesContext.getMemo().getRoot().getLogicalExpression(),
-                        cascadesContext.getCurrentJobContext()));
+        MemoTestUtils.initMemoAndValidState(cascadesContext);
+        cascadesContext.getMemo().getRoot().getLogicalExpressions().forEach(groupExpression ->
+                cascadesContext.pushJob(new DeriveStatsJob(groupExpression, cascadesContext.getCurrentJobContext())));
         cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
         return this;
     }
@@ -480,6 +576,16 @@ public class PlanChecker {
         Memo memo = cascadesContext.getMemo();
         checkSlotFromChildren(memo);
         assertMatches(memo, () -> MatchingUtils.topDownFindMatching(memo.getRoot(), patternDesc.pattern));
+        return this;
+    }
+
+    public PlanChecker anyMatches(PatternDescriptor<? extends Plan> patternDesc) {
+        MemoTestUtils.initMemoAndValidState(cascadesContext);
+        Set<Boolean> matchResult = new HashSet<>();
+        Memo memo = cascadesContext.getMemo();
+        checkSlotFromChildren(memo);
+        matchResult.add(MatchingUtils.topDownFindMatching(memo.getRoot(), patternDesc.pattern));
+        assertMatches(memo, () -> matchResult.contains(true));
         return this;
     }
 

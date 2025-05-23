@@ -36,8 +36,6 @@ import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Relation;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
-import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
 
@@ -88,6 +86,8 @@ public abstract class MaterializationContext {
     protected boolean available = true;
     // Mark the materialization plan in the context is already rewritten successfully or not
     protected boolean success = false;
+    // Mark the materialization plan in the context is rewritten successfully in RBO or not
+    protected boolean rewrittenInRbo = false;
     // Mark enable record failure detail info or not, because record failure detail info is performance-depleting
     protected final boolean enableRecordFailureDetail;
     // The materialization plan struct info, construct struct info is expensive,
@@ -215,10 +215,10 @@ public abstract class MaterializationContext {
     /**
      * Get materialization unique identifier which identify it
      */
-    abstract List<String> generateMaterializationIdentifier();
+    public abstract List<String> generateMaterializationIdentifier();
 
     /**
-     * Common method for generating materialization identifier
+     * Common method for generating materialization identifier by index name
      */
     public static List<String> generateMaterializationIdentifier(OlapTable olapTable, String indexName) {
         return indexName == null
@@ -228,6 +228,19 @@ public abstract class MaterializationContext {
                 : ImmutableList.of(olapTable.getDatabase().getCatalog().getName(),
                         ClusterNamespace.getNameFromFullName(olapTable.getDatabase().getFullName()),
                         olapTable.getName(), indexName);
+    }
+
+    /**
+     * Common method for generating materialization identifier by index id
+     */
+    public static List<String> generateMaterializationIdentifierByIndexId(OlapTable olapTable, Long indexId) {
+        return indexId == null
+                ? ImmutableList.of(olapTable.getDatabase().getCatalog().getName(),
+                ClusterNamespace.getNameFromFullName(olapTable.getDatabase().getFullName()),
+                olapTable.getName())
+                : ImmutableList.of(olapTable.getDatabase().getCatalog().getName(),
+                        ClusterNamespace.getNameFromFullName(olapTable.getDatabase().getFullName()),
+                        olapTable.getName(), olapTable.getIndexNameById(indexId));
     }
 
     /**
@@ -255,7 +268,7 @@ public abstract class MaterializationContext {
             Expression sourceExpression = this.getExprToScanExprMapping().get(targetExpression);
             if (sourceExpression != null && targetExpression instanceof NamedExpression
                     && sourceExpression instanceof NamedExpression) {
-                normalizedExpressionMap.put(AbstractMaterializedViewRule.normalizeExpression(
+                normalizedExpressionMap.put(MaterializedViewUtils.normalizeExpression(
                                 (NamedExpression) sourceExpression, (NamedExpression) targetExpression).toSlot(),
                         entry.getValue());
             }
@@ -326,6 +339,14 @@ public abstract class MaterializationContext {
         return success;
     }
 
+    public boolean isRewrittenInRbo() {
+        return rewrittenInRbo;
+    }
+
+    public void setRewrittenInRbo(boolean rewrittenInRbo) {
+        this.rewrittenInRbo = rewrittenInRbo;
+    }
+
     /**
      * Record fail reason when in rewriting by struct info
      */
@@ -369,47 +390,45 @@ public abstract class MaterializationContext {
     /**
      * ToSummaryString, this contains only summary info.
      */
-    public static String toSummaryString(List<MaterializationContext> materializationContexts,
+    public static String toSummaryString(CascadesContext cascadesContext,
             Plan physicalPlan) {
+        List<MaterializationContext> materializationContexts = cascadesContext.getMaterializationContexts();
         if (materializationContexts.isEmpty()) {
             return "";
         }
         Set<MaterializationContext> rewrittenSuccessMaterializationSet = materializationContexts.stream()
                 .filter(MaterializationContext::isSuccess)
                 .collect(Collectors.toSet());
-        Set<List<String>> chosenMaterializationQualifiers = new HashSet<>();
-        physicalPlan.accept(new DefaultPlanVisitor<Void, Void>() {
-            @Override
-            public Void visitPhysicalRelation(PhysicalRelation physicalRelation, Void context) {
-                for (MaterializationContext rewrittenContext : rewrittenSuccessMaterializationSet) {
-                    if (rewrittenContext.isFinalChosen(physicalRelation)) {
-                        chosenMaterializationQualifiers.add(rewrittenContext.generateMaterializationIdentifier());
-                    }
-                }
-                return null;
-            }
-        }, null);
-
+        Pair<Map<List<String>, MaterializationContext>, BitSet> chosenMaterializationAndUsedTable
+                = MaterializedViewUtils.getChosenMaterializationAndUsedTable(physicalPlan,
+                cascadesContext.getAllMaterializationContexts());
+        Map<List<String>, MaterializationContext> chosenMaterializationMap = chosenMaterializationAndUsedTable.key();
         StringBuilder builder = new StringBuilder();
         builder.append("\nMaterializedView");
         // rewrite success and chosen
         builder.append("\nMaterializedViewRewriteSuccessAndChose:\n");
-        if (!chosenMaterializationQualifiers.isEmpty()) {
-            chosenMaterializationQualifiers.forEach(materializationQualifier ->
-                    builder.append("  ")
+        if (!chosenMaterializationMap.isEmpty()) {
+            chosenMaterializationMap.forEach((materializationQualifier, materializationContext) ->
+                    builder.append(materializationContext.isRewrittenInRbo() ? "   RBO" : "  ")
                             .append(generateIdentifierName(materializationQualifier)).append(" chose, \n"));
         } else {
             builder.append("  chose: none, \n");
         }
         // rewrite success but not chosen
         builder.append("\nMaterializedViewRewriteSuccessButNotChose:\n");
-        Set<List<String>> rewriteSuccessButNotChoseQualifiers = rewrittenSuccessMaterializationSet.stream()
-                .map(MaterializationContext::generateMaterializationIdentifier)
-                .filter(materializationQualifier -> !chosenMaterializationQualifiers.contains(materializationQualifier))
-                .collect(Collectors.toSet());
-        if (!rewriteSuccessButNotChoseQualifiers.isEmpty()) {
-            rewriteSuccessButNotChoseQualifiers.forEach(materializationQualifier ->
-                    builder.append("  ")
+        Set<List<String>> chosenMaterializationQualifiers = chosenMaterializationMap.keySet();
+
+        Map<List<String>, MaterializationContext> rewriteSuccessButNotChoseMap = new HashMap<>();
+        for (MaterializationContext materializationContext : rewrittenSuccessMaterializationSet) {
+            if (!chosenMaterializationQualifiers.contains(
+                    materializationContext.generateMaterializationIdentifier())) {
+                rewriteSuccessButNotChoseMap.put(
+                        materializationContext.generateMaterializationIdentifier(), materializationContext);
+            }
+        }
+        if (!rewriteSuccessButNotChoseMap.isEmpty()) {
+            rewriteSuccessButNotChoseMap.forEach((materializationQualifier, context) ->
+                    builder.append(context.isRewrittenInRbo() ? "   RBO" : "  ")
                             .append(generateIdentifierName(materializationQualifier)).append(" not chose, \n"));
         } else {
             builder.append("  not chose: none, \n");
