@@ -41,7 +41,7 @@ class EmptyIndexFileTest : public testing::Test {
 
         // APPEND_DATA
         virtual Status append_data(int64_t partition_id, int64_t index_id, int64_t tablet_id,
-                                   int32_t segment_id, uint64_t offset, std::span<const Slice> data,
+                                   int64_t segment_id, uint64_t offset, std::span<const Slice> data,
                                    bool segment_eos = false,
                                    FileType file_type = FileType::SEGMENT_FILE) override {
             EXPECT_TRUE(segment_eos);
@@ -85,7 +85,7 @@ TEST_F(EmptyIndexFileTest, test_empty_index_file) {
     int64_t seg_id = 1234567890;
     auto index_file_writer = std::make_unique<segment_v2::InvertedIndexFileWriter>(
             fs, index_path, rowset_id, seg_id, InvertedIndexStorageFormatPB::V2,
-            std::move(file_writer), false);
+            std::move(file_writer));
     EXPECT_TRUE(index_file_writer->close().ok());
 }
 
