@@ -22,6 +22,7 @@ import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
@@ -237,7 +238,6 @@ public class IcebergScanNode extends FileQueryScanNode {
                             // 1. this task should stop when all splits are assigned
                             // 2. if we want to stop this plan, we can close the fileScanTasks to stop
                             splitAssignment.addCloseable(fileScanTasks);
-                            splitAssignment.addFetchSplitThread(Thread.currentThread());
 
                             fileScanTasks.forEach(fileScanTask ->
                                     splitAssignment.addToQueue(Lists.newArrayList(createIcebergSplit(fileScanTask))));
@@ -254,7 +254,7 @@ public class IcebergScanNode extends FileQueryScanNode {
                     splitAssignment.setException(new UserException(e.getMessage(), e));
                 }
             }
-        });
+        }, Env.getCurrentEnv().getExtMetaCacheMgr().getScheduleExecutor());
     }
 
     @VisibleForTesting
