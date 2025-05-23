@@ -499,45 +499,7 @@ private:
 
     void assign(const Field& x);
 
-    ALWAYS_INLINE void destroy() {
-        // TODO(gabriel): Use `PrimitiveTypeTraits<>::CppType`
-        switch (type) {
-        case PrimitiveType::TYPE_STRING:
-        case PrimitiveType::TYPE_CHAR:
-        case PrimitiveType::TYPE_VARCHAR:
-            destroy<String>();
-            break;
-        case PrimitiveType::TYPE_JSONB:
-            destroy<JsonbField>();
-            break;
-        case PrimitiveType::TYPE_ARRAY:
-            destroy<Array>();
-            break;
-        case PrimitiveType::TYPE_STRUCT:
-            destroy<Tuple>();
-            break;
-        case PrimitiveType::TYPE_MAP:
-            destroy<Map>();
-            break;
-        case PrimitiveType::TYPE_VARIANT:
-            destroy<VariantMap>();
-            break;
-        case PrimitiveType::TYPE_OBJECT:
-            destroy<BitmapValue>();
-            break;
-        case PrimitiveType::TYPE_HLL:
-            destroy<HyperLogLog>();
-            break;
-        case PrimitiveType::TYPE_QUANTILE_STATE:
-            destroy<QuantileState>();
-            break;
-        default:
-            break;
-        }
-
-        type = PrimitiveType::
-                TYPE_NULL; /// for exception safety in subsequent calls to destroy and create, when create fails.
-    }
+    void destroy();
 
     template <typename T>
     void destroy() {

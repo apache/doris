@@ -24,7 +24,6 @@ import org.apache.doris.catalog.AggStateType;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DistributionInfo;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
@@ -34,7 +33,6 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.TableAliasGenerator;
 import org.apache.doris.common.UserException;
-import org.apache.doris.policy.RowPolicy;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
@@ -1309,69 +1307,8 @@ public class StmtRewriter {
     }
 
     public static boolean rewriteByPolicy(StatementBase statementBase, Analyzer analyzer) throws UserException {
-        Env currentEnv = Env.getCurrentEnv();
-        UserIdentity currentUserIdentity = ConnectContext.get().getCurrentUserIdentity();
-        if (currentUserIdentity.isRootUser() || currentUserIdentity.isAdminUser()) {
-            return false;
-        }
-
-        if (!(statementBase instanceof SelectStmt)) {
-            return false;
-        }
-        SelectStmt selectStmt = (SelectStmt) statementBase;
-        boolean reAnalyze = false;
-        for (int i = 0; i < selectStmt.fromClause.size(); i++) {
-            TableRef tableRef = selectStmt.fromClause.get(i);
-            // Recursively rewrite subquery
-            if (tableRef instanceof InlineViewRef) {
-                InlineViewRef viewRef = (InlineViewRef) tableRef;
-                if (rewriteByPolicy(viewRef.getQueryStmt(), analyzer)) {
-                    reAnalyze = true;
-                }
-                continue;
-            }
-            if (!(tableRef instanceof BaseTableRef)) {
-                continue;
-            }
-            String tableName = tableRef.getName().getTbl();
-            String dbName = tableRef.getName().getDb();
-            if (dbName == null) {
-                dbName = analyzer.getDefaultDb();
-            }
-            String ctlName = tableRef.getName().getCtl();
-            if (ctlName == null) {
-                ctlName = analyzer.getDefaultCatalog();
-            }
-            RowPolicy matchPolicy = currentEnv.getPolicyMgr()
-                    .getMatchTablePolicy(ctlName, dbName, tableName, currentUserIdentity);
-            if (matchPolicy == null) {
-                continue;
-            }
-            SelectList selectList = new SelectList();
-            selectList.addItem(SelectListItem.createStarItem(tableRef.getAliasAsName()));
-
-            SelectStmt stmt = new SelectStmt(selectList,
-                    new FromClause(Lists.newArrayList(tableRef)),
-                    matchPolicy.getWherePredicate().clone(),
-                    null,
-                    null,
-                    null,
-                    LimitElement.NO_LIMIT);
-            InlineViewRef inlineViewRef = new InlineViewRef(tableRef.getAliasAsName().getTbl(), stmt);
-            inlineViewRef.setJoinOp(tableRef.joinOp);
-            inlineViewRef.setLeftTblRef(tableRef.leftTblRef);
-            inlineViewRef.setOnClause(tableRef.onClause);
-            tableRef.joinOp = null;
-            tableRef.leftTblRef = null;
-            tableRef.onClause = null;
-            if (selectStmt.fromClause.size() > i + 1) {
-                selectStmt.fromClause.get(i + 1).setLeftTblRef(inlineViewRef);
-            }
-            selectStmt.fromClause.set(i, inlineViewRef);
-            selectStmt.analyze(analyzer);
-            reAnalyze = true;
-        }
-        return reAnalyze;
+        // old planner no use
+        return false;
     }
 
     /**

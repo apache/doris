@@ -58,6 +58,11 @@ public class HdfsProperties extends HdfsCompatibleProperties {
             description = "Whether to enable the impersonation of HDFS.")
     private boolean hdfsImpersonationEnabled = false;
 
+    @ConnectorProperty(names = {"ipc.client.fallback-to-simple-auth-allowed"},
+            required = false,
+            description = "Whether to allow fallback to simple authentication.")
+    private String allowFallbackToSimpleAuth = "";
+
     private Map<String, String> backendConfigProperties;
 
     /**
@@ -68,6 +73,8 @@ public class HdfsProperties extends HdfsCompatibleProperties {
      * 3. This map should be used to read the resolved HDFS configuration, ensuring the correct precedence is applied.
      */
     private Map<String, String> userOverriddenHdfsConfig;
+
+    public static final String HDFS_DEFAULT_FS_NAME = "fs.defaultFS";
 
     private static final List<String> HDFS_PROPERTIES_KEYS = Arrays.asList("hdfs.authentication.type",
             "hadoop.security.authentication", "hadoop.username",
@@ -80,6 +87,9 @@ public class HdfsProperties extends HdfsCompatibleProperties {
     public static boolean guessIsMe(Map<String, String> props) {
         if (MapUtils.isEmpty(props)) {
             return false;
+        }
+        if (HdfsPropertiesUtils.validateUriIsHdfsUri(props)) {
+            return true;
         }
         if (HDFS_PROPERTIES_KEYS.stream().anyMatch(props::containsKey)) {
             return true;
@@ -98,7 +108,7 @@ public class HdfsProperties extends HdfsCompatibleProperties {
     }
 
     @Override
-    protected void initNormalizeAndCheckProps() throws UserException {
+    protected void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
         extractUserOverriddenHdfsConfig(origProps);
         initHadoopConfiguration();
@@ -111,7 +121,7 @@ public class HdfsProperties extends HdfsCompatibleProperties {
         }
         userOverriddenHdfsConfig = new HashMap<>();
         origProps.forEach((key, value) -> {
-            if (key.startsWith("hadoop.") || key.startsWith("dfs.") || key.equals("fs.defaultFS")) {
+            if (key.startsWith("hadoop.") || key.startsWith("dfs.") || key.startsWith("fs.")) {
                 userOverriddenHdfsConfig.put(key, value);
             }
         });
@@ -132,11 +142,7 @@ public class HdfsProperties extends HdfsCompatibleProperties {
         // fsDefaultFS is not strictly required here.
         // This is a best-effort fallback to populate fsDefaultFS when possible.
         if (StringUtils.isBlank(fsDefaultFS)) {
-            try {
-                this.fsDefaultFS = HdfsPropertiesUtils.validateAndGetUri(origProps);
-            } catch (UserException e) {
-                //ignore
-            }
+            this.fsDefaultFS = HdfsPropertiesUtils.extractDefaultFsFromUri(origProps);
         }
     }
 
@@ -148,7 +154,12 @@ public class HdfsProperties extends HdfsCompatibleProperties {
             userOverriddenHdfsConfig.forEach(conf::set);
         }
         if (StringUtils.isNotBlank(fsDefaultFS)) {
-            conf.set("fs.defaultFS", fsDefaultFS);
+            conf.set(HDFS_DEFAULT_FS_NAME, fsDefaultFS);
+        }
+        if (StringUtils.isNotBlank(allowFallbackToSimpleAuth)) {
+            conf.set("ipc.client.fallback-to-simple-auth-allowed", allowFallbackToSimpleAuth);
+        } else {
+            conf.set("ipc.client.fallback-to-simple-auth-allowed", "true");
         }
         conf.set("hdfs.security.authentication", hdfsAuthenticationType);
         if ("kerberos".equalsIgnoreCase(hdfsAuthenticationType)) {

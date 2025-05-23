@@ -131,7 +131,6 @@ public:
     MutableColumnPtr clone_resized(size_t size) const override;
 
     void insert(const Field& x) override {
-        DCHECK_EQ(x.get_type(), TypeToPrimitiveType<T>::value);
         const T& s = doris::vectorized::get<const T&>(x);
         data.push_back(s);
     }

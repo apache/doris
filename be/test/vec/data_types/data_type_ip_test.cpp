@@ -319,7 +319,7 @@ TEST_F(DataTypeIPTest, SerdeTOJsonInComplex) {
     // pack struct
     Tuple tuple;
     tuple.push_back(Field::create_field<TYPE_IPV4>(ipv4_values[0]));
-    tuple.push_back(Field::create_field<TYPE_IPV4>(ipv6_values[0]));
+    tuple.push_back(Field::create_field<TYPE_IPV6>(ipv6_values[0]));
     tuple.push_back(Field::create_field<TYPE_ARRAY>(ipv4_array));
     tuple.push_back(Field::create_field<TYPE_ARRAY>(ipv6_array));
     tuple.push_back(Field::create_field<TYPE_MAP>(ipv4_map));
