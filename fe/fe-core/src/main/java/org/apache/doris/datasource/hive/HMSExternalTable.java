@@ -444,17 +444,21 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
 
     private long getRowCountFromExternalSource() {
         long rowCount = UNKNOWN_ROW_COUNT;
-        switch (dlaType) {
-            case HIVE:
-                rowCount = StatisticsUtil.getHiveRowCount(this);
-                break;
-            case ICEBERG:
-                rowCount = IcebergUtils.getIcebergRowCount(getCatalog(), getDbName(), getName());
-                break;
-            default:
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("getRowCount for dlaType {} is not supported.", dlaType);
-                }
+        try {
+            switch (dlaType) {
+                case HIVE:
+                    rowCount = StatisticsUtil.getHiveRowCount(this);
+                    break;
+                case ICEBERG:
+                    rowCount = IcebergUtils.getIcebergRowCount(getCatalog(), getDbName(), getName());
+                    break;
+                default:
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("getRowCount for dlaType {} is not supported.", dlaType);
+                    }
+            }
+        } catch (Exception e) {
+            LOG.info("Failed to get row count for table {}.{}.{}", getCatalog().getName(), getDbName(), getName(), e);
         }
         return rowCount > 0 ? rowCount : UNKNOWN_ROW_COUNT;
     }
@@ -981,44 +985,48 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
             LOG.info("Table {} is view, return -1.", name);
             return UNKNOWN_ROW_COUNT;
         }
-        HiveMetaStoreCache.HivePartitionValues partitionValues = getAllPartitionValues();
-
-        // Get files for all partitions.
-        int samplePartitionSize = Config.hive_stats_partition_sample_size;
-        List<HiveMetaStoreCache.FileCacheValue> filesByPartitions =
-                getFilesForPartitions(partitionValues, samplePartitionSize);
-        LOG.info("Number of files selected for hive table {} is {}", name, filesByPartitions.size());
-        long totalSize = 0;
-        // Calculate the total file size.
-        for (HiveMetaStoreCache.FileCacheValue files : filesByPartitions) {
-            for (HiveMetaStoreCache.HiveFileStatus file : files.getFiles()) {
-                totalSize += file.getLength();
+        long rows = UNKNOWN_ROW_COUNT;
+        try {
+            HiveMetaStoreCache.HivePartitionValues partitionValues = getAllPartitionValues();
+            // Get files for all partitions.
+            int samplePartitionSize = Config.hive_stats_partition_sample_size;
+            List<HiveMetaStoreCache.FileCacheValue> filesByPartitions =
+                    getFilesForPartitions(partitionValues, samplePartitionSize);
+            LOG.info("Number of files selected for hive table {} is {}", name, filesByPartitions.size());
+            long totalSize = 0;
+            // Calculate the total file size.
+            for (HiveMetaStoreCache.FileCacheValue files : filesByPartitions) {
+                for (HiveMetaStoreCache.HiveFileStatus file : files.getFiles()) {
+                    totalSize += file.getLength();
+                }
             }
-        }
-        // Estimate row count: totalSize/estimatedRowSize
-        long estimatedRowSize = 0;
-        List<Column> partitionColumns = getPartitionColumns();
-        for (Column column : getFullSchema()) {
-            // Partition column shouldn't count to the row size, because it is not in the data file.
-            if (partitionColumns != null && partitionColumns.contains(column)) {
-                continue;
+            // Estimate row count: totalSize/estimatedRowSize
+            long estimatedRowSize = 0;
+            List<Column> partitionColumns = getPartitionColumns();
+            for (Column column : getFullSchema()) {
+                // Partition column shouldn't count to the row size, because it is not in the data file.
+                if (partitionColumns != null && partitionColumns.contains(column)) {
+                    continue;
+                }
+                estimatedRowSize += column.getDataType().getSlotSize();
             }
-            estimatedRowSize += column.getDataType().getSlotSize();
-        }
-        if (estimatedRowSize == 0) {
-            LOG.warn("Table {} estimated size is 0, return -1.", name);
-            return UNKNOWN_ROW_COUNT;
-        }
+            if (estimatedRowSize == 0) {
+                LOG.warn("Table {} estimated size is 0, return -1.", name);
+                return UNKNOWN_ROW_COUNT;
+            }
 
-        int totalPartitionSize = partitionValues == null ? 1 : partitionValues.getIdToPartitionItem().size();
-        if (samplePartitionSize != 0 && samplePartitionSize < totalPartitionSize) {
-            LOG.info("Table {} sampled {} of {} partitions, sampled size is {}",
-                    name, samplePartitionSize, totalPartitionSize, totalSize);
-            totalSize = totalSize * totalPartitionSize / samplePartitionSize;
+            int totalPartitionSize = partitionValues == null ? 1 : partitionValues.getIdToPartitionItem().size();
+            if (samplePartitionSize != 0 && samplePartitionSize < totalPartitionSize) {
+                LOG.info("Table {} sampled {} of {} partitions, sampled size is {}",
+                        name, samplePartitionSize, totalPartitionSize, totalSize);
+                totalSize = totalSize * totalPartitionSize / samplePartitionSize;
+            }
+            rows = totalSize / estimatedRowSize;
+            LOG.info("Table {} rows {}, total size is {}, estimatedRowSize is {}",
+                    name, rows, totalSize, estimatedRowSize);
+        } catch (Exception e) {
+            LOG.info("Failed to get row count for table {}.{}.{}", getCatalog().getName(), getDbName(), getName(), e);
         }
-        long rows = totalSize / estimatedRowSize;
-        LOG.info("Table {} rows {}, total size is {}, estimatedRowSize is {}",
-                name, rows, totalSize, estimatedRowSize);
         return rows > 0 ? rows : UNKNOWN_ROW_COUNT;
     }
 
