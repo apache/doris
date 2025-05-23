@@ -231,6 +231,11 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
             return true;
         }
 
+        // Skip from_base64 function to avoid incorrect binary data processing during constant folding
+        if (expr instanceof BoundFunction && ((BoundFunction) expr).getName().equalsIgnoreCase("from_base64")) {
+            return true;
+        }
+
         // TableGeneratingFunction need pass PlanTranslatorContext value
         if (expr instanceof TableGeneratingFunction) {
             return true;
@@ -490,16 +495,8 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
         } else if (type.isStringLikeType()) {
             int num = resultContent.getStringValueCount();
             for (int i = 0; i < num; ++i) {
-                // get the raw byte data to avoid character encoding conversion problems
-                ByteString bytesValues = resultContent.getBytesValue(i);
-                // use UTF-8 encoding to ensure proper handling of binary data
-                String stringValue = bytesValues.toStringUtf8();
-                // handle special NULL value cases
-                if ("\\N".equalsIgnoreCase(stringValue) && resultContent.hasHasNull()) {
-                    res.add(new NullLiteral(type));
-                } else {
-                    res.add(new StringLiteral(stringValue));
-                }
+                Literal literal = new StringLiteral(resultContent.getStringValue(i));
+                res.add(literal);
             }
         } else if (type.isArrayType()) {
             ArrayType arrayType = (ArrayType) type;
