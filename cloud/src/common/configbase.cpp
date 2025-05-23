@@ -381,7 +381,7 @@ std::ostream& operator<<(std::ostream& out, const std::vector<T>& v) {
 #define UPDATE_FIELD(FIELD, VALUE, TYPE, PERSIST)                                           \
     if (strcmp((FIELD).type, #TYPE) == 0) {                                                 \
         TYPE new_value;                                                                     \
-        if (!convert((FIELD).name, (VALUE), new_value)) {                                                 \
+        if (!convert((FIELD).name, (VALUE), new_value)) {                                   \
             std::cerr << "convert " << VALUE << "as" << #TYPE << "failed";                  \
             return false;                                                                   \
         }                                                                                   \
