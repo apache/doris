@@ -78,7 +78,6 @@ import org.apache.doris.analysis.CreateSqlBlockRuleStmt;
 import org.apache.doris.analysis.CreateStageStmt;
 import org.apache.doris.analysis.CreateStorageVaultStmt;
 import org.apache.doris.analysis.CreateTableAsSelectStmt;
-import org.apache.doris.analysis.CreateTableLikeStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.CreateUserStmt;
 import org.apache.doris.analysis.CreateViewStmt;
@@ -178,8 +177,6 @@ public class DdlExecutor {
             EncryptKeyHelper.dropEncryptKey((DropEncryptKeyStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateTableStmt) {
             env.createTable((CreateTableStmt) ddlStmt);
-        } else if (ddlStmt instanceof CreateTableLikeStmt) {
-            env.createTableLike((CreateTableLikeStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateTableAsSelectStmt) {
             env.createTableAsSelect((CreateTableAsSelectStmt) ddlStmt);
         } else if (ddlStmt instanceof DropTableStmt) {
