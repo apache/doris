@@ -17,20 +17,20 @@
 
 package org.apache.doris.iceberg;
 
-import java.io.IOException;
-import java.util.HashMap;
-import java.util.Map;
-
 import org.apache.doris.common.jni.vec.ColumnValue;
+
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Streams;
 import org.apache.iceberg.MetadataTableType;
 import org.apache.iceberg.MetadataTableUtils;
 import org.apache.iceberg.StructLike;
 import org.apache.iceberg.TableScan;
 import org.apache.iceberg.io.CloseableIterator;
 
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Maps;
-import com.google.common.collect.Streams;
+import java.io.IOException;
+import java.util.HashMap;
+import java.util.Map;
 
 class IcebergSnapshotsJniScanner extends IcebergMetadataJniScanner {
 

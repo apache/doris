@@ -30,7 +30,7 @@ IcebergMetadataJniReader::IcebergMetadataJniReader(
     for (const auto& desc : _file_slot_descs) {
         required_fields.emplace_back(desc->col_name());
     }
-    std::unordered_map<std::string, std::string> params;
+    std::map<std::string, std::string> params;
     params["serialized_table"] = range_params->serialized_table;
     params["required_fields"] = join(required_fields, ",");
     params["metadata_column_names"] = join(range_params->column_names, ",");
@@ -40,7 +40,7 @@ IcebergMetadataJniReader::IcebergMetadataJniReader(
     switch (range_params->iceberg_query_type) {
     case TIcebergQueryType::SNAPSHOTS:
         _jni_connector = std::make_unique<JniConnector>(
-                "org/apache/doris/iceberg/IcebergSnapshotsJniScanner", params, column_names);
+                "org/apache/doris/iceberg/IcebergSnapshotsJniScanner", params, required_fields);
         break;
         // TODO: more iceberg metadata tables
     default:

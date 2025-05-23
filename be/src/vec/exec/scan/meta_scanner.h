@@ -26,6 +26,7 @@
 #include "common/factory_creator.h"
 #include "common/global_types.h"
 #include "common/status.h"
+#include "vec/exec/format/generic_reader.h"
 #include "vec/exec/scan/scanner.h"
 
 namespace doris {
@@ -40,7 +41,6 @@ class TupleDescriptor;
 namespace vectorized {
 class Block;
 class VExprContext;
-class GenericReader;
 } // namespace vectorized
 } // namespace doris
 

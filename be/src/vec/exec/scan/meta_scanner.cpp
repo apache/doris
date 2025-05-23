@@ -66,10 +66,10 @@ Status MetaScanner::open(RuntimeState* state) {
     RETURN_IF_ERROR(Scanner::open(state));
     if (_scan_range.meta_scan_range.metadata_type == TMetadataType::ICEBERG) {
         // TODO: refactor this code
-        auto reader = IcebergMetadataJniReader::create_unique(_tuple_desc->slots(), state, _profile,
-                                                              &_scan_range.meta_scan_range);
+        auto reader = IcebergMetadataJniReader::create_unique(
+                _tuple_desc->slots(), state, _profile, &_scan_range.meta_scan_range.iceberg_params);
         const std::unordered_map<std::string, ColumnValueRangeType> colname_to_value_range;
-        RETURN_IF_ERROR(reader->init_reader(colname_to_value_range));
+        RETURN_IF_ERROR(reader->init_reader(&colname_to_value_range));
         _reader = std::move(reader);
     } else {
         RETURN_IF_ERROR(_fetch_metadata(_scan_range.meta_scan_range));
@@ -91,7 +91,8 @@ Status MetaScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eof
     }
     if (_reader) {
         // TODO: refactor this code
-        return _reader->get_block(state, block, eof);
+        size_t read_rows = 0;
+        return _reader->get_next_block(block, &read_rows, eof);
     }
 
     if (_meta_eos == true) {

@@ -17,17 +17,18 @@
 
 package org.apache.doris.iceberg;
 
-import java.io.IOException;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.TimeZone;
-
 import org.apache.doris.common.jni.JniScanner;
 import org.apache.doris.common.jni.vec.ColumnType;
+
 import org.apache.iceberg.Table;
 import org.apache.iceberg.util.SerializationUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.io.IOException;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.TimeZone;
 
 /**
  * Abstract class for Iceberg metadata scanner.

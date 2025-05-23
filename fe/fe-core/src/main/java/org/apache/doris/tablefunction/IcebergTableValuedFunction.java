@@ -32,14 +32,14 @@ import org.apache.doris.thrift.TIcebergMetadataParams;
 import org.apache.doris.thrift.TIcebergQueryType;
 import org.apache.doris.thrift.TMetaScanRange;
 import org.apache.doris.thrift.TMetadataType;
-import org.apache.iceberg.Table;
-import org.apache.iceberg.util.SerializationUtil;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.iceberg.Table;
+import org.apache.iceberg.util.SerializationUtil;
 
 import java.util.List;
 import java.util.Map;
