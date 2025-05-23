@@ -25,8 +25,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThreadPoolManager;
-import org.apache.doris.common.security.authentication.AuthenticationConfig;
-import org.apache.doris.common.security.authentication.HadoopAuthenticator;
 import org.apache.doris.common.security.authentication.PreExecutionAuthenticator;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogProperty;
@@ -91,8 +89,6 @@ public class HMSExternalCatalog extends ExternalCatalog {
 
     private static final int FILE_SYSTEM_EXECUTOR_THREAD_NUM = 16;
     private ThreadPoolExecutor fileSystemExecutor;
-    @Getter
-    private HadoopAuthenticator authenticator;
 
     private int hmsEventsBatchSizePerRpc = -1;
     private boolean enableHmsEventsIncrementalSync = false;
@@ -170,14 +166,15 @@ public class HMSExternalCatalog extends ExternalCatalog {
     }
 
     @Override
-    protected void initLocalObjectsImpl() {
-        this.preExecutionAuthenticator = new PreExecutionAuthenticator();
-        if (this.authenticator == null) {
-            AuthenticationConfig config = AuthenticationConfig.getKerberosConfig(getConfiguration());
-            this.authenticator = HadoopAuthenticator.getHadoopAuthenticator(config);
-            this.preExecutionAuthenticator.setHadoopAuthenticator(authenticator);
+    protected synchronized void initPreExecutionAuthenticator() {
+        if (preExecutionAuthenticator == null) {
+            preExecutionAuthenticator = new PreExecutionAuthenticator(getConfiguration());
         }
+    }
 
+    @Override
+    protected void initLocalObjectsImpl() {
+        initPreExecutionAuthenticator();
         HiveConf hiveConf = null;
         JdbcClientConfig jdbcClientConfig = null;
         String hiveMetastoreType = catalogProperty.getOrDefault(HMSProperties.HIVE_METASTORE_TYPE, "");
