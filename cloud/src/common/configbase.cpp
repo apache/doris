@@ -69,23 +69,65 @@ void splitkv(const std::string& s, std::string& k, std::string& v) {
 }
 
 // replace env variables
-bool replaceenv(std::string& s) {
-    std::size_t pos = 0;
-    std::size_t start = 0;
-    while ((start = s.find("${", pos)) != std::string::npos) {
-        std::size_t end = s.find("}", start + 2);
-        if (end == std::string::npos) {
-            return false;
+bool replaceenv(std::string key, std::string& s) {
+    size_t pos = 0;
+    bool modified = false;
+
+    while (pos < s.size()) {
+        size_t start = s.find('$', pos);
+        if (start == std::string::npos) break;
+
+        if (start > 0 && s[start - 1] == '$') {
+            s.erase(start - 1, 1);
+            pos = start;
+            modified = true;
+            continue;
         }
-        std::string envkey = s.substr(start + 2, end - start - 2);
+
+        bool has_brace = false;
+        size_t var_start = start + 1;
+        size_t end = std::string::npos;
+
+        // format: ${VAR}
+        if (var_start < s.size() && s[var_start] == '{') {
+            has_brace = true;
+            var_start++;
+            end = s.find('}', var_start);
+            if (end == std::string::npos) return false;
+        } else {
+            // format: $VAR
+            if (var_start >= s.size()) {
+                pos = var_start;
+                continue;
+            }
+            char first_char = s[var_start];
+            if (!std::isalpha(first_char) && first_char != '_') {
+                pos = var_start;
+                continue;
+            }
+            end = var_start;
+            while (end < s.size() && (std::isalnum(s[end]) || s[end] == '_')) {
+                end++;
+            }
+        }
+
+        std::string envkey = s.substr(var_start, end - var_start);
         const char* envval = std::getenv(envkey.c_str());
-        if (envval == nullptr) {
-            return false;
-        }
-        s.erase(start, end - start + 1);
-        s.insert(start, envval);
-        pos = start + strlen(envval);
+        if (envval == nullptr) return false;
+        // replace env
+        size_t replace_start = start;
+        size_t replace_length = has_brace ? (end - start + 1) : (end - start);
+        s.erase(replace_start, replace_length);
+        s.insert(replace_start, envval);
+        // reset
+        pos = replace_start + strlen(envval);
+        modified = true;
     }
+
+    if (modified) {
+        std::cout << "replace env conf " << key << "=" << s << std::endl;
+    }
+
     return true;
 }
 
@@ -174,10 +216,10 @@ bool strtox(const std::string& valstr, std::string& retval) {
 }
 
 template <typename T>
-bool convert(const std::string& value, T& retval) {
+bool convert(const std::string key, const std::string& value, T& retval) {
     std::string valstr(value);
     trim(valstr);
-    if (!replaceenv(valstr)) {
+    if (!replaceenv(key, valstr)) {
         return false;
     }
     return strtox(valstr, retval);
@@ -280,7 +322,7 @@ bool Properties::get_or_default(const char* key, const char* defstr, T& retval,
         valstr = it->second;
     }
     *is_retval_set = true;
-    return convert(valstr, retval);
+    return convert(std::string(key), valstr, retval);
 }
 
 void Properties::set(const std::string& key, const std::string& val) {
@@ -339,7 +381,7 @@ std::ostream& operator<<(std::ostream& out, const std::vector<T>& v) {
 #define UPDATE_FIELD(FIELD, VALUE, TYPE, PERSIST)                                           \
     if (strcmp((FIELD).type, #TYPE) == 0) {                                                 \
         TYPE new_value;                                                                     \
-        if (!convert((VALUE), new_value)) {                                                 \
+        if (!convert((FIELD).name, (VALUE), new_value)) {                                                 \
             std::cerr << "convert " << VALUE << "as" << #TYPE << "failed";                  \
             return false;                                                                   \
         }                                                                                   \
