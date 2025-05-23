@@ -38,7 +38,7 @@ inline void do_merge_streams(const uint8_t** src_streams, int width, int64_t nva
             for (int i = 0; i < kBlockSize; i += 8) {
                 uint64_t v;
                 std::memcpy(&v, src + i, sizeof(v));
-#if __BYTE_ORDER == __LITTLE_ENDIAN
+#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
                 dest[stream + i * width] = static_cast<uint8_t>(v);
                 dest[stream + (i + 1) * width] = static_cast<uint8_t>(v >> 8);
                 dest[stream + (i + 2) * width] = static_cast<uint8_t>(v >> 16);

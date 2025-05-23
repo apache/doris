@@ -101,7 +101,7 @@ TEST_F(DataTypeStringTest, MetaInfoTest) {
             .is_value_represented_by_number = false,
             .pColumnMeta = col_meta.get(),
             .is_value_unambiguously_represented_in_contiguous_memory_region = true,
-            .default_field = Field(""),
+            .default_field = Field::create_field<TYPE_STRING>(""),
     };
     auto tmp_dt = DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_STRING, false);
     helper->meta_info_assert(tmp_dt, meta_info_to_assert);
@@ -275,7 +275,7 @@ TEST_F(DataTypeStringTest, simple_func_test) {
 
         EXPECT_EQ(std::string(dt.get_family_name()), std::string("String"));
 
-        EXPECT_EQ(dt.get_default(), Field(String()));
+        EXPECT_EQ(dt.get_default(), Field::create_field<TYPE_STRING>(String()));
     };
     test_func(dt_str);
     EXPECT_EQ(dt_str.get_primitive_type(), TYPE_STRING);
@@ -335,6 +335,6 @@ TEST_F(DataTypeStringTest, get_field) {
     expr_node.node_type = TExprNodeType::STRING_LITERAL;
     expr_node.__isset.string_literal = true;
     expr_node.string_literal.value = "a";
-    EXPECT_EQ(dt_str.get_field(expr_node), Field("a"));
+    EXPECT_EQ(dt_str.get_field(expr_node), Field::create_field<TYPE_STRING>("a"));
 }
 } // namespace doris::vectorized

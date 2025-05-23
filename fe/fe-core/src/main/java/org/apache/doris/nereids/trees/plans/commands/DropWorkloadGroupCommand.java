@@ -60,6 +60,7 @@ public class DropWorkloadGroupCommand extends DropCommand {
         }
 
         if (Config.isCloudMode()) {
+            String originCgStr = computeGroup;
             if (StringUtils.isEmpty(computeGroup)) {
                 computeGroup = Tag.VALUE_DEFAULT_COMPUTE_GROUP_NAME;
             }
@@ -71,7 +72,9 @@ public class DropWorkloadGroupCommand extends DropCommand {
             if (StringUtils.isEmpty(clusterId)) {
                 WorkloadGroupKey wgKey = WorkloadGroupKey.get(computeGroup, workloadGroupName);
                 if (!Env.getCurrentEnv().getWorkloadGroupMgr().isWorkloadGroupExists(wgKey)) {
-                    throw new UserException("Can not find compute group " + computeGroup + ".");
+                    throw new UserException(
+                            "Can not find workload group  " + workloadGroupName + " in compute group " + originCgStr
+                                    + ".");
                 } // else case 2, input computeGroup is already a valid cluster id which has been dropped, so drop wg.
             } else {
                 computeGroup = clusterId;

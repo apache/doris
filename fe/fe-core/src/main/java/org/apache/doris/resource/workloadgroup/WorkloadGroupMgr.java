@@ -50,6 +50,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -192,20 +193,6 @@ public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPost
             readUnlock();
         }
         return workloadGroups;
-    }
-
-    public List<TPipelineWorkloadGroup> getTWorkloadGroupById(long wgId) {
-        List<TPipelineWorkloadGroup> tWorkloadGroups = Lists.newArrayList();
-        readLock();
-        try {
-            WorkloadGroup wg = idToWorkloadGroup.get(wgId);
-            if (wg != null) {
-                tWorkloadGroups.add(wg.toThrift());
-            }
-        } finally {
-            readUnlock();
-        }
-        return tWorkloadGroups;
     }
 
     public List<TopicInfo> getPublishTopicInfo() {
@@ -625,7 +612,9 @@ public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPost
         try {
             Set<String> cgIds = Env.getCurrentEnv().getComputeGroupMgr().getAllComputeGroupIds();
             if (cgIds.size() == 0) {
-                LOG.info("no compute group can be found, skip check workload group.");
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("no compute group can be found, skip check workload group.");
+                }
                 return;
             }
             createNormalWorkloadGroup(cgIds);
@@ -636,11 +625,23 @@ public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPost
     }
 
     private void createNormalWorkloadGroup(Set<String> cgIds) {
-        writeLock();
+        Set<String> cgWithoutNormalWg = Sets.newHashSet();
+        readLock();
         try {
             for (String cgId : cgIds) {
                 WorkloadGroupKey wgKey = WorkloadGroupKey.get(cgId, DEFAULT_GROUP_NAME);
                 if (!keyToWorkloadGroup.containsKey(wgKey)) {
+                    cgWithoutNormalWg.add(cgId);
+                }
+            }
+        } finally {
+            readUnlock();
+        }
+
+        if (cgWithoutNormalWg.size() != 0) {
+            writeLock();
+            try {
+                for (String cgId : cgWithoutNormalWg) {
                     Map<String, String> properties = Maps.newHashMap();
                     properties.put(WorkloadGroup.ENABLE_MEMORY_OVERCOMMIT, "true");
                     properties.put(WorkloadGroup.COMPUTE_GROUP, cgId);
@@ -651,19 +652,20 @@ public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPost
                     Env.getCurrentEnv().getEditLog().logCreateWorkloadGroup(normalWg);
                     LOG.info("[init_wg]Create default workload group {} for {} success.", normalWg, cgId);
                 }
+            } finally {
+                writeUnlock();
             }
-        } finally {
-            writeUnlock();
         }
     }
 
-    // tombstone workload means its compute group is dropped.
+    // tombstone workload group means its compute group is dropped.
     // normal wg is managed by doris, so tombstone normal wg
     // should be dropped by doris too.
     private void dropTombstoneNormalWorkloadGroup(Set<String> currentCgIds) {
-        writeLock();
+        // 1 find tombstone wg
+        List<WorkloadGroup> tombstoneWgList = Lists.newArrayList();
+        readLock();
         try {
-            List<WorkloadGroup> tombstoneWgList = Lists.newArrayList();
             for (WorkloadGroup wg : idToWorkloadGroup.values()) {
                 WorkloadGroupKey wgKey = wg.getWorkloadGroupKey();
                 if (DEFAULT_GROUP_NAME.equals(wgKey.getWorkloadGroupName())
@@ -672,17 +674,25 @@ public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPost
                     tombstoneWgList.add(wg);
                 }
             }
-
-            for (WorkloadGroup wg : tombstoneWgList) {
-                keyToWorkloadGroup.remove(wg.getWorkloadGroupKey());
-                idToWorkloadGroup.remove(wg.getId());
-                idToQueryQueue.remove(wg.getId());
-                Env.getCurrentEnv().getEditLog()
-                        .logDropWorkloadGroup(new DropWorkloadGroupOperationLog(wg.getId()));
-                LOG.info("Drop tombstone normal workload group {} success.", wg);
-            }
         } finally {
-            writeUnlock();
+            readUnlock();
+        }
+
+        // 2 drop tombstone wg
+        if (tombstoneWgList.size() != 0) {
+            writeLock();
+            try {
+                for (WorkloadGroup wg : tombstoneWgList) {
+                    keyToWorkloadGroup.remove(wg.getWorkloadGroupKey());
+                    idToWorkloadGroup.remove(wg.getId());
+                    idToQueryQueue.remove(wg.getId());
+                    Env.getCurrentEnv().getEditLog()
+                            .logDropWorkloadGroup(new DropWorkloadGroupOperationLog(wg.getId()));
+                    LOG.info("Drop tombstone normal workload group {} success.", wg);
+                }
+            } finally {
+                writeUnlock();
+            }
         }
     }
 
@@ -766,7 +776,9 @@ public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPost
         try {
             List<WorkloadGroup> oldWgList = getOldWorkloadGroup();
             if (oldWgList.isEmpty()) {
-                LOG.info("[init_wg]There is no old workload group, just return.");
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("[init_wg]There is no old workload group, just return.");
+                }
                 return;
             }
 

@@ -241,17 +241,17 @@ TEST(AggBitmapTest, bitmap_union_count_test) {
     agg_function->destroy(place);
 }
 
-template <typename T>
+template <PrimitiveType T>
 void validate_bitmap_union_int_test() {
     std::string function_name = "bitmap_union_int";
     DataTypePtr data_type;
-    if constexpr (std::is_same_v<T, Int8>) {
+    if constexpr (T == TYPE_TINYINT) {
         data_type = std::make_shared<DataTypeInt8>();
-    } else if constexpr (std::is_same_v<T, Int16>) {
+    } else if constexpr (T == TYPE_SMALLINT) {
         data_type = std::make_shared<DataTypeInt16>();
-    } else if constexpr (std::is_same_v<T, Int32>) {
+    } else if constexpr (T == TYPE_INT) {
         data_type = std::make_shared<DataTypeInt32>();
-    } else if constexpr (std::is_same_v<T, Int64>) {
+    } else if constexpr (T == TYPE_BIGINT) {
         data_type = std::make_shared<DataTypeInt64>();
     } else {
         LOG(FATAL) << "unsupported type";
@@ -260,10 +260,11 @@ void validate_bitmap_union_int_test() {
     // Prepare test data.
     auto column_int = data_type->create_column();
 
-    std::vector<T> values = {1, 2, 3, 4, 5, 1, 2, 3, 100};
+    std::vector<typename PrimitiveTypeTraits<T>::ColumnItemType> values = {1, 2, 3, 4,  5,
+                                                                           1, 2, 3, 100};
     auto values_size = values.size();
     for (int value : values) {
-        (*column_int).insert(value);
+        (*column_int).insert(Field::create_field<T>(value));
     }
 
     // Prepare test function and parameters.
@@ -289,10 +290,10 @@ void validate_bitmap_union_int_test() {
 }
 
 TEST(AggBitmapTest, bitmap_union_int_test) {
-    validate_bitmap_union_int_test<Int8>();
-    validate_bitmap_union_int_test<Int16>();
-    validate_bitmap_union_int_test<Int32>();
-    validate_bitmap_union_int_test<Int64>();
+    validate_bitmap_union_int_test<TYPE_TINYINT>();
+    validate_bitmap_union_int_test<TYPE_SMALLINT>();
+    validate_bitmap_union_int_test<TYPE_INT>();
+    validate_bitmap_union_int_test<TYPE_BIGINT>();
 }
 
 } // namespace doris::vectorized

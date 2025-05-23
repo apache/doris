@@ -83,7 +83,7 @@ TEST_P(DataTypeFixedLengthObjectTest, MetaInfoTest) {
             .is_value_represented_by_number = false,
             .pColumnMeta = col_meta.get(),
             .is_value_unambiguously_represented_in_contiguous_memory_region = false,
-            .default_field = Field(String()),
+            .default_field = Field::create_field<TYPE_STRING>(String()),
     };
     helper->meta_info_assert(datatype_fixed_length, bitmap_meta_info_to_assert);
 }
@@ -92,7 +92,7 @@ TEST_P(DataTypeFixedLengthObjectTest, CreateColumnTest) {
     std::string res;
     res.resize(8);
     memset(res.data(), 0, 8);
-    Field default_field = Field(res);
+    Field default_field = Field::create_field<TYPE_STRING>(res);
     std::cout << "create_column_assert: " << datatype_fixed_length->get_name() << std::endl;
     auto column = (datatype_fixed_length)->create_column();
     ASSERT_EQ(column->size(), 0);

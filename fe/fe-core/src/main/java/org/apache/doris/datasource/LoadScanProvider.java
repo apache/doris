@@ -99,9 +99,10 @@ public class LoadScanProvider {
                 && fileGroupInfo.getFileGroup().getFileFormat().equals("hive_text")) {
             params.setTextSerdeType(TTextSerdeType.HIVE_TEXT_SERDE);
         }
-        params.setProperties(fileGroupInfo.getBrokerDesc().getProperties());
+        params.setProperties(fileGroupInfo.getBrokerDesc().getBackendConfigProperties());
         if (fileGroupInfo.getBrokerDesc().getFileType() == TFileType.FILE_HDFS) {
-            THdfsParams tHdfsParams = HdfsResource.generateHdfsParam(fileGroupInfo.getBrokerDesc().getProperties());
+            THdfsParams tHdfsParams = HdfsResource.generateHdfsParam(fileGroupInfo.getBrokerDesc()
+                    .getBackendConfigProperties());
             params.setHdfsParams(tHdfsParams);
         }
         TFileAttributes fileAttributes = new TFileAttributes();

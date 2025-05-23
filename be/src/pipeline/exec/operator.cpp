@@ -526,6 +526,10 @@ Status PipelineXLocalState<SharedStateArg>::init(RuntimeState* state, LocalState
         }
     }
 
+    if (must_set_shared_state() && _shared_state == nullptr) {
+        return Status::InternalError("must set shared state, in {}", _parent->get_name());
+    }
+
     _rows_returned_counter =
             ADD_COUNTER_WITH_LEVEL(_runtime_profile, "RowsProduced", TUnit::UNIT, 1);
     _blocks_returned_counter =
@@ -611,6 +615,10 @@ Status PipelineXSinkLocalState<SharedState>::init(RuntimeState* state, LocalSink
         }
         _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(
                 _profile, "WaitForDependency[" + _dependency->name() + "]Time", 1);
+    }
+
+    if (must_set_shared_state() && _shared_state == nullptr) {
+        return Status::InternalError("must set shared state, in {}", _parent->get_name());
     }
 
     _rows_input_counter = ADD_COUNTER_WITH_LEVEL(_profile, "InputRows", TUnit::UNIT, 1);

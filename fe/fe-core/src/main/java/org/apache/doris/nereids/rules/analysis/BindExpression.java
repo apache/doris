@@ -100,7 +100,6 @@ import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.nereids.util.PlanUtils.CollectNonWindowedAggFuncs;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.nereids.util.Utils;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SqlModeHelper;
 
 import com.google.common.base.Preconditions;
@@ -1352,12 +1351,6 @@ public class BindExpression implements AnalysisRuleFactory {
             if (isGroupByContainAlias) {
                 break;
             }
-        }
-
-        if (isGroupByContainAlias
-                && ConnectContext.get() != null
-                && ConnectContext.get().getSessionVariable().isGroupByAndHavingUseAliasFirst()) {
-            throw new AnalysisException("group_by_and_having_use_alias=true is unsupported for Nereids");
         }
     }
 

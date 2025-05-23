@@ -74,7 +74,7 @@ void DataTypeNumberBase<T>::to_string(const IColumn& column, size_t row_num,
 }
 
 template <typename T>
-std::string DataTypeNumberBase<T>::to_string(const T& value) const {
+std::string DataTypeNumberBase<T>::to_string(const T& value) {
     if constexpr (std::is_same<T, int128_t>::value || std::is_same<T, uint128_t>::value ||
                   std::is_same<T, UInt128>::value) {
         return int128_to_string(value);
@@ -122,25 +122,69 @@ Status DataTypeNumberBase<T>::from_string(ReadBuffer& rb, IColumn* column) const
 
 template <typename T>
 Field DataTypeNumberBase<T>::get_default() const {
-    return NearestFieldType<FieldType>();
+    if constexpr (std::is_same_v<T, UInt8>) {
+        return Field::create_field<TYPE_BOOLEAN>(
+                PrimitiveTypeTraits<TYPE_BOOLEAN>::NearestFieldType());
+    }
+    if constexpr (std::is_same_v<T, Int8>) {
+        return Field::create_field<TYPE_TINYINT>(
+                PrimitiveTypeTraits<TYPE_TINYINT>::NearestFieldType());
+    }
+    if constexpr (std::is_same_v<T, Int16>) {
+        return Field::create_field<TYPE_SMALLINT>(
+                PrimitiveTypeTraits<TYPE_SMALLINT>::NearestFieldType());
+    }
+    if constexpr (std::is_same_v<T, Int32>) {
+        return Field::create_field<TYPE_INT>(PrimitiveTypeTraits<TYPE_INT>::NearestFieldType());
+    }
+    if constexpr (std::is_same_v<T, Int64>) {
+        return Field::create_field<TYPE_BIGINT>(
+                PrimitiveTypeTraits<TYPE_BIGINT>::NearestFieldType());
+    }
+    if constexpr (std::is_same_v<T, Int128>) {
+        return Field::create_field<TYPE_LARGEINT>(
+                PrimitiveTypeTraits<TYPE_LARGEINT>::NearestFieldType());
+    }
+    if constexpr (std::is_same_v<T, Float32>) {
+        return Field::create_field<TYPE_FLOAT>(PrimitiveTypeTraits<TYPE_FLOAT>::NearestFieldType());
+    }
+    if constexpr (std::is_same_v<T, Float64>) {
+        return Field::create_field<TYPE_DOUBLE>(
+                PrimitiveTypeTraits<TYPE_DOUBLE>::NearestFieldType());
+    }
+    if constexpr (std::is_same_v<T, UInt32>) {
+        return Field::create_field<TYPE_DATEV2>(
+                PrimitiveTypeTraits<TYPE_DATEV2>::NearestFieldType());
+    }
+    if constexpr (std::is_same_v<T, UInt64>) {
+        return Field::create_field<TYPE_DATETIMEV2>(
+                PrimitiveTypeTraits<TYPE_DATETIMEV2>::NearestFieldType());
+    }
+    if constexpr (std::is_same_v<T, IPv4>) {
+        return Field::create_field<TYPE_IPV4>(PrimitiveTypeTraits<TYPE_IPV4>::NearestFieldType());
+    }
+    if constexpr (std::is_same_v<T, IPv6>) {
+        return Field::create_field<TYPE_IPV6>(PrimitiveTypeTraits<TYPE_IPV6>::NearestFieldType());
+    }
+    throw Exception(Status::FatalError("__builtin_unreachable: {}", get_name()));
 }
 
 template <typename T>
 Field DataTypeNumberBase<T>::get_field(const TExprNode& node) const {
     if constexpr (std::is_same_v<T, UInt8>) {
-        return UInt8(node.bool_literal.value);
+        return Field::create_field<TYPE_BOOLEAN>(UInt8(node.bool_literal.value));
     }
     if constexpr (std::is_same_v<T, Int8>) {
-        return Int8(node.int_literal.value);
+        return Field::create_field<TYPE_TINYINT>(Int8(node.int_literal.value));
     }
     if constexpr (std::is_same_v<T, Int16>) {
-        return Int16(node.int_literal.value);
+        return Field::create_field<TYPE_SMALLINT>(Int16(node.int_literal.value));
     }
     if constexpr (std::is_same_v<T, Int32>) {
-        return Int32(node.int_literal.value);
+        return Field::create_field<TYPE_INT>(Int32(node.int_literal.value));
     }
     if constexpr (std::is_same_v<T, Int64>) {
-        return Int64(node.int_literal.value);
+        return Field::create_field<TYPE_BIGINT>(Int64(node.int_literal.value));
     }
     if constexpr (std::is_same_v<T, Int128>) {
         StringParser::ParseResult parse_result = StringParser::PARSE_SUCCESS;
@@ -150,13 +194,13 @@ Field DataTypeNumberBase<T>::get_field(const TExprNode& node) const {
         if (parse_result != StringParser::PARSE_SUCCESS) {
             value = MAX_INT128;
         }
-        return Int128(value);
+        return Field::create_field<TYPE_LARGEINT>(Int128(value));
     }
     if constexpr (std::is_same_v<T, Float32>) {
-        return Float32(node.float_literal.value);
+        return Field::create_field<TYPE_FLOAT>(Float32(node.float_literal.value));
     }
     if constexpr (std::is_same_v<T, Float64>) {
-        return Float64(node.float_literal.value);
+        return Field::create_field<TYPE_DOUBLE>(Float64(node.float_literal.value));
     }
     throw Exception(Status::FatalError("__builtin_unreachable"));
 }

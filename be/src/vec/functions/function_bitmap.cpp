@@ -698,7 +698,8 @@ ColumnPtr handle_bitmap_op_count_null_value(ColumnPtr& src, const Block& block,
         bool is_const = is_column_const(*elem.column);
         /// Const Nullable that are NULL.
         if (is_const && assert_cast<const ColumnConst*>(elem.column.get())->only_null()) {
-            return block.get_by_position(result).type->create_column_const(input_rows_count, 0);
+            return block.get_by_position(result).type->create_column_const(
+                    input_rows_count, Field::create_field<TYPE_BIGINT>(0));
         }
         if (is_const) {
             continue;

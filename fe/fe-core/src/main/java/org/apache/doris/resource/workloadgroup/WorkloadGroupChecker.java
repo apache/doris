@@ -19,6 +19,7 @@ package org.apache.doris.resource.workloadgroup;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.MasterDaemon;
 
 import org.apache.logging.log4j.LogManager;
@@ -29,7 +30,8 @@ public class WorkloadGroupChecker extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(WorkloadGroupChecker.class);
 
     public WorkloadGroupChecker() {
-        super("workloadgroup-checker-thread", Config.workload_group_check_interval_ms);
+        super("workloadgroup-checker-thread",
+                FeConstants.disableWGCheckerForUT ? 3600000 : Config.workload_group_check_interval_ms);
     }
 
     @Override

@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -38,6 +39,11 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class ShowResourcesCommandTest extends TestWithFeService {
+    // RESOURCE_PROC_NODE_TITLE_NAMES copy from org.apache.doris.catalog.ResourceMgr
+    public static final ImmutableList<String> RESOURCE_PROC_NODE_TITLE_NAMES = new ImmutableList.Builder<String>()
+            .add("Name").add("ResourceType").add("Item").add("Value")
+            .build();
+
     @Override
     protected void runBeforeAll() throws Exception {
         createDatabase("test");
@@ -110,8 +116,7 @@ public class ShowResourcesCommandTest extends TestWithFeService {
         UnboundSlot key = new UnboundSlot(Lists.newArrayList("Name"));
         List<OrderKey> orderKeys = Lists.newArrayList(new OrderKey(key, true, true));
         ShowResourcesCommand sr = new ShowResourcesCommand(null, null, orderKeys, -1, -1);
-        sr.processOrderBy();
-        ArrayList<OrderByPair> orderByPairs = sr.getOrderByPairs();
+        ArrayList<OrderByPair> orderByPairs = sr.getOrderByPairs(orderKeys, RESOURCE_PROC_NODE_TITLE_NAMES);
         OrderByPair op = orderByPairs.get(0);
         Assertions.assertFalse(op.isDesc());
         Assertions.assertEquals(0, op.getIndex());

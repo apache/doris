@@ -77,6 +77,9 @@ public final class GlobalVariable {
 
     public static final String ENABLE_FETCH_ICEBERG_STATS = "enable_fetch_iceberg_stats";
 
+    public static final String ENABLE_ANSI_QUERY_ORGANIZATION_BEHAVIOR
+            = "enable_ansi_query_organization_behavior";
+
     @VariableMgr.VarAttr(name = VARIABLE_VERSION, flag = VariableMgr.INVISIBLE
             | VariableMgr.READ_ONLY | VariableMgr.GLOBAL)
     public static int variableVersion = CURRENT_VARIABLE_VERSION;
@@ -191,6 +194,18 @@ public final class GlobalVariable {
                 "当HMS catalog中的Iceberg表没有统计信息时，是否通过Iceberg Api获取统计信息",
                 "Enable fetch stats for HMS Iceberg table when it's not analyzed."})
     public static boolean enableFetchIcebergStats = false;
+
+
+    @VariableMgr.VarAttr(name = ENABLE_ANSI_QUERY_ORGANIZATION_BEHAVIOR, flag = VariableMgr.GLOBAL,
+            description = {
+                    "控制 query organization 的行为。当设置为 true 时使用 ANSI 的 query organization 行为，即作用于整个语句。"
+                            + "当设置为 false 时，使用 Doris 历史版本的行为，"
+                            + "即 order by 默认只作用于 set operation 的最后一个 operand。",
+                    "Controls the behavior of query organization. When set to true, uses the ANSI query"
+                            + " organization behavior, which applies to the entire statement. When set to false,"
+                            + " uses the behavior of Doris's historical versions, where order by by default only"
+                            + " applies to the last operand of the set operation."})
+    public static boolean enable_ansi_query_organization_behavior = true;
 
     // Don't allow creating instance.
     private GlobalVariable() {

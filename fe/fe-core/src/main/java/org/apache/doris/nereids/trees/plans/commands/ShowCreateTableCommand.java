@@ -131,7 +131,7 @@ public class ShowCreateTableCommand extends ShowCommand {
         try {
             if (table.getType() == Table.TableType.HMS_EXTERNAL_TABLE) {
                 rows.add(Arrays.asList(table.getName(),
-                        HiveMetaStoreClientHelper.showCreateTable(((HMSExternalTable) table).getRemoteTable())));
+                        HiveMetaStoreClientHelper.showCreateTable((HMSExternalTable) table)));
                 return new ShowResultSet(META_DATA, rows);
             }
             List<String> createTableStmt = Lists.newArrayList();

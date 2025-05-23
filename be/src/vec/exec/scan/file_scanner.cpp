@@ -842,9 +842,9 @@ void FileScanner::_truncate_char_or_varchar_column(Block* block, int idx, int le
     const ColumnPtr& string_column_ptr = col_nullable->get_nested_column_ptr();
     ColumnPtr null_map_column_ptr = col_nullable->get_null_map_column_ptr();
     block->replace_by_position(idx, std::move(string_column_ptr));
-    block->insert({int_type->create_column_const(block->rows(), to_field(1)), int_type,
+    block->insert({int_type->create_column_const(block->rows(), to_field<TYPE_INT>(1)), int_type,
                    "const 1"}); // pos is 1
-    block->insert({int_type->create_column_const(block->rows(), to_field(len)), int_type,
+    block->insert({int_type->create_column_const(block->rows(), to_field<TYPE_INT>(len)), int_type,
                    fmt::format("const {}", len)});                          // len
     block->insert({nullptr, std::make_shared<DataTypeString>(), "result"}); // result column
     ColumnNumbers temp_arguments(3);

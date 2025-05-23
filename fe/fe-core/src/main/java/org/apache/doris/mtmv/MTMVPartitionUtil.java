@@ -488,10 +488,32 @@ public class MTMVPartitionUtil {
         if (!baseTable.needAutoRefresh()) {
             return true;
         }
-        MTMVSnapshotIf baseTableCurrentSnapshot = baseTable.getTableSnapshot(context,
-                MvccUtil.getSnapshotFromContext(baseTable));
+        MTMVSnapshotIf baseTableCurrentSnapshot = getTableSnapshotFromContext(baseTable, context);
         return mtmv.getRefreshSnapshot()
                 .equalsWithBaseTable(mtmvPartitionName, new BaseTableInfo(baseTable), baseTableCurrentSnapshot);
+    }
+
+    /**
+     * Try context first, then load via getTableSnapshot and cache
+     *
+     * @param mtmvRelatedTableIf Base table of materialized views
+     * @param context The context data persists for the duration of either a refresh task
+     *         or a transparent rewrite operation
+     * @return The snapshot information of the MTMV
+     * @throws AnalysisException
+     */
+    public static MTMVSnapshotIf getTableSnapshotFromContext(MTMVRelatedTableIf mtmvRelatedTableIf,
+            MTMVRefreshContext context)
+            throws AnalysisException {
+        BaseTableInfo baseTableInfo = new BaseTableInfo(mtmvRelatedTableIf);
+        Map<BaseTableInfo, MTMVSnapshotIf> baseTableSnapshotCache = context.getBaseTableSnapshotCache();
+        if (baseTableSnapshotCache.containsKey(baseTableInfo)) {
+            return baseTableSnapshotCache.get(baseTableInfo);
+        }
+        MTMVSnapshotIf baseTableCurrentSnapshot = mtmvRelatedTableIf.getTableSnapshot(context,
+                MvccUtil.getSnapshotFromContext(mtmvRelatedTableIf));
+        baseTableSnapshotCache.put(baseTableInfo, baseTableCurrentSnapshot);
+        return baseTableCurrentSnapshot;
     }
 
     /**
@@ -539,7 +561,7 @@ public class MTMVPartitionUtil {
                 continue;
             }
             refreshPartitionSnapshot.addTableSnapshot(baseTableInfo,
-                    ((MTMVRelatedTableIf) table).getTableSnapshot(context, MvccUtil.getSnapshotFromContext(table)));
+                    getTableSnapshotFromContext((MTMVRelatedTableIf) table, context));
         }
         return refreshPartitionSnapshot;
     }

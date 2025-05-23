@@ -121,6 +121,14 @@ vectorized::MutableColumnPtr SlotDescriptor::get_empty_mutable_column() const {
     return type()->create_column();
 }
 
+bool SlotDescriptor::is_nullable() const {
+    return _type->is_nullable();
+}
+
+PrimitiveType SlotDescriptor::col_type() const {
+    return _type->get_primitive_type();
+}
+
 std::string SlotDescriptor::debug_string() const {
     std::stringstream out;
     out << "Slot(id=" << _id << " type=" << _type->get_name() << " col=" << _col_pos

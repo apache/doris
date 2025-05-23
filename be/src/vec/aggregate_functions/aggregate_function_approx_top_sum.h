@@ -50,7 +50,7 @@ struct AggregateFunctionTopKGenericData {
     Set value;
 };
 
-template <typename T, typename TResult, typename Data>
+template <PrimitiveType T, typename TResult, typename Data>
 class AggregateFunctionApproxTopSum final
         : public IAggregateFunctionDataHelper<Data,
                                               AggregateFunctionApproxTopSum<T, TResult, Data>>,
@@ -59,7 +59,7 @@ private:
     using State = AggregateFunctionTopKGenericData;
 
     using ResultDataType = DataTypeNumber<TResult>;
-    using ColVecType = ColumnVector<T>;
+    using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
     using ColVecResult = ColumnVector<TResult>;
 
 public:
@@ -232,14 +232,14 @@ public:
     }
 };
 
-template <typename T>
+template <PrimitiveType T>
 struct TopSumSimple {
-    using ResultType = T;
+    using ResultType = typename PrimitiveTypeTraits<T>::CppType;
     using AggregateDataType = AggregateFunctionTopKGenericData;
     using Function = AggregateFunctionApproxTopSum<T, ResultType, AggregateDataType>;
 };
 
-template <typename T>
+template <PrimitiveType T>
 using AggregateFunctionApproxTopSumSimple = typename TopSumSimple<T>::Function;
 
 } // namespace doris::vectorized

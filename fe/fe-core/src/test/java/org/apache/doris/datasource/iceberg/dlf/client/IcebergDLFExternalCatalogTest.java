@@ -17,9 +17,11 @@
 
 package org.apache.doris.datasource.iceberg.dlf.client;
 
+import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.datasource.iceberg.IcebergDLFExternalCatalog;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
+import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.TruncateTableCommand;
 
 import org.apache.hadoop.conf.Configuration;
@@ -48,7 +50,8 @@ public class IcebergDLFExternalCatalogTest {
     public void testNotSupportOperation() {
         HashMap<String, String> props = new HashMap<>();
         IcebergDLFExternalCatalog catalog = new IcebergDLFExternalCatalog(1, "test", "test", props, "test");
-        Assert.assertThrows(NotSupportedException.class, () -> catalog.createDb(null));
+        Assert.assertThrows(NotSupportedException.class, () -> catalog.createDb((CreateDbStmt) null));
+        Assert.assertThrows(NotSupportedException.class, () -> catalog.createDb((CreateDatabaseCommand) null));
         Assert.assertThrows(NotSupportedException.class, () -> catalog.dropDb("", true, true));
         Assert.assertThrows(NotSupportedException.class, () -> catalog.createTable(null));
         Assert.assertThrows(NotSupportedException.class, () -> catalog.dropTable(null));

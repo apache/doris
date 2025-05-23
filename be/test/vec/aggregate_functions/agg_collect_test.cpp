@@ -83,9 +83,11 @@ public:
             for (size_t j = 0; j < _repeated_times; ++j) {
                 if (support_complex) {
                     if constexpr (std::is_same_v<DataType, DataTypeString>) {
-                        Array vec1 = {Field(String("item0" + std::to_string(i))),
-                                      Field(String("item1" + std::to_string(i)))};
-                        input_col->insert(vec1);
+                        Array vec1 = {Field::create_field<TYPE_STRING>(
+                                              String("item0" + std::to_string(i))),
+                                      Field::create_field<TYPE_STRING>(
+                                              String("item1" + std::to_string(i)))};
+                        input_col->insert(Field::create_field<TYPE_ARRAY>(vec1));
                     } else {
                         input_col->insert_default();
                     }

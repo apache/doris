@@ -86,6 +86,7 @@ suite("test_dict_nullable_key") {
                 logger.info("refresh dictionary tmp_table_null failed: " + e.getMessage())
             }
         }
+        assertTrue(_ < 30, "refresh dictionary tmp_table_null failed")
         sleep(1000)
     }
 
