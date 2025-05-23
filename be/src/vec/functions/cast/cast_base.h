@@ -198,4 +198,13 @@ public:
                                          block.get_by_position(result).type));
     }
 };
+
+#ifdef BE_TEST
+inline CastWrapper::WrapperType get_cast_wrapper(FunctionContext* context,
+                                                 const DataTypePtr& from_type,
+                                                 const DataTypePtr& to_type) {
+    return CastWrapper::prepare_unpack_dictionaries(context, from_type, to_type);
+}
+#endif
+
 } // namespace doris::vectorized
