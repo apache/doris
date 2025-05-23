@@ -181,7 +181,7 @@ public abstract class PhysicalCatalogRelation extends PhysicalRelation implement
                 continue;
             }
             SlotReference slotRef = (SlotReference) slot;
-            if (slotRef.getColumn().isPresent() && columns.contains(slotRef.getColumn().get())) {
+            if (slotRef.getOriginalColumn().isPresent() && columns.contains(slotRef.getOriginalColumn().get())) {
                 slotSet.add(slotRef);
             }
         }
