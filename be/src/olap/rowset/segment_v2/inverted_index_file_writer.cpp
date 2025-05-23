@@ -23,6 +23,7 @@
 #include <filesystem>
 
 #include "common/status.h"
+#include "io/fs/stream_sink_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
