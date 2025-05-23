@@ -122,6 +122,13 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
         }
         return st;
     }
+    DBUG_EXECUTE_IF("CloudSchemaChangeJob::process_alter_tablet.alter_fail", {
+        auto res =
+                Status::InternalError("inject alter tablet failed. base_tablet={}, new_tablet={}",
+                                      request.base_tablet_id, request.new_tablet_id);
+        LOG(WARNING) << "inject error. res=" << res;
+        return res;
+    });
     if (request.alter_version > 1) {
         // [0-1] is a placeholder rowset, no need to convert
         RETURN_IF_ERROR(_base_tablet->capture_rs_readers({2, start_resp.alter_version()},
