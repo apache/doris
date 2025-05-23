@@ -254,36 +254,6 @@ struct ArrayAggregateImpl {
         }
     }
 
-    template <typename Element>
-    static bool execute_type(ColumnPtr& res_ptr, const DataTypePtr& type, const IColumn* data,
-                             const ColumnArray::Offsets64& offsets) {
-        using ColVecType = ColumnVectorOrDecimal<Element>;
-        using ResultType = ArrayAggregateResult<Element, operation, enable_decimal256>;
-        using ColVecResultType = ColumnVectorOrDecimal<ResultType>;
-
-        auto create_column = [](const ColVecType* column) -> ColumnPtr {
-            if constexpr (IsDecimalNumber<Element>) {
-                return ColVecResultType::create(0, column->get_scale());
-            } else {
-                return ColVecResultType::create();
-            }
-        };
-
-        return execute_type_impl<Element, ColVecType, decltype(create_column)>(
-                res_ptr, type, data, offsets, create_column);
-    }
-
-    template <>
-    static bool execute_type<String>(ColumnPtr& res_ptr, const DataTypePtr& type,
-                                     const IColumn* data, const ColumnArray::Offsets64& offsets) {
-        using ColumnType = ColumnString;
-
-        auto create_column = [](const ColumnType*) -> ColumnPtr { return ColumnString::create(); };
-
-        return execute_type_impl<String, ColumnType, decltype(create_column)>(
-                res_ptr, type, data, offsets, create_column);
-    }
-
     template <typename Element, typename ColumnType, typename CreateColumnFunc>
     static bool execute_type_impl(ColumnPtr& res_ptr, const DataTypePtr& type, const IColumn* data,
                                   const ColumnArray::Offsets64& offsets,
@@ -323,6 +293,42 @@ struct ArrayAggregateImpl {
         }
         res_ptr = std::move(res_column);
         return true;
+    }
+
+    template <typename Element>
+    static bool execute_type(ColumnPtr& res_ptr, const DataTypePtr& type, const IColumn* data,
+                             const ColumnArray::Offsets64& offsets) {
+        using ColVecType = ColumnVectorOrDecimal<Element>;
+        using ResultType = ArrayAggregateResult<Element, operation, enable_decimal256>;
+        using ColVecResultType = ColumnVectorOrDecimal<ResultType>;
+
+        auto create_column = [](const ColVecType* column) -> ColumnPtr {
+            if constexpr (IsDecimalNumber<Element>) {
+                return ColVecResultType::create(0, column->get_scale());
+            } else {
+                return ColVecResultType::create();
+            }
+        };
+
+        return execute_type_impl<Element, ColVecType, decltype(create_column)>(
+                res_ptr, type, data, offsets, create_column);
+    }
+
+    template <>
+    bool execute_type<String>(ColumnPtr& res_ptr, const DataTypePtr& type, const IColumn* data,
+                              const ColumnArray::Offsets64& offsets) {
+        // string type is not supported for other operations
+        if (operation == AggregateOperation::SUM || operation == AggregateOperation::PRODUCT ||
+            operation == AggregateOperation::AVERAGE) {
+            return false;
+        }
+
+        auto create_column = [](const ColumnString*) -> ColumnPtr {
+            return ColumnString::create();
+        };
+
+        return execute_type_impl<String, ColumnString, decltype(create_column)>(
+                res_ptr, type, data, offsets, create_column);
     }
 };
 
