@@ -664,7 +664,6 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             commitShadowIndex();
             // all partitions are good
             onFinished(tbl);
-            pruneMeta();
 
             LOG.info("schema change job finished: {}", jobId);
 
@@ -676,6 +675,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             // Write edit log with table's write lock held, to avoid adding partitions before writing edit log,
             // else it will try to transform index in newly added partition while replaying and result in failure.
             Env.getCurrentEnv().getEditLog().logAlterJob(this);
+            pruneMeta();
         } finally {
             tbl.writeUnlock();
         }
@@ -790,7 +790,6 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
         cancelInternal();
 
-        pruneMeta();
         this.errMsg = errMsg;
         this.finishedTimeMs = System.currentTimeMillis();
         changeTableState(dbId, tableId, OlapTableState.NORMAL);
@@ -799,6 +798,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         Env.getCurrentEnv().getEditLog().logAlterJob(this);
         LOG.info("cancel {} job {}, err: {}", this.type, jobId, errMsg);
         onCancel();
+        pruneMeta();
 
         return true;
     }
@@ -936,6 +936,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         LOG.info("replay finished schema change job: {} table id: {}", jobId, tableId);
         changeTableState(dbId, tableId, OlapTableState.NORMAL);
         LOG.info("set table's state to NORMAL when replay finished, table id: {}, job id: {}", tableId, jobId);
+        pruneMeta();
     }
 
     /**
@@ -951,6 +952,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         LOG.info("replay cancelled schema change job: {}", jobId);
         changeTableState(dbId, tableId, OlapTableState.NORMAL);
         LOG.info("set table's state to NORMAL when replay cancelled, table id: {}, job id: {}", tableId, jobId);
+        pruneMeta();
     }
 
     @Override
