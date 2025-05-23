@@ -42,7 +42,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
-import org.jetbrains.annotations.Nullable;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Modifier;
@@ -213,7 +212,6 @@ public class FunctionRegistry {
         return candidateBuilders.get(0);
     }
 
-    @Nullable
     private List<FunctionBuilder> findBuiltinFunctionBuilder(String name, List<?> arguments) {
         List<FunctionBuilder> functionBuilders;
         // search internal function only if dbName is empty
