@@ -637,20 +637,20 @@ supportedTransactionStatement
 
 supportedGrantRevokeStatement
     : GRANT privilegeList ON multipartIdentifierOrAsterisk
-        TO (userIdentify | ROLE identifierOrText)                                     #grantTablePrivilege
+        TO (userIdentify | ROLE identifierOrText)                                           #grantTablePrivilege
     | GRANT privilegeList ON
         (RESOURCE | CLUSTER | COMPUTE GROUP | STAGE | STORAGE VAULT | WORKLOAD GROUP)
-        identifierOrTextOrAsterisk TO (userIdentify | ROLE identifierOrText)          #grantResourcePrivilege
-    | GRANT roles+=identifierOrText (COMMA roles+=identifierOrText)* TO userIdentify  #grantRole
-    | REVOKE roles+=identifierOrText (COMMA roles+=identifierOrText)* FROM userIdentify #revokeRole
+        identifierOrTextOrAsterisk TO (userIdentify | ROLE identifierOrText)                #grantResourcePrivilege
+    | GRANT roles+=identifierOrText (COMMA roles+=identifierOrText)* TO userIdentify        #grantRole
+    | REVOKE roles+=identifierOrText (COMMA roles+=identifierOrText)* FROM userIdentify     #revokeRole
+    | REVOKE privilegeList ON
+            (RESOURCE | CLUSTER | COMPUTE GROUP | STAGE | STORAGE VAULT | WORKLOAD GROUP)
+            identifierOrTextOrAsterisk FROM (userIdentify | ROLE identifierOrText)          #revokeResourcePrivilege
     ;
 
 unsupportedGrantRevokeStatement
     : REVOKE privilegeList ON multipartIdentifierOrAsterisk
         FROM (userIdentify | ROLE identifierOrText)                                   #revokeTablePrivilege
-    | REVOKE privilegeList ON
-        (RESOURCE | CLUSTER | COMPUTE GROUP | STAGE | STORAGE VAULT | WORKLOAD GROUP)
-        identifierOrTextOrAsterisk FROM (userIdentify | ROLE identifierOrText)        #revokeResourcePrivilege
     ;
 
 privilege
