@@ -7680,6 +7680,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
         return new ShowReplicaStatusCommand(tableRefInfo, whereClause);
     }
+
     @Override
     public LogicalPlan visitShowWorkloadGroups(DorisParser.ShowWorkloadGroupsContext ctx) {
         String likePattern = null;
