@@ -1972,7 +1972,7 @@ bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_t
 #define UPDATE_FIELD(FIELD, VALUE, TYPE, PERSIST)                                                  \
     if (strcmp((FIELD).type, #TYPE) == 0) {                                                        \
         TYPE new_value;                                                                            \
-        if (!convert((FIELD).name, (VALUE), new_value)) {                                                        \
+        if (!convert((FIELD).name, (VALUE), new_value)) {                                          \
             return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("convert '{}' as {} failed",  \
                                                                      VALUE, #TYPE);                \
         }                                                                                          \
