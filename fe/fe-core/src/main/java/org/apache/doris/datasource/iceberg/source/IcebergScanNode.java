@@ -239,10 +239,13 @@ public class IcebergScanNode extends FileQueryScanNode {
                             // 2. if we want to stop this plan, we can close the fileScanTasks to stop
                             splitAssignment.addCloseable(fileScanTasks);
 
-                            fileScanTasks.forEach(fileScanTask ->
-                                    splitAssignment.addToQueue(Lists.newArrayList(createIcebergSplit(fileScanTask))));
-
-                            return null;
+                            fileScanTasks.forEach(fileScanTask -> {
+                                try {
+                                    splitAssignment.addToQueue(Lists.newArrayList(createIcebergSplit(fileScanTask)));
+                                } catch (UserException e) {
+                                    throw new RuntimeException(e);
+                                }
+                            });
                         }
                 );
                 splitAssignment.finishSchedule();

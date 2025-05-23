@@ -268,7 +268,7 @@ public class MaxComputeScanNode extends FileQueryScanNode {
                             List<Split> batchSplit = getSplitByTableSession(tableBatchReadSession);
 
                             splitAssignment.addToQueue(batchSplit);
-                        } catch (IOException e) {
+                        } catch (Exception e) {
                             batchException.set(new UserException(e.getMessage(), e));
                         } finally {
                             if (batchException.get() != null) {
