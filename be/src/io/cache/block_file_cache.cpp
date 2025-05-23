@@ -87,6 +87,8 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
             _cache_base_path.c_str(), "file_cache_ttl_cache_evict_size");
     _total_evict_size_metrics = std::make_shared<bvar::Adder<size_t>>(
             _cache_base_path.c_str(), "file_cache_total_evict_size");
+    _gc_evict_size_metrics = std::make_shared<bvar::Adder<size_t>>(
+            _cache_base_path.c_str(), "file_cache_gc_evict_size");
 
     _evict_by_time_metrics_matrix[FileCacheType::DISPOSABLE][FileCacheType::NORMAL] =
             std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
@@ -1146,6 +1148,7 @@ void BlockFileCache::remove_if_cached_async(const UInt128Wrapper& file_key) {
         std::vector<FileBlockCell*> to_remove;
         if (iter != _files.end()) {
             for (auto& [_, cell] : iter->second) {
+                *_gc_evict_size_metrics << cell.size();
                 if (cell.releasable()) {
                     to_remove.push_back(&cell);
                 } else {
