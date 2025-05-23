@@ -74,6 +74,7 @@ TEST_F(ConfigTest, UpdateConfigs) {
     DEFINE_mInt32(cfg_int32_t, "65536123");
     DEFINE_mInt64(cfg_int64_t, "4294967296123");
     DEFINE_String(cfg_std_string, "doris_config_test_string");
+    DEFINE_String(cfg_conf_path, "doris_config_test_conf_path");
 
     EXPECT_TRUE(config::init(nullptr, true));
 
@@ -145,6 +146,23 @@ TEST_F(ConfigTest, UpdateConfigs) {
     EXPECT_TRUE(s.to_string().find("'cfg_std_string' is not support to modify") !=
                 std::string::npos);
     EXPECT_EQ(cfg_std_string, "doris_config_test_string");
+
+    // replace
+    setenv("TEST_CONF_ENV", "test_dir1", true);
+    s = config::set_config("cfg_conf_path", "${TEST_CONF_ENV}/test");
+    EXPECT_TRUE(s.ok());
+    EXPECT_EQ(cfg_conf_path, "test_dir1/test");
+
+    setenv("TEST_CONF_ENV", "test_dir2", true);
+    s = config::set_config("cfg_conf_path", "$TEST_CONF_ENV/test");
+    EXPECT_TRUE(s.ok());
+    EXPECT_EQ(cfg_conf_path, "test_dir2/test");
+
+    setenv("TEST_CONF_ENV", "test_dir3", true);
+    s = config::set_config("cfg_conf_path", "$$TEST_CONF_ENV/test");
+    EXPECT_TRUE(s.ok());
+    EXPECT_EQ(cfg_conf_path, "$TEST_CONF_ENV/test");
+
 }
 
 } // namespace doris
