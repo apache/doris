@@ -817,7 +817,9 @@ public class Column implements GsonPostProcessable {
         builder.setUniqueId(uniqueId);
         builder.setType(this.getDataType().toThrift().name());
         builder.setIsKey(this.isKey);
-        builder.setEncoding(encoding);
+        if (encoding != null) {
+            builder.setEncoding(encoding);
+        }
         if (null != this.aggregationType) {
             if (type.isAggStateType()) {
                 AggStateType aggState = (AggStateType) type;
@@ -1089,7 +1091,7 @@ public class Column implements GsonPostProcessable {
     public int hashCode() {
         return Objects.hash(name, getDataType(), getStrLen(), getPrecision(), getScale(), aggregationType,
                 isAggregationTypeImplicit, isKey, isAllowNull, isAutoInc, defaultValue, comment, children, visible,
-                realDefaultValue, clusterKeyId);
+                realDefaultValue, clusterKeyId, encoding);
     }
 
     @Override
@@ -1115,7 +1117,8 @@ public class Column implements GsonPostProcessable {
                 && visible == other.visible
                 && Objects.equals(children, other.children)
                 && Objects.equals(realDefaultValue, other.realDefaultValue)
-                && clusterKeyId == other.clusterKeyId;
+                && clusterKeyId == other.clusterKeyId
+                && encoding == other.encoding;
     }
 
     // distribution column compare only care about attrs which affect data,
