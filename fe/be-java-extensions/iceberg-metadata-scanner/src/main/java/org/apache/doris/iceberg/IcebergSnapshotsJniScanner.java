@@ -25,6 +25,7 @@ import com.google.common.collect.Streams;
 import org.apache.iceberg.MetadataTableType;
 import org.apache.iceberg.MetadataTableUtils;
 import org.apache.iceberg.StructLike;
+import org.apache.iceberg.Table;
 import org.apache.iceberg.TableScan;
 import org.apache.iceberg.io.CloseableIterator;
 
@@ -42,7 +43,7 @@ class IcebergSnapshotsJniScanner extends IcebergMetadataJniScanner {
     }
 
     @Override
-    protected void initReader() throws IOException {
+    protected void loadTable(Table table) throws IOException {
         TableScan tableScan = MetadataTableUtils.createMetadataTableInstance(table, MetadataTableType.SNAPSHOTS)
                 .newScan();
         this.columnNameToPosition = Streams.mapWithIndex(tableScan.schema().columns().stream(),
@@ -57,11 +58,7 @@ class IcebergSnapshotsJniScanner extends IcebergMetadataJniScanner {
     }
 
     @Override
-    protected void openInner() {
-    }
-
-    @Override
-    protected int getNextInner() {
+    protected int getNext() throws IOException {
         if (reader == null) {
             return 0;
         }
@@ -84,10 +81,22 @@ class IcebergSnapshotsJniScanner extends IcebergMetadataJniScanner {
     }
 
     @Override
-    protected void closeInner() throws IOException {
+    public void close() throws IOException {
         if (reader != null) {
             reader.close();
         }
+    }
+
+    @Override
+    protected HashMap<String, String> getMetadataSchema() {
+        HashMap<String, String> metadataSchema = new HashMap<>();
+        metadataSchema.put("committed_at", "long");
+        metadataSchema.put("snapshot_id", "long");
+        metadataSchema.put("parent_id", "long");
+        metadataSchema.put("operation", "string");
+        metadataSchema.put("manifest_list", "string");
+        metadataSchema.put("summary", "string");
+        return metadataSchema;
     }
 
     private Object getValue(String columnName, StructLike dataRow) {
@@ -103,7 +112,7 @@ class IcebergSnapshotsJniScanner extends IcebergMetadataJniScanner {
             case "manifest_list":
                 return dataRow.get(columnNameToPosition.get(columnName), String.class);
             case "summary":
-                return dataRow.get(columnNameToPosition.get(columnName), Map.class);
+                return dataRow.get(columnNameToPosition.get(columnName), String.class);
             default:
                 throw new IllegalArgumentException("Unrecognized column name " + columnName);
         }

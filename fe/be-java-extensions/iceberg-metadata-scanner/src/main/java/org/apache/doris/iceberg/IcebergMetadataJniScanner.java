@@ -34,36 +34,41 @@ import java.util.TimeZone;
  * Abstract class for Iceberg metadata scanner.
  */
 public abstract class IcebergMetadataJniScanner extends JniScanner {
-    private static final Logger LOG = LoggerFactory.getLogger(IcebergMetadataJniScanner.class);
-    protected final String serializedTable;
     protected final String[] requiredFields;
-    private final String[] metadataColumnNames;
-    private final String[] metadataColumnTypes;
-    private ColumnType[] requiredTypes;
+    protected final String timezone;
+
+    private static final String HADOOP_OPTION_PREFIX = "hadoop.";
+    private static final Logger LOG = LoggerFactory.getLogger(IcebergMetadataJniScanner.class);
+    private PreExecutionAuthenticator preExecutionAuthenticator;
+    private final ClassLoader classLoader;
+    private final String serializedTable;
     private final int batchSize;
-    protected final ClassLoader classLoader;
-    protected Table table;
-    protected String timezone;
+    private ColumnType[] requiredTypes;
 
     public IcebergMetadataJniScanner(int batchSize, Map<String, String> params) {
+        this.classLoader = this.getClass().getClassLoader();
         this.batchSize = batchSize;
         this.requiredFields = params.get("required_fields").split(",");
-        this.metadataColumnNames = params.get("metadata_column_names").split(",");
-        this.metadataColumnTypes = params.get("metadata_column_types").split("#");
         this.serializedTable = params.get("serialized_table");
         this.timezone = params.getOrDefault("time_zone", TimeZone.getDefault().getID());
-        this.classLoader = this.getClass().getClassLoader();
+        HashMap<String, String> hadoopOptionParams = params.entrySet().stream()
+                .filter(kv -> kv.getKey().startsWith(HADOOP_OPTION_PREFIX))
+                .collect(Collectors
+                        .toMap(kv1 -> kv1.getKey().substring(HADOOP_OPTION_PREFIX.length()), kv1 -> kv1.getValue()));
+        this.preExecutionAuthenticator = PreExecutionAuthenticatorCache.getAuthenticator(hadoopOptionParams);
+        parseRequiredTypes();
+        initTableInfo(requiredTypes, requiredFields, batchSize);
     }
 
     @Override
     public void open() throws IOException {
         try {
             Thread.currentThread().setContextClassLoader(classLoader);
-            this.table = SerializationUtil.deserializeFromBase64(serializedTable);
-            parseRequiredTypes();
-            initTableInfo(requiredTypes, requiredFields, batchSize);
-            openInner();
-            initReader();
+            Table table = SerializationUtil.deserializeFromBase64(serializedTable);
+            preExecutionAuthenticator.execute(() -> {
+                loadTable(table);
+                return null;
+            });
         } catch (Exception e) {
             this.close();
             String msg = String.format("Failed to open IcebergMetadataJniScanner");
@@ -72,55 +77,31 @@ public abstract class IcebergMetadataJniScanner extends JniScanner {
         }
     }
 
-    @Override
-    public int getNext() throws IOException {
-        try {
-            Thread.currentThread().setContextClassLoader(classLoader);
-            return getNextInner();
-        } catch (Exception e) {
-            this.close();
-            String msg = String.format(
-                    "Failed to get next IcebergMetadataJniScanner");
-            LOG.error(msg, e);
-            throw new IOException(msg, e);
-        }
-    }
+    /**
+     * This method is called in the open() method.
+     * It is used to initialize the metadata table data.
+     *
+     * @throws IOException
+     */
+    protected abstract void loadTable(Table table) throws IOException;
 
-    @Override
-    public void close() throws IOException {
-        try {
-            Thread.currentThread().setContextClassLoader(classLoader);
-            closeInner();
-        } catch (Exception e) {
-            String msg = String.format("Failed to close IcebergMetadataJniScanner");
-            LOG.error(msg, e);
-            throw new IOException(msg, e);
-        }
-    }
-
-    protected abstract void initReader() throws IOException;
-
-    protected abstract void openInner();
-
-    protected abstract int getNextInner();
-
-    protected abstract void closeInner() throws IOException;
+    /**
+     * Get the metadata schema from the table.
+     *
+     * @return a map of metadata column name to type
+     */
+    protected abstract HashMap<String, String> getMetadataSchema();
 
     private void parseRequiredTypes() {
-        // TODO: consider hard code the metadata column names and types
-        HashMap<String, String> metadataColumnMap = new HashMap<>();
-        for (int i = 0; i < metadataColumnNames.length; i++) {
-            metadataColumnMap.put(metadataColumnNames[i], metadataColumnTypes[i]);
-        }
+        HashMap<String, String> metadataSchema = getMetadataSchema();
         requiredTypes = new ColumnType[requiredFields.length];
         for (int i = 0; i < requiredFields.length; i++) {
             String field = requiredFields[i];
-            String type = metadataColumnMap.get(field);
+            String type = metadataSchema.get(field);
             if (type == null) {
                 throw new IllegalArgumentException("Field " + field + " not found in metadata column map");
             }
             requiredTypes[i] = ColumnType.parseType(field, type);
         }
-        // TODO: handle nested types
     }
 }
