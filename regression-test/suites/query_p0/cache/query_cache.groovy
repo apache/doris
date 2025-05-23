@@ -31,17 +31,7 @@ suite("query_cache") {
         DUPLICATE KEY(`pk`, `col_varchar_10__undef_signed`)
         DISTRIBUTED BY HASH(`pk`) BUCKETS 10
         PROPERTIES (
-            "replication_allocation" = "tag.location.default: 1",
-            "min_load_replica_num" = "-1",
-            "is_being_synced" = "false",
-            "storage_medium" = "hdd",
-            "storage_format" = "V2",
-            "inverted_index_storage_format" = "V3",
-            "light_schema_change" = "true",
-            "disable_auto_compaction" = "false",
-            "enable_single_replica_compaction" = "false",
-            "group_commit_interval_ms" = "10000",
-            "group_commit_data_bytes" = "134217728"
+            "replication_allocation" = "tag.location.default: 1"
         )
     """
 
