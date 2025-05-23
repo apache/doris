@@ -212,7 +212,6 @@ void SetProbeSinkOperatorX<is_intersect>::_refresh_hash_table(
                 if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
                     arg.init_iterator();
                     auto& iter = arg.begin;
-                    auto iter_end = arg.end;
 
                     constexpr double need_shrink_ratio = 0.25;
                     bool is_need_shrink =
@@ -229,7 +228,7 @@ void SetProbeSinkOperatorX<is_intersect>::_refresh_hash_table(
                                 std::make_shared<typename HashTableCtxType::HashMapType>();
                         tmp_hash_table->reserve(
                                 local_state._shared_state->valid_element_in_hash_tbl);
-                        while (iter != iter_end) {
+                        while (iter != arg.end) {
                             auto& mapped = iter.get_second();
                             auto* it = &mapped;
 
@@ -248,7 +247,7 @@ void SetProbeSinkOperatorX<is_intersect>::_refresh_hash_table(
                         arg.hash_table = std::move(tmp_hash_table);
                     } else if (is_intersect) {
                         DCHECK_EQ(valid_element_in_hash_tbl, arg.hash_table->size());
-                        while (iter != iter_end) {
+                        while (iter != arg.end) {
                             auto& mapped = iter.get_second();
                             auto* it = &mapped;
                             it->visited = false;
