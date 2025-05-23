@@ -22,7 +22,7 @@
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
-const std::string PaimonJniReader::HADOOP_OPTION_PREFIX = "hadoop.";
+static const std::string HADOOP_OPTION_PREFIX = "hadoop.";
 
 IcebergMetadataJniReader::IcebergMetadataJniReader(
         const std::vector<SlotDescriptor*>& file_slot_descs, RuntimeState* state,

@@ -870,6 +870,7 @@ EOF
     extensions_modules+=("avro-scanner")
     extensions_modules+=("lakesoul-scanner")
     extensions_modules+=("preload-extensions")
+    extensions_modules+=("iceberg-metadata-scanner")
 
     if [[ -n "${BE_EXTENSION_IGNORE}" ]]; then
         IFS=',' read -r -a ignore_modules <<<"${BE_EXTENSION_IGNORE}"

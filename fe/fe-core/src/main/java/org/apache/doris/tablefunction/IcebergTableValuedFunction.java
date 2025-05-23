@@ -42,7 +42,6 @@ import com.google.common.collect.Maps;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.util.SerializationUtil;
 
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 

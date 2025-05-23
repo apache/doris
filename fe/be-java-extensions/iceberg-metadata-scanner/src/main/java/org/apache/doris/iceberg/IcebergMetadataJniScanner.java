@@ -19,6 +19,8 @@ package org.apache.doris.iceberg;
 
 import org.apache.doris.common.jni.JniScanner;
 import org.apache.doris.common.jni.vec.ColumnType;
+import org.apache.doris.common.security.authentication.PreExecutionAuthenticator;
+import org.apache.doris.common.security.authentication.PreExecutionAuthenticatorCache;
 
 import org.apache.iceberg.Table;
 import org.apache.iceberg.util.SerializationUtil;
@@ -29,6 +31,7 @@ import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.TimeZone;
+import java.util.stream.Collectors;
 
 /**
  * Abstract class for Iceberg metadata scanner.
@@ -51,7 +54,7 @@ public abstract class IcebergMetadataJniScanner extends JniScanner {
         this.requiredFields = params.get("required_fields").split(",");
         this.serializedTable = params.get("serialized_table");
         this.timezone = params.getOrDefault("time_zone", TimeZone.getDefault().getID());
-        HashMap<String, String> hadoopOptionParams = params.entrySet().stream()
+        Map<String, String> hadoopOptionParams = params.entrySet().stream()
                 .filter(kv -> kv.getKey().startsWith(HADOOP_OPTION_PREFIX))
                 .collect(Collectors
                         .toMap(kv1 -> kv1.getKey().substring(HADOOP_OPTION_PREFIX.length()), kv1 -> kv1.getValue()));

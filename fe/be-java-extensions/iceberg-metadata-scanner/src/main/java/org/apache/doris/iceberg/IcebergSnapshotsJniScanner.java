@@ -112,7 +112,7 @@ class IcebergSnapshotsJniScanner extends IcebergMetadataJniScanner {
             case "manifest_list":
                 return dataRow.get(columnNameToPosition.get(columnName), String.class);
             case "summary":
-                return dataRow.get(columnNameToPosition.get(columnName), String.class);
+                return dataRow.get(columnNameToPosition.get(columnName), Map.class);
             default:
                 throw new IllegalArgumentException("Unrecognized column name " + columnName);
         }
