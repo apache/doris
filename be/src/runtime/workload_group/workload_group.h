@@ -232,7 +232,7 @@ public:
 
     friend class DummyWorkloadGroupTest;
 
-protected:
+private:
     void create_cgroup_cpu_ctl_no_lock();
     void upsert_cgroup_cpu_ctl_no_lock(WorkloadGroupInfo* wg_info);
     void upsert_thread_pool_no_lock(WorkloadGroupInfo* wg_info,

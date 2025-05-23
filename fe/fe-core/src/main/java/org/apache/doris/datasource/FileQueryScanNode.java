@@ -251,6 +251,10 @@ public abstract class FileQueryScanNode extends FileScanNode {
             }
             SlotDescriptor slotDesc = desc.getSlot(slot.getSlotId());
             String colName = slotDesc.getColumn().getName();
+            if (colName.startsWith(Column.GLOBAL_ROWID_COL)) {
+                continue;
+            }
+
             int idx = -1;
             List<Column> columns = getColumns();
             for (int i = 0; i < columns.size(); i++) {
