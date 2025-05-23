@@ -370,11 +370,25 @@ PhysicalResultSink
 
 -- !const_value_and_join_column_type25 --
 PhysicalResultSink
---PhysicalEmptyRelation
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((t2.d_date = expr_cast(c1 as DATEV2))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type26 --
 PhysicalResultSink
---PhysicalEmptyRelation
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((t2.d_datetime = expr_cast(c1 as DATETIMEV2(0)))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type27 --
 PhysicalResultSink
@@ -522,11 +536,25 @@ PhysicalResultSink
 
 -- !const_value_and_join_column_type41 --
 PhysicalResultSink
---PhysicalEmptyRelation
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((t2.d_date = expr_cast(c1 as DATEV2))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type42 --
 PhysicalResultSink
---PhysicalEmptyRelation
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((t2.d_datetime = expr_cast(c1 as DATETIMEV2(0)))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type43 --
 PhysicalResultSink
@@ -674,11 +702,25 @@ PhysicalResultSink
 
 -- !const_value_and_join_column_type57 --
 PhysicalResultSink
---PhysicalEmptyRelation
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((t2.d_date = expr_cast(c1 as DATEV2))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type58 --
 PhysicalResultSink
---PhysicalEmptyRelation
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((t2.d_datetime = expr_cast(c1 as DATETIMEV2(0)))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type59 --
 PhysicalResultSink
@@ -1462,39 +1504,102 @@ PhysicalResultSink
 
 -- !const_value_and_join_column_type144 --
 PhysicalResultSink
---PhysicalEmptyRelation
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_tinyint as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type145 --
 PhysicalResultSink
---PhysicalEmptyRelation
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_smallint as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type146 --
 PhysicalResultSink
---PhysicalEmptyRelation
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_int as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type147 --
 PhysicalResultSink
---PhysicalEmptyRelation
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_bigint as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type148 --
 PhysicalResultSink
---PhysicalEmptyRelation
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_largeint as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type149 --
 PhysicalResultSink
---PhysicalEmptyRelation
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_bool as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type150 --
 PhysicalResultSink
---PhysicalEmptyRelation
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_float as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type151 --
 PhysicalResultSink
---PhysicalEmptyRelation
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((t2.d_double = expr_cast(c1 as DOUBLE))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type152 --
 PhysicalResultSink
---PhysicalEmptyRelation
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_decimal as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type153 --
 PhysicalResultSink
@@ -1558,7 +1663,14 @@ PhysicalResultSink
 
 -- !const_value_and_join_column_type158 --
 PhysicalResultSink
---PhysicalEmptyRelation
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((t2.d_ipv4 = expr_cast(c1 as IPV4))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type159 --
 PhysicalResultSink
@@ -1573,39 +1685,102 @@ PhysicalResultSink
 
 -- !const_value_and_join_column_type160 --
 PhysicalResultSink
---PhysicalEmptyRelation
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_tinyint as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type161 --
 PhysicalResultSink
---PhysicalEmptyRelation
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_smallint as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type162 --
 PhysicalResultSink
---PhysicalEmptyRelation
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_int as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type163 --
 PhysicalResultSink
---PhysicalEmptyRelation
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_bigint as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type164 --
 PhysicalResultSink
---PhysicalEmptyRelation
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_largeint as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type165 --
 PhysicalResultSink
---PhysicalEmptyRelation
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_bool as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type166 --
 PhysicalResultSink
---PhysicalEmptyRelation
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_float as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type167 --
 PhysicalResultSink
---PhysicalEmptyRelation
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((t2.d_double = expr_cast(c1 as DOUBLE))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type168 --
 PhysicalResultSink
---PhysicalEmptyRelation
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_decimal as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type169 --
 PhysicalResultSink
@@ -1661,7 +1836,14 @@ PhysicalResultSink
 
 -- !const_value_and_join_column_type174 --
 PhysicalResultSink
---PhysicalEmptyRelation
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((t2.d_ipv4 = expr_cast(c1 as IPV4))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type175 --
 PhysicalResultSink
@@ -1676,39 +1858,102 @@ PhysicalResultSink
 
 -- !const_value_and_join_column_type176 --
 PhysicalResultSink
---PhysicalEmptyRelation
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_tinyint as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type177 --
 PhysicalResultSink
---PhysicalEmptyRelation
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_smallint as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type178 --
 PhysicalResultSink
---PhysicalEmptyRelation
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_int as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type179 --
 PhysicalResultSink
---PhysicalEmptyRelation
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_bigint as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type180 --
 PhysicalResultSink
---PhysicalEmptyRelation
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_largeint as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type181 --
 PhysicalResultSink
---PhysicalEmptyRelation
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_bool as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type182 --
 PhysicalResultSink
---PhysicalEmptyRelation
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_float as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type183 --
 PhysicalResultSink
---PhysicalEmptyRelation
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((t2.d_double = expr_cast(c1 as DOUBLE))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type184 --
 PhysicalResultSink
---PhysicalEmptyRelation
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_decimal as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type187 --
 PhysicalResultSink
@@ -1748,7 +1993,14 @@ PhysicalResultSink
 
 -- !const_value_and_join_column_type190 --
 PhysicalResultSink
---PhysicalEmptyRelation
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((t2.d_ipv4 = expr_cast(c1 as IPV4))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type191 --
 PhysicalResultSink
@@ -1763,39 +2015,102 @@ PhysicalResultSink
 
 -- !const_value_and_join_column_type192 --
 PhysicalResultSink
---PhysicalEmptyRelation
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_tinyint as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type193 --
 PhysicalResultSink
---PhysicalEmptyRelation
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_smallint as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type194 --
 PhysicalResultSink
---PhysicalEmptyRelation
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_int as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type195 --
 PhysicalResultSink
---PhysicalEmptyRelation
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_bigint as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type196 --
 PhysicalResultSink
---PhysicalEmptyRelation
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_largeint as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type197 --
 PhysicalResultSink
---PhysicalEmptyRelation
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_bool as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type198 --
 PhysicalResultSink
---PhysicalEmptyRelation
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_float as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type199 --
 PhysicalResultSink
---PhysicalEmptyRelation
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((t2.d_double = expr_cast(c1 as DOUBLE))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type200 --
 PhysicalResultSink
---PhysicalEmptyRelation
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_decimal as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type203 --
 PhysicalResultSink
@@ -1835,7 +2150,14 @@ PhysicalResultSink
 
 -- !const_value_and_join_column_type206 --
 PhysicalResultSink
---PhysicalEmptyRelation
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((t2.d_ipv4 = expr_cast(c1 as IPV4))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type207 --
 PhysicalResultSink
@@ -1850,39 +2172,102 @@ PhysicalResultSink
 
 -- !const_value_and_join_column_type208 --
 PhysicalResultSink
---PhysicalEmptyRelation
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_tinyint as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type209 --
 PhysicalResultSink
---PhysicalEmptyRelation
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_smallint as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type210 --
 PhysicalResultSink
---PhysicalEmptyRelation
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_int as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type211 --
 PhysicalResultSink
---PhysicalEmptyRelation
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_bigint as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type212 --
 PhysicalResultSink
---PhysicalEmptyRelation
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_largeint as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type213 --
 PhysicalResultSink
---PhysicalEmptyRelation
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_bool as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type214 --
 PhysicalResultSink
---PhysicalEmptyRelation
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_float as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type215 --
 PhysicalResultSink
---PhysicalEmptyRelation
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((t2.d_double = expr_cast(c1 as DOUBLE))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type216 --
 PhysicalResultSink
---PhysicalEmptyRelation
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_decimal as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type219 --
 PhysicalResultSink
@@ -1922,7 +2307,14 @@ PhysicalResultSink
 
 -- !const_value_and_join_column_type222 --
 PhysicalResultSink
---PhysicalEmptyRelation
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((t2.d_ipv4 = expr_cast(c1 as IPV4))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type223 --
 PhysicalResultSink
@@ -1937,39 +2329,102 @@ PhysicalResultSink
 
 -- !const_value_and_join_column_type224 --
 PhysicalResultSink
---PhysicalEmptyRelation
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_tinyint as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type225 --
 PhysicalResultSink
---PhysicalEmptyRelation
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_smallint as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type226 --
 PhysicalResultSink
---PhysicalEmptyRelation
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_int as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type227 --
 PhysicalResultSink
---PhysicalEmptyRelation
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_bigint as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type228 --
 PhysicalResultSink
---PhysicalEmptyRelation
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_largeint as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type229 --
 PhysicalResultSink
---PhysicalEmptyRelation
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_bool as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type230 --
 PhysicalResultSink
---PhysicalEmptyRelation
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_float as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type231 --
 PhysicalResultSink
---PhysicalEmptyRelation
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((t2.d_double = expr_cast(c1 as DOUBLE))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type232 --
 PhysicalResultSink
---PhysicalEmptyRelation
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_decimal as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type235 --
 PhysicalResultSink
@@ -2032,39 +2487,102 @@ PhysicalResultSink
 
 -- !const_value_and_join_column_type240 --
 PhysicalResultSink
---PhysicalEmptyRelation
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_tinyint as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type241 --
 PhysicalResultSink
---PhysicalEmptyRelation
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_smallint as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type242 --
 PhysicalResultSink
---PhysicalEmptyRelation
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_int as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type243 --
 PhysicalResultSink
---PhysicalEmptyRelation
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_bigint as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type244 --
 PhysicalResultSink
---PhysicalEmptyRelation
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_largeint as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type245 --
 PhysicalResultSink
---PhysicalEmptyRelation
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_bool as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type246 --
 PhysicalResultSink
---PhysicalEmptyRelation
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_float as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type247 --
 PhysicalResultSink
---PhysicalEmptyRelation
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((t2.d_double = expr_cast(c1 as DOUBLE))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type248 --
 PhysicalResultSink
---PhysicalEmptyRelation
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_decimal as DOUBLE) = expr_cast(c1 as DOUBLE))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type251 --
 PhysicalResultSink
@@ -2104,7 +2622,14 @@ PhysicalResultSink
 
 -- !const_value_and_join_column_type254 --
 PhysicalResultSink
---PhysicalEmptyRelation
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((t2.d_ipv4 = expr_cast(c1 as IPV4))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type255 --
 PhysicalResultSink
