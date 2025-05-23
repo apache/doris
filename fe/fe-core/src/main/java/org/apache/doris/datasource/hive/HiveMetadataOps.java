@@ -72,7 +72,7 @@ public class HiveMetadataOps implements ExternalMetadataOps {
         this(catalog, createCachedClient(hiveConf,
                 Math.max(MIN_CLIENT_POOL_SIZE, Config.max_external_cache_loader_thread_pool_size),
                 jdbcClientConfig));
-        hadoopAuthenticator = catalog.getAuthenticator();
+        hadoopAuthenticator = catalog.getPreExecutionAuthenticator().getHadoopAuthenticator();
         client.setHadoopAuthenticator(hadoopAuthenticator);
     }
 
