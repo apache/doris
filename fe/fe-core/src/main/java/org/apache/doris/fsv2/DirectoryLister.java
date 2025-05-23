@@ -14,23 +14,16 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/trinodb/trino/blob/438/plugin/trino-hive/src/main/java/io/trino/plugin/hive/fs/DirectoryLister.java
+// and modified by Doris
 
-package org.apache.doris.transaction;
+package org.apache.doris.fsv2;
 
-import org.apache.doris.datasource.hive.HiveMetadataOps;
-import org.apache.doris.datasource.iceberg.IcebergMetadataOps;
-import org.apache.doris.fsv2.FileSystemProvider;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.fsv2.remote.RemoteFile;
 
-import java.util.concurrent.Executor;
-
-public class TransactionManagerFactory {
-
-    public static TransactionManager createHiveTransactionManager(HiveMetadataOps ops,
-            FileSystemProvider fileSystemProvider, Executor fileSystemExecutor) {
-        return new HiveTransactionManager(ops, fileSystemProvider, fileSystemExecutor);
-    }
-
-    public static TransactionManager createIcebergTransactionManager(IcebergMetadataOps ops) {
-        return new IcebergTransactionManager(ops);
-    }
+public interface DirectoryLister {
+    RemoteIterator<RemoteFile> listFiles(FileSystem fs, boolean recursive, TableIf table, String location)
+            throws FileSystemIOException;
 }

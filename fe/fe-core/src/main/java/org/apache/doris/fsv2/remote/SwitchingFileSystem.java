@@ -15,11 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.fs.remote;
+package org.apache.doris.fsv2.remote;
 
 import org.apache.doris.backup.Status;
+import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
-import org.apache.doris.fs.FileSystem;
+import org.apache.doris.fsv2.FileSystem;
+import org.apache.doris.fsv2.FileSystemCache;
 
 import java.util.List;
 import java.util.Map;
@@ -34,7 +36,7 @@ public class SwitchingFileSystem implements FileSystem {
     private final Map<String, String> properties;
 
     public SwitchingFileSystem(ExternalMetaCacheMgr extMetaCacheMgr, String bindBrokerName,
-            Map<String, String> properties) {
+                               Map<String, String> properties) {
         this.extMetaCacheMgr = extMetaCacheMgr;
         this.bindBrokerName = bindBrokerName;
         this.properties = properties;
@@ -121,12 +123,10 @@ public class SwitchingFileSystem implements FileSystem {
     }
 
     public FileSystem fileSystem(String location) {
-        /* return extMetaCacheMgr.getFsCache().getRemoteFileSystem(
+        return extMetaCacheMgr.getFsCache().getRemoteFileSystem(
                 new FileSystemCache.FileSystemCacheKey(
                         LocationPath.getFSIdentity(location, properties,
-                                bindBrokerName), properties, bindBrokerName));*/
-        //fixme
-        return  null;
+                                bindBrokerName), properties, bindBrokerName));
     }
 }
 

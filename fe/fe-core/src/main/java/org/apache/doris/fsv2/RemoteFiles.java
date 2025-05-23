@@ -15,22 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.transaction;
+package org.apache.doris.fsv2;
 
-import org.apache.doris.datasource.hive.HiveMetadataOps;
-import org.apache.doris.datasource.iceberg.IcebergMetadataOps;
-import org.apache.doris.fsv2.FileSystemProvider;
+import org.apache.doris.fs.remote.RemoteFile;
 
-import java.util.concurrent.Executor;
+import java.util.List;
 
-public class TransactionManagerFactory {
+public class RemoteFiles {
 
-    public static TransactionManager createHiveTransactionManager(HiveMetadataOps ops,
-            FileSystemProvider fileSystemProvider, Executor fileSystemExecutor) {
-        return new HiveTransactionManager(ops, fileSystemProvider, fileSystemExecutor);
+    private final List<RemoteFile> files;
+
+    public RemoteFiles(List<RemoteFile> files) {
+        this.files = files;
     }
 
-    public static TransactionManager createIcebergTransactionManager(IcebergMetadataOps ops) {
-        return new IcebergTransactionManager(ops);
+    public List<RemoteFile> files() {
+        return files;
     }
 }
