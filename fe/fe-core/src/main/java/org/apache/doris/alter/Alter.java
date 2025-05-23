@@ -855,8 +855,8 @@ public class Alter {
 
         String tableName = dbTableName.getTbl();
         View view = (View) db.getTableOrMetaException(tableName, TableType.VIEW);
-        modifyViewDef(db, view, stmt.getInlineViewDef(), ctx.getSessionVariable().getSqlMode(), stmt.getColumns(),
-                stmt.getComment());
+        modifyViewDef(db, view, stmt.getInlineViewDef(), ctx.getSessionVariable().getSqlMode(),
+                stmt.getColumns(), stmt.getComment());
     }
 
     private void modifyViewDef(Database db, View view, String inlineViewDef, long sqlMode,
@@ -867,14 +867,15 @@ public class Alter {
             try {
                 if (comment != null) {
                     view.setComment(comment);
-                } else {
+                }
+                // when do alter view modify comment, inlineViewDef and newFullSchema will be empty.
+                if (!Strings.isNullOrEmpty(inlineViewDef)) {
                     view.setInlineViewDefWithSqlMode(inlineViewDef, sqlMode);
                     view.setNewFullSchema(newFullSchema);
                 }
                 String viewName = view.getName();
                 db.unregisterTable(viewName);
                 db.registerTable(view);
-
                 AlterViewInfo alterViewInfo = new AlterViewInfo(db.getId(), view.getId(),
                         inlineViewDef, newFullSchema, sqlMode, comment);
                 Env.getCurrentEnv().getEditLog().logModifyViewDef(alterViewInfo);

@@ -555,8 +555,8 @@ public class NereidsPlanner extends Planner {
             Optional<TableIf> table = Optional.empty();
             if (output instanceof SlotReference) {
                 SlotReference slotReference = (SlotReference) output;
-                column = slotReference.getColumn();
-                table = slotReference.getTable();
+                column = slotReference.getOneLevelColumn();
+                table = slotReference.getOneLevelTable();
             }
             columnLabels.add(output.getName());
             FieldInfo fieldInfo = new FieldInfo(

@@ -249,9 +249,11 @@ dictionaryColumnDef:
 supportedAlterStatement
     : ALTER SYSTEM alterSystemClause                                                        #alterSystem
     | ALTER VIEW name=multipartIdentifier
-        ((MODIFY commentSpec) | ((LEFT_PAREN cols=simpleColumnDefs RIGHT_PAREN)? AS query)) #alterView
-    | ALTER CATALOG name=identifier RENAME newName=identifier                       #alterCatalogRename
-    | ALTER ROLE role=identifierOrText commentSpec                                        #alterRole
+      (MODIFY commentSpec |
+      (LEFT_PAREN cols=simpleColumnDefs RIGHT_PAREN)?
+      (COMMENT STRING_LITERAL)? AS query)                                                   #alterView
+    | ALTER CATALOG name=identifier RENAME newName=identifier                               #alterCatalogRename
+    | ALTER ROLE role=identifierOrText commentSpec                                          #alterRole
     | ALTER STORAGE VAULT name=multipartIdentifier properties=propertyClause                #alterStorageVault
     | ALTER WORKLOAD GROUP name=identifierOrText (FOR computeGroup=identifierOrText)?
         properties=propertyClause?                                                          #alterWorkloadGroup

@@ -2884,11 +2884,11 @@ public class StmtExecutor {
             for (Slot slot : output) {
                 serializer.reset();
                 if (slot instanceof SlotReference
-                        && ((SlotReference) slot).getColumn().isPresent()
-                        && ((SlotReference) slot).getTable().isPresent()) {
+                        && ((SlotReference) slot).getOriginalColumn().isPresent()
+                        && ((SlotReference) slot).getOriginalTable().isPresent()) {
                     SlotReference slotReference = (SlotReference) slot;
-                    TableIf table = slotReference.getTable().get();
-                    Column column = slotReference.getColumn().get();
+                    TableIf table = slotReference.getOriginalTable().get();
+                    Column column = slotReference.getOriginalColumn().get();
                     DatabaseIf database = table.getDatabase();
                     String dbName = database == null ? "" : database.getFullName();
                     serializer.writeField(dbName, table.getName(), column, false);
