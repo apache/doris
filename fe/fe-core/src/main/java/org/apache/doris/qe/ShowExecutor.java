@@ -115,7 +115,6 @@ import org.apache.doris.analysis.ShowTrashStmt;
 import org.apache.doris.analysis.ShowTypeCastStmt;
 import org.apache.doris.analysis.ShowUserPropertyStmt;
 import org.apache.doris.analysis.ShowVariablesStmt;
-import org.apache.doris.analysis.ShowViewStmt;
 import org.apache.doris.analysis.ShowWorkloadGroupsStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.backup.AbstractJob;
@@ -441,8 +440,6 @@ public class ShowExecutor {
             handleShowDynamicPartition();
         } else if (stmt instanceof ShowIndexStmt) {
             handleShowIndex();
-        } else if (stmt instanceof ShowViewStmt) {
-            handleShowView();
         } else if (stmt instanceof ShowTransactionStmt) {
             handleShowTransaction();
         } else if (stmt instanceof ShowPluginsStmt) {
@@ -1303,26 +1300,6 @@ public class ShowExecutor {
                 } finally {
                     olapTable.readUnlock();
                 }
-            }
-        }
-        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
-    }
-
-    // Show view statement.
-    private void handleShowView() {
-        ShowViewStmt showStmt = (ShowViewStmt) stmt;
-        List<List<String>> rows = Lists.newArrayList();
-        List<View> matchViews = showStmt.getMatchViews();
-        for (View view : matchViews) {
-            view.readLock();
-            try {
-                List<String> createViewStmt = Lists.newArrayList();
-                Env.getDdlStmt(view, createViewStmt, null, null, false, true /* hide password */, -1L);
-                if (!createViewStmt.isEmpty()) {
-                    rows.add(Lists.newArrayList(view.getName(), createViewStmt.get(0)));
-                }
-            } finally {
-                view.readUnlock();
             }
         }
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);

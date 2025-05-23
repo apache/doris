@@ -33,7 +33,6 @@ import org.apache.doris.analysis.ShowProcedureStmt;
 import org.apache.doris.analysis.ShowSqlBlockRuleStmt;
 import org.apache.doris.analysis.ShowTableStmt;
 import org.apache.doris.analysis.ShowVariablesStmt;
-import org.apache.doris.analysis.ShowViewStmt;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
@@ -540,18 +539,6 @@ public class ShowExecutorTest {
         Assert.assertTrue(resultSet.next());
         Assert.assertEquals("col1", resultSet.getString(0));
         Assert.assertEquals("NO", resultSet.getString(3));
-        Assert.assertFalse(resultSet.next());
-    }
-
-    @Test
-    public void testShowView() throws UserException {
-        ctx.setEnv(env);
-        ctx.setQualifiedUser("testUser");
-        ShowViewStmt stmt = new ShowViewStmt("", new TableName(internalCtl, "testDb", "testTbl"));
-        stmt.analyze(AccessTestUtil.fetchAdminAnalyzer(true));
-        ShowExecutor executor = new ShowExecutor(ctx, stmt);
-        ShowResultSet resultSet = executor.execute();
-
         Assert.assertFalse(resultSet.next());
     }
 
