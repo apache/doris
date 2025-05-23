@@ -114,20 +114,20 @@ public class SplitAssignment {
                 if (retryTimes >= maxRetryTimes) {
                     throw new UserException("Failed to offer batch split after " + maxRetryTimes + " times");
                 }
+                BlockingQueue<Collection<TScanRangeLocations>> queue =
+                        assignment.computeIfAbsent(backend, be -> new LinkedBlockingQueue<>(10000));
                 try {
-                    BlockingQueue<Collection<TScanRangeLocations>> queue =
-                            assignment.computeIfAbsent(backend, be -> new LinkedBlockingQueue<>(10000));
                     if (queue.offer(locations, 100, TimeUnit.MILLISECONDS)) {
                         break;
                     }
-                    if (isStopped.get() || scheduleFinished.get() || exception != null) {
-                        // Throwing an exception here is to terminate the external thread.
-                        // Otherwise, the external thread will still generate splits
-                        //     and continue to add them to the queue.
-                        throw new UserException("No need to get split");
-                    }
                 } catch (Exception e) {
                     throw new UserException("Failed to offer batch split", e);
+                }
+                if (isStopped.get() || scheduleFinished.get() || exception != null) {
+                    // Throwing an exception here is to terminate the external thread.
+                    // Otherwise, the external thread will still generate splits
+                    //     and continue to add them to the queue.
+                    throw new UserException("No need to get split");
                 }
                 retryTimes++;
             }
@@ -146,7 +146,7 @@ public class SplitAssignment {
         return sampleSplit;
     }
 
-    public void addToQueue(List<Split> splits) {
+    public void addToQueue(List<Split> splits) throws UserException {
         if (splits.isEmpty()) {
             return;
         }
@@ -156,19 +156,9 @@ public class SplitAssignment {
                 sampleSplit = splits.get(0);
                 assignLock.notify();
             }
-            try {
-                batch = backendPolicy.computeScanRangeAssignment(splits);
-            } catch (UserException e) {
-                exception = e;
-            }
+            batch = backendPolicy.computeScanRangeAssignment(splits);
         }
-        if (batch != null) {
-            try {
-                appendBatch(batch);
-            } catch (UserException e) {
-                exception = e;
-            }
-        }
+        appendBatch(batch);
     }
 
     private void notifyAssignment() {
@@ -190,8 +180,16 @@ public class SplitAssignment {
     }
 
     public void setException(UserException e) {
-        exception = e;
+        addUserException(e);
         notifyAssignment();
+    }
+
+    private void addUserException(UserException e) {
+        if (exception != null) {
+            exception.addSuppressed(e);
+        } else {
+            exception = e;
+        }
     }
 
     public void finishSchedule() {
@@ -213,6 +211,9 @@ public class SplitAssignment {
             }
         });
         notifyAssignment();
+        if (exception != null) {
+            throw new RuntimeException(exception);
+        }
     }
 
     public boolean isStop() {
