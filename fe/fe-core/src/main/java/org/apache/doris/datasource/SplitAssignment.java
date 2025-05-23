@@ -36,6 +36,7 @@ import java.util.Set;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -59,7 +60,6 @@ public class SplitAssignment {
 
     private UserException exception = null;
     private final List<Closeable> closeableResources = new ArrayList<>();
-    private Thread thread;
 
     public SplitAssignment(
             FederationBackendPolicy backendPolicy,
@@ -88,7 +88,7 @@ public class SplitAssignment {
                 }
                 waitTotalTime += waitIntervalTimeMillis;
                 if (waitTotalTime > initTimeoutMillis) {
-                    throw new UserException("timeout to get first split");
+                    throw new UserException("Timeout to get first split");
                 }
             }
         }
@@ -108,13 +108,28 @@ public class SplitAssignment {
             for (Split split : splits) {
                 locations.add(splitToScanRange.getScanRange(backend, locationProperties, split, pathPartitionKeys));
             }
-            try {
-                assignment.computeIfAbsent(backend, be -> new LinkedBlockingQueue<>(10000)).put(locations);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                LOG.info("Thread interrupted while putting batch split", e);
-            } catch (Exception e) {
-                throw new UserException("Failed to offer batch split", e);
+            int maxRetryTimes = 5;
+            int retryTimes = 0;
+            while (true) {
+                if (retryTimes >= maxRetryTimes) {
+                    throw new UserException("Failed to offer batch split after " + maxRetryTimes + " times");
+                }
+                try {
+                    BlockingQueue<Collection<TScanRangeLocations>> queue =
+                            assignment.computeIfAbsent(backend, be -> new LinkedBlockingQueue<>(10000));
+                    if (queue.offer(locations, 100, TimeUnit.MILLISECONDS)) {
+                        break;
+                    }
+                    if (isStopped.get() || scheduleFinished.get() || exception != null) {
+                        // Throwing an exception here is to terminate the external thread.
+                        // Otherwise, the external thread will still generate splits
+                        //     and continue to add them to the queue.
+                        throw new UserException("No need to get split");
+                    }
+                } catch (Exception e) {
+                    throw new UserException("Failed to offer batch split", e);
+                }
+                retryTimes++;
             }
         }
     }
@@ -197,9 +212,6 @@ public class SplitAssignment {
                 // ignore
             }
         });
-        if (this.thread != null) {
-            this.thread.interrupt();
-        }
         notifyAssignment();
     }
 
@@ -209,9 +221,5 @@ public class SplitAssignment {
 
     public void addCloseable(Closeable resource) {
         closeableResources.add(resource);
-    }
-
-    public void addFetchSplitThread(Thread thread) {
-        this.thread = thread;
     }
 }

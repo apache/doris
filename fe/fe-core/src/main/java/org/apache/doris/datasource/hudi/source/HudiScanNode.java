@@ -77,6 +77,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -417,6 +418,7 @@ public class HudiScanNode extends HiveScanNode {
             return;
         }
         AtomicInteger numFinishedPartitions = new AtomicInteger(0);
+        ExecutorService scheduleExecutor = Env.getCurrentEnv().getExtMetaCacheMgr().getScheduleExecutor();
         CompletableFuture.runAsync(() -> {
             for (HivePartition partition : prunedPartitions) {
                 if (batchException.get() != null || splitAssignment.isStop()) {
@@ -447,12 +449,12 @@ public class HudiScanNode extends HiveScanNode {
                             splitAssignment.finishSchedule();
                         }
                     }
-                });
+                }, scheduleExecutor);
             }
             if (batchException.get() != null) {
                 splitAssignment.setException(batchException.get());
             }
-        });
+        }, scheduleExecutor);
     }
 
     @Override
