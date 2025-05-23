@@ -26,7 +26,7 @@ import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.mysql.privilege.Auth;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -62,10 +62,10 @@ public class ShowStorageVaultCommand extends ShowCommand {
         try {
             Cloud.GetObjStoreInfoResponse resp = MetaServiceProxy.getInstance()
                     .getObjStoreInfo(Cloud.GetObjStoreInfoRequest.newBuilder().build());
-            Auth auth = Env.getCurrentEnv().getAuth();
+            AccessControllerManager accessManager = Env.getCurrentEnv().getAccessManager();
             UserIdentity user = ctx.getCurrentUserIdentity();
             rows = resp.getStorageVaultList().stream()
-                .filter(storageVault -> auth.checkStorageVaultPriv(user, storageVault.getName(),
+                .filter(storageVault -> accessManager.checkStorageVaultPriv(user, storageVault.getName(),
                     PrivPredicate.USAGE))
                 .map(StorageVault::convertToShowStorageVaultProperties)
                 .collect(Collectors.toList());
