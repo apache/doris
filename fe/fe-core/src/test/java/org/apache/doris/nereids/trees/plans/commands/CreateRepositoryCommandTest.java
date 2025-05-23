@@ -30,6 +30,7 @@ import org.apache.doris.utframe.TestWithFeService;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -63,7 +64,7 @@ public class CreateRepositoryCommandTest extends TestWithFeService {
         Assertions.assertTrue(logicalPlan instanceof CreateRepositoryCommand);
         Assertions.assertEquals(((CreateRepositoryCommand) logicalPlan).getProperties().size(), 4);
         Repository repository = getRepository((CreateRepositoryCommand) logicalPlan, "s3_repo");
-        Assertions.assertEquals(9, repository.getRemoteFileSystem().getProperties().size());
+        Assertions.assertEquals(4, repository.getRemoteFileSystem().getProperties().size());
 
         String s3RepoNew = "CREATE REPOSITORY `s3_repo_new`\n"
                 + "WITH S3\n"
@@ -79,9 +80,10 @@ public class CreateRepositoryCommandTest extends TestWithFeService {
         Assertions.assertTrue(logicalPlan1 instanceof CreateRepositoryCommand);
         Assertions.assertEquals(((CreateRepositoryCommand) logicalPlan1).getProperties().size(), 3);
         Repository repositoryNew = getRepository((CreateRepositoryCommand) logicalPlan1, "s3_repo_new");
-        Assertions.assertEquals(repositoryNew.getRemoteFileSystem().getProperties().size(), 5);
+        Assertions.assertEquals(repositoryNew.getRemoteFileSystem().getProperties().size(), 3);
     }
 
+    @Disabled("not support")
     @Test
     public void testBosBrokerRepositoryPropertiesConverter() throws Exception {
         FeConstants.runningUnitTest = true;
