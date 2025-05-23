@@ -103,6 +103,14 @@ suite("window_skew_rewrite") {
     from  test_skew_window) t;
     """
 
+    qt_without_order_key """
+    SELECT 
+    b,
+    SUM(a) OVER(PARTITION BY [skew] b) AS w,
+    MAX(a) OVER(PARTITION BY [skew] c) as m
+    FROM test_skew_window order by 1,2,3 limit 20
+    """
+
     // shape
     qt_one_window_expr_shape """explain shape plan select sum(w) from (select sum(a) over(partition by [skew] b order by d rows between unbounded PRECEDING and current row) w from  test_skew_window ) t;"""
     qt_two_window_expr_in_same_windowFrameGroup_shape """explain shape plan select sum(w1), sum(w3) from (select 
@@ -167,5 +175,100 @@ suite("window_skew_rewrite") {
     explain shape plan select sum(w1),sum(w2) from (select sum(a) over(partition by b order by d rows between unbounded PRECEDING and 1 FOLLOWING) w1,
     min(a) over(partition by [skew] c order by a rows between unbounded PRECEDING and 2 FOLLOWING) w2
     from  test_skew_window) t;
+    """
+
+    sql """drop table if exists test_skew_join"""
+    sql """CREATE TABLE test_skew_join (
+            a INT,
+                    join_key INT,
+            e VARCHAR(100)
+    ) DISTRIBUTED BY HASH(a) BUCKETS 32 PROPERTIES("replication_num"="1");"""
+
+    sql """INSERT INTO test_skew_join VALUES
+    (1, 1, 'join1'),
+    (2, 1, 'join2'),
+    (3, 1, 'join3'),
+    (4, 2, 'join4'),
+    (5, 2, 'join5'),
+    (6, 3, 'join6'),
+    (7, 3, 'join7'),
+    (8, 3, 'join8'),
+    (9, 3, 'join9'),
+    (10, 4, 'join10');"""
+
+    qt_skew_agg_group_by """
+    SELECT b, SUM(w) AS total_sum
+    FROM (
+        SELECT 
+            b,
+            SUM(a) OVER(PARTITION BY [skew] b ORDER BY d ROWS UNBOUNDED PRECEDING) AS w
+        FROM test_skew_window
+    ) t
+    GROUP BY b
+    ORDER BY 1,2;
+    """
+    qt_skew_subquery_agg """
+    SELECT AVG(w) AS avg_window
+    FROM (
+        SELECT 
+            SUM(a) OVER(PARTITION BY [skew] b ORDER BY d) AS w
+        FROM test_skew_window
+    ) t;
+    """
+    qt_skew_join_window """
+    SELECT SUM(t1.w) AS total
+    FROM (
+        SELECT 
+            j.join_key,
+            SUM(t.a) OVER(PARTITION BY [skew] j.a ORDER BY t.d) AS w
+        FROM test_skew_window t
+        JOIN test_skew_join j ON t.a = j.a
+    ) t1;
+    """
+
+    qt_skew_multi_window_agg """
+    SELECT 
+        join_key,
+        SUM(w1) AS sum_win1,
+        AVG(w2) AS avg_win2
+    FROM (
+        SELECT 
+            j.join_key,
+            SUM(t.a) OVER(PARTITION BY [skew] j.join_key ORDER BY t.d) AS w1,
+            RANK() OVER(PARTITION BY [skew] j.join_key ORDER BY t.b) AS w2
+        FROM test_skew_window t
+        JOIN test_skew_join j ON t.a = j.a
+    ) t
+    GROUP BY join_key
+    ORDER BY 1,2,3;
+    """
+
+    qt_skew_window_join_condition """
+    SELECT 
+        t1.a,
+        t2.e
+    FROM (
+        SELECT 
+            a,
+            SUM(b) OVER(PARTITION BY [skew] b ORDER BY d) AS sum_b
+        FROM test_skew_window
+    ) t1
+    JOIN test_skew_join t2 ON t1.a = t2.a
+    WHERE t1.sum_b > 0
+    ORDER BY 1,2;
+    """
+    qt_skew_having_agg """
+    SELECT 
+        b,
+        MAX(w) AS max_window
+    FROM (
+        SELECT 
+            b,
+            SUM(a) OVER(PARTITION BY [skew] b ORDER BY d) AS w
+        FROM test_skew_window
+    ) t
+    GROUP BY b
+    HAVING MAX(w) > 1000
+    ORDER BY 1,2;
     """
 }
