@@ -206,19 +206,32 @@ Status RoutineLoadTaskExecutor::get_kafka_real_offsets_for_partitions(
 
 Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
     std::unique_lock<std::mutex> l(_lock);
+    // check if already submitted
     if (_task_map.find(task.id) != _task_map.end()) {
-        // already submitted
         LOG(INFO) << "routine load task " << UniqueId(task.id) << " has already been submitted";
         return Status::OK();
     }
 
-    if (_task_map.size() >= config::max_routine_load_thread_pool_size || _reach_memory_limit()) {
+    // check task num limit
+    if (_task_map.size() >= config::max_routine_load_thread_pool_size) {
         LOG(INFO) << "too many tasks in thread pool. reject task: " << UniqueId(task.id)
                   << ", job id: " << task.job_id
                   << ", queue size: " << _thread_pool->get_queue_size()
                   << ", current tasks num: " << _task_map.size();
         return Status::TooManyTasks("{}_{}", UniqueId(task.id).to_string(),
                                     BackendOptions::get_localhost());
+    }
+
+    // check memory limit
+    std::string reason;
+    DBUG_EXECUTE_IF("RoutineLoadTaskExecutor.submit_task.memory_limit", {
+        _reach_memory_limit(reason);
+        return Status::MemoryLimitExceeded("fake reason: " + reason);
+    });
+    if (_reach_memory_limit(reason)) {
+        LOG(INFO) << "reach memory limit. reject task: " << UniqueId(task.id)
+                  << ", job id: " << task.job_id << ", reason: " << reason;
+        return Status::MemoryLimitExceeded(reason);
     }
 
     // create the context
@@ -315,13 +328,17 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
     }
 }
 
-bool RoutineLoadTaskExecutor::_reach_memory_limit() {
+bool RoutineLoadTaskExecutor::_reach_memory_limit(std::string& reason) {
+    DBUG_EXECUTE_IF("RoutineLoadTaskExecutor.submit_task.memory_limit", {
+        reason = "reach memory limit";
+        return true;
+    });
     bool is_exceed_soft_mem_limit = GlobalMemoryArbitrator::is_exceed_soft_mem_limit();
     auto current_load_mem_value = MemoryProfile::load_current_usage();
     if (is_exceed_soft_mem_limit || current_load_mem_value > _load_mem_limit) {
-        LOG(INFO) << "is_exceed_soft_mem_limit: " << is_exceed_soft_mem_limit
-                  << " current_load_mem_value: " << current_load_mem_value
-                  << " _load_mem_limit: " << _load_mem_limit;
+        reason = "is_exceed_soft_mem_limit: " + std::to_string(is_exceed_soft_mem_limit) +
+                 " current_load_mem_value: " + std::to_string(current_load_mem_value) +
+                 " _load_mem_limit: " + std::to_string(_load_mem_limit);
         return true;
     }
     return false;
