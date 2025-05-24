@@ -83,6 +83,7 @@ public class DescribeCommand extends ShowCommand {
     private TableNameInfo dbTableName;
     private boolean isAllTables = false;
     private boolean isOlapTable = false;
+    private boolean showComment = false;
 
     private PartitionNamesInfo partitionNames;
 
@@ -90,7 +91,6 @@ public class DescribeCommand extends ShowCommand {
     private boolean isTableValuedFunction;
 
     private List<List<String>> rows = new LinkedList<List<String>>();
-    private ProcNodeInterface node;
 
     public DescribeCommand(TableNameInfo dbTableName, boolean isAllTables, PartitionNamesInfo partitionNames) {
         super(PlanType.DESCRIBE);
@@ -154,11 +154,15 @@ public class DescribeCommand extends ShowCommand {
     /**
      * getMetaData
      */
+    @Override
     public ShowResultSetMetaData getMetaData() {
         if (!isAllTables) {
             ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
             for (String col : IndexSchemaProcNode.TITLE_NAMES) {
                 builder.addColumn(new Column(col, ScalarType.createVarchar(30)));
+            }
+            if (showComment) {
+                builder.addColumn(new Column(IndexSchemaProcNode.COMMENT_COLUMN_TITLE, ScalarType.createStringType()));
             }
             return builder.build();
         } else {
@@ -173,8 +177,8 @@ public class DescribeCommand extends ShowCommand {
     /**
      * validateTableValuedFunction
      */
-    public void validateTableValuedFunction(ConnectContext ctx, String funcName) throws AnalysisException {
-        // check privilige for backends/local tvf
+    private void validateTableValuedFunction(ConnectContext ctx, String funcName) throws AnalysisException {
+        // check privilege for backends/local tvf
         if (funcName.equalsIgnoreCase(BackendsTableValuedFunction.NAME)
                 || funcName.equalsIgnoreCase(LocalTableValuedFunction.NAME)) {
             if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ctx, PrivPredicate.ADMIN)
@@ -267,11 +271,11 @@ public class DescribeCommand extends ShowCommand {
                     builder.deleteCharAt(builder.length() - 1);
                     procString += builder.toString();
                 }
-                node = ProcService.getInstance().open(procString);
+                ProcNodeInterface node = ProcService.getInstance().open(procString);
                 if (node == null) {
                     throw new AnalysisException("Describe table[" + dbTableName.getTbl() + "] failed");
                 }
-                rows.addAll(getResultRows());
+                rows.addAll(getResultRows(node));
             } else {
                 Util.prohibitExternalCatalog(dbTableName.getCtl(), this.getClass().getSimpleName() + " ALL");
                 if (table instanceof OlapTable) {
@@ -417,7 +421,8 @@ public class DescribeCommand extends ShowCommand {
     /**
      * getResultRows
      */
-    public List<List<String>> getResultRows() throws AnalysisException {
+    private List<List<String>> getResultRows(ProcNodeInterface node) throws AnalysisException {
+        showComment = ConnectContext.get().getSessionVariable().showColumnCommentInDescribe;
         Preconditions.checkNotNull(node);
         List<List<String>> rows = node.fetchResult().getRows();
         List<List<String>> res = new ArrayList<>();
