@@ -66,6 +66,26 @@ SlotDescriptor::SlotDescriptor(const TSlotDescriptor& tdesc)
           _is_auto_increment(tdesc.__isset.is_auto_increment ? tdesc.is_auto_increment : false),
           _col_default_value(tdesc.__isset.col_default_value ? tdesc.col_default_value : "") {
     if (tdesc.__isset.virtual_column_expr) {
+        // Make sure virtual column is valid.
+        if (tdesc.virtual_column_expr.nodes.empty()) {
+            LOG_ERROR("Virtual column expr node is empty, col_name={}, col_unique_id={}",
+                      tdesc.colName, tdesc.col_unique_id);
+
+            throw doris::Exception(doris::ErrorCode::FATAL_ERROR,
+                                   "Virtual column expr node is empty, col_name: {}, "
+                                   "col_unique_id: {}",
+                                   tdesc.colName, tdesc.col_unique_id);
+        }
+        const auto& node = tdesc.virtual_column_expr.nodes[0];
+        if (node.node_type == TExprNodeType::SLOT_REF) {
+            LOG_ERROR(
+                    "Virtual column expr node is slot ref, col_name={}, col_unique_id={}, expr: {}",
+                    tdesc.colName, tdesc.col_unique_id, apache::thrift::ThriftDebugString(tdesc));
+            throw doris::Exception(doris::ErrorCode::FATAL_ERROR,
+                                   "Virtual column expr node is slot ref, col_name: {}, "
+                                   "col_unique_id: {}",
+                                   tdesc.colName, tdesc.col_unique_id);
+        }
         this->virtual_column_expr = std::make_shared<doris::TExpr>(tdesc.virtual_column_expr);
     }
 }

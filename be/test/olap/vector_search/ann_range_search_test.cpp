@@ -826,10 +826,11 @@ TEST_F(VectorSearchTest, TestPrepareAnnRangeSearch) {
     state->set_desc_tbl(desc_tbl_ptr);
 
     VExprContextSPtr range_search_ctx;
+    doris::VectorSearchUserParams user_params;
     ASSERT_TRUE(vectorized::VExpr::create_expr_tree(texpr, range_search_ctx).ok());
     ASSERT_TRUE(range_search_ctx->prepare(state.get(), row_desc).ok());
     ASSERT_TRUE(range_search_ctx->open(state.get()).ok());
-    ASSERT_TRUE(range_search_ctx->prepare_ann_range_search().ok());
+    ASSERT_TRUE(range_search_ctx->prepare_ann_range_search(user_params).ok());
     std::shared_ptr<VectorizedFnCall> fn_call =
             std::dynamic_pointer_cast<VectorizedFnCall>(range_search_ctx->root());
 
@@ -840,7 +841,7 @@ TEST_F(VectorSearchTest, TestPrepareAnnRangeSearch) {
     ASSERT_EQ(fn_call->_ann_range_search_params.radius, 10);
 
     doris::segment_v2::RangeSearchParams range_search_params =
-            fn_call->_ann_range_search_params.toRangeSearchParams();
+            fn_call->_ann_range_search_params.to_range_search_params();
     EXPECT_EQ(range_search_params.radius, 10.0f);
     std::vector<int> query_array_groud_truth = {1, 2, 3, 4, 5, 6, 7, 20};
     std::vector<int> query_array_f32;
@@ -867,11 +868,11 @@ TEST_F(VectorSearchTest, TestEvaluateAnnRangeSearch) {
     ASSERT_TRUE(vectorized::VExpr::create_expr_tree(texpr, range_search_ctx).ok());
     ASSERT_TRUE(range_search_ctx->prepare(state.get(), row_desc).ok());
     ASSERT_TRUE(range_search_ctx->open(state.get()).ok());
-    ASSERT_TRUE(range_search_ctx->prepare_ann_range_search().ok());
-
+    doris::VectorSearchUserParams user_params;
+    ASSERT_TRUE(range_search_ctx->prepare_ann_range_search(user_params).ok());
     std::shared_ptr<VectorizedFnCall> fn_call =
             std::dynamic_pointer_cast<VectorizedFnCall>(range_search_ctx->root());
-
+    ASSERT_EQ(fn_call->_ann_range_search_params.user_params, user_params);
     ASSERT_TRUE(fn_call->_ann_range_search_params.is_ann_range_search == true);
     ASSERT_EQ(fn_call->_ann_range_search_params.is_le_or_lt, false);
     ASSERT_EQ(fn_call->_ann_range_search_params.src_col_idx, 1);
@@ -906,7 +907,7 @@ TEST_F(VectorSearchTest, TestEvaluateAnnRangeSearch) {
                              }),
                              testing::_, testing::_))
             .WillOnce(testing::Invoke([](const doris::segment_v2::RangeSearchParams& params,
-                                         const doris::segment_v2::CustomSearchParams& custom_params,
+                                         const doris::VectorSearchUserParams& custom_params,
                                          doris::segment_v2::RangeSearchResult* result) {
                 // size_t num_results = 10;
                 result->roaring = std::make_shared<roaring::Roaring>();
@@ -960,7 +961,8 @@ TEST_F(VectorSearchTest, TestEvaluateAnnRangeSearch2) {
     ASSERT_TRUE(vectorized::VExpr::create_expr_tree(texpr, range_search_ctx).ok());
     ASSERT_TRUE(range_search_ctx->prepare(state.get(), row_desc).ok());
     ASSERT_TRUE(range_search_ctx->open(state.get()).ok());
-    ASSERT_TRUE(range_search_ctx->prepare_ann_range_search().ok());
+    doris::VectorSearchUserParams user_params;
+    ASSERT_TRUE(range_search_ctx->prepare_ann_range_search(user_params).ok());
 
     std::shared_ptr<VectorizedFnCall> fn_call =
             std::dynamic_pointer_cast<VectorizedFnCall>(range_search_ctx->root());
@@ -999,7 +1001,7 @@ TEST_F(VectorSearchTest, TestEvaluateAnnRangeSearch2) {
                              }),
                              testing::_, testing::_))
             .WillOnce(testing::Invoke([](const doris::segment_v2::RangeSearchParams& params,
-                                         const doris::segment_v2::CustomSearchParams& custom_params,
+                                         const doris::VectorSearchUserParams& custom_params,
                                          doris::segment_v2::RangeSearchResult* result) {
                 size_t num_results = 10;
                 result->roaring = std::make_shared<roaring::Roaring>();

@@ -569,11 +569,13 @@ Status OlapScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
         // order by 的表达式需要是一个 slot_ref，并且类型需要是虚拟列
         DCHECK(ordering_expr.nodes[0].__isset.slot_ref);
         DCHECK(ordering_expr.nodes[0].slot_ref.is_virtual_slot);
-        size_t limit = olap_scan_node.ann_sort_limit;
+        DCHECK(olap_scan_node.ann_sort_info.is_asc_order.size() == 1);
+        const bool asc = olap_scan_node.ann_sort_info.is_asc_order[0];
+        const size_t limit = olap_scan_node.ann_sort_limit;
         std::shared_ptr<vectorized::VExprContext> ordering_expr_ctx;
         RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(ordering_expr, ordering_expr_ctx));
         _ann_topn_descriptor =
-                vectorized::AnnTopNDescriptor::create_shared(limit, ordering_expr_ctx);
+                vectorized::AnnTopNDescriptor::create_shared(asc, limit, ordering_expr_ctx);
     }
 
     return ScanLocalState<OlapScanLocalState>::init(state, info);

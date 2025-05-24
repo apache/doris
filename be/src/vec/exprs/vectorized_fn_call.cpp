@@ -327,7 +327,8 @@ bool VectorizedFnCall::equals(const VExpr& other) {
     SlotRef
 */
 
-Status VectorizedFnCall::prepare_ann_range_search() {
+Status VectorizedFnCall::prepare_ann_range_search(
+        const doris::VectorSearchUserParams& user_params) {
     std::set<TExprOpcode::type> ops = {TExprOpcode::GE, TExprOpcode::LE, TExprOpcode::LE,
                                        TExprOpcode::GT, TExprOpcode::LT};
     if (ops.find(this->op()) == ops.end()) {
@@ -430,6 +431,7 @@ Status VectorizedFnCall::prepare_ann_range_search() {
         _ann_range_search_params.query_value[i] = static_cast<Float32>(cf64->get_data()[i]);
     }
     _ann_range_search_params.is_ann_range_search = true;
+    _ann_range_search_params.user_params = user_params;
     LOG_INFO("Ann range search params: {}", _ann_range_search_params.to_string());
     return Status::OK();
 }
@@ -465,13 +467,13 @@ Status VectorizedFnCall::evaluate_ann_range_search(
         return Status::OK();
     }
 
-    RangeSearchParams params = _ann_range_search_params.toRangeSearchParams();
-    CustomSearchParams custom_params = _ann_range_search_params.toCustomSearchParams();
+    RangeSearchParams params = _ann_range_search_params.to_range_search_params();
 
     params.roaring = &row_bitmap;
     DCHECK(params.roaring != nullptr);
     RangeSearchResult result;
-    RETURN_IF_ERROR(ann_index_iterators->range_search(params, custom_params, &result));
+    RETURN_IF_ERROR(ann_index_iterators->range_search(params, _ann_range_search_params.user_params,
+                                                      &result));
 
 #ifndef NDEBUG
     if (this->_ann_range_search_params.is_le_or_lt == false) {

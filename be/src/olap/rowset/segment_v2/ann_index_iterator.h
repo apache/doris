@@ -23,6 +23,7 @@
 #include "gutil/integral_types.h"
 #include "olap/rowset/segment_v2/ann_index_reader.h"
 #include "olap/rowset/segment_v2/index_iterator.h"
+#include "runtime/runtime_state.h"
 
 namespace doris::segment_v2 {
 
@@ -30,6 +31,7 @@ struct AnnIndexParam {
     const float* query_value;
     const size_t query_value_size;
     size_t limit;
+    doris::VectorSearchUserParams _user_params;
     roaring::Roaring* roaring;
     std::unique_ptr<std::vector<float>> distance = nullptr;
     std::unique_ptr<std::vector<uint64_t>> row_ids = nullptr;
@@ -46,10 +48,6 @@ struct RangeSearchParams {
                            roaring->cardinality());
     }
     virtual ~RangeSearchParams() = default;
-};
-
-struct CustomSearchParams {
-    int ef_search = 16;
 };
 
 struct RangeSearchResult {
@@ -80,7 +78,7 @@ public:
     bool has_null() override { return true; }
 
     MOCK_FUNCTION Status range_search(const RangeSearchParams& params,
-                                      const CustomSearchParams& custom_params,
+                                      const VectorSearchUserParams& custom_params,
                                       RangeSearchResult* result);
 
 private:

@@ -283,7 +283,7 @@ public:
             const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
             roaring::Roaring& row_bitmap);
 
-    virtual Status prepare_ann_range_search();
+    virtual Status prepare_ann_range_search(const doris::VectorSearchUserParams& params);
 
     bool has_been_executed();
 

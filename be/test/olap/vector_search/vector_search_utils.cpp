@@ -29,6 +29,7 @@ namespace doris::vector_search_utils {
 static void accumulate(double x, double y, double& sum) {
     sum += (x - y) * (x - y);
 }
+
 static double finalize(double sum) {
     return sqrt(sum);
 }

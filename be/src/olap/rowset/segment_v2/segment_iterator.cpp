@@ -632,6 +632,23 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
                 !_col_predicates.empty());
         return Status::OK();
     }
+
+    // Process asc & desc according to the type of metric
+    auto index_reader = ann_index_iterator->get_reader();
+    auto ann_index_reader = dynamic_cast<AnnIndexReader*>(index_reader.get());
+    DCHECK(ann_index_reader != nullptr);
+    if (ann_index_reader->get_metric_type() == "ip") {
+        if (_ann_topn_descriptor->is_asc()) {
+            LOG_INFO("asc topn for inner product can not be evaluated by ann index");
+            return Status::OK();
+        }
+    } else {
+        if (!_ann_topn_descriptor->is_asc()) {
+            LOG_INFO("desc topn for l2/cosine can not be evaluated by ann index");
+            return Status::OK();
+        }
+    }
+
     size_t pre_size = _row_bitmap.cardinality();
     size_t dst_col_idx = _ann_topn_descriptor->get_dest_column_idx();
     vectorized::IColumn::MutablePtr result_column;

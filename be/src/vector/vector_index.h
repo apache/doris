@@ -21,7 +21,6 @@
 #include <roaring/roaring.hh>
 
 #include "common/status.h"
-#include "gutil/integral_types.h"
 
 namespace lucene::store {
 class Directory;
@@ -50,6 +49,8 @@ struct IndexSearchParameters {
 
 struct HNSWSearchParameters : public IndexSearchParameters {
     int ef_search = 16;
+    bool check_relative_distance = true;
+    bool bounded_queue = true;
 };
 
 class VectorIndex {

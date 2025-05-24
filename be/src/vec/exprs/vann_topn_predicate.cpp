@@ -102,7 +102,7 @@ Status AnnTopNDescriptor::prepare(RuntimeState* state, const RowDescriptor& row_
                                      distance_fn_call->children()[1]->debug_string());
     }
     _query_array = array_literal->get_column_ptr();
-
+    _user_params = state->get_vector_search_params();
     VLOG_DEBUG << "AnnTopNDescriptor: {}" << this->debug_string();
     return Status::OK();
 }
@@ -135,6 +135,7 @@ Status AnnTopNDescriptor::evaluate_vector_ann_search(
             .query_value = query_value_f32.get(),
             .query_value_size = query_value_size,
             .limit = _limit,
+            ._user_params = _user_params,
             .roaring = &roaring,
             .distance = nullptr,
             .row_ids = nullptr,
@@ -159,7 +160,8 @@ Status AnnTopNDescriptor::evaluate_vector_ann_search(
 std::string AnnTopNDescriptor::debug_string() const {
     return "AnnTopNDescriptor: limit=" + std::to_string(_limit) +
            ", src_col_idx=" + std::to_string(_src_column_idx) +
-           ", dest_col_idx=" + std::to_string(_dest_column_idx) +
+           ", dest_col_idx=" + std::to_string(_dest_column_idx) + ", asc=" + std::to_string(_asc) +
+           ", user_params=" + _user_params.to_string() +
            ", order_by_expr=" + _order_by_expr_ctx->root()->debug_string();
 }
 } // namespace doris::vectorized

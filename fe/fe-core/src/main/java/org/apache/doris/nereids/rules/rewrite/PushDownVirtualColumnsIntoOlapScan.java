@@ -69,6 +69,7 @@ public class PushDownVirtualColumnsIntoOlapScan implements RewriteRuleFactory {
         // 3. replace filter
         // 4. replace project
         Map<Expression, Expression> replaceMap = Maps.newHashMap();
+        ImmutableList.Builder<NamedExpression> virtualColumnsBuilder = ImmutableList.builder();
         for (Expression conjunct : filter.getConjuncts()) {
             Set<Expression> l2Distances = conjunct.collect(L2Distance.class::isInstance);
             for (Expression l2Distance : l2Distances) {
@@ -77,14 +78,11 @@ public class PushDownVirtualColumnsIntoOlapScan implements RewriteRuleFactory {
                 }
                 Alias alias = new Alias(l2Distance);
                 replaceMap.put(l2Distance, alias.toSlot());
+                virtualColumnsBuilder.add(alias);
             }
         }
         if (replaceMap.isEmpty()) {
             return null;
-        }
-        ImmutableList.Builder<NamedExpression> virtualColumnsBuilder = ImmutableList.builder();
-        for (Expression expression : replaceMap.values()) {
-            virtualColumnsBuilder.add((NamedExpression) expression);
         }
         logicalOlapScan = logicalOlapScan.withVirtualColumns(virtualColumnsBuilder.build());
         Set<Expression> conjuncts = ExpressionUtils.replace(filter.getConjuncts(), replaceMap);
