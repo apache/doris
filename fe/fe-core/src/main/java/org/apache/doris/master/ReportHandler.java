@@ -606,14 +606,7 @@ public class ReportHandler extends Daemon {
         AgentBatchTask batchTask = new AgentBatchTask(Config.report_resend_batch_task_num_per_rpc);
         long taskReportTime = System.currentTimeMillis();
         for (AgentTask task : diffTasks) {
-            // these tasks no need to do diff
-            // 1. CREATE
-            // 2. SYNC DELETE
-            // 3. CHECK_CONSISTENCY
-            // 4. STORAGE_MDEIUM_MIGRATE
-            if (task.getTaskType() == TTaskType.CREATE
-                    || task.getTaskType() == TTaskType.CHECK_CONSISTENCY
-                    || task.getTaskType() == TTaskType.STORAGE_MEDIUM_MIGRATE) {
+            if (!task.isNeedResendType()) {
                 continue;
             }
 
@@ -621,7 +614,6 @@ public class ReportHandler extends Daemon {
             if (task.shouldResend(taskReportTime)) {
                 batchTask.addTask(task);
             }
-
         }
 
         if (LOG.isDebugEnabled()) {
