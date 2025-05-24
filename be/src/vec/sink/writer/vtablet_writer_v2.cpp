@@ -641,25 +641,13 @@ Status VTabletWriterV2::close(Status exec_status) {
         LOG(INFO) << "sink " << _sender_id << " released streams, is_last=" << is_last_sink
                   << ", load_id=" << print_id(_load_id);
 
-        // send CLOSE_LOAD on all non-incremental streams if this is the last sink
+        // send CLOSE_LOAD on all streams if this is the last sink.
         if (is_last_sink) {
-            _load_stream_map->close_load(false);
+            _load_stream_map->close_load();
         }
 
-        // close_wait on all non-incremental streams, even if this is not the last sink.
-        // because some per-instance data structures are now shared among all sinks
-        // due to sharing delta writers and load stream stubs.
-        RETURN_IF_ERROR(_close_wait(false));
-
-        // send CLOSE_LOAD on all incremental streams if this is the last sink.
-        // this must happen after all non-incremental streams are closed,
-        // so we can ensure all sinks are in close phase before closing incremental streams.
-        if (is_last_sink) {
-            _load_stream_map->close_load(true);
-        }
-
-        // close_wait on all incremental streams, even if this is not the last sink.
-        RETURN_IF_ERROR(_close_wait(true));
+        // close_wait on all streams, even if this is not the last sink.
+        RETURN_IF_ERROR(_close_wait());
 
         // calculate and submit commit info
         if (is_last_sink) {
@@ -705,28 +693,24 @@ Status VTabletWriterV2::close(Status exec_status) {
     return status;
 }
 
-Status VTabletWriterV2::_close_wait(bool incremental) {
+Status VTabletWriterV2::_close_wait() {
     SCOPED_TIMER(_close_load_timer);
-    auto st = _load_stream_map->for_each_st(
-            [this, incremental](int64_t dst_id, LoadStreamStubs& streams) -> Status {
-                if (streams.is_incremental() != incremental) {
-                    return Status::OK();
-                }
-                int64_t remain_ms = static_cast<int64_t>(_state->execution_timeout()) * 1000 -
-                                    _timeout_watch.elapsed_time() / 1000 / 1000;
-                DBUG_EXECUTE_IF("VTabletWriterV2._close_wait.load_timeout", { remain_ms = 0; });
-                if (remain_ms <= 0) {
-                    LOG(WARNING) << "load timed out before close waiting, load_id="
-                                 << print_id(_load_id);
-                    return Status::TimedOut("load timed out before close waiting");
-                }
-                auto st = streams.close_wait(_state, remain_ms);
-                if (!st.ok()) {
-                    LOG(WARNING) << "close_wait timeout on streams to dst_id=" << dst_id
-                                 << ", load_id=" << print_id(_load_id) << ": " << st;
-                }
-                return st;
-            });
+    auto st = _load_stream_map->for_each_st([this](int64_t dst_id,
+                                                   LoadStreamStubs& streams) -> Status {
+        int64_t remain_ms = static_cast<int64_t>(_state->execution_timeout()) * 1000 -
+                            _timeout_watch.elapsed_time() / 1000 / 1000;
+        DBUG_EXECUTE_IF("VTabletWriterV2._close_wait.load_timeout", { remain_ms = 0; });
+        if (remain_ms <= 0) {
+            LOG(WARNING) << "load timed out before close waiting, load_id=" << print_id(_load_id);
+            return Status::TimedOut("load timed out before close waiting");
+        }
+        auto st = streams.close_wait(_state, remain_ms);
+        if (!st.ok()) {
+            LOG(WARNING) << "close_wait timeout on streams to dst_id=" << dst_id
+                         << ", load_id=" << print_id(_load_id) << ": " << st;
+        }
+        return st;
+    });
     if (!st.ok()) {
         LOG(WARNING) << "close_wait failed: " << st << ", load_id=" << print_id(_load_id);
     }

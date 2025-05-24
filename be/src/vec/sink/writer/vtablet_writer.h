@@ -434,24 +434,6 @@ public:
         }
     }
 
-    void for_init_node_channel(
-            const std::function<void(const std::shared_ptr<VNodeChannel>&)>& func) {
-        for (auto& it : _node_channels) {
-            if (!it.second->is_incremental()) {
-                func(it.second);
-            }
-        }
-    }
-
-    void for_inc_node_channel(
-            const std::function<void(const std::shared_ptr<VNodeChannel>&)>& func) {
-        for (auto& it : _node_channels) {
-            if (it.second->is_incremental()) {
-                func(it.second);
-            }
-        }
-    }
-
     bool has_incremental_node_channel() const { return _has_inc_node; }
 
     void mark_as_failed(const VNodeChannel* node_channel, const std::string& err,

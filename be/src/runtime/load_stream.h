@@ -124,9 +124,6 @@ public:
     void add_source(int64_t src_id) {
         std::lock_guard lock_guard(_lock);
         _open_streams[src_id]++;
-        if (_is_incremental) {
-            _total_streams++;
-        }
     }
 
     void close(int64_t src_id, const std::vector<PTabletID>& tablets_to_commit,
@@ -177,7 +174,6 @@ private:
     RuntimeProfile::Counter* _close_wait_timer = nullptr;
     LoadStreamMgr* _load_stream_mgr = nullptr;
     std::shared_ptr<ResourceContext> _resource_ctx;
-    bool _is_incremental = false;
 };
 
 using LoadStreamPtr = std::unique_ptr<LoadStream>;
