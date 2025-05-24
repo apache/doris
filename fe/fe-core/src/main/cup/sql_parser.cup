@@ -2055,6 +2055,10 @@ create_stmt ::=
     {:
         RESULT = new AlterTableStmt(tableName, Lists.newArrayList(new BuildIndexClause(tableName, indexName, partitionNames, false)));
     :}
+    | KW_BUILD KW_INDEX KW_ON table_name:tableName
+    {:
+        RESULT = new AlterTableStmt(tableName, Lists.newArrayList(new BuildIndexClause(tableName, false)));
+    :}
     /* stage */
     | KW_CREATE KW_STAGE opt_if_not_exists:ifNotExists ident:stageName KW_PROPERTIES opt_key_value_map:properties
     {:

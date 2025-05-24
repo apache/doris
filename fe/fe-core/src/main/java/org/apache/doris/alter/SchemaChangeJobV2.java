@@ -19,6 +19,7 @@ package org.apache.doris.alter;
 
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.IndexDef.IndexType;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
@@ -133,6 +134,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
     private boolean indexChange = false;
     @SerializedName(value = "indexes")
     protected List<Index> indexes = null;
+    @SerializedName(value = "indexDrop")
+    private boolean indexDrop = false;
 
     @SerializedName(value = "storageFormat")
     private TStorageFormat storageFormat = TStorageFormat.DEFAULT;
@@ -155,6 +158,15 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
     public SchemaChangeJobV2(String rawSql, long jobId, long dbId, long tableId, String tableName,
             long timeoutMs) {
         super(rawSql, jobId, JobType.SCHEMA_CHANGE, dbId, tableId, tableName, timeoutMs);
+    }
+
+    public boolean hasIndexChange() {
+        // DO NOT show drop index change.
+        return !indexDrop && indexChange
+                && !indexes.isEmpty()
+                && indexes.stream()
+                .allMatch(idx -> idx.getIndexType() == IndexType.NGRAM_BF
+                        || idx.getIndexType() == IndexType.INVERTED);
     }
 
     public void addTabletIdMap(long partitionId, long shadowIdxId, long shadowTabletId, long originTabletId) {
@@ -200,6 +212,10 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
     public void setAlterIndexInfo(boolean indexChange, List<Index> indexes) {
         this.indexChange = indexChange;
         this.indexes = indexes;
+    }
+
+    public void setIndexDrop(boolean indexDrop) {
+        this.indexDrop = indexDrop;
     }
 
     public void setStorageFormat(TStorageFormat storageFormat) {
@@ -1006,6 +1022,41 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             info.add(errMsg);
             info.add(progress);
             info.add(timeoutMs / 1000);
+            infos.add(info);
+        }
+    }
+
+    public String getAlterIndexInfo(Index index) {
+        String info;
+        List<String> infoList = Lists.newArrayList();
+        infoList.add("[" + ("ADD ") + index.toString() + "], ");
+        info = Joiner.on(", ").join(infoList.subList(0, infoList.size()));
+        return info;
+    }
+
+    protected void getBuildIndexInfo(List<List<Comparable>> infos) {
+        if (!hasIndexChange()) {
+            return;
+        }
+        // calc progress first. all index share the same process
+        String progress = FeConstants.null_string;
+        if (jobState == JobState.RUNNING && schemaChangeBatchTask.getTaskNum() > 0) {
+            progress = schemaChangeBatchTask.getFinishedTaskNum() + "/" + schemaChangeBatchTask.getTaskNum();
+        }
+
+        String partitionName = "";
+        for (Index index : indexes) {
+            List<Comparable> info = Lists.newArrayList();
+            info.add(jobId);
+            info.add(tableName);
+            info.add(partitionName);
+            info.add(getAlterIndexInfo(index));
+            info.add(TimeUtils.longToTimeStringWithms(createTimeMs));
+            info.add(TimeUtils.longToTimeStringWithms(finishedTimeMs));
+            info.add(watershedTxnId);
+            info.add(jobState.name());
+            info.add(errMsg);
+            info.add(progress);
             infos.add(info);
         }
     }
