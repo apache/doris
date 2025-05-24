@@ -174,7 +174,8 @@ Status LoadStreamWriter::close_writer(uint32_t segid, FileType file_type) {
     LOG(INFO) << "file " << segid << " path " << file_writer->path().native() << "closed, written "
               << file_writer->bytes_appended() << " bytes"
               << ", file type is " << file_type;
-    if (file_writer->bytes_appended() == 0) {
+    // ‌Allow the index file to be empty when creating an index on a variant-type column.
+    if (file_writer->bytes_appended() == 0 && file_type != FileType::INVERTED_INDEX_FILE) {
         return Status::Corruption("file {} closed with 0 bytes, file type is {}",
                                   file_writer->path().native(), file_type);
     }
