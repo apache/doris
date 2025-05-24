@@ -1496,6 +1496,9 @@ DEFINE_mBool(enable_calc_delete_bitmap_between_segments_concurrently, "false");
 
 DEFINE_mBool(enable_update_delete_bitmap_kv_check_core, "false");
 
+DEFINE_mDouble(max_wait_time_multiplier, "0.5");
+DEFINE_mInt32(load_timeout_remaining_seconds, "30");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3

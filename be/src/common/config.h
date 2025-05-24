@@ -1570,6 +1570,9 @@ DECLARE_mBool(enable_calc_delete_bitmap_between_segments_concurrently);
 
 DECLARE_mBool(enable_update_delete_bitmap_kv_check_core);
 
+DECLARE_mDouble(max_wait_time_multiplier);
+DECLARE_mInt32(load_timeout_remaining_seconds);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);
