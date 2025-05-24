@@ -974,6 +974,7 @@ message CreateRowsetRequest {
     optional doris.RowsetMetaCloudPB rowset_meta = 2;
     optional bool temporary = 3;
     optional int64 txn_id = 4;
+    optional string tablet_job_id = 5;
 }
 
 message CreateRowsetResponse {
