@@ -21,7 +21,7 @@ namespace doris::segment_v2 {
 
 DisjunctionQuery::DisjunctionQuery(const std::shared_ptr<lucene::search::IndexSearcher>& searcher,
                                    const TQueryOptions& query_options, const io::IOContext* io_ctx)
-        : _searcher(searcher) {}
+        : _searcher(searcher), _io_ctx(io_ctx) {}
 
 void DisjunctionQuery::add(const InvertedIndexQueryInfo& query_info) {
     if (query_info.terms.empty()) {
@@ -34,7 +34,8 @@ void DisjunctionQuery::add(const InvertedIndexQueryInfo& query_info) {
 
 void DisjunctionQuery::search(roaring::Roaring& roaring) {
     auto func = [this, &roaring](const std::string& term, bool first) {
-        auto* term_doc = TermIterator::ensure_term_doc(_searcher->getReader(), _field_name, term);
+        auto* term_doc =
+                TermIterator::ensure_term_doc(_io_ctx, _searcher->getReader(), _field_name, term);
         TermIterator iterator(term_doc);
 
         DocRange doc_range;
