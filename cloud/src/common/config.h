@@ -288,6 +288,9 @@ CONF_mBool(use_delete_bitmap_lock_random_version, "false");
 // Comma seprated list: recycler_storage_vault_white_list="aaa,bbb,ccc"
 CONF_Strings(recycler_storage_vault_white_list, "");
 
+// for test only
+CONF_mBool(enable_update_delete_bitmap_kv_check, "false");
+
 // aws sdk log level
 //    Off = 0,
 //    Fatal = 1,

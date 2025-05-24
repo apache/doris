@@ -31,6 +31,14 @@ suite("test_create_or_replace_view") {
         DUPLICATE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 1
         PROPERTIES( "replication_num" = "1");
     """
+
+    qt_desc_view_tbl1 """
+        desc test_create_or_replace_view_tbl1
+    """
+    qt_desc_view_tbl2 """
+        desc test_create_or_replace_view_tbl2
+    """
+
     sql """INSERT INTO test_create_or_replace_view_tbl1 VALUES(1,1,1)"""
     sql """INSERT INTO test_create_or_replace_view_tbl2 VALUES(2,2,2)"""
     sql "sync"
@@ -41,13 +49,28 @@ suite("test_create_or_replace_view") {
         CREATE VIEW IF NOT EXISTS view_test_create_or_replace_view
         AS SELECT * FROM test_create_or_replace_view_tbl1;
     """
+
+    qt_desc_view_upper """
+        desc view_test_create_or_replace_view
+    """
+
     qt_sql_1 """select * from view_test_create_or_replace_view"""
 
     sql """
         CREATE OR REPLACE VIEW view_test_create_or_replace_view
         AS SELECT * FROM test_create_or_replace_view_tbl2;
     """
+
+    qt_desc_view_upper_after_replace """
+        desc view_test_create_or_replace_view
+    """
+
     qt_sql_2 """select * from view_test_create_or_replace_view"""
+
+    qt_desc_view_upper_after_replace """
+        desc view_test_create_or_replace_view
+    """
+
     test {
         sql """
             CREATE OR REPLACE VIEW IF NOT EXISTS view_test_create_or_replace_view

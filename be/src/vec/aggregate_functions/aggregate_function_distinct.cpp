@@ -30,15 +30,15 @@
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
-template <typename T>
+template <PrimitiveType T>
 struct Reducer {
     template <bool stable>
     using Output = AggregateFunctionDistinctSingleNumericData<T, stable>;
     using AggregateFunctionDistinctNormal = AggregateFunctionDistinct<Output, false>;
 };
 
-template <typename T>
-using AggregateFunctionDistinctNumeric = Reducer<T>::AggregateFunctionDistinctNormal;
+template <PrimitiveType T>
+using AggregateFunctionDistinctNumeric = typename Reducer<T>::AggregateFunctionDistinctNormal;
 
 class AggregateFunctionCombinatorDistinct final : public IAggregateFunctionCombinator {
 public:

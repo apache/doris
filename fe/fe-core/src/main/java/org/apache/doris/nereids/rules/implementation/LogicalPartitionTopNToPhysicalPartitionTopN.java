@@ -159,7 +159,7 @@ public class LogicalPartitionTopNToPhysicalPartitionTopN extends OneImplementati
                 return false;
             } else {
                 SlotReference slot = (SlotReference) expr;
-                if (!slot.getColumn().isPresent() || !slot.getTable().isPresent()) {
+                if (!slot.getOriginalColumn().isPresent() || !slot.getOriginalTable().isPresent()) {
                     return false;
                 }
             }

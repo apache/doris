@@ -93,7 +93,8 @@ TEST_F(FunctionCastTest, test_from_numeric_to_time) {
                                      {{DECIMAL64(20001212, 0, 5)}, std::string("838:59:59.000")},
                                      {{DECIMAL64(67, 0, 5)}, std::string("00:01:07.000")},
                                      {{Null()}, Null()}};
-        check_function_for_cast<DataTypeTimeV2, 3>(input_types_d32_p0s0, data_set_d32_p0s0, true);
+        check_function_for_cast<DataTypeTimeV2, 3>(input_types_d32_p0s0, data_set_d32_p0s0, true,
+                                                   true);
     }
 }
 
@@ -103,7 +104,7 @@ TEST_F(FunctionCastTest, test_from_datetime_to_time) {
     // FIXME: now it's wrong. need support cast with scale. and must store legal value in memory.
     DataSet data_set = {
             {{std::string("2012-02-05 12:12:12.123456")}, std::string("838:59:59.0000")}};
-    check_function_for_cast<DataTypeTimeV2, 4>(input_types, data_set, false, true);
+    check_function_for_cast<DataTypeTimeV2, 4>(input_types, data_set, true, false, true);
 }
 
 } // namespace doris::vectorized

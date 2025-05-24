@@ -165,10 +165,11 @@ public:
         // Create a temp_block to execute substring function.
         Block temp_block;
         temp_block.insert(column_with_type_and_name);
-        temp_block.insert({int_type->create_column_const(temp_block.rows(), to_field(1)), int_type,
-                           "const 1"});
-        temp_block.insert({int_type->create_column_const(temp_block.rows(), to_field(_width)),
-                           int_type, fmt::format("const {}", _width)});
+        temp_block.insert({int_type->create_column_const(temp_block.rows(), to_field<TYPE_INT>(1)),
+                           int_type, "const 1"});
+        temp_block.insert(
+                {int_type->create_column_const(temp_block.rows(), to_field<TYPE_INT>(_width)),
+                 int_type, fmt::format("const {}", _width)});
         temp_block.insert({nullptr, std::make_shared<DataTypeString>(), "result"});
         ColumnNumbers temp_arguments(3);
         temp_arguments[0] = 0; // str column

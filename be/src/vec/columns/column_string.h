@@ -131,22 +131,9 @@ public:
 
     void shrink_padding_chars() override;
 
-    Field operator[](size_t n) const override {
-        assert(n < size());
-        sanity_check_simple();
-        return Field(String(reinterpret_cast<const char*>(&chars[offset_at(n)]), size_at(n)));
-    }
+    Field operator[](size_t n) const override;
 
-    void get(size_t n, Field& res) const override {
-        assert(n < size());
-        sanity_check_simple();
-        if (res.get_type() == PrimitiveType::TYPE_JSONB) {
-            // Handle JsonbField
-            res = JsonbField(reinterpret_cast<const char*>(&chars[offset_at(n)]), size_at(n));
-            return;
-        }
-        res = Field(String(reinterpret_cast<const char*>(&chars[offset_at(n)]), size_at(n)));
-    }
+    void get(size_t n, Field& res) const override;
 
     StringRef get_data_at(size_t n) const override {
         DCHECK_LT(n, size());

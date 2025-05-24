@@ -36,6 +36,8 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.load.NereidsStreamLoadPlanner;
+import org.apache.doris.nereids.load.NereidsStreamLoadTask;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.commands.PrepareCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
@@ -49,7 +51,6 @@ import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.system.Backend;
-import org.apache.doris.task.StreamLoadTask;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
@@ -123,8 +124,8 @@ public class GroupCommitPlanner {
                 .setMergeType(TMergeType.APPEND).setThriftRpcTimeoutMs(5000).setLoadId(queryId)
                 .setTrimDoubleQuotes(true).setGroupCommitMode(groupCommit)
                 .setStrictMode(ConnectContext.get().getSessionVariable().enableInsertStrict);
-        StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(streamLoadPutRequest);
-        StreamLoadPlanner planner = new StreamLoadPlanner(db, table, streamLoadTask);
+        NereidsStreamLoadTask streamLoadTask = NereidsStreamLoadTask.fromTStreamLoadPutRequest(streamLoadPutRequest);
+        NereidsStreamLoadPlanner planner = new NereidsStreamLoadPlanner(db, table, streamLoadTask);
         // Will using load id as query id in fragment
         // TODO support pipeline
         TPipelineFragmentParams tRequest = planner.plan(streamLoadTask.getId());

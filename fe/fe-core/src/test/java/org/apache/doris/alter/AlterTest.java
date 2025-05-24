@@ -21,7 +21,6 @@ import org.apache.doris.analysis.AlterColocateGroupStmt;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
-import org.apache.doris.analysis.CreatePolicyStmt;
 import org.apache.doris.analysis.CreateResourceStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DateLiteral;
@@ -49,9 +48,12 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.DdlExecutor;
 import org.apache.doris.qe.ShowExecutor;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TStorageMedium;
@@ -265,8 +267,9 @@ public class AlterTest {
     }
 
     private static void createRemoteStoragePolicy(String sql) throws Exception {
-        CreatePolicyStmt stmt = (CreatePolicyStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-        Env.getCurrentEnv().getPolicyMgr().createPolicy(stmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        CreatePolicyCommand command = (CreatePolicyCommand) nereidsParser.parseSingle(sql);
+        command.run(connectContext, new StmtExecutor(connectContext, sql));
     }
 
     private static void alterTable(String sql, boolean expectedException) {

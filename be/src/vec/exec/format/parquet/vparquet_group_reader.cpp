@@ -109,11 +109,6 @@ Status RowGroupReader::init(
     _tuple_descriptor = tuple_descriptor;
     _row_descriptor = row_descriptor;
     _col_name_to_slot_id = colname_to_slot_id;
-    if (not_single_slot_filter_conjuncts != nullptr && !not_single_slot_filter_conjuncts->empty()) {
-        _not_single_slot_filter_conjuncts.insert(_not_single_slot_filter_conjuncts.end(),
-                                                 not_single_slot_filter_conjuncts->begin(),
-                                                 not_single_slot_filter_conjuncts->end());
-    }
     _slot_id_to_filter_conjuncts = slot_id_to_filter_conjuncts;
     _merge_read_ranges(row_ranges);
     if (_read_columns.empty()) {
@@ -140,45 +135,52 @@ Status RowGroupReader::init(
         }
         _column_readers[read_col] = std::move(reader);
     }
-    // Check if single slot can be filtered by dict.
-    if (!_slot_id_to_filter_conjuncts) {
-        return Status::OK();
+
+    bool disable_dict_filter = false;
+    if (not_single_slot_filter_conjuncts != nullptr && !not_single_slot_filter_conjuncts->empty()) {
+        disable_dict_filter = true;
+        _filter_conjuncts.insert(_filter_conjuncts.end(), not_single_slot_filter_conjuncts->begin(),
+                                 not_single_slot_filter_conjuncts->end());
     }
-    const std::vector<string>& predicate_col_names = _lazy_read_ctx.predicate_columns.first;
-    const std::vector<int>& predicate_col_slot_ids = _lazy_read_ctx.predicate_columns.second;
-    for (size_t i = 0; i < predicate_col_names.size(); ++i) {
-        const string& predicate_col_name = predicate_col_names[i];
-        int slot_id = predicate_col_slot_ids[i];
-        auto field = const_cast<FieldSchema*>(schema.get_column(predicate_col_name));
-        if (!_lazy_read_ctx.has_complex_type &&
-            _can_filter_by_dict(slot_id,
-                                _row_group_meta.columns[field->physical_column_index].meta_data)) {
-            _dict_filter_cols.emplace_back(std::make_pair(predicate_col_name, slot_id));
-        } else {
-            if (_slot_id_to_filter_conjuncts->find(slot_id) !=
-                _slot_id_to_filter_conjuncts->end()) {
-                for (auto& ctx : _slot_id_to_filter_conjuncts->at(slot_id)) {
+
+    // Check if single slot can be filtered by dict.
+    if (_slot_id_to_filter_conjuncts && !_slot_id_to_filter_conjuncts->empty()) {
+        const std::vector<string>& predicate_col_names = _lazy_read_ctx.predicate_columns.first;
+        const std::vector<int>& predicate_col_slot_ids = _lazy_read_ctx.predicate_columns.second;
+        for (size_t i = 0; i < predicate_col_names.size(); ++i) {
+            const string& predicate_col_name = predicate_col_names[i];
+            int slot_id = predicate_col_slot_ids[i];
+            auto field = const_cast<FieldSchema*>(schema.get_column(predicate_col_name));
+            if (!disable_dict_filter && !_lazy_read_ctx.has_complex_type &&
+                _can_filter_by_dict(
+                        slot_id, _row_group_meta.columns[field->physical_column_index].meta_data)) {
+                _dict_filter_cols.emplace_back(std::make_pair(predicate_col_name, slot_id));
+            } else {
+                if (_slot_id_to_filter_conjuncts->find(slot_id) !=
+                    _slot_id_to_filter_conjuncts->end()) {
+                    for (auto& ctx : _slot_id_to_filter_conjuncts->at(slot_id)) {
+                        _filter_conjuncts.push_back(ctx);
+                    }
+                }
+            }
+        }
+        // Add predicate_partition_columns in _slot_id_to_filter_conjuncts(single slot conjuncts)
+        // to _filter_conjuncts, others should be added from not_single_slot_filter_conjuncts.
+        for (auto& kv : _lazy_read_ctx.predicate_partition_columns) {
+            auto& [value, slot_desc] = kv.second;
+            auto iter = _slot_id_to_filter_conjuncts->find(slot_desc->id());
+            if (iter != _slot_id_to_filter_conjuncts->end()) {
+                for (auto& ctx : iter->second) {
                     _filter_conjuncts.push_back(ctx);
                 }
             }
         }
+        //For check missing column :   missing column == xx, missing column is null,missing column is not null.
+        _filter_conjuncts.insert(_filter_conjuncts.end(),
+                                 _lazy_read_ctx.missing_columns_conjuncts.begin(),
+                                 _lazy_read_ctx.missing_columns_conjuncts.end());
+        RETURN_IF_ERROR(_rewrite_dict_predicates());
     }
-    // Add predicate_partition_columns in _slot_id_to_filter_conjuncts(single slot conjuncts)
-    // to _filter_conjuncts, others should be added from not_single_slot_filter_conjuncts.
-    for (auto& kv : _lazy_read_ctx.predicate_partition_columns) {
-        auto& [value, slot_desc] = kv.second;
-        auto iter = _slot_id_to_filter_conjuncts->find(slot_desc->id());
-        if (iter != _slot_id_to_filter_conjuncts->end()) {
-            for (auto& ctx : iter->second) {
-                _filter_conjuncts.push_back(ctx);
-            }
-        }
-    }
-    //For check missing column :   missing column == xx, missing column is null,missing column is not null.
-    _filter_conjuncts.insert(_filter_conjuncts.end(),
-                             _lazy_read_ctx.missing_columns_conjuncts.begin(),
-                             _lazy_read_ctx.missing_columns_conjuncts.end());
-    RETURN_IF_ERROR(_rewrite_dict_predicates());
     return Status::OK();
 }
 
@@ -200,37 +202,25 @@ bool RowGroupReader::_can_filter_by_dict(int slot_id,
         return false;
     }
 
-    if (_slot_id_to_filter_conjuncts->find(slot_id) == _slot_id_to_filter_conjuncts->end()) {
-        return false;
-    }
-
     if (!is_dictionary_encoded(column_metadata)) {
         return false;
     }
 
-    std::function<bool(const VExpr* expr)> visit_function_call = [&](const VExpr* expr) {
-        // TODO: The current implementation of dictionary filtering does not take into account
-        //  the implementation of NULL values because the dictionary itself does not contain
-        //  NULL value encoding. As a result, many NULL-related functions or expressions
-        //  cannot work properly, such as is null, is not null, coalesce, etc.
-        //  Here we first disable dictionary filtering when predicate is not slot.
-        //  Implementation of NULL value dictionary filtering will be carried out later.
-        if (expr->node_type() != TExprNodeType::SLOT_REF) {
-            return false;
-        }
-        for (auto& child : expr->children()) {
-            if (!visit_function_call(child.get())) {
-                return false;
-            }
-        }
-        return true;
-    };
-    for (auto& ctx : _slot_id_to_filter_conjuncts->at(slot_id)) {
-        if (!visit_function_call(ctx->root().get())) {
-            return false;
-        }
+    if (_slot_id_to_filter_conjuncts->find(slot_id) == _slot_id_to_filter_conjuncts->end()) {
+        return false;
     }
-    return true;
+
+    // TODO: The current implementation of dictionary filtering does not take into account
+    //  the implementation of NULL values because the dictionary itself does not contain
+    //  NULL value encoding. As a result, many NULL-related functions or expressions
+    //  cannot work properly, such as is null, is not null, coalesce, etc.
+    //  Here we check if the predicate expr is IN or BINARY_PRED.
+    //  Implementation of NULL value dictionary filtering will be carried out later.
+    return std::ranges::all_of(_slot_id_to_filter_conjuncts->at(slot_id), [&](const auto& ctx) {
+        return (ctx->root()->node_type() == TExprNodeType::IN_PRED ||
+                ctx->root()->node_type() == TExprNodeType::BINARY_PRED) &&
+               ctx->root()->children()[0]->node_type() == TExprNodeType::SLOT_REF;
+    });
 }
 
 // This function is copied from
@@ -364,17 +354,8 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_
 
             RETURN_IF_CATCH_EXCEPTION(
                     Block::filter_block_internal(block, columns_to_filter, result_filter));
-            if (!_not_single_slot_filter_conjuncts.empty()) {
-                _convert_dict_cols_to_string_cols(block);
-                SCOPED_RAW_TIMER(&_predicate_filter_time);
-                RETURN_IF_CATCH_EXCEPTION(
-                        RETURN_IF_ERROR(VExprContext::execute_conjuncts_and_filter_block(
-                                _not_single_slot_filter_conjuncts, block, columns_to_filter,
-                                column_to_keep)));
-            } else {
-                Block::erase_useless_column(block, column_to_keep);
-                _convert_dict_cols_to_string_cols(block);
-            }
+            Block::erase_useless_column(block, column_to_keep);
+            _convert_dict_cols_to_string_cols(block);
         } else {
             RETURN_IF_CATCH_EXCEPTION(
                     RETURN_IF_ERROR(_filter_block(block, column_to_keep, columns_to_filter)));
@@ -607,15 +588,6 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
     *batch_eof = pre_eof;
     RETURN_IF_ERROR(_fill_partition_columns(block, column_size, _lazy_read_ctx.partition_columns));
     RETURN_IF_ERROR(_fill_missing_columns(block, column_size, _lazy_read_ctx.missing_columns));
-    if (!_not_single_slot_filter_conjuncts.empty()) {
-        {
-            SCOPED_RAW_TIMER(&_predicate_filter_time);
-            RETURN_IF_CATCH_EXCEPTION(
-                    RETURN_IF_ERROR(VExprContext::execute_conjuncts_and_filter_block(
-                            _not_single_slot_filter_conjuncts, block, columns_to_filter,
-                            origin_column_num)));
-        }
-    }
     return Status::OK();
 }
 

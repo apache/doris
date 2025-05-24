@@ -21,7 +21,6 @@ import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Resource;
-import org.apache.doris.catalog.ResourceMgr;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
@@ -47,6 +46,7 @@ import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
@@ -59,6 +59,11 @@ import java.util.Set;
  * show resources command
  */
 public class ShowResourcesCommand extends ShowCommand {
+    // RESOURCE_PROC_NODE_TITLE_NAMES copy from org.apache.doris.catalog.ResourceMgr
+    public static final ImmutableList<String> RESOURCE_PROC_NODE_TITLE_NAMES = new ImmutableList.Builder<String>()
+            .add("Name").add("ResourceType").add("Item").add("Value")
+            .build();
+
     private final Expression wildWhere;
     private String likePattern;
     private final List<OrderKey> orderKeys;
@@ -84,7 +89,7 @@ public class ShowResourcesCommand extends ShowCommand {
 
     public ShowResultSetMetaData getMetaData() {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
-        for (String title : ResourceMgr.RESOURCE_PROC_NODE_TITLE_NAMES) {
+        for (String title : RESOURCE_PROC_NODE_TITLE_NAMES) {
             builder.addColumn(new Column(title, ScalarType.createVarchar(30)));
         }
         return builder.build();
@@ -106,7 +111,7 @@ public class ShowResourcesCommand extends ShowCommand {
         validate(ctx);
 
         // then process the order by
-        orderByPairs = processOrderBy();
+        orderByPairs = getOrderByPairs(orderKeys, RESOURCE_PROC_NODE_TITLE_NAMES);
 
         // when execute "show resources like '%xxx%'", the likePattern is '%xxx%',
         // when execute "shore resources where name like '%xxx%'", the likePattern is null,
@@ -180,28 +185,6 @@ public class ShowResourcesCommand extends ShowCommand {
         }
 
         return true;
-    }
-
-    @VisibleForTesting
-    protected ArrayList<OrderByPair> processOrderBy() throws AnalysisException {
-        if (orderKeys != null && !orderKeys.isEmpty()) {
-            orderByPairs = new ArrayList<>();
-            for (OrderKey orderKey : orderKeys) {
-                if (!(orderKey.getExpr() instanceof UnboundSlot)) {
-                    throw new AnalysisException("Should order by column");
-                }
-
-                UnboundSlot slot = (UnboundSlot) orderKey.getExpr();
-                if (slot != null) {
-                    String colName = slot.getName();
-                    int index = ResourceMgr.analyzeColumn(colName);
-                    OrderByPair orderByPair = new OrderByPair(index, !orderKey.isAsc());
-                    orderByPairs.add(orderByPair);
-                }
-            }
-        }
-
-        return orderByPairs;
     }
 
     private Set<String> getTypeSet() {

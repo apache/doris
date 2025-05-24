@@ -100,7 +100,6 @@ import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.nereids.util.PlanUtils.CollectNonWindowedAggFuncs;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.nereids.util.Utils;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SqlModeHelper;
 
 import com.google.common.base.Preconditions;
@@ -253,9 +252,7 @@ public class BindExpression implements AnalysisRuleFactory {
     }
 
     private LogicalSubQueryAlias<Plan> bindSubqueryAlias(MatchingContext<LogicalSubQueryAlias<Plan>> ctx) {
-        LogicalSubQueryAlias<Plan> subQueryAlias = ctx.root;
-        checkSameNameSlot(subQueryAlias.child(0).getOutput(), subQueryAlias.getAlias());
-        return subQueryAlias;
+        return ctx.root;
     }
 
     private LogicalPlan bindGenerate(MatchingContext<LogicalGenerate<Plan>> ctx) {
@@ -1316,20 +1313,6 @@ public class BindExpression implements AnalysisRuleFactory {
         return new LogicalTVFRelation(unboundTVFRelation.getRelationId(), (TableValuedFunction) bindResult.first);
     }
 
-    /**
-     * Check the slot in childOutputs is duplicated or not
-     * If childOutputs has duplicated column name, would throw analysis exception
-     */
-    public static void checkSameNameSlot(List<Slot> childOutputs, String subQueryAlias) {
-        Set<String> nameSlots = new HashSet<>(childOutputs.size() * 2);
-        for (Slot s : childOutputs) {
-            if (!nameSlots.add(s.getInternalName())) {
-                throw new AnalysisException("Duplicated inline view column alias: '" + s.getName()
-                        + "'" + " in inline view: '" + subQueryAlias + "'");
-            }
-        }
-    }
-
     private void checkIfOutputAliasNameDuplicatedForGroupBy(Collection<Expression> expressions,
             List<? extends NamedExpression> output) {
         // if group_by_and_having_use_alias_first=true, we should fall back to original planner until we
@@ -1352,12 +1335,6 @@ public class BindExpression implements AnalysisRuleFactory {
             if (isGroupByContainAlias) {
                 break;
             }
-        }
-
-        if (isGroupByContainAlias
-                && ConnectContext.get() != null
-                && ConnectContext.get().getSessionVariable().isGroupByAndHavingUseAliasFirst()) {
-            throw new AnalysisException("group_by_and_having_use_alias=true is unsupported for Nereids");
         }
     }
 

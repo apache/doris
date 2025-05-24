@@ -714,7 +714,7 @@ class InferPredicatesTest extends TestWithFeService implements MemoPatternMatchS
                                 && filter.getPredicate().toSql().contains("sid IN (1, 2)"))
                 );
 
-        String sql2 = "select id,t2.sid from (select 2 id,'abc' b from score limit 0 offset 0  union all select 1 id,'abb' c4) t inner join score t2 on t.id=t2.sid";
+        String sql2 = "select id,t2.sid from ((select 2 id,'abc' b from score limit 0 offset 0)  union all select 1 id,'abb' c4) t inner join score t2 on t.id=t2.sid";
         PlanChecker.from(connectContext).analyze(sql2).rewrite().printlnTree();
         PlanChecker.from(connectContext)
                 .analyze(sql2)

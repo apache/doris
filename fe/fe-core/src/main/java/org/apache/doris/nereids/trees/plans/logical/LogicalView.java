@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableList;
+import org.apache.commons.collections.CollectionUtils;
 
 import java.util.List;
 import java.util.Objects;
@@ -81,13 +82,13 @@ public class LogicalView<BODY extends Plan> extends LogicalUnary<BODY> {
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalView(view, child());
+        return new LogicalView<>(view, child());
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new LogicalView(view, child());
+        return new LogicalView<>(view, child());
     }
 
     @Override
@@ -123,8 +124,15 @@ public class LogicalView<BODY extends Plan> extends LogicalUnary<BODY> {
         List<String> fullQualifiers = this.view.getFullQualifiers();
         for (int i = 0; i < childOutput.size(); i++) {
             Slot originSlot = childOutput.get(i);
-            Slot qualified = originSlot
-                    .withQualifier(fullQualifiers);
+            Slot qualified;
+            // ATTN: because bug intro by #40715, after replace view, full schema will be empty or null.
+            //   So, we must just here to avoid NPE or out of bound exception.
+            if (CollectionUtils.isEmpty(view.getFullSchema())) {
+                qualified = originSlot.withQualifier(fullQualifiers);
+            } else {
+                qualified = originSlot
+                        .withOneLevelTableAndColumnAndQualifier(view, view.getFullSchema().get(i), fullQualifiers);
+            }
             currentOutput.add(qualified);
         }
         return currentOutput.build();

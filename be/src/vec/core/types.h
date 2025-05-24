@@ -236,7 +236,7 @@ inline constexpr Int128 decimal_scale_multiplier<Int128>(UInt32 scale) {
 }
 // gcc report error if add constexpr in declaration
 template <>
-inline wide::Int256 decimal_scale_multiplier<wide::Int256>(UInt32 scale) {
+inline constexpr wide::Int256 decimal_scale_multiplier<wide::Int256>(UInt32 scale) {
     return common::exp10_i256(scale);
 }
 template <typename T>
@@ -398,6 +398,7 @@ template <typename T>
 concept DecimalNativeTypeConcept = std::is_same_v<T, Int32> || std::is_same_v<T, Int64> ||
                                    std::is_same_v<T, Int128> || std::is_same_v<T, wide::Int256>;
 
+struct Decimal128V3;
 /// Own FieldType for Decimal.
 /// It is only a "storage" for decimal. To perform operations, you also have to provide a scale (number of digits after point).
 template <DecimalNativeTypeConcept T>
@@ -588,6 +589,9 @@ struct Decimal128V3 : public Decimal<Int128> {
     Decimal128V3(const Decimal<U>& x) {
         value = x;
     }
+    static Decimal128V3 from_int_frac(Int128 integer, Int128 fraction, int scale) {
+        return {integer * common::exp10_i128(scale) + fraction};
+    }
 };
 
 using Decimal32 = Decimal<Int32>;
@@ -640,6 +644,8 @@ template <>
 inline constexpr bool IsDecimalNumber<Decimal128V2> = true;
 template <>
 inline constexpr bool IsDecimalNumber<Decimal128V3> = true;
+template <>
+inline constexpr bool IsDecimalNumber<DecimalV2Value> = true;
 template <>
 inline constexpr bool IsDecimalNumber<Decimal256> = true;
 

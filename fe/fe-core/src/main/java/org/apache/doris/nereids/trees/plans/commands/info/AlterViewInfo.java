@@ -44,10 +44,10 @@ public class AlterViewInfo extends BaseViewInfo {
     private final String comment;
 
     /** constructor*/
-    public AlterViewInfo(TableNameInfo viewName,
+    public AlterViewInfo(TableNameInfo viewName, String comment,
             String querySql, List<SimpleColumnDefinition> simpleColumnDefinitions) {
         super(viewName, querySql, simpleColumnDefinitions);
-        this.comment = null;
+        this.comment = comment;
     }
 
     public AlterViewInfo(TableNameInfo viewName, String comment) {
@@ -78,7 +78,7 @@ public class AlterViewInfo extends BaseViewInfo {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLE_ACCESS_DENIED_ERROR,
                     PrivPredicate.ALTER.getPrivs().toString(), viewName.getTbl());
         }
-        if (comment != null) {
+        if (querySql == null) {
             // Modify comment only.
             return;
         }
@@ -91,7 +91,7 @@ public class AlterViewInfo extends BaseViewInfo {
 
     /**translateToLegacyStmt*/
     public AlterViewStmt translateToLegacyStmt(ConnectContext ctx) {
-        if (comment != null) {
+        if (querySql == null) {
             return new AlterViewStmt(viewName.transferToTableName(), comment);
         }
         // expand star(*) in project list and replace table name with qualifier
@@ -103,7 +103,7 @@ public class AlterViewInfo extends BaseViewInfo {
         for (SimpleColumnDefinition def : simpleColumnDefinitions) {
             cols.add(def.translateToColWithComment());
         }
-        AlterViewStmt alterViewStmt = new AlterViewStmt(viewName.transferToTableName(), cols, null);
+        AlterViewStmt alterViewStmt = new AlterViewStmt(viewName.transferToTableName(), cols, null, comment);
         alterViewStmt.setInlineViewDef(rewrittenSql);
         alterViewStmt.setFinalColumns(finalCols);
         return alterViewStmt;

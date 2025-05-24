@@ -89,4 +89,11 @@ suite("test_encryption_function") {
     // test for const opt branch, only first column is not const
     qt_sql_gcm_7 "SELECT id,TO_BASE64(AES_ENCRYPT(plain_txt, '1234567890abcdef', '123456789012', 'aes_128_gcm', 'Some AAD')) from aes_encrypt_decrypt_tbl where id=1"
     qt_sql_gcm_8 "SELECT AES_DECRYPT(FROM_BASE64(enc_txt), '1234567890abcdef', '', 'aes_128_gcm', 'Some AAD') from aes_encrypt_decrypt_tbl where id=1"
+
+    sql "unset variable block_encryption_mode;"
+    qt_sql_empty1 "select hex(aes_encrypt('', 'securekey456'));"
+    qt_sql_empty2 "select hex(aes_encrypt(rpad('', 16, ''), 'securekey456'));"
+    qt_sql_empty3 "select hex(aes_encrypt(rpad('', 17, ''), 'securekey456'));"
+    qt_sql_empty4 "select hex(sm4_encrypt('', 'securekey456'));"
+    qt_sql_empty5 "select sm4_decrypt(unhex('0D56319E329CDA9ABDF5870B9D5ACA57'), 'securekey456');"
 }

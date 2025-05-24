@@ -44,6 +44,7 @@ public:
             : Exception(code, fmt::format(fmt, std::forward<Args>(args)...)) {}
 
     int code() const { return _code; }
+    std::string message() const { return _err_msg ? _err_msg->_msg : ""; }
 
     const std::string& to_string() const;
 

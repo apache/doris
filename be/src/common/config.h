@@ -685,6 +685,7 @@ DECLARE_Int32(num_cores);
 // When BE start, If there is a broken disk, BE process will exit by default.
 // Otherwise, we will ignore the broken disk,
 DECLARE_Bool(ignore_broken_disk);
+DECLARE_Bool(ignore_file_cache_dir_upgrade_failure);
 
 // Sleep time in milliseconds between memory maintenance iterations
 DECLARE_mInt32(memory_maintenance_sleep_time_ms);
@@ -1569,6 +1570,8 @@ DECLARE_mBool(enable_calc_delete_bitmap_between_segments_concurrently);
 
 DECLARE_mDouble(max_wait_time_multiplier);
 DECLARE_mInt32(load_timeout_remaining_seconds);
+
+DECLARE_mBool(enable_update_delete_bitmap_kv_check_core);
 
 #ifdef BE_TEST
 // test s3

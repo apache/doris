@@ -79,7 +79,7 @@ suite("test_set_operation_adjust_nullable") {
     sql """insert into set_operation_t2 values ('1', 1);"""
 
     sql """
-        select
+        (select
             c2,
             c1
         from
@@ -89,6 +89,7 @@ suite("test_set_operation_adjust_nullable") {
             2 asc
         limit
             0
+        )
         union distinct
         select
             c3,

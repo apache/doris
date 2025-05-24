@@ -49,9 +49,9 @@ Field DataTypeMap::get_default() const {
     Array key, val;
     key.push_back(key_type->get_default());
     val.push_back(value_type->get_default());
-    m.push_back(key);
-    m.push_back(val);
-    return m;
+    m.push_back(Field::create_field<TYPE_ARRAY>(key));
+    m.push_back(Field::create_field<TYPE_ARRAY>(val));
+    return Field::create_field<TYPE_MAP>(m);
 };
 
 std::string DataTypeMap::to_string(const IColumn& column, size_t row_num) const {

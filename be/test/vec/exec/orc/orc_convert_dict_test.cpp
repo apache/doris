@@ -74,7 +74,7 @@ TEST_F(OrcReaderConvertDictTest, ConvertDictColumnToStringColumnBasic) {
     std::vector<int32_t> indices = {0, 1, 2,
                                     3, 1, 0}; // "hello", "world", "doris", "test", "world", "hello"
     for (auto x : indices) {
-        dict_column->insert(x);
+        dict_column->insert(Field::create_field<TYPE_INT>(x));
     }
 
     // Create ORC type
@@ -108,7 +108,7 @@ TEST_F(OrcReaderConvertDictTest, ConvertDictColumnToStringColumnWithNulls) {
     auto dict_column = ColumnInt32::create();
     std::vector<int32_t> indices = {0, 1, 2, 1, 0};
     for (auto x : indices) {
-        dict_column->insert(x);
+        dict_column->insert(Field::create_field<TYPE_INT>(x));
     }
 
     // Prepare null map
@@ -144,7 +144,7 @@ TEST_F(OrcReaderConvertDictTest, ConvertDictColumnToStringColumnChar) {
     auto dict_column = ColumnInt32::create();
     std::vector<int32_t> indices = {0, 1, 2, 1};
     for (auto x : indices) {
-        dict_column->insert(x);
+        dict_column->insert(Field::create_field<TYPE_INT>(x));
     }
 
     // Create ORC CHAR type
@@ -175,7 +175,7 @@ TEST_F(OrcReaderConvertDictTest, ConvertDictColumnToStringColumnEmpty) {
     auto dict_column = ColumnInt32::create();
     std::vector<int32_t> indices = {0, 0, 0};
     for (auto x : indices) {
-        dict_column->insert(x);
+        dict_column->insert(Field::create_field<TYPE_INT>(x));
     }
 
     // Create ORC type
@@ -204,7 +204,7 @@ TEST_F(OrcReaderConvertDictTest, ConvertDictColumnToStringColumnMixed) {
     auto dict_column = ColumnInt32::create();
     std::vector<int32_t> indices = {0, 1, 2, 3, 4, 2, 1, 0};
     for (auto x : indices) {
-        dict_column->insert(x);
+        dict_column->insert(Field::create_field<TYPE_INT>(x));
     }
 
     // Prepare partial null values

@@ -84,7 +84,7 @@ suite("order_push_down") {
     // `LIMIT` with Set Operation and `ORDER BY`:
     qt_limit_outside_order_inside_set_operation """explain shape plan SELECT * FROM (SELECT t1.id FROM t1 UNION ALL SELECT t2.id FROM t2 ORDER BY id) u  LIMIT 1;"""
     // `LIMIT` with Set Operation and `ORDER BY`:
-    qt_limit_inside_set_operation """explain shape plan SELECT * FROM (SELECT t1.id FROM t1 UNION ALL SELECT t2.id FROM t2 ORDER BY id LIMIT 1) u;"""
+    qt_limit_inside_set_operation """explain shape plan SELECT * FROM (SELECT t1.id FROM t1 UNION ALL (SELECT t2.id FROM t2 ORDER BY id LIMIT 1)) u;"""
 
     // `LIMIT` with Set Operation and `OFFSET` with `ORDER BY`:
     qt_limit_offset_set_operation """explain shape plan SELECT * FROM (SELECT t1.id FROM t1 INTERSECT SELECT t2.id FROM t2) u ORDER BY id LIMIT 1 OFFSET 1;"""
