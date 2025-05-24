@@ -1031,7 +1031,7 @@ static bool check_transaction_status(TxnStatusPB expect_status, Transaction* txn
     std::string info_val;
     err = txn->get(info_key, &info_val);
     if (err != TxnErrorCode::TXN_OK) {
-        code = MetaServiceCode::INVALID_ARGUMENT;
+        code = cast_as<ErrCategory::READ>(err);
         msg = fmt::format("failed to get txn, txn_id={}, err={}", txn_id, err);
         return false;
     }
@@ -1095,9 +1095,9 @@ void MetaServiceImpl::prepare_rowset(::google::protobuf::RpcController* controll
     // Check if the prepare rowset request is invalid.
     // If the transaction has been finished, it means this prepare rowset is a timeout retry request.
     // In this case, do not write the recycle key again, otherwise it may cause data loss.
-    // If the state of rowset is not VISIBLE, it means it is a load request, otherwise it is a
+    // If the rowset had load id, it means it is a load request, otherwise it is a
     // compaction/sc request.
-    if (rowset_meta.rowset_state() != RowsetStatePB::VISIBLE &&
+    if (rowset_meta.has_load_id() &&
         !check_transaction_status(TxnStatusPB::TXN_STATUS_PREPARED, txn.get(), instance_id,
                                   rowset_meta.txn_id(), code, msg)) {
         LOG(WARNING) << "prepare rowset failed, txn_id=" << rowset_meta.txn_id()
@@ -1232,9 +1232,9 @@ void MetaServiceImpl::commit_rowset(::google::protobuf::RpcController* controlle
     // Check if the commit rowset request is invalid.
     // If the transaction has been finished, it means this commit rowset is a timeout retry request.
     // In this case, do not write the recycle key again, otherwise it may cause data loss.
-    // If the state of rowset is not VISIBLE, it means it is a load request, otherwise it is a
+    // If the rowset has load id, it means it is a load request, otherwise it is a
     // compaction/sc request.
-    if (rowset_meta.rowset_state() != RowsetStatePB::VISIBLE &&
+    if (rowset_meta.has_load_id() &&
         !check_transaction_status(TxnStatusPB::TXN_STATUS_PREPARED, txn.get(), instance_id,
                                   rowset_meta.txn_id(), code, msg)) {
         LOG(WARNING) << "commit rowset failed, txn_id=" << rowset_meta.txn_id()
