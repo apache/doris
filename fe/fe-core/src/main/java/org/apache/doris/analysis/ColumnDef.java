@@ -263,6 +263,10 @@ public class ColumnDef {
         return defaultValue.value;
     }
 
+    public DefaultValue getInitDefaultValue() {
+        return defaultValue;
+    }
+
     public String getName() {
         return name;
     }

@@ -24,6 +24,7 @@ import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.ValueList;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.DebugUtil;
@@ -54,7 +55,9 @@ import java.nio.CharBuffer;
 import java.nio.charset.Charset;
 import java.nio.charset.CharsetDecoder;
 import java.nio.charset.CodingErrorAction;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 public class AuditLogHelper {
 
@@ -232,6 +235,14 @@ public class AuditLogHelper {
                             statistics == null ? 0 : statistics.getScanBytesFromLocalStorage())
                     .setScanBytesFromRemoteStorage(
                             statistics == null ? 0 : statistics.getScanBytesFromRemoteStorage());
+            Map<List<String>, TableIf> tableMap = ctx.getStatementContext().getTables();
+            if (null != tableMap && !tableMap.isEmpty()) {
+                List<String> tableFullQualifiers = new ArrayList<String>(tableMap.size());
+                for (TableIf table : tableMap.values()) {
+                    tableFullQualifiers.add(table.getNameWithFullQualifiers());
+                }
+                auditEventBuilder.setTableFullQualifiers(tableFullQualifiers);
+            }
         } else {
             auditEventBuilder.setIsQuery(false);
         }

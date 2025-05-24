@@ -27,6 +27,7 @@ import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.nereids.parser.Dialect;
 import org.apache.doris.plugin.PluginInfo.PluginType;
 import org.apache.doris.plugin.PluginLoader.PluginStatus;
+import org.apache.doris.plugin.audit.AuditHotSpotLoader;
 import org.apache.doris.plugin.audit.AuditLoader;
 import org.apache.doris.plugin.audit.AuditLogBuilder;
 import org.apache.doris.plugin.dialect.HttpDialectConverterPlugin;
@@ -63,6 +64,8 @@ public class PluginMgr implements Writable {
 
     // Save this handler for external call
     private AuditLoader auditLoader = null;
+
+    private AuditHotSpotLoader auditHotSpotLoader = null;
 
     public PluginMgr() {
         plugins = new Map[PluginType.MAX_PLUGIN_TYPE_SIZE];
@@ -119,6 +122,11 @@ public class PluginMgr implements Writable {
         this.auditLoader = new AuditLoader();
         if (!registerBuiltinPlugin(auditLoader.getPluginInfo(), auditLoader)) {
             LOG.warn("failed to register audit log builder");
+        }
+
+        this.auditHotSpotLoader = new AuditHotSpotLoader();
+        if (!registerBuiltinPlugin(auditHotSpotLoader.getPluginInfo(), auditHotSpotLoader)) {
+            LOG.warn("failed to register audit hot spot log builder");
         }
 
         // sql dialect converter

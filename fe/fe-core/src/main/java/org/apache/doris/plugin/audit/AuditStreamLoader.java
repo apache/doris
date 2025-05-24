@@ -17,6 +17,7 @@
 
 package org.apache.doris.plugin.audit;
 
+import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.catalog.InternalSchema;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
@@ -32,6 +33,7 @@ import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.Calendar;
+import java.util.List;
 import java.util.stream.Collectors;
 
 public class AuditStreamLoader {
@@ -42,6 +44,8 @@ public class AuditStreamLoader {
     private String auditLogTbl;
     private String auditLogLoadUrlStr;
     private String feIdentity;
+    private String schema;
+    private String labelPrefix;
 
     public AuditStreamLoader() {
         this.hostPort = "127.0.0.1:" + Config.http_port;
@@ -50,6 +54,20 @@ public class AuditStreamLoader {
         this.auditLogLoadUrlStr = String.format(loadUrlPattern, hostPort, db, auditLogTbl);
         // currently, FE identity is FE's IP, so we replace the "." in IP to make it suitable for label
         this.feIdentity = hostPort.replaceAll("\\.", "_").replaceAll(":", "_");
+        this.schema = InternalSchema.AUDIT_SCHEMA.stream().map(c -> c.getName()).collect(
+            Collectors.joining(","));
+        this.labelPrefix = "audit";
+    }
+
+    public AuditStreamLoader(String labelPrefix, String db, String table, List<ColumnDef> columnDefs) {
+        this.hostPort = "127.0.0.1:" + Config.http_port;
+        this.db = db;
+        this.auditLogTbl = table;
+        this.auditLogLoadUrlStr = String.format(loadUrlPattern, hostPort, db, auditLogTbl);
+        this.feIdentity = hostPort.replaceAll("\\.", "_").replaceAll(":", "_");
+        this.schema = columnDefs.stream().map(c -> c.getName()).collect(
+            Collectors.joining(","));
+        this.labelPrefix = labelPrefix;
     }
 
     private HttpURLConnection getConnection(String urlStr, String label, String clusterToken) throws IOException {
@@ -64,9 +82,7 @@ public class AuditStreamLoader {
         conn.addRequestProperty("label", label);
         conn.setRequestProperty("timeout", String.valueOf(GlobalVariable.auditPluginLoadTimeoutS));
         conn.addRequestProperty("max_filter_ratio", "1.0");
-        conn.addRequestProperty("columns",
-                InternalSchema.AUDIT_SCHEMA.stream().map(c -> c.getName()).collect(
-                        Collectors.joining(",")));
+        conn.addRequestProperty("columns", schema);
         conn.setDoOutput(true);
         conn.setDoInput(true);
         return conn;
@@ -80,8 +96,7 @@ public class AuditStreamLoader {
         sb.append("-H \"").append("Content-Type\":").append("\"text/plain; charset=UTF-8\" \\\n  ");
         sb.append("-H \"").append("max_filter_ratio\":").append("\"1.0\" \\\n  ");
         sb.append("-H \"").append("columns\":")
-                .append("\"" + InternalSchema.AUDIT_SCHEMA.stream().map(c -> c.getName()).collect(
-                        Collectors.joining(",")) + "\" \\\n  ");
+                .append("\"" + schema + "\" \\\n  ");
         sb.append("\"").append(conn.getURL()).append("\"");
         return sb.toString();
     }
@@ -113,7 +128,7 @@ public class AuditStreamLoader {
         HttpURLConnection beConn = null;
         try {
             // build request and send to fe
-            label = "audit" + label;
+            label = labelPrefix + label;
             feConn = getConnection(auditLogLoadUrlStr, label, clusterToken);
             int status = feConn.getResponseCode();
             // fe send back http response code TEMPORARY_REDIRECT 307 and new be location
