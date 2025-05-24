@@ -1494,6 +1494,9 @@ DEFINE_mBool(enable_compaction_pause_on_high_memory, "true");
 
 DEFINE_mBool(enable_calc_delete_bitmap_between_segments_concurrently, "false");
 
+DEFINE_mDouble(max_wait_time_multiplier, "0.5");
+DEFINE_mInt32(load_timeout_remaining_seconds, "30");
+
 DEFINE_mBool(enable_update_delete_bitmap_kv_check_core, "false");
 
 // clang-format off

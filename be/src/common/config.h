@@ -1568,6 +1568,9 @@ DECLARE_mBool(enable_compaction_pause_on_high_memory);
 
 DECLARE_mBool(enable_calc_delete_bitmap_between_segments_concurrently);
 
+DECLARE_mDouble(max_wait_time_multiplier);
+DECLARE_mInt32(load_timeout_remaining_seconds);
+
 DECLARE_mBool(enable_update_delete_bitmap_kv_check_core);
 
 #ifdef BE_TEST

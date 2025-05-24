@@ -86,6 +86,75 @@ Status LoadStreamMap::for_each_st(std::function<Status(int64_t, LoadStreamStubs&
     return status;
 }
 
+Status LoadStreamMap::async_for_each_st(std::function<Status(int64_t, LoadStreamStubs&)> fn) {
+    decltype(_streams_for_node) snapshot;
+    {
+        std::lock_guard<std::mutex> lock(_mutex);
+        snapshot = _streams_for_node;
+    }
+    Status st = ThreadPoolBuilder("async_node_channel_pool")
+                        .set_min_threads(0)
+                        .set_max_threads(100)
+                        .set_max_queue_size(10000)
+                        .build(&_async_node_channel_pool);
+    if (!st.ok()) {
+        LOG(WARNING) << "Failed to create async node channel thread pool: " << st.to_string();
+        // Fall back to synchronous execution
+        for (auto& [dst_id, streams] : snapshot) {
+            st = fn(dst_id, *streams);
+        }
+    }
+    std::atomic<size_t> finished_count = 0;
+    std::unordered_set<int64_t> unfinished_node_ids;
+    for (auto& [dst_id, streams] : snapshot) {
+        unfinished_node_ids.insert(dst_id);
+    }
+    size_t total_count = snapshot.size();
+    std::mutex _unfinished_mutex;
+    Status status = Status::OK();
+    for (auto& [dst_id, streams] : snapshot) {
+        if (!_async_node_channel_pool->submit_func([fn, &finished_count, &unfinished_node_ids,
+                                                    &_unfinished_mutex, &status, dst_id,
+                                                    streams]() {
+                // 主任务
+                auto st1 = fn(dst_id, *streams);
+                // 回调函数
+                finished_count.fetch_add(1);
+                {
+                    if (!st1.ok() && status.ok()) {
+                        status = st1;
+                    }
+                    std::lock_guard<std::mutex> l(_unfinished_mutex);
+                    unfinished_node_ids.erase(dst_id);
+                }
+            })) {
+            LOG(WARNING) << "Failed to submit async node channel task: " << st.to_string();
+        }
+    }
+    // Wait for all tasks to complete
+    while (finished_count.load() < total_count - 1) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+
+    // Wait for all tasks to complete
+    int8_t timeout_count = 0;
+    while (true) {
+        if (finished_count.load() == total_count) {
+            break;
+        }
+        timeout_count++;
+        if (timeout_count > 60) {
+            LOG(WARNING) << "Async node channel thread pool timeout";
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    }
+    for (auto& it : unfinished_node_ids) {
+        _streams_for_node[it]->cancel(Status::TimedOut("timeout"));
+    }
+    return status;
+}
+
 void LoadStreamMap::save_tablets_to_commit(int64_t dst_id,
                                            const std::vector<PTabletID>& tablets_to_commit) {
     std::lock_guard<std::mutex> lock(_tablets_to_commit_mutex);
