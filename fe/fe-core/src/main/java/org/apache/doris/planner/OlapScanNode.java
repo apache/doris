@@ -754,7 +754,6 @@ public class OlapScanNode extends ScanNode {
         return maxVersion;
     }
 
-    // for non-cloud mode. for cloud mode see `updateScanRangeVersions`
     private void addScanRangeLocations(Partition partition,
             List<Tablet> tablets, Map<Long, Set<Long>> backendAlivePathHashs) throws UserException {
         long visibleVersion = Partition.PARTITION_INIT_VERSION;
@@ -764,6 +763,7 @@ public class OlapScanNode extends ScanNode {
         if (!(Config.isCloudMode() && Config.enable_cloud_snapshot_version)) {
             visibleVersion = partition.getVisibleVersion();
         }
+        // for non-cloud mode. for cloud mode see `updateScanRangeVersions`
         maxVersion = Math.max(maxVersion, visibleVersion);
         String visibleVersionStr = String.valueOf(visibleVersion);
 
