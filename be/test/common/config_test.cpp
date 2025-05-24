@@ -162,7 +162,6 @@ TEST_F(ConfigTest, UpdateConfigs) {
     s = config::set_config("cfg_conf_path", "$$TEST_CONF_ENV/test");
     EXPECT_TRUE(s.ok());
     EXPECT_EQ(cfg_conf_path, "$TEST_CONF_ENV/test");
-
 }
 
 } // namespace doris
