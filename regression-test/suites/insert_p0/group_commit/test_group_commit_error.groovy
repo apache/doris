@@ -73,4 +73,23 @@ suite("test_group_commit_error", "nonConcurrent") {
     } finally {
         GetDebugPoint().clearDebugPointsForAllBEs()
     }
+
+    try {
+        GetDebugPoint().enableDebugPointForAllBEs("LoadBlockQueue.add_block.block")
+        Thread thread = new Thread(() -> {
+            sql """ set group_commit = async_mode """
+            sql """ insert into ${tableName} values (5, 4) """
+        })
+        thread.start()
+        sleep(4000)
+        GetDebugPoint().clearDebugPointsForAllBEs()
+        thread.join()
+        def result = sql "select count(*) from ${tableName}"
+        logger.info("rowCount 0: ${result}")
+    } catch (Exception e) {
+        logger.warn("unexpected failed: " + e.getMessage())
+        assertTrue(false, "unexpected failed: " + e.getMessage())
+    } finally {
+        GetDebugPoint().clearDebugPointsForAllBEs()
+    }
 }
