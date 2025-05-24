@@ -56,6 +56,7 @@
 #include "util/countdown_latch.h"
 #include "util/runtime_profile.h"
 #include "util/stopwatch.hpp"
+#include "util/work_thread_pool.hpp"
 #include "vec/columns/column.h"
 #include "vec/common/allocator.h"
 #include "vec/core/block.h"
@@ -85,6 +86,8 @@ public:
 
     Status for_each_st(std::function<Status(int64_t, LoadStreamStubs&)> fn);
 
+    Status async_for_each_st(std::function<Status(int64_t, LoadStreamStubs&)> fn);
+
     void save_tablets_to_commit(int64_t dst_id, const std::vector<PTabletID>& tablets_to_commit);
 
     void save_segments_for_tablet(const std::unordered_map<int64_t, int32_t>& segments_for_tablet) {
@@ -97,6 +100,15 @@ public:
     // send CLOSE_LOAD to all streams, return ERROR if any.
     // only call this method after release() returns true.
     void close_load(bool incremental);
+
+    std::unordered_map<int64_t, std::shared_ptr<LoadStreamStubs>> get_streams_for_node() {
+        decltype(_streams_for_node) snapshot;
+        {
+            std::lock_guard<std::mutex> lock(_mutex);
+            snapshot = _streams_for_node;
+        }
+        return snapshot;
+    }
 
 private:
     const UniqueId _load_id;
@@ -112,6 +124,8 @@ private:
     std::mutex _tablets_to_commit_mutex;
     std::unordered_map<int64_t, std::unordered_map<int64_t, PTabletID>> _tablets_to_commit;
     std::unordered_map<int64_t, int32_t> _segments_for_tablet;
+
+    std::unique_ptr<ThreadPool> _async_node_channel_pool;
 };
 
 class LoadStreamMapPool {

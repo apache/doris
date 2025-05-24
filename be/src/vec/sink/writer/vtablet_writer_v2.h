@@ -149,6 +149,12 @@ private:
 
     Status _close_wait(bool incremental);
 
+    bool _quorum_success();
+
+    double _calc_max_wait_time_ms(
+            const std::unordered_map<int64_t, std::shared_ptr<LoadStreamStubs>>& streams_for_node,
+            const std::unordered_set<std::shared_ptr<LoadStreamStub>>& unfinished_streams);
+
     void _cancel(Status status);
 
     std::shared_ptr<MemTracker> _mem_tracker;
@@ -230,6 +236,8 @@ private:
     VRowDistribution _row_distribution;
     // reuse to avoid frequent memory allocation and release.
     std::vector<RowPartTabletIds> _row_part_tablet_ids;
+
+    std::unordered_set<int64_t> _write_tablets;
 };
 
 } // namespace vectorized
