@@ -35,6 +35,7 @@
 #include "vec/columns/column_object.h"
 #include "vec/columns/column_struct.h"
 #include "vec/columns/columns_number.h"
+#include "vec/common/assert_cast.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
 #include "vec/core/column_with_type_and_name.h"
@@ -152,112 +153,59 @@ public:
 
     bool use_default_implementation_for_nulls() const override { return false; }
 
-    template <typename ColumnType, bool when_null, bool then_null>
-    Status execute_short_circuit(const DataTypePtr& data_type, Block& block, uint32_t result,
-                                 CaseWhenColumnHolder column_holder) const {
-        auto case_column_ptr = column_holder.when_ptrs[0].value_or(nullptr);
-        size_t rows_count = column_holder.rows_count;
-
-        // `then` data index corresponding to each row of results, 0 represents `else`.
-        auto then_idx_uptr = std::unique_ptr<int[]>(new int[rows_count]);
-        int* __restrict then_idx_ptr = then_idx_uptr.get();
-        memset(then_idx_ptr, 0, rows_count * sizeof(int));
-
-        for (int row_idx = 0; row_idx < column_holder.rows_count; row_idx++) {
-            for (int i = 1; i < column_holder.pair_count; i++) {
-                auto when_column_ptr = column_holder.when_ptrs[i].value();
-                if constexpr (has_case) {
-                    if (!case_column_ptr->is_null_at(row_idx) &&
-                        case_column_ptr->compare_at(row_idx, row_idx, *when_column_ptr, -1) == 0) {
-                        then_idx_ptr[row_idx] = i;
-                        break;
-                    }
-                } else {
-                    if (!then_idx_ptr[row_idx] && when_column_ptr->get_bool(row_idx)) {
-                        then_idx_ptr[row_idx] = i;
-                        break;
-                    }
-                }
-            }
-        }
-
-        auto result_column_ptr = data_type->create_column();
-        update_result_normal<int, ColumnType, then_null>(result_column_ptr, then_idx_ptr,
-                                                         column_holder);
-        block.replace_by_position(result, std::move(result_column_ptr));
-        return Status::OK();
-    }
-
-    template <typename ColumnType, bool when_null, bool then_null>
+    template <typename IndexType, typename ColumnType, bool when_null, bool then_null>
     Status execute_impl(const DataTypePtr& data_type, Block& block, uint32_t result,
                         CaseWhenColumnHolder column_holder) const {
-        if (column_holder.pair_count > UINT8_MAX) {
-            return execute_short_circuit<ColumnType, when_null, then_null>(data_type, block, result,
-                                                                           column_holder);
-        }
-
         size_t rows_count = column_holder.rows_count;
 
         // `then` data index corresponding to each row of results, 0 represents `else`.
-        auto then_idx_uptr = std::unique_ptr<uint8_t[]>(new uint8_t[rows_count]);
-        uint8_t* __restrict then_idx_ptr = then_idx_uptr.get();
-        memset(then_idx_ptr, 0, rows_count);
+        auto then_idx_uptr = std::unique_ptr<IndexType[]>(new IndexType[rows_count]);
+        IndexType* __restrict then_idx_ptr = then_idx_uptr.get();
+        memset(then_idx_ptr, 0, sizeof(IndexType) * rows_count);
 
         auto case_column_ptr = column_holder.when_ptrs[0].value_or(nullptr);
 
-        for (uint8_t i = 1; i < column_holder.pair_count; i++) {
+        for (IndexType i = 1; i < column_holder.pair_count; i++) {
             auto when_column_ptr = column_holder.when_ptrs[i].value();
-            if constexpr (has_case) {
-                // TODO: need simd
+            if constexpr (when_null) {
+                const auto* column_nullable_ptr =
+                        assert_cast<const ColumnNullable*>(when_column_ptr.get());
+                const auto* __restrict cond_raw_data =
+                        assert_cast<const ColumnUInt8*>(
+                                column_nullable_ptr->get_nested_column_ptr().get())
+                                ->get_data()
+                                .data();
+                const auto* __restrict cond_raw_nullmap =
+                        assert_cast<const ColumnUInt8*>(
+                                column_nullable_ptr->get_null_map_column_ptr().get())
+                                ->get_data()
+                                .data();
+
+                // simd automatically
                 for (int row_idx = 0; row_idx < rows_count; row_idx++) {
-                    if (!then_idx_ptr[row_idx] && !case_column_ptr->is_null_at(row_idx) &&
-                        case_column_ptr->compare_at(row_idx, row_idx, *when_column_ptr, -1) == 0) {
-                        then_idx_ptr[row_idx] = i;
-                    }
+                    then_idx_ptr[row_idx] |= (!then_idx_ptr[row_idx] * cond_raw_data[row_idx] *
+                                              !cond_raw_nullmap[row_idx]) *
+                                             i;
                 }
             } else {
-                if constexpr (when_null) {
-                    const auto* column_nullable_ptr =
-                            assert_cast<const ColumnNullable*>(when_column_ptr.get());
-                    const auto* __restrict cond_raw_data =
-                            assert_cast<const ColumnUInt8*>(
-                                    column_nullable_ptr->get_nested_column_ptr().get())
-                                    ->get_data()
-                                    .data();
-                    const auto* __restrict cond_raw_nullmap =
-                            assert_cast<const ColumnUInt8*>(
-                                    column_nullable_ptr->get_null_map_column_ptr().get())
-                                    ->get_data()
-                                    .data();
+                const auto* __restrict cond_raw_data =
+                        assert_cast<const ColumnUInt8*>(when_column_ptr.get())->get_data().data();
 
-                    // simd automatically
-                    for (int row_idx = 0; row_idx < rows_count; row_idx++) {
-                        then_idx_ptr[row_idx] |= (!then_idx_ptr[row_idx] * cond_raw_data[row_idx] *
-                                                  !cond_raw_nullmap[row_idx]) *
-                                                 i;
-                    }
-                } else {
-                    const auto* __restrict cond_raw_data =
-                            assert_cast<const ColumnUInt8*>(when_column_ptr.get())
-                                    ->get_data()
-                                    .data();
-
-                    // simd automatically
-                    for (int row_idx = 0; row_idx < rows_count; row_idx++) {
-                        then_idx_ptr[row_idx] |=
-                                (!then_idx_ptr[row_idx]) * cond_raw_data[row_idx] * i;
-                    }
+                // simd automatically
+                for (int row_idx = 0; row_idx < rows_count; row_idx++) {
+                    then_idx_ptr[row_idx] |= (!then_idx_ptr[row_idx]) * cond_raw_data[row_idx] * i;
                 }
             }
         }
 
-        return execute_update_result<ColumnType, then_null>(data_type, result, block, then_idx_ptr,
-                                                            column_holder);
+        return execute_update_result<IndexType, ColumnType, then_null>(data_type, result, block,
+                                                                       then_idx_ptr, column_holder);
     }
 
-    template <typename ColumnType, bool then_null>
+    template <typename IndexType, typename ColumnType, bool then_null>
     Status execute_update_result(const DataTypePtr& data_type, uint32_t result, Block& block,
-                                 const uint8* then_idx, CaseWhenColumnHolder& column_holder) const {
+                                 const IndexType* then_idx,
+                                 CaseWhenColumnHolder& column_holder) const {
         auto result_column_ptr = data_type->create_column();
 
         if constexpr (std::is_same_v<ColumnType, ColumnString> ||
@@ -272,13 +220,13 @@ public:
                       std::is_same_v<ColumnType, ColumnIPv6>) {
             // result_column and all then_column is not nullable.
             // can't simd when type is string.
-            update_result_normal<uint8_t, ColumnType, then_null>(result_column_ptr, then_idx,
-                                                                 column_holder);
-        } else if constexpr (then_null) {
+            update_result_normal<IndexType, ColumnType, then_null>(result_column_ptr, then_idx,
+                                                                   column_holder);
+        } else if constexpr (then_null || !std::is_same_v<IndexType, uint8_t>) {
             // result_column and all then_column is nullable.
             // TODO: make here simd automatically.
-            update_result_normal<uint8_t, ColumnType, then_null>(result_column_ptr, then_idx,
-                                                                 column_holder);
+            update_result_normal<IndexType, ColumnType, then_null>(result_column_ptr, then_idx,
+                                                                   column_holder);
         } else {
             update_result_auto_simd<ColumnType>(result_column_ptr, then_idx, column_holder);
         }
@@ -299,10 +247,13 @@ public:
                         unpack_if_const(column_holder.then_ptrs[i].value());
             }
         }
+
+        auto* raw_result_column = result_column_ptr.get();
         for (int row_idx = 0; row_idx < column_holder.rows_count; row_idx++) {
             if constexpr (!has_else) {
                 if (!then_idx[row_idx]) {
-                    result_column_ptr->insert_default();
+                    assert_cast<ColumnNullable*, TypeCheckOnRelease::DISABLE>(raw_result_column)
+                            ->insert_default();
                     continue;
                 }
             }
@@ -372,13 +323,24 @@ public:
 
         CaseWhenColumnHolder column_holder = CaseWhenColumnHolder(
                 block, arguments, input_rows_count, has_case, has_else, when_null, then_null);
-
+        if (column_holder.pair_count > UINT16_MAX) {
+            return Status::NotSupported(
+                    "case when do not support more than UINT16_MAX pairs conditions");
+        }
         if (then_null) {
-            return execute_impl<ColumnType, when_null, true>(data_type, block, result,
-                                                             column_holder);
+            if (column_holder.pair_count > UINT8_MAX) {
+                return execute_impl<uint16_t, ColumnType, when_null, true>(data_type, block, result,
+                                                                           column_holder);
+            }
+            return execute_impl<uint8_t, ColumnType, when_null, true>(data_type, block, result,
+                                                                      column_holder);
         } else {
-            return execute_impl<ColumnType, when_null, false>(data_type, block, result,
-                                                              column_holder);
+            if (column_holder.pair_count > UINT8_MAX) {
+                return execute_impl<uint16_t, ColumnType, when_null, false>(data_type, block,
+                                                                            result, column_holder);
+            }
+            return execute_impl<uint8_t, ColumnType, when_null, false>(data_type, block, result,
+                                                                       column_holder);
         }
     }
 
@@ -502,6 +464,9 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
+        if constexpr (has_case) {
+            return Status::NotSupported("case when has_case not supported");
+        }
         return execute_get_type(block.get_by_position(result).type, block, arguments, result,
                                 input_rows_count);
     }
