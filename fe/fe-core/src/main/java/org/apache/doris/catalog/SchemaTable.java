@@ -498,6 +498,13 @@ public class SchemaTable extends Table {
                             .column("READ_BYTES_PER_SECOND", ScalarType.createType(PrimitiveType.BIGINT))
                             .column("REMOTE_READ_BYTES_PER_SECOND", ScalarType.createType(PrimitiveType.BIGINT))
                             .build()))
+            .put("backend_configuration",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "backend_configuration", TableType.SCHEMA,
+                            builder().column("CONFIGURATION", ScalarType.createStringType())
+                                    .column("CONFIGURATION_TYPE", ScalarType.createStringType())
+                                    .column("CONFIGURATION_VALUE", ScalarType.createStringType())
+                                    .column("IS_MUTABLE", ScalarType.createType(PrimitiveType.BOOLEAN))
+                                    .build()))
             .put("processlist",
                     new SchemaTable(SystemIdGenerator.getNextId(), "processlist", TableType.SCHEMA,
                             builder().column("CURRENT_CONNECTED", ScalarType.createVarchar(16))
