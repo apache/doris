@@ -19,6 +19,7 @@ package org.apache.doris.nereids.properties;
 
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.PlanChecker;
@@ -26,6 +27,8 @@ import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+
+import java.util.Optional;
 
 class UniqueTest extends TestWithFeService {
     Slot slot1 = new SlotReference("1", IntegerType.INSTANCE, false);
@@ -375,8 +378,8 @@ class UniqueTest extends TestWithFeService {
                 .analyze("select id, row_number() over() from agg where id =1")
                 .rewrite()
                 .getPlan();
-        Assertions.assertTrue(plan.getLogicalProperties()
-                .getTrait().isUniqueAndNotNull(plan.getOutput().get(0)));
+        Assertions.assertEquals(Optional.of(new IntegerLiteral(1)),
+                plan.getLogicalProperties().getTrait().getUniformValue(plan.getOutput().get(0)));
         Assertions.assertTrue(plan.getLogicalProperties()
                 .getTrait().isUniqueAndNotNull(plan.getOutput().get(1)));
     }

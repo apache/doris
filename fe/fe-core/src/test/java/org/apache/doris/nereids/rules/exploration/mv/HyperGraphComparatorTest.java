@@ -29,9 +29,14 @@ import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 class HyperGraphComparatorTest extends SqlTestBase {
+
+    @Override
+    protected String getDisableNereidsRules() {
+        return "INFER_PREDICATES,CONSTANT_PROPAGATION,PRUNE_EMPTY_PARTITION";
+    }
+
     @Test
     void testInnerJoinAndLOJ() {
-        connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES,PRUNE_EMPTY_PARTITION");
         CascadesContext c1 = createCascadesContext(
                 "select * from T1 inner join T2 "
                         + "on T1.id = T2.id "
@@ -62,7 +67,6 @@ class HyperGraphComparatorTest extends SqlTestBase {
 
     @Test
     void testIJAndLojAssoc() {
-        connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES,PRUNE_EMPTY_PARTITION");
         CascadesContext c1 = createCascadesContext(
                 "select * from T1 inner join T3 "
                         + "on T1.id = T3.id "
@@ -93,7 +97,6 @@ class HyperGraphComparatorTest extends SqlTestBase {
 
     @Test
     void testIJAndLojAssocWithFilter() {
-        connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES,PRUNE_EMPTY_PARTITION");
         CascadesContext c1 = createCascadesContext(
                 "select * from T1 inner join T3 "
                         + "on T1.id = T3.id "
@@ -126,7 +129,6 @@ class HyperGraphComparatorTest extends SqlTestBase {
     @Disabled
     @Test
     void testIJAndLojAssocWithJoinCond() {
-        connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES,PRUNE_EMPTY_PARTITION");
         CascadesContext c1 = createCascadesContext(
                 "select * from T1 inner join T3 "
                         + "on T1.id = T3.id "
