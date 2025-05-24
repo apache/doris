@@ -47,6 +47,7 @@ namespace ErrorCode {
     TStatusError(IO_ERROR, true);                         \
     TStatusError(NOT_FOUND, true);                        \
     TStatusError(ALREADY_EXIST, true);                    \
+    TStatusError(DIRECTORY_NOT_EMPTY, true);              \
     TStatusError(NOT_IMPLEMENTED_ERROR, false);           \
     TStatusError(END_OF_FILE, false);                     \
     TStatusError(INTERNAL_ERROR, true);                   \
@@ -471,6 +472,7 @@ public:
     ERROR_CTOR(IOError, IO_ERROR)
     ERROR_CTOR(NotFound, NOT_FOUND)
     ERROR_CTOR_NOSTACK(AlreadyExist, ALREADY_EXIST)
+    ERROR_CTOR_NOSTACK(DirectoryNotEmpty, DIRECTORY_NOT_EMPTY)
     ERROR_CTOR(NotSupported, NOT_IMPLEMENTED_ERROR)
     ERROR_CTOR_NOSTACK(EndOfFile, END_OF_FILE)
     ERROR_CTOR(InternalError, INTERNAL_ERROR)
