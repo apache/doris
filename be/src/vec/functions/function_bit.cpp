@@ -41,9 +41,9 @@ struct NameBitAnd {
 
 template <typename A, typename B>
 struct BitAndImpl {
-    using ResultType = typename NumberTraits::ResultOfBit<A, B>::Type;
+    static constexpr PrimitiveType ResultType = NumberTraits::ResultOfBit<A, B>::Type;
 
-    template <typename Result = ResultType>
+    template <typename Result = typename PrimitiveTypeTraits<ResultType>::ColumnItemType>
     static inline Result apply(A a, B b) {
         return static_cast<Result>(a) & static_cast<Result>(b);
     }
@@ -55,9 +55,11 @@ struct NameBitNot {
 
 template <typename A>
 struct BitNotImpl {
-    using ResultType = typename NumberTraits::ResultOfBitNot<A>::Type;
+    static constexpr PrimitiveType ResultType = NumberTraits::ResultOfBitNot<A>::Type;
 
-    static inline ResultType apply(A a) { return ~static_cast<ResultType>(a); }
+    static inline typename PrimitiveTypeTraits<ResultType>::ColumnItemType apply(A a) {
+        return ~static_cast<typename PrimitiveTypeTraits<ResultType>::ColumnItemType>(a);
+    }
 };
 
 struct NameBitOr {
@@ -66,9 +68,9 @@ struct NameBitOr {
 
 template <typename A, typename B>
 struct BitOrImpl {
-    using ResultType = typename NumberTraits::ResultOfBit<A, B>::Type;
+    static constexpr PrimitiveType ResultType = NumberTraits::ResultOfBit<A, B>::Type;
 
-    template <typename Result = ResultType>
+    template <typename Result = typename PrimitiveTypeTraits<ResultType>::CppType>
     static inline Result apply(A a, B b) {
         return static_cast<Result>(a) | static_cast<Result>(b);
     }
@@ -80,9 +82,9 @@ struct NameBitXor {
 
 template <typename A, typename B>
 struct BitXorImpl {
-    using ResultType = typename NumberTraits::ResultOfBit<A, B>::Type;
+    static constexpr PrimitiveType ResultType = NumberTraits::ResultOfBit<A, B>::Type;
 
-    template <typename Result = ResultType>
+    template <typename Result = typename PrimitiveTypeTraits<ResultType>::CppType>
     static inline Result apply(A a, B b) {
         return static_cast<Result>(a) ^ static_cast<Result>(b);
     }

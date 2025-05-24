@@ -404,6 +404,10 @@ struct Decimal128V3;
 template <DecimalNativeTypeConcept T>
 struct Decimal {
     using NativeType = T;
+    static constexpr PrimitiveType PType = std::is_same_v<T, Int32>    ? TYPE_DECIMAL32
+                                           : std::is_same_v<T, Int64>  ? TYPE_DECIMAL64
+                                           : std::is_same_v<T, Int128> ? TYPE_DECIMALV2
+                                                                       : TYPE_DECIMAL256;
 
     static constexpr bool IsInt256 = std::is_same_v<T, wide::Int256>;
 
@@ -569,6 +573,7 @@ inline Decimal<T> operator%(const Decimal<T>& x, const Decimal<T>& y) {
 }
 
 struct Decimal128V3 : public Decimal<Int128> {
+    static constexpr PrimitiveType PType = TYPE_DECIMAL128I;
     Decimal128V3() = default;
 
 #define DECLARE_NUMERIC_CTOR(TYPE) \
@@ -676,14 +681,6 @@ inline constexpr bool IsDecimal256<Decimal256> = true;
 
 template <typename T>
 constexpr bool IsDecimalV2 = IsDecimal128V2<T> && !IsDecimal128V3<T>;
-
-template <typename T, typename U>
-using DisposeDecimal = std::conditional_t<IsDecimalV2<T>, Decimal128V2,
-                                          std::conditional_t<IsDecimalNumber<T>, Decimal128V3, U>>;
-
-template <typename T, typename U>
-using DisposeDecimal256 = std::conditional_t<IsDecimalV2<T>, Decimal128V2,
-                                             std::conditional_t<IsDecimalNumber<T>, Decimal256, U>>;
 
 template <typename T>
 constexpr bool IsFloatNumber = false;
