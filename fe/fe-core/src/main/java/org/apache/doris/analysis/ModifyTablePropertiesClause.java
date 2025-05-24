@@ -67,6 +67,16 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
         this.properties = properties;
     }
 
+    // for nereids
+    public ModifyTablePropertiesClause(Map<String, String> properties, String storagePolicy, boolean isBeingSynced,
+            boolean needTableStable, AlterOpType opType) {
+        super(opType);
+        this.properties = properties;
+        this.storagePolicy = storagePolicy;
+        this.isBeingSynced = isBeingSynced;
+        this.needTableStable = needTableStable;
+    }
+
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException {
         if (properties == null || properties.isEmpty()) {
