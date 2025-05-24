@@ -53,6 +53,7 @@ public class LikeToEqualRewrite implements ExpressionPatternRuleFactory {
         StringBuilder sb = new StringBuilder();
         int len = str.length();
         char escapeChar = '\\';
+
         for (int i = 0; i < len;) {
             char c = str.charAt(i);
             if (c == escapeChar && (i + 1) < len
