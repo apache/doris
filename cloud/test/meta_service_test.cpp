@@ -9275,6 +9275,8 @@ TEST(MetaServiceTest, StalePrepareRowset) {
     ASSERT_NO_FATAL_FAILURE(begin_txn(meta_service.get(), db_id, label, table_id, txn_id));
     CreateRowsetResponse res;
     auto rowset = create_rowset(txn_id, tablet_id, partition_id);
+    rowset.mutable_load_id()->set_hi(123);
+    rowset.mutable_load_id()->set_lo(456);
     prepare_rowset(meta_service.get(), rowset, res);
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << label;
     res.Clear();
@@ -9307,6 +9309,8 @@ TEST(MetaServiceTest, StaleCommitRowset) {
     ASSERT_NO_FATAL_FAILURE(begin_txn(meta_service.get(), db_id, label, table_id, txn_id));
     CreateRowsetResponse res;
     auto rowset = create_rowset(txn_id, tablet_id, partition_id);
+    rowset.mutable_load_id()->set_hi(123);
+    rowset.mutable_load_id()->set_lo(456);
     prepare_rowset(meta_service.get(), rowset, res);
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << label;
     res.Clear();
