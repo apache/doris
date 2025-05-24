@@ -175,6 +175,16 @@ static doris::RowsetMetaCloudPB create_rowset(int64_t txn_id, int64_t tablet_id,
     return rowset;
 }
 
+static void prepare_rowset(MetaServiceProxy* meta_service, const doris::RowsetMetaCloudPB& rowset,
+                           CreateRowsetResponse& res) {
+    brpc::Controller cntl;
+    auto arena = res.GetArena();
+    auto req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
+    req->mutable_rowset_meta()->CopyFrom(rowset);
+    meta_service->prepare_rowset(&cntl, req, &res, nullptr);
+    if (!arena) delete req;
+}
+
 static void commit_rowset(MetaServiceProxy* meta_service, const doris::RowsetMetaCloudPB& rowset,
                           CreateRowsetResponse& res) {
     brpc::Controller cntl;
@@ -425,6 +435,9 @@ TEST(TxnLazyCommitTest, RepairTabletIndexTest) {
         auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i, partition_id);
         tmp_rowsets_meta.push_back(std::make_pair("mock_tmp_rowset_key", tmp_rowset));
         CreateRowsetResponse res;
+        prepare_rowset(meta_service.get(), tmp_rowset, res);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        res.Clear();
         commit_rowset(meta_service.get(), tmp_rowset, res);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
     }
@@ -512,6 +525,9 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithoutDbIdTest) {
                                     tablet_id_base + i);
         auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i, partition_id);
         CreateRowsetResponse res;
+        prepare_rowset(meta_service.get(), tmp_rowset, res);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        res.Clear();
         commit_rowset(meta_service.get(), tmp_rowset, res);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
     }
@@ -593,6 +609,9 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithAbortedTest) {
                                     tablet_id_base + i);
         auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i, partition_id);
         CreateRowsetResponse res;
+        prepare_rowset(meta_service.get(), tmp_rowset, res);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        res.Clear();
         commit_rowset(meta_service.get(), tmp_rowset, res);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
     }
@@ -702,6 +721,9 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithDbIdTest) {
                                  tablet_id_base + i);
         auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i, partition_id);
         CreateRowsetResponse res;
+        prepare_rowset(meta_service.get(), tmp_rowset, res);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        res.Clear();
         commit_rowset(meta_service.get(), tmp_rowset, res);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
     }
@@ -780,6 +802,9 @@ TEST(TxnLazyCommitTest, CommitTxnImmediatelyTest) {
                                     tablet_id_base + i);
         auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i, partition_id);
         CreateRowsetResponse res;
+        prepare_rowset(meta_service.get(), tmp_rowset, res);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        res.Clear();
         commit_rowset(meta_service.get(), tmp_rowset, res);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
     }
@@ -868,6 +893,9 @@ TEST(TxnLazyCommitTest, NotFallThroughCommitTxnEventuallyTest) {
                                  tablet_id_base + i);
         auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i, partition_id);
         CreateRowsetResponse res;
+        prepare_rowset(meta_service.get(), tmp_rowset, res);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        res.Clear();
         commit_rowset(meta_service.get(), tmp_rowset, res);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
     }
@@ -956,6 +984,9 @@ TEST(TxnLazyCommitTest, FallThroughCommitTxnEventuallyTest) {
                                  tablet_id_base + i);
         auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i, partition_id);
         CreateRowsetResponse res;
+        prepare_rowset(meta_service.get(), tmp_rowset, res);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        res.Clear();
         commit_rowset(meta_service.get(), tmp_rowset, res);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
     }
@@ -1113,6 +1144,9 @@ TEST(TxnLazyCommitTest, ConcurrentCommitTxnEventuallyCase1Test) {
             for (int i = 0; i < 10; ++i) {
                 auto tmp_rowset = create_rowset(txn_id1, tablet_id_base + i, partition_id);
                 CreateRowsetResponse res;
+                prepare_rowset(meta_service.get(), tmp_rowset, res);
+                ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+                res.Clear();
                 commit_rowset(meta_service.get(), tmp_rowset, res);
                 ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
             }
@@ -1160,6 +1194,9 @@ TEST(TxnLazyCommitTest, ConcurrentCommitTxnEventuallyCase1Test) {
             for (int i = 0; i < 10; ++i) {
                 auto tmp_rowset = create_rowset(txn_id2, tablet_id_base + i, partition_id);
                 CreateRowsetResponse res;
+                prepare_rowset(meta_service.get(), tmp_rowset, res);
+                ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+                res.Clear();
                 commit_rowset(meta_service.get(), tmp_rowset, res);
                 ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
             }
@@ -1351,6 +1388,9 @@ TEST(TxnLazyCommitTest, ConcurrentCommitTxnEventuallyCase2Test) {
             for (int i = 0; i < 10; ++i) {
                 auto tmp_rowset = create_rowset(txn_id1, tablet_id_base + i, partition_id);
                 CreateRowsetResponse res;
+                prepare_rowset(meta_service.get(), tmp_rowset, res);
+                ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+                res.Clear();
                 commit_rowset(meta_service.get(), tmp_rowset, res);
                 ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
             }
@@ -1398,6 +1438,9 @@ TEST(TxnLazyCommitTest, ConcurrentCommitTxnEventuallyCase2Test) {
             for (int i = 0; i < 10; ++i) {
                 auto tmp_rowset = create_rowset(txn_id2, tablet_id_base + i, partition_id);
                 CreateRowsetResponse res;
+                prepare_rowset(meta_service.get(), tmp_rowset, res);
+                ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+                res.Clear();
                 commit_rowset(meta_service.get(), tmp_rowset, res);
                 ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
             }
@@ -1508,6 +1551,9 @@ TEST(TxnLazyCommitTest, ConcurrentCommitTxnEventuallyCase3Test) {
             for (int i = 0; i < 10; ++i) {
                 auto tmp_rowset = create_rowset(tmp_txn_id, tablet_id_base + i, partition_id);
                 CreateRowsetResponse res;
+                prepare_rowset(meta_service.get(), tmp_rowset, res);
+                ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+                res.Clear();
                 commit_rowset(meta_service.get(), tmp_rowset, res);
                 ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
             }
@@ -1617,6 +1663,9 @@ TEST(TxnLazyCommitTest, ConcurrentCommitTxnEventuallyCase3Test) {
             for (int i = 0; i < 10; ++i) {
                 auto tmp_rowset = create_rowset(txn_id1, tablet_id_base + i, partition_id);
                 CreateRowsetResponse res;
+                prepare_rowset(meta_service.get(), tmp_rowset, res);
+                ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+                res.Clear();
                 commit_rowset(meta_service.get(), tmp_rowset, res);
                 ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
             }
@@ -1768,6 +1817,9 @@ TEST(TxnLazyCommitTest, ConcurrentCommitTxnEventuallyCase4Test) {
             for (int i = 0; i < 10; ++i) {
                 auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i, partition_id);
                 CreateRowsetResponse res;
+                prepare_rowset(meta_service.get(), tmp_rowset, res);
+                ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+                res.Clear();
                 commit_rowset(meta_service.get(), tmp_rowset, res);
                 ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
             }
@@ -1853,6 +1905,9 @@ TEST(TxnLazyCommitTest, RowsetMetaSizeExceedTest) {
         {
             auto tmp_rowset = create_rowset(tmp_txn_id, tablet_id, partition_id);
             CreateRowsetResponse res;
+            prepare_rowset(meta_service.get(), tmp_rowset, res);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+            res.Clear();
             commit_rowset(meta_service.get(), tmp_rowset, res);
             ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
         }
