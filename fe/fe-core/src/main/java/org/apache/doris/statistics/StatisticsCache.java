@@ -269,7 +269,7 @@ public class StatisticsCache {
         final StatisticsCacheKey k = new StatisticsCacheKey(statsId.catalogId, statsId.dbId, statsId.tblId,
                 statsId.idxId, statsId.colId);
         ColumnStatistic columnStatistic = data.toColumnStatistic();
-        if (columnStatistic == ColumnStatistic.UNKNOWN) {
+        if (!data.isValid() || columnStatistic == ColumnStatistic.UNKNOWN) {
             invalidateColumnStatsCache(k.catalogId, k.dbId, k.tableId, k.idxId, k.colName);
         } else {
             putCache(k, columnStatistic);
