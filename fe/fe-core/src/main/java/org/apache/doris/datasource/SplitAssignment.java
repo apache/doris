@@ -36,6 +36,7 @@ import java.util.Set;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -76,11 +77,18 @@ public class SplitAssignment {
     public void init() throws UserException {
         splitGenerator.startSplit(backendPolicy.numBackends());
         synchronized (assignLock) {
+            int waitIntervalTimeMillis = 100;
+            int initTimeoutMillis = 5000; // 5s
+            int waitTotalTime = 0;
             while (sampleSplit == null && waitFirstSplit()) {
                 try {
-                    assignLock.wait(100);
+                    assignLock.wait(waitIntervalTimeMillis);
                 } catch (InterruptedException e) {
                     throw new UserException(e.getMessage(), e);
+                }
+                waitTotalTime += waitIntervalTimeMillis;
+                if (waitTotalTime > initTimeoutMillis) {
+                    throw new UserException("Timeout to get first split");
                 }
             }
         }
@@ -100,10 +108,28 @@ public class SplitAssignment {
             for (Split split : splits) {
                 locations.add(splitToScanRange.getScanRange(backend, locationProperties, split, pathPartitionKeys));
             }
-            try {
-                assignment.computeIfAbsent(backend, be -> new LinkedBlockingQueue<>(10000)).put(locations);
-            } catch (Exception e) {
-                throw new UserException("Failed to offer batch split", e);
+            int maxRetryTimes = 5;
+            int retryTimes = 0;
+            while (true) {
+                if (retryTimes >= maxRetryTimes) {
+                    throw new UserException("Failed to offer batch split after " + maxRetryTimes + " times");
+                }
+                BlockingQueue<Collection<TScanRangeLocations>> queue =
+                        assignment.computeIfAbsent(backend, be -> new LinkedBlockingQueue<>(10000));
+                try {
+                    if (queue.offer(locations, 100, TimeUnit.MILLISECONDS)) {
+                        break;
+                    }
+                } catch (Exception e) {
+                    throw new UserException("Failed to offer batch split", e);
+                }
+                if (isStopped.get() || scheduleFinished.get() || exception != null) {
+                    // Throwing an exception here is to terminate the external thread.
+                    // Otherwise, the external thread will still generate splits
+                    //     and continue to add them to the queue.
+                    throw new UserException("No need to get split");
+                }
+                retryTimes++;
             }
         }
     }
@@ -120,7 +146,7 @@ public class SplitAssignment {
         return sampleSplit;
     }
 
-    public void addToQueue(List<Split> splits) {
+    public void addToQueue(List<Split> splits) throws UserException {
         if (splits.isEmpty()) {
             return;
         }
@@ -130,19 +156,9 @@ public class SplitAssignment {
                 sampleSplit = splits.get(0);
                 assignLock.notify();
             }
-            try {
-                batch = backendPolicy.computeScanRangeAssignment(splits);
-            } catch (UserException e) {
-                exception = e;
-            }
+            batch = backendPolicy.computeScanRangeAssignment(splits);
         }
-        if (batch != null) {
-            try {
-                appendBatch(batch);
-            } catch (UserException e) {
-                exception = e;
-            }
-        }
+        appendBatch(batch);
     }
 
     private void notifyAssignment() {
@@ -164,8 +180,16 @@ public class SplitAssignment {
     }
 
     public void setException(UserException e) {
-        exception = e;
+        addUserException(e);
         notifyAssignment();
+    }
+
+    private void addUserException(UserException e) {
+        if (exception != null) {
+            exception.addSuppressed(e);
+        } else {
+            exception = e;
+        }
     }
 
     public void finishSchedule() {
@@ -187,6 +211,9 @@ public class SplitAssignment {
             }
         });
         notifyAssignment();
+        if (exception != null) {
+            throw new RuntimeException(exception);
+        }
     }
 
     public boolean isStop() {
