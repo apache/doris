@@ -150,7 +150,7 @@ public:
     MOCK_METHOD(Status, read_from_index, (const doris::segment_v2::IndexParam& param), (override));
     MOCK_METHOD(Status, range_search,
                 (const segment_v2::RangeSearchParams& params,
-                 const segment_v2::CustomSearchParams& custom_params,
+                 const VectorSearchUserParams& custom_params,
                  segment_v2::RangeSearchResult* result),
                 (override));
 

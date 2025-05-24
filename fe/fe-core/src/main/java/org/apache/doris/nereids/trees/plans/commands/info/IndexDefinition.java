@@ -136,9 +136,22 @@ public class IndexDefinition {
     public void checkColumn(ColumnDefinition column, KeysType keysType,
             boolean enableUniqueKeyMergeOnWrite,
             TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat) throws AnalysisException {
+        if (indexType == IndexType.ANN) {
+            String indexColName = column.getName();
+            caseSensitivityCols.add(indexColName);
+            DataType colType = column.getType();
+            if (!colType.isArrayType()) {
+                throw new AnalysisException("ANN index column must be array type, invalid index: " + name);
+            }
+            DataType itemType = ((ArrayType) colType).getItemType();
+            if (!itemType.isFloatType()) {
+                throw new AnalysisException("ANN index column item type must be float type, invalid index: " + name);
+            }
+            return;
+        }
+                    
         if (indexType == IndexType.BITMAP || indexType == IndexType.INVERTED
-                || indexType == IndexType.BLOOMFILTER || indexType == IndexType.NGRAM_BF
-                || indexType == IndexType.ANN) {
+                || indexType == IndexType.BLOOMFILTER || indexType == IndexType.NGRAM_BF) {
             String indexColName = column.getName();
             caseSensitivityCols.add(indexColName);
             DataType colType = column.getType();
@@ -146,10 +159,6 @@ public class IndexDefinition {
                 // TODO add colType.isAggState()
                 throw new AnalysisException(colType + " is not supported in " + indexType.toString()
                         + " index. " + "invalid index: " + name);
-            }
-
-            if (indexType == IndexType.ANN && !colType.isArrayType()) {
-                throw new AnalysisException("Ann index column must be array type, invalid index: " + name);
             }
 
             // In inverted index format v1, each subcolumn of a variant has its own index file, leading to high IOPS.

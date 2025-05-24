@@ -158,7 +158,16 @@ doris::Status FaissVectorIndex::ann_topn_search(const float* query_vec, int k,
         std::unique_ptr<faiss::IDSelector> id_sel = nullptr;
         id_sel = roaring_to_faiss_selector(*params.roaring);
         faiss::SearchParametersHNSW param;
+        const HNSWSearchParameters* hnsw_params =
+                dynamic_cast<const HNSWSearchParameters*>(&params);
+        if (hnsw_params == nullptr) {
+            return doris::Status::InvalidArgument(
+                    "HNSW search parameters should not be null for HNSW index");
+        }
         param.sel = id_sel.get();
+        param.efSearch = hnsw_params->ef_search;
+        param.check_relative_distance = hnsw_params->check_relative_distance;
+        param.bounded_queue = hnsw_params->bounded_queue;
 
         _index->search(1, query_vec, k, distances, labels, &param);
     }
@@ -193,6 +202,8 @@ doris::Status FaissVectorIndex::range_search(const float* query_vec, const float
     if (hnsw_params != nullptr) {
         faiss::SearchParametersHNSW param;
         param.efSearch = hnsw_params->ef_search;
+        param.check_relative_distance = hnsw_params->check_relative_distance;
+        param.bounded_queue = hnsw_params->bounded_queue;
         param.sel = sel ? sel.get() : nullptr;
         _index->range_search(1, query_vec, radius * radius, &native_search_result, &param);
     } else {

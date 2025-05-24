@@ -198,15 +198,15 @@ Status OperatorXBase::init(const TPlanNode& tnode, RuntimeState* /*state*/) {
     if (tnode.__isset.vconjunct) {
         vectorized::VExprContextSPtr context;
         RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(tnode.vconjunct, context));
-        LOG_INFO("Conjunct of {} is\n{}", _op_name,
-                 apache::thrift::ThriftDebugString(tnode.vconjunct));
+        // LOG_INFO("Conjunct of {} is\n{}", _op_name,
+        //          apache::thrift::ThriftDebugString(tnode.vconjunct));
         _conjuncts.emplace_back(context);
     } else if (tnode.__isset.conjuncts) {
         for (auto& conjunct : tnode.conjuncts) {
             vectorized::VExprContextSPtr context;
             RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(conjunct, context));
-            LOG_INFO("Conjunct of {} is\n{}", _op_name,
-                     apache::thrift::ThriftDebugString(conjunct));
+            // LOG_INFO("Conjunct of {} is\n{}", _op_name,
+            //          apache::thrift::ThriftDebugString(conjunct));
             // // Write the conjunct to a file for debugging
             // doris::vectorized::write_to_json(
             //         "/mnt/disk4/hezhiqiang/workspace/doris/cmaster/RELEASE/be1", "conjunct.json",

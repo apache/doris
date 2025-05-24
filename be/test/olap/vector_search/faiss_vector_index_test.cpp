@@ -300,13 +300,13 @@ TEST_F(VectorSearchTest, CompRangeSearch) {
         size_t random_n =
                 std::uniform_int_distribution<>(500, 2000)(gen); // Random number of vectors
         // Step 1: Create and build index
-        auto index1 = std::make_unique<FaissVectorIndex>();
+        auto doris_index = std::make_unique<FaissVectorIndex>();
 
         FaissBuildParameter params;
         params.d = random_d;
         params.m = random_m;
         params.index_type = FaissBuildParameter::IndexType::HNSW;
-        index1->set_build_params(params);
+        doris_index->set_build_params(params);
 
         const int num_vectors = random_n;
         std::vector<std::vector<float>> vectors;
@@ -316,31 +316,20 @@ TEST_F(VectorSearchTest, CompRangeSearch) {
         }
         std::unique_ptr<faiss::Index> native_index =
                 std::make_unique<faiss::IndexHNSWFlat>(params.d, params.m);
-        doris::vector_search_utils::add_vectors_to_indexes_serial_mode(index1.get(),
+        doris::vector_search_utils::add_vectors_to_indexes_serial_mode(doris_index.get(),
                                                                        native_index.get(), vectors);
 
         std::vector<float> query_vec = vectors.front();
-
-        std::vector<std::pair<size_t, float>> distances(num_vectors);
-        for (int i = 0; i < num_vectors; i++) {
-            double sum = 0;
-            auto& vec = vectors[i];
-            for (int j = 0; j < params.d; j++) {
-                accumulate(vec[j], query_vec[j], sum);
-            }
-            distances[i] = std::make_pair(i, finalize(sum));
-        }
-        std::sort(distances.begin(), distances.end(),
-                  [](const auto& a, const auto& b) { return a.second < b.second; });
-
-        float radius = distances[num_vectors / 4].second;
+        const float radius = doris::vector_search_utils::get_radius_from_matrix(
+                query_vec.data(), params.d, vectors, 0.4f);
 
         HNSWSearchParameters hnsw_params;
         hnsw_params.ef_search = 16;    // Set efSearch for better accuracy
         hnsw_params.roaring = nullptr; // No selector for this test
         hnsw_params.is_le_or_lt = true;
         IndexSearchResult doris_result;
-        std::ignore = index1->range_search(query_vec.data(), radius, hnsw_params, doris_result);
+        std::ignore =
+                doris_index->range_search(query_vec.data(), radius, hnsw_params, doris_result);
 
         faiss::SearchParametersHNSW search_params_native;
         search_params_native.efSearch = hnsw_params.ef_search;
@@ -575,6 +564,7 @@ TEST_F(VectorSearchTest, RangeSearchWithSelector1) {
                   true);
 
         ASSERT_EQ(native_results.size(), doris_search_result.roaring->cardinality());
+
         ASSERT_EQ(doris_search_result.distances != nullptr, true);
         for (size_t i = 0; i < native_results.size(); i++) {
             const size_t rowid = native_results[i].first;
