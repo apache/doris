@@ -2793,6 +2793,8 @@ void ORCFileInputStream::_build_small_ranges_input_stripe_streams(
     all_ranges.reserve(ranges.size());
     std::transform(ranges.begin(), ranges.end(), std::back_inserter(all_ranges),
                    [](const auto& pair) { return pair.second; });
+    std::sort(all_ranges.begin(), all_ranges.end(),
+              [](const auto& a, const auto& b) { return a.start_offset < b.start_offset; });
 
     auto merged_ranges = io::PrefetchRange::merge_adjacent_seq_ranges(
             all_ranges, _orc_max_merge_distance_bytes, _orc_once_max_read_bytes);
