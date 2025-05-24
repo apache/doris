@@ -1180,7 +1180,7 @@ public class VectorColumn {
                 }
             }
         }
-        childColumns[0].appendObjectColumn(nested, isNullable);
+        childColumns[0].appendObjectColumn(nested, true);
     }
 
     public ArrayList<Object> getArray(int rowId) {
@@ -1247,8 +1247,8 @@ public class VectorColumn {
                 }
             }
         }
-        childColumns[0].appendObjectColumn(keys, isNullable);
-        childColumns[1].appendObjectColumn(values, isNullable);
+        childColumns[0].appendObjectColumn(keys, true);
+        childColumns[1].appendObjectColumn(values, true);
     }
 
     public HashMap<Object, Object> getMap(int rowId) {
@@ -1313,7 +1313,7 @@ public class VectorColumn {
             appendIndex++;
         }
         for (int j = 0; j < childColumns.length; ++j) {
-            childColumns[j].appendObjectColumn(columnData[j], isNullable);
+            childColumns[j].appendObjectColumn(columnData[j], true);
         }
     }
 
