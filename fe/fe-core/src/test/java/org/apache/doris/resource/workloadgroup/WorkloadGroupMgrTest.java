@@ -241,7 +241,8 @@ public class WorkloadGroupMgrTest {
         cgSet.add(cgName1);
         cgSet.add(cgName2);
         long wgId3 = 3;
-        ComputeGroup mergedComputeGroup = new MergedComputeGroup(cgSet, null);
+        ComputeGroup mergedComputeGroup = new MergedComputeGroup(
+                String.join(",", cgSet), cgSet, null);
         ctx.setComputeGroup(mergedComputeGroup);
         Map<String, String> prop3 = Maps.newHashMap();
         prop3.put(WorkloadGroup.COMPUTE_GROUP, cgName1);

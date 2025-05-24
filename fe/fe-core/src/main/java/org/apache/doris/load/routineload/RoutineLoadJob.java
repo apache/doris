@@ -1037,6 +1037,8 @@ public abstract class RoutineLoadJob
                 } else {
                     ConnectContext.get().setCloudCluster(clusterName);
                 }
+                ConnectContext.get().setCurrentUserIdentity(this.getUserIdentity());
+                ConnectContext.get().setQualifiedUser(this.getUserIdentity().getQualifiedUser());
             } else {
                 setComputeGroup();
             }
