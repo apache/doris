@@ -143,23 +143,13 @@ Status SetSourceOperatorX<is_intersect>::_get_data_in_hashtable(
         }
     };
 
-    auto& iter = hash_table_ctx.iterator;
-    while (iter != hash_table_ctx.hash_table->end() &&
-           local_state._result_indexs.size() < batch_size) {
-        add_result(iter->get_second());
+    auto& iter = hash_table_ctx.begin;
+    while (iter != hash_table_ctx.end && local_state._result_indexs.size() < batch_size) {
+        add_result(iter.get_second());
         ++iter;
     }
 
-    *eos = iter == hash_table_ctx.hash_table->end();
-    if (*eos && hash_table_ctx.hash_table->has_null_key_data()) {
-        auto value = hash_table_ctx.hash_table->template get_null_key_data<RowRefWithFlag>();
-        // If the hashmap can store nulldata, the return value is RowRefWithFlag, otherwise it is char*
-        static_assert(std::is_same_v<RowRefWithFlag, std::decay_t<decltype(value)>> ||
-                      std::is_same_v<char*, std::decay_t<decltype(value)>>);
-        if constexpr (std::is_same_v<RowRefWithFlag, std::decay_t<decltype(value)>>) {
-            add_result(value);
-        }
-    }
+    *eos = iter == hash_table_ctx.end;
 
     local_state._add_result_columns();
 
