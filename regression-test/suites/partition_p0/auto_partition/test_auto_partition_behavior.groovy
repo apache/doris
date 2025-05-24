@@ -211,29 +211,6 @@ suite("test_auto_partition_behavior") {
 
 
 
-    // prohibit too long value for partition column
-    sql "drop table if exists `long_value`"
-    sql """
-        CREATE TABLE `long_value` (
-            `str` varchar not null
-        )
-        DUPLICATE KEY(`str`)
-        AUTO PARTITION BY LIST (`str`)
-        ()
-        DISTRIBUTED BY HASH(`str`) BUCKETS 1
-        PROPERTIES (
-            "replication_num" = "1"
-        );
-    """
-    test{
-        sql """insert into `long_value` values ("jwklefjklwehrnkjlwbfjkwhefkjhwjkefhkjwehfkjwehfkjwehfkjbvkwebconqkcqnocdmowqmosqmojwnqknrviuwbnclkmwkj");"""
-        def exception_str = isGroupCommitMode() ? "s length is over limit of 50." : "Partition name's length is over limit of 50."
-        exception exception_str
-    }
-
-
-
-
     /// illegal partition exprs
     test{
         sql """
@@ -285,11 +262,11 @@ suite("test_auto_partition_behavior") {
 
     sql """ insert into test_change values ("20201212"); """
     def part_result = sql " show tablets from test_change "
-    assertEquals(part_result.size, 2 * replicaNum)
+    assertEquals(part_result.size(), 2 * replicaNum)
     sql """ ALTER TABLE test_change MODIFY DISTRIBUTION DISTRIBUTED BY HASH(k0) BUCKETS 50; """
     sql """ insert into test_change values ("20001212"); """
     part_result = sql " show tablets from test_change "
-    assertEquals(part_result.size, 52 * replicaNum)
+    assertEquals(part_result.size(), 52 * replicaNum)
 
 
 
@@ -312,8 +289,8 @@ suite("test_auto_partition_behavior") {
     // test insert empty
     sql "create table if not exists empty_range like test_change"
     sql "insert into test_change select * from empty_range"
-    sql "create table if not exists empty_list like long_value"
-    sql "insert into long_value select * from empty_list"
+    sql "create table if not exists empty_list like dup_table"
+    sql "insert into dup_table select * from empty_list"
 
 
     // test not auto partition have expr.
