@@ -87,6 +87,8 @@ import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.load.routineload.RoutineLoadJob.JobState;
 import org.apache.doris.load.routineload.RoutineLoadManager;
 import org.apache.doris.master.MasterImpl;
+import org.apache.doris.metric.MetricLabel;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanNodeAndHash;
@@ -180,6 +182,8 @@ import org.apache.doris.thrift.TGetMetaDB;
 import org.apache.doris.thrift.TGetMetaRequest;
 import org.apache.doris.thrift.TGetMetaResult;
 import org.apache.doris.thrift.TGetMetaTable;
+import org.apache.doris.thrift.TGetMetricsRequest;
+import org.apache.doris.thrift.TGetMetricsResult;
 import org.apache.doris.thrift.TGetQueryStatsRequest;
 import org.apache.doris.thrift.TGetSnapshotRequest;
 import org.apache.doris.thrift.TGetSnapshotResult;
@@ -207,6 +211,7 @@ import org.apache.doris.thrift.TLockBinlogResult;
 import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TMasterOpResult;
 import org.apache.doris.thrift.TMasterResult;
+import org.apache.doris.thrift.TMetric;
 import org.apache.doris.thrift.TMySqlLoadAcquireTokenResult;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TNodeInfo;
@@ -4323,6 +4328,45 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
         result.setRoutineLoadJobs(jobInfos);
 
+        return result;
+    }
+
+    @Override
+    public TGetMetricsResult getMetrics(TGetMetricsRequest request) {
+        TGetMetricsResult result = new TGetMetricsResult();
+
+        if (!Env.getCurrentEnv().isReady()) {
+            return result;
+        }
+
+
+        result.setMetrics(MetricRepo.DORIS_METRIC_REGISTER.getMetrics().stream().map(
+                metric -> {
+                    TMetric tMetric = new TMetric();
+
+                    String name = metric.getName() + "_" + metric.getType().name().toLowerCase();
+                    if (!metric.getLabels().isEmpty()) {
+                        List<MetricLabel> labels = metric.getLabels();
+                        String labelsStr = labels.stream()
+                                .map(label -> label.getKey() + "_" + label.getValue())
+                                .collect(Collectors.joining("_"));
+                        tMetric.setMetric(name + "_" + labelsStr.toLowerCase()
+                                .replace("-", "_")
+                                .replace(" ", "_"));
+                    } else {
+                        tMetric.setMetric(name);
+                    }
+
+                    Object value = metric.getValue();
+                    if (value instanceof Double) {
+                        tMetric.setValue(String.format("%.2f", (Double) value));
+                    } else {
+                        tMetric.setValue(String.valueOf(value));
+                    }
+
+                    tMetric.setDescription(metric.getDescription());
+                    return tMetric;
+                }).collect(Collectors.toList()));
         return result;
     }
 }

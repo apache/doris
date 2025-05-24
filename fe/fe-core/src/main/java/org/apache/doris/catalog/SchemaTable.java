@@ -621,6 +621,13 @@ public class SchemaTable extends Table {
                                     .column("IS_ABNORMAL_PAUSE", ScalarType.createType(PrimitiveType.BOOLEAN))
                                     .build())
             )
+            .put("metrics",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "metrics", TableType.SCHEMA,
+                            builder().column("METRIC", ScalarType.createStringType())
+                                    .column("VALUE", ScalarType.createStringType())
+                                    .column("DESCRIPTION", ScalarType.createStringType())
+                                    .build())
+            )
             .build();
 
     private boolean fetchAllFe = false;
