@@ -54,6 +54,10 @@ VCaseExpr::VCaseExpr(const TExprNode& node)
 }
 
 Status VCaseExpr::prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) {
+    if (_has_case_expr) {
+        return Status::NotSupported("vcase_expr Function {} is not implemented",
+                                    _fn.name.function_name);
+    }
     RETURN_IF_ERROR_OR_PREPARED(VExpr::prepare(state, desc, context));
 
     ColumnsWithTypeAndName argument_template;
