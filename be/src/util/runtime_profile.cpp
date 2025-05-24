@@ -331,6 +331,17 @@ void RuntimeProfile::add_child(RuntimeProfile* child, bool indent, RuntimeProfil
     add_child_unlock(child, indent, loc);
 }
 
+RuntimeProfile* RuntimeProfile::get_child(std::string name) {
+    std::lock_guard<std::mutex> l(_children_lock);
+    auto it = _child_map.find(name);
+
+    if (it == _child_map.end()) {
+        return nullptr;
+    }
+
+    return it->second;
+}
+
 void RuntimeProfile::get_children(std::vector<RuntimeProfile*>* children) {
     children->clear();
     std::lock_guard<std::mutex> l(_children_lock);
