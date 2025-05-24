@@ -70,14 +70,7 @@ Status CacheSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
         _hit_cache_results = _query_cache_handle.get_cache_result();
         auto hit_cache_slot_orders = _query_cache_handle.get_cache_slot_orders();
 
-        bool need_reorder = _slot_orders.size() != hit_cache_slot_orders->size();
-        if (!need_reorder) {
-            for (int i = 0; i < _slot_orders.size(); ++i) {
-                need_reorder = _slot_orders[i] != (*hit_cache_slot_orders)[i];
-            }
-        }
-
-        if (need_reorder) {
+        if (_slot_orders != *hit_cache_slot_orders) {
             for (auto slot_id : _slot_orders) {
                 auto find_res = std::find(hit_cache_slot_orders->begin(),
                                           hit_cache_slot_orders->end(), slot_id);
