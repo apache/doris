@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <gtest/gtest.h>
+
 #include <type_traits>
 
 #include "cast_test.h"
@@ -54,6 +56,15 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
                 {{std::string("0.123456")}, FloatType(0.123456)},
                 {{std::string(".123456")}, FloatType(0.123456)},
 
+                // positive values with plus sign
+                {{std::string("+1")}, FloatType(1.0)},
+                {{std::string("+123")}, FloatType(123.0)},
+                {{std::string("+1.23")}, FloatType(1.23)},
+                {{std::string("+123.456")}, FloatType(123.456)},
+                {{std::string("+1.23456")}, FloatType(1.23456)},
+                {{std::string("+0.123456")}, FloatType(0.123456)},
+                {{std::string("+.123456")}, FloatType(0.123456)},
+
                 // Normal negative values
                 {{std::string("-1")}, FloatType(-1.0)},
                 {{std::string("-123")}, FloatType(-123.0)},
@@ -75,7 +86,6 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
                 {{std::string("-1.23e-2")}, FloatType(-0.0123)},
 
                 // Infinity values
-                /*
                 {{std::string("inf")}, std::numeric_limits<FloatType>::infinity()},
                 {{std::string("INF")}, std::numeric_limits<FloatType>::infinity()},
                 {{std::string("Inf")}, std::numeric_limits<FloatType>::infinity()},
@@ -83,27 +93,17 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
                 {{std::string("INFINITY")}, std::numeric_limits<FloatType>::infinity()},
                 {{std::string("Infinity")}, std::numeric_limits<FloatType>::infinity()},
                 {{std::string("+inf")}, std::numeric_limits<FloatType>::infinity()},
-                {{std::string("-inf")}, std::numeric_limits<FloatType>::infinity()},
+                {{std::string("-inf")}, -std::numeric_limits<FloatType>::infinity()},
                 {{std::string("+infinity")}, std::numeric_limits<FloatType>::infinity()},
-                {{std::string("-infinity")}, std::numeric_limits<FloatType>::infinity()},
+                {{std::string("-infinity")}, -std::numeric_limits<FloatType>::infinity()},
 
                 // NaN values
-                {{std::string("nan")}, std::numeric_limits<double>::quiet_NaN()},
-                {{std::string("NAN")}, std::numeric_limits<double>::quiet_NaN()},
-                {{std::string("NaN")}, std::numeric_limits<double>::quiet_NaN()},
-                {{std::string("+nan")}, std::numeric_limits<double>::quiet_NaN()},
-                {{std::string("-nan")}, std::numeric_limits<double>::quiet_NaN()},
-                */
+                {{std::string("nan")}, std::numeric_limits<FloatType>::quiet_NaN()},
+                {{std::string("NAN")}, std::numeric_limits<FloatType>::quiet_NaN()},
+                {{std::string("NaN")}, std::numeric_limits<FloatType>::quiet_NaN()},
+                {{std::string("+nan")}, std::numeric_limits<FloatType>::quiet_NaN()},
+                {{std::string("-nan")}, std::numeric_limits<FloatType>::quiet_NaN()},
 
-                // Edge values
-                // {{std::string("1.7976931348623157e+308")},
-                //  FloatType(std::numeric_limits<double>::max())},
-                // {{std::string("-1.7976931348623157e+308")},
-                //  FloatType(-std::numeric_limits<double>::max())},
-                // {{std::string("2.2250738585072014e-308")},
-                //  FloatType(std::numeric_limits<double>::min())},
-                // {{std::string("-2.2250738585072014e-308")},
-                //  FloatType(-std::numeric_limits<double>::min())},
                 // Edge values - using type-specific limits
                 {{fmt::format("{}", std::numeric_limits<FloatType>::max())},
                  FloatType(std::numeric_limits<FloatType>::max())},
@@ -119,6 +119,8 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
                  FloatType(std::numeric_limits<FloatType>::denorm_min())},
                 {{fmt::format("{}", -std::numeric_limits<FloatType>::denorm_min())},
                  FloatType(-std::numeric_limits<FloatType>::denorm_min())},
+                {{std::string("1e-1000")}, FloatType(0)},
+                {{std::string("-1e-1000")}, FloatType(0)},
 
                 // Whitespace variations
                 {{std::string(" 1.23")}, FloatType(1.23)},
@@ -136,13 +138,40 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
                 {{std::string("1.23\v")}, FloatType(1.23)},
                 {{std::string(" \t\n\r\f\v1.23 \t\n\r\f\v")}, FloatType(1.23)},
 
+                // plus sign and Whitespace variations
+                {{std::string(" +1.23")}, FloatType(1.23)},
+                {{std::string("+1.23 ")}, FloatType(1.23)},
+                {{std::string(" +1.23 ")}, FloatType(1.23)},
+                {{std::string("\t+1.23")}, FloatType(1.23)},
+                {{std::string("+1.23\t")}, FloatType(1.23)},
+                {{std::string("\n+1.23")}, FloatType(1.23)},
+                {{std::string("+1.23\n")}, FloatType(1.23)},
+                {{std::string("\r+1.23")}, FloatType(1.23)},
+                {{std::string("+1.23\r")}, FloatType(1.23)},
+                {{std::string("\f+1.23")}, FloatType(1.23)},
+                {{std::string("+1.23\f")}, FloatType(1.23)},
+                {{std::string("\v+1.23")}, FloatType(1.23)},
+                {{std::string("+1.23\v")}, FloatType(1.23)},
+                {{std::string(" \t\n\r\f\v+1.23 \t\n\r\f\v")}, FloatType(1.23)},
+
+                // negative value and Whitespace variations
+                {{std::string(" -1.23")}, FloatType(-1.23)},
+                {{std::string("-1.23 ")}, FloatType(-1.23)},
+                {{std::string(" -1.23 ")}, FloatType(-1.23)},
+                {{std::string("\t-1.23")}, FloatType(-1.23)},
+                {{std::string("-1.23\t")}, FloatType(-1.23)},
+                {{std::string("\n-1.23")}, FloatType(-1.23)},
+                {{std::string("-1.23\n")}, FloatType(-1.23)},
+                {{std::string("\r-1.23")}, FloatType(-1.23)},
+                {{std::string("-1.23\r")}, FloatType(-1.23)},
+                {{std::string("\f-1.23")}, FloatType(-1.23)},
+                {{std::string("-1.23\f")}, FloatType(-1.23)},
+                {{std::string("\v-1.23")}, FloatType(-1.23)},
+                {{std::string("-1.23\v")}, FloatType(-1.23)},
+                {{std::string(" \t\n\r\f\v-1.23 \t\n\r\f\v")}, FloatType(-1.23)},
+
                 // Invalid cases (should throw or return error)
                 /*
-                {{std::string("")}, Exception("Empty string")},
-                {{std::string(" ")}, Exception("Only whitespace")},
-                {{std::string("abc")}, Exception("Invalid number")},
-                {{std::string("1.2.3")}, Exception("Multiple decimal points")},
-                {{std::string("1e2e3")}, Exception("Multiple exponents")},
                 {{std::string("1e")}, Exception("Incomplete exponent")},
                 {{std::string("e1")}, Exception("Missing significand")},
                 {{std::string(".")}, Exception("Missing digits")},
@@ -157,10 +186,151 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
                 {{std::string("1e2.3e4")}, Exception("Multiple exponents")},
                 */
         };
+        std::cout << "cast string to float/double, max value:"
+                  << fmt::format("{}", std::numeric_limits<FloatType>::max()) << "\n";
+        std::cout << "cast string to float/double, -max value:"
+                  << fmt::format("{}", -std::numeric_limits<FloatType>::max()) << "\n";
+        std::cout << "cast string to float/double, min value:"
+                  << fmt::format("{}", std::numeric_limits<FloatType>::min()) << "\n";
+        std::cout << "cast string to float/double, -min value:"
+                  << fmt::format("{}", -std::numeric_limits<FloatType>::min()) << "\n";
+        std::cout << "cast string to float/double, denorm_min value:"
+                  << fmt::format("{}", std::numeric_limits<FloatType>::denorm_min()) << "\n";
+        std::cout << "cast string to float/double, -denorm_min value:"
+                  << fmt::format("{}", -std::numeric_limits<FloatType>::denorm_min()) << "\n";
 
         check_function_for_cast<DataTypeNumber<FloatType>>(input_types, data_set);
     }
 
+    template <typename FloatType>
+    void from_string_overflow_test_func() {
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
+        DataSet data_set = {
+                // Edge values - using type-specific limits
+                {{std::string("1.89769e+308")}, std::numeric_limits<FloatType>::infinity()},
+                {{std::string("-1.89769e+308")}, -std::numeric_limits<FloatType>::infinity()},
+        };
+
+        // stric and non-strict mode
+        check_function_for_cast<DataTypeNumber<FloatType>, -1, -1, true>(input_types, data_set);
+        check_function_for_cast<DataTypeNumber<FloatType>, -1, -1, false>(input_types, data_set);
+    }
+
+    template <typename FloatType>
+    void from_string_abnormal_input_test_func() {
+        // PG error msg: invalid input syntax for type double precision: "++123.456"
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
+        std::vector<std::string> abnormal_inputs = {
+                "",
+                ".",
+                " ",
+                "\t",
+                "\n",
+                "\r",
+                "\f",
+                "\v",
+                "abc",
+                // Space between digits
+                "1 23",
+                "1\t23",
+                "1\n23",
+                "1\r23",
+                "1\v23",
+                "1\f23",
+                // Multiple decimal points
+                "1.2.3",
+                // invalid leading and trailing characters
+                "a123.456",
+                " a123.456",
+                "\ta123.456",
+                "\na123.456",
+                "\ra123.456",
+                "\fa123.456",
+                "\va123.456",
+                "123.456a",
+                "123.456a\t",
+                "123.456a\n",
+                "123.456a\r",
+                "123.456a\f",
+                "123.456a\v",
+                "123.456\ta",
+                "123.456\na",
+                "123.456\ra",
+                "123.456\fa",
+                "123.456\va",
+                // invalid char between numbers
+                "12a3.456",
+                "123a.456",
+                "123.a456",
+                "123.4a56",
+                // multiple positive/negative signs
+                "+-123.456",
+                "+- 123.456", // sign with following spaces
+                "-+123.456",
+                "++123.456",
+                "--123.456",
+                "+-.456",
+                "-+.456",
+                "++.456",
+                "--.456",
+                // hexadecimal
+                "0x123",
+                "0x123.456",
+                // invalid scientific notation
+                "e",
+                "-e",
+                "+e",
+                "e+",
+                "e-",
+                "e1",
+                "e+1",
+                "e-1",
+                ".e",
+                "+.e",
+                "-.e",
+                ".e+",
+                ".e-",
+                ".e+",
+                "1e",
+                "1e+",
+                "1e-",
+                "1e1a",
+                "1ea1",
+                "1e1.1",
+                "1e+1.1",
+                "1e-1.1",
+                // Multiple exponents
+                "1e2e3",
+        };
+        // non-strict mode
+        {
+            DataSet data_set;
+            for (const auto& input : abnormal_inputs) {
+                data_set.push_back({{input}, Null()});
+            }
+            check_function_for_cast<DataTypeNumber<FloatType>, -1, -1, false>(input_types,
+                                                                              data_set);
+        }
+
+        // strict mode
+        using ToDataType = DataTypeNumber<FloatType>;
+        for (const auto& input : abnormal_inputs) {
+            DataSet data_set;
+            data_set.push_back({{input}, Null()});
+            // compile error: error: too many arguments provided to function-like macro invocation
+            // EXPECT_THROW(
+            //         { check_function_for_cast<ToDataType, -1, -1, true>(input_types, data_set); },
+            //         Exception);
+            bool caught_expection = false;
+            try {
+                check_function_for_cast<ToDataType, -1, -1, true>(input_types, data_set);
+            } catch (const doris::Exception&) {
+                caught_expection = true;
+            }
+            EXPECT_TRUE(caught_expection) << "Expected exception for input: " << input
+                                          << ", but no exception was thrown.";
+        }
+    }
     template <typename IntType, typename FloatType>
     void from_int_test_func() {
         DataTypeNumber<IntType> dt_from;
@@ -238,7 +408,8 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
 
         check_function_for_cast<DataTypeNumber<FloatType>>(input_types, data_set);
     }
-    template <typename FromT, int FromPrecision, int FromScale, typename FloatType>
+    template <typename FromT, int FromPrecision, int FromScale, typename FloatType,
+              bool enable_strict_cast>
     void from_decimalv3_no_overflow_test_func() {
         static_assert(IsDecimalNumber<FromT>, "FromT must be a decimal type");
 
@@ -299,36 +470,42 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
         DataTypeDecimal<FromT> dt(FromPrecision, FromScale);
         DataSet data_set;
         std::string dbg_str =
-                fmt::format("test cast Decimal({}, {}) to {}: ", FromPrecision, FromScale,
-                            std::is_same_v<FloatType, Float32> ? "float" : "double");
+                fmt::format("test cast {}({}, {}) to {}: ", TypeName<FromT>::get(), FromPrecision,
+                            FromScale, std::is_same_v<FloatType, Float32> ? "float" : "double");
 
         auto scale_multiplier = decimal_scale_multiplier<typename FromT::NativeType>(FromScale);
+        constexpr bool expect_inf =
+                (FromPrecision - FromScale >= 39 && std::is_same_v<FromT, Float32>);
+        bool have_inf = false;
         if constexpr (FromScale == 0) {
             // e.g. Decimal(9, 0), only int part
             for (const auto& i : integral_part) {
                 auto decimal_num = decimal_ctor(i, 0, FromScale);
                 auto float_v = static_cast<FloatType>(i);
                 if (std::isinf(float_v)) {
-                    std::cout << fmt::format("cast Decimal value {} to float_v result is inf\n",
+                    std::cout << fmt::format("cast {}({}, {}) value {} to float_v result is inf\n",
+                                             TypeName<FromT>::get(), FromPrecision, FromScale,
                                              dt.to_string(decimal_num));
-                } else {
-                    dbg_str += fmt::format("({}, {})|", dt.to_string(decimal_num), float_v);
-                    data_set.push_back({{decimal_num}, float_v});
+                    have_inf = true;
                 }
+                dbg_str += fmt::format("({}, {})|", dt.to_string(decimal_num), float_v);
+                data_set.push_back({{decimal_num}, float_v});
 
                 decimal_num = decimal_ctor(-i, 0, FromScale);
                 float_v = static_cast<FloatType>(-i);
                 if (std::isinf(float_v)) {
-                    std::cout << fmt::format("cast Decimal value {} to float_v result is inf\n",
+                    std::cout << fmt::format("cast {}({}, {}) value {} to float_v result is inf\n",
+                                             TypeName<FromT>::get(), FromPrecision, FromScale,
                                              dt.to_string(decimal_num));
-                } else {
-                    dbg_str += fmt::format("({}, {})|", dt.to_string(decimal_num), -i);
-                    data_set.push_back({{decimal_num}, FloatType(-i)});
+                    have_inf = true;
                 }
+                dbg_str += fmt::format("({}, {})|", dt.to_string(decimal_num), -i);
+                data_set.push_back({{decimal_num}, FloatType(-i)});
             }
             dbg_str += "\n";
             std::cout << dbg_str << std::endl;
-            check_function_for_cast<DataTypeNumber<FloatType>>(input_types, data_set);
+            check_function_for_cast<DataTypeNumber<FloatType>, -1, -1, enable_strict_cast>(
+                    input_types, data_set);
             return;
         } else if constexpr (FromScale == FromPrecision) {
             // e.g. Decimal(9, 9), only fraction part
@@ -345,7 +522,8 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
             }
             dbg_str += "\n";
             std::cout << dbg_str << std::endl;
-            check_function_for_cast<DataTypeNumber<FloatType>>(input_types, data_set);
+            check_function_for_cast<DataTypeNumber<FloatType>, -1, -1, enable_strict_cast>(
+                    input_types, data_set);
             return;
         }
 
@@ -354,31 +532,37 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
                 auto decimal_num = decimal_ctor(i, f, FromScale);
                 auto float_v = static_cast<FloatType>(decimal_num.value) / scale_multiplier;
                 if (std::isinf(float_v)) {
-                    std::cout << fmt::format("cast Decimal value {} to float_v result is inf\n",
+                    std::cout << fmt::format("cast {}({}, {}) value {} to float_v result is inf\n",
+                                             TypeName<FromT>::get(), FromPrecision, FromScale,
                                              dt.to_string(decimal_num));
-                } else {
-                    dbg_str += fmt::format("({}, {})|", dt.to_string(decimal_num), float_v);
-                    data_set.push_back({{decimal_num}, float_v});
+                    have_inf = true;
                 }
+                dbg_str += fmt::format("({}, {})|", dt.to_string(decimal_num), float_v);
+                data_set.push_back({{decimal_num}, float_v});
 
                 decimal_num = decimal_ctor(-i, -f, FromScale);
                 float_v = static_cast<FloatType>(decimal_num.value) / scale_multiplier;
                 if (std::isinf(float_v)) {
-                    std::cout << fmt::format("cast Decimal value {} to float_v result is inf\n",
+                    std::cout << fmt::format("cast {}({}, {}) value {} to float_v result is inf\n",
+                                             TypeName<FromT>::get(), FromPrecision, FromScale,
                                              dt.to_string(decimal_num));
-                } else {
-                    dbg_str += fmt::format("({}, {})|", dt.to_string(decimal_num), float_v);
-                    data_set.push_back({{decimal_num}, float_v});
+                    have_inf = true;
                 }
+                dbg_str += fmt::format("({}, {})|", dt.to_string(decimal_num), float_v);
+                data_set.push_back({{decimal_num}, float_v});
             }
             dbg_str += "\n";
         }
         std::cout << dbg_str << std::endl;
+        if constexpr (expect_inf) {
+            EXPECT_TRUE(have_inf);
+        }
 
-        check_function_for_cast<DataTypeNumber<FloatType>>(input_types, data_set);
+        check_function_for_cast<DataTypeNumber<FloatType>, -1, -1, enable_strict_cast>(input_types,
+                                                                                       data_set);
     }
 
-    template <typename FromT, typename ToT>
+    template <typename FromT, typename ToT, bool enable_strict_cast>
     void from_decimal_test_func() {
         constexpr auto max_decimal_pre = max_decimal_precision<FromT>();
         constexpr auto min_decimal_pre =
@@ -392,20 +576,24 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
                                                          ? BeConsts::MAX_DECIMAL128_PRECISION + 1
                                                          : 1)));
         static_assert(min_decimal_pre == 1 || min_decimal_pre > 9);
-        from_decimalv3_no_overflow_test_func<FromT, min_decimal_pre, 0, ToT>();
+        from_decimalv3_no_overflow_test_func<FromT, min_decimal_pre, 0, ToT, enable_strict_cast>();
         if constexpr (min_decimal_pre != 1) {
-            from_decimalv3_no_overflow_test_func<FromT, min_decimal_pre, min_decimal_pre / 2,
-                                                 ToT>();
-            from_decimalv3_no_overflow_test_func<FromT, min_decimal_pre, min_decimal_pre - 1,
-                                                 ToT>();
+            from_decimalv3_no_overflow_test_func<FromT, min_decimal_pre, min_decimal_pre / 2, ToT,
+                                                 enable_strict_cast>();
+            from_decimalv3_no_overflow_test_func<FromT, min_decimal_pre, min_decimal_pre - 1, ToT,
+                                                 enable_strict_cast>();
         }
-        from_decimalv3_no_overflow_test_func<FromT, min_decimal_pre, min_decimal_pre, ToT>();
+        from_decimalv3_no_overflow_test_func<FromT, min_decimal_pre, min_decimal_pre, ToT,
+                                             enable_strict_cast>();
 
-        from_decimalv3_no_overflow_test_func<FromT, max_decimal_pre, 0, ToT>();
-        from_decimalv3_no_overflow_test_func<FromT, max_decimal_pre, 1, ToT>();
-        from_decimalv3_no_overflow_test_func<FromT, max_decimal_pre, max_decimal_pre / 2, ToT>();
-        from_decimalv3_no_overflow_test_func<FromT, max_decimal_pre, max_decimal_pre - 1, ToT>();
-        from_decimalv3_no_overflow_test_func<FromT, max_decimal_pre, max_decimal_pre, ToT>();
+        from_decimalv3_no_overflow_test_func<FromT, max_decimal_pre, 0, ToT, enable_strict_cast>();
+        from_decimalv3_no_overflow_test_func<FromT, max_decimal_pre, 1, ToT, enable_strict_cast>();
+        from_decimalv3_no_overflow_test_func<FromT, max_decimal_pre, max_decimal_pre / 2, ToT,
+                                             enable_strict_cast>();
+        from_decimalv3_no_overflow_test_func<FromT, max_decimal_pre, max_decimal_pre - 1, ToT,
+                                             enable_strict_cast>();
+        from_decimalv3_no_overflow_test_func<FromT, max_decimal_pre, max_decimal_pre, ToT,
+                                             enable_strict_cast>();
     }
 
     template <typename FloatType>
@@ -535,6 +723,14 @@ TEST_F(FunctionCastToFloatTest, test_from_string) {
     from_string_test_func<Float32>();
     from_string_test_func<Float64>();
 }
+TEST_F(FunctionCastToFloatTest, test_from_string_overflow) {
+    from_string_overflow_test_func<Float32>();
+    from_string_overflow_test_func<Float64>();
+}
+TEST_F(FunctionCastToFloatTest, test_from_string_abnormal_input) {
+    from_string_abnormal_input_test_func<Float32>();
+    from_string_abnormal_input_test_func<Float64>();
+}
 TEST_F(FunctionCastToFloatTest, test_from_bool) {
     InputTypeSet input_types = {PrimitiveType::TYPE_BOOLEAN};
     {
@@ -618,27 +814,11 @@ TEST_F(FunctionCastToFloatTest, test_from_float_to_double) {
             {{Float32(-1.23e-2)}, Float64(Float32(-0.0123))},
 
             // Infinity values
-            /*
-                {{Float32(inf)}, Float64(std::numeric_limits<double>::infinity())},
-                {{Float32(INF)}, Float64(std::numeric_limits<double>::infinity())},
-                {{Float32(Inf)}, Float64(std::numeric_limits<double>::infinity())},
-                {{Float32(infinity)}, Float64(std::numeric_limits<double>::infinity())},
-                {{Float32(INFINITY)}, Float64(std::numeric_limits<double>::infinity())},
-                {{Float32(Infinity)}, Float64(std::numeric_limits<double>::infinity())},
-                {{Float32(+inf)}, Float64(std::numeric_limits<double>::infinity())},
-                {{Float32(-inf)}, Float64(-std::numeric_limits<double>::infinity())},
-                {{Float32(+infinity)}, Float64(std::numeric_limits<double>::infinity())},
-                {{Float32(-infinity)}, Float64(-std::numeric_limits<double>::infinity())},
-                */
+            {{std::numeric_limits<Float32>::infinity()}, std::numeric_limits<Float64>::infinity()},
 
             // NaN values
-            /*
-                {{Float32(nan)}, Float64(std::numeric_limits<double>::quiet_NaN())},
-                {{Float32(NAN)}, Float64(std::numeric_limits<double>::quiet_NaN())},
-                {{Float32(NaN)}, Float64(std::numeric_limits<double>::quiet_NaN())},
-                {{Float32(+nan)}, Float64(std::numeric_limits<double>::quiet_NaN())},
-                {{Float32(-nan)}, Float64(std::numeric_limits<double>::quiet_NaN())},
-                */
+            {{std::numeric_limits<Float32>::quiet_NaN()},
+             std::numeric_limits<Float64>::quiet_NaN()},
 
             // Edge values
             // {{Float32(1.7976931348623157e+308)},
@@ -709,33 +889,20 @@ TEST_F(FunctionCastToFloatTest, test_from_double_to_float) {
             {{Float64(-1.23e-2)}, Float32(Float64(-0.0123))},
 
             // Infinity values
-            /*
-                {{Float64(inf)}, Float32(std::numeric_limits<double>::infinity())},
-                {{Float64(INF)}, Float32(std::numeric_limits<double>::infinity())},
-                {{Float64(Inf)}, Float32(std::numeric_limits<double>::infinity())},
-                {{Float64(infinity)}, Float32(std::numeric_limits<double>::infinity())},
-                {{Float64(INFINITY)}, Float32(std::numeric_limits<double>::infinity())},
-                {{Float64(Infinity)}, Float32(std::numeric_limits<double>::infinity())},
-                {{Float64(+inf)}, Float32(std::numeric_limits<double>::infinity())},
-                {{Float64(-inf)}, Float32(-std::numeric_limits<double>::infinity())},
-                {{Float64(+infinity)}, Float32(std::numeric_limits<double>::infinity())},
-                {{Float64(-infinity)}, Float32(-std::numeric_limits<double>::infinity())},
-                */
+            {{std::numeric_limits<Float64>::infinity()}, std::numeric_limits<Float32>::infinity()},
 
             // NaN values
-            /*
-                {{Float64(nan)}, Float32(std::numeric_limits<double>::quiet_NaN())},
-                {{Float64(NAN)}, Float32(std::numeric_limits<double>::quiet_NaN())},
-                {{Float64(NaN)}, Float32(std::numeric_limits<double>::quiet_NaN())},
-                {{Float64(+nan)}, Float32(std::numeric_limits<double>::quiet_NaN())},
-                {{Float64(-nan)}, Float32(std::numeric_limits<double>::quiet_NaN())},
-                */
+            {{std::numeric_limits<Float64>::quiet_NaN()},
+             std::numeric_limits<Float32>::quiet_NaN()},
 
             // Edge values - using type-specific limits
             {{Float64(std::numeric_limits<Float32>::max())}, std::numeric_limits<Float32>::max()},
             {{Float64(-std::numeric_limits<Float32>::max())}, -std::numeric_limits<Float32>::max()},
             {{Float64(std::numeric_limits<Float32>::min())}, std::numeric_limits<Float32>::min()},
             {{Float64(-std::numeric_limits<Float32>::min())}, -std::numeric_limits<Float32>::min()},
+
+            // overflow
+            {{std::numeric_limits<Float64>::max()}, std::numeric_limits<Float32>::infinity()},
 
             // Very small values
             {{Float64(std::numeric_limits<Float32>::denorm_min())},
@@ -748,15 +915,25 @@ TEST_F(FunctionCastToFloatTest, test_from_double_to_float) {
     check_function_for_cast<DataTypeNumber<Float32>>(input_types, data_set);
 }
 TEST_F(FunctionCastToFloatTest, test_from_decimal) {
-    from_decimal_test_func<Decimal32, Float32>();
-    from_decimal_test_func<Decimal64, Float32>();
-    from_decimal_test_func<Decimal128V3, Float32>();
-    from_decimal_test_func<Decimal256, Float32>();
+    from_decimal_test_func<Decimal32, Float32, true>();
+    from_decimal_test_func<Decimal64, Float32, true>();
+    from_decimal_test_func<Decimal128V3, Float32, true>();
+    from_decimal_test_func<Decimal256, Float32, true>();
 
-    from_decimal_test_func<Decimal32, Float64>();
-    from_decimal_test_func<Decimal64, Float64>();
-    from_decimal_test_func<Decimal128V3, Float64>();
-    from_decimal_test_func<Decimal256, Float64>();
+    from_decimal_test_func<Decimal32, Float32, false>();
+    from_decimal_test_func<Decimal64, Float32, false>();
+    from_decimal_test_func<Decimal128V3, Float32, false>();
+    from_decimal_test_func<Decimal256, Float32, false>();
+
+    from_decimal_test_func<Decimal32, Float64, true>();
+    from_decimal_test_func<Decimal64, Float64, true>();
+    from_decimal_test_func<Decimal128V3, Float64, true>();
+    from_decimal_test_func<Decimal256, Float64, true>();
+
+    from_decimal_test_func<Decimal32, Float64, false>();
+    from_decimal_test_func<Decimal64, Float64, false>();
+    from_decimal_test_func<Decimal128V3, Float64, false>();
+    from_decimal_test_func<Decimal256, Float64, false>();
 }
 TEST_F(FunctionCastToFloatTest, test_from_date) {
     from_date_test_func<Float32>();
