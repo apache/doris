@@ -19,6 +19,7 @@ package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.types.coercion.PrimitiveType;
 import org.apache.doris.nereids.types.coercion.RangeScalable;
 
@@ -27,6 +28,7 @@ import org.apache.doris.nereids.types.coercion.RangeScalable;
  */
 public class TimeV2Type extends PrimitiveType implements RangeScalable {
 
+    public static final int MAX_SCALE = 6;
     public static final TimeV2Type INSTANCE = new TimeV2Type();
 
     private static final int WIDTH = 8;
@@ -49,6 +51,9 @@ public class TimeV2Type extends PrimitiveType implements RangeScalable {
      * create TimeV2Type from scale
      */
     public static TimeV2Type of(int scale) {
+        if (scale > MAX_SCALE || scale < 0) {
+            throw new AnalysisException("Scale of Datetime/Time must between 0 and 6. Scale was set to: " + scale);
+        }
         return new TimeV2Type(scale);
     }
 
