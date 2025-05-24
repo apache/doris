@@ -220,6 +220,29 @@ int64_t RowsetMeta::segment_file_size(int seg_id) {
                    : -1;
 }
 
+void RowsetMeta::set_segments_key_bounds(const std::vector<KeyBoundsPB>& segments_key_bounds) {
+    for (const KeyBoundsPB& key_bounds : segments_key_bounds) {
+        KeyBoundsPB* new_key_bounds = _rowset_meta_pb.add_segments_key_bounds();
+        *new_key_bounds = key_bounds;
+    }
+
+    int32_t truncation_threshold = config::segments_key_bounds_truncation_threshold;
+    bool really_do_truncation {false};
+    if (truncation_threshold > 0) {
+        for (auto& segment_key_bounds : *_rowset_meta_pb.mutable_segments_key_bounds()) {
+            if (segment_key_bounds.min_key().size() > truncation_threshold) {
+                really_do_truncation = true;
+                segment_key_bounds.mutable_min_key()->resize(truncation_threshold);
+            }
+            if (segment_key_bounds.max_key().size() > truncation_threshold) {
+                really_do_truncation = true;
+                segment_key_bounds.mutable_max_key()->resize(truncation_threshold);
+            }
+        }
+    }
+    set_segments_key_bounds_truncated(really_do_truncation);
+}
+
 void RowsetMeta::merge_rowset_meta(const RowsetMeta& other) {
     set_num_segments(num_segments() + other.num_segments());
     set_num_rows(num_rows() + other.num_rows());

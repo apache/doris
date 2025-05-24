@@ -1496,6 +1496,9 @@ DEFINE_mBool(enable_calc_delete_bitmap_between_segments_concurrently, "false");
 
 DEFINE_mBool(enable_update_delete_bitmap_kv_check_core, "false");
 
+// the max length of segments key bounds, in bytes
+DEFINE_mInt32(segments_key_bounds_truncation_threshold, "-1");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3
@@ -1943,6 +1946,10 @@ Status set_fuzzy_configs() {
             ((distribution(*generator) % 2) == 0) ? "true" : "false";
     fuzzy_field_and_value["string_overflow_size"] =
             ((distribution(*generator) % 2) == 0) ? "10" : "4294967295";
+
+    std::uniform_int_distribution<int64_t> distribution2(-2, 10);
+    fuzzy_field_and_value["segments_key_bounds_truncation_threshold"] =
+            std::to_string(distribution2(*generator));
 
     fmt::memory_buffer buf;
     for (auto& it : fuzzy_field_and_value) {
