@@ -139,6 +139,7 @@ import org.apache.doris.datasource.ExternalMetaIdMgr;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.SplitSourceManager;
 import org.apache.doris.datasource.es.EsExternalCatalog;
+import org.apache.doris.datasource.es.EsNodeDiscovery;
 import org.apache.doris.datasource.es.EsRepository;
 import org.apache.doris.datasource.hive.HiveTransactionMgr;
 import org.apache.doris.datasource.hive.event.MetastoreEventsProcessor;
@@ -610,6 +611,8 @@ public class Env {
 
     private DictionaryManager dictionaryManager;
 
+    private EsNodeDiscovery esNodeDiscovery;
+
     // if a config is relative to a daemon thread. record the relation here. we will proactively change interval of it.
     private final Map<String, Supplier<MasterDaemon>> configtoThreads = ImmutableMap
             .of("dynamic_partition_check_interval_seconds", this::getDynamicPartitionScheduler);
@@ -865,6 +868,7 @@ public class Env {
         this.globalExternalTransactionInfoMgr = new GlobalExternalTransactionInfoMgr();
         this.tokenManager = new TokenManager();
         this.dictionaryManager = new DictionaryManager();
+        this.esNodeDiscovery = new EsNodeDiscovery();
     }
 
     public static Map<String, Long> getSessionReportTimeMap() {
@@ -1963,7 +1967,6 @@ public class Env {
         binlogGcer.start();
         columnIdFlusher.start();
         insertOverwriteManager.start();
-        dictionaryManager.start();
 
         TopicPublisher wgPublisher = new WorkloadGroupPublisher(this);
         topicPublisherThread.addToTopicPublisherList(wgPublisher);
@@ -1977,6 +1980,8 @@ public class Env {
         statisticsCleaner.start();
         statisticsAutoCollector.start();
         statisticsJobAppender.start();
+
+        esNodeDiscovery.start();
     }
 
     // start threads that should run on all FE
@@ -4814,6 +4819,10 @@ public class Env {
 
     public EsRepository getEsRepository() {
         return getInternalCatalog().getEsRepository();
+    }
+
+    public EsNodeDiscovery getEsNodeDiscovery() {
+        return esNodeDiscovery;
     }
 
     public PolicyMgr getPolicyMgr() {

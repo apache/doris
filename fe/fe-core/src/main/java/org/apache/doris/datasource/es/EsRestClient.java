@@ -116,6 +116,21 @@ public class EsRestClient {
         return nodesMap;
     }
 
+    public List<EsNodeInfo> getHttpNodesList() throws DorisEsException {
+        Map<String, Map<String, Object>> nodesData = get("_nodes/http", "nodes");
+        if (nodesData == null) {
+            return Collections.emptyList();
+        }
+        List<EsNodeInfo> nodesList = new ArrayList<>();
+        for (Map.Entry<String, Map<String, Object>> entry : nodesData.entrySet()) {
+            EsNodeInfo node = new EsNodeInfo(entry.getKey(), entry.getValue(), httpSslEnable);
+            if (node.hasHttp()) {
+                nodesList.add(node);
+            }
+        }
+        return nodesList;
+    }
+
     /**
      * Get mapping for indexName.
      */

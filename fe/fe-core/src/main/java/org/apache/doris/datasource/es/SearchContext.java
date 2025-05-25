@@ -22,12 +22,14 @@ import org.apache.doris.catalog.EsTable;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import lombok.Getter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * This class encapsulates the state needed to execute a query on ES table such as fields、doc_values、resolved index、
@@ -89,6 +91,9 @@ public class SearchContext {
     // whether the nodes needs to be discovered
     private boolean nodesDiscovery;
 
+    @Getter
+    private Set<EsNodeInfo> availableNodesInfo;
+
 
     public SearchContext(EsTable table) {
         this.table = table;
@@ -96,6 +101,7 @@ public class SearchContext {
         sourceIndex = table.getIndexName();
         type = table.getMappingType();
         nodesDiscovery = table.isNodesDiscovery();
+        availableNodesInfo = table.getAvailableNodesInfo();
     }
 
 

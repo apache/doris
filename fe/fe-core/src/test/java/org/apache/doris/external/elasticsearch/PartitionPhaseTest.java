@@ -20,10 +20,13 @@ package org.apache.doris.external.elasticsearch;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.EsTable;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
+import org.apache.doris.datasource.es.DorisEsException;
 import org.apache.doris.datasource.es.EsNodeInfo;
 import org.apache.doris.datasource.es.EsRestClient;
 import org.apache.doris.datasource.es.EsShardPartitions;
+import org.apache.doris.datasource.es.EsShardRouting;
 import org.apache.doris.datasource.es.PartitionPhase;
 import org.apache.doris.datasource.es.SearchContext;
 
@@ -35,9 +38,12 @@ import org.junit.Assert;
 import org.junit.Test;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 public class PartitionPhaseTest extends EsTestCase {
 
@@ -79,5 +85,173 @@ public class PartitionPhaseTest extends EsTestCase {
         ExceptionChecker.expectThrowsNoException(() -> partitionPhase.execute(context));
         ExceptionChecker.expectThrowsNoException(() -> partitionPhase.postProcess(context));
         Assert.assertNotNull(context.tablePartitions());
+    }
+
+    @Test
+    public void testExecuteNormal(@Injectable EsRestClient client) throws Exception {
+        // Setup
+        EsShardPartitions esShardPartitions = EsShardPartitions.findShardPartitions("doe",
+                loadJsonFromFile("data/es/test_search_shards.json"));
+        new Expectations(client) {
+            {
+                client.searchShards("doe");
+                result = esShardPartitions;
+            }
+        };
+
+        List<Column> columns = new ArrayList<>();
+        Column k1 = new Column("k1", PrimitiveType.BIGINT);
+        columns.add(k1);
+        EsTable esTable = fakeEsTable("doe", "doe", "doc", columns);
+        SearchContext context = new SearchContext(esTable);
+        PartitionPhase partitionPhase = new PartitionPhase(client);
+
+        // Execute
+        partitionPhase.execute(context);
+        partitionPhase.postProcess(context);
+
+        // Verify
+        Assert.assertNotNull(context.partitions());
+        Assert.assertEquals(esShardPartitions, context.partitions());
+
+        List<EsShardRouting> shardRoutings = new ArrayList<>();
+        for (List<EsShardRouting> shardRoutingList : esShardPartitions.getShardRoutings().values()) {
+            shardRoutings.addAll(shardRoutingList);
+        }
+        Set<Integer> ports = new HashSet<>();
+        for (EsShardRouting shardRouting : shardRoutings) {
+            ports.add(shardRouting.getHttpAddress().getPort());
+        }
+        Assert.assertEquals(1, ports.size());
+        Assert.assertTrue(ports.contains(8200));
+    }
+
+    @Test
+    public void testExecuteWithException(@Injectable EsRestClient client) throws DdlException {
+        // Setup
+        new Expectations(client) {
+            {
+                client.searchShards("doe");
+                result = new DorisEsException("Test exception");
+            }
+        };
+
+        List<Column> columns = new ArrayList<>();
+        Column k1 = new Column("k1", PrimitiveType.BIGINT);
+        columns.add(k1);
+        EsTable esTable = fakeEsTable("doe", "doe", "doc", columns);
+        SearchContext context = new SearchContext(esTable);
+        PartitionPhase partitionPhase = new PartitionPhase(client);
+
+        // Execute and Verify
+        ExceptionChecker.expectThrows(DorisEsException.class, () -> partitionPhase.execute(context));
+    }
+
+    @Test
+    public void testExecuteWithNodesDiscovery(@Injectable EsRestClient client) throws Exception {
+        // Setup
+        EsShardPartitions esShardPartitions = EsShardPartitions.findShardPartitions("doe",
+                loadJsonFromFile("data/es/test_search_shards.json"));
+        EsNodeInfo node1 = new EsNodeInfo("node1", "http://localhost:9200");
+        EsNodeInfo node2 = new EsNodeInfo("node2", "http://localhost:9201");
+        Set<EsNodeInfo> availableNodes = new HashSet<>(Arrays.asList(node1, node2));
+
+        new Expectations(client) {
+            {
+                client.searchShards("doe");
+                result = esShardPartitions;
+            }
+        };
+
+        List<Column> columns = new ArrayList<>();
+        Column k1 = new Column("k1", PrimitiveType.BIGINT);
+        columns.add(k1);
+        EsTable esTable = fakeEsTable("doe", "doe", "doc", columns);
+        SearchContext context = new SearchContext(esTable) {
+            @Override
+            public boolean nodesDiscovery() {
+                return true;
+            }
+
+            @Override
+            public Set<EsNodeInfo> getAvailableNodesInfo() {
+                return availableNodes;
+            }
+        };
+        PartitionPhase partitionPhase = new PartitionPhase(client);
+
+        // Execute
+        partitionPhase.execute(context);
+        partitionPhase.postProcess(context);
+
+        // Verify
+        Assert.assertNotNull(context.partitions());
+        Assert.assertEquals(esShardPartitions, context.partitions());
+
+        List<EsShardRouting> shardRoutings = new ArrayList<>();
+        for (List<EsShardRouting> shardRoutingList : esShardPartitions.getShardRoutings().values()) {
+            shardRoutings.addAll(shardRoutingList);
+        }
+        Set<Integer> ports = new HashSet<>();
+        for (EsShardRouting shardRouting : shardRoutings) {
+            ports.add(shardRouting.getHttpAddress().getPort());
+        }
+        Assert.assertEquals(2, ports.size());
+        Assert.assertTrue(ports.contains(9200));
+        Assert.assertTrue(ports.contains(9201));
+    }
+
+    @Test
+    public void testExecuteWithoutNodesDiscovery(@Injectable EsRestClient client) throws Exception {
+        // Setup
+        EsShardPartitions esShardPartitions = EsShardPartitions.findShardPartitions("doe",
+                loadJsonFromFile("data/es/test_search_shards.json"));
+
+        EsNodeInfo node1 = new EsNodeInfo("node1", "http://localhost:9200");
+        EsNodeInfo node2 = new EsNodeInfo("node2", "http://localhost:9201");
+        Set<EsNodeInfo> availableNodes = new HashSet<>(Arrays.asList(node1, node2));
+
+        new Expectations(client) {
+            {
+                client.searchShards("doe");
+                result = esShardPartitions;
+            }
+        };
+
+        List<Column> columns = new ArrayList<>();
+        Column k1 = new Column("k1", PrimitiveType.BIGINT);
+        columns.add(k1);
+        EsTable esTable = fakeEsTable("doe", "doe", "doc", columns);
+        SearchContext context = new SearchContext(esTable) {
+            @Override
+            public boolean nodesDiscovery() {
+                return false;
+            }
+
+            @Override
+            public Set<EsNodeInfo> getAvailableNodesInfo() {
+                return availableNodes;
+            }
+        };
+        PartitionPhase partitionPhase = new PartitionPhase(client);
+
+        // Execute
+        partitionPhase.execute(context);
+        partitionPhase.postProcess(context);
+
+        // Verify
+        Assert.assertNotNull(context.partitions());
+        Assert.assertEquals(esShardPartitions, context.partitions());
+
+        List<EsShardRouting> shardRoutings = new ArrayList<>();
+        for (List<EsShardRouting> shardRoutingList : esShardPartitions.getShardRoutings().values()) {
+            shardRoutings.addAll(shardRoutingList);
+        }
+        Set<Integer> ports = new HashSet<>();
+        for (EsShardRouting shardRouting : shardRoutings) {
+            ports.add(shardRouting.getHttpAddress().getPort());
+        }
+        Assert.assertEquals(1, ports.size());
+        Assert.assertTrue(ports.contains(8200));
     }
 }
