@@ -56,9 +56,7 @@ struct ComplexTypeDeserializeUtil {
             }
         }
 
-        if (last_pos != str.size) {
-            elements.push_back({Slice(str.data + last_pos, str.size - last_pos), delimiter});
-        }
+        elements.push_back({Slice(str.data + last_pos, str.size - last_pos), delimiter});
 
         for (auto& e : elements) {
             e.element.trim();
