@@ -161,8 +161,11 @@ void MemInfo::refresh_proc_meminfo() {
 
     // 2. if physical_mem changed, refresh mem limit and gc size.
     if (physical_mem > 0 && _s_physical_mem.load(std::memory_order_relaxed) != physical_mem) {
-        CacheManager::instance()->for_each_cache_reset_initial_capacity(physical_mem /
-                                                                        (_s_physical_mem * 1.0));
+        if (_s_physical_mem != std::numeric_limits<int64_t>::max()) {
+            // After MemInfo is initialized, if physical memory changed, reset initial capacity of all caches.
+            CacheManager::instance()->for_each_cache_reset_initial_capacity(
+                    physical_mem / (_s_physical_mem * 1.0));
+        }
 
         _s_physical_mem.store(physical_mem);
 
