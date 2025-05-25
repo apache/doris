@@ -19,6 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.DorisTable;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.JdbcTable;
 import org.apache.doris.catalog.MaterializedIndexMeta;
@@ -327,6 +328,16 @@ public class DescribeStmt extends ShowStmt implements NotFallbackInParser {
                                                      mysqlTable.getMysqlDatabaseName(),
                                                      mysqlTable.getMysqlTableName(),
                                                      mysqlTable.getCharset());
+                    totalRows.add(row);
+                } else if (table.getType() == TableType.DORIS) {
+                    isOlapTable = false;
+                    DorisTable dorisTable = (DorisTable) table;
+                    List<String> row = Arrays.asList(
+                            String.join(",", dorisTable.getFeNodes()),
+                            String.join(",", dorisTable.getBeNodes()),
+                            String.join(",", dorisTable.getFeArrowNodes()),
+                            dorisTable.getUserName(),
+                            dorisTable.getPassword(), dorisTable.getExternalTableName());
                     totalRows.add(row);
                 } else {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_UNKNOWN_STORAGE_ENGINE, table.getType());

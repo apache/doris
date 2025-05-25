@@ -414,7 +414,8 @@ enum TOdbcTableType {
     OCEANBASE_ORACLE,
     NEBULA, // Deprecated
     DB2,
-    GBASE
+    GBASE,
+    DORIS
 }
 
 struct TJdbcExecutorCtorParams {
@@ -449,6 +450,10 @@ struct TJdbcExecutorCtorParams {
   15: optional bool connection_pool_keep_alive
   16: optional i64 catalog_id
   17: optional string jdbc_driver_checksum
+
+  18: optional string arrow_host_port
+  19: optional binary ticket
+  20: optional string location_uri
 }
 
 struct TJavaUdfExecutorCtorParams {
@@ -629,7 +634,8 @@ enum TTableType {
     TEST_EXTERNAL_TABLE,
     MAX_COMPUTE_TABLE,
     LAKESOUL_TABLE,
-    TRINO_CONNECTOR_TABLE
+    TRINO_CONNECTOR_TABLE,
+    DORIS_TABLE,
 }
 
 enum TKeysType {

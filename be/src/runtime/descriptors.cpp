@@ -316,6 +316,38 @@ std::string JdbcTableDescriptor::debug_string() const {
     return fmt::to_string(buf);
 }
 
+DorisTableDescriptor::DorisTableDescriptor(const TTableDescriptor& tdesc)
+        : TableDescriptor(tdesc),
+          _fe_nodes(tdesc.dorisTable.fe_nodes),
+          _fe_arrow_nodes(tdesc.dorisTable.fe_arrow_nodes),
+          _user_name(tdesc.dorisTable.user_name),
+          _passwd(tdesc.dorisTable.passwd),
+          _table_name(tdesc.dorisTable.table_name) {}
+
+std::string DorisTableDescriptor::debug_string() const {
+    fmt::memory_buffer buf;
+    fmt::format_to(
+            buf,
+            "JDBCTable({} ,_fe_nodes={} ,_fe_arrow_nodes={} "
+            ",_user_name={} ,_passwd={} ,_table_name={})",
+            TableDescriptor::debug_string(), print_vector(_fe_nodes),
+            print_vector(_fe_arrow_nodes), _user_name, _passwd, _table_name);
+    return fmt::to_string(buf);
+}
+
+std::string DorisTableDescriptor::print_vector(const std::vector<std::string>& vec) const {
+    std::stringstream ss;
+    ss << "[";
+    for (size_t i = 0; i < vec.size(); ++i) {
+        ss << vec[i];
+        if (i < vec.size() - 1) {
+            ss << ", ";
+        }
+    }
+    ss << "]";
+    return ss.str();
+}
+
 TupleDescriptor::TupleDescriptor(const TTupleDescriptor& tdesc, bool own_slots)
         : _id(tdesc.id),
           _num_materialized_slots(0),
@@ -587,6 +619,9 @@ Status DescriptorTbl::create(ObjectPool* pool, const TDescriptorTable& thrift_tb
             break;
         case TTableType::TRINO_CONNECTOR_TABLE:
             desc = pool->add(new TrinoConnectorTableDescriptor(tdesc));
+            break;
+        case TTableType::DORIS_TABLE:
+            desc = pool->add(new DorisTableDescriptor(tdesc));
             break;
         default:
             DCHECK(false) << "invalid table type: " << tdesc.tableType;

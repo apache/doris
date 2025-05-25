@@ -321,6 +321,10 @@ public class JdbcResource extends Resource {
     }
 
     private static String checkAndReturnDefaultDriverUrl(String driverUrl) {
+        String protocol = "file://";
+        if (!Config.jdbc_drivers_dir.startsWith("/")) {
+            protocol += "/";
+        }
         final String defaultDriverUrl = EnvUtils.getDorisHome() + "/plugins/jdbc_drivers";
         final String defaultOldDriverUrl = EnvUtils.getDorisHome() + "/jdbc_drivers";
         if (Config.jdbc_drivers_dir.equals(defaultDriverUrl)) {
@@ -330,14 +334,14 @@ public class JdbcResource extends Resource {
             // so we need to check the old default dir for compatibility.
             File file = new File(defaultDriverUrl + "/" + driverUrl);
             if (file.exists()) {
-                return "file://" + defaultDriverUrl + "/" + driverUrl;
+                return protocol + defaultDriverUrl + "/" + driverUrl;
             } else {
                 // use old one
-                return "file://" + defaultOldDriverUrl + "/" + driverUrl;
+                return protocol + defaultOldDriverUrl + "/" + driverUrl;
             }
         } else {
             // Return user specified driver url directly.
-            return "file://" + Config.jdbc_drivers_dir + "/" + driverUrl;
+            return protocol + Config.jdbc_drivers_dir + "/" + driverUrl;
         }
     }
 

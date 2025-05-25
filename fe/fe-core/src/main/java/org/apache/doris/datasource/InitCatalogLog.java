@@ -43,6 +43,7 @@ public class InitCatalogLog implements Writable {
         LAKESOUL,
         TEST,
         TRINO_CONNECTOR,
+        DORIS,
         UNKNOWN;
     }
 

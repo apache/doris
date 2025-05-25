@@ -30,6 +30,7 @@
 #include "pipeline/exec/meta_scan_operator.h"
 #include "pipeline/exec/mock_scan_operator.h"
 #include "pipeline/exec/olap_scan_operator.h"
+#include "pipeline/exec/doris_adbc_scan_operator.h"
 #include "pipeline/exec/operator.h"
 #include "runtime/types.h"
 #include "runtime_filter/runtime_filter_consumer_helper.h"
@@ -1368,6 +1369,8 @@ template class ScanLocalState<MetaScanLocalState>;
 template class ScanOperatorX<MetaScanLocalState>;
 template class ScanOperatorX<GroupCommitLocalState>;
 template class ScanLocalState<GroupCommitLocalState>;
+template class ScanOperatorX<DorisAdbcScanLocalState>;
+template class ScanLocalState<DorisAdbcScanLocalState>;
 
 #ifdef BE_TEST
 template class ScanOperatorX<MockScanLocalState>;
