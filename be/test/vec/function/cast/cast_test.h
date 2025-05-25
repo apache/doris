@@ -52,6 +52,32 @@ inline auto get_decimal_ctor() {
 }
 
 struct NullTag {};
+
+template <typename DataType>
+struct ColumnBuilder {
+    using FieldType = typename DataType::FieldType;
+    using Ty = std::variant<FieldType, NullTag>;
+
+    void add(const Ty& value) {
+        if (std::holds_alternative<FieldType>(value)) {
+            values.push_back(std::get<FieldType>(value));
+            null_map.push_back(false);
+        } else {
+            values.push_back(FieldType {});
+            null_map.push_back(true);
+        }
+    }
+
+    ColumnWithTypeAndName build() {
+        auto nested_column = ColumnHelper::create_nullable_column<DataType>(values, null_map);
+        auto data_type = std::make_shared<DataTypeNullable>(std::make_shared<DataType>());
+
+        return ColumnWithTypeAndName(std::move(nested_column), data_type, "column");
+    }
+    std::vector<FieldType> values;
+    std::vector<DataTypeUInt8::FieldType> null_map;
+};
+
 struct FunctionCastTest : public testing::Test {
     void SetUp() override { TimezoneUtils::load_timezones_to_cache(); }
     void TearDown() override {}
