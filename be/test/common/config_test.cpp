@@ -162,6 +162,16 @@ TEST_F(ConfigTest, UpdateConfigs) {
     s = config::set_config("cfg_conf_path", "$$TEST_CONF_ENV/test");
     EXPECT_TRUE(s.ok());
     EXPECT_EQ(cfg_conf_path, "$TEST_CONF_ENV/test");
+
+    setenv("TEST_CONF_ENV", "test_dir3", true);
+    s = config::set_config("cfg_conf_path", "${TEST_CONF_ENV/}/test");
+    EXPECT_FALSE(s.ok());
+    EXPECT_TRUE(s.to_string().find("INVALID_ARGUMENT") != std::string::npos);
+
+    setenv("123TEST_conf_ENV123", "test_dir3", true);
+    s = config::set_config("cfg_conf_path", "$123TEST_conf_ENV123/test");
+    EXPECT_TRUE(s.ok());
+    EXPECT_EQ(cfg_conf_path, "test_dir3/test");
 }
 
 } // namespace doris
