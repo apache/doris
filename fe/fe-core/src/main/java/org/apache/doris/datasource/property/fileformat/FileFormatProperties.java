@@ -96,6 +96,8 @@ public abstract class FileFormatProperties {
                 return new AvroFileFormatProperties();
             case FORMAT_WAL:
                 return new WalFileFormatProperties();
+            case FORMAT_ARROW:
+                return new ArrowFileFormatProperties();
             default:
                 throw new AnalysisException("format:" + formatString + " is not supported.");
         }
