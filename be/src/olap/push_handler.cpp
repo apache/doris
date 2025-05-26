@@ -140,6 +140,7 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
     Status res;
     // check delete condition if push for delete
     std::queue<DeletePredicatePB> del_preds;
+    std::vector<DeletePredicatePB> delete_preds;
     if (push_type == PushType::PUSH_FOR_DELETE) {
         DeletePredicatePB del_pred;
         TabletSchema tablet_schema;
@@ -153,6 +154,7 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
         res = DeleteHandler::generate_delete_predicate(tablet_schema, request.delete_conditions,
                                                        &del_pred);
         del_preds.push(del_pred);
+        delete_preds.push_back(del_pred);
         if (!res.ok()) {
             LOG(WARNING) << "fail to generate delete condition. res=" << res
                          << ", tablet=" << tablet->tablet_id();
@@ -192,6 +194,21 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
     RowsetSharedPtr rowset_to_add;
     // writes
     res = _convert_v2(tablet, &rowset_to_add, tablet_schema, push_type);
+
+    LOG(INFO) << "====> delete on tablet=" << tablet->tablet_id() <<
+            [&delete_preds]() {
+                std::stringstream ss;
+                ss << ", ";
+                for (const auto& pred : delete_preds) {
+                    ss << "pred=" << pred.ShortDebugString();
+                }
+                return ss.str();
+            }()
+              << ", schema_version=" << tablet_schema << tablet_schema->schema_version()
+              << ", struct=" << tablet_schema->dump_full_schema()
+              << ", next_col_uid=" << tablet_schema->next_column_unique_id()
+              << ", field_id_to_col=" << tablet_schema->field_id_to_index();
+
     if (!res.ok()) {
         LOG(WARNING) << "fail to convert tmp file when realtime push. res=" << res
                      << ", failed to process realtime push."

@@ -524,6 +524,14 @@ public:
         return str;
     }
 
+    string field_id_to_index() {
+        std::stringstream ss;
+        for (const auto& [k, v] : _field_id_to_index) {
+            ss << "uid=" << k << ", index=" << v;
+        }
+        return ss.str();
+    }
+
     vectorized::Block create_block_by_cids(const std::vector<uint32_t>& cids) const;
 
     std::shared_ptr<TabletSchema> copy_without_variant_extracted_columns();
