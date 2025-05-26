@@ -179,7 +179,7 @@ void Segment::update_metadata_size() {
 
 Status Segment::_open(OlapReaderStatistics* stats) {
     std::shared_ptr<SegmentFooterPB> footer_pb_shared;
-    RETURN_IF_ERROR(_get_segment_footer(footer_pb_shared, stats));
+    RETURN_IF_ERROR(get_segment_footer(footer_pb_shared, stats));
 
     _pk_index_meta.reset(
             footer_pb_shared->has_primary_key_index_meta()
@@ -608,7 +608,7 @@ Status Segment::_create_column_readers_once(OlapReaderStatistics* stats) {
     SCOPED_RAW_TIMER(&stats->segment_create_column_readers_timer_ns);
     return _create_column_readers_once_call.call([&] {
         std::shared_ptr<SegmentFooterPB> footer_pb_shared;
-        RETURN_IF_ERROR(_get_segment_footer(footer_pb_shared, stats));
+        RETURN_IF_ERROR(get_segment_footer(footer_pb_shared, stats));
         return _create_column_readers(*footer_pb_shared);
     });
 }
@@ -1187,8 +1187,8 @@ Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescripto
     return Status::OK();
 }
 
-Status Segment::_get_segment_footer(std::shared_ptr<SegmentFooterPB>& footer_pb,
-                                    OlapReaderStatistics* stats) {
+Status Segment::get_segment_footer(std::shared_ptr<SegmentFooterPB>& footer_pb,
+                                   OlapReaderStatistics* stats) {
     std::shared_ptr<SegmentFooterPB> footer_pb_shared = _footer_pb.lock();
     if (footer_pb_shared != nullptr) {
         footer_pb = footer_pb_shared;

@@ -220,6 +220,8 @@ public:
 
     const TabletSchemaSPtr& tablet_schema() { return _tablet_schema; }
 
+    Status get_segment_footer(std::shared_ptr<SegmentFooterPB>&, OlapReaderStatistics* stats);
+
 private:
     DISALLOW_COPY_AND_ASSIGN(Segment);
     Segment(uint32_t segment_id, RowsetId rowset_id, TabletSchemaSPtr tablet_schema,
@@ -247,8 +249,6 @@ private:
     Status _open_inverted_index();
 
     Status _create_column_readers_once(OlapReaderStatistics* stats);
-
-    Status _get_segment_footer(std::shared_ptr<SegmentFooterPB>&, OlapReaderStatistics* stats);
 
     StoragePageCache::CacheKey get_segment_footer_cache_key() const;
 

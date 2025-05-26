@@ -395,6 +395,29 @@ TEST_F(SegCompactionTest, SegCompactionThenRead) {
             }
             EXPECT_EQ(total_num_rows, num_rows_read);
         }
+        auto total_column_data_size = 0;
+        auto total_segment_data_footprint = 0;
+
+        std::vector<segment_v2::SegmentSharedPtr> segments;
+        Status res = ((BetaRowset*)rowset.get())->load_segments(&segments);
+        ASSERT_TRUE(res.ok());
+
+        for (const auto& segment : segments) {
+            std::shared_ptr<SegmentFooterPB> footer_pb_shared;
+
+            res = segment->get_segment_footer(footer_pb_shared, nullptr);
+            EXPECT_EQ(Status::OK(), res);
+
+            auto seg_footprint = footer_pb_shared->data_footprint();
+
+            for (const auto& column : footer_pb_shared->columns()) {
+                auto column_data_size = column.estimate_total_data_size();
+                total_column_data_size += column_data_size;
+            }
+
+            total_segment_data_footprint += seg_footprint;
+        }
+        EXPECT_EQ(total_segment_data_footprint, total_column_data_size);
     }
 }
 
