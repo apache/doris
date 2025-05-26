@@ -710,6 +710,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_TEXT_VALIDATE_UTF8 = "enable_text_validate_utf8";
 
+    public static final String ENABLE_SQL_CONVERTOR_FEATURES = "enable_sql_convertor_features";
+
+    public static final String SQL_CONVERTOR_CONFIG = "sql_convertor_config";
+
     /**
      * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
      */
@@ -2419,6 +2423,21 @@ public class SessionVariable implements Serializable, Writable {
             | VariableMgr.READ_ONLY)
     public boolean newIsIpAddressInRange = true;
 
+    @VariableMgr.VarAttr(name = ENABLE_SQL_CONVERTOR_FEATURES, needForward = true,
+            checker = "checkSqlConvertorFeatures",
+            description = {
+                    "开启 SQL 转换器的指定功能。多个功能使用逗号分隔",
+                    "enable SQL convertor features. Multiple features are separated by commas"
+            })
+    public String enableSqlConvertorFeatures = "";
+
+    @VariableMgr.VarAttr(name = SQL_CONVERTOR_CONFIG, needForward = true,
+            description = {
+                    "SQL 转换器的相关配置，使用 Json 格式。以 {} 为根元素。",
+                    "SQL convertor config, use Json format. The root element is {}"
+            })
+    public String sqlConvertorConfig = "{}";
+
     public void setEnableEsParallelScroll(boolean enableESParallelScroll) {
         this.enableESParallelScroll = enableESParallelScroll;
     }
@@ -3426,6 +3445,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public int getWaitFullBlockScheduleTimes() {
         return waitFullBlockScheduleTimes;
+    }
+
+    public String[] getSqlConvertorFeatures() {
+        return enableSqlConvertorFeatures.split(",");
+    }
+
+    public String getSqlConvertorConfig() {
+        return sqlConvertorConfig;
     }
 
     public Dialect getSqlParseDialect() {
@@ -4692,4 +4719,19 @@ public class SessionVariable implements Serializable, Writable {
     public boolean getDisableInvertedIndexV1ForVaraint() {
         return disableInvertedIndexV1ForVaraint;
     }
+
+    public void checkSqlConvertorFeatures(String features) {
+        if (Strings.isNullOrEmpty(features)) {
+            return;
+        }
+        String[] featureArray = features.split(",");
+        for (String feature : featureArray) {
+            if (!feature.equalsIgnoreCase("ctas")
+                    && !feature.equalsIgnoreCase("delete_all_comment")) {
+                throw new UnsupportedOperationException("Unknown sql convertor feature: " + feature
+                        + ", current support: ctas, delete_all_comment");
+            }
+        }
+    }
 }
+
