@@ -28,7 +28,6 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.util.MetaLockUtils;
-import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
@@ -77,10 +76,6 @@ public class RefreshMTMVInfo {
         try {
             Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(mvName.getDb());
             MTMV mtmv = (MTMV) db.getTableOrMetaException(mvName.getTbl(), TableType.MATERIALIZED_VIEW);
-            MTMVPartitionInfo mvPartitionInfo = mtmv.getMvPartitionInfo();
-            if (!mvPartitionInfo.getPartitionType().equals(MTMVPartitionType.SELF_MANAGE)) {
-                MTMVPartitionUtil.analyzeUsedPartitions(mtmv);
-            }
             if (!CollectionUtils.isEmpty(partitions)) {
                 checkPartitionExist(mtmv);
             }
@@ -100,7 +95,7 @@ public class RefreshMTMVInfo {
                         "The partition method of this asynchronous materialized view "
                                 + "does not support refreshing by partition");
             }
-            List<AllPartitionDesc> partitionDescs = MTMVPartitionUtil.getPartitionDescsByRelatedTable(
+            List<AllPartitionDesc> partitionDescs = MTMVPartitionUtil.getPartitionDescsByRelatedTable(mtmv,
                     mtmv.getTableProperty().getProperties(), mtmv.getMvPartitionInfo(), mtmv.getMvProperties());
             Set<String> shouldExistPartitionNames = Sets.newHashSetWithExpectedSize(partitionDescs.size());
             partitionDescs.stream().forEach(desc -> {

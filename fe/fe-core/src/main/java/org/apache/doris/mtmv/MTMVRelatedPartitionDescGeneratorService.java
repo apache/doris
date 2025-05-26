@@ -17,6 +17,7 @@
 
 package org.apache.doris.mtmv;
 
+import org.apache.doris.catalog.MTMV;
 import org.apache.doris.common.AnalysisException;
 
 import java.util.Map;
@@ -28,11 +29,12 @@ public interface MTMVRelatedPartitionDescGeneratorService {
     /**
      * generate related table PartitionDesc
      *
+     * @param mtmv mtmv instance
      * @param mvPartitionInfo PartitionInfo of MTMV
      * @param mvProperties properties of MTMV
      * @param lastResult the processing result of the previous process
      * @throws AnalysisException
      */
-    void apply(MTMVPartitionInfo mvPartitionInfo, Map<String, String> mvProperties,
-            RelatedPartitionDescResult lastResult) throws AnalysisException;
+    void apply(MTMV mtmv, MTMVPartitionInfo mvPartitionInfo, Map<String, String> mvProperties,
+               RelatedPartitionDescResult lastResult) throws AnalysisException;
 }

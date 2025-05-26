@@ -22,7 +22,6 @@ import org.apache.doris.analysis.AllPartitionDesc;
 import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.SinglePartitionDesc;
-import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -35,18 +34,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
-import org.apache.doris.nereids.NereidsPlanner;
-import org.apache.doris.nereids.StatementContext;
-import org.apache.doris.nereids.exceptions.ParseException;
-import org.apache.doris.nereids.glue.LogicalPlanAdapter;
-import org.apache.doris.nereids.parser.NereidsParser;
-import org.apache.doris.nereids.properties.PhysicalProperties;
-import org.apache.doris.nereids.rules.exploration.mv.StructInfo;
-import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.rpc.RpcException;
 
 import com.google.common.base.Preconditions;
@@ -60,7 +47,6 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -73,8 +59,6 @@ public class MTMVPartitionUtil {
     private static final Logger LOG = LogManager.getLogger(MTMVPartitionUtil.class);
     private static final Pattern PARTITION_NAME_PATTERN = Pattern.compile("[^a-zA-Z0-9,]");
     private static final String PARTITION_NAME_PREFIX = "p_";
-    private static final String MTMV_PLANER_DISABLE_RULES = "PRUNE_EMPTY_PARTITION,"
-            + "ELIMINATE_GROUP_BY_KEY_BY_UNIFORM";
 
     private static final List<MTMVRelatedPartitionDescGeneratorService> partitionDescGenerators = ImmutableList
             .of(
@@ -131,7 +115,7 @@ public class MTMVPartitionUtil {
     public static void alignMvPartition(MTMV mtmv)
             throws DdlException, AnalysisException {
         Map<String, PartitionKeyDesc> mtmvPartitionDescs = mtmv.generateMvPartitionDescs();
-        Set<PartitionKeyDesc> relatedPartitionDescs = generateRelatedPartitionDescs(mtmv.getMvPartitionInfo(),
+        Set<PartitionKeyDesc> relatedPartitionDescs = generateRelatedPartitionDescs(mtmv, mtmv.getMvPartitionInfo(),
                 mtmv.getMvProperties()).keySet();
         // drop partition of mtmv
         for (Entry<String, PartitionKeyDesc> entry : mtmvPartitionDescs.entrySet()) {
@@ -156,12 +140,12 @@ public class MTMVPartitionUtil {
      * @return
      * @throws AnalysisException
      */
-    public static List<AllPartitionDesc> getPartitionDescsByRelatedTable(
-            Map<String, String> tableProperties, MTMVPartitionInfo mvPartitionInfo, Map<String, String> mvProperties)
+    public static List<AllPartitionDesc> getPartitionDescsByRelatedTable(MTMV mtmv, Map<String, String> tableProperties,
+                MTMVPartitionInfo mvPartitionInfo, Map<String, String> mvProperties)
             throws AnalysisException {
         List<AllPartitionDesc> res = Lists.newArrayList();
         HashMap<String, String> partitionProperties = Maps.newHashMap();
-        Set<PartitionKeyDesc> relatedPartitionDescs = generateRelatedPartitionDescs(mvPartitionInfo, mvProperties)
+        Set<PartitionKeyDesc> relatedPartitionDescs = generateRelatedPartitionDescs(mtmv, mvPartitionInfo, mvProperties)
                 .keySet();
         for (PartitionKeyDesc partitionKeyDesc : relatedPartitionDescs) {
             SinglePartitionDesc singlePartitionDesc = new SinglePartitionDesc(true,
@@ -174,55 +158,18 @@ public class MTMVPartitionUtil {
         return res;
     }
 
-    public static Map<PartitionKeyDesc, Set<String>> generateRelatedPartitionDescs(MTMVPartitionInfo mvPartitionInfo,
-            Map<String, String> mvProperties) throws AnalysisException {
+    public static Map<PartitionKeyDesc, Set<String>> generateRelatedPartitionDescs(MTMV mtmv,
+            MTMVPartitionInfo mvPartitionInfo, Map<String, String> mvProperties) throws AnalysisException {
         long start = System.currentTimeMillis();
         RelatedPartitionDescResult result = new RelatedPartitionDescResult();
         for (MTMVRelatedPartitionDescGeneratorService service : partitionDescGenerators) {
-            service.apply(mvPartitionInfo, mvProperties, result);
+            service.apply(mtmv, mvPartitionInfo, mvProperties, result);
         }
         if (LOG.isDebugEnabled()) {
             LOG.debug("generateRelatedPartitionDescs use [{}] mills, mvPartitionInfo is [{}]",
                     System.currentTimeMillis() - start, mvPartitionInfo);
         }
         return result.getDescs();
-    }
-
-    public static void analyzeUsedPartitions(MTMV mtmv) {
-        ConnectContext ctx = MTMVPlanUtil.createMTMVContext(mtmv);
-        List<StatementBase> statements;
-        try {
-            statements = new NereidsParser().parseSQL(mtmv.getQuerySql());
-        } catch (Exception e) {
-            throw new ParseException("Nereids parse failed. " + e.getMessage());
-        }
-        // Should not make table without data to empty relation when analyze the related table,
-        // so add disable rules
-        Set<String> tempDisableRules = ctx.getSessionVariable().getDisableNereidsRuleNames();
-        StatementContext statementContext = null;
-        try {
-            statementContext = ctx.getStatementContext();
-            StatementBase parsedStmt = statements.get(0);
-            ctx.getSessionVariable().setDisableNereidsRules(MTMV_PLANER_DISABLE_RULES);
-            statementContext.invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
-            LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
-            NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
-            planner.planWithLock(logicalPlan, PhysicalProperties.ANY, ExplainCommand.ExplainLevel.REWRITTEN_PLAN);
-            analyzeUsedPartitions(planner.getRewrittenPlan(), mtmv.getMvPartitionInfo());
-        } finally {
-            // after operate, roll back the disable rules
-            ctx.getSessionVariable().setDisableNereidsRules(String.join(",", tempDisableRules));
-            if (statementContext != null) {
-                statementContext.invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
-            }
-        }
-    }
-
-    public static void analyzeUsedPartitions(Plan rewrittenPlan, MTMVPartitionInfo mtmvPartitionInfo) {
-        Map<BaseTableInfo, Set<String>> queryUsedBaseTablePartitions = new LinkedHashMap<>();
-        queryUsedBaseTablePartitions.put(mtmvPartitionInfo.getRelatedTableInfo(), new HashSet<>());
-        rewrittenPlan.accept(new StructInfo.QueryScanPartitionsCollector(), queryUsedBaseTablePartitions);
-        mtmvPartitionInfo.setUsedBaseTablePartitions(queryUsedBaseTablePartitions);
     }
 
     /**
