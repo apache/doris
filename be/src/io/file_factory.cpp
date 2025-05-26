@@ -72,14 +72,39 @@ io::FileReaderOptions FileFactory::get_reader_options(RuntimeState* state,
     return opts;
 }
 
+int32_t get_broker_index(const std::vector<TNetworkAddress>& brokers, const std::string& path) {
+    if (brokers.empty()) {
+        return -1;
+    }
+
+    // firstly find local broker
+    const auto local_host = BackendOptions::get_localhost();
+    for (int32_t i = 0; i < brokers.size(); ++i) {
+        if (brokers[i].hostname == local_host) {
+            return i;
+        }
+    }
+
+    // secondly select broker by hash of file path
+    auto key = HashUtil::hash(path.data(), path.size(), 0);
+    return key % brokers.size();
+}
+
 Result<io::FileSystemSPtr> FileFactory::create_fs(const io::FSPropertiesRef& fs_properties,
                                                   const io::FileDescription& file_description) {
     switch (fs_properties.type) {
     case TFileType::FILE_LOCAL:
         return io::global_local_filesystem();
-    case TFileType::FILE_BROKER:
-        return io::BrokerFileSystem::create((*fs_properties.broker_addresses)[0],
+    case TFileType::FILE_BROKER: {
+        auto index = get_broker_index(*fs_properties.broker_addresses, file_description.path);
+        if (index < 0) {
+            return ResultError(Status::InternalError("empty broker_addresses"));
+        }
+        LOG_INFO("select broker: {} for file {}", (*fs_properties.broker_addresses)[index].hostname,
+                 file_description.path);
+        return io::BrokerFileSystem::create((*fs_properties.broker_addresses)[index],
                                             *fs_properties.properties, io::FileSystem::TMP_FS_ID);
+    }
     case TFileType::FILE_S3: {
         S3URI s3_uri(file_description.path);
         RETURN_IF_ERROR_RESULT(s3_uri.parse());
@@ -129,7 +154,12 @@ Result<io::FileWriterPtr> FileFactory::create_file_writer(
         return file_writer;
     }
     case TFileType::FILE_BROKER: {
-        return io::BrokerFileWriter::create(env, broker_addresses[0], properties, path);
+        auto index = get_broker_index(broker_addresses, path);
+        if (index < 0) {
+            return ResultError(Status::InternalError("empty broker_addresses"));
+        }
+        LOG_INFO("select broker: {} for file {}", broker_addresses[index].hostname, path);
+        return io::BrokerFileWriter::create(env, broker_addresses[index], properties, path);
     }
     case TFileType::FILE_S3: {
         S3URI s3_uri(path);
@@ -198,24 +228,12 @@ Result<io::FileReaderSPtr> FileFactory::create_file_reader(
                 });
     }
     case TFileType::FILE_BROKER: {
-        int32_t index = -1;
-        // firstly find local broker
-        const auto local_host = BackendOptions::get_localhost();
-        for (int32_t i = 0; i < system_properties.broker_addresses.size(); ++i) {
-            if (system_properties.broker_addresses[i].hostname == local_host) {
-                index = i;
-                break;
-            }
-        }
-        // secondly select broker by hash of file path
+        auto index = get_broker_index(system_properties.broker_addresses, file_description.path);
         if (index < 0) {
-            auto key =
-                    HashUtil::hash(file_description.path.data(), file_description.path.size(), 0);
-            index = key % system_properties.broker_addresses.size();
+            return ResultError(Status::InternalError("empty broker_addresses"));
         }
-        LOG_INFO("select broker: {} for file {}, local host: {}",
-                 system_properties.broker_addresses[index].hostname, file_description.path,
-                 local_host);
+        LOG_INFO("select broker: {} for file {}",
+                 system_properties.broker_addresses[index].hostname, file_description.path);
         // TODO(plat1ko): Create `FileReader` without FS
         return io::BrokerFileSystem::create(system_properties.broker_addresses[index],
                                             system_properties.properties, io::FileSystem::TMP_FS_ID)
