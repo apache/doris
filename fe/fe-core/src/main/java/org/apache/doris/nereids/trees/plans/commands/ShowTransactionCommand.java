@@ -30,7 +30,7 @@ import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Like;
-import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -131,19 +131,17 @@ public class ShowTransactionCommand extends ShowCommand {
             return true;
         }
 
-        boolean valid = true;
-
         if (!(expr instanceof EqualTo || expr instanceof Like)) {
-            valid = false;
+            return false;
         }
 
         if (!(expr.child(0) instanceof UnboundSlot)) {
-            valid = false;
+            return false;
         }
 
         String leftKey = ((UnboundSlot) expr.child(0)).getName();
-        if (leftKey.equalsIgnoreCase("id") && (expr.child(1) instanceof IntegerLiteral)) {
-            txnId = ((IntegerLiteral) expr.child(1)).getLongValue();
+        if (leftKey.equalsIgnoreCase("id") && (expr.child(1) instanceof IntegerLikeLiteral)) {
+            txnId = ((IntegerLikeLiteral) expr.child(1)).getLongValue();
         } else if (leftKey.equalsIgnoreCase("label") && (expr.child(1) instanceof StringLiteral)) {
             label = ((StringLiteral) expr.child(1)).getStringValue();
         } else if (leftKey.equalsIgnoreCase("status") && (expr.child(1) instanceof StringLiteral)) {
@@ -157,7 +155,7 @@ public class ShowTransactionCommand extends ShowCommand {
                 throw new AnalysisException("status should be prepare/precommitted/committed/visible/aborted");
             }
         } else {
-            valid = false;
+            return false;
         }
 
         if (expr instanceof Like && leftKey.equalsIgnoreCase("label")) {
@@ -166,7 +164,7 @@ public class ShowTransactionCommand extends ShowCommand {
             label = label.replaceAll("%", ".*");
         }
 
-        return valid;
+        return true;
     }
 
     @Override
