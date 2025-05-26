@@ -164,7 +164,7 @@ concept IteratoredMap = requires(T* map) { typename T::iterator; };
 template <typename HashMap>
 struct MethodBase : public MethodBaseInner<HashMap> {
     using Iterator = void*;
-    void init_iterator() {  }
+    void init_iterator() {}
 };
 
 template <IteratoredMap HashMap>
