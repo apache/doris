@@ -1019,7 +1019,7 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
         }
     }
 
-    private static class ExpressionToExpr extends ExpressionTranslator {
+    public static class ExpressionToExpr extends ExpressionTranslator {
         @Override
         public Expr visitSlotReference(SlotReference slotReference, PlanTranslatorContext context) {
             SlotRef slotRef = new SlotRef(slotReference.getDataType().toCatalogDataType(), slotReference.nullable());

@@ -32,6 +32,7 @@ import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.plans.commands.CreateFunctionCommand.ExpressionToExpr;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.thrift.TFunctionBinaryType;
 
@@ -116,7 +117,7 @@ public class AliasFunction extends Function {
         CascadesContext cascadesContext = CascadesContext.initContext(statementContext, plan,
                 PhysicalProperties.ANY);
         PlanTranslatorContext planTranslatorContext = new PlanTranslatorContext(cascadesContext);
-        ExpressionTranslator translator = new ExpressionTranslator();
+        ExpressionTranslator translator = new ExpressionToExpr();
         return expression.accept(translator, planTranslatorContext);
     }
 
