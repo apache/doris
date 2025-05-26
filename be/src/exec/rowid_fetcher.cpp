@@ -359,7 +359,7 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequest& request,
         watch.start();
         BaseTabletSPtr tablet = scope_timer_run(
                 [&]() {
-                    auto res = ExecEnv::get_tablet(row_loc.tablet_id());
+                    auto res = ExecEnv::get_tablet(row_loc.tablet_id(), nullptr, true);
                     return !res.has_value() ? nullptr
                                             : std::dynamic_pointer_cast<BaseTablet>(res.value());
                 },
