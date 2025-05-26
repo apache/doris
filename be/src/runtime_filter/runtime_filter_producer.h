@@ -53,7 +53,7 @@ public:
         return Status::OK();
     }
 
-    Status init(size_t local_size);
+    Status init(RuntimeState* state, size_t local_size);
 
     Status send_size(RuntimeState* state, uint64_t local_filter_size);
 

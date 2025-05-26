@@ -64,7 +64,7 @@ Status RuntimeFilterProducerHelper::_init_filters(RuntimeState* state,
                                                   uint64_t local_hash_table_size) {
     // process IN_OR_BLOOM_FILTER's real type
     for (const auto& filter : _producers) {
-        RETURN_IF_ERROR(filter->init(local_hash_table_size));
+        RETURN_IF_ERROR(filter->init(state, local_hash_table_size));
     }
     return Status::OK();
 }
