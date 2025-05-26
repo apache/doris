@@ -61,6 +61,7 @@ Status AnalyticSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
                 p._window.window_end.type == TAnalyticWindowBoundaryType::CURRENT_ROW) {
                 // For window frame `RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW`
                 _executor.get_next_impl = &AnalyticSinkLocalState::_get_next_for_unbounded_range;
+                _streaming_mode = true;
             } else {
                 _executor.get_next_impl = &AnalyticSinkLocalState::_get_next_for_range_between;
             }
@@ -72,10 +73,10 @@ Status AnalyticSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
         } else {
             if (!p._has_window_start) {
                 _executor.get_next_impl = &AnalyticSinkLocalState::_get_next_for_unbounded_rows;
-                _streaming_mode = true;
             } else {
                 _executor.get_next_impl = &AnalyticSinkLocalState::_get_next_for_sliding_rows;
             }
+            _streaming_mode = true;
         }
 
         if (p._has_window_start) { //calculate start boundary
@@ -278,8 +279,14 @@ bool AnalyticSinkLocalState::_get_next_for_partition(int64_t batch_rows,
 
 bool AnalyticSinkLocalState::_get_next_for_unbounded_range(int64_t batch_rows,
                                                            int64_t current_block_base_pos) {
-    while (_current_row_position < _partition_by_pose.end) {
-        _update_order_by_range();
+    int64_t remain_size = batch_rows - current_pos_in_block();
+    _update_order_by_range();
+    if (!_order_by_pose.is_ended) {
+        DCHECK(!_partition_by_pose.is_ended);
+        _need_more_data = true;
+        return false;
+    }
+    while (_current_row_position < _order_by_pose.end && remain_size > 0) {
         if (_current_row_position == _order_by_pose.start) {
             _execute_for_function(_partition_by_pose.start, _partition_by_pose.end,
                                   _order_by_pose.start, _order_by_pose.end);
@@ -291,7 +298,9 @@ bool AnalyticSinkLocalState::_get_next_for_unbounded_range(int64_t batch_rows,
         int64_t pos = current_pos_in_block();
         _insert_result_info(pos, pos + real_deal_with_width);
         _current_row_position += real_deal_with_width;
+        remain_size -= real_deal_with_width;
         if (_current_row_position - current_block_base_pos >= batch_rows) {
+            DCHECK(remain_size <= 0);
             return true;
         }
     }
