@@ -83,7 +83,6 @@ import org.apache.doris.nereids.DorisParser.AdminDiagnoseTabletContext;
 import org.apache.doris.nereids.DorisParser.AdminRebalanceDiskContext;
 import org.apache.doris.nereids.DorisParser.AdminSetTableStatusContext;
 import org.apache.doris.nereids.DorisParser.AdminShowReplicaDistributionContext;
-import org.apache.doris.nereids.DorisParser.AdminShowReplicaStatusContext;
 import org.apache.doris.nereids.DorisParser.AdminShowTabletStorageFormatContext;
 import org.apache.doris.nereids.DorisParser.AggClauseContext;
 import org.apache.doris.nereids.DorisParser.AggStateDataTypeContext;
@@ -560,7 +559,6 @@ import org.apache.doris.nereids.trees.plans.commands.AdminRebalanceDiskCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminRepairTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetReplicaStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetTableStatusCommand;
-import org.apache.doris.nereids.trees.plans.commands.AdminShowReplicaStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterCatalogCommentCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterCatalogPropertiesCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterCatalogRenameCommand;
@@ -5372,22 +5370,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             return new AdminCleanTrashCommand(backendsQuery);
         }
         return new AdminCleanTrashCommand();
-    }
-
-    @Override
-    public LogicalPlan visitAdminShowReplicaStatus(AdminShowReplicaStatusContext ctx) {
-        Expression where = null;
-        if (ctx.WHERE() != null) {
-            StringLiteral left = new StringLiteral(stripQuotes(ctx.STATUS().toString()));
-            StringLiteral right = new StringLiteral(stripQuotes(ctx.STRING_LITERAL().getText()));
-            if (ctx.NEQ() != null) {
-                where = new Not(new EqualTo(left, right));
-            } else {
-                where = new EqualTo(left, right);
-            }
-        }
-        TableRefInfo tableRefInfo = visitBaseTableRefContext(ctx.baseTableRef());
-        return new AdminShowReplicaStatusCommand(tableRefInfo, where);
     }
 
     @Override
