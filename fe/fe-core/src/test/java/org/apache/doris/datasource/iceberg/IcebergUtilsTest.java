@@ -30,7 +30,6 @@ import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SnapshotRef;
 import org.apache.iceberg.Table;
-import org.apache.iceberg.TableOperations;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.expressions.UnboundPredicate;
@@ -40,7 +39,6 @@ import org.apache.iceberg.types.Conversions;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.types.Types.LongType;
 import org.apache.iceberg.types.Types.StructType;
-import org.apache.iceberg.util.SnapshotUtil;
 import org.junit.Assert;
 import org.junit.Test;
 import org.mockito.Mockito;
@@ -260,6 +258,12 @@ public class IcebergUtilsTest {
 
         // query snapshotId 3
         assertQuerySpecSnapshot(table, "3", 3, 1, null);
+
+        // query ref not exists
+        Assert.assertThrows(IllegalArgumentException.class, () -> assertQuerySpecSnapshot(table, "ref_not_exists", -1, -1, null));
+
+        // query snapshotId not exists
+        Assert.assertThrows(IllegalArgumentException.class, () -> assertQuerySpecSnapshot(table, "99", -3, -1, null));
     }
 
     private Snapshot mockSnapshot(long snapshotId, int schemaId) {

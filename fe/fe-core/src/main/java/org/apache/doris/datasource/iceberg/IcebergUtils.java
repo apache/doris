@@ -118,7 +118,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
@@ -796,21 +795,25 @@ public class IcebergUtils {
         if (type == TableSnapshot.VersionType.VERSION) {
             if (SNAPSHOT_ID.matcher(value).matches()) {
                 long snapshotId = Long.parseLong(value);
+                Snapshot snapshot = table.snapshot(snapshotId);
+                Preconditions.checkArgument(
+                        snapshot != null,
+                        "Table " + table.name() + " does not have snapshotId " + value);
                 return new IcebergTableQueryInfo(
                     snapshotId,
                     null,
-                    table.snapshot(snapshotId).schemaId()
+                    snapshot.schemaId()
                 );
             }
 
-            if (!table.refs().containsKey(value)) {
-                throw new IllegalArgumentException("Table " + table.name() + " does not have a ref named " + value);
-            }
-                return new IcebergTableQueryInfo(
-                    table.refs().get(value).snapshotId(),
-                    value,
-                    SnapshotUtil.schemaFor(table, value).schemaId()
-                );
+            Preconditions.checkArgument(
+                    table.refs().containsKey(value),
+                    "Table " + table.name() + " does not have tag or branch named " + value);
+            return new IcebergTableQueryInfo(
+                table.refs().get(value).snapshotId(),
+                value,
+                SnapshotUtil.schemaFor(table, value).schemaId()
+            );
         } else {
             long timestamp = TimeUtils.timeStringToLong(value, TimeUtils.getTimeZone());
             if (timestamp < 0) {
