@@ -19,15 +19,16 @@ package org.apache.doris.iceberg;
 
 import org.apache.doris.common.jni.JniScanner;
 import org.apache.doris.common.jni.vec.ColumnType;
+import org.apache.doris.common.jni.vec.ColumnValue;
 import org.apache.doris.common.security.authentication.PreExecutionAuthenticator;
 import org.apache.doris.common.security.authentication.PreExecutionAuthenticatorCache;
-
 import org.apache.iceberg.Table;
 import org.apache.iceberg.util.SerializationUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.util.Iterator;
 import java.util.Map;
 import java.util.TimeZone;
 import java.util.stream.Collectors;
@@ -37,19 +38,21 @@ import java.util.stream.Collectors;
  */
 public abstract class IcebergMetadataJniScanner extends JniScanner {
     protected final String[] requiredFields;
+    protected final Table table;
     protected final String timezone;
+    // reader is initialized in the initReader() method
+    protected Iterator<?> reader;
 
     private static final String HADOOP_OPTION_PREFIX = "hadoop.";
     private static final Logger LOG = LoggerFactory.getLogger(IcebergMetadataJniScanner.class);
     private PreExecutionAuthenticator preExecutionAuthenticator;
     private final ClassLoader classLoader;
-    private final String serializedTable;
     private ColumnType[] requiredTypes;
 
     public IcebergMetadataJniScanner(int batchSize, Map<String, String> params) {
         this.classLoader = this.getClass().getClassLoader();
         this.requiredFields = params.get("required_fields").split(",");
-        this.serializedTable = params.get("serialized_table");
+        this.table = SerializationUtil.deserializeFromBase64(params.get("serialized_table"));
         this.timezone = params.getOrDefault("time_zone", TimeZone.getDefault().getID());
         Map<String, String> hadoopOptionParams = params.entrySet().stream()
                 .filter(kv -> kv.getKey().startsWith(HADOOP_OPTION_PREFIX))
@@ -64,9 +67,8 @@ public abstract class IcebergMetadataJniScanner extends JniScanner {
     public void open() throws IOException {
         try {
             Thread.currentThread().setContextClassLoader(classLoader);
-            Table table = SerializationUtil.deserializeFromBase64(serializedTable);
             preExecutionAuthenticator.execute(() -> {
-                loadTable(table);
+                initReader();
                 return null;
             });
         } catch (Exception e) {
@@ -77,13 +79,53 @@ public abstract class IcebergMetadataJniScanner extends JniScanner {
         }
     }
 
+    @Override
+    protected int getNext() throws IOException {
+        if (reader == null) {
+            return 0;
+        }
+        int rows = 0;
+        while (reader.hasNext() && rows < getBatchSize()) {
+            Object row = reader.next();
+            for (int i = 0; i < requiredFields.length; i++) {
+                String columnName = requiredFields[i];
+                Object value = getColumnValue(columnName, row);
+                if (value == null) {
+                    appendData(i, null);
+                } else {
+                    ColumnValue columnValue = new IcebergMetadataColumnValue(value, timezone);
+                    appendData(i, columnValue);
+                }
+            }
+            rows++;
+        }
+        return rows;
+    }
+
+    @Override
+    public void close() throws IOException {
+        if (reader != null) {
+            // Clear the iterator to release resources
+            reader = null;
+        }
+    }
+
     /**
      * This method is called in the open() method.
-     * It is used to initialize the metadata table data.
+     * It is used to initialize the reader for the specific metadata type.
      *
      * @throws IOException
      */
-    protected abstract void loadTable(Table table) throws IOException;
+    protected abstract void initReader() throws IOException;
+
+    /**
+     * Get the value of a specific column from a row.
+     *
+     * @param columnName the name of the column
+     * @param row        the row object
+     * @return the value of the column
+     */
+    protected abstract Object getColumnValue(String columnName, Object row);
 
     /**
      * Get the metadata schema from the table.
