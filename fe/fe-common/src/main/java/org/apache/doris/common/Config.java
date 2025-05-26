@@ -2833,12 +2833,12 @@ public class Config extends ConfigBase {
     public static int arrow_flight_max_connections = 4096;
 
     @ConfField(mutable = true, masterOnly = true, description = {
-        "Auto Buckets中按照partition size去估算bucket数，存算一体partition size 1G估算一个bucket，"
-            + "但存算分离下partition size 10G估算一个bucket。 若配置小于0，会在在代码中会自适应存算一体模式默认1G，在存算分离默认10G",
+        "Auto Buckets中按照partition size去估算bucket数，存算一体partition size 5G估算一个bucket，"
+            + "但存算分离下partition size 10G估算一个bucket。 若配置小于0，会在在代码中会自适应存算一体模式默认5G，在存算分离默认10G",
         "In Auto Buckets, the number of buckets is estimated based on the partition size. "
-            + "For storage and computing integration, a partition size of 1G is estimated as one bucket."
+            + "For storage and computing integration, a partition size of 5G is estimated as one bucket."
             + " but for cloud, a partition size of 10G is estimated as one bucket. "
-            + "If the configuration is less than 0, the code will have an adaptive non-cloud mode with a default of 1G,"
+            + "If the configuration is less than 0, the code will have an adaptive non-cloud mode with a default of 5G,"
             + " and in cloud mode with a default of 10G."
     })
     public static int autobucket_partition_size_per_bucket_gb = -1;
