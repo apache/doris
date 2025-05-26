@@ -25,7 +25,6 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
-import org.apache.doris.plugin.PluginMgr;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
@@ -52,9 +51,8 @@ public class UninstallPluginCommand extends Command implements ForwardWithSync {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
 
-        // Install the plugin using the Plugin Manager
-        PluginMgr pluginMgr = Env.getCurrentEnv().getPluginMgr();
-        pluginMgr.uninstallPlugin(pluginName);
+        // UnInstall the plugin
+        Env.getCurrentEnv().uninstallPlugin(this);
     }
 
     @Override
@@ -67,5 +65,8 @@ public class UninstallPluginCommand extends Command implements ForwardWithSync {
         return RedirectStatus.FORWARD_NO_SYNC;
     }
 
+    public String getPluginName() {
+        return pluginName;
+    }
 }
 
