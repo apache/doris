@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupConcat;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.agg.SupportMultiDistinct;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 
@@ -53,7 +54,7 @@ public class CheckMultiDistinct extends OneRewriteRuleFactory {
         if (aggregate.getDistinctArguments().size() > 1) {
 
             for (AggregateFunction func : aggregate.getAggregateFunctions()) {
-                if (func.isDistinct() && !supportedFunctions.contains(func.getClass())) {
+                if (func.isDistinct() && !(func instanceof SupportMultiDistinct)) {
                     throw new AnalysisException(func.toString() + " can't support multi distinct.");
                 }
             }
