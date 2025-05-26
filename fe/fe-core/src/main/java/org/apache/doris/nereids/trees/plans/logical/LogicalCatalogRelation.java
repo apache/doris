@@ -188,7 +188,7 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
                 continue;
             }
             SlotReference slotRef = (SlotReference) slot;
-            if (slotRef.getColumn().isPresent() && columns.contains(slotRef.getColumn().get())) {
+            if (slotRef.getOriginalColumn().isPresent() && columns.contains(slotRef.getOriginalColumn().get())) {
                 slotSet.add(slotRef);
             }
         }
