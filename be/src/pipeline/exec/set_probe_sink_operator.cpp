@@ -255,7 +255,8 @@ void SetProbeSinkOperatorX<is_intersect>::_refresh_hash_table(
                         }
                     }
 
-                    arg.reset();
+                    arg.arena.clear();
+                    arg.inited_iterator = false;
                 } else {
                     LOG(WARNING) << "Uninited hash table in Set Probe Sink Operator";
                 }

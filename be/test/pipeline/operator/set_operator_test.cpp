@@ -380,9 +380,10 @@ TEST_F(ExceptOperatorTest, test_output_null_batsh_size) {
         EXPECT_TRUE(source_op->get_block(state.get(), &block, &eos));
         DCHECK_EQ(eos, false);
         EXPECT_EQ(block.rows(), 3);
+        block.clear();
         EXPECT_TRUE(source_op->get_block(state.get(), &block, &eos));
         DCHECK_EQ(eos, true);
-        EXPECT_EQ(block.rows(), 1);
+        EXPECT_EQ(block.rows(), 1)<<block.dump_data();
     }
 }
 

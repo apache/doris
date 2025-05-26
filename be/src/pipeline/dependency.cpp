@@ -288,7 +288,8 @@ Status AggSharedState::reset_hash_table() {
                         auto& hash_table = *agg_method.hash_table;
                         using HashTableType = std::decay_t<decltype(hash_table)>;
 
-                        agg_method.reset();
+                        agg_method.arena.clear();
+                        agg_method.inited_iterator = false;
 
                         hash_table.for_each_mapped([&](auto& mapped) {
                             if (mapped) {

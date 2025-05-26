@@ -45,7 +45,6 @@ struct MethodBaseInner {
     using HashMapType = HashMap;
 
     std::shared_ptr<HashMap> hash_table = nullptr;
-    bool inited_iterator = false;
     Key* keys = nullptr;
     Arena arena;
     DorisVector<size_t> hash_values;
@@ -55,11 +54,6 @@ struct MethodBaseInner {
 
     MethodBaseInner() { hash_table.reset(new HashMap()); }
     virtual ~MethodBaseInner() = default;
-
-    virtual void reset() {
-        arena.clear();
-        inited_iterator = false;
-    }
 
     virtual void init_serialized_keys(const ColumnRawPtrs& key_columns, size_t num_rows,
                                       const uint8_t* null_map = nullptr, bool is_join = false,
@@ -170,7 +164,7 @@ concept IteratoredMap = requires(T* map) { typename T::iterator; };
 template <typename HashMap>
 struct MethodBase : public MethodBaseInner<HashMap> {
     using Iterator = void*;
-    void init_iterator() { MethodBaseInner<HashMap>::inited_iterator = true; }
+    void init_iterator() {  }
 };
 
 template <IteratoredMap HashMap>
@@ -179,9 +173,10 @@ struct MethodBase<HashMap> : public MethodBaseInner<HashMap> {
     using Base = MethodBaseInner<HashMap>;
     Iterator begin;
     Iterator end;
+    bool inited_iterator = false;
     void init_iterator() {
-        if (!Base::inited_iterator) {
-            Base::inited_iterator = true;
+        if (!inited_iterator) {
+            inited_iterator = true;
             begin = Base::hash_table->begin();
             end = Base::hash_table->end();
         }
