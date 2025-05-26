@@ -1019,6 +1019,9 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
         }
     }
 
+    /**
+     * ExpressionToExpr for function
+     */
     public static class ExpressionToExpr extends ExpressionTranslator {
         @Override
         public Expr visitSlotReference(SlotReference slotReference, PlanTranslatorContext context) {
