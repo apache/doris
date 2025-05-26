@@ -35,7 +35,7 @@ public:
 
         std::shared_ptr<RuntimeFilterProducer> producer;
         FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
-                RuntimeFilterProducer::create(_query_ctx.get(), &desc, &producer, &_profile));
+                RuntimeFilterProducer::create(_query_ctx.get(), &desc, &producer));
         FAIL_IF_ERROR_OR_CATCH_EXCEPTION(producer->init(123));
         producer->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::READY);
 
@@ -120,7 +120,7 @@ TEST_F(RuntimeFilterConsumerTest, timeout_aquire) {
 
     std::shared_ptr<RuntimeFilterProducer> producer;
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
-            RuntimeFilterProducer::create(_query_ctx.get(), &desc, &producer, &_profile));
+            RuntimeFilterProducer::create(_query_ctx.get(), &desc, &producer));
     producer->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::READY);
 
     std::vector<vectorized::VRuntimeFilterPtr> push_exprs;
@@ -156,7 +156,7 @@ TEST_F(RuntimeFilterConsumerTest, aquire_disabled) {
 
     std::shared_ptr<RuntimeFilterProducer> producer;
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
-            RuntimeFilterProducer::create(_query_ctx.get(), &desc, &producer, &_profile));
+            RuntimeFilterProducer::create(_query_ctx.get(), &desc, &producer));
     producer->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::DISABLED);
 
     std::vector<vectorized::VRuntimeFilterPtr> push_exprs;
@@ -221,7 +221,7 @@ TEST_F(RuntimeFilterConsumerTest, aquire_signal_at_same_time) {
 
         std::shared_ptr<RuntimeFilterProducer> producer;
         FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
-                RuntimeFilterProducer::create(_query_ctx.get(), &desc, &producer, &_profile));
+                RuntimeFilterProducer::create(_query_ctx.get(), &desc, &producer));
         producer->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::READY);
 
         std::vector<vectorized::VRuntimeFilterPtr> push_exprs;

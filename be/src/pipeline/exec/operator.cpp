@@ -27,6 +27,7 @@
 #include "pipeline/exec/cache_sink_operator.h"
 #include "pipeline/exec/cache_source_operator.h"
 #include "pipeline/exec/datagen_operator.h"
+#include "pipeline/exec/dict_sink_operator.h"
 #include "pipeline/exec/distinct_streaming_aggregation_operator.h"
 #include "pipeline/exec/empty_set_operator.h"
 #include "pipeline/exec/es_scan_operator.h"
@@ -45,6 +46,7 @@
 #include "pipeline/exec/memory_scratch_sink_operator.h"
 #include "pipeline/exec/meta_scan_operator.h"
 #include "pipeline/exec/mock_operator.h"
+#include "pipeline/exec/mock_scan_operator.h"
 #include "pipeline/exec/multi_cast_data_stream_sink.h"
 #include "pipeline/exec/multi_cast_data_stream_source.h"
 #include "pipeline/exec/nested_loop_join_build_operator.h"
@@ -524,6 +526,10 @@ Status PipelineXLocalState<SharedStateArg>::init(RuntimeState* state, LocalState
         }
     }
 
+    if (must_set_shared_state() && _shared_state == nullptr) {
+        return Status::InternalError("must set shared state, in {}", _parent->get_name());
+    }
+
     _rows_returned_counter =
             ADD_COUNTER_WITH_LEVEL(_runtime_profile, "RowsProduced", TUnit::UNIT, 1);
     _blocks_returned_counter =
@@ -609,6 +615,10 @@ Status PipelineXSinkLocalState<SharedState>::init(RuntimeState* state, LocalSink
         }
         _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(
                 _profile, "WaitForDependency[" + _dependency->name() + "]Time", 1);
+    }
+
+    if (must_set_shared_state() && _shared_state == nullptr) {
+        return Status::InternalError("must set shared state, in {}", _parent->get_name());
     }
 
     _rows_input_counter = ADD_COUNTER_WITH_LEVEL(_profile, "InputRows", TUnit::UNIT, 1);
@@ -762,6 +772,7 @@ DECLARE_OPERATOR(SetSinkLocalState<false>)
 DECLARE_OPERATOR(PartitionedHashJoinSinkLocalState)
 DECLARE_OPERATOR(GroupCommitBlockSinkLocalState)
 DECLARE_OPERATOR(CacheSinkLocalState)
+DECLARE_OPERATOR(DictSinkLocalState)
 
 #undef DECLARE_OPERATOR
 
@@ -798,6 +809,7 @@ DECLARE_OPERATOR(CacheSourceLocalState)
 
 #ifdef BE_TEST
 DECLARE_OPERATOR(MockLocalState)
+DECLARE_OPERATOR(MockScanLocalState)
 #endif
 #undef DECLARE_OPERATOR
 

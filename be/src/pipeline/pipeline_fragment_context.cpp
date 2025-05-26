@@ -49,6 +49,7 @@
 #include "pipeline/exec/cache_sink_operator.h"
 #include "pipeline/exec/cache_source_operator.h"
 #include "pipeline/exec/datagen_operator.h"
+#include "pipeline/exec/dict_sink_operator.h"
 #include "pipeline/exec/distinct_streaming_aggregation_operator.h"
 #include "pipeline/exec/empty_set_operator.h"
 #include "pipeline/exec/es_scan_operator.h"
@@ -1014,6 +1015,15 @@ Status PipelineFragmentContext::_create_data_sink(ObjectPool* pool, const TDataS
                                             thrift_sink.result_sink));
         break;
     }
+    case TDataSinkType::DICTIONARY_SINK: {
+        if (!thrift_sink.__isset.dictionary_sink) {
+            return Status::InternalError("Missing dict sink.");
+        }
+
+        _sink.reset(new DictSinkOperatorX(next_sink_operator_id(), row_desc, output_exprs,
+                                          thrift_sink.dictionary_sink));
+        break;
+    }
     case TDataSinkType::GROUP_COMMIT_OLAP_TABLE_SINK:
     case TDataSinkType::OLAP_TABLE_SINK: {
         if (state->query_options().enable_memtable_on_sink_node &&
@@ -1268,7 +1278,8 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
                                       tnode.agg_node.use_streaming_preaggregation &&
                                       !tnode.agg_node.grouping_exprs.empty();
         const bool can_use_distinct_streaming_agg =
-                is_streaming_agg && tnode.agg_node.aggregate_functions.empty() &&
+                tnode.agg_node.aggregate_functions.empty() &&
+                !tnode.agg_node.__isset.agg_sort_info_by_group_key &&
                 request.query_options.__isset.enable_distinct_streaming_aggregation &&
                 request.query_options.enable_distinct_streaming_aggregation;
 
@@ -1692,6 +1703,8 @@ Status PipelineFragmentContext::submit() {
     for (auto& task : _tasks) {
         for (auto& t : task) {
             st = scheduler->schedule_task(t);
+            DBUG_EXECUTE_IF("PipelineFragmentContext.submit.failed",
+                            { st = Status::Aborted("PipelineFragmentContext.submit.failed"); });
             if (!st) {
                 cancel(Status::InternalError("submit context to executor fail"));
                 std::lock_guard<std::mutex> l(_task_mutex);

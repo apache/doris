@@ -18,12 +18,14 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
+import org.apache.doris.nereids.trees.expressions.shape.LeafExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Objects;
@@ -32,13 +34,12 @@ import java.util.Optional;
 /**
  * Exists subquery expression.
  */
-public class Exists extends SubqueryExpr {
+public class Exists extends SubqueryExpr implements LeafExpression {
 
     private final boolean isNot;
 
     public Exists(LogicalPlan subquery, boolean isNot) {
-        super(Objects.requireNonNull(subquery, "subquery can not be null"));
-        this.isNot = isNot;
+        this(subquery, ImmutableList.of(), Optional.empty(), isNot);
     }
 
     public Exists(LogicalPlan subquery, List<Slot> correlateSlots, boolean isNot) {

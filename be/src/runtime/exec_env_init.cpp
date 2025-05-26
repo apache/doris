@@ -110,6 +110,7 @@
 #include "vec/exec/format/orc/orc_memory_pool.h"
 #include "vec/exec/format/parquet/arrow_memory_pool.h"
 #include "vec/exec/scan/scanner_scheduler.h"
+#include "vec/functions/dictionary_factory.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 #include "vec/sink/delta_writer_v2_pool.h"
 #include "vec/sink/load_stream_map_pool.h"
@@ -124,10 +125,7 @@
 #include "io/fs/hdfs/hdfs_mgr.h"
 // clang-format on
 
-#if !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && \
-        !defined(THREAD_SANITIZER) && !defined(USE_JEMALLOC)
 #include "runtime/memory/tcmalloc_hook.h"
-#endif
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -158,7 +156,7 @@ static void init_doris_metrics(const std::vector<StorePath>& store_paths) {
 }
 
 // Used to calculate the num of min thread and max thread based on the passed config
-static pair<size_t, size_t> get_num_threads(size_t min_num, size_t max_num) {
+static std::pair<size_t, size_t> get_num_threads(size_t min_num, size_t max_num) {
     auto num_cores = doris::CpuInfo::num_cores();
     min_num = (min_num == 0) ? num_cores : min_num;
     max_num = (max_num == 0) ? num_cores : max_num;
@@ -256,6 +254,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
                               .set_min_threads(config::min_s3_file_system_thread_num)
                               .set_max_threads(config::max_s3_file_system_thread_num)
                               .build(&_s3_file_system_thread_pool));
+    RETURN_IF_ERROR(_init_mem_env());
 
     // NOTE: runtime query statistics mgr could be visited by query and daemon thread
     // so it should be created before all query begin and deleted after all query and daemon thread stoppped
@@ -324,8 +323,6 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
         return status;
     }
 
-    RETURN_IF_ERROR(_init_mem_env());
-
     RETURN_IF_ERROR(_memtable_memory_limiter->init(MemInfo::mem_limit()));
     RETURN_IF_ERROR(_load_channel_mgr->init(MemInfo::mem_limit()));
     RETURN_IF_ERROR(_wal_manager->init());
@@ -368,6 +365,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
 
     RETURN_IF_ERROR(_spill_stream_mgr->init());
     _runtime_query_statistics_mgr->start_report_thread();
+    _dict_factory = new doris::vectorized::DictionaryFactory();
     _s_ready = true;
 
     return Status::OK();
@@ -446,10 +444,8 @@ Status ExecEnv::_init_mem_env() {
     _heap_profiler = HeapProfiler::create_global_instance();
     init_mem_tracker();
     thread_context()->thread_mem_tracker_mgr->init();
-#if defined(USE_MEM_TRACKER) && !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && \
-        !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER) && !defined(USE_JEMALLOC)
+
     init_hook();
-#endif
 
     if (!BitUtil::IsPowerOf2(config::min_buffer_size)) {
         ss << "Config min_buffer_size must be a power-of-two: " << config::min_buffer_size;
@@ -781,6 +777,7 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_workload_group_manager);
     SAFE_DELETE(_file_cache_factory);
     SAFE_DELETE(_runtime_filter_timer_queue);
+    SAFE_DELETE(_dict_factory);
     // TODO(zhiqiang): Maybe we should call shutdown before release thread pool?
     _lazy_release_obj_pool.reset(nullptr);
     _non_block_close_thread_pool.reset(nullptr);
@@ -789,7 +786,6 @@ void ExecEnv::destroy() {
     _buffered_reader_prefetch_thread_pool.reset(nullptr);
     _s3_file_upload_thread_pool.reset(nullptr);
     _send_batch_thread_pool.reset(nullptr);
-    _file_cache_open_fd_cache.reset(nullptr);
     _write_cooldown_meta_executors.reset(nullptr);
 
     SAFE_DELETE(_broker_client_cache);
@@ -803,6 +799,7 @@ void ExecEnv::destroy() {
     // cache_manager must be destoried after all cache.
     // https://github.com/apache/doris/issues/24082#issuecomment-1712544039
     SAFE_DELETE(_cache_manager);
+    _file_cache_open_fd_cache.reset(nullptr);
 
     // _heartbeat_flags must be destoried after staroge engine
     SAFE_DELETE(_heartbeat_flags);

@@ -1186,6 +1186,7 @@ void upload_callback(StorageEngine& engine, ExecEnv* env, const TAgentTaskReques
     std::unique_ptr<SnapshotLoader> loader = std::make_unique<SnapshotLoader>(
             engine, env, upload_request.job_id, req.signature, upload_request.broker_addr,
             upload_request.broker_prop);
+    SCOPED_ATTACH_TASK(loader->resource_ctx());
     Status status =
             loader->init(upload_request.__isset.storage_backend ? upload_request.storage_backend
                                                                 : TStorageBackendType::type::BROKER,
@@ -2066,12 +2067,17 @@ void clone_callback(StorageEngine& engine, const ClusterInfo* cluster_info,
     } else {
         LOG_INFO("successfully clone tablet")
                 .tag("signature", req.signature)
-                .tag("tablet_id", clone_req.tablet_id);
+                .tag("tablet_id", clone_req.tablet_id)
+                .tag("copy_size", engine_task.get_copy_size())
+                .tag("copy_time_ms", engine_task.get_copy_time_ms());
+
         if (engine_task.is_new_tablet()) {
             increase_report_version();
             finish_task_request.__set_report_version(s_report_version);
         }
         finish_task_request.__set_finish_tablet_infos(tablet_infos);
+        finish_task_request.__set_copy_size(engine_task.get_copy_size());
+        finish_task_request.__set_copy_time_ms(engine_task.get_copy_time_ms());
     }
 
     finish_task(finish_task_request);
@@ -2125,6 +2131,12 @@ void calc_delete_bitmap_callback(CloudStorageEngine& engine, const TAgentTaskReq
     CloudEngineCalcDeleteBitmapTask engine_task(engine, calc_delete_bitmap_req, &error_tablet_ids,
                                                 &succ_tablet_ids);
     SCOPED_ATTACH_TASK(engine_task.mem_tracker());
+    if (req.signature != calc_delete_bitmap_req.transaction_id) {
+        // transaction_id may not be the same as req.signature, so add a log here
+        LOG_INFO("begin to execute calc delete bitmap task")
+                .tag("signature", req.signature)
+                .tag("transaction_id", calc_delete_bitmap_req.transaction_id);
+    }
     status = engine_task.execute();
 
     TFinishTaskRequest finish_task_request;

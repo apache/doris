@@ -74,9 +74,7 @@ private:
 
     RuntimeProfile::Counter* _init_function_timer = nullptr;
     RuntimeProfile::Counter* _process_rows_timer = nullptr;
-    RuntimeProfile::Counter* _copy_data_timer = nullptr;
     RuntimeProfile::Counter* _filter_timer = nullptr;
-    RuntimeProfile::Counter* _repeat_data_timer = nullptr;
 };
 
 class TableFunctionOperatorX MOCK_REMOVE(final)

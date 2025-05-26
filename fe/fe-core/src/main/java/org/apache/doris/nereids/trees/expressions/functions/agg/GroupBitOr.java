@@ -63,7 +63,7 @@ public class GroupBitOr extends NullableAggregateFunction
     }
 
     private GroupBitOr(boolean distinct, boolean alwaysNullable, Expression child) {
-        super("group_bit_or", distinct, alwaysNullable, child);
+        super("group_bit_or", false, alwaysNullable, child);
     }
 
     @Override

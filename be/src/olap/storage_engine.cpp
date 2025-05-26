@@ -49,7 +49,6 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "gutil/strings/substitute.h"
 #include "io/fs/local_file_system.h"
 #include "olap/binlog.h"
 #include "olap/data_dir.h"
@@ -244,6 +243,7 @@ static Status load_data_dirs(const std::vector<DataDir*>& data_dirs) {
 
     for (auto* data_dir : data_dirs) {
         st = pool->submit_func([&, data_dir] {
+            SCOPED_INIT_THREAD_CONTEXT();
             {
                 std::lock_guard lock(result_mtx);
                 if (!result.ok()) { // Some data dir has failed
@@ -304,6 +304,7 @@ Status StorageEngine::_init_store_map() {
         auto store = std::make_unique<DataDir>(*this, path.path, path.capacity_bytes,
                                                path.storage_medium);
         threads.emplace_back([store = store.get(), &error_msg_lock, &error_msg]() {
+            SCOPED_INIT_THREAD_CONTEXT();
             auto st = store->init();
             if (!st.ok()) {
                 {
@@ -1266,7 +1267,8 @@ Status StorageEngine::create_tablet(const TCreateTabletReq& request, RuntimeProf
     return _tablet_manager->create_tablet(request, stores, profile);
 }
 
-Result<BaseTabletSPtr> StorageEngine::get_tablet(int64_t tablet_id, SyncRowsetStats* sync_stats) {
+Result<BaseTabletSPtr> StorageEngine::get_tablet(int64_t tablet_id, SyncRowsetStats* sync_stats,
+                                                 bool force_use_cache) {
     BaseTabletSPtr tablet;
     std::string err;
     tablet = _tablet_manager->get_tablet(tablet_id, true, &err);
@@ -1541,7 +1543,7 @@ Status StorageEngine::_persist_broken_paths() {
 
     if (config_value.length() > 0) {
         auto st = config::set_config("broken_storage_path", config_value, true);
-        LOG(INFO) << "persist broken_storae_path " << config_value << st;
+        LOG(INFO) << "persist broken_storage_path " << config_value << st;
         return st;
     }
 

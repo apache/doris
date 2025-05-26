@@ -21,38 +21,45 @@
 #include <gtest/gtest-test-part.h>
 
 #include "gtest/gtest_pred_impl.h"
+#include "runtime/primitive_type.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
 #include "vec/core/field.h"
 
 namespace doris::vectorized {
-TEST(ColumnMapTest, StringKeyTest) {
+TEST(ColumnMapTest2, StringKeyTest) {
     auto col_map_str64 = ColumnMap(ColumnString64::create(), ColumnInt64::create(),
                                    ColumnArray::ColumnOffsets::create());
-    Array k1 = {"a", "b", "c"};
-    Array v1 = {1, 2, 3};
+    Array k1 = {Field::create_field<TYPE_STRING>("a"), Field::create_field<TYPE_STRING>("b"),
+                Field::create_field<TYPE_STRING>("c")};
+    Array v1 = {Field::create_field<TYPE_BIGINT>(1), Field::create_field<TYPE_BIGINT>(2),
+                Field::create_field<TYPE_BIGINT>(3)};
     {
         Map map;
-        map.push_back(k1);
-        map.push_back(v1);
-        col_map_str64.insert(map);
+        map.push_back(Field::create_field<TYPE_ARRAY>(k1));
+        map.push_back(Field::create_field<TYPE_ARRAY>(v1));
+        col_map_str64.insert(Field::create_field<TYPE_MAP>(map));
     }
-    Array k2 = {"aa", "bb", "cc"};
-    Array v2 = {11, 22, 33};
+    Array k2 = {Field::create_field<TYPE_STRING>("aa"), Field::create_field<TYPE_STRING>("bb"),
+                Field::create_field<TYPE_STRING>("cc")};
+    Array v2 = {Field::create_field<TYPE_BIGINT>(11), Field::create_field<TYPE_BIGINT>(22),
+                Field::create_field<TYPE_BIGINT>(33)};
     {
         Map map;
-        map.push_back(k2);
-        map.push_back(v2);
-        col_map_str64.insert(map);
+        map.push_back(Field::create_field<TYPE_ARRAY>(k2));
+        map.push_back(Field::create_field<TYPE_ARRAY>(v2));
+        col_map_str64.insert(Field::create_field<TYPE_MAP>(map));
     }
-    Array k3 = {"aaa", "bbb", "ccc"};
-    Array v3 = {111, 222, 333};
+    Array k3 = {Field::create_field<TYPE_STRING>("aaa"), Field::create_field<TYPE_STRING>("bbb"),
+                Field::create_field<TYPE_STRING>("ccc")};
+    Array v3 = {Field::create_field<TYPE_BIGINT>(111), Field::create_field<TYPE_BIGINT>(222),
+                Field::create_field<TYPE_BIGINT>(333)};
     {
         Map map;
-        map.push_back(k3);
-        map.push_back(v3);
-        col_map_str64.insert(map);
+        map.push_back(Field::create_field<TYPE_ARRAY>(k3));
+        map.push_back(Field::create_field<TYPE_ARRAY>(v3));
+        col_map_str64.insert(Field::create_field<TYPE_MAP>(map));
     }
 
     // test insert ColumnMap<ColumnStr<uint64_t>, Column> into ColumnMap<ColumnStr<uint32_t>, Column>
@@ -90,32 +97,38 @@ TEST(ColumnMapTest, StringKeyTest) {
     }
 };
 
-TEST(ColumnMapTest, StringValueTest) {
+TEST(ColumnMapTest2, StringValueTest) {
     auto col_map_str64 = ColumnMap(ColumnInt64::create(), ColumnString64::create(),
                                    ColumnArray::ColumnOffsets::create());
-    Array k1 = {1, 2, 3};
-    Array v1 = {"a", "b", "c"};
+    Array k1 = {Field::create_field<TYPE_BIGINT>(1), Field::create_field<TYPE_BIGINT>(2),
+                Field::create_field<TYPE_BIGINT>(3)};
+    Array v1 = {Field::create_field<TYPE_STRING>("a"), Field::create_field<TYPE_STRING>("b"),
+                Field::create_field<TYPE_STRING>("c")};
     {
         Map map;
-        map.push_back(k1);
-        map.push_back(v1);
-        col_map_str64.insert(map);
+        map.push_back(Field::create_field<TYPE_ARRAY>(k1));
+        map.push_back(Field::create_field<TYPE_ARRAY>(v1));
+        col_map_str64.insert(Field::create_field<TYPE_MAP>(map));
     }
-    Array k2 = {11, 22, 33};
-    Array v2 = {"aa", "bb", "cc"};
+    Array k2 = {Field::create_field<TYPE_BIGINT>(11), Field::create_field<TYPE_BIGINT>(22),
+                Field::create_field<TYPE_BIGINT>(33)};
+    Array v2 = {Field::create_field<TYPE_STRING>("aa"), Field::create_field<TYPE_STRING>("bb"),
+                Field::create_field<TYPE_STRING>("cc")};
     {
         Map map;
-        map.push_back(k2);
-        map.push_back(v2);
-        col_map_str64.insert(map);
+        map.push_back(Field::create_field<TYPE_ARRAY>(k2));
+        map.push_back(Field::create_field<TYPE_ARRAY>(v2));
+        col_map_str64.insert(Field::create_field<TYPE_MAP>(map));
     }
-    Array k3 = {111, 222, 333};
-    Array v3 = {"aaa", "bbb", "ccc"};
+    Array k3 = {Field::create_field<TYPE_BIGINT>(111), Field::create_field<TYPE_BIGINT>(222),
+                Field::create_field<TYPE_BIGINT>(333)};
+    Array v3 = {Field::create_field<TYPE_STRING>("aaa"), Field::create_field<TYPE_STRING>("bbb"),
+                Field::create_field<TYPE_STRING>("ccc")};
     {
         Map map;
-        map.push_back(k3);
-        map.push_back(v3);
-        col_map_str64.insert(map);
+        map.push_back(Field::create_field<TYPE_ARRAY>(k3));
+        map.push_back(Field::create_field<TYPE_ARRAY>(v3));
+        col_map_str64.insert(Field::create_field<TYPE_MAP>(map));
     }
 
     // test insert ColumnMap<ColumnStr<uint64_t>, Column> into ColumnMap<ColumnStr<uint32_t>, Column>

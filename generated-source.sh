@@ -40,7 +40,7 @@ if [[ "$#" == 0 ]]; then
 fi
 
 # DO NOT using parallel make(-j) for gensrc
-make
+make -j
 rm -rf "${DORIS_HOME}/fe/fe-common/src/main/java/org/apache/doris/thrift ${DORIS_HOME}/fe/fe-common/src/main/java/org/apache/parquet"
 rm -rf "${DORIS_HOME}/fe/fe-core/src/main/java/org/apache/doris/thrift ${DORIS_HOME}/fe/fe-core/src/main/java/org/apache/parquet"
 

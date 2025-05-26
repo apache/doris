@@ -1,0 +1,63 @@
+diff --git a/re2/re2.cc b/re2/re2.cc
+index 85ba1f4..0f23c22 100644
+--- a/re2/re2.cc
++++ b/re2/re2.cc
+@@ -55,7 +55,8 @@ RE2::Options::Options(RE2::CannedOptions opt)
+     case_sensitive_(true),
+     perl_classes_(false),
+     word_boundary_(false),
+-    one_line_(false) {
++    one_line_(false),
++    ignore_replace_escape_(false) {
+ }
+ 
+ // static empty objects for use as const references.
+@@ -1030,9 +1031,13 @@ bool RE2::Rewrite(std::string* out,
+     } else if (c == '\\') {
+       out->push_back('\\');
+     } else {
+-      if (options_.log_errors())
+-        LOG(ERROR) << "invalid rewrite pattern: " << rewrite.data();
+-      return false;
++      if (options_.ignore_replace_escape()) {
++        out->push_back(*s);
++      } else {
++        if (options_.log_errors())
++          LOG(ERROR) << "invalid rewrite pattern: " << rewrite.data();
++        return false;
++      }
+     }
+   }
+   return true;
+diff --git a/re2/re2.h b/re2/re2.h
+index 09c1fbe..79fe995 100644
+--- a/re2/re2.h
++++ b/re2/re2.h
+@@ -665,7 +665,8 @@ class RE2 {
+       case_sensitive_(true),
+       perl_classes_(false),
+       word_boundary_(false),
+-      one_line_(false) {
++      one_line_(false),
++      ignore_replace_escape_(false) {
+     }
+ 
+     /*implicit*/ Options(CannedOptions);
+@@ -709,6 +710,9 @@ class RE2 {
+     bool one_line() const { return one_line_; }
+     void set_one_line(bool b) { one_line_ = b; }
+ 
++    bool ignore_replace_escape() const { return ignore_replace_escape_; }
++    void set_ignore_replace_escape(bool b) { ignore_replace_escape_ = b; }
++
+     void Copy(const Options& src) {
+       *this = src;
+     }
+@@ -729,6 +733,7 @@ class RE2 {
+     bool perl_classes_;
+     bool word_boundary_;
+     bool one_line_;
++    bool ignore_replace_escape_;
+   };
+ 
+   // Returns the options set in the constructor.

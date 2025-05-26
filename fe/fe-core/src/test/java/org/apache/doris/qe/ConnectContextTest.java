@@ -178,13 +178,13 @@ public class ConnectContextTest {
         // sleep no time out
         Assert.assertFalse(ctx.isKilled());
         ctx.setExecutor(executor);
-        long now = ctx.getExecTimeout() * 1000L - 1;
+        long now = ctx.getExecTimeoutS() * 1000L - 1;
         ctx.checkTimeout(now);
         Assert.assertFalse(ctx.isKilled());
 
         // Timeout
         ctx.setExecutor(executor);
-        now = ctx.getExecTimeout() * 1000L + 1;
+        now = ctx.getExecTimeoutS() * 1000L + 1;
         ctx.checkTimeout(now);
         Assert.assertFalse(ctx.isKilled());
 

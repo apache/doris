@@ -127,8 +127,8 @@ Status IndexChannel::init(RuntimeState* state, const std::vector<TTabletWithPart
                 if (incremental) {
                     _has_inc_node = true;
                 }
-                LOG(INFO) << "init new node for instance " << _parent->_sender_id
-                          << ", node id:" << replica_node_id << ", incremantal:" << incremental;
+                VLOG_CRITICAL << "init new node for instance " << _parent->_sender_id
+                              << ", node id:" << replica_node_id << ", incremantal:" << incremental;
             } else {
                 channel = it->second;
             }
@@ -582,7 +582,7 @@ Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload)
 }
 
 static void injection_full_gc_fn() {
-    MemoryReclamation::process_full_gc();
+    MemoryReclamation::revoke_process_memory("injection_full_gc_fn");
 }
 
 int VNodeChannel::try_send_and_fetch_status(RuntimeState* state,

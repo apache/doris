@@ -142,29 +142,32 @@ public:
         col_dcm->insert_value(7.89);
 
         col_arr = ColumnArray::create(ColumnInt64::create(), ColumnArray::ColumnOffsets::create());
-        Array array1 = {1, 2, 3};
-        Array array2 = {4};
-        col_arr->insert(array1);
-        col_arr->insert(Array());
-        col_arr->insert(array2);
+        Array array1 = {Field::create_field<TYPE_BIGINT>(1), Field::create_field<TYPE_BIGINT>(2),
+                        Field::create_field<TYPE_BIGINT>(3)};
+        Array array2 = {Field::create_field<TYPE_BIGINT>(4)};
+        col_arr->insert(Field::create_field<TYPE_ARRAY>(array1));
+        col_arr->insert(Field::create_field<TYPE_ARRAY>(Array()));
+        col_arr->insert(Field::create_field<TYPE_ARRAY>(array2));
 
         col_map = ColumnMap::create(ColumnString::create(), ColumnInt64::create(),
                                     ColumnArray::ColumnOffsets::create());
-        Array k1 = {"a", "b", "c"};
-        Array v1 = {1, 2, 3};
-        Array k2 = {"d"};
-        Array v2 = {4};
+        Array k1 = {Field::create_field<TYPE_STRING>("a"), Field::create_field<TYPE_STRING>("b"),
+                    Field::create_field<TYPE_STRING>("c")};
+        Array v1 = {Field::create_field<TYPE_BIGINT>(1), Field::create_field<TYPE_BIGINT>(2),
+                    Field::create_field<TYPE_BIGINT>(3)};
+        Array k2 = {Field::create_field<TYPE_STRING>("d")};
+        Array v2 = {Field::create_field<TYPE_BIGINT>(4)};
         Array a = Array();
         Map map1, map2, map3;
-        map1.push_back(k1);
-        map1.push_back(v1);
-        col_map->insert(map1);
-        map3.push_back(a);
-        map3.push_back(a);
-        col_map->insert(map3);
-        map2.push_back(k2);
-        map2.push_back(v2);
-        col_map->insert(map2);
+        map1.push_back(Field::create_field<TYPE_ARRAY>(k1));
+        map1.push_back(Field::create_field<TYPE_ARRAY>(v1));
+        col_map->insert(Field::create_field<TYPE_MAP>(map1));
+        map3.push_back(Field::create_field<TYPE_ARRAY>(a));
+        map3.push_back(Field::create_field<TYPE_ARRAY>(a));
+        col_map->insert(Field::create_field<TYPE_MAP>(map3));
+        map2.push_back(Field::create_field<TYPE_ARRAY>(k2));
+        map2.push_back(Field::create_field<TYPE_ARRAY>(v2));
+        col_map->insert(Field::create_field<TYPE_MAP>(map2));
     }
 
     ColumnString::MutablePtr col_str;
@@ -910,7 +913,7 @@ public:
     //virtual StringRef
     //get_raw_data () const which is continues memory layout of the data,
     // we can use this to check the data is stored in the column
-    template <class T>
+    template <PrimitiveType T>
     static void assert_get_raw_data_callback(MutableColumns& load_cols,
                                              DataTypeSerDeSPtrs serders) {
         // just check cols get_raw_data is the same as assert_res
@@ -923,11 +926,13 @@ public:
         auto option = DataTypeSerDe::FormatOptions();
         for (size_t i = 0; i < load_cols.size(); ++i) {
             auto& source_column = load_cols[i];
-            const T* rd = (T*)source_column->get_raw_data().data;
+            const typename PrimitiveTypeTraits<T>::ColumnItemType* rd =
+                    (typename PrimitiveTypeTraits<T>::ColumnItemType*)source_column->get_raw_data()
+                            .data;
             for (size_t j = 0; j < source_column->size(); j++) {
                 Field f;
                 source_column->get(j, f);
-                ASSERT_EQ(f, Field(rd[j]));
+                ASSERT_EQ(f, Field::create_field<T>(rd[j]));
                 // insert field to assert column
                 assert_cols[i]->insert(f);
             }
@@ -2346,8 +2351,20 @@ auto check_permute = [](const IColumn& column, const IColumn::Permutation& permu
                         size_t limit, size_t expected_size) {
     auto res_col = column.permute(permutation, limit);
     EXPECT_EQ(res_col->size(), expected_size);
-    for (size_t j = 0; j < expected_size; ++j) {
-        EXPECT_EQ(res_col->compare_at(j, permutation[j], column, -1), 0);
+    try {
+        for (size_t j = 0; j < expected_size; ++j) {
+            EXPECT_EQ(res_col->compare_at(j, permutation[j], column, -1), 0);
+        }
+    } catch (doris::Exception& e) {
+        LOG(ERROR) << "Exception: " << e.what();
+        // using field check
+        for (size_t j = 0; j < expected_size; ++j) {
+            Field r;
+            Field l;
+            column.get(permutation[j], r);
+            res_col->get(j, l);
+            EXPECT_EQ(r, l);
+        }
     }
 };
 auto assert_column_vector_permute = [](MutableColumns& cols, size_t num_rows) {

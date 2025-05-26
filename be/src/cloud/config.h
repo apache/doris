@@ -63,11 +63,14 @@ DECLARE_mInt32(meta_service_rpc_timeout_ms);
 DECLARE_mInt32(meta_service_rpc_retry_times);
 // default brpc timeout
 DECLARE_mInt32(meta_service_brpc_timeout_ms);
+DECLARE_mInt32(meta_service_rpc_timeout_retry_times);
 
 // CloudTabletMgr config
 DECLARE_Int64(tablet_cache_capacity);
 DECLARE_Int64(tablet_cache_shards);
 DECLARE_mInt32(tablet_sync_interval_s);
+// parallelism for scanner init where may issue RPCs to sync rowset meta from MS
+DECLARE_mInt32(init_scanner_sync_rowsets_parallelism);
 
 // Cloud compaction config
 DECLARE_mInt64(min_compaction_failure_interval_ms);
@@ -118,6 +121,8 @@ DECLARE_Bool(enable_cloud_tablet_report);
 DECLARE_mInt32(delete_bitmap_rpc_retry_times);
 
 DECLARE_mInt64(meta_service_rpc_reconnect_interval_ms);
+
+DECLARE_mInt32(meta_service_conflict_error_retry_times);
 
 #include "common/compile_check_end.h"
 } // namespace doris::config

@@ -17,9 +17,9 @@
 
 package org.apache.doris.mysql.privilege;
 
+import org.apache.doris.alter.AlterUserOpType;
 import org.apache.doris.analysis.AlterRoleStmt;
 import org.apache.doris.analysis.AlterUserStmt;
-import org.apache.doris.analysis.AlterUserStmt.OpType;
 import org.apache.doris.analysis.CreateRoleStmt;
 import org.apache.doris.analysis.CreateUserStmt;
 import org.apache.doris.analysis.DropRoleStmt;
@@ -62,6 +62,12 @@ import org.apache.doris.mysql.MysqlPassword;
 import org.apache.doris.mysql.authenticate.AuthenticateType;
 import org.apache.doris.mysql.authenticate.ldap.LdapManager;
 import org.apache.doris.mysql.authenticate.ldap.LdapUserInfo;
+import org.apache.doris.nereids.trees.plans.commands.GrantResourcePrivilegeCommand;
+import org.apache.doris.nereids.trees.plans.commands.GrantRoleCommand;
+import org.apache.doris.nereids.trees.plans.commands.GrantTablePrivilegeCommand;
+import org.apache.doris.nereids.trees.plans.commands.RevokeResourcePrivilegeCommand;
+import org.apache.doris.nereids.trees.plans.commands.RevokeRoleCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.AlterUserInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateUserInfo;
 import org.apache.doris.persist.AlterUserOperationLog;
 import org.apache.doris.persist.LdapInfo;
@@ -667,6 +673,30 @@ public class Auth implements Writable {
         }
     }
 
+    public void grantRoleCommand(GrantRoleCommand command) throws DdlException {
+        grantInternal(command.getUserIdentity(), command.getRoles(), false);
+    }
+
+    public void grantTablePrivilegeCommand(GrantTablePrivilegeCommand command) throws DdlException {
+        PrivBitSet privs = PrivBitSet.of(command.getPrivileges());
+        grantInternal(command.getUserIdentity().orElse(null), command.getRole().orElse(null), command.getTablePattern(),
+                    privs, command.getColPrivileges(), true /* err on non exist */, false /* not replay */);
+    }
+
+    public void grantResourcePrivilegeCommand(GrantResourcePrivilegeCommand command) throws DdlException {
+        if (command.getResourcePattern().isPresent()) {
+            PrivBitSet privs = PrivBitSet.of(command.getPrivileges());
+            grantInternal(command.getUserIdentity().orElse(null), command.getRole().orElse(null),
+                    command.getResourcePattern().orElse(null), privs, true /* err on non exist */,
+                    false /* not replay */);
+        } else if (command.getWorkloadGroupPattern().isPresent()) {
+            PrivBitSet privs = PrivBitSet.of(command.getPrivileges());
+            grantInternal(command.getUserIdentity().orElse(null), command.getRole().orElse(null),
+                    command.getWorkloadGroupPattern().orElse(null),
+                    privs, true /* err on non exist */, false /* not replay */);
+        }
+    }
+
     public void replayGrant(PrivInfo privInfo) {
         try {
             PrivBitSet privs = privInfo.getPrivs();
@@ -773,6 +803,16 @@ public class Auth implements Writable {
 
     private void grantInternal(UserIdentity userIdent, String role, WorkloadGroupPattern workloadGroupPattern,
             PrivBitSet privs, boolean errOnNonExist, boolean isReplay) throws DdlException {
+        if (!isReplay) {
+            if (!FeConstants.runningUnitTest) {
+                if (!"%".equals(workloadGroupPattern.getworkloadGroupName()) && !Env.getCurrentEnv()
+                        .getWorkloadGroupMgr()
+                        .isWorkloadGroupExists(workloadGroupPattern.getworkloadGroupName())) {
+                    throw new DdlException(
+                            "Can not find workload group " + workloadGroupPattern.getworkloadGroupName());
+                }
+            }
+        }
         writeLock();
         try {
             if (role == null) {
@@ -851,6 +891,26 @@ public class Auth implements Writable {
                     true /* err on non exist */, false /* is replay */);
         } else {
             revokeInternal(stmt.getUserIdent(), stmt.getRoles(), false);
+        }
+    }
+
+    // revoke role
+    public void revokeRole(RevokeRoleCommand command) throws DdlException {
+        revokeInternal(command.getUserIdentity(), command.getRoles(), false);
+    }
+
+    // revoke resource
+    public void revokeResourcePrivilegeCommand(RevokeResourcePrivilegeCommand command) throws DdlException {
+        if (command.getResourcePattern().isPresent()) {
+            PrivBitSet privs = PrivBitSet.of(command.getPrivileges());
+            revokeInternal(command.getUserIdentity().orElse(null), command.getRole().orElse(null),
+                    command.getResourcePattern().orElse(null), privs,
+                    true /* err on non exist */, false /* is replay */);
+        } else if (command.getWorkloadGroupPattern().isPresent()) {
+            PrivBitSet privs = PrivBitSet.of(command.getPrivileges());
+            revokeInternal(command.getUserIdentity().orElse(null), command.getRole().orElse(null),
+                    command.getWorkloadGroupPattern().orElse(null), privs,
+                    true /* err on non exist */, false /* is replay */);
         }
     }
 
@@ -1863,6 +1923,11 @@ public class Auth implements Writable {
                 stmt.getPasswordOptions(), stmt.getComment(), false);
     }
 
+    public void alterUser(AlterUserInfo info) throws DdlException {
+        alterUserInternal(info.isIfExist(), info.getOpType(), info.getUserIdent(), info.getPassword(),
+                null, info.getPasswordOptions(), info.getComment(), false);
+    }
+
     public void replayAlterUser(AlterUserOperationLog log) {
         try {
             alterUserInternal(true, log.getOp(), log.getUserIdent(), log.getPassword(), log.getRole(),
@@ -1872,8 +1937,9 @@ public class Auth implements Writable {
         }
     }
 
-    private void alterUserInternal(boolean ifExists, OpType opType, UserIdentity userIdent, byte[] password,
-            String role, PasswordOptions passwordOptions, String comment, boolean isReplay) throws DdlException {
+    private void alterUserInternal(boolean ifExists, AlterUserOpType opType, UserIdentity userIdent, byte[] password,
+                                   String role, PasswordOptions passwordOptions, String comment,
+                                   boolean isReplay) throws DdlException {
         writeLock();
         try {
             if (!doesUserExist(userIdent)) {
@@ -1901,7 +1967,7 @@ public class Auth implements Writable {
                 default:
                     throw new DdlException("Unknown alter user operation type: " + opType.name());
             }
-            if (opType != OpType.SET_PASSWORD && !isReplay) {
+            if (opType != AlterUserOpType.SET_PASSWORD && !isReplay) {
                 // For SET_PASSWORD:
                 //      the edit log is wrote in "setPasswordInternal"
                 AlterUserOperationLog log = new AlterUserOperationLog(opType, userIdent, password, role,

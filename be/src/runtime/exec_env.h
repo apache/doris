@@ -50,6 +50,7 @@ class VDataStreamMgr;
 class ScannerScheduler;
 class SpillStreamManager;
 class DeltaWriterV2Pool;
+class DictionaryFactory;
 } // namespace vectorized
 namespace pipeline {
 class TaskScheduler;
@@ -153,7 +154,8 @@ public:
 
     // Requires ExenEnv ready
     static Result<BaseTabletSPtr> get_tablet(int64_t tablet_id,
-                                             SyncRowsetStats* sync_stats = nullptr);
+                                             SyncRowsetStats* sync_stats = nullptr,
+                                             bool force_use_cache = false);
 
     static bool ready() { return _s_ready.load(std::memory_order_acquire); }
     static bool tracking_memory() { return _s_tracking_memory.load(std::memory_order_acquire); }
@@ -347,6 +349,8 @@ public:
         return _runtime_filter_timer_queue;
     }
 
+    vectorized::DictionaryFactory* dict_factory() { return _dict_factory; }
+
     pipeline::PipelineTracerContext* pipeline_tracer_context() {
         return _pipeline_tracer_ctx.get();
     }
@@ -371,9 +375,6 @@ private:
 
     Status _init_mem_env();
     Status _check_deploy_mode();
-
-    void _register_metrics();
-    void _deregister_metrics();
 
     inline static std::atomic_bool _s_ready {false};
     inline static std::atomic_bool _s_tracking_memory {false};
@@ -490,6 +491,7 @@ private:
     std::unique_ptr<io::FDCache> _file_cache_open_fd_cache;
 
     pipeline::RuntimeFilterTimerQueue* _runtime_filter_timer_queue = nullptr;
+    vectorized::DictionaryFactory* _dict_factory = nullptr;
 
     WorkloadSchedPolicyMgr* _workload_sched_mgr = nullptr;
 

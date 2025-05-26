@@ -153,17 +153,24 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     // Take a delete-bitmap for each segment, the bitmap contains all deletes
     // until the max read version, which is read_context->version.second
     if (_read_context->delete_bitmap != nullptr) {
-        SCOPED_RAW_TIMER(&_stats->delete_bitmap_get_agg_ns);
-        RowsetId rowset_id = rowset()->rowset_id();
-        for (uint32_t seg_id = 0; seg_id < rowset()->num_segments(); ++seg_id) {
-            auto d = _read_context->delete_bitmap->get_agg(
-                    {rowset_id, seg_id, _read_context->version.second});
-            if (d->isEmpty()) {
-                continue; // Empty delete bitmap for the segment
+        {
+            SCOPED_RAW_TIMER(&_stats->delete_bitmap_get_agg_ns);
+            RowsetId rowset_id = rowset()->rowset_id();
+            for (uint32_t seg_id = 0; seg_id < rowset()->num_segments(); ++seg_id) {
+                auto d = _read_context->delete_bitmap->get_agg(
+                        {rowset_id, seg_id, _read_context->version.second});
+                if (d->isEmpty()) {
+                    continue; // Empty delete bitmap for the segment
+                }
+                VLOG_TRACE << "Get the delete bitmap for rowset: " << rowset_id.to_string()
+                           << ", segment id:" << seg_id << ", size:" << d->cardinality();
+                _read_options.delete_bitmap.emplace(seg_id, std::move(d));
             }
-            VLOG_TRACE << "Get the delete bitmap for rowset: " << rowset_id.to_string()
-                       << ", segment id:" << seg_id << ", size:" << d->cardinality();
-            _read_options.delete_bitmap.emplace(seg_id, std::move(d));
+        }
+        if (config::enable_mow_verbose_log) {
+            LOG_INFO("get aggregated delete bitmap for rowset={}, tablet={}, cost={}ns",
+                     rowset()->rowset_id().to_string(), rowset()->rowset_meta()->tablet_id(),
+                     _stats->delete_bitmap_get_agg_ns);
         }
     }
 

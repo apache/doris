@@ -543,6 +543,29 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
             }
         }
     }
+
+    DBUG_EXECUTE_IF("segment_iterator.inverted_index.filtered_rows", {
+        LOG(INFO) << "Debug Point: segment_iterator.inverted_index.filtered_rows: "
+                  << _opts.stats->rows_inverted_index_filtered;
+        auto filtered_rows = DebugPoints::instance()->get_debug_param_or_default<int32_t>(
+                "segment_iterator.inverted_index.filtered_rows", "filtered_rows", -1);
+        if (filtered_rows != _opts.stats->rows_inverted_index_filtered) {
+            return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                    "filtered_rows: {} not equal to expected: {}",
+                    _opts.stats->rows_inverted_index_filtered, filtered_rows);
+        }
+    })
+
+    DBUG_EXECUTE_IF("segment_iterator.apply_inverted_index", {
+        LOG(INFO) << "Debug Point: segment_iterator.apply_inverted_index";
+        if (!_common_expr_ctxs_push_down.empty() || !_col_predicates.empty()) {
+            return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                    "it is failed to apply inverted index, common_expr_ctxs_push_down: {}, "
+                    "col_predicates: {}",
+                    _common_expr_ctxs_push_down.size(), _col_predicates.size());
+        }
+    })
+
     if (!_row_bitmap.isEmpty() &&
         (!_opts.topn_filter_source_node_ids.empty() || !_opts.col_id_to_predicates.empty() ||
          _opts.delete_condition_predicates->num_of_column_predicate() > 0)) {
@@ -1480,7 +1503,7 @@ bool SegmentIterator::_can_evaluated_by_vectorized(ColumnPredicate* predicate) {
     if (field_type == FieldType::OLAP_FIELD_TYPE_VARIANT) {
         // Use variant cast dst type
         field_type = TabletColumn::get_field_type_by_type(
-                _opts.target_cast_type_for_variants[_schema->column(cid)->name()].type);
+                _opts.target_cast_type_for_variants[_schema->column(cid)->name()]);
     }
     switch (predicate->type()) {
     case PredicateType::EQ:
@@ -2287,14 +2310,15 @@ Status SegmentIterator::_execute_common_expr(uint16_t* sel_rowid_idx, uint16_t& 
     DCHECK(!_remaining_conjunct_roots.empty());
     DCHECK(block->rows() != 0);
     size_t prev_columns = block->columns();
-    _opts.stats->expr_cond_input_rows += selected_size;
+    uint16_t original_size = selected_size;
+    _opts.stats->expr_cond_input_rows += original_size;
 
     vectorized::IColumn::Filter filter;
     RETURN_IF_ERROR(vectorized::VExprContext::execute_conjuncts_and_filter_block(
             _common_expr_ctxs_push_down, block, _columns_to_filter, prev_columns, filter));
 
     selected_size = _evaluate_common_expr_filter(sel_rowid_idx, selected_size, filter);
-    _opts.stats->rows_expr_cond_filtered += selected_size;
+    _opts.stats->rows_expr_cond_filtered += original_size - selected_size;
     return Status::OK();
 }
 

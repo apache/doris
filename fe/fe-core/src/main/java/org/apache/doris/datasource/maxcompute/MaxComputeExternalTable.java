@@ -134,7 +134,7 @@ public class MaxComputeExternalTable extends ExternalTable {
                 partitionSpecs.stream()
                         .map(p -> parsePartitionValues(partitionColumnNames, p))
                         .collect(Collectors.toList()),
-                partitionTypes);
+                partitionTypes, Collections.nCopies(partitionSpecs.size(), 0L));
         return partitionValues;
     }
 

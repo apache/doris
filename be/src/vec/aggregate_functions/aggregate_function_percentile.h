@@ -316,9 +316,9 @@ public:
     }
 };
 
-template <typename T>
+template <PrimitiveType T>
 struct PercentileState {
-    mutable std::vector<Counts<T>> vec_counts;
+    mutable std::vector<Counts<typename PrimitiveTypeTraits<T>::ColumnItemType>> vec_counts;
     std::vector<double> vec_quantile {-1};
     bool inited_flag = false;
 
@@ -357,8 +357,8 @@ struct PercentileState {
         }
     }
 
-    void add(T source, const PaddedPODArray<Float64>& quantiles, const NullMap& null_maps,
-             int arg_size) {
+    void add(typename PrimitiveTypeTraits<T>::ColumnItemType source,
+             const PaddedPODArray<Float64>& quantiles, const NullMap& null_maps, int arg_size) {
         if (!inited_flag) {
             vec_counts.resize(arg_size);
             vec_quantile.resize(arg_size, -1);
@@ -378,7 +378,8 @@ struct PercentileState {
         }
     }
 
-    void add_batch(const PaddedPODArray<T>& source, const Float64& q) {
+    void add_batch(const PaddedPODArray<typename PrimitiveTypeTraits<T>::ColumnItemType>& source,
+                   const Float64& q) {
         if (!inited_flag) {
             inited_flag = true;
             vec_counts.resize(1);
@@ -404,7 +405,9 @@ struct PercentileState {
             if (vec_quantile[i] == -1.0) {
                 vec_quantile[i] = rhs.vec_quantile[i];
             }
-            vec_counts[i].merge(const_cast<Counts<T>*>(&(rhs.vec_counts[i])));
+            vec_counts[i].merge(
+                    const_cast<Counts<typename PrimitiveTypeTraits<T>::ColumnItemType>*>(
+                            &(rhs.vec_counts[i])));
         }
     }
 
@@ -424,11 +427,11 @@ struct PercentileState {
     }
 };
 
-template <typename T>
+template <PrimitiveType T>
 class AggregateFunctionPercentile final
         : public IAggregateFunctionDataHelper<PercentileState<T>, AggregateFunctionPercentile<T>> {
 public:
-    using ColVecType = ColumnVector<T>;
+    using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
     using Base = IAggregateFunctionDataHelper<PercentileState<T>, AggregateFunctionPercentile<T>>;
     AggregateFunctionPercentile(const DataTypes& argument_types_) : Base(argument_types_) {}
 
@@ -481,12 +484,12 @@ public:
     }
 };
 
-template <typename T>
+template <PrimitiveType T>
 class AggregateFunctionPercentileArray final
         : public IAggregateFunctionDataHelper<PercentileState<T>,
                                               AggregateFunctionPercentileArray<T>> {
 public:
-    using ColVecType = ColumnVector<T>;
+    using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
     using Base =
             IAggregateFunctionDataHelper<PercentileState<T>, AggregateFunctionPercentileArray<T>>;
     AggregateFunctionPercentileArray(const DataTypes& argument_types_) : Base(argument_types_) {}

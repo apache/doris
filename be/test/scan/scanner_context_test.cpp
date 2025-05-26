@@ -34,6 +34,8 @@
 #include "pipeline/dependency.h"
 #include "pipeline/exec/olap_scan_operator.h"
 #include "runtime/descriptors.h"
+#include "runtime/query_context.h"
+#include "testutil/mock/mock_runtime_state.h"
 #include "vec/core/block.h"
 #include "vec/exec/scan/olap_scanner.h"
 #include "vec/exec/scan/scan_node.h"
@@ -85,8 +87,8 @@ private:
         MOCK_METHOD1(clear_column_data, void(int64_t));
     };
 
-    class MockRuntimeState : public RuntimeState {
-        MockRuntimeState() = default;
+    class MockRuntimeStateLocal : public RuntimeState {
+        MockRuntimeStateLocal() = default;
         MOCK_CONST_METHOD0(is_cancelled, bool());
         MOCK_CONST_METHOD0(cancel_reason, Status());
     };
@@ -102,7 +104,7 @@ private:
     TScalarType scalar_type;
     TDescriptorTable thrift_tbl;
     DescriptorTbl* descs = nullptr;
-    std::unique_ptr<RuntimeState> state = std::make_unique<RuntimeState>();
+    std::unique_ptr<RuntimeState> state = std::make_unique<MockRuntimeState>();
     std::unique_ptr<RuntimeProfile> profile = std::make_unique<RuntimeProfile>("TestProfile");
     std::unique_ptr<RuntimeProfile::Counter> max_concurrency_counter =
             std::make_unique<RuntimeProfile::Counter>(TUnit::UNIT, 1, 3);
@@ -807,7 +809,8 @@ TEST_F(ScannerContextTest, get_block_from_queue) {
     EXPECT_CALL(*return_block, mem_reuse()).WillRepeatedly(testing::Return(true));
     EXPECT_CALL(*return_block, clear_column_data(testing::_)).WillRepeatedly(testing::Return());
 
-    std::unique_ptr<MockRuntimeState> mock_runtime_state = std::make_unique<MockRuntimeState>();
+    std::unique_ptr<MockRuntimeStateLocal> mock_runtime_state =
+            std::make_unique<MockRuntimeStateLocal>();
     EXPECT_CALL(*mock_runtime_state, is_cancelled()).WillOnce(testing::Return(true));
     EXPECT_CALL(*mock_runtime_state, cancel_reason())
             .WillOnce(testing::Return(Status::Cancelled("TestCancelMsg")));
