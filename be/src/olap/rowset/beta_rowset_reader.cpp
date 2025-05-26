@@ -28,6 +28,7 @@
 #include <unordered_map>
 #include <utility>
 
+#include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "io/io_common.h"
@@ -38,6 +39,7 @@
 #include "olap/row_cursor.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_reader_context.h"
+#include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/rowset/segment_v2/lazy_init_segment_iterator.h"
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/schema.h"
@@ -112,6 +114,8 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
                                                   _read_context->is_upper_keys_included->at(i));
         }
     }
+
+    _read_options.stats->total_rowset_number++;
 
     // delete_hanlder is always set, but it maybe not init, so that it will return empty conditions
     // or predicates when it is not inited.
@@ -219,6 +223,52 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
                     : 0;
     if (_read_options.io_ctx.expiration_time <= UnixSeconds()) {
         _read_options.io_ctx.expiration_time = 0;
+    }
+
+    if (config::cache_zone_map_max_columns_count > 0) {
+        RETURN_IF_ERROR(_rowset->load_segments_info());
+        const auto& zone_maps = _rowset->get_zone_maps();
+        _read_options.stats->rowset_cached_zone_maps_number += zone_maps.size();
+        auto rowset_meta = _rowset->rowset_meta();
+        const auto& tablet_schema = _read_context->tablet_schema;
+
+        for (auto& col_to_predicate : _read_options.col_id_to_predicates) {
+            const auto col_id = col_to_predicate.first;
+            if (col_id < 0 || col_id >= tablet_schema->num_columns()) {
+                VLOG_DEBUG << "invalid column id: " << col_id
+                           << ", tablet schema num columns: " << tablet_schema->num_columns();
+                continue;
+            }
+
+            const auto col_uid = tablet_schema->column(col_id).unique_id();
+            auto& predicate = col_to_predicate.second;
+
+            if (zone_maps.find(col_uid) == zone_maps.end()) {
+                VLOG_DEBUG << "rowset zone map not found, col id: " << col_id
+                           << ", uid: " << col_uid
+                           << ", name: " << tablet_schema->column(col_id).name();
+                continue;
+            }
+
+            const auto& zone_map = zone_maps.at(col_uid);
+            const auto& column_meta = tablet_schema->column_by_uid(col_uid);
+
+            auto colum_data_type = column_meta.get_vec_type();
+            if (!Segment::can_apply_predicate_safely_s(predicate.get(),
+                                                       colum_data_type->get_primitive_type(),
+                                                       colum_data_type->is_nullable())) {
+                continue;
+            }
+
+            if (!ColumnReader::match_zone_map_condition(predicate.get(), column_meta.type(),
+                                                        column_meta.length(), zone_map)) {
+                VLOG_DEBUG << "rowset zone map match failed, col uid: " << col_uid
+                           << ", id: " << col_id << ", name: " << column_meta.name()
+                           << ", min: " << zone_map.min() << ", max: " << zone_map.max();
+                _read_options.stats->filtered_rowset_number++;
+                return Status::OK();
+            }
+        }
     }
 
     bool enable_segment_cache = true;

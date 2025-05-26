@@ -1500,6 +1500,10 @@ DEFINE_mBool(enable_calc_delete_bitmap_between_segments_concurrently, "false");
 
 DEFINE_mBool(enable_update_delete_bitmap_kv_check_core, "false");
 
+// The max count of columns's zone map should be cached in rowset.
+// Zero means disable rowset zone map cache.
+DEFINE_mInt32(cache_zone_map_max_columns_count, "100");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3

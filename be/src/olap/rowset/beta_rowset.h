@@ -18,6 +18,7 @@
 #ifndef DORIS_SRC_OLAP_ROWSET_BETA_ROWSET_H_
 #define DORIS_SRC_OLAP_ROWSET_BETA_ROWSET_H_
 
+#include <gen_cpp/segment_v2.pb.h>
 #include <stddef.h>
 
 #include <cstdint>
@@ -93,6 +94,10 @@ public:
 
     Status get_segment_num_rows(std::vector<uint32_t>* segment_rows);
 
+    Status load_segments_info();
+
+    const std::map<uint32_t, ZoneMapPB>& get_zone_maps() const { return _cached_zone_maps; }
+
 protected:
     BetaRowset(const TabletSchemaSPtr& schema, const RowsetMetaSharedPtr& rowset_meta,
                std::string tablet_path);
@@ -110,8 +115,9 @@ private:
     friend class RowsetFactory;
     friend class BetaRowsetReader;
 
-    DorisCallOnce<Status> _load_segment_rows_once;
+    DorisCallOnce<Status> _load_segments_info_once;
     std::vector<uint32_t> _segments_rows;
+    std::map<uint32_t, ZoneMapPB> _cached_zone_maps;
 };
 
 } // namespace doris

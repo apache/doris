@@ -429,13 +429,9 @@ bool ColumnReader::match_condition(const AndBlockColumnPredicate* col_predicates
     if (_zone_map_index == nullptr) {
         return true;
     }
-    FieldType type = _type_info->type();
-    std::unique_ptr<WrapperField> min_value(WrapperField::create_by_type(type, _meta_length));
-    std::unique_ptr<WrapperField> max_value(WrapperField::create_by_type(type, _meta_length));
-    RETURN_FALSE_IF_ERROR(_parse_zone_map(*_segment_zone_map, min_value.get(), max_value.get()));
 
-    return _zone_map_match_condition(*_segment_zone_map, min_value.get(), max_value.get(),
-                                     col_predicates);
+    return match_zone_map_condition(col_predicates, _type_info->type(), _meta_length,
+                                    *_segment_zone_map);
 }
 
 bool ColumnReader::prune_predicates_by_zone_map(std::vector<ColumnPredicate*>& predicates,
@@ -445,13 +441,14 @@ bool ColumnReader::prune_predicates_by_zone_map(std::vector<ColumnPredicate*>& p
     }
 
     FieldType type = _type_info->type();
-    std::unique_ptr<WrapperField> min_value(WrapperField::create_by_type(type, _meta_length));
-    std::unique_ptr<WrapperField> max_value(WrapperField::create_by_type(type, _meta_length));
-    RETURN_FALSE_IF_ERROR(_parse_zone_map(*_segment_zone_map, min_value.get(), max_value.get()));
+    std::unique_ptr<WrapperField> min_value;
+    std::unique_ptr<WrapperField> max_value;
+    RETURN_FALSE_IF_ERROR(
+            _parse_zone_map(*_segment_zone_map, type, _meta_length, min_value, max_value));
 
     auto pruned = false;
     for (auto it = predicates.begin(); it != predicates.end();) {
-        auto predicate = *it;
+        auto* predicate = *it;
         if (predicate->column_id() == column_id &&
             predicate->is_always_true({min_value.get(), max_value.get()})) {
             pruned = true;
@@ -463,8 +460,13 @@ bool ColumnReader::prune_predicates_by_zone_map(std::vector<ColumnPredicate*>& p
     return pruned;
 }
 
-Status ColumnReader::_parse_zone_map(const ZoneMapPB& zone_map, WrapperField* min_value_container,
-                                     WrapperField* max_value_container) const {
+Status ColumnReader::_parse_zone_map(const ZoneMapPB& zone_map, const FieldType field_type,
+                                     const int32_t field_length,
+                                     std::unique_ptr<WrapperField>& min_value_container,
+                                     std::unique_ptr<WrapperField>& max_value_container) {
+    min_value_container.reset(WrapperField::create_by_type(field_type, field_length));
+    max_value_container.reset(WrapperField::create_by_type(field_type, field_length));
+
     // min value and max value are valid if has_not_null is true
     if (zone_map.has_not_null()) {
         RETURN_IF_ERROR(min_value_container->from_string(zone_map.min()));
@@ -499,15 +501,7 @@ Status ColumnReader::_parse_zone_map_skip_null(const ZoneMapPB& zone_map,
 bool ColumnReader::_zone_map_match_condition(const ZoneMapPB& zone_map,
                                              WrapperField* min_value_container,
                                              WrapperField* max_value_container,
-                                             const AndBlockColumnPredicate* col_predicates) const {
-    if (!zone_map.has_not_null() && !zone_map.has_null()) {
-        return false; // no data in this zone
-    }
-
-    if (zone_map.pass_all() || min_value_container == nullptr || max_value_container == nullptr) {
-        return true;
-    }
-
+                                             const AndBlockColumnPredicate* col_predicates) {
     return col_predicates->evaluate_and({min_value_container, max_value_container});
 }
 
@@ -520,30 +514,24 @@ Status ColumnReader::_get_filtered_pages(
     FieldType type = _type_info->type();
     const std::vector<ZoneMapPB>& zone_maps = _zone_map_index->page_zone_maps();
     int32_t page_size = _zone_map_index->num_pages();
-    std::unique_ptr<WrapperField> min_value(WrapperField::create_by_type(type, _meta_length));
-    std::unique_ptr<WrapperField> max_value(WrapperField::create_by_type(type, _meta_length));
+    std::unique_ptr<WrapperField> min_value;
+    std::unique_ptr<WrapperField> max_value;
     for (int32_t i = 0; i < page_size; ++i) {
-        if (zone_maps[i].pass_all()) {
-            page_indexes->push_back(i);
-        } else {
-            RETURN_IF_ERROR(_parse_zone_map(zone_maps[i], min_value.get(), max_value.get()));
-            if (_zone_map_match_condition(zone_maps[i], min_value.get(), max_value.get(),
-                                          col_predicates)) {
-                bool should_read = true;
-                if (delete_predicates != nullptr) {
-                    for (auto del_pred : *delete_predicates) {
-                        // TODO: Both `min_value` and `max_value` should be 0 or neither should be 0.
-                        //  So nullable only need to judge once.
-                        if (min_value != nullptr && max_value != nullptr &&
-                            del_pred->evaluate_del({min_value.get(), max_value.get()})) {
-                            should_read = false;
-                            break;
-                        }
+        if (match_zone_map_condition(col_predicates, type, _meta_length, zone_maps[i])) {
+            bool should_read = true;
+            if (delete_predicates != nullptr) {
+                for (const auto* del_pred : *delete_predicates) {
+                    // TODO: Both `min_value` and `max_value` should be 0 or neither should be 0.
+                    //  So nullable only need to judge once.
+                    if (min_value != nullptr && max_value != nullptr &&
+                        del_pred->evaluate_del({min_value.get(), max_value.get()})) {
+                        should_read = false;
+                        break;
                     }
                 }
-                if (should_read) {
-                    page_indexes->push_back(i);
-                }
+            }
+            if (should_read) {
+                page_indexes->push_back(i);
             }
         }
     }
@@ -827,6 +815,69 @@ Status ColumnReader::new_struct_iterator(ColumnIterator** iterator,
     }
     *iterator = new StructFileColumnIterator(this, null_iterator, sub_column_iterators);
     return Status::OK();
+}
+
+Status ColumnReader::merge_zone_maps(const std::vector<ZoneMapPB>& zone_maps,
+                                     const FieldType field_type, const int32_t field_length,
+                                     ZoneMapPB& merged_zone_map) {
+    std::unique_ptr<WrapperField> min_value, max_value;
+    for (const auto& zone_map : zone_maps) {
+        if (zone_map.has_pass_all() && zone_map.pass_all()) {
+            merged_zone_map.set_pass_all(true);
+            break;
+        }
+
+        if (zone_map.has_has_null() && zone_map.has_null()) {
+            merged_zone_map.set_has_null(true);
+        }
+
+        if (!zone_map.has_not_null()) {
+            continue;
+        }
+
+        std::unique_ptr<WrapperField> min;
+        std::unique_ptr<WrapperField> max;
+
+        RETURN_IF_ERROR(_parse_zone_map(zone_map, field_type, field_length, min, max));
+
+        if (!min_value || min_value->cmp(min.get()) > 0) {
+            min_value = std::move(min);
+        }
+
+        if (!max_value || max_value->cmp(max.get()) < 0) {
+            max_value = std::move(max);
+        }
+
+        merged_zone_map.set_has_not_null(true);
+    }
+
+    if (min_value) {
+        *(merged_zone_map.mutable_min()) = min_value->to_string();
+    }
+    if (max_value) {
+        *(merged_zone_map.mutable_max()) = max_value->to_string();
+    }
+
+    return Status::OK();
+}
+
+bool ColumnReader::match_zone_map_condition(const AndBlockColumnPredicate* predicate,
+                                            const FieldType field_type, const int32_t field_length,
+                                            const ZoneMapPB& zone_map) {
+    if (zone_map.has_pass_all() && zone_map.pass_all()) {
+        return true;
+    }
+
+    if (!zone_map.has_null() && !zone_map.has_not_null()) {
+        return false;
+    }
+
+    std::unique_ptr<WrapperField> min_value;
+    std::unique_ptr<WrapperField> max_value;
+    RETURN_FALSE_IF_ERROR(
+            _parse_zone_map(zone_map, field_type, field_length, min_value, max_value));
+
+    return _zone_map_match_condition(zone_map, min_value.get(), max_value.get(), predicate);
 }
 
 ///====================== MapFileColumnIterator ============================////

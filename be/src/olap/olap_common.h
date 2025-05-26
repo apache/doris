@@ -381,6 +381,10 @@ struct OlapReaderStatistics {
     // total number of segment
     int64_t total_segment_number = 0;
 
+    int64_t filtered_rowset_number = 0;
+    int64_t total_rowset_number = 0;
+    int64_t rowset_cached_zone_maps_number = 0;
+
     io::FileCacheStatistics file_cache_stats;
     int64_t load_segments_timer = 0;
 

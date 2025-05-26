@@ -20,12 +20,15 @@
 #include <ctype.h>
 #include <errno.h>
 #include <fmt/format.h>
+#include <gen_cpp/segment_v2.pb.h>
 
 #include <algorithm>
 #include <filesystem>
+#include <map>
 #include <memory>
 #include <ostream>
 #include <utility>
+#include <vector>
 
 #include "beta_rowset.h"
 #include "common/config.h"
@@ -39,6 +42,8 @@
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset_reader.h"
+#include "olap/rowset/rowset.h"
+#include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_cache.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/rowset/segment_v2/inverted_index_file_reader.h"
@@ -48,6 +53,7 @@
 #include "util/crc32c.h"
 #include "util/debug_points.h"
 #include "util/doris_metrics.h"
+#include "vec/common/custom_allocator.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -70,23 +76,61 @@ Status BetaRowset::init() {
 }
 
 Status BetaRowset::get_segment_num_rows(std::vector<uint32_t>* segment_rows) {
-    DCHECK(_rowset_state_machine.rowset_state() == ROWSET_LOADED);
+    RETURN_IF_ERROR(load_segments_info());
+    segment_rows->assign(_segments_rows.cbegin(), _segments_rows.cend());
+    return Status::OK();
+}
 
-    RETURN_IF_ERROR(_load_segment_rows_once.call([this] {
+Status BetaRowset::load_segments_info() {
+    return _load_segments_info_once.call([this] {
+        if (_rowset_state_machine.rowset_state() != ROWSET_LOADED) {
+            return Status::InternalError(
+                    "rowset {} was not loaded({})", rowset_id().to_string(),
+                    static_cast<int32_t>(_rowset_state_machine.rowset_state()));
+        }
+
         auto segment_count = num_segments();
         _segments_rows.resize(segment_count);
+
+        DorisMap<uint32_t, std::vector<ZoneMapPB>> columns_zone_maps;
+        std::map<uint32_t, std::pair<FieldType, int32_t>> columns_type_and_length;
+
         for (int64_t i = 0; i != segment_count; ++i) {
             SegmentCacheHandle segment_cache_handle;
             RETURN_IF_ERROR(SegmentLoader::instance()->load_segment(
                     std::static_pointer_cast<BetaRowset>(shared_from_this()), i,
                     &segment_cache_handle, false, false));
-            const auto& tmp_segments = segment_cache_handle.get_segments();
-            _segments_rows[i] = tmp_segments[0]->num_rows();
+            const auto& segment = segment_cache_handle.get_segments()[0];
+            _segments_rows[i] = segment->num_rows();
+
+            if (config::cache_zone_map_max_columns_count <= 0) {
+                continue;
+            }
+
+            std::map<uint32_t, Segment::ZoneMapInfo> zone_maps;
+            RETURN_IF_ERROR(segment->get_zone_maps(zone_maps));
+
+            for (auto&& [uid, zone_map] : zone_maps) {
+                columns_zone_maps[uid].emplace_back(std::move(zone_map.zone_map));
+                columns_type_and_length[uid].first = zone_map.field_type;
+                columns_type_and_length[uid].second = zone_map.field_length;
+            }
+        }
+
+        for (auto&& [col_uid, zone_maps] : columns_zone_maps) {
+            if (zone_maps.size() != segment_count) {
+                return Status::InternalError(
+                        "rowset {} has invalid zonemap, column uid: {}, segment count: {}, "
+                        "zone maps count: {}",
+                        rowset_id().to_string(), col_uid, segment_count, zone_maps.size());
+            }
+            auto st = ColumnReader::merge_zone_maps(
+                    zone_maps, columns_type_and_length[col_uid].first,
+                    columns_type_and_length[col_uid].second, _cached_zone_maps[col_uid]);
+            RETURN_IF_ERROR(st);
         }
         return Status::OK();
-    }));
-    segment_rows->assign(_segments_rows.cbegin(), _segments_rows.cend());
-    return Status::OK();
+    });
 }
 
 Status BetaRowset::get_inverted_index_size(int64_t* index_size) {

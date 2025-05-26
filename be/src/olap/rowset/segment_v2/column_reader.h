@@ -208,6 +208,13 @@ public:
 
     FieldType get_meta_type() { return _meta_type; }
 
+    static Status merge_zone_maps(const std::vector<ZoneMapPB>& zone_maps,
+                                  const FieldType field_type, const int32_t field_length,
+                                  ZoneMapPB& merged_zone_map);
+    static bool match_zone_map_condition(const AndBlockColumnPredicate* predicate,
+                                         const FieldType field_type, const int32_t field_length,
+                                         const ZoneMapPB& zone_map);
+
 private:
     ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& meta, uint64_t num_rows,
                  io::FileReaderSPtr file_reader);
@@ -233,12 +240,15 @@ private:
     [[nodiscard]] Status _load_bloom_filter_index(bool use_page_cache, bool kept_in_memory,
                                                   const ColumnIteratorOptions& iter_opts);
 
-    bool _zone_map_match_condition(const ZoneMapPB& zone_map, WrapperField* min_value_container,
-                                   WrapperField* max_value_container,
-                                   const AndBlockColumnPredicate* col_predicates) const;
+    static bool _zone_map_match_condition(const ZoneMapPB& zone_map,
+                                          WrapperField* min_value_container,
+                                          WrapperField* max_value_container,
+                                          const AndBlockColumnPredicate* col_predicates);
 
-    Status _parse_zone_map(const ZoneMapPB& zone_map, WrapperField* min_value_container,
-                           WrapperField* max_value_container) const;
+    static Status _parse_zone_map(const ZoneMapPB& zone_map, const FieldType field_type,
+                                  const int32_t field_length,
+                                  std::unique_ptr<WrapperField>& min_value_container,
+                                  std::unique_ptr<WrapperField>& max_value_container);
 
     Status _parse_zone_map_skip_null(const ZoneMapPB& zone_map, WrapperField* min_value_container,
                                      WrapperField* max_value_container) const;
