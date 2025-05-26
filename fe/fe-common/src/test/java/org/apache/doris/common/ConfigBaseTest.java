@@ -25,7 +25,6 @@ import java.lang.reflect.Method;
 import java.util.Properties;
 
 public class ConfigBaseTest {
-
     @Test
     public void testReplacedByEnv() throws NoSuchMethodException, InvocationTargetException, IllegalAccessException {
         ConfigBase configBase = new ConfigBase();
@@ -58,7 +57,6 @@ public class ConfigBaseTest {
         properties.setProperty(confKeyName, "$" + envName + "/conf");
         replacedByEnvMethod.invoke(configBase, properties);
         Assert.assertEquals("test_dir_env/conf", properties.getProperty(confKeyName));
-
     }
 
 }
