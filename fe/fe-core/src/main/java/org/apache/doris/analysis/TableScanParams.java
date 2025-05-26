@@ -19,25 +19,28 @@ package org.apache.doris.analysis;
 
 import com.google.common.collect.ImmutableMap;
 
+import java.util.List;
 import java.util.Map;
 
 public class TableScanParams {
     public static String INCREMENTAL_READ = "incr";
 
     private final String paramType;
-    private final Map<String, String> params;
+    private final Map<String, String> mapParams;
+    private final List<String> listParams;
 
-    public TableScanParams(String paramType, Map<String, String> params) {
+    public TableScanParams(String paramType, Map<String, String> mapParams, List<String> listParams) {
         this.paramType = paramType;
-        this.params = params == null ? ImmutableMap.of() : ImmutableMap.copyOf(params);
+        this.mapParams = mapParams == null ? ImmutableMap.of() : ImmutableMap.copyOf(mapParams);
+        this.listParams = listParams;
     }
 
     public String getParamType() {
         return paramType;
     }
 
-    public Map<String, String> getParams() {
-        return params;
+    public Map<String, String> getMapParams() {
+        return mapParams;
     }
 
     public boolean incrementalRead() {

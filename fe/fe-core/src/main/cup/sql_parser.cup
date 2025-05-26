@@ -6201,7 +6201,7 @@ opt_scan_params_ref ::=
     :}
     | AT ident:func_name LPAREN opt_key_value_map_in_paren:properties RPAREN
     {:
-        RESULT = new TableScanParams(func_name, properties);
+        RESULT = new TableScanParams(func_name, properties, new ArrayList<String>());
     :}
     ;
 

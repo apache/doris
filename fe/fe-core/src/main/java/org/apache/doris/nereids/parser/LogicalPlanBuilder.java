@@ -2305,8 +2305,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
         TableScanParams scanParams = null;
         if (ctx.optScanParams() != null) {
-            Map<String, String> map = visitPropertyItemList(ctx.optScanParams().properties);
-            scanParams = new TableScanParams(ctx.optScanParams().funcName.getText(), map);
+            Map<String, String> map = visitPropertyItemList(ctx.optScanParams().mapParams);
+            List<String> list = visitIdentifierSeq(ctx.optScanParams().listParams);
+            scanParams = new TableScanParams(ctx.optScanParams().funcName.getText(), map, list);
         }
 
         TableSnapshot tableSnapshot = null;
@@ -5483,10 +5484,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return new ShowProcCommand(path);
     }
 
-    private TableScanParams visitOptScanParamsContex(OptScanParamsContext ctx) {
+    private TableScanParams visitOptScanParamsContext(OptScanParamsContext ctx) {
         if (ctx != null) {
-            Map<String, String> map = visitPropertyItemList(ctx.properties);
-            return new TableScanParams(ctx.funcName.getText(), map);
+            Map<String, String> map = visitPropertyItemList(ctx.mapParams);
+            List<String> list = visitIdentifierSeq(ctx.listParams);
+            return new TableScanParams(ctx.funcName.getText(), map, list);
         }
         return null;
     }
@@ -5538,7 +5540,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     private TableRefInfo visitBaseTableRefContext(BaseTableRefContext ctx) {
         List<String> nameParts = visitMultipartIdentifier(ctx.multipartIdentifier());
-        TableScanParams scanParams = visitOptScanParamsContex(ctx.optScanParams());
+        TableScanParams scanParams = visitOptScanParamsContext(ctx.optScanParams());
         TableSnapshot tableSnapShot = visitTableSnapshotContext(ctx.tableSnapshot());
         PartitionNamesInfo partitionNameInfo = visitSpecifiedPartitionContext(ctx.specifiedPartition());
         List<Long> tabletIdList = visitTabletListContext(ctx.tabletList());
