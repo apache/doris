@@ -32,10 +32,11 @@ import org.apache.doris.common.util.OrderByPair;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.expressions.And;
+import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -69,7 +70,7 @@ public class ShowBuildIndexCommand extends ShowCommand {
     private final long offset;
     private final LimitElement limitElement;
     private ProcNodeInterface node;
-    private HashMap<String, Expression> filterMap;
+    private final HashMap<String, Expression> filterMap = new HashMap<>();
 
     /**
      * ShowBuildIndexCommand
@@ -130,10 +131,10 @@ public class ShowBuildIndexCommand extends ShowCommand {
         if (orderByElements != null && !orderByElements.isEmpty()) {
             orderByPairs = new ArrayList<>();
             for (OrderKey orderByElement : orderByElements) {
-                if (!(orderByElement.getExpr() instanceof Slot)) {
+                if (!(orderByElement.getExpr() instanceof UnboundSlot)) {
                     throw new AnalysisException("Should order by column");
                 }
-                Slot slot = (Slot) orderByElement.getExpr();
+                UnboundSlot slot = (UnboundSlot) orderByElement.getExpr();
                 int index = BuildIndexProcDir.analyzeColumn(slot.getName());
                 OrderByPair orderByPair = new OrderByPair(index, !orderByElement.isAsc());
                 orderByPairs.add(orderByPair);
@@ -150,7 +151,7 @@ public class ShowBuildIndexCommand extends ShowCommand {
         if (LOG.isDebugEnabled()) {
             LOG.debug("process SHOW PROC '{}';", sb.toString());
         }
-        // create show proc stmt
+        // create show proc command
         // '/jobs/db_name/build_index/
         node = ProcService.getInstance().open(sb.toString());
         if (node == null) {
@@ -169,19 +170,18 @@ public class ShowBuildIndexCommand extends ShowCommand {
             return;
         }
 
-        if (!(expr instanceof EqualTo)) {
-            throw new AnalysisException("The operator = is supported.");
+        if (!(expr instanceof ComparisonPredicate || (expr instanceof Not && expr.child(0) instanceof EqualTo))) {
+            throw new AnalysisException("The operator =|>=|<=|>|<|!= are supported.");
         }
 
-        EqualTo equalTo = (EqualTo) expr;
-        if (!(equalTo.child(0) instanceof UnboundSlot)) {
+        if (!(expr.child(0) instanceof UnboundSlot)) {
             throw new AnalysisException("Only support column = xxx syntax.");
         }
         String leftKey = ((UnboundSlot) expr.child(0)).getName();
         if (leftKey.equalsIgnoreCase("tablename")
                 || leftKey.equalsIgnoreCase("state")
                 || leftKey.equalsIgnoreCase("partitionname")) {
-            if (!(expr.child(1) instanceof StringLiteral)) {
+            if (!(expr.child(1) instanceof StringLiteral) || !(expr instanceof EqualTo)) {
                 throw new AnalysisException("Where clause : TableName = \"table1\" or "
                     + "State = \"FINISHED|CANCELLED|RUNNING|PENDING|WAITING_TXN\"");
             }

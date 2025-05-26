@@ -7742,6 +7742,29 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 whereClause = getExpression(ctx.wildWhere().expression());
             }
         }
+
+        List<OrderKey> orderKeys = new ArrayList<>();
+        if (ctx.sortClause() != null) {
+            orderKeys = visit(ctx.sortClause().sortItem(), OrderKey.class);
+        }
+
+        long limit = -1L;
+        long offset = 0L;
+        if (ctx.limitClause() != null) {
+            limit = ctx.limitClause().limit != null
+                ? Long.parseLong(ctx.limitClause().limit.getText())
+                : 0;
+            if (limit < 0) {
+                throw new ParseException("Limit requires non-negative number", ctx.limitClause());
+            }
+            offset = ctx.limitClause().offset != null
+                ? Long.parseLong(ctx.limitClause().offset.getText())
+                : 0;
+            if (offset < 0) {
+                throw new ParseException("Offset requires non-negative number", ctx.limitClause());
+            }
+        }
+
         return new ShowBuildIndexCommand(ctlName, dbName, orderKeys, whereClause, limit, offset);
     }
 
