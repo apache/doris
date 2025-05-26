@@ -152,6 +152,11 @@ public:
         _table_col_to_file_col = map;
     }
 
+    void set_row_id_column_iterator(
+            std::pair<std::shared_ptr<RowIdColumnIteratorV2>, int> iterator_pair) {
+        _row_id_column_iterator_pair = iterator_pair;
+    }
+
 protected:
     void _collect_profile_before_close() override;
 
@@ -204,13 +209,15 @@ private:
     // Page Index Filter
     bool _has_page_index(const std::vector<tparquet::ColumnChunk>& columns, PageIndex& page_index);
     Status _process_page_index(const tparquet::RowGroup& row_group,
+                               const RowGroupReader::RowGroupIndex& row_group_index,
                                std::vector<RowRange>& candidate_row_ranges);
 
     // Row Group Filter
     bool _is_misaligned_range_group(const tparquet::RowGroup& row_group);
     Status _process_column_stat_filter(const std::vector<tparquet::ColumnChunk>& column_meta,
                                        bool* filter_group);
-    Status _process_row_group_filter(const tparquet::RowGroup& row_group, bool* filter_group);
+    Status _process_row_group_filter(const RowGroupReader::RowGroupIndex& row_group_index,
+                                     const tparquet::RowGroup& row_group, bool* filter_group);
     void _init_chunk_dicts();
     Status _process_dict_filter(bool* filter_group);
     void _init_bloom_filter();
@@ -222,6 +229,8 @@ private:
     void _collect_profile();
 
     static SortOrder _determine_sort_order(const tparquet::SchemaElement& parquet_schema);
+
+    Status _set_read_one_line_impl() override { return Status::OK(); }
 
 private:
     RuntimeProfile* _profile = nullptr;
@@ -292,6 +301,10 @@ private:
     const std::unordered_map<int, VExprContextSPtrs>* _slot_id_to_filter_conjuncts = nullptr;
     bool _hive_use_column_names = false;
     std::unordered_map<tparquet::Type::type, bool> _ignored_stats;
+
+    std::vector<std::vector<RowRange>> _read_line_mode_row_ranges;
+    std::pair<std::shared_ptr<RowIdColumnIteratorV2>, int> _row_id_column_iterator_pair = {nullptr,
+                                                                                           -1};
 };
 #include "common/compile_check_end.h"
 
