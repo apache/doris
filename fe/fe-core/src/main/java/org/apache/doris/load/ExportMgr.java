@@ -483,6 +483,9 @@ public class ExportMgr {
         if (job.getWhereExpr() != null) {
             infoMap.put("where expr", job.getWhereExpr().toSql());
         }
+        // if (job.getWhereExpression().isPresent()) {
+        //     infoMap.put("where expr", job.getWhereExpression().get().toSql());
+        // }
         infoMap.put("partitions", partitions);
         infoMap.put("broker", job.getBrokerDesc().getName());
         infoMap.put("column_separator", job.getColumnSeparator());
