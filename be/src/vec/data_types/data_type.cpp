@@ -163,8 +163,6 @@ PGenericType_TypeId IDataType::get_pdata_type(const IDataType* data_type) {
         return PGenericType::JSONB;
     case PrimitiveType::TYPE_MAP:
         return PGenericType::MAP;
-    case PrimitiveType::TYPE_TIME:
-        return PGenericType::TIME;
     case PrimitiveType::TYPE_AGG_STATE:
         return PGenericType::AGG_STATE;
     case PrimitiveType::TYPE_TIMEV2:

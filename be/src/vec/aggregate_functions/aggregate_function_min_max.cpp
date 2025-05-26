@@ -72,7 +72,6 @@ AggregateFunctionPtr create_aggregate_function_single_value(const String& name,
         return creator_without_type::create<
                 AggregateFunctionsSingleValue<Data<SingleValueDataFixed<TYPE_DATETIMEV2>>>>(
                 argument_types, result_is_nullable);
-    case PrimitiveType::TYPE_TIME:
     case PrimitiveType::TYPE_TIMEV2:
         return creator_without_type::create<
                 AggregateFunctionsSingleValue<Data<SingleValueDataFixed<TYPE_TIMEV2>>>>(
