@@ -111,6 +111,7 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
             return ImmutableList.of();
         }
         if (!agg.getAggregateParam().canBeBanned) {
+            visit(agg, context);
             return ImmutableList.of(originChildrenProperties);
         }
         // forbid one phase agg on distribute
