@@ -27,12 +27,12 @@ suite("test_backend_configuration", "docker, p0, external_table,information_sche
           assertTrue(res.size() == 3)
           
           sql """ 
-               select CONFIGURATION_NAME, CONFIGURATION_TYPE, CONFIGURATION_VALUE, IS_MUTABLE from information_schema.backend_configuration where CONFIGURATION = "disable_auto_compaction";
+               select CONFIG_NAME, CONFIG_TYPE, CONFIG_VALUE, IS_MUTABLE from information_schema.backend_configuration where CONFIGURATION = "disable_auto_compaction";
           """
           assertTrue(res.size() == 3)
 
           res = sql """ 
-               select CONFIGURATION_NAME, CONFIGURATION_TYPE, CONFIGURATION_VALUE, IS_MUTABLE from information_schema.backend_configuration where CONFIGURATION = "LZ4_HC_compression_level";
+               select CONFIG_NAME, CONFIG_TYPE, CONFIG_VALUE, IS_MUTABLE from information_schema.backend_configuration where CONFIGURATION = "LZ4_HC_compression_level";
           """
           assertTrue(res.size() == 3)
     }
