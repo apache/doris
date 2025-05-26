@@ -75,7 +75,7 @@ public class ShowStorageVaultCommand extends ShowCommand {
         } catch (RpcException e) {
             throw new AnalysisException(e.getMessage());
         }
-        return new ShowResultSet(showStmt.getMetaData(), rows);
+        return new ShowResultSet(getMetaData(), rows);
     }
 
     /**
