@@ -173,13 +173,13 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                             .putObject(
                                     PutObjectRequest.builder().bucket(uri.getBucket()).key(uri.getKey()).build(),
                                     body);
-            LOG.info("put object success: " + response.toString());
+            LOG.info("put object success: {} " + response);
             return Status.OK;
         } catch (S3Exception e) {
-            LOG.error("put object failed:", e);
+            LOG.warn("put object failed: ", e);
             return new Status(Status.ErrCode.COMMON_ERROR, "put object failed: " + e.getMessage());
         } catch (Exception ue) {
-            LOG.error("connect to s3 failed: ", ue);
+            LOG.warn("connect to s3 failed: ", ue);
             return new Status(Status.ErrCode.COMMON_ERROR, "connect to s3 failed: " + ue.getMessage());
         }
     }
@@ -192,7 +192,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                     getClient()
                             .deleteObject(
                                     DeleteObjectRequest.builder().bucket(uri.getBucket()).key(uri.getKey()).build());
-            LOG.info("delete file " + remotePath + " success: " + response.toString());
+            LOG.info("delete file {} success:{}", remotePath, response);
             return Status.OK;
         } catch (S3Exception e) {
             LOG.warn("delete file failed: ", e);
@@ -229,7 +229,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                             .build();
 
                     DeleteObjectsResponse resp = getClient().deleteObjects(req);
-                    if (resp.errors().size() > 0) {
+                    if (!resp.errors().isEmpty()) {
                         LOG.warn("{} errors returned while deleting {} objects for dir {}",
                                 resp.errors().size(), objectList.size(), absolutePath);
                     }
@@ -264,13 +264,13 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                                     .destinationBucket(descUri.getBucket())
                                     .destinationKey(descUri.getKey())
                                     .build());
-            LOG.info("copy file from " + origFilePath + " to " + destFilePath + " success: " + response.toString());
+            LOG.info("copy file from {} to {} success: {} ", origFilePath, destFilePath, response);
             return Status.OK;
         } catch (S3Exception e) {
-            LOG.error("copy file failed: ", e);
+            LOG.warn("copy file failed: ", e);
             return new Status(Status.ErrCode.COMMON_ERROR, "copy file failed: " + e.getMessage());
         } catch (UserException ue) {
-            LOG.error("copy to s3 failed: ", ue);
+            LOG.warn("copy to s3 failed: ", ue);
             return new Status(Status.ErrCode.COMMON_ERROR, "connect to s3 failed: " + ue.getMessage());
         }
     }
@@ -370,7 +370,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                             .build();
                     getClient().abortMultipartUpload(abortMultipartUploadRequest);
                 } catch (Exception e1) {
-                    LOG.warn("Failed to abort multipartUpload " + remotePath, e1);
+                    LOG.warn("Failed to abort multipartUpload {}", remotePath, e1);
                 }
             }
         }

@@ -91,12 +91,10 @@ public class S3FileSystem extends ObjFileSystem {
                 s3uri = S3URI.create(filePath, usePathStyle, forceParsingByStandardUri);
                 bucketNames.add(s3uri.getBucket());
             }
-            bucketNames.forEach(bucketName -> {
-                s3Client.headBucket(b -> b.bucket(bucketName));
-            });
+            bucketNames.forEach(bucketName -> s3Client.headBucket(b -> b.bucket(bucketName)));
             return true;
         } catch (Exception e) {
-            LOG.error("S3 connectivityTest error", e);
+            LOG.warn("S3 connectivityTest error: {}", e.getMessage(), e);
         }
         return false;
     }
