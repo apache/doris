@@ -120,7 +120,9 @@ struct SetOperatorTest : public ::testing::Test {
             EXPECT_TRUE(probe_sink_local_state[i]->open(states[i].get()));
         }
 
-        { EXPECT_TRUE(source_local_state->open(state.get())); }
+        {
+            EXPECT_TRUE(source_local_state->open(state.get()));
+        }
 
         shared_state = source_local_state->_shared_state;
     }
@@ -376,11 +378,13 @@ TEST_F(ExceptOperatorTest, test_output_null_batsh_size) {
 
     {
         bool eos = false;
-        while (!eos) {
-            Block block;
-            EXPECT_TRUE(source_op->get_block(state.get(), &block, &eos));
-            EXPECT_EQ(block.rows(), 3);
-        }
+        Block block;
+        EXPECT_TRUE(source_op->get_block(state.get(), &block, &eos));
+        DCHECK_EQ(eos, false);
+        EXPECT_EQ(block.rows(), 3);
+        EXPECT_TRUE(source_op->get_block(state.get(), &block, &eos));
+        DCHECK_EQ(eos, true);
+        EXPECT_EQ(block.rows(), 1);
     }
 }
 
