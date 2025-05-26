@@ -52,7 +52,7 @@ public class ResultReceiver {
     private long timeoutTs = 0;
     private TNetworkAddress address;
     private Types.PUniqueId queryId;
-    private Types.PUniqueId finstId;
+    private Types.PUniqueId instanceId;
     private Long backendId;
     private Thread currentThread;
     private volatile Future<InternalService.PFetchDataResult> fetchDataAsyncFuture = null;
@@ -63,7 +63,7 @@ public class ResultReceiver {
     public ResultReceiver(TUniqueId queryId, TUniqueId tid, Long backendId, TNetworkAddress address, long timeoutTs,
             int maxMsgSizeOfResultReceiver, Boolean enableParallelResultSink) {
         this.queryId = Types.PUniqueId.newBuilder().setHi(queryId.hi).setLo(queryId.lo).build();
-        this.finstId = Types.PUniqueId.newBuilder().setHi(tid.hi).setLo(tid.lo).build();
+        this.instanceId = Types.PUniqueId.newBuilder().setHi(tid.hi).setLo(tid.lo).build();
         this.backendId = backendId;
         this.address = address;
         this.timeoutTs = timeoutTs;
@@ -75,7 +75,7 @@ public class ResultReceiver {
         if (enableParallelResultSink) {
             return queryId;
         }
-        return finstId;
+        return instanceId;
     }
 
     public void createFuture(
@@ -88,7 +88,7 @@ public class ResultReceiver {
             fetchDataAsyncFuture = BackendServiceProxy.getInstance().fetchDataAsyncWithCallback(address, request,
                     callback);
         } catch (RpcException e) {
-            LOG.warn("fetch result rpc exception, finstId={}", DebugUtil.printId(finstId), e);
+            LOG.warn("fetch result rpc exception, finstId={}", DebugUtil.printId(getRealFinstId()), e);
             SimpleScheduler.addToBlacklist(backendId, e.getMessage());
             throw e;
         }
@@ -151,8 +151,8 @@ public class ResultReceiver {
                 rowBatch.setQueryStatistics(pResult.getQueryStatistics());
 
                 if (packetIdx != pResult.getPacketSeq()) {
-                    LOG.warn("finistId={}, receive packet failed, expect={}, receive={}",
-                            DebugUtil.printId(finstId), packetIdx, pResult.getPacketSeq());
+                    LOG.warn("finstId={}, receive packet failed, expect={}, receive={}",
+                            DebugUtil.printId(getRealFinstId()), packetIdx, pResult.getPacketSeq());
                     status.updateStatus(TStatusCode.THRIFT_RPC_ERROR, "receive error packet");
                     return null;
                 }
@@ -161,7 +161,7 @@ public class ResultReceiver {
                 isDone = pResult.getEos();
 
                 if (pResult.hasEmptyBatch() && pResult.getEmptyBatch()) {
-                    LOG.info("finistId={}, get first empty rowbatch", DebugUtil.printId(finstId));
+                    LOG.info("finstId={}, get first empty rowbatch", DebugUtil.printId(getRealFinstId()));
                     rowBatch.setEos(false);
                     return rowBatch;
                 } else if (pResult.hasRowBatch() && pResult.getRowBatch().size() > 0) {
@@ -186,7 +186,7 @@ public class ResultReceiver {
                 }
             }
         } catch (ExecutionException e) {
-            LOG.warn("fetch result execution exception, finstId={}", DebugUtil.printId(finstId), e);
+            LOG.warn("fetch result execution exception, finstId={}", DebugUtil.printId(getRealFinstId()), e);
             if (e.getMessage().contains("time out")) {
                 // if timeout, we set error code to TIMEOUT, and it will not retry querying.
                 status.updateStatus(TStatusCode.TIMEOUT, e.getMessage());
@@ -195,7 +195,7 @@ public class ResultReceiver {
                 SimpleScheduler.addToBlacklist(backendId, e.getMessage());
             }
         } catch (TimeoutException e) {
-            LOG.warn("fetch result timeout, finstId={}", DebugUtil.printId(finstId), e);
+            LOG.warn("fetch result timeout, finstId={}", DebugUtil.printId(getRealFinstId()), e);
             status.updateStatus(TStatusCode.TIMEOUT, "Query timeout");
         } finally {
             synchronized (this) {

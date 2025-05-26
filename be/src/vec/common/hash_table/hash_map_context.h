@@ -21,17 +21,14 @@
 #include <utility>
 
 #include "common/compiler_util.h"
-#include "runtime/descriptors.h"
-#include "util/stack_util.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/common/arena.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/columns_hashing.h"
+#include "vec/common/custom_allocator.h"
 #include "vec/common/hash_table/string_hash_map.h"
 #include "vec/common/string_ref.h"
-#include "vec/common/typeid_cast.h"
 #include "vec/core/types.h"
-#include "vec/utils/util.hpp"
 
 namespace doris::vectorized {
 

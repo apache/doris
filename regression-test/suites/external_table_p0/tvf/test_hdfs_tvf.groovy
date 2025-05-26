@@ -368,7 +368,7 @@ suite("test_hdfs_tvf","external,hive,tvf,external_docker") {
             """
 
         // check exception
-        exception """Properties 'uri' is required"""
+        exception """props must contain uri"""
     }
 
     // test exception
@@ -381,7 +381,7 @@ suite("test_hdfs_tvf","external,hive,tvf,external_docker") {
             """
 
         // check exception
-        exception """Invalid export path, there is no schema of URI found. please check your path"""
+        exception """Invalid uri: xx"""
     }
 
     // test exception

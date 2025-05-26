@@ -29,7 +29,6 @@
 #include <vector>
 
 #include "common/status.h"
-#include "gutil/integral_types.h"
 #include "olap/decimal12.h"
 #include "olap/uint24.h"
 #include "runtime/collection_value.h"
@@ -518,7 +517,7 @@ private:
         // const ColumnString* _root_data_column;
         // // _nullmap contains null info for this variant
         std::unique_ptr<OlapColumnDataConvertorVarChar> _root_data_convertor;
-        ColumnObject* _source_column_ptr;
+        ColumnVariant* _source_column_ptr;
     };
 
 private:

@@ -17,6 +17,7 @@
 
 #include "service/backend_service.h"
 
+#include <absl/strings/str_split.h>
 #include <arrow/record_batch.h>
 #include <fmt/format.h>
 #include <gen_cpp/BackendService.h>
@@ -43,12 +44,11 @@
 #include <utility>
 #include <vector>
 
+#include "absl/strings/substitute.h"
 #include "cloud/config.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "gutil/strings/split.h"
-#include "gutil/strings/substitute.h"
 #include "http/http_client.h"
 #include "io/fs/local_file_system.h"
 #include "olap/olap_common.h"
@@ -76,6 +76,7 @@
 #include "util/thrift_server.h"
 #include "util/uid_util.h"
 #include "util/url_coding.h"
+#include "vec/functions/dictionary_factory.h"
 
 namespace apache {
 namespace thrift {
@@ -215,7 +216,7 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
     }
     elapsed_time_map.emplace("get_binlog_info", watch.elapsed_time_microseconds());
 
-    std::vector<std::string> binlog_info_parts = strings::Split(binlog_info, ":");
+    std::vector<std::string> binlog_info_parts = absl::StrSplit(binlog_info, ":");
     if (binlog_info_parts.size() != 2) {
         status = Status::RuntimeError("failed to parse binlog info into 2 parts: {}", binlog_info);
         LOG(WARNING) << "failed to get binlog info from " << get_binlog_info_url
@@ -905,8 +906,8 @@ void BaseBackendService::get_next(TScanBatchResult& result_, const TScanNextBatc
         // invalid offset
         t_status.status_code = TStatusCode::NOT_FOUND;
         t_status.error_msgs.push_back(
-                strings::Substitute("context_id=$0, send_offset=$1, context_offset=$2", context_id,
-                                    offset, context->offset));
+                absl::Substitute("context_id=$0, send_offset=$1, context_offset=$2", context_id,
+                                 offset, context->offset));
         result_.status = t_status;
     } else {
         // during accessing, should disabled last_access_time
@@ -1082,13 +1083,18 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
     PUniqueId p_load_id;
     p_load_id.set_hi(load_id.hi);
     p_load_id.set_lo(load_id.lo);
-    auto status = _engine.txn_manager()->prepare_txn(partition_id, *local_tablet, txn_id, p_load_id,
-                                                     is_ingrest);
-    if (!status.ok()) {
-        LOG(WARNING) << "prepare txn failed. txn_id=" << txn_id
-                     << ", status=" << status.to_string();
-        status.to_thrift(&tstatus);
-        return;
+
+    {
+        // See RowsetBuilder::prepare_txn for details
+        std::shared_lock base_migration_lock(local_tablet->get_migration_lock());
+        auto status = _engine.txn_manager()->prepare_txn(partition_id, *local_tablet, txn_id,
+                                                         p_load_id, is_ingrest);
+        if (!status.ok()) {
+            LOG(WARNING) << "prepare txn failed. txn_id=" << txn_id
+                         << ", status=" << status.to_string();
+            status.to_thrift(&tstatus);
+            return;
+        }
     }
 
     bool is_async = (_ingest_binlog_workers != nullptr);
@@ -1109,7 +1115,7 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
     };
 
     if (is_async) {
-        status = _ingest_binlog_workers->submit_func(std::move(ingest_binlog_func));
+        auto status = _ingest_binlog_workers->submit_func(std::move(ingest_binlog_func));
         if (!status.ok()) {
             status.to_thrift(&tstatus);
             return;
@@ -1328,6 +1334,16 @@ void BaseBackendService::get_realtime_exec_status(TGetRealtimeExecStatusResponse
 
     response.__set_status(Status::OK().to_thrift());
     response.__set_report_exec_status_params(*report_exec_status_params);
+}
+
+void BaseBackendService::get_dictionary_status(TDictionaryStatusList& result,
+                                               const std::vector<int64_t>& dictionary_ids) {
+    std::vector<TDictionaryStatus> dictionary_status;
+    ExecEnv::GetInstance()->dict_factory()->get_dictionary_status(dictionary_status,
+                                                                  dictionary_ids);
+    result.__set_dictionary_status_list(dictionary_status);
+    LOG(INFO) << "query for dictionary status, return " << result.dictionary_status_list.size()
+              << " rows";
 }
 
 } // namespace doris

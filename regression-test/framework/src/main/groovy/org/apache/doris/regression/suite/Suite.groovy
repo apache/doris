@@ -328,7 +328,7 @@ class Suite implements GroovyInterceptable {
             def user = context.config.jdbcUser
             def password = context.config.jdbcPassword
             Frontend fe = null
-            for (def i=0; fe == null && i<30; i++) {
+            for (def i=0; (fe == null || !fe.alive) && i<30; i++) {
                 if (options.connectToFollower) {
                     fe = cluster.getOneFollowerFe()
                 } else {
@@ -337,7 +337,7 @@ class Suite implements GroovyInterceptable {
                 Thread.sleep(1000)
             }
 
-            logger.info("get fe {}", fe)
+            logger.info("get fe host {} , queryPort {}", fe.host, fe.queryPort)
             assertNotNull(fe)
             if (!isCloud) {
                 for (def be : cluster.getAllBackends()) {
@@ -758,6 +758,55 @@ class Suite implements GroovyInterceptable {
         } else {
             runAction(new ExplainAction(context), actionSupplier)
         }
+    }
+
+    void waitAllDictionariesReady() {
+        logger.info("wait all dictionaries ready")
+        def result
+        for (int _ = 0; _ < 30 ; _++)
+        {
+            result = sql ("show dictionaries")
+            boolean isReady = true
+            for (def i = 0; i < result.size(); i++) {
+                if (result[i][4] != "NORMAL") {
+                    logger.info("dictionary: ${result[i][1]}, status: ${result[i][4]}")
+                    isReady = false
+                    break;
+                }
+            }
+            if (isReady) {
+                logger.info("all dictionaries are ready")
+                return
+            }
+            sleep(1000)
+        }
+        throw new RuntimeException("dictionaries are not ready, status: ${result}")
+    }
+
+    void waitDictionaryReady(String dictName) {
+        logger.info("wait dictionary ${dictName} ready")
+        def result
+        for (int _ = 0; _ < 30 ; _++)
+        {
+            result = sql ("show dictionaries")
+            boolean isReady = true
+            for (def i = 0; i < result.size(); i++) {
+                if (result[i][1] == dictName)
+                {
+                    if (result[i][4] != "NORMAL") {
+                        logger.info("dictionary: ${result[i][1]}, status: ${result[i][4]}")
+                        isReady = false
+                    }
+                    break;
+                }
+            }
+            if (isReady) {
+                logger.info("dictionary ${dictName} are ready")
+                return
+            }
+            sleep(1000)
+        }
+        throw new RuntimeException("dictionary ${dictName} are not ready, status: ${result}")
     }
 
     void flightRecord(Closure actionSupplier) {
@@ -1589,7 +1638,49 @@ class Suite implements GroovyInterceptable {
     }
 
     DebugPoint GetDebugPoint() {
+        def execType = RegressionTest.getGroupExecType(group);
+        if (execType != RegressionTest.GroupExecType.SINGLE
+            && execType != RegressionTest.GroupExecType.DOCKER) {
+            throw new Exception("Debug point must use in nonConcurrent suite or docker suite, "
+                    + "need add 'nonConcurrent' or 'docker' to suite's belong groups, "
+                    + "see example demo_p0/debugpoint_action.groovy.")
+        }
         return debugPoint
+    }
+
+    // get follower ip
+    def get_follower_ip = {
+        def result = sql """show frontends;"""
+        if (result.size() == 1) {
+            return null
+        }
+        for (int i = 0; i < result.size(); i++) {
+            if (result[i][7] == "FOLLOWER" && result[i][8] == "false" && result[i][11] == "true") {
+                return result[i][1]
+            }
+        }
+        return null
+    }
+
+    // get master ip
+    def get_master_ip = {
+        def result = sql """show frontends;"""
+        for (int i = 0; i < result.size(); i++) {
+            if (result[i][7] == "FOLLOWER" && result[i][8] == "true" && result[i][11] == "true") {
+                return result[i][1]
+            }
+        }
+        return null
+    }
+
+    def run_on_follower_and_master = { test_fn ->
+        for (def ip in [get_follower_ip(), get_master_ip()]) {
+            if (ip != null) {
+                def jdbc_url = context.config.jdbcUrl.replaceAll(/\/\/[0-9.]+:/, "//${ip}:")
+                logger.info("jdbc_url: " + jdbc_url)
+                test_fn(jdbc_url)
+            }
+        }
     }
 
     def waitingMTMVTaskFinishedByMvName = { mvName, dbName = context.dbName ->
@@ -1797,10 +1888,18 @@ class Suite implements GroovyInterceptable {
         List<List<Object>> resultExpected = sql(foldSql)
         logger.info("result expected: " + resultExpected.toString())
 
-        String errorMsg = OutputUtils.checkOutput(resultExpected.iterator(), resultByFoldConstant.iterator(),
+        String errorMsg = null
+        try {
+            errorMsg = OutputUtils.checkOutput(resultExpected.iterator(), resultByFoldConstant.iterator(),
                     { row -> OutputUtils.toCsvString(row as List<Object>) },
                     { row ->  OutputUtils.toCsvString(row) },
                     "check output failed", meta)
+        } catch (Throwable t) {
+            throw new IllegalStateException("Check output failed, sql:\n${foldSql}. error message: \n${errorMsg}", t)
+        }
+        if (errorMsg != null) {
+            throw new IllegalStateException(errorMsg);
+        }
     }
 
     String getJobName(String dbName, String mtmvName) {
@@ -3033,7 +3132,7 @@ class Suite implements GroovyInterceptable {
         }
     }
 
-    def getRowsetFileCacheDirFromBe = { beHttpPort, msHttpPort, tabletId, version -> 
+    def getRowsetFileCacheDirFromBe = { beHttpPort, msHttpPort, tabletId, version, fileSuffix = "dat" -> 
         def hashValues = []
         def segmentFiles = []
         getSegmentFilesFromMs(msHttpPort, tabletId, version) {
@@ -3043,7 +3142,7 @@ class Suite implements GroovyInterceptable {
                 // {"rowset_id":"0","partition_id":"27695","tablet_id":"27700","txn_id":"7057526525952","tablet_schema_hash":0,"rowset_type":"BETA_ROWSET","rowset_state":"COMMITTED","start_version":"3","end_version":"3","version_hash":"0","num_rows":"1","total_disk_size":"895","data_disk_size":"895","index_disk_size":"0","empty":false,"load_id":{"hi":"-1646598626735601581","lo":"-6677682539881484579"},"delete_flag":false,"creation_time":"1736153402","num_segments":"1","rowset_id_v2":"0200000000000004694889e84c76391cfd52ec7db0a483ba","resource_id":"1","newest_write_timestamp":"1736153402","segments_key_bounds":[{"min_key":"AoAAAAAAAAAC","max_key":"AoAAAAAAAAAC"}],"txn_expiration":"1736167802","segments_overlap_pb":"NONOVERLAPPING","compaction_level":"0","segments_file_size":["895"],"index_id":"27697","schema_version":0,"enable_segments_file_size":true,"has_variant_type_in_schema":false,"enable_inverted_index_file_info":false}
                 def segmentNum = json.num_segments as int
                 def rowsetId = json.rowset_id_v2 as String
-                segmentFiles = (0..<segmentNum).collect { i -> "${rowsetId}_${i}.dat" }
+                segmentFiles = (0..<segmentNum).collect { i -> "${rowsetId}_${i}.${fileSuffix}" }
         }
 
         segmentFiles.each {
@@ -3057,7 +3156,7 @@ class Suite implements GroovyInterceptable {
     }
 
     // get table's tablet file cache
-    def getTabletFileCacheDirFromBe = { msHttpPort, table, version ->
+    def getTabletFileCacheDirFromBe = { msHttpPort, table, version, fileSuffix = "dat" ->
         // beHost HashFile
         def beHostToHashFile = [:]
 
@@ -3065,7 +3164,7 @@ class Suite implements GroovyInterceptable {
         getTabletsAndHostFromFe.each {
             def beHost = it.Value[1]
             def tabletId = it.Key
-            def hashRet = getRowsetFileCacheDirFromBe(beHost + ":8040", msHttpPort, tabletId, version)
+            def hashRet = getRowsetFileCacheDirFromBe(beHost + ":8040", msHttpPort, tabletId, version, fileSuffix)
             hashRet.each {
                 def hashFile = it
                 if (beHostToHashFile.containsKey(beHost)) {

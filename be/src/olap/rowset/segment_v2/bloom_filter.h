@@ -27,7 +27,6 @@
 #include <memory>
 
 #include "common/status.h"
-#include "gutil/integral_types.h"
 #include "util/murmur_hash3.h"
 
 namespace doris::segment_v2 {

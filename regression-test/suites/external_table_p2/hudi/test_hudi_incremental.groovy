@@ -105,7 +105,6 @@ suite("test_hudi_incremental", "p2,external,hudi,external_remote,external_remote
     ]
 
     sql """set force_jni_scanner=true;"""
-    sql """set hudi_jni_scanner='hadoop';"""
     // TODO: @suxiaogang223 don't support incremental query for cow table by jni reader
     // test_hudi_incremental_querys("user_activity_log_cow_non_partition", timestamps_cow_non_partition)
     // test_hudi_incremental_querys("user_activity_log_cow_partition", timestamps_cow_partition)

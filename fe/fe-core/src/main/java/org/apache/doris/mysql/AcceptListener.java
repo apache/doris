@@ -27,6 +27,7 @@ import org.apache.doris.qe.ConnectProcessor;
 import org.apache.doris.qe.ConnectScheduler;
 import org.apache.doris.qe.MysqlConnectProcessor;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -71,69 +72,7 @@ public class AcceptListener implements ChannelListener<AcceptingChannel<StreamCo
 
             try {
                 channel.getWorker().execute(() -> {
-                    try {
-                        // Set thread local info
-                        context.setThreadLocalInfo();
-                        context.setConnectScheduler(connectScheduler);
-
-                        if (Config.enable_proxy_protocol) {
-                            ProxyProtocolResult result = ProxyProtocolHandler.handle(context.getMysqlChannel());
-                            Preconditions.checkNotNull(result);
-                            ProtocolType pType = result.pType;
-                            if (pType == ProtocolType.PROTOCOL_WITH_IP) {
-                                context.getMysqlChannel().setRemoteAddr(result.sourceIP, result.sourcePort);
-                            }
-                            // For PROTOCOL_WITHOUT_IP, and just use IP from MySQL protocol.
-                            // which is already set when creating MysqlChannel.
-                            // For NOT_PROXY_PROTOCOL, just ignore to let connection with no proxy protocol in.
-                        }
-
-                        // authenticate check failed.
-                        if (!MysqlProto.negotiate(context)) {
-                            throw new AfterConnectedException("mysql negotiate failed");
-                        }
-                        if (connectScheduler.registerConnection(context)) {
-                            MysqlProto.sendResponsePacket(context);
-                            connection.setCloseListener(
-                                    streamConnection -> connectScheduler.unregisterConnection(context));
-                        } else {
-                            context.getState().setError(ErrorCode.ERR_TOO_MANY_USER_CONNECTIONS,
-                                    "Reach limit of connections");
-                            MysqlProto.sendResponsePacket(context);
-                            throw new AfterConnectedException("Reach limit of connections");
-                        }
-                        context.setStartTime();
-                        int userQueryTimeout = context.getEnv().getAuth().getQueryTimeout(context.getQualifiedUser());
-                        if (userQueryTimeout <= 0 && LOG.isDebugEnabled()) {
-                            LOG.debug("Connection set query timeout to {}",
-                                        context.getSessionVariable().getQueryTimeoutS());
-                        }
-                        context.setUserQueryTimeout(userQueryTimeout);
-                        context.setUserInsertTimeout(
-                                context.getEnv().getAuth().getInsertTimeout(context.getQualifiedUser()));
-                        ConnectProcessor processor = new MysqlConnectProcessor(context);
-                        context.startAcceptQuery(processor);
-                    } catch (AfterConnectedException e) {
-                        // do not need to print log for this kind of exception.
-                        // just clean up the context;
-                        context.cleanup();
-                    } catch (Throwable e) {
-                        // should be unexpected exception, so print warn log
-                        if (context.getCurrentUserIdentity() != null) {
-                            LOG.warn("connect processor exception because ", e);
-                        } else if (e instanceof Error) {
-                            LOG.error("connect processor exception because ", e);
-                        } else {
-                            // for unauthrorized access such lvs probe request,
-                            // may cause exception, just log it in debug level
-                            if (LOG.isDebugEnabled()) {
-                                LOG.debug("connect processor exception because ", e);
-                            }
-                        }
-                        context.cleanup();
-                    } finally {
-                        ConnectContext.remove();
-                    }
+                    handleConnection(context, connection);
                 });
             } catch (RejectedExecutionException e) {
                 context.getState().setError(ErrorCode.ERR_TOO_MANY_USER_CONNECTIONS,
@@ -143,6 +82,77 @@ public class AcceptListener implements ChannelListener<AcceptingChannel<StreamCo
             }
         } catch (IOException e) {
             LOG.warn("Connection accept failed.", e);
+        }
+    }
+
+    @VisibleForTesting
+    public void handleConnection(ConnectContext context, StreamConnection connection) {
+        try {
+            // Set thread local info
+            context.setThreadLocalInfo();
+            context.setConnectScheduler(connectScheduler);
+
+            if (Config.enable_proxy_protocol) {
+                ProxyProtocolResult result = ProxyProtocolHandler.handle(context.getMysqlChannel());
+                Preconditions.checkNotNull(result);
+                ProtocolType pType = result.pType;
+                if (pType == ProtocolType.PROTOCOL_WITH_IP) {
+                    context.getMysqlChannel().setRemoteAddr(result.sourceIP, result.sourcePort);
+                }
+                // For PROTOCOL_WITHOUT_IP, and just use IP from MySQL protocol.
+                // which is already set when creating MysqlChannel.
+                // For NOT_PROXY_PROTOCOL, just ignore to let connection with no proxy protocol in.
+            }
+
+            // authenticate check failed.
+            if (!MysqlProto.negotiate(context)) {
+                throw new AfterConnectedException("mysql negotiate failed");
+            }
+            int res = connectScheduler.getConnectPoolMgr().registerConnection(context);
+            if (res == -1) {
+                MysqlProto.sendResponsePacket(context);
+                connection.setCloseListener(
+                        streamConnection -> connectScheduler.getConnectPoolMgr().unregisterConnection(context));
+            } else {
+                long userConnLimit = context.getEnv().getAuth().getMaxConn(context.getQualifiedUser());
+                String errMsg = String.format(
+                        "Reach limit of connections. Total: %d, User: %d, Current: %d",
+                        connectScheduler.getConnectPoolMgr().getMaxConnections(), userConnLimit, res);
+                context.getState().setError(ErrorCode.ERR_TOO_MANY_USER_CONNECTIONS, errMsg);
+                MysqlProto.sendResponsePacket(context);
+                throw new AfterConnectedException(errMsg);
+            }
+            context.setStartTime();
+            int userQueryTimeout = context.getEnv().getAuth().getQueryTimeout(context.getQualifiedUser());
+            if (userQueryTimeout <= 0 && LOG.isDebugEnabled()) {
+                LOG.debug("Connection set query timeout to {}",
+                        context.getSessionVariable().getQueryTimeoutS());
+            }
+            context.setUserQueryTimeout(userQueryTimeout);
+            context.setUserInsertTimeout(
+                    context.getEnv().getAuth().getInsertTimeout(context.getQualifiedUser()));
+            ConnectProcessor processor = new MysqlConnectProcessor(context);
+            context.startAcceptQuery(processor);
+        } catch (AfterConnectedException e) {
+            // do not need to print log for this kind of exception.
+            // just clean up the context;
+            context.cleanup();
+        } catch (Throwable e) {
+            // should be unexpected exception, so print warn log
+            if (context.getCurrentUserIdentity() != null) {
+                LOG.warn("connect processor exception because ", e);
+            } else if (e instanceof Error) {
+                LOG.error("connect processor exception because ", e);
+            } else {
+                // for unauthrorized access such lvs probe request,
+                // may cause exception, just log it in debug level
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("connect processor exception because ", e);
+                }
+            }
+            context.cleanup();
+        } finally {
+            ConnectContext.remove();
         }
     }
 

@@ -17,12 +17,14 @@
 
 #include "recycler/s3_accessor.h"
 
-#include <aws/core/Aws.h>
+#include <aws/core/auth/AWSAuthSigner.h>
 #include <aws/core/auth/AWSCredentials.h>
+#include <aws/core/auth/AWSCredentialsProviderChain.h>
 #include <aws/core/client/DefaultRetryStrategy.h>
+#include <aws/identity-management/auth/STSAssumeRoleCredentialsProvider.h>
 #include <aws/s3/S3Client.h>
+#include <aws/sts/STSClient.h>
 #include <bvar/reducer.h>
-#include <cpp/sync_point.h>
 #include <gen_cpp/cloud.pb.h>
 
 #include <algorithm>
@@ -40,8 +42,10 @@
 #include "common/simple_thread_pool.h"
 #include "common/string_util.h"
 #include "common/util.h"
+#include "cpp/aws_logger.h"
 #include "cpp/obj_retry_strategy.h"
 #include "cpp/s3_rate_limiter.h"
+#include "cpp/sync_point.h"
 #ifdef USE_AZURE
 #include "recycler/azure_obj_client.h"
 #endif
@@ -108,7 +112,15 @@ int reset_s3_rate_limiter(S3RateLimitType type, size_t max_speed, size_t max_bur
 
 class S3Environment {
 public:
-    S3Environment() { Aws::InitAPI(aws_options_); }
+    S3Environment() {
+        aws_options_ = Aws::SDKOptions {};
+        auto logLevel = static_cast<Aws::Utils::Logging::LogLevel>(config::aws_log_level);
+        aws_options_.loggingOptions.logLevel = logLevel;
+        aws_options_.loggingOptions.logger_create_fn = [logLevel] {
+            return std::make_shared<DorisAWSLogger>(logLevel);
+        };
+        Aws::InitAPI(aws_options_);
+    }
 
     ~S3Environment() { Aws::ShutdownAPI(aws_options_); }
 
@@ -172,20 +184,28 @@ std::optional<S3Conf> S3Conf::from_obj_store_info(const ObjectStoreInfoPB& obj_i
     }
 
     if (!skip_aksk) {
-        if (obj_info.has_encryption_info()) {
-            AkSkPair plain_ak_sk_pair;
-            int ret = decrypt_ak_sk_helper(obj_info.ak(), obj_info.sk(), obj_info.encryption_info(),
-                                           &plain_ak_sk_pair);
-            if (ret != 0) {
-                LOG_WARNING("fail to decrypt ak sk").tag("obj_info", proto_to_json(obj_info));
-                return std::nullopt;
+        if (!obj_info.ak().empty() && !obj_info.sk().empty()) {
+            if (obj_info.has_encryption_info()) {
+                AkSkPair plain_ak_sk_pair;
+                int ret = decrypt_ak_sk_helper(obj_info.ak(), obj_info.sk(),
+                                               obj_info.encryption_info(), &plain_ak_sk_pair);
+                if (ret != 0) {
+                    LOG_WARNING("fail to decrypt ak sk").tag("obj_info", proto_to_json(obj_info));
+                    return std::nullopt;
+                } else {
+                    s3_conf.ak = std::move(plain_ak_sk_pair.first);
+                    s3_conf.sk = std::move(plain_ak_sk_pair.second);
+                }
             } else {
-                s3_conf.ak = std::move(plain_ak_sk_pair.first);
-                s3_conf.sk = std::move(plain_ak_sk_pair.second);
+                s3_conf.ak = obj_info.ak();
+                s3_conf.sk = obj_info.sk();
             }
-        } else {
-            s3_conf.ak = obj_info.ak();
-            s3_conf.sk = obj_info.sk();
+        }
+
+        if (obj_info.has_role_arn() && !obj_info.role_arn().empty()) {
+            s3_conf.role_arn = obj_info.role_arn();
+            s3_conf.external_id = obj_info.external_id();
+            s3_conf.cred_provider_type = CredProviderType::InstanceProfile;
         }
     }
 
@@ -204,7 +224,7 @@ S3Accessor::S3Accessor(S3Conf conf)
 S3Accessor::~S3Accessor() = default;
 
 std::string S3Accessor::get_key(const std::string& relative_path) const {
-    return conf_.prefix + '/' + relative_path;
+    return conf_.prefix.empty() ? relative_path : conf_.prefix + '/' + relative_path;
 }
 
 std::string S3Accessor::to_uri(const std::string& relative_path) const {
@@ -227,11 +247,45 @@ int S3Accessor::create(S3Conf conf, std::shared_ptr<S3Accessor>* accessor) {
 
 static std::shared_ptr<SimpleThreadPool> worker_pool;
 
+std::shared_ptr<Aws::Auth::AWSCredentialsProvider> S3Accessor::get_aws_credentials_provider(
+        const S3Conf& s3_conf) {
+    if (!s3_conf.ak.empty() && !s3_conf.sk.empty()) {
+        Aws::Auth::AWSCredentials aws_cred(s3_conf.ak, s3_conf.sk);
+        DCHECK(!aws_cred.IsExpiredOrEmpty());
+        return std::make_shared<Aws::Auth::SimpleAWSCredentialsProvider>(std::move(aws_cred));
+    }
+
+    if (s3_conf.cred_provider_type == CredProviderType::InstanceProfile) {
+        if (s3_conf.role_arn.empty()) {
+            return std::make_shared<Aws::Auth::InstanceProfileCredentialsProvider>();
+        }
+
+        Aws::Client::ClientConfiguration clientConfiguration;
+        if (_ca_cert_file_path.empty()) {
+            _ca_cert_file_path =
+                    get_valid_ca_cert_path(doris::cloud::split(config::ca_cert_file_paths, ';'));
+        }
+        if (!_ca_cert_file_path.empty()) {
+            clientConfiguration.caFile = _ca_cert_file_path;
+        }
+
+        auto stsClient = std::make_shared<Aws::STS::STSClient>(
+                std::make_shared<Aws::Auth::InstanceProfileCredentialsProvider>(),
+                clientConfiguration);
+
+        return std::make_shared<Aws::Auth::STSAssumeRoleCredentialsProvider>(
+                s3_conf.role_arn, Aws::String(), s3_conf.external_id,
+                Aws::Auth::DEFAULT_CREDS_LOAD_FREQ_SECONDS, stsClient);
+    }
+    return std::make_shared<Aws::Auth::DefaultAWSCredentialsProviderChain>();
+}
+
 int S3Accessor::init() {
     static std::once_flag log_annotated_tags_key_once;
     std::call_once(log_annotated_tags_key_once, [&]() {
         LOG_INFO("start s3 accessor parallel worker pool");
-        worker_pool = std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
+        worker_pool =
+                std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism, "s3_accessor");
         worker_pool->start();
     });
     switch (conf_.provider) {
@@ -268,12 +322,15 @@ int S3Accessor::init() {
 #endif
     }
     default: {
-        uri_ = conf_.endpoint + '/' + conf_.bucket + '/' + conf_.prefix;
+        if (conf_.prefix.empty()) {
+            uri_ = conf_.endpoint + '/' + conf_.bucket;
+        } else {
+            uri_ = conf_.endpoint + '/' + conf_.bucket + '/' + conf_.prefix;
+        }
 
         static S3Environment s3_env;
 
         // S3Conf::S3
-        Aws::Auth::AWSCredentials aws_cred(conf_.ak, conf_.sk);
         Aws::Client::ClientConfiguration aws_config;
         aws_config.endpointOverride = conf_.endpoint;
         aws_config.region = conf_.region;
@@ -287,8 +344,16 @@ int S3Accessor::init() {
         }
         aws_config.retryStrategy = std::make_shared<S3CustomRetryStrategy>(
                 config::max_s3_client_retry /*scaleFactor = 25*/);
+
+        if (_ca_cert_file_path.empty()) {
+            _ca_cert_file_path =
+                    get_valid_ca_cert_path(doris::cloud::split(config::ca_cert_file_paths, ';'));
+        }
+        if (!_ca_cert_file_path.empty()) {
+            aws_config.caFile = _ca_cert_file_path;
+        }
         auto s3_client = std::make_shared<Aws::S3::S3Client>(
-                std::move(aws_cred), std::move(aws_config),
+                get_aws_credentials_provider(conf_), std::move(aws_config),
                 Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
                 conf_.use_virtual_addressing /* useVirtualAddressing */);
         obj_client_ = std::make_shared<S3ObjClient>(std::move(s3_client), conf_.endpoint);

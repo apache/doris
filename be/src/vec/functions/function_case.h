@@ -25,7 +25,6 @@
 #include <vector>
 
 #include "common/status.h"
-#include "gutil/integral_types.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
@@ -218,11 +217,24 @@ public:
                 }
             } else {
                 if constexpr (when_null) {
-                    // TODO: need simd
+                    const auto* column_nullable_ptr =
+                            assert_cast<const ColumnNullable*>(when_column_ptr.get());
+                    const auto* __restrict cond_raw_data =
+                            assert_cast<const ColumnUInt8*>(
+                                    column_nullable_ptr->get_nested_column_ptr().get())
+                                    ->get_data()
+                                    .data();
+                    const auto* __restrict cond_raw_nullmap =
+                            assert_cast<const ColumnUInt8*>(
+                                    column_nullable_ptr->get_null_map_column_ptr().get())
+                                    ->get_data()
+                                    .data();
+
+                    // simd automatically
                     for (int row_idx = 0; row_idx < rows_count; row_idx++) {
-                        if (!then_idx_ptr[row_idx] && when_column_ptr->get_bool(row_idx)) {
-                            then_idx_ptr[row_idx] = i;
-                        }
+                        then_idx_ptr[row_idx] |= (!then_idx_ptr[row_idx] * cond_raw_data[row_idx] *
+                                                  !cond_raw_nullmap[row_idx]) *
+                                                 i;
                     }
                 } else {
                     const auto* __restrict cond_raw_data =
@@ -253,7 +265,7 @@ public:
                       std::is_same_v<ColumnType, ColumnArray> ||
                       std::is_same_v<ColumnType, ColumnMap> ||
                       std::is_same_v<ColumnType, ColumnStruct> ||
-                      std::is_same_v<ColumnType, ColumnObject> ||
+                      std::is_same_v<ColumnType, ColumnVariant> ||
                       std::is_same_v<ColumnType, ColumnHLL> ||
                       std::is_same_v<ColumnType, ColumnQuantileState> ||
                       std::is_same_v<ColumnType, ColumnIPv4> ||
@@ -400,17 +412,92 @@ public:
     Status execute_get_type(const DataTypePtr& data_type, Block& block,
                             const ColumnNumbers& arguments, uint32_t result,
                             size_t input_rows_count) const {
-        WhichDataType which(
-                data_type->is_nullable()
-                        ? assert_cast<const DataTypeNullable*>(data_type.get())->get_nested_type()
-                        : data_type);
-#define DISPATCH(TYPE, COLUMN_TYPE)                                                    \
-    if (which.idx == TypeIndex::TYPE)                                                  \
-        return execute_get_when_null<COLUMN_TYPE>(data_type, block, arguments, result, \
-                                                  input_rows_count);
-        TYPE_TO_COLUMN_TYPE(DISPATCH)
-#undef DISPATCH
-        return Status::NotSupported("argument_type {} not supported", data_type->get_name());
+        switch (data_type->get_primitive_type()) {
+        case PrimitiveType::TYPE_BOOLEAN:
+            return execute_get_when_null<ColumnUInt8>(data_type, block, arguments, result,
+                                                      input_rows_count);
+        case PrimitiveType::TYPE_TINYINT:
+            return execute_get_when_null<ColumnInt8>(data_type, block, arguments, result,
+                                                     input_rows_count);
+        case PrimitiveType::TYPE_SMALLINT:
+            return execute_get_when_null<ColumnInt16>(data_type, block, arguments, result,
+                                                      input_rows_count);
+        case PrimitiveType::TYPE_INT:
+            return execute_get_when_null<ColumnInt32>(data_type, block, arguments, result,
+                                                      input_rows_count);
+        case PrimitiveType::TYPE_BIGINT:
+            return execute_get_when_null<ColumnInt64>(data_type, block, arguments, result,
+                                                      input_rows_count);
+        case PrimitiveType::TYPE_LARGEINT:
+            return execute_get_when_null<ColumnInt128>(data_type, block, arguments, result,
+                                                       input_rows_count);
+        case PrimitiveType::TYPE_FLOAT:
+            return execute_get_when_null<ColumnFloat32>(data_type, block, arguments, result,
+                                                        input_rows_count);
+        case PrimitiveType::TYPE_DOUBLE:
+            return execute_get_when_null<ColumnFloat64>(data_type, block, arguments, result,
+                                                        input_rows_count);
+        case PrimitiveType::TYPE_DECIMAL32:
+            return execute_get_when_null<ColumnDecimal<Decimal32>>(data_type, block, arguments,
+                                                                   result, input_rows_count);
+        case PrimitiveType::TYPE_DECIMAL64:
+            return execute_get_when_null<ColumnDecimal<Decimal64>>(data_type, block, arguments,
+                                                                   result, input_rows_count);
+        case PrimitiveType::TYPE_DECIMAL256:
+            return execute_get_when_null<ColumnDecimal<Decimal256>>(data_type, block, arguments,
+                                                                    result, input_rows_count);
+        case PrimitiveType::TYPE_DECIMAL128I:
+            return execute_get_when_null<ColumnDecimal<Decimal128V3>>(data_type, block, arguments,
+                                                                      result, input_rows_count);
+        case PrimitiveType::TYPE_DECIMALV2:
+            return execute_get_when_null<ColumnDecimal<Decimal128V2>>(data_type, block, arguments,
+                                                                      result, input_rows_count);
+        case PrimitiveType::TYPE_STRING:
+        case PrimitiveType::TYPE_CHAR:
+        case PrimitiveType::TYPE_VARCHAR:
+        case PrimitiveType::TYPE_JSONB:
+            return execute_get_when_null<ColumnString>(data_type, block, arguments, result,
+                                                       input_rows_count);
+        case PrimitiveType::TYPE_DATE:
+        case PrimitiveType::TYPE_DATETIME:
+            return execute_get_when_null<ColumnInt64>(data_type, block, arguments, result,
+                                                      input_rows_count);
+        case PrimitiveType::TYPE_DATEV2:
+            return execute_get_when_null<ColumnUInt32>(data_type, block, arguments, result,
+                                                       input_rows_count);
+        case PrimitiveType::TYPE_DATETIMEV2:
+            return execute_get_when_null<ColumnUInt64>(data_type, block, arguments, result,
+                                                       input_rows_count);
+        case PrimitiveType::TYPE_IPV6:
+            return execute_get_when_null<ColumnIPv6>(data_type, block, arguments, result,
+                                                     input_rows_count);
+        case PrimitiveType::TYPE_IPV4:
+            return execute_get_when_null<ColumnIPv4>(data_type, block, arguments, result,
+                                                     input_rows_count);
+        case PrimitiveType::TYPE_ARRAY:
+            return execute_get_when_null<ColumnArray>(data_type, block, arguments, result,
+                                                      input_rows_count);
+        case PrimitiveType::TYPE_MAP:
+            return execute_get_when_null<ColumnMap>(data_type, block, arguments, result,
+                                                    input_rows_count);
+        case PrimitiveType::TYPE_STRUCT:
+            return execute_get_when_null<ColumnStruct>(data_type, block, arguments, result,
+                                                       input_rows_count);
+        case PrimitiveType::TYPE_VARIANT:
+            return execute_get_when_null<ColumnVariant>(data_type, block, arguments, result,
+                                                        input_rows_count);
+        case PrimitiveType::TYPE_OBJECT:
+            return execute_get_when_null<ColumnBitmap>(data_type, block, arguments, result,
+                                                       input_rows_count);
+        case PrimitiveType::TYPE_HLL:
+            return execute_get_when_null<ColumnHLL>(data_type, block, arguments, result,
+                                                    input_rows_count);
+        case PrimitiveType::TYPE_QUANTILE_STATE:
+            return execute_get_when_null<ColumnQuantileState>(data_type, block, arguments, result,
+                                                              input_rows_count);
+        default:
+            return Status::NotSupported("argument_type {} not supported", data_type->get_name());
+        }
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,

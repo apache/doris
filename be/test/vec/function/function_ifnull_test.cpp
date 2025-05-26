@@ -33,7 +33,7 @@ namespace doris::vectorized {
 
 TEST(IfNullTest, Int_Test) {
     std::string func_name = "ifnull";
-    InputTypeSet input_types = {TypeIndex::Int32, TypeIndex::Int32};
+    InputTypeSet input_types = {PrimitiveType::TYPE_INT, PrimitiveType::TYPE_INT};
     DataSet data_set = {{{4, 10}, 4}, {{-4, 10}, -4}, {{Null(), 5}, 5}};
 
     static_cast<void>(check_function<DataTypeInt32, true>(func_name, input_types, data_set));
@@ -41,7 +41,7 @@ TEST(IfNullTest, Int_Test) {
 
 TEST(NvlTest, Int_Test) {
     std::string func_name = "nvl";
-    InputTypeSet input_types = {TypeIndex::Int32, TypeIndex::Int32};
+    InputTypeSet input_types = {PrimitiveType::TYPE_INT, PrimitiveType::TYPE_INT};
     DataSet data_set = {{{4, 10}, 4}, {{-4, 10}, -4}, {{Null(), 5}, 5}};
 
     static_cast<void>(check_function<DataTypeInt32, true>(func_name, input_types, data_set));
@@ -49,7 +49,7 @@ TEST(NvlTest, Int_Test) {
 
 TEST(IfNullTest, Float_Test) {
     std::string func_name = "ifnull";
-    InputTypeSet input_types = {TypeIndex::Float64, TypeIndex::Float64};
+    InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE, PrimitiveType::TYPE_DOUBLE};
     DataSet data_set = {{{4.0, 10.0}, 4.0}, {{-4.0, 10.0}, -4.0}, {{Null(), 5.0}, 5.0}};
 
     static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
@@ -57,7 +57,7 @@ TEST(IfNullTest, Float_Test) {
 
 TEST(IfNullTest, String_Test) {
     std::string func_name = "ifnull";
-    InputTypeSet input_types = {TypeIndex::String, TypeIndex::String};
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR};
     DataSet data_set = {{{std::string("4.0"), std::string("10.0")}, std::string("4.0")},
                         {{std::string("hello"), std::string("10.0")}, std::string("hello")},
                         {{Null(), std::string("world")}, std::string("world")}};
@@ -67,11 +67,11 @@ TEST(IfNullTest, String_Test) {
 
 TEST(IfNullTest, String_Int_Test) {
     std::string func_name = "ifnull";
-    InputTypeSet input_types = {TypeIndex::DateTime, TypeIndex::DateTime};
-    DataSet data_set = {{{std::string("2021-10-24 12:32:31"), std::string("2021-10-24 13:00:01")},
-                         str_to_date_time("2021-10-24 12:32:31")},
-                        {{Null(), std::string("2021-10-24 13:00:01")},
-                         str_to_date_time("2021-10-24 13:00:01")}};
+    InputTypeSet input_types = {PrimitiveType::TYPE_DATETIME, PrimitiveType::TYPE_DATETIME};
+    DataSet data_set = {
+            {{std::string("2021-10-24 12:32:31"), std::string("2021-10-24 13:00:01")},
+             std::string("2021-10-24 12:32:31")},
+            {{Null(), std::string("2021-10-24 13:00:01")}, std::string("2021-10-24 13:00:01")}};
 
     static_cast<void>(check_function<DataTypeDateTime, true>(func_name, input_types, data_set));
 }

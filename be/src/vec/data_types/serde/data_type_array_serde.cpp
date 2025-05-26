@@ -331,7 +331,8 @@ Status DataTypeArraySerDe::_write_column_to_mysql(const IColumn& column,
     const auto end_arr_element = offsets[row_idx_of_col_arr];
     for (auto j = begin_arr_element; j < end_arr_element; ++j) {
         if (j != begin_arr_element) {
-            if (0 != result.push_string(", ", 2)) {
+            if (0 != result.push_string(options.mysql_collection_delim.c_str(),
+                                        options.mysql_collection_delim.size())) {
                 return Status::InternalError("pack mysql buffer failed.");
             }
         }

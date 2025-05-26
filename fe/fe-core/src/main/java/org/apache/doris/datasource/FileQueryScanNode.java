@@ -40,6 +40,7 @@ import org.apache.doris.datasource.hive.source.HiveSplit;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.system.Backend;
@@ -250,7 +251,14 @@ public abstract class FileQueryScanNode extends FileScanNode {
             }
             SlotDescriptor slotDesc = desc.getSlot(slot.getSlotId());
             String colName = slotDesc.getColumn().getName();
-            int idx = tbl.getBaseColumnIdxByName(colName);
+            int idx = -1;
+            List<Column> columns = getColumns();
+            for (int i = 0; i < columns.size(); i++) {
+                if (columns.get(i).getName().equals(colName)) {
+                    idx = i;
+                    break;
+                }
+            }
             if (idx == -1) {
                 throw new UserException("Column " + colName + " not found in table " + tbl.getName());
             }
@@ -275,8 +283,9 @@ public abstract class FileQueryScanNode extends FileScanNode {
     @Override
     public void createScanRangeLocations() throws UserException {
         long start = System.currentTimeMillis();
-        if (ConnectContext.get().getExecutor() != null) {
-            ConnectContext.get().getExecutor().getSummaryProfile().setGetSplitsStartTime();
+        StmtExecutor executor = ConnectContext.get().getExecutor();
+        if (executor != null) {
+            executor.getSummaryProfile().setGetSplitsStartTime();
         }
         TFileFormatType fileFormatType = getFileFormatType();
         if (fileFormatType == TFileFormatType.FORMAT_ORC) {
@@ -327,8 +336,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
             splitAssignment = new SplitAssignment(
                     backendPolicy, this, this::splitToScanRange, locationProperties, pathPartitionKeys);
             splitAssignment.init();
-            if (ConnectContext.get().getExecutor() != null) {
-                ConnectContext.get().getExecutor().getSummaryProfile().setGetSplitsFinishTime();
+            if (executor != null) {
+                executor.getSummaryProfile().setGetSplitsFinishTime();
             }
             if (splitAssignment.getSampleSplit() == null && !isFileStreamType()) {
                 return;
@@ -388,8 +397,11 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
         getSerializedTable().ifPresent(params::setSerializedTable);
 
-        if (ConnectContext.get().getExecutor() != null) {
-            ConnectContext.get().getExecutor().getSummaryProfile().setCreateScanRangeFinishTime();
+        if (executor != null) {
+            executor.getSummaryProfile().setCreateScanRangeFinishTime();
+            if (sessionVariable.showSplitProfileInfo()) {
+                executor.getSummaryProfile().setAssignedWeightPerBackend(backendPolicy.getAssignedWeightPerBackend());
+            }
         }
         if (LOG.isDebugEnabled()) {
             LOG.debug("create #{} ScanRangeLocations cost: {} ms",
@@ -591,6 +603,9 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
     protected abstract TableIf getTargetTable() throws UserException;
 
+    // TODO: Rename this method when Metadata Service (MS) integration is complete.
+    // The current name "getLocationProperties" is a placeholder and may not reflect
+    // the new structure of storage parameters expected from MS.
     protected abstract Map<String, String> getLocationProperties() throws UserException;
 
     @Override

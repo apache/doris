@@ -39,6 +39,7 @@
 #include <vector>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/exception.h"
 #include "common/status.h"
 #include "exprs/json_functions.h"
 #include "vec/io/io_helper.h"
@@ -67,9 +68,9 @@
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/functions/function.h"
-#include "vec/functions/function_string.h"
 #include "vec/functions/function_totype.h"
 #include "vec/functions/simple_function_factory.h"
+#include "vec/utils/stringop_substring.h"
 #include "vec/utils/template_helpers.hpp"
 
 namespace doris {
@@ -238,16 +239,20 @@ rapidjson::Value* get_json_object(std::string_view json_string, std::string_view
         return document;
     }
 
+    try {
 #ifdef USE_LIBCPP
-    std::string s(path_string);
-    auto tok = get_json_token(s);
+        std::string s(path_string);
+        auto tok = get_json_token(s);
 #else
-    auto tok = get_json_token(path_string);
+        auto tok = get_json_token(path_string);
 #endif
-
-    std::vector<std::string> paths(tok.begin(), tok.end());
-    get_parsed_paths(paths, &tmp_parsed_paths);
-    if (tmp_parsed_paths.empty()) {
+        std::vector<std::string> paths(tok.begin(), tok.end());
+        get_parsed_paths(paths, &tmp_parsed_paths);
+        if (tmp_parsed_paths.empty()) {
+            return document;
+        }
+    } catch (boost::escaped_list_error&) {
+        // meet unknown escape sequence, example '$.name\k'
         return document;
     }
 
@@ -645,7 +650,7 @@ struct FunctionJsonArrayImpl {
                               rapidjson::Document::AllocatorType& allocator,
                               const std::vector<const ColumnUInt8*>& nullmaps) {
         for (int i = 0; i < data_columns.size() - 1; i++) {
-            constexpr_int_match<'0', '6', Reducer>::run(type_flags[i], objects, allocator,
+            constexpr_int_match<'0', '7', Reducer>::run(type_flags[i], objects, allocator,
                                                         data_columns[i], nullmaps[i]);
         }
     }
@@ -845,8 +850,17 @@ struct FunctionJsonQuoteImpl {
     }
 };
 
-struct FunctionJsonExtractImpl {
+struct JsonExtractName {
     static constexpr auto name = "json_extract";
+};
+
+struct JsonExtractNoQuotesName {
+    static constexpr auto name = "json_extract_no_quotes";
+};
+
+template <typename Name, bool remove_quotes>
+struct FunctionJsonExtractImpl {
+    static constexpr auto name = Name::name;
 
     static rapidjson::Value parse_json(const ColumnString* json_col, const ColumnString* path_col,
                                        rapidjson::Document::AllocatorType& allocator,
@@ -909,11 +923,20 @@ struct FunctionJsonExtractImpl {
                 null_map[row] = 1;
                 result_column.insert_default();
             } else {
-                // write value as string
-                buf.Clear();
-                writer.Reset(buf);
-                value.Accept(writer);
-                result_column.insert_data(buf.GetString(), buf.GetSize());
+                // Check if the value is a string
+                if (value.IsString() && remove_quotes) {
+                    // Get the string value without quotes
+                    const char* str_ptr = value.GetString();
+                    size_t len = value.GetStringLength();
+                    // Insert without quotes
+                    result_column.insert_data(str_ptr, len);
+                } else {
+                    // Write value as string for other types
+                    buf.Clear();
+                    writer.Reset(buf);
+                    value.Accept(writer);
+                    result_column.insert_data(buf.GetString(), buf.GetSize());
+                }
             }
         };
         if (data_columns.size() == 2) {
@@ -1523,7 +1546,7 @@ public:
                               const std::vector<const ColumnUInt8*>& nullmaps,
                               std::vector<bool>& column_is_consts) {
         for (auto col = 1; col + 1 < data_columns.size() - 1; col += 2) {
-            constexpr_int_match<'0', '6', Reducer>::run(
+            constexpr_int_match<'0', '7', Reducer>::run(
                     type_flags[col + 1], objects, json_paths[col / 2], data_columns[col + 1],
                     nullmaps[col + 1], column_is_consts[col + 1]);
         }
@@ -1654,7 +1677,10 @@ void register_function_json(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionJsonAlwaysNotNullable<FunctionJsonArrayImpl>>();
     factory.register_function<FunctionJsonAlwaysNotNullable<FunctionJsonObjectImpl>>();
     factory.register_function<FunctionJson<FunctionJsonQuoteImpl>>();
-    factory.register_function<FunctionJsonNullable<FunctionJsonExtractImpl>>();
+    factory.register_function<
+            FunctionJsonNullable<FunctionJsonExtractImpl<JsonExtractName, false>>>();
+    factory.register_function<
+            FunctionJsonNullable<FunctionJsonExtractImpl<JsonExtractNoQuotesName, true>>>();
 
     factory.register_function<FunctionJsonValid>();
     factory.register_function<FunctionJsonContains>();

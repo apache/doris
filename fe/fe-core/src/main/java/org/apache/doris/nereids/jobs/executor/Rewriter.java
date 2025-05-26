@@ -25,7 +25,6 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.analysis.AdjustAggregateNullableForEmptySet;
 import org.apache.doris.nereids.rules.analysis.AvgDistinctToSumDivCount;
 import org.apache.doris.nereids.rules.analysis.CheckAfterRewrite;
-import org.apache.doris.nereids.rules.analysis.EliminateGroupByConstant;
 import org.apache.doris.nereids.rules.analysis.LogicalSubQueryAliasToLogicalProject;
 import org.apache.doris.nereids.rules.analysis.NormalizeAggregate;
 import org.apache.doris.nereids.rules.expression.CheckLegalityAfterRewrite;
@@ -37,7 +36,6 @@ import org.apache.doris.nereids.rules.rewrite.AddDefaultLimit;
 import org.apache.doris.nereids.rules.rewrite.AddProjectForJoin;
 import org.apache.doris.nereids.rules.rewrite.AdjustConjunctsReturnType;
 import org.apache.doris.nereids.rules.rewrite.AdjustNullable;
-import org.apache.doris.nereids.rules.rewrite.AdjustPreAggStatus;
 import org.apache.doris.nereids.rules.rewrite.AggScalarSubQueryToWindowFunction;
 import org.apache.doris.nereids.rules.rewrite.BuildAggForUnion;
 import org.apache.doris.nereids.rules.rewrite.CTEInline;
@@ -50,6 +48,7 @@ import org.apache.doris.nereids.rules.rewrite.CheckRestorePartition;
 import org.apache.doris.nereids.rules.rewrite.ClearContextStatus;
 import org.apache.doris.nereids.rules.rewrite.CollectCteConsumerOutput;
 import org.apache.doris.nereids.rules.rewrite.CollectFilterAboveConsumer;
+import org.apache.doris.nereids.rules.rewrite.CollectPredicateOnScan;
 import org.apache.doris.nereids.rules.rewrite.ColumnPruning;
 import org.apache.doris.nereids.rules.rewrite.ConvertInnerOrCrossJoin;
 import org.apache.doris.nereids.rules.rewrite.CountDistinctRewrite;
@@ -140,6 +139,7 @@ import org.apache.doris.nereids.rules.rewrite.PushProjectThroughUnion;
 import org.apache.doris.nereids.rules.rewrite.ReduceAggregateChildOutputRows;
 import org.apache.doris.nereids.rules.rewrite.ReorderJoin;
 import org.apache.doris.nereids.rules.rewrite.RewriteCteChildren;
+import org.apache.doris.nereids.rules.rewrite.SetPreAggStatus;
 import org.apache.doris.nereids.rules.rewrite.SimplifyEncodeDecode;
 import org.apache.doris.nereids.rules.rewrite.SimplifyWindowExpression;
 import org.apache.doris.nereids.rules.rewrite.SplitLimit;
@@ -173,10 +173,13 @@ public class Rewriter extends AbstractBatchJobExecutor {
             ImmutableSet.of(LogicalCTEAnchor.class),
             () -> jobs(
                 topic("Plan Normalization",
+                        // move MergeProjects rule from analyze phase
+                        // because SubqueryToApply and BindSink rule may create extra project node
+                        // we need merge them at the beginning of rewrite phase to let later rules happy
+                        topDown(new MergeProjects()),
                         topDown(
                                 new EliminateOrderByConstant(),
                                 new EliminateSortUnderSubqueryOrView(),
-                                new EliminateGroupByConstant(),
                                 // MergeProjects depends on this rule
                                 new LogicalSubQueryAliasToLogicalProject(),
                                 // TODO: we should do expression normalization after plan normalization
@@ -437,7 +440,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         custom(RuleType.ELIMINATE_UNNECESSARY_PROJECT, EliminateUnnecessaryProject::new)
                 ),
                 topic("adjust preagg status",
-                        topDown(new AdjustPreAggStatus())
+                        custom(RuleType.SET_PREAGG_STATUS, SetPreAggStatus::new)
                 ),
                 topic("Point query short circuit",
                         topDown(new LogicalResultSinkToShortCircuitPointQuery())),
@@ -460,6 +463,10 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     // these rules should be put after mv optimization to avoid mv matching fail
                     topDown(new SumLiteralRewrite(),
                             new MergePercentileToArray())
+                ),
+                topic("collect scan filter for hbo",
+                    // this rule is to collect filter on basic table for hbo usage
+                    topDown(new CollectPredicateOnScan())
                 ),
                 topic("Push project and filter on cte consumer to cte producer",
                         topDown(

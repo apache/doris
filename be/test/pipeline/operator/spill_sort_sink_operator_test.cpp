@@ -60,7 +60,7 @@ TEST_F(SpillSortSinkOperatorTest, Basic) {
                              .parent_profile = _helper.runtime_profile.get(),
                              .sender_id = 0,
                              .shared_state = shared_state.get(),
-                             .le_state_map = {},
+                             .shared_state_map = {},
                              .tsink = {}};
 
     st = sink_operator->setup_local_state(_helper.runtime_state.get(), info);
@@ -112,7 +112,7 @@ TEST_F(SpillSortSinkOperatorTest, Sink) {
                              .parent_profile = _helper.runtime_profile.get(),
                              .sender_id = 0,
                              .shared_state = shared_state.get(),
-                             .le_state_map = {},
+                             .shared_state_map = {},
                              .tsink = {}};
 
     st = sink_operator->setup_local_state(_helper.runtime_state.get(), info);
@@ -209,7 +209,7 @@ TEST_F(SpillSortSinkOperatorTest, SinkWithSpill) {
                              .parent_profile = _helper.runtime_profile.get(),
                              .sender_id = 0,
                              .shared_state = shared_state.get(),
-                             .le_state_map = {},
+                             .shared_state_map = {},
                              .tsink = {}};
 
     st = sink_operator->setup_local_state(_helper.runtime_state.get(), info);
@@ -287,7 +287,7 @@ TEST_F(SpillSortSinkOperatorTest, SinkWithSpill2) {
                              .parent_profile = _helper.runtime_profile.get(),
                              .sender_id = 0,
                              .shared_state = shared_state.get(),
-                             .le_state_map = {},
+                             .shared_state_map = {},
                              .tsink = {}};
 
     st = sink_operator->setup_local_state(_helper.runtime_state.get(), info);
@@ -349,7 +349,7 @@ TEST_F(SpillSortSinkOperatorTest, SinkWithSpillError) {
                              .parent_profile = _helper.runtime_profile.get(),
                              .sender_id = 0,
                              .shared_state = shared_state.get(),
-                             .le_state_map = {},
+                             .shared_state_map = {},
                              .tsink = {}};
 
     st = sink_operator->setup_local_state(_helper.runtime_state.get(), info);

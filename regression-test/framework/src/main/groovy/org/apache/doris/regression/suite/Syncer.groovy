@@ -379,7 +379,7 @@ class Syncer {
         String checkSQL = "SHOW BACKUP FROM ${dbName}"
         def records = suite.sql(checkSQL)
         def allDone = true
-        for (row in records) {
+        for (def row in records) {
             logger.info("BACKUP row is ${row}")
             String state = (row[3] as String);
             if (state != "FINISHED" && state != "CANCELLED") {
@@ -402,7 +402,7 @@ class Syncer {
 
     String getSnapshotTimestamp(String repoName, String snapshotName) {
         def filterShowSnapshot = { records, name ->
-            for (row in records) {
+            for (def row in records) {
                 logger.info("Snapshot row is ${row}")
                 if (row[0] == name && row[1] != "null") {
                     return row
@@ -429,7 +429,7 @@ class Syncer {
         String checkSQL = "SHOW RESTORE FROM ${dbName}"
         def records = suite.sql(checkSQL)
         def allDone = true
-        for (row in records) {
+        for (def row in records) {
             logger.info("Restore row is ${row}")
             String state = row[4]
             if (state != "FINISHED" && state != "CANCELLED") {
@@ -437,6 +437,36 @@ class Syncer {
             }
         }
         allDone
+    }
+
+    Boolean checkRestoreError(String dbName = null, String message = null) {
+        if (dbName == null) {
+            dbName = context.db
+        }
+        String checkSQL = "SHOW RESTORE FROM ${dbName}"
+        def records = suite.sql(checkSQL)
+        def haveError = false
+        def expectMessage = (message == null)
+        for (def row in records) {
+            logger.info("Restore row is ${row}")
+            String mess = row[19]
+            haveError = mess != "[OK]"
+            if (haveError && message != null) {
+                expectMessage = mess.contains(message)
+            }
+        }
+        (haveError && expectMessage)
+    }
+
+    void waitRestoreError(String dbName = null, String message = null) {
+        int count = 0;
+        while (!checkRestoreError(dbName, message)) {
+            if (++count >= 600) {  // 30min
+                logger.error('RESTORE task is timeouted')
+                throw new Exception("RESTORE task is timeouted after 30mins")
+            }
+            Thread.sleep(3000)
+        }
     }
 
     void waitAllRestoreFinish(String dbName = null) {
@@ -944,6 +974,29 @@ class Syncer {
         (
             "fs.defaultFS" = "${hdfsFs}",
             "hadoop.username" = "${hdfsUser}"
+        )
+        """
+    }
+
+    void createS3RepositoryWithRole(String name, boolean readOnly = false) {
+        String roleArn = suite.context.config.awsRoleArn
+        String externalId = suite.context.config.awsExternalId
+        String endpoint = suite.context.config.awsEndpoint
+        String region = suite.context.config.awsRegion
+        String bucket = suite.context.config.awsBucket
+        String prefix = suite.context.config.awsPrefix
+
+        suite.try_sql "DROP REPOSITORY `${name}`"
+        suite.sql """
+        CREATE ${readOnly ? "READ ONLY" : ""} REPOSITORY `${name}`
+        WITH S3
+        ON LOCATION "s3://${bucket}/${prefix}/aws_iam_role_p0/${name}"
+        PROPERTIES
+        (
+            "s3.endpoint" = "${endpoint}",
+            "s3.region" = "${region}",
+            "s3.role_arn" = "${roleArn}",
+            "s3.external_id" = "${externalId}"
         )
         """
     }

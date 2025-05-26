@@ -18,9 +18,9 @@
 #pragma once
 
 #include <variant>
-#include <vector>
 
-#include "vec/common/hash_table/hash_map_util.h"
+#include "vec/common/hash_table/hash_key_type.h"
+#include "vec/common/hash_table/hash_map_context.h"
 #include "vec/common/hash_table/join_hash_table.h"
 
 namespace doris {
@@ -61,7 +61,6 @@ struct JoinDataVariants {
     HashTableVariants method_variant;
 
     void init(const std::vector<vectorized::DataTypePtr>& data_types, HashKeyType type) {
-        // todo: support single column nullable context
         switch (type) {
         case HashKeyType::serialized:
             method_variant.emplace<SerializedHashTableContext>();

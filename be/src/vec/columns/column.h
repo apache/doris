@@ -20,24 +20,17 @@
 
 #pragma once
 
-#include <fmt/format.h>
-#include <glog/logging.h>
-#include <sys/types.h>
-
 #include <cstdint>
 #include <functional>
-#include <ostream>
 #include <string>
 #include <type_traits>
 #include <utility>
 #include <vector>
 
 #include "common/status.h"
-#include "gutil/integral_types.h"
 #include "olap/olap_common.h"
 #include "runtime/define_primitive_type.h"
 #include "vec/common/cow.h"
-#include "vec/common/custom_allocator.h"
 #include "vec/common/pod_array_fwd.h"
 #include "vec/common/string_ref.h"
 #include "vec/common/typeid_cast.h"
@@ -181,6 +174,18 @@ public:
         MutablePtr res = clone_empty();
         res->insert_range_from(*this, start, length);
         return res;
+    }
+
+    /**
+    * erase data from 'start' and length elements from the column.
+    * @param length The number of elements to remove from the start position of the column
+    * @throws doris::Exception with NOT_IMPLEMENTED_ERROR if the operation is not supported
+    *         for this column type
+    * eg: erase(3, 2) means remove the idx 3 and 4 elements (0-based)
+    */
+    virtual void erase(size_t start, size_t length) {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "Method erase is not supported for " + get_name());
     }
 
     /// cut or expand inplace. `this` would be moved, only the return value is avaliable.

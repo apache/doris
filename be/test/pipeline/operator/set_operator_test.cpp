@@ -78,7 +78,7 @@ struct SetOperatorTest : public ::testing::Test {
             LocalStateInfo info {.parent_profile = &profile,
                                  .scan_ranges = {},
                                  .shared_state = shared_state_sptr.get(),
-                                 .le_state_map = {},
+                                 .shared_state_map = {},
                                  .task_idx = 0};
             EXPECT_TRUE(source_local_state->init(state.get(), info));
             state->resize_op_id_to_local_state(-100);
@@ -91,7 +91,7 @@ struct SetOperatorTest : public ::testing::Test {
                                      .parent_profile = &profile,
                                      .sender_id = 0,
                                      .shared_state = shared_state_sptr.get(),
-                                     .le_state_map = {},
+                                     .shared_state_map = {},
                                      .tsink = TDataSink {}};
             EXPECT_TRUE(sink_local_state->init(state.get(), info));
             state->emplace_sink_local_state(sink_op->operator_id(),
@@ -112,7 +112,7 @@ struct SetOperatorTest : public ::testing::Test {
                                      .parent_profile = &profile,
                                      .sender_id = 0,
                                      .shared_state = shared_state_sptr.get(),
-                                     .le_state_map = {},
+                                     .shared_state_map = {},
                                      .tsink = TDataSink {}};
             EXPECT_TRUE(probe_sink_local_state[i]->init(states[i].get(), info));
             states[i]->emplace_sink_local_state(probe_sink_ops[i]->operator_id(),

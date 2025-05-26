@@ -19,7 +19,6 @@ package org.apache.doris.nereids.rules.exploration.mv;
 
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.Pair;
 import org.apache.doris.mtmv.MTMVCache;
@@ -102,7 +101,7 @@ public class AsyncMaterializationContext extends MaterializationContext {
         MTMVCache mtmvCache;
         try {
             mtmvCache = mtmv.getOrGenerateCache(cascadesContext.getConnectContext());
-        } catch (AnalysisException e) {
+        } catch (Exception e) {
             LOG.warn(String.format("get mv plan statistics fail, materialization qualifier is %s",
                     generateMaterializationIdentifier()), e);
             return Optional.empty();

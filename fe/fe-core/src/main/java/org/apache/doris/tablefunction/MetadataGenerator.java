@@ -63,6 +63,7 @@ import org.apache.doris.datasource.hudi.source.HudiMetadataCacheMgr;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergMetadataCache;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
+import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.job.common.JobType;
 import org.apache.doris.job.extensions.mtmv.MTMVJob;
 import org.apache.doris.job.task.AbstractTask;
@@ -628,7 +629,7 @@ public class MetadataGenerator {
             trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(13))));
             trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(14))); // spill low watermark
             trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(15))); // spill high watermark
-            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(16))); // tag
+            trow.addToColumnValue(new TCell().setStringVal(rGroupsInfo.get(16))); // compute group
             trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(17)))); // read bytes per second
             trow.addToColumnValue(
                     new TCell().setLongVal(Long.valueOf(rGroupsInfo.get(18)))); // remote read bytes per second
@@ -789,7 +790,7 @@ public class MetadataGenerator {
         List<Pair<String, Integer>> frontends = FrontendsProcNode.getFrontendWithRpcPort(Env.getCurrentEnv(), false);
 
         FrontendService.Client client = null;
-        int waitTimeOut = ConnectContext.get() == null ? 300 : ConnectContext.get().getExecTimeout();
+        int waitTimeOut = ConnectContext.get() == null ? 300 : ConnectContext.get().getExecTimeoutS();
         for (Pair<String, Integer> fe : frontends) {
             TNetworkAddress thriftAddress = new TNetworkAddress(fe.key(), fe.value());
             try {
@@ -1672,7 +1673,7 @@ public class MetadataGenerator {
         HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
                 .getMetaStoreCache((HMSExternalCatalog) tbl.getCatalog());
         HiveMetaStoreCache.HivePartitionValues hivePartitionValues = cache.getPartitionValues(
-                tbl.getDbName(), tbl.getName(), tbl.getPartitionColumnTypes());
+                tbl.getDbName(), tbl.getName(), tbl.getPartitionColumnTypes(MvccUtil.getSnapshotFromContext(tbl)));
         Map<Long, List<String>> valuesMap = hivePartitionValues.getPartitionValuesMap();
         List<TRow> dataBatch = Lists.newArrayList();
         for (Map.Entry<Long, List<String>> entry : valuesMap.entrySet()) {

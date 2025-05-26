@@ -46,7 +46,6 @@ class RuntimeFilterProducerHelperTest : public RuntimeFilterTest {
         for (int i = 0; i < INSTANCE_NUM; i++) {
             _tasks.emplace_back(new pipeline::PipelineTask(_pipeline, 0, _runtime_states[i].get(),
                                                            nullptr, &_profile, {}, 0));
-            _runtime_states[i]->set_task(_tasks.back().get());
         }
     }
 
@@ -58,7 +57,7 @@ class RuntimeFilterProducerHelperTest : public RuntimeFilterTest {
 };
 
 TEST_F(RuntimeFilterProducerHelperTest, basic) {
-    auto helper = RuntimeFilterProducerHelper(&_profile, true, false);
+    auto helper = RuntimeFilterProducerHelper(true, false);
 
     vectorized::VExprContextSPtr ctx;
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(vectorized::VExpr::create_expr_tree(
@@ -72,17 +71,18 @@ TEST_F(RuntimeFilterProducerHelperTest, basic) {
 
     vectorized::Block block;
     auto column = vectorized::ColumnInt32::create();
-    column->insert(1);
-    column->insert(2);
+    column->insert(vectorized::Field::create_field<TYPE_INT>(1));
+    column->insert(vectorized::Field::create_field<TYPE_INT>(2));
     block.insert({std::move(column), std::make_shared<vectorized::DataTypeInt32>(), "col1"});
 
-    vectorized::SharedHashTableContextPtr shared_hash_table_ctx;
+    std::map<int, std::shared_ptr<RuntimeFilterWrapper>> runtime_filters;
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
-            helper.process(_runtime_states[0].get(), &block, shared_hash_table_ctx));
+            helper.build(_runtime_states[0].get(), &block, false, runtime_filters));
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(helper.publish(_runtime_states[0].get()));
 }
 
 TEST_F(RuntimeFilterProducerHelperTest, wake_up_eraly) {
-    auto helper = RuntimeFilterProducerHelper(&_profile, true, false);
+    auto helper = RuntimeFilterProducerHelper(true, false);
 
     vectorized::VExprContextSPtr ctx;
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(vectorized::VExpr::create_expr_tree(
@@ -97,18 +97,16 @@ TEST_F(RuntimeFilterProducerHelperTest, wake_up_eraly) {
 
     vectorized::Block block;
     auto column = vectorized::ColumnInt32::create();
-    column->insert(1);
-    column->insert(2);
+    column->insert(vectorized::Field::create_field<TYPE_INT>(1));
+    column->insert(vectorized::Field::create_field<TYPE_INT>(2));
     block.insert({std::move(column), std::make_shared<vectorized::DataTypeInt32>(), "col1"});
 
-    vectorized::SharedHashTableContextPtr shared_hash_table_ctx;
     _tasks[0]->set_wake_up_early();
-    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
-            helper.process(_runtime_states[0].get(), &block, shared_hash_table_ctx));
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(helper.terminate(_runtime_states[0].get()));
 }
 
 TEST_F(RuntimeFilterProducerHelperTest, skip_process) {
-    auto helper = RuntimeFilterProducerHelper(&_profile, true, false);
+    auto helper = RuntimeFilterProducerHelper(true, false);
 
     vectorized::VExprContextSPtr ctx;
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(vectorized::VExpr::create_expr_tree(
@@ -128,17 +126,18 @@ TEST_F(RuntimeFilterProducerHelperTest, skip_process) {
 
     vectorized::Block block;
     auto column = vectorized::ColumnInt32::create();
-    column->insert(1);
-    column->insert(2);
+    column->insert(vectorized::Field::create_field<TYPE_INT>(1));
+    column->insert(vectorized::Field::create_field<TYPE_INT>(2));
     block.insert({std::move(column), std::make_shared<vectorized::DataTypeInt32>(), "col1"});
 
-    vectorized::SharedHashTableContextPtr shared_hash_table_ctx;
+    std::map<int, std::shared_ptr<RuntimeFilterWrapper>> runtime_filters;
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
-            helper.process(_runtime_states[0].get(), &block, shared_hash_table_ctx));
+            helper.build(_runtime_states[0].get(), &block, false, runtime_filters));
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(helper.publish(_runtime_states[0].get()));
 }
 
 TEST_F(RuntimeFilterProducerHelperTest, broadcast) {
-    auto helper = RuntimeFilterProducerHelper(&_profile, true, true);
+    auto helper = RuntimeFilterProducerHelper(true, true);
 
     vectorized::VExprContextSPtr ctx;
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(vectorized::VExpr::create_expr_tree(
@@ -152,20 +151,21 @@ TEST_F(RuntimeFilterProducerHelperTest, broadcast) {
 
     vectorized::Block block;
     auto column = vectorized::ColumnInt32::create();
-    column->insert(1);
-    column->insert(2);
+    column->insert(vectorized::Field::create_field<TYPE_INT>(1));
+    column->insert(vectorized::Field::create_field<TYPE_INT>(2));
     block.insert({std::move(column), std::make_shared<vectorized::DataTypeInt32>(), "col1"});
 
-    vectorized::SharedHashTableContextPtr shared_hash_table_ctx =
-            std::make_shared<vectorized::SharedHashTableContext>();
+    std::map<int, std::shared_ptr<RuntimeFilterWrapper>> runtime_filters;
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
-            helper.process(_runtime_states[0].get(), &block, shared_hash_table_ctx));
+            helper.build(_runtime_states[0].get(), &block, true, runtime_filters));
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(helper.publish(_runtime_states[0].get()));
 
-    auto helper2 = RuntimeFilterProducerHelper(&_profile, false, true);
+    auto helper2 = RuntimeFilterProducerHelper(false, true);
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
             helper2.init(_runtime_states[1].get(), build_expr_ctxs, runtime_filter_descs));
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
-            helper2.process(_runtime_states[1].get(), &block, shared_hash_table_ctx));
+            helper2.build(_runtime_states[1].get(), &block, true, runtime_filters));
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(helper2.publish(_runtime_states[1].get()));
 }
 
 } // namespace doris

@@ -47,8 +47,7 @@
 #include "vec/functions/array/function_array_mapped.h"
 #include "vec/functions/simple_function_factory.h"
 
-namespace doris {
-namespace vectorized {
+namespace doris::vectorized {
 
 enum class AggregateOperation { MIN, MAX, SUM, AVERAGE, PRODUCT };
 
@@ -111,28 +110,36 @@ struct AggregateFunctionImpl;
 
 template <>
 struct AggregateFunctionImpl<AggregateOperation::SUM> {
-    template <typename Element>
+    template <PrimitiveType Element>
     struct TypeTraits {
-        using ResultType = ArrayAggregateResult<Element, AggregateOperation::SUM>;
+        using ResultType =
+                ArrayAggregateResult<typename PrimitiveTypeTraits<Element>::ColumnItemType,
+                                     AggregateOperation::SUM>;
         using AggregateDataType = AggregateFunctionSumData<ResultType>;
-        using Function = AggregateFunctionSum<Element, ResultType, AggregateDataType>;
+        using Function = AggregateFunctionSum<typename PrimitiveTypeTraits<Element>::ColumnItemType,
+                                              ResultType, AggregateDataType>;
     };
 };
 template <>
 struct AggregateFunctionImpl<AggregateOperation::SUM, true> {
-    template <typename Element>
+    template <PrimitiveType Element>
     struct TypeTraits {
-        using ResultType = ArrayAggregateResult<Element, AggregateOperation::SUM, true>;
+        using ResultType =
+                ArrayAggregateResult<typename PrimitiveTypeTraits<Element>::ColumnItemType,
+                                     AggregateOperation::SUM, true>;
         using AggregateDataType = AggregateFunctionSumData<ResultType>;
-        using Function = AggregateFunctionSum<Element, ResultType, AggregateDataType>;
+        using Function = AggregateFunctionSum<typename PrimitiveTypeTraits<Element>::ColumnItemType,
+                                              ResultType, AggregateDataType>;
     };
 };
 
 template <>
 struct AggregateFunctionImpl<AggregateOperation::AVERAGE> {
-    template <typename Element>
+    template <PrimitiveType Element>
     struct TypeTraits {
-        using ResultType = ArrayAggregateResult<Element, AggregateOperation::AVERAGE>;
+        using ResultType =
+                ArrayAggregateResult<typename PrimitiveTypeTraits<Element>::ColumnItemType,
+                                     AggregateOperation::AVERAGE>;
         using AggregateDataType = AggregateFunctionAvgData<ResultType>;
         using Function = AggregateFunctionAvg<Element, AggregateDataType>;
         static_assert(std::is_same_v<ResultType, typename Function::ResultType>,
@@ -142,9 +149,11 @@ struct AggregateFunctionImpl<AggregateOperation::AVERAGE> {
 
 template <>
 struct AggregateFunctionImpl<AggregateOperation::AVERAGE, true> {
-    template <typename Element>
+    template <PrimitiveType Element>
     struct TypeTraits {
-        using ResultType = ArrayAggregateResult<Element, AggregateOperation::AVERAGE, true>;
+        using ResultType =
+                ArrayAggregateResult<typename PrimitiveTypeTraits<Element>::ColumnItemType,
+                                     AggregateOperation::AVERAGE, true>;
         using AggregateDataType = AggregateFunctionAvgData<ResultType>;
         using Function = AggregateFunctionAvg<Element, AggregateDataType>;
         static_assert(std::is_same_v<ResultType, typename Function::ResultType>,
@@ -154,27 +163,35 @@ struct AggregateFunctionImpl<AggregateOperation::AVERAGE, true> {
 
 template <>
 struct AggregateFunctionImpl<AggregateOperation::PRODUCT> {
-    template <typename Element>
+    template <PrimitiveType Element>
     struct TypeTraits {
-        using ResultType = ArrayAggregateResult<Element, AggregateOperation::PRODUCT>;
+        using ResultType =
+                ArrayAggregateResult<typename PrimitiveTypeTraits<Element>::ColumnItemType,
+                                     AggregateOperation::PRODUCT>;
         using AggregateDataType = AggregateFunctionProductData<ResultType>;
-        using Function = AggregateFunctionProduct<Element, ResultType, AggregateDataType>;
+        using Function =
+                AggregateFunctionProduct<typename PrimitiveTypeTraits<Element>::ColumnItemType,
+                                         ResultType, AggregateDataType>;
     };
 };
 
 template <>
 struct AggregateFunctionImpl<AggregateOperation::PRODUCT, true> {
-    template <typename Element>
+    template <PrimitiveType Element>
     struct TypeTraits {
-        using ResultType = ArrayAggregateResult<Element, AggregateOperation::PRODUCT, true>;
+        using ResultType =
+                ArrayAggregateResult<typename PrimitiveTypeTraits<Element>::ColumnItemType,
+                                     AggregateOperation::PRODUCT, true>;
         using AggregateDataType = AggregateFunctionProductData<ResultType>;
-        using Function = AggregateFunctionProduct<Element, ResultType, AggregateDataType>;
+        using Function =
+                AggregateFunctionProduct<typename PrimitiveTypeTraits<Element>::ColumnItemType,
+                                         ResultType, AggregateDataType>;
     };
 };
 
 template <typename Derived>
 struct AggregateFunction {
-    template <typename T>
+    template <PrimitiveType T>
     using Function = typename Derived::template TypeTraits<T>::Function;
 
     static auto create(const DataTypePtr& data_type_ptr) -> AggregateFunctionPtr {
@@ -366,5 +383,4 @@ void register_function_array_aggregation(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionArrayJoin>();
 }
 
-} // namespace vectorized
-} // namespace doris
+} // namespace doris::vectorized

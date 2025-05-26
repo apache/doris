@@ -57,6 +57,7 @@ import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.InitDatabaseLog;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.MetaIdMappingsLog;
+import org.apache.doris.dictionary.Dictionary;
 import org.apache.doris.ha.MasterInfo;
 import org.apache.doris.insertoverwrite.InsertOverwriteLog;
 import org.apache.doris.job.base.AbstractJob;
@@ -849,6 +850,7 @@ public class EditLog {
                 case OperationType.OP_MODIFY_DISTRIBUTION_TYPE: {
                     TableInfo tableInfo = (TableInfo) journal.getData();
                     env.replayConvertDistributionType(tableInfo);
+                    env.getBinlogManager().addModifyDistributionType(tableInfo, logId);
                     break;
                 }
                 case OperationType.OP_DYNAMIC_PARTITION:
@@ -864,6 +866,7 @@ public class EditLog {
                     ModifyTableDefaultDistributionBucketNumOperationLog log =
                             (ModifyTableDefaultDistributionBucketNumOperationLog) journal.getData();
                     env.replayModifyTableDefaultDistributionBucketNum(log);
+                    env.getBinlogManager().addModifyDistributionNum(log, logId);
                     break;
                 }
                 case OperationType.OP_REPLACE_TEMP_PARTITION: {
@@ -1262,6 +1265,26 @@ public class EditLog {
                 case OperationType.OP_UPDATE_CLOUD_REPLICA: {
                     UpdateCloudReplicaInfo info = (UpdateCloudReplicaInfo) journal.getData();
                     ((CloudEnv) env).replayUpdateCloudReplica(info);
+                    break;
+                }
+                case OperationType.OP_CREATE_DICTIONARY: {
+                    CreateDictionaryPersistInfo info = (CreateDictionaryPersistInfo) journal.getData();
+                    env.getDictionaryManager().replayCreateDictionary(info);
+                    break;
+                }
+                case OperationType.OP_DROP_DICTIONARY: {
+                    DropDictionaryPersistInfo info = (DropDictionaryPersistInfo) journal.getData();
+                    env.getDictionaryManager().replayDropDictionary(info);
+                    break;
+                }
+                case OperationType.OP_DICTIONARY_INC_VERSION: {
+                    DictionaryIncreaseVersionInfo info = (DictionaryIncreaseVersionInfo) journal.getData();
+                    env.getDictionaryManager().replayIncreaseVersion(info);
+                    break;
+                }
+                case OperationType.OP_DICTIONARY_DEC_VERSION: {
+                    DictionaryDecreaseVersionInfo info = (DictionaryDecreaseVersionInfo) journal.getData();
+                    env.getDictionaryManager().replayDecreaseVersion(info);
                     break;
                 }
                 default: {
@@ -1936,7 +1959,9 @@ public class EditLog {
     }
 
     public void logModifyDistributionType(TableInfo tableInfo) {
-        logEdit(OperationType.OP_MODIFY_DISTRIBUTION_TYPE, tableInfo);
+        long logId = logEdit(OperationType.OP_MODIFY_DISTRIBUTION_TYPE, tableInfo);
+        LOG.info("add modify distribution type binlog, logId: {}, infos: {}", logId, tableInfo);
+        Env.getCurrentEnv().getBinlogManager().addModifyDistributionType(tableInfo, logId);
     }
 
     public void logModifyCloudWarmUpJob(CloudWarmUpJob cloudWarmUpJob) {
@@ -1957,8 +1982,10 @@ public class EditLog {
         return logModifyTableProperty(OperationType.OP_MODIFY_REPLICATION_NUM, info);
     }
 
-    public void logModifyDefaultDistributionBucketNum(ModifyTableDefaultDistributionBucketNumOperationLog info) {
-        logEdit(OperationType.OP_MODIFY_DISTRIBUTION_BUCKET_NUM, info);
+    public void logModifyDefaultDistributionBucketNum(ModifyTableDefaultDistributionBucketNumOperationLog log) {
+        long logId = logEdit(OperationType.OP_MODIFY_DISTRIBUTION_BUCKET_NUM, log);
+        LOG.info("add modify distribution bucket num binlog, logId: {}, infos: {}", logId, log);
+        Env.getCurrentEnv().getBinlogManager().addModifyDistributionNum(log, logId);
     }
 
     public long logModifyTableProperties(ModifyTablePropertyOperationLog info) {
@@ -2235,5 +2262,21 @@ public class EditLog {
 
     private boolean exceedMaxJournalSize(short op, Writable writable) throws IOException {
         return journal.exceedMaxJournalSize(op, writable);
+    }
+
+    public void logCreateDictionary(Dictionary dictionary) {
+        logEdit(OperationType.OP_CREATE_DICTIONARY, new CreateDictionaryPersistInfo(dictionary));
+    }
+
+    public void logDropDictionary(String dbName, String dictionaryName) {
+        logEdit(OperationType.OP_DROP_DICTIONARY, new DropDictionaryPersistInfo(dbName, dictionaryName));
+    }
+
+    public void logDictionaryIncVersion(Dictionary dictionary) {
+        logEdit(OperationType.OP_DICTIONARY_INC_VERSION, new DictionaryIncreaseVersionInfo(dictionary));
+    }
+
+    public void logDictionaryDecVersion(Dictionary dictionary) {
+        logEdit(OperationType.OP_DICTIONARY_DEC_VERSION, new DictionaryDecreaseVersionInfo(dictionary));
     }
 }

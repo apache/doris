@@ -37,7 +37,6 @@ using HashTableCtxVariants =
                      ProcessHashTableProbe<TJoinOp::LEFT_OUTER_JOIN>,
                      ProcessHashTableProbe<TJoinOp::FULL_OUTER_JOIN>,
                      ProcessHashTableProbe<TJoinOp::RIGHT_OUTER_JOIN>,
-                     ProcessHashTableProbe<TJoinOp::CROSS_JOIN>,
                      ProcessHashTableProbe<TJoinOp::RIGHT_SEMI_JOIN>,
                      ProcessHashTableProbe<TJoinOp::RIGHT_ANTI_JOIN>,
                      ProcessHashTableProbe<TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN>,
@@ -107,7 +106,7 @@ private:
     std::unique_ptr<HashTableCtxVariants> _process_hashtable_ctx_variants =
             std::make_unique<HashTableCtxVariants>();
 
-    ssize_t _estimated_mem_in_push = -1;
+    int _task_idx;
 
     RuntimeProfile::Counter* _probe_expr_call_timer = nullptr;
     RuntimeProfile::Counter* _probe_side_output_timer = nullptr;
@@ -143,6 +142,7 @@ public:
                                                      _partition_exprs)
                                   : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs));
     }
+    bool is_broadcast_join() const { return _is_broadcast_join; }
 
     bool is_shuffled_operator() const override {
         return _join_distribution == TJoinDistributionType::PARTITIONED;
@@ -154,8 +154,11 @@ public:
 
     bool need_finalize_variant_column() const { return _need_finalize_variant_column; }
 
+    bool can_do_lazy_materialized() const { return _have_other_join_conjunct || _is_mark_join; }
+
     bool is_lazy_materialized_column(int column_id) const {
-        return _have_other_join_conjunct && !_other_conjunct_refer_column_ids.contains(column_id);
+        return can_do_lazy_materialized() &&
+               !_should_not_lazy_materialized_column_ids.contains(column_id);
     }
 
 private:
@@ -173,6 +176,8 @@ private:
     vectorized::VExprContextSPtrs _other_join_conjuncts;
 
     vectorized::VExprContextSPtrs _mark_join_conjuncts;
+    // mark the build hash table whether it needs to store null value
+    std::vector<bool> _serialize_null_into_key;
 
     // probe expr
     vectorized::VExprContextSPtrs _probe_expr_ctxs;
@@ -183,9 +188,12 @@ private:
     std::vector<bool> _left_output_slot_flags;
     std::vector<bool> _right_output_slot_flags;
     bool _need_finalize_variant_column = false;
-    std::set<int> _other_conjunct_refer_column_ids;
+    std::set<int> _should_not_lazy_materialized_column_ids;
     std::vector<std::string> _right_table_column_names;
     const std::vector<TExpr> _partition_exprs;
+
+    // Index of column(slot) from right table in the `_intermediate_row_desc`.
+    size_t _right_col_idx;
 };
 
 } // namespace pipeline

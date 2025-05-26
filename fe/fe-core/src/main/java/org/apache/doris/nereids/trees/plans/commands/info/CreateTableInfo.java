@@ -673,13 +673,10 @@ public class CreateTableInfo {
         if (!indexes.isEmpty()) {
             Set<String> distinct = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
             Set<Pair<IndexDef.IndexType, List<String>>> distinctCol = new HashSet<>();
-            boolean disableInvertedIndexV1ForVariant = false;
             TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat;
             try {
                 invertedIndexFileStorageFormat = PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(
                         new HashMap<>(properties));
-                disableInvertedIndexV1ForVariant = invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.V1
-                        && ConnectContext.get().getSessionVariable().getDisableInvertedIndexV1ForVaraint();
             } catch (Exception e) {
                 throw new AnalysisException(e.getMessage(), e.getCause());
             }
@@ -695,7 +692,7 @@ public class CreateTableInfo {
                     for (ColumnDefinition column : columns) {
                         if (column.getName().equalsIgnoreCase(indexColName)) {
                             indexDef.checkColumn(column, keysType, isEnableMergeOnWrite,
-                                    invertedIndexFileStorageFormat, disableInvertedIndexV1ForVariant);
+                                    invertedIndexFileStorageFormat);
                             found = true;
                             break;
                         }
@@ -785,13 +782,11 @@ public class CreateTableInfo {
             throw new AnalysisException("Do not support temporary table with rollup ");
         }
 
-        if (!Config.enable_odbc_mysql_broker_table && (engineName.equals(ENGINE_ODBC)
+        if ((engineName.equals(ENGINE_ODBC)
                 || engineName.equals(ENGINE_MYSQL) || engineName.equals(ENGINE_BROKER))) {
             throw new AnalysisException("odbc, mysql and broker table is no longer supported."
                     + " For odbc and mysql external table, use jdbc table or jdbc catalog instead."
-                    + " For broker table, use table valued function instead."
-                    + ". Or you can temporarily set 'enable_odbc_mysql_broker_table=true'"
-                    + " in fe.conf to reopen this feature.");
+                    + " For broker table, use table valued function instead.");
         }
     }
 

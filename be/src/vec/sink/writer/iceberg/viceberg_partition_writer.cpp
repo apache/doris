@@ -52,6 +52,9 @@ Status VIcebergPartitionWriter::open(RuntimeState* state, RuntimeProfile* profil
 
     io::FSPropertiesRef fs_properties(_write_info.file_type);
     fs_properties.properties = &_hadoop_conf;
+    if (!_write_info.broker_addresses.empty()) {
+        fs_properties.broker_addresses = &(_write_info.broker_addresses);
+    }
     io::FileDescription file_description = {
             .path = fmt::format("{}/{}", _write_info.write_path, _get_target_file_name()),
             .fs_name {}};
@@ -118,7 +121,8 @@ Status VIcebergPartitionWriter::close(const Status& status) {
         }
     }
     if (status_ok) {
-        _state->iceberg_commit_datas().emplace_back(_build_iceberg_commit_data());
+        auto commit_data = _build_iceberg_commit_data();
+        _state->add_iceberg_commit_datas(commit_data);
     }
     return result_status;
 }

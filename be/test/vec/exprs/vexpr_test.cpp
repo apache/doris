@@ -43,6 +43,7 @@
 #include "vec/columns/columns_number.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
+#include "vec/data_types/data_type_factory.hpp"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vliteral.h"
 #include "vec/runtime/vdatetime_value.h"
@@ -51,7 +52,10 @@
 TEST(TEST_VEXPR, ABSTEST) {
     doris::ObjectPool object_pool;
     doris::DescriptorTblBuilder builder(&object_pool);
-    builder.declare_tuple() << doris::TYPE_INT << doris::TYPE_DOUBLE;
+    builder.declare_tuple() << doris::vectorized::DataTypeFactory::instance().create_data_type(
+                                       doris::TYPE_INT, false)
+                            << doris::vectorized::DataTypeFactory::instance().create_data_type(
+                                       doris::TYPE_DOUBLE, false);
     doris::DescriptorTbl* desc_tbl = builder.build();
 
     auto tuple_desc = const_cast<doris::TupleDescriptor*>(desc_tbl->get_tuple_descriptor(0));
@@ -91,16 +95,15 @@ static doris::TupleDescriptor* create_tuple_desc(
     for (int i = 0; i < column_descs.size(); ++i) {
         TSlotDescriptor t_slot_desc;
         if (column_descs[i].type == TYPE_DECIMALV2) {
-            t_slot_desc.__set_slotType(TypeDescriptor::create_decimalv2_type(27, 9).to_thrift());
+            t_slot_desc.__set_slotType(vectorized::DataTypeFactory::instance()
+                                               .create_data_type(TYPE_DECIMALV2, false, 27, 9)
+                                               ->to_thrift());
         } else {
-            TypeDescriptor descriptor(column_descs[i].type);
-            if (column_descs[i].precision >= 0) {
-                descriptor.precision = column_descs[i].precision;
-            }
-            if (column_descs[i].scale >= 0) {
-                descriptor.scale = column_descs[i].scale;
-            }
-            t_slot_desc.__set_slotType(descriptor.to_thrift());
+            auto descriptor = vectorized::DataTypeFactory::instance().create_data_type(
+                    column_descs[i].type, false,
+                    column_descs[i].precision >= 0 ? column_descs[i].precision : 0,
+                    column_descs[i].scale >= 0 ? column_descs[i].scale : 0);
+            t_slot_desc.__set_slotType(descriptor->to_thrift());
         }
         t_slot_desc.__set_colName(column_descs[i].name);
         t_slot_desc.__set_columnPos(i);

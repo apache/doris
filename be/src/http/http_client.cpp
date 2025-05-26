@@ -17,6 +17,7 @@
 
 #include "http/http_client.h"
 
+#include <absl/strings/str_split.h>
 #include <glog/logging.h>
 #include <unistd.h>
 
@@ -111,8 +112,7 @@ private:
         bool has_file_name = false;
         bool has_file_size = false;
         std::string_view header = buf.substr(0, pos);
-        std::vector<std::string> headers =
-                strings::Split(header, "\r\n", strings::SkipWhitespace());
+        std::vector<std::string> headers = absl::StrSplit(header, "\r\n", absl::SkipWhitespace());
         for (auto& s : headers) {
             size_t header_pos = s.find(':');
             if (header_pos == std::string::npos) {
@@ -455,6 +455,13 @@ Status HttpClient::get_content_md5(std::string* md5) const {
 Status HttpClient::download(const std::string& local_path) {
     set_method(GET);
     set_speed_limit();
+
+    // remove the file if it exists, to avoid change the linked files unexpectedly
+    bool exist = false;
+    RETURN_IF_ERROR(io::global_local_filesystem()->exists(local_path, &exist));
+    if (exist) {
+        remove(local_path.c_str());
+    }
 
     auto fp_closer = [](FILE* fp) { fclose(fp); };
     std::unique_ptr<FILE, decltype(fp_closer)> fp(fopen(local_path.c_str(), "w"), fp_closer);

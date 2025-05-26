@@ -76,22 +76,8 @@ RuntimeState::RuntimeState(const TPlanFragmentExecParams& fragment_exec_params,
     Status status =
             init(fragment_exec_params.fragment_instance_id, query_options, query_globals, exec_env);
     DCHECK(status.ok());
-    if (query_mem_tracker != nullptr) {
-        _query_mem_tracker = query_mem_tracker;
-    } else {
-        DCHECK(ctx != nullptr);
-        _query_mem_tracker = ctx->query_mem_tracker();
-    }
-#ifdef BE_TEST
-    if (_query_mem_tracker == nullptr) {
-        init_mem_trackers();
-    }
-#endif
-    DCHECK(_query_mem_tracker != nullptr && _query_mem_tracker->label() != "Orphan");
-    if (fragment_exec_params.__isset.runtime_filter_params) {
-        _query_ctx->runtime_filter_mgr()->set_runtime_filter_params(
-                fragment_exec_params.runtime_filter_params);
-    }
+    _query_mem_tracker = query_mem_tracker;
+    DCHECK(_query_mem_tracker != nullptr);
 }
 
 RuntimeState::RuntimeState(const TUniqueId& instance_id, const TUniqueId& query_id,
@@ -116,12 +102,6 @@ RuntimeState::RuntimeState(const TUniqueId& instance_id, const TUniqueId& query_
     [[maybe_unused]] auto status = init(instance_id, query_options, query_globals, exec_env);
     DCHECK(status.ok());
     _query_mem_tracker = ctx->query_mem_tracker();
-#ifdef BE_TEST
-    if (_query_mem_tracker == nullptr) {
-        init_mem_trackers();
-    }
-#endif
-    DCHECK(_query_mem_tracker != nullptr && _query_mem_tracker->label() != "Orphan");
 }
 
 RuntimeState::RuntimeState(const TUniqueId& query_id, int32_t fragment_id,
@@ -147,12 +127,6 @@ RuntimeState::RuntimeState(const TUniqueId& query_id, int32_t fragment_id,
     Status status = init(TUniqueId(), query_options, query_globals, exec_env);
     DCHECK(status.ok());
     _query_mem_tracker = ctx->query_mem_tracker();
-#ifdef BE_TEST
-    if (_query_mem_tracker == nullptr) {
-        init_mem_trackers();
-    }
-#endif
-    DCHECK(_query_mem_tracker != nullptr && _query_mem_tracker->label() != "Orphan");
 }
 
 RuntimeState::RuntimeState(const TQueryGlobals& query_globals)
@@ -414,6 +388,11 @@ Status RuntimeState::append_error_msg_to_file(std::function<std::string()> line,
 }
 
 std::string RuntimeState::get_error_log_file_path() {
+    DBUG_EXECUTE_IF("RuntimeState::get_error_log_file_path.block", {
+        if (!_error_log_file_path.empty()) {
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+        }
+    });
     std::lock_guard<std::mutex> l(_s3_error_log_file_lock);
     if (_s3_error_fs && _error_log_file && _error_log_file->is_open()) {
         // close error log file
@@ -422,10 +401,7 @@ std::string RuntimeState::get_error_log_file_path() {
                 _exec_env->load_path_mgr()->get_load_error_absolute_path(_error_log_file_path);
         // upload error log file to s3
         Status st = _s3_error_fs->upload(error_log_absolute_path, _s3_error_log_file_path);
-        if (st.ok()) {
-            // remove local error log file
-            std::filesystem::remove(error_log_absolute_path);
-        } else {
+        if (!st.ok()) {
             // upload failed and return local error log file path
             LOG(WARNING) << "Fail to upload error file to s3, error_log_file_path="
                          << _error_log_file_path << ", error=" << st;
@@ -497,23 +473,22 @@ RuntimeFilterMgr* RuntimeState::global_runtime_filter_mgr() {
 }
 
 Status RuntimeState::register_producer_runtime_filter(
-        const TRuntimeFilterDesc& desc, std::shared_ptr<RuntimeFilterProducer>* producer_filter,
-        RuntimeProfile* parent_profile) {
+        const TRuntimeFilterDesc& desc, std::shared_ptr<RuntimeFilterProducer>* producer_filter) {
     // Producers are created by local runtime filter mgr and shared by global runtime filter manager.
     // When RF is published, consumers in both global and local RF mgr will be found.
-    RETURN_IF_ERROR(local_runtime_filter_mgr()->register_producer_filter(desc, producer_filter,
-                                                                         parent_profile));
+    RETURN_IF_ERROR(local_runtime_filter_mgr()->register_producer_filter(_query_ctx, desc,
+                                                                         producer_filter));
     RETURN_IF_ERROR(global_runtime_filter_mgr()->register_local_merger_producer_filter(
-            desc, *producer_filter, &_profile));
+            _query_ctx, desc, *producer_filter));
     return Status::OK();
 }
 
 Status RuntimeState::register_consumer_runtime_filter(
-        const doris::TRuntimeFilterDesc& desc, bool need_local_merge, int node_id,
-        std::shared_ptr<RuntimeFilterConsumer>* consumer_filter, RuntimeProfile* parent_profile) {
+        const TRuntimeFilterDesc& desc, bool need_local_merge, int node_id,
+        std::shared_ptr<RuntimeFilterConsumer>* consumer_filter) {
     bool need_merge = desc.has_remote_targets || need_local_merge;
     RuntimeFilterMgr* mgr = need_merge ? global_runtime_filter_mgr() : local_runtime_filter_mgr();
-    return mgr->register_consumer_filter(desc, node_id, consumer_filter, parent_profile);
+    return mgr->register_consumer_filter(_query_ctx, desc, node_id, consumer_filter);
 }
 
 bool RuntimeState::is_nereids() const {
