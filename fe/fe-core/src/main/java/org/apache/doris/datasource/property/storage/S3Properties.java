@@ -103,12 +103,12 @@ public class S3Properties extends AbstractS3CompatibleProperties {
             description = "The sts region of S3.")
     protected String s3StsRegion = "";
 
-    @ConnectorProperty(names = {"s3.role_arn"},
+    @ConnectorProperty(names = {"s3.role_arn", "AWS_ROLE_ARN"},
             required = false,
             description = "The iam role of S3.")
     protected String s3IAMRole = "";
 
-    @ConnectorProperty(names = {"s3.external_id"},
+    @ConnectorProperty(names = {"s3.external_id", "AWS_EXTERNAL_ID"},
             required = false,
             description = "The external id of S3.")
     protected String s3ExternalId = "";
