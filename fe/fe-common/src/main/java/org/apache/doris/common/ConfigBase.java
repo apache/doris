@@ -209,19 +209,23 @@ public class ConfigBase {
     // config_key={CONFIG_VALUE}
     // the "CONFIG_VALUE" should be replaced be env variable CONFIG_VALUE
     private void replacedByEnv(Properties props) throws Exception {
-        // pattern to match string like "{CONFIG_VALUE}"
-        Pattern pattern = Pattern.compile("\\$\\{([^}]*)\\}");
+        // pattern to match string like "{CONFIG_VALUE}" or "CONFIG_VALUE"
+        Pattern pattern = Pattern.compile("\\$(?:\\{([^}]+)\\}|([a-zA-Z_][a-zA-Z0-9_]*))");
         for (String key : props.stringPropertyNames()) {
             String value = props.getProperty(key);
             Matcher m = pattern.matcher(value);
             while (m.find()) {
-                String envValue = System.getProperty(m.group(1));
+                String varName = (m.group(1) != null) ? m.group(1) : m.group(2);
+                String envValue = System.getProperty(varName);
                 envValue = (envValue != null) ? envValue : System.getenv(m.group(1));
+
                 if (envValue != null) {
-                    value = value.replace("${" + m.group(1) + "}", envValue);
+                    String originalPattern = (m.group(1) != null) ? "${" + varName + "}" : "$" + varName;
+                    value = value.replace(originalPattern, envValue);
                 } else {
                     throw new Exception("no such env variable: " + m.group(1));
                 }
+                LOG.info("replace conf ");
             }
             props.setProperty(key, value);
         }
