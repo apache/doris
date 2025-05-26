@@ -24,6 +24,8 @@ import java.util.Map;
 
 public class TableScanParams {
     public static String INCREMENTAL_READ = "incr";
+    public static String BRANCH = "branch";
+    public static String TAG = "tag";
 
     private final String paramType;
     private final Map<String, String> mapParams;
@@ -33,6 +35,10 @@ public class TableScanParams {
         this.paramType = paramType;
         this.mapParams = mapParams == null ? ImmutableMap.of() : ImmutableMap.copyOf(mapParams);
         this.listParams = listParams;
+    }
+
+    public List<String> getListParams() {
+        return listParams;
     }
 
     public String getParamType() {
@@ -45,5 +51,13 @@ public class TableScanParams {
 
     public boolean incrementalRead() {
         return INCREMENTAL_READ.equals(paramType);
+    }
+
+    public boolean isBranch() {
+        return BRANCH.equals(paramType);
+    }
+
+    public boolean isTag() {
+        return TAG.equals(paramType);
     }
 }

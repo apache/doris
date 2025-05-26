@@ -19,6 +19,7 @@ package org.apache.doris.datasource.iceberg.source;
 
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
+import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
@@ -401,8 +402,13 @@ public class IcebergScanNode extends FileQueryScanNode {
 
     public IcebergTableQueryInfo getSpecifiedSnapshot() {
         TableSnapshot tableSnapshot = getQueryTableSnapshot();
-        if (tableSnapshot != null) {
-            return IcebergUtils.getQuerySpecSnapshot(icebergTable, tableSnapshot);
+        TableScanParams scanParams = getScanParams();
+        Optional<TableScanParams> params = Optional.ofNullable(scanParams);
+        if (tableSnapshot != null || IcebergUtils.isIcebergBranchOrTag(params)) {
+            return IcebergUtils.getQuerySpecSnapshot(
+                icebergTable,
+                Optional.ofNullable(tableSnapshot),
+                params);
         }
         return null;
     }

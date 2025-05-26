@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.mvcc;
 
+import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.TableIf;
 
@@ -32,5 +33,5 @@ public interface MvccTable extends TableIf {
      *
      * @return MvccSnapshot
      */
-    MvccSnapshot loadSnapshot(Optional<TableSnapshot> tableSnapshot);
+    MvccSnapshot loadSnapshot(Optional<TableSnapshot> tableSnapshot, Optional<TableScanParams> scanParams);
 }

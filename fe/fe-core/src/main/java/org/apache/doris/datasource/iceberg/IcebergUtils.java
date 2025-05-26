@@ -35,6 +35,7 @@ import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.Subquery;
+import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
@@ -788,10 +789,45 @@ public class IcebergUtils {
         return matchingManifests;
     }
 
-    // get snapshot id from query like 'for version/time as of'
-    public static IcebergTableQueryInfo getQuerySpecSnapshot(Table table, TableSnapshot queryTableSnapshot) {
-        String value = queryTableSnapshot.getValue();
-        TableSnapshot.VersionType type = queryTableSnapshot.getType();
+    // get snapshot id from query like 'for version/time as of' or '@branch/@tag'
+    public static IcebergTableQueryInfo getQuerySpecSnapshot(
+            Table table,
+            Optional<TableSnapshot> queryTableSnapshot,
+            Optional<TableScanParams> scanParams) {
+
+        Preconditions.checkArgument(
+                queryTableSnapshot.isPresent() || isIcebergBranchOrTag(scanParams),
+                "should spec version or time or branch or tag");
+
+        if (scanParams.isPresent()) {
+//            String refName;
+//            TableScanParams params = scanParams.get();
+//            // TODO 如果写的是 @branch()， 那参数是map还是list？map是null还是空？list是null还是空？
+//            if (!params.getMapParams().isEmpty()) {
+//                Preconditions.checkArgument(
+//                    params.getMapParams().containsKey("name"),
+//                    "Table " + table.name() + " does not have tag or branch named " + value);
+//                refName = params.getMapParams().get("name");
+//            } else {
+//                Preconditions.checkArgument(
+//                    params.getListParams().size() == 1,
+//                    "Table " + table.name() + " does not have tag or branch named " + value);
+//                refName = params.getListParams().get(0);
+//            }
+//            if (params.isBranch()) {
+//                Preconditions.checkArgument(
+//                    table.refs().containsKey(params),
+//                    "Table " + table.name() + " does not have tag or branch named " + value);
+//            } else (params.isTag()) {
+//
+//            }
+        }
+//        if (!queryTableSnapshot.isPresent()) {
+//            return null;
+//        }
+
+        String value = queryTableSnapshot.get().getValue();
+        TableSnapshot.VersionType type = queryTableSnapshot.get().getType();
         if (type == TableSnapshot.VersionType.VERSION) {
             if (SNAPSHOT_ID.matcher(value).matches()) {
                 long snapshotId = Long.parseLong(value);
@@ -826,6 +862,14 @@ public class IcebergUtils {
                 table.snapshot(snapshotId).schemaId()
                 );
         }
+    }
+
+    public static boolean isIcebergBranchOrTag(Optional<TableScanParams> scanParams) {
+        if (!scanParams.isPresent()) {
+            return false;
+        }
+        TableScanParams params = scanParams.get();
+        return params.isBranch() || params.isTag();
     }
 
     // read schema from external schema cache
@@ -1078,15 +1122,15 @@ public class IcebergUtils {
             Optional<TableSnapshot> tableSnapshot,
             ExternalCatalog catalog,
             String dbName,
-            String tbName) {
+            String tbName,
+            Optional<TableScanParams> scanParams) {
         IcebergSnapshotCacheValue snapshotCache = Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache()
                 .getSnapshotCache(catalog, dbName, tbName);
-        if (tableSnapshot.isPresent()) {
+        if (tableSnapshot.isPresent() || IcebergUtils.isIcebergBranchOrTag(scanParams)) {
             // If a snapshot is specified,
             // use the specified snapshot and the corresponding schema(not the latest schema).
             Table icebergTable = getIcebergTable(catalog, dbName, tbName);
-            TableSnapshot snapshot = tableSnapshot.get();
-            IcebergTableQueryInfo info = getQuerySpecSnapshot(icebergTable, snapshot);
+            IcebergTableQueryInfo info = getQuerySpecSnapshot(icebergTable, tableSnapshot, scanParams);
             return new IcebergSnapshotCacheValue(
                     IcebergPartitionInfo.empty(),
                     new IcebergSnapshot(info.getSnapshotId(), info.getSchemaId()));
@@ -1136,7 +1180,8 @@ public class IcebergUtils {
         if (snapshot.isPresent()) {
             return ((IcebergMvccSnapshot) snapshot.get()).getSnapshotCacheValue();
         } else {
-            return IcebergUtils.getIcebergSnapshotCacheValue(Optional.empty(), catalog, dbName, tbName);
+            return IcebergUtils.getIcebergSnapshotCacheValue(
+                Optional.empty(), catalog, dbName, tbName, Optional.empty());
         }
     }
 }
