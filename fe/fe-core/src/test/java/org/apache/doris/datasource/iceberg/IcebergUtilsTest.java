@@ -23,6 +23,7 @@ import org.apache.doris.datasource.iceberg.source.IcebergTableQueryInfo;
 
 import org.apache.iceberg.GenericManifestFile;
 import org.apache.iceberg.GenericPartitionFieldSummary;
+import org.apache.iceberg.HistoryEntry;
 import org.apache.iceberg.ManifestContent;
 import org.apache.iceberg.ManifestFile;
 import org.apache.iceberg.ManifestFile.PartitionFieldSummary;
@@ -40,12 +41,17 @@ import org.apache.iceberg.types.Conversions;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.types.Types.LongType;
 import org.apache.iceberg.types.Types.StructType;
+import org.checkerframework.org.plumelib.util.ArrayMap;
 import org.junit.Assert;
 import org.junit.Test;
 import org.mockito.Mockito;
 
 import java.lang.reflect.Field;
 import java.nio.ByteBuffer;
+import java.time.DateTimeException;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -236,6 +242,14 @@ public class IcebergUtilsTest {
         Snapshot s4 = mockSnapshot(4, 1);
         Mockito.when(table.snapshot(4)).thenReturn(s4);
 
+        // init history for snapshots
+        List<HistoryEntry> history = new ArrayList<>();
+        history.add(mockHistory(1, "2025-05-01 12:34:56"));
+        history.add(mockHistory(2, "2025-05-01 22:34:56"));
+        history.add(mockHistory(3, "2025-05-02 12:34:56"));
+        history.add(mockHistory(4, "2025-05-03 12:34:56"));
+        Mockito.when(table.history()).thenReturn(history);
+
         // create some refs
         HashMap<String, SnapshotRef> refs = new HashMap<>();
         String tag1 = "tag1";
@@ -247,38 +261,38 @@ public class IcebergUtilsTest {
         Mockito.when(table.refs()).thenReturn(refs);
 
         // query tag1
-        assertQuerySpecSnapshotByVersionTimeOf(table, tag1, 1, 0, tag1);
+        assertQuerySpecSnapshotByVersionOf(table, tag1, 1, 0, tag1);
         assertQuerySpecSnapshotByAtTagMap(table, tag1, 1, 0, tag1);
         assertQuerySpecSnapshotByAtTagList(table, tag1, 1, 0, tag1);
 
         // query branch1
-        assertQuerySpecSnapshotByVersionTimeOf(table, branch1, 1, 2, branch1);
+        assertQuerySpecSnapshotByVersionOf(table, branch1, 1, 2, branch1);
         assertQuerySpecSnapshotByAtBranchMap(table, branch1, 1, 2, branch1);
         assertQuerySpecSnapshotByAtBranchList(table, branch1, 1, 2, branch1);
 
         // query branch2
-        assertQuerySpecSnapshotByVersionTimeOf(table, branch2, 3, 2, branch2);
+        assertQuerySpecSnapshotByVersionOf(table, branch2, 3, 2, branch2);
         assertQuerySpecSnapshotByAtBranchMap(table, branch2, 3, 2, branch2);
         assertQuerySpecSnapshotByAtBranchList(table, branch2, 3, 2, branch2);
 
         // query snapshotId 1
-        assertQuerySpecSnapshotByVersionTimeOf(table, "1", 1, 0, null);
+        assertQuerySpecSnapshotByVersionOf(table, "1", 1, 0, null);
 
         // query snapshotId 2
-        assertQuerySpecSnapshotByVersionTimeOf(table, "2", 2, 0, null);
+        assertQuerySpecSnapshotByVersionOf(table, "2", 2, 0, null);
 
         // query snapshotId 3
-        assertQuerySpecSnapshotByVersionTimeOf(table, "3", 3, 1, null);
+        assertQuerySpecSnapshotByVersionOf(table, "3", 3, 1, null);
 
         // query ref not exists
         Assert.assertThrows(
                 IllegalArgumentException.class,
-                () -> assertQuerySpecSnapshotByVersionTimeOf(table, "ref_not_exists", -1, -1, null));
+                () -> assertQuerySpecSnapshotByVersionOf(table, "ref_not_exists", -1, -1, null));
 
         // query snapshotId not exists
         Assert.assertThrows(
                 IllegalArgumentException.class,
-                () -> assertQuerySpecSnapshotByVersionTimeOf(table, "99", -3, -1, null));
+                () -> assertQuerySpecSnapshotByVersionOf(table, "99", -3, -1, null));
 
         // query branch not exists
         Assert.assertThrows(
@@ -328,10 +342,39 @@ public class IcebergUtilsTest {
                                 }
                             }))
                 ));
-    }
 
-    private TableScanParams generateTableScanParams(String type, Map<String, String> map, List<String> list) {
-        return new TableScanParams(type, map, list);
+        // query branch with invalid param
+        Assert.assertThrows(
+                IllegalArgumentException.class,
+                () -> IcebergUtils.getQuerySpecSnapshot(
+                        table,
+                        Optional.empty(),
+                        Optional.of(new TableScanParams("branch",
+                                    new ArrayMap<String, String>() {{
+                                        put("k1", "k2");
+                                    }
+                                },
+                                null))
+                ));
+
+        // query time
+        assertQuerySpecSnapshotByTimeOf(table, "2025-05-01 12:34:56", 1, 0, null);
+        assertQuerySpecSnapshotByTimeOf(table, "2025-05-01 14:34:56", 1, 0, null);
+        assertQuerySpecSnapshotByTimeOf(table, "2025-05-02 11:34:56", 2, 0, null);
+        assertQuerySpecSnapshotByTimeOf(table, "2025-05-02 12:34:56", 3, 1, null);
+        assertQuerySpecSnapshotByTimeOf(table, "2025-05-03 12:34:56", 4, 1, null);
+
+        // query invalid time format
+        Assert.assertThrows(
+                DateTimeException.class,
+                () -> assertQuerySpecSnapshotByTimeOf(table, "1212-240", 3, 1, null)
+        );
+
+        // query invalid time
+        Assert.assertThrows(
+                IllegalArgumentException.class,
+                () -> assertQuerySpecSnapshotByTimeOf(table, "2025-05-01 12:34:55", 3, 1, null)
+        );
     }
 
     private Snapshot mockSnapshot(long snapshotId, int schemaId) {
@@ -341,19 +384,44 @@ public class IcebergUtilsTest {
         return snapshot;
     }
 
+    private HistoryEntry mockHistory(long snapshotId, String time) {
+        HistoryEntry historyEntry = Mockito.mock(HistoryEntry.class);
+        Mockito.when(historyEntry.snapshotId()).thenReturn(snapshotId);
+
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+        LocalDateTime dateTime = LocalDateTime.parse(time, formatter);
+        long millis = dateTime.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
+
+        Mockito.when(historyEntry.timestampMillis()).thenReturn(millis);
+        return historyEntry;
+    }
+
     private Schema mockSchemaWithId(int id) {
         Schema schema = Mockito.mock(Schema.class);
         Mockito.when(schema.schemaId()).thenReturn(id);
         return schema;
     }
 
-    private void assertQuerySpecSnapshotByVersionTimeOf(
+    // select * from tb for version as of ...
+    private void assertQuerySpecSnapshotByVersionOf(
             Table table,
             String version,
             long expectSnapshotId,
             int expectSchemaId,
             String expectRef) {
         Optional<TableSnapshot> tableSnapshot = Optional.of(TableSnapshot.versionOf(version));
+        IcebergTableQueryInfo queryInfo = IcebergUtils.getQuerySpecSnapshot(table, tableSnapshot, Optional.empty());
+        assertQueryInfo(queryInfo, expectSnapshotId, expectSchemaId, expectRef);
+    }
+
+    // select * from tb for time as of ...
+    private void assertQuerySpecSnapshotByTimeOf(
+            Table table,
+            String version,
+            long expectSnapshotId,
+            int expectSchemaId,
+            String expectRef) {
+        Optional<TableSnapshot> tableSnapshot = Optional.of(TableSnapshot.timeOf(version));
         IcebergTableQueryInfo queryInfo = IcebergUtils.getQuerySpecSnapshot(table, tableSnapshot, Optional.empty());
         assertQueryInfo(queryInfo, expectSnapshotId, expectSchemaId, expectRef);
     }
