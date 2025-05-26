@@ -376,6 +376,7 @@ public:
             return get<Int128>() <=> rhs.get<Int128>();
         case PrimitiveType::TYPE_IPV6:
             return get<IPv6>() <=> rhs.get<IPv6>();
+        case PrimitiveType::TYPE_TIMEV2:
         case PrimitiveType::TYPE_DOUBLE:
             return get<Float64>() < rhs.get<Float64>()    ? std::strong_ordering::less
                    : get<Float64>() == rhs.get<Float64>() ? std::strong_ordering::equal
@@ -421,6 +422,7 @@ public:
         case PrimitiveType::TYPE_IPV6:
             f(field.template get<IPv6>());
             return;
+        case PrimitiveType::TYPE_TIMEV2:
         case PrimitiveType::TYPE_DOUBLE:
             f(field.template get<Float64>());
             return;

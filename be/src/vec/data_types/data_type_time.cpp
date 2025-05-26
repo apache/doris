@@ -83,6 +83,6 @@ MutableColumnPtr DataTypeTimeV2::create_column() const {
 }
 
 Field DataTypeTimeV2::get_field(const TExprNode& node) const {
-    return node.timev2_literal.value;
+    return Field::create_field<TYPE_TIMEV2>(node.timev2_literal.value);
 }
 } // namespace doris::vectorized
