@@ -141,7 +141,7 @@ Status DataTypeNumberSerDe<T>::deserialize_one_cell_from_json(IColumn& column, S
             return Status::InvalidArgument("parse boolean fail, string: '{}'", slice.to_string());
         }
         column_data.insert_value(val);
-    } else if constexpr (is_int(T)) {
+    } else if constexpr (is_int_or_bool(T)) {
         typename PrimitiveTypeTraits<T>::ColumnItemType val = 0;
         if (!read_int_text_impl(val, rb)) {
             return Status::InvalidArgument("parse number fail, string: '{}'", slice.to_string());
@@ -176,7 +176,7 @@ Status DataTypeNumberSerDe<T>::serialize_one_cell_to_json(const IColumn& column,
         char buf[MAX_FLOAT_STR_LENGTH + 2];
         int len = FloatToBuffer(data, MAX_FLOAT_STR_LENGTH + 2, buf);
         bw.write(buf, len);
-    } else if constexpr (is_int(T) ||
+    } else if constexpr (is_int_or_bool(T) ||
                          std::numeric_limits<
                                  typename PrimitiveTypeTraits<T>::ColumnItemType>::is_iec559) {
         bw.write_number(data);

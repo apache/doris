@@ -77,7 +77,8 @@ public:
             return Status::InternalError(
                     "String is too long to encode, input string size {}, max valid string "
                     "size for {} is {}",
-                    max_str_size, name, sizeof(ReturnType) - 1);
+                    max_str_size, name,
+                    sizeof(typename PrimitiveTypeTraits<ReturnType>::ColumnItemType) - 1);
         }
 
         auto col_res = PrimitiveTypeTraits<ReturnType>::ColumnType::create(input_rows_count, 0);
@@ -86,11 +87,13 @@ public:
         for (size_t i = 0; i < input_rows_count; ++i) {
             const char* str_ptr = col_str->get_data_at(i).data;
             auto str_size = static_cast<UInt8>(col_str->get_data_at(i).size);
-            typename PrimitiveTypeTraits<ReturnType>::ColumnItemType* res = &col_res_data[i];
-            UInt8* __restrict ui8_ptr = reinterpret_cast<UInt8*>(res);
+            auto* res = &col_res_data[i];
+            auto* __restrict ui8_ptr = reinterpret_cast<UInt8*>(res);
 
             // "reverse" the order of string on little endian machine.
-            simd::reverse_copy_bytes(ui8_ptr, sizeof(ReturnType), str_ptr, str_size);
+            simd::reverse_copy_bytes(
+                    ui8_ptr, sizeof(typename PrimitiveTypeTraits<ReturnType>::ColumnItemType),
+                    str_ptr, str_size);
             // Lowest byte of Integer stores the size of the string, bit left shiflted by 1 so that we can get
             // correct size after right shifting by 1
             memset(ui8_ptr, str_size << 1, 1);

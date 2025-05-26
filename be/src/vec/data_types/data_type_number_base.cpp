@@ -116,7 +116,7 @@ Status DataTypeNumberBase<T>::from_string(ReadBuffer& rb, IColumn* column) const
                                            std::string(rb.position(), rb.count()).c_str());
         }
         column_data->insert_value(val);
-    } else if constexpr (is_int(T)) {
+    } else if constexpr (is_int_or_bool(T)) {
         typename PrimitiveTypeTraits<T>::ColumnItemType val = 0;
         if (!read_int_text_impl(val, rb)) {
             return Status::InvalidArgument("parse number fail, string: '{}'",
@@ -314,7 +314,7 @@ const char* DataTypeNumberBase<T>::deserialize(const char* buf, MutableColumnPtr
                 assert_cast<ColumnVector<typename PrimitiveTypeTraits<T>::ColumnItemType>*>(
                         column->get())
                         ->get_data();
-        container.resize(mem_size / sizeof(T));
+        container.resize(mem_size / sizeof(typename PrimitiveTypeTraits<T>::ColumnItemType));
         if (mem_size <= SERIALIZED_MEM_SIZE_LIMIT) {
             memcpy(container.data(), buf, mem_size);
             return buf + mem_size;

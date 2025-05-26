@@ -38,7 +38,7 @@ size_t DataTypeNumber<T>::number_length() const {
     // 4. Approximation: log10(2^(8n)) ≈ 8n * log10(2).
     // 5. log10(2) ≈ 0.30103, so 8n * log10(2) ≈ 2.40824n.
     // 6. Therefore, d ≈ floor(2.408 * n) + 1.
-    return size_t(2.408 * sizeof(T)) + 1;
+    return size_t(2.408 * sizeof(typename PrimitiveTypeTraits<T>::ColumnItemType)) + 1;
 }
 
 template <PrimitiveType T>

@@ -124,6 +124,12 @@ void get_numeric_type(const PrimitiveTypeSet& types, DataTypePtr* type) {
             if (min_bit_width_of_integer <= 8) {
                 *type = std::make_shared<DataTypeInt8>();
                 return;
+            } else if (min_bit_width_of_integer <= 16) {
+                *type = std::make_shared<DataTypeInt16>();
+                return;
+            } else if (min_bit_width_of_integer <= 32) {
+                *type = std::make_shared<DataTypeInt32>();
+                return;
             } else if (min_bit_width_of_integer <= 64) {
                 *type = std::make_shared<DataTypeInt64>();
                 return;
