@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.LimitElement;
+import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.ScalarType;
@@ -38,6 +39,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
@@ -172,7 +174,7 @@ public class ShowBuildIndexCommand extends ShowCommand {
         }
 
         EqualTo equalTo = (EqualTo) expr;
-        if (!(equalTo.child(0) instanceof Slot)) {
+        if (!(equalTo.child(0) instanceof UnboundSlot)) {
             throw new AnalysisException("Only support column = xxx syntax.");
         }
         String leftKey = ((UnboundSlot) expr.child(0)).getName();
@@ -183,6 +185,12 @@ public class ShowBuildIndexCommand extends ShowCommand {
                 throw new AnalysisException("Where clause : TableName = \"table1\" or "
                     + "State = \"FINISHED|CANCELLED|RUNNING|PENDING|WAITING_TXN\"");
             }
+        } else if (leftKey.equalsIgnoreCase("createtime") || leftKey.equalsIgnoreCase("finishtime")) {
+            if (!(expr.child(1) instanceof StringLiteral)) {
+                throw new AnalysisException("Where clause : CreateTime/FinishTime =|>=|<=|>|<|!= "
+                    + "\"2019-12-02|2019-12-02 14:54:00\"");
+            }
+            expr.children().set(1, expr.child(1).castTo(DateTimeType.INSTANCE.conversion()));
         } else {
             throw new AnalysisException(
                 "The columns of TableName/PartitionName/CreateTime/FinishTime/State are supported.");
@@ -200,6 +208,33 @@ public class ShowBuildIndexCommand extends ShowCommand {
         return new ShowResultSet(getMetaData(), rows);
     }
 
+    /**
+     * toSql
+     */
+    public String toSql() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("SHOW BUILD INDEX ");
+        if (!Strings.isNullOrEmpty(dbName)) {
+            sb.append("FROM `").append(dbName).append("`");
+        }
+        if (whereClause != null) {
+            sb.append(" WHERE ").append(whereClause.toSql());
+        }
+        // Order By clause
+        if (orderByElements != null) {
+            sb.append(" ORDER BY ");
+            for (int i = 0; i < orderByElements.size(); ++i) {
+                sb.append(orderByElements.get(i).toSql());
+                sb.append((i + 1 != orderByElements.size()) ? ", " : "");
+            }
+        }
+
+        if (limitElement != null) {
+            sb.append(limitElement.toSql());
+        }
+        return sb.toString();
+    }
+
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitShowBuildIndexCommand(this, context);
@@ -214,5 +249,14 @@ public class ShowBuildIndexCommand extends ShowCommand {
             builder.addColumn(new Column(title, ScalarType.createVarchar(30)));
         }
         return builder.build();
+    }
+
+    @Override
+    public RedirectStatus toRedirectStatus() {
+        if (ConnectContext.get().getSessionVariable().getForwardToMaster()) {
+            return RedirectStatus.FORWARD_NO_SYNC;
+        } else {
+            return RedirectStatus.NO_FORWARD;
+        }
     }
 }

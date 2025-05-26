@@ -28,9 +28,15 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.OrderByPair;
-import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
+import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.GreaterThan;
+import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
+import org.apache.doris.nereids.trees.expressions.LessThan;
+import org.apache.doris.nereids.trees.expressions.LessThanEqual;
+import org.apache.doris.nereids.trees.expressions.Not;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -63,7 +69,8 @@ public class BuildIndexProcDir implements ProcDirInterface {
         this.db = db;
     }
 
-    boolean filterResult(String columnName, Comparable element, Map<String, Expression> filter) {
+    boolean filterResult(String columnName, Comparable element, Map<String, Expression> filter)
+            throws AnalysisException {
         if (filter == null) {
             return true;
         }
@@ -71,47 +78,37 @@ public class BuildIndexProcDir implements ProcDirInterface {
         if (subExpr == null) {
             return true;
         }
-        ComparisonPredicate comparisonPredicate = (ComparisonPredicate) subExpr;
+
         if (subExpr.child(1) instanceof org.apache.doris.nereids.trees.expressions.literal.StringLiteral
-                && comparisonPredicate instanceof EqualTo) {
+                && subExpr instanceof EqualTo) {
             return ((org.apache.doris.nereids.trees.expressions.literal.StringLiteral) subExpr
                     .child(1)).getValue().equals(element);
         }
-        /*       if (subExpr.child(1) instanceof org.apache.doris.nereids.trees.expressions.literal.DateLiteral) {
-            Type type;
-            switch (subExpr.child(1).getDataType()) {
-                case DateType.class:
-                case DateTimeType.class:
-                    type = Type.DATETIME;
-                    break;
-                case DateV2Type.class:
-                    type = Type.DATETIMEV2;
-                    break;
-                case DateTimeV2Type.class:
-                    type = subExpr.child(1).getType();
-                    break;
-                default:
-                    throw new AnalysisException("Invalid date type: " + subExpr.getChild(1).getType());
-            }
-            Long leftVal = (new DateLiteral((String) element, type)).getLongValue();
-            Long rightVal = ((DateLiteral) subExpr.getChild(1)).getLongValue();
 
-            if ((subExpr instanceof EqualTo) || (subExpr instanceof NullSafeEqual)) {
+        if (subExpr.child(1) instanceof org.apache.doris.nereids.trees.expressions.literal.DateLiteral) {
+            if (!(subExpr.child(1) instanceof DateTimeLiteral)) {
+                throw new AnalysisException("Invalid date type: " + subExpr.child(1).getDataType());
+            }
+
+            Long leftVal = new DateTimeLiteral((String) element).getValue();
+            Long rightVal = ((DateTimeLiteral) subExpr.child(1)).getValue();
+
+            if (subExpr instanceof EqualPredicate) {
                 return leftVal.equals(rightVal);
-            } else if (subExpr instanceof GreaterThanEqual) {
-                return leftVal >= rightVal;
             } else if (subExpr instanceof GreaterThan) {
                 return leftVal > rightVal;
-            } else if (subExpr instanceof LessThanEqual) {
-                return leftVal <= rightVal;
+            } else if (subExpr instanceof GreaterThanEqual) {
+                return leftVal >= rightVal;
             } else if (subExpr instanceof LessThan) {
                 return leftVal < rightVal;
+            } else if (subExpr instanceof LessThanEqual) {
+                return leftVal <= rightVal;
             } else if (subExpr instanceof Not) {
                 return !leftVal.equals(rightVal);
             } else {
                 Preconditions.checkState(false, "No defined binary operator.");
             }
-        }*/
+        }
         return true;
     }
 
