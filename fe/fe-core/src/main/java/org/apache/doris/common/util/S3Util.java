@@ -151,6 +151,41 @@ public class S3Util {
                     InstanceProfileCredentialsProvider.create());
     }
 
+    public static S3Client buildS3Client(URI endpoint, String region, boolean isUsePathStyle,
+                                         AwsCredentialsProvider credential) {
+        EqualJitterBackoffStrategy backoffStrategy = EqualJitterBackoffStrategy
+                .builder()
+                .baseDelay(Duration.ofSeconds(1))
+                .maxBackoffTime(Duration.ofMinutes(1))
+                .build();
+        // retry 3 time with Equal backoff
+        RetryPolicy retryPolicy = RetryPolicy
+                .builder()
+                .numRetries(3)
+                .backoffStrategy(backoffStrategy)
+                .build();
+        ClientOverrideConfiguration clientConf = ClientOverrideConfiguration
+                .builder()
+                // set retry policy
+                .retryPolicy(retryPolicy)
+                // using AwsS3V4Signer
+                .putAdvancedOption(SdkAdvancedClientOption.SIGNER, AwsS3V4Signer.create())
+                .build();
+        return S3Client.builder()
+                .httpClient(UrlConnectionHttpClient.builder().socketTimeout(Duration.ofSeconds(30))
+                        .connectionTimeout(Duration.ofSeconds(30)).build())
+                .endpointOverride(endpoint)
+                .credentialsProvider(credential)
+                .region(Region.of(region))
+                .overrideConfiguration(clientConf)
+                // disable chunkedEncoding because of bos not supported
+                .serviceConfiguration(S3Configuration.builder()
+                        .chunkedEncodingEnabled(false)
+                        .pathStyleAccessEnabled(isUsePathStyle)
+                        .build())
+                .build();
+    }
+
     public static S3Client buildS3Client(URI endpoint, String region, boolean isUsePathStyle, String accessKey,
             String secretKey, String sessionToken, String roleArn, String externalId) {
         EqualJitterBackoffStrategy backoffStrategy = EqualJitterBackoffStrategy
