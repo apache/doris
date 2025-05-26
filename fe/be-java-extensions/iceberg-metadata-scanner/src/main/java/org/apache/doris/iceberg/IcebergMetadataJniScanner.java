@@ -45,7 +45,7 @@ public abstract class IcebergMetadataJniScanner extends JniScanner {
 
     private static final String HADOOP_OPTION_PREFIX = "hadoop.";
     private static final Logger LOG = LoggerFactory.getLogger(IcebergMetadataJniScanner.class);
-    private PreExecutionAuthenticator preExecutionAuthenticator;
+    private final PreExecutionAuthenticator preExecutionAuthenticator;
     private final ClassLoader classLoader;
     private ColumnType[] requiredTypes;
 
@@ -90,12 +90,8 @@ public abstract class IcebergMetadataJniScanner extends JniScanner {
             for (int i = 0; i < requiredFields.length; i++) {
                 String columnName = requiredFields[i];
                 Object value = getColumnValue(columnName, row);
-                if (value == null) {
-                    appendData(i, null);
-                } else {
-                    ColumnValue columnValue = new IcebergMetadataColumnValue(value, timezone);
-                    appendData(i, columnValue);
-                }
+                ColumnValue columnValue = new IcebergMetadataColumnValue(value, timezone);
+                appendData(i, columnValue);
             }
             rows++;
         }
