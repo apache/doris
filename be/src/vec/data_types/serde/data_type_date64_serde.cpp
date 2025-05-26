@@ -169,17 +169,18 @@ Status DataTypeDateTimeSerDe::deserialize_one_cell_from_json(IColumn& column, Sl
     return Status::OK();
 }
 
-void DataTypeDateTimeSerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
-                                                   int64_t start, int64_t end,
-                                                   const cctz::time_zone& ctz) const {
-    _read_column_from_arrow<false>(column, arrow_array, start, end, ctz);
+Status DataTypeDateTimeSerDe::read_column_from_arrow(IColumn& column,
+                                                     const arrow::Array* arrow_array, int64_t start,
+                                                     int64_t end,
+                                                     const cctz::time_zone& ctz) const {
+    return _read_column_from_arrow<false>(column, arrow_array, start, end, ctz);
 }
 
 template <PrimitiveType T>
-void DataTypeDate64SerDe<T>::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                                                   arrow::ArrayBuilder* array_builder,
-                                                   int64_t start, int64_t end,
-                                                   const cctz::time_zone& ctz) const {
+Status DataTypeDate64SerDe<T>::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
+                                                     arrow::ArrayBuilder* array_builder,
+                                                     int64_t start, int64_t end,
+                                                     const cctz::time_zone& ctz) const {
     auto& col_data = static_cast<const ColumnVector<Int64>&>(column).get_data();
     auto& string_builder = assert_cast<arrow::StringBuilder&>(*array_builder);
     for (size_t i = start; i < end; ++i) {
@@ -187,13 +188,14 @@ void DataTypeDate64SerDe<T>::write_column_to_arrow(const IColumn& column, const 
         const VecDateTimeValue* time_val = (const VecDateTimeValue*)(&col_data[i]);
         size_t len = time_val->to_buffer(buf);
         if (null_map && (*null_map)[i]) {
-            checkArrowStatus(string_builder.AppendNull(), column.get_name(),
-                             array_builder->type()->name());
+            RETURN_IF_ARROW_ERROR(string_builder.AppendNull(), column.get_name(),
+                                  array_builder->type()->name());
         } else {
-            checkArrowStatus(string_builder.Append(buf, cast_set<int32_t>(len)), column.get_name(),
-                             array_builder->type()->name());
+            RETURN_IF_ARROW_ERROR(string_builder.Append(buf, cast_set<int32_t>(len)),
+                                  column.get_name(), array_builder->type()->name());
         }
     }
+    return Status::OK();
 }
 
 static int64_t time_unit_divisor(arrow::TimeUnit::type unit) {
@@ -218,10 +220,10 @@ static int64_t time_unit_divisor(arrow::TimeUnit::type unit) {
 
 template <PrimitiveType T>
 template <bool is_date>
-void DataTypeDate64SerDe<T>::_read_column_from_arrow(IColumn& column,
-                                                     const arrow::Array* arrow_array, int64_t start,
-                                                     int64_t end,
-                                                     const cctz::time_zone& ctz) const {
+Status DataTypeDate64SerDe<T>::_read_column_from_arrow(IColumn& column,
+                                                       const arrow::Array* arrow_array,
+                                                       int64_t start, int64_t end,
+                                                       const cctz::time_zone& ctz) const {
     auto& col_data = static_cast<ColumnVector<Int64>&>(column).get_data();
     int64_t divisor = 1;
     int64_t multiplier = 1;
@@ -271,16 +273,18 @@ void DataTypeDate64SerDe<T>::_read_column_from_arrow(IColumn& column,
             col_data.emplace_back(binary_cast<VecDateTimeValue, Int64>(v));
         }
     } else {
-        throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
-                               "Unsupported Arrow Type: " + arrow_array->type()->name());
+        return Status::Error(doris::ErrorCode::INVALID_ARGUMENT,
+                             "Unsupported Arrow Type: " + arrow_array->type()->name());
     }
+    return Status::OK();
 }
 
 template <PrimitiveType T>
-void DataTypeDate64SerDe<T>::read_column_from_arrow(IColumn& column,
-                                                    const arrow::Array* arrow_array, int64_t start,
-                                                    int64_t end, const cctz::time_zone& ctz) const {
-    _read_column_from_arrow<true>(column, arrow_array, start, end, ctz);
+Status DataTypeDate64SerDe<T>::read_column_from_arrow(IColumn& column,
+                                                      const arrow::Array* arrow_array,
+                                                      int64_t start, int64_t end,
+                                                      const cctz::time_zone& ctz) const {
+    return _read_column_from_arrow<true>(column, arrow_array, start, end, ctz);
 }
 
 template <PrimitiveType T>

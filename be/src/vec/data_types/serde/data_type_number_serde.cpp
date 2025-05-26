@@ -69,10 +69,10 @@ using DORIS_NUMERIC_ARROW_BUILDER =
                 >;
 
 template <PrimitiveType T>
-void DataTypeNumberSerDe<T>::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                                                   arrow::ArrayBuilder* array_builder,
-                                                   int64_t start, int64_t end,
-                                                   const cctz::time_zone& ctz) const {
+Status DataTypeNumberSerDe<T>::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
+                                                     arrow::ArrayBuilder* array_builder,
+                                                     int64_t start, int64_t end,
+                                                     const cctz::time_zone& ctz) const {
     auto& col_data = assert_cast<const ColumnType&>(column).get_data();
     using ARROW_BUILDER_TYPE =
             typename TypeMapLookup<typename PrimitiveTypeTraits<T>::ColumnItemType,
@@ -83,12 +83,12 @@ void DataTypeNumberSerDe<T>::write_column_to_arrow(const IColumn& column, const 
         auto* null_builder = dynamic_cast<arrow::NullBuilder*>(array_builder);
         if (null_builder) {
             for (size_t i = start; i < end; ++i) {
-                checkArrowStatus(null_builder->AppendNull(), column.get_name(),
-                                 null_builder->type()->name());
+                RETURN_IF_ARROW_ERROR(null_builder->AppendNull(), column.get_name(),
+                                      null_builder->type()->name());
             }
         } else {
             auto& builder = assert_cast<ARROW_BUILDER_TYPE&>(*array_builder);
-            checkArrowStatus(
+            RETURN_IF_ARROW_ERROR(
                     builder.AppendValues(reinterpret_cast<const uint8_t*>(col_data.data() + start),
                                          end - start,
                                          reinterpret_cast<const uint8_t*>(arrow_null_map_data)),
@@ -101,10 +101,10 @@ void DataTypeNumberSerDe<T>::write_column_to_arrow(const IColumn& column, const 
             auto& data_value = col_data[i];
             std::string value_str = fmt::format("{}", data_value);
             if (null_map && (*null_map)[i]) {
-                checkArrowStatus(string_builder.AppendNull(), column.get_name(),
-                                 array_builder->type()->name());
+                RETURN_IF_ARROW_ERROR(string_builder.AppendNull(), column.get_name(),
+                                      array_builder->type()->name());
             } else {
-                checkArrowStatus(
+                RETURN_IF_ARROW_ERROR(
                         string_builder.Append(value_str.data(),
                                               cast_set<int, size_t, false>(value_str.length())),
                         column.get_name(), array_builder->type()->name());
@@ -113,11 +113,12 @@ void DataTypeNumberSerDe<T>::write_column_to_arrow(const IColumn& column, const 
     } else if constexpr (T == TYPE_IPV6) {
     } else {
         auto& builder = assert_cast<ARROW_BUILDER_TYPE&>(*array_builder);
-        checkArrowStatus(
+        RETURN_IF_ARROW_ERROR(
                 builder.AppendValues(col_data.data() + start, end - start,
                                      reinterpret_cast<const uint8_t*>(arrow_null_map_data)),
                 column.get_name(), array_builder->type()->name());
     }
+    return Status::OK();
 }
 
 template <PrimitiveType T>
@@ -193,9 +194,10 @@ Status DataTypeNumberSerDe<T>::deserialize_column_from_json_vector(
 }
 
 template <PrimitiveType T>
-void DataTypeNumberSerDe<T>::read_column_from_arrow(IColumn& column,
-                                                    const arrow::Array* arrow_array, int64_t start,
-                                                    int64_t end, const cctz::time_zone& ctz) const {
+Status DataTypeNumberSerDe<T>::read_column_from_arrow(IColumn& column,
+                                                      const arrow::Array* arrow_array,
+                                                      int64_t start, int64_t end,
+                                                      const cctz::time_zone& ctz) const {
     auto row_count = end - start;
     auto& col_data = static_cast<ColumnType&>(column).get_data();
 
@@ -205,7 +207,7 @@ void DataTypeNumberSerDe<T>::read_column_from_arrow(IColumn& column,
         for (size_t bool_i = 0; bool_i != static_cast<size_t>(concrete_array->length()); ++bool_i) {
             col_data.emplace_back(concrete_array->Value(bool_i));
         }
-        return;
+        return Status::OK();
     }
 
     // only for largeint(int128) type
@@ -224,9 +226,9 @@ void DataTypeNumberSerDe<T>::read_column_from_arrow(IColumn& column,
                     Int128 val = 0;
                     ReadBuffer rb(raw_data, raw_data_len);
                     if (!read_int_text_impl(val, rb)) {
-                        throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-                                               "parse number fail, string: '{}'",
-                                               std::string(rb.position(), rb.count()).c_str());
+                        return Status::Error(ErrorCode::INVALID_ARGUMENT,
+                                             "parse number fail, string: '{}'",
+                                             std::string(rb.position(), rb.count()).c_str());
                     }
                     col_data.emplace_back(val);
                 }
@@ -234,7 +236,7 @@ void DataTypeNumberSerDe<T>::read_column_from_arrow(IColumn& column,
                 col_data.emplace_back(Int128()); // Int128() is NULL
             }
         }
-        return;
+        return Status::OK();
     }
 
     /// buffers[0] is a null bitmap and buffers[1] are actual values
@@ -243,6 +245,7 @@ void DataTypeNumberSerDe<T>::read_column_from_arrow(IColumn& column,
                                    buffer->data()) +
                            start;
     col_data.insert(raw_data, raw_data + row_count);
+    return Status::OK();
 }
 template <PrimitiveType T>
 Status DataTypeNumberSerDe<T>::deserialize_column_from_fixed_json(
