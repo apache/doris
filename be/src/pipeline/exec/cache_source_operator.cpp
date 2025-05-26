@@ -34,7 +34,7 @@ Status CacheSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
-    ((CacheSharedState*)_dependency->shared_state())
+    ((DataQueueSharedState*)_dependency->shared_state())
             ->data_queue.set_source_dependency(_shared_state->source_deps.front());
     const auto& scan_ranges = info.scan_ranges;
     bool hit_cache = false;

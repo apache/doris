@@ -1140,4 +1140,23 @@ public class ExpressionUtils {
             return new StringLiteral(unboundSlot.getName());
         }
     }
+
+    /**
+     * format a list of slots
+     */
+    public static String slotListShapeInfo(List<Slot> materializedSlots) {
+        StringBuilder shapeBuilder = new StringBuilder();
+        shapeBuilder.append("(");
+        boolean isFirst = true;
+        for (Slot slot : materializedSlots) {
+            if (isFirst) {
+                shapeBuilder.append(slot.shapeInfo());
+                isFirst = false;
+            } else {
+                shapeBuilder.append(",").append(slot.shapeInfo());
+            }
+        }
+        shapeBuilder.append(")");
+        return shapeBuilder.toString();
+    }
 }

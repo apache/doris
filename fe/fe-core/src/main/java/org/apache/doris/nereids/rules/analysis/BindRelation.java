@@ -412,14 +412,14 @@ public class BindRelation extends OneAnalysisRuleFactory {
                     if (hmsTable.getDlaType() == DLAType.HUDI) {
                         LogicalHudiScan hudiScan = new LogicalHudiScan(unboundRelation.getRelationId(), hmsTable,
                                 qualifierWithoutTableName, unboundRelation.getTableSample(),
-                                unboundRelation.getTableSnapshot());
+                                unboundRelation.getTableSnapshot(), ImmutableList.of());
                         hudiScan = hudiScan.withScanParams(hmsTable, unboundRelation.getScanParams());
                         return hudiScan;
                     } else {
                         return new LogicalFileScan(unboundRelation.getRelationId(), (HMSExternalTable) table,
                                 qualifierWithoutTableName,
                                 unboundRelation.getTableSample(),
-                                unboundRelation.getTableSnapshot());
+                                unboundRelation.getTableSnapshot(), ImmutableList.of());
                     }
                 case ICEBERG_EXTERNAL_TABLE:
                 case PAIMON_EXTERNAL_TABLE:
@@ -428,7 +428,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 case LAKESOUl_EXTERNAL_TABLE:
                     return new LogicalFileScan(unboundRelation.getRelationId(), (ExternalTable) table,
                             qualifierWithoutTableName, unboundRelation.getTableSample(),
-                            unboundRelation.getTableSnapshot());
+                            unboundRelation.getTableSnapshot(), ImmutableList.of());
                 case SCHEMA:
                     // schema table's name is case-insensitive, we need save its name in SQL text to get correct case.
                     return new LogicalSubQueryAlias<>(qualifiedTableName,

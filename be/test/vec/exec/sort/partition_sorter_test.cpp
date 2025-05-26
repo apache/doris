@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "vec/common/sort/partition_sorter.h"
+
 #include <gen_cpp/olap_file.pb.h>
 #include <gen_cpp/types.pb.h>
 #include <glog/logging.h>

@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
@@ -187,6 +188,11 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
             }
         }
         return pushed;
+    }
+
+    @Override
+    public Boolean visitPhysicalLazyMaterializeOlapScan(PhysicalLazyMaterializeOlapScan scan, PushDownContext ctx) {
+        return visitPhysicalRelation(scan, ctx);
     }
 
     @Override

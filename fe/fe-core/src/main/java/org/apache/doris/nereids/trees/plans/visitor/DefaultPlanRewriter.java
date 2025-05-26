@@ -59,11 +59,10 @@ public abstract class DefaultPlanRewriter<C> extends PlanVisitor<Plan, C> {
         }
 
         if (hasNewChildren) {
+            P originPlan = plan;
             plan = (P) plan.withChildren(newChildren.build());
-            if (plan instanceof AbstractPhysicalPlan) {
-                AbstractPhysicalPlan physicalPlan = (AbstractPhysicalPlan) plan;
-                plan = (P) ((AbstractPhysicalPlan) physicalPlan.withChildren(newChildren.build()))
-                        .copyStatsAndGroupIdFrom(physicalPlan);
+            if (originPlan instanceof AbstractPhysicalPlan) {
+                plan = (P) ((AbstractPhysicalPlan) plan).copyStatsAndGroupIdFrom((AbstractPhysicalPlan) originPlan);
             }
         }
         return plan;

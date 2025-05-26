@@ -47,6 +47,7 @@
 #include "io/cache/fs_file_cache_storage.h"
 #include "io/fs/file_meta_cache.h"
 #include "io/fs/local_file_reader.h"
+#include "olap/id_manager.h"
 #include "olap/memtable_memory_limiter.h"
 #include "olap/olap_define.h"
 #include "olap/options.h"
@@ -452,6 +453,7 @@ Status ExecEnv::_init_mem_env() {
         return Status::InternalError(ss.str());
     }
 
+    _id_manager = new IdManager();
     _cache_manager = CacheManager::create_global_instance();
 
     int64_t storage_cache_limit =
@@ -718,6 +720,9 @@ void ExecEnv::destroy() {
     _delta_writer_v2_pool.reset();
     _load_stream_map_pool.reset();
     SAFE_STOP(_write_cooldown_meta_executors);
+
+    // _id_manager must be destoried before tablet schema cache
+    SAFE_DELETE(_id_manager);
 
     // StorageEngine must be destoried before _cache_manager destory
     SAFE_STOP(_storage_engine);

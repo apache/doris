@@ -32,7 +32,6 @@
 #include "common/config.h"
 #include "common/factory_creator.h"
 #include "common/object_pool.h"
-#include "pipeline/dependency.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/runtime_predicate.h"
@@ -48,6 +47,7 @@ namespace doris {
 namespace pipeline {
 class PipelineFragmentContext;
 class PipelineTask;
+class Dependency;
 } // namespace pipeline
 
 struct ReportStatusRequest {
@@ -233,6 +233,7 @@ public:
     TNetworkAddress coord_addr;
     TNetworkAddress current_connect_fe;
     TQueryGlobals query_globals;
+    const TQueryGlobals get_query_globals() const { return query_globals; }
 
     ObjectPool obj_pool;
 
@@ -373,6 +374,8 @@ public:
 
     timespec get_query_arrival_timestamp() const { return this->_query_arrival_timestamp; }
     QuerySource get_query_source() const { return this->_query_source; }
+
+    const TQueryOptions get_query_options() const { return _query_options; }
 };
 
 } // namespace doris

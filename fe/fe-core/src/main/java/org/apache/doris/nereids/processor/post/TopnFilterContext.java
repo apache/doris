@@ -57,6 +57,10 @@ public class TopnFilterContext {
         return filters.containsKey(topn.getObjectId());
     }
 
+    public TopnFilter getTopnFilter(TopN topn) {
+        return filters.get(topn.getObjectId());
+    }
+
     public List<TopnFilter> getTopnFilters() {
         return Lists.newArrayList(filters.values());
     }

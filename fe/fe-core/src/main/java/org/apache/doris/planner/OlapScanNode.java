@@ -215,6 +215,11 @@ public class OlapScanNode extends ScanNode {
     private final PartitionPruneV2ForShortCircuitPlan cachedPartitionPruner =
                         new PartitionPruneV2ForShortCircuitPlan();
 
+    private boolean isTopnLazyMaterialize = false;
+    private List<Column> topnLazyMaterializeOutputColumns = new ArrayList<>();
+
+    private Column globalRowIdColumn;
+
     // Constructs node to scan given data files of table 'tbl'.
     public OlapScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName) {
         super(id, desc, planNodeName, StatisticalType.OLAP_SCAN_NODE);
@@ -1420,7 +1425,7 @@ public class OlapScanNode extends ScanNode {
             output.append(prefix).append("rewrittenProjectList: ").append(
                     getExplainString(rewrittenProjectList)).append("\n");
         }
-
+        output.append(prefix).append("desc: ").append(desc.getId().asInt()).append("\n");
         return output.toString();
     }
 
@@ -1510,15 +1515,13 @@ public class OlapScanNode extends ScanNode {
         List<String> keyColumnNames = new ArrayList<String>();
         List<TPrimitiveType> keyColumnTypes = new ArrayList<TPrimitiveType>();
         List<TColumn> columnsDesc = new ArrayList<TColumn>();
-        olapTable.getColumnDesc(selectedIndexId, columnsDesc, keyColumnNames, keyColumnTypes);
         List<TOlapTableIndex> indexDesc = Lists.newArrayList();
-
-        // Add extra row id column
-        ArrayList<SlotDescriptor> slots = desc.getSlots();
-        Column lastColumn = slots.get(slots.size() - 1).getColumn();
-        if (lastColumn != null && lastColumn.getName().equalsIgnoreCase(Column.ROWID_COL)) {
-            TColumn tColumn = new TColumn();
-            tColumn.setColumnName(Column.ROWID_COL);
+        if (isTopnLazyMaterialize) {
+            Set<String> materializedColumnNames = topnLazyMaterializeOutputColumns.stream()
+                    .map(Column::getName).collect(Collectors.toSet());
+            olapTable.getColumnDesc(selectedIndexId, columnsDesc, keyColumnNames, keyColumnTypes,
+                    materializedColumnNames);
+            TColumn tColumn = globalRowIdColumn.toThrift();
             tColumn.setColumnType(ScalarType.createStringType().toColumnTypeThrift());
             tColumn.setAggregationType(AggregateType.REPLACE.toThrift());
             tColumn.setIsKey(false);
@@ -1527,8 +1530,25 @@ public class OlapScanNode extends ScanNode {
             tColumn.setVisible(false);
             tColumn.setColUniqueId(Integer.MAX_VALUE);
             columnsDesc.add(tColumn);
-        }
+        } else {
+            olapTable.getColumnDesc(selectedIndexId, columnsDesc, keyColumnNames, keyColumnTypes);
 
+            // Add extra row id column
+            ArrayList<SlotDescriptor> slots = desc.getSlots();
+            Column lastColumn = slots.get(slots.size() - 1).getColumn();
+            if (lastColumn != null && lastColumn.getName().equalsIgnoreCase(Column.ROWID_COL)) {
+                TColumn tColumn = new TColumn();
+                tColumn.setColumnName(Column.ROWID_COL);
+                tColumn.setColumnType(ScalarType.createStringType().toColumnTypeThrift());
+                tColumn.setAggregationType(AggregateType.REPLACE.toThrift());
+                tColumn.setIsKey(false);
+                tColumn.setIsAllowNull(false);
+                // keep compatibility
+                tColumn.setVisible(false);
+                tColumn.setColUniqueId(Integer.MAX_VALUE);
+                columnsDesc.add(tColumn);
+            }
+        }
         for (Index index : olapTable.getIndexes()) {
             TOlapTableIndex tIndex = index.toThrift(index.getColumnUniqueIds(olapTable.getBaseSchema()));
             indexDesc.add(tIndex);
@@ -1929,5 +1949,29 @@ public class OlapScanNode extends ScanNode {
     @Override
     public int getScanRangeNum() {
         return getScanTabletIds().size();
+    }
+
+    public boolean isTopnLazyMaterialize() {
+        return isTopnLazyMaterialize;
+    }
+
+    public void setIsTopnLazyMaterialize(boolean isTopnLazyMaterialize) {
+        this.isTopnLazyMaterialize = isTopnLazyMaterialize;
+    }
+
+    public void addTopnLazyMaterializeOutputColumns(Column column) {
+        this.topnLazyMaterializeOutputColumns.add(column);
+    }
+
+    public List<Column> getTopnLazyMaterializeOutputColumns() {
+        return topnLazyMaterializeOutputColumns;
+    }
+
+    public Column getGlobalRowIdColumn() {
+        return globalRowIdColumn;
+    }
+
+    public void setGlobalRowIdColumn(Column globalRowIdColumn) {
+        this.globalRowIdColumn = globalRowIdColumn;
     }
 }

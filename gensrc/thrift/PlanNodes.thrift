@@ -58,7 +58,8 @@ enum TPlanNodeType {
   JDBC_SCAN_NODE,
   TEST_EXTERNAL_SCAN_NODE,
   PARTITION_SORT_NODE,
-  GROUP_COMMIT_SCAN_NODE
+  GROUP_COMMIT_SCAN_NODE,
+  MATERIALIZATION_NODE
 }
 
 struct TKeyRange {
@@ -976,6 +977,27 @@ struct TRepeatNode {
   6: required list<Exprs.TExpr> exprs
 }
 
+struct TMaterializationNode {
+    // Materialization node output tuple
+    1: optional Types.TTupleId tuple_id
+    // Intertemporal materializes tuple
+    2: optional Types.TTupleId intermediate_tuple_id
+    // Nodes in this cluster, used for second phase fetch
+    3: optional Descriptors.TPaloNodesInfo nodes_info
+    // Separate list of expr for fetch data
+    4: optional list<Exprs.TExpr> fetch_expr_lists
+    // Fetch schema
+    5: optional list<list<Descriptors.TColumn>> column_descs_lists; 
+    // Add column in tuple offset
+    6: optional list<list<i32>> slot_locs_lists; // [[1, 2], [4, 5]]
+    // Whether fetch row store
+    7: optional list<bool> fetch_row_stores
+    // Whethe to clear id map
+    8: optional bool gc_id_map
+    // 与 slot_locs_lists 类型 不过它代表的是 当前slot 在 表中的位置（第几列）
+    9: optional list<list<i32>> column_idxs_lists; 
+}
+
 struct TPreAggregationNode {
   1: required list<Exprs.TExpr> group_exprs
   2: required list<Exprs.TExpr> aggregate_exprs
@@ -1368,6 +1390,7 @@ struct TPlanNode {
   // Runtime filters assigned to this plan node, exist in HashJoinNode and ScanNode
   36: optional list<TRuntimeFilterDesc> runtime_filters
   37: optional TGroupCommitScanNode group_commit_scan_node
+  38: optional TMaterializationNode materialization_node
 
   // Use in vec exec engine
   40: optional Exprs.TExpr vconjunct

@@ -17,9 +17,12 @@
 
 #pragma once
 
+#ifdef EINTERNAL
+#undef EINTERNAL
+#endif
+
 // all header need by brpc is contain in this file.
 // include this file instead of include <brpc/xxx.h>.
-
 #include <brpc/channel.h>
 #include <brpc/server.h>
 #include <butil/endpoint.h>
