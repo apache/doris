@@ -62,6 +62,11 @@ import org.apache.doris.mysql.MysqlPassword;
 import org.apache.doris.mysql.authenticate.AuthenticateType;
 import org.apache.doris.mysql.authenticate.ldap.LdapManager;
 import org.apache.doris.mysql.authenticate.ldap.LdapUserInfo;
+import org.apache.doris.nereids.trees.plans.commands.GrantResourcePrivilegeCommand;
+import org.apache.doris.nereids.trees.plans.commands.GrantRoleCommand;
+import org.apache.doris.nereids.trees.plans.commands.GrantTablePrivilegeCommand;
+import org.apache.doris.nereids.trees.plans.commands.RevokeResourcePrivilegeCommand;
+import org.apache.doris.nereids.trees.plans.commands.RevokeRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterUserInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateUserInfo;
 import org.apache.doris.persist.AlterUserOperationLog;
@@ -668,6 +673,30 @@ public class Auth implements Writable {
         }
     }
 
+    public void grantRoleCommand(GrantRoleCommand command) throws DdlException {
+        grantInternal(command.getUserIdentity(), command.getRoles(), false);
+    }
+
+    public void grantTablePrivilegeCommand(GrantTablePrivilegeCommand command) throws DdlException {
+        PrivBitSet privs = PrivBitSet.of(command.getPrivileges());
+        grantInternal(command.getUserIdentity().orElse(null), command.getRole().orElse(null), command.getTablePattern(),
+                    privs, command.getColPrivileges(), true /* err on non exist */, false /* not replay */);
+    }
+
+    public void grantResourcePrivilegeCommand(GrantResourcePrivilegeCommand command) throws DdlException {
+        if (command.getResourcePattern().isPresent()) {
+            PrivBitSet privs = PrivBitSet.of(command.getPrivileges());
+            grantInternal(command.getUserIdentity().orElse(null), command.getRole().orElse(null),
+                    command.getResourcePattern().orElse(null), privs, true /* err on non exist */,
+                    false /* not replay */);
+        } else if (command.getWorkloadGroupPattern().isPresent()) {
+            PrivBitSet privs = PrivBitSet.of(command.getPrivileges());
+            grantInternal(command.getUserIdentity().orElse(null), command.getRole().orElse(null),
+                    command.getWorkloadGroupPattern().orElse(null),
+                    privs, true /* err on non exist */, false /* not replay */);
+        }
+    }
+
     public void replayGrant(PrivInfo privInfo) {
         try {
             PrivBitSet privs = privInfo.getPrivs();
@@ -862,6 +891,26 @@ public class Auth implements Writable {
                     true /* err on non exist */, false /* is replay */);
         } else {
             revokeInternal(stmt.getUserIdent(), stmt.getRoles(), false);
+        }
+    }
+
+    // revoke role
+    public void revokeRole(RevokeRoleCommand command) throws DdlException {
+        revokeInternal(command.getUserIdentity(), command.getRoles(), false);
+    }
+
+    // revoke resource
+    public void revokeResourcePrivilegeCommand(RevokeResourcePrivilegeCommand command) throws DdlException {
+        if (command.getResourcePattern().isPresent()) {
+            PrivBitSet privs = PrivBitSet.of(command.getPrivileges());
+            revokeInternal(command.getUserIdentity().orElse(null), command.getRole().orElse(null),
+                    command.getResourcePattern().orElse(null), privs,
+                    true /* err on non exist */, false /* is replay */);
+        } else if (command.getWorkloadGroupPattern().isPresent()) {
+            PrivBitSet privs = PrivBitSet.of(command.getPrivileges());
+            revokeInternal(command.getUserIdentity().orElse(null), command.getRole().orElse(null),
+                    command.getWorkloadGroupPattern().orElse(null), privs,
+                    true /* err on non exist */, false /* is replay */);
         }
     }
 

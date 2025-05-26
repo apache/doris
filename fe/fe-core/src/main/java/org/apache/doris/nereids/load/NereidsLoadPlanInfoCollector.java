@@ -170,7 +170,7 @@ public class NereidsLoadPlanInfoCollector extends DefaultPlanVisitor<Void, PlanT
                 params.addToRequiredSlots(slotInfo);
             }
 
-            Map<String, String> properties = fileGroupInfo.getBrokerDesc().getProperties();
+            Map<String, String> properties = fileGroupInfo.getBrokerDesc().getBackendConfigProperties();
             if (fileGroupInfo.getBrokerDesc().getFileType() == TFileType.FILE_HDFS) {
                 THdfsParams tHdfsParams = HdfsResource.generateHdfsParam(properties);
                 params.setHdfsParams(tHdfsParams);
@@ -304,7 +304,7 @@ public class NereidsLoadPlanInfoCollector extends DefaultPlanVisitor<Void, PlanT
         for (int i = 0; i < targetTableSlots.size(); ++i) {
             if (targetTableSlots.get(i).isColumnFromTable()) {
                 SlotDescriptor srcSlot = srcSlots
-                        .get(((SlotReference) targetTableSlots.get(i)).getColumn().get().getName());
+                        .get(((SlotReference) targetTableSlots.get(i)).getOriginalColumn().get().getName());
                 if (srcSlot != null) {
                     loadPlanInfo.destSlotIdToSrcSlotIdWithoutTrans.put(destSlots.get(i).getId(), srcSlot.getId());
                 }

@@ -71,20 +71,9 @@ public:
     char* serialize(const IColumn& column, char* buf, int be_exec_version) const override;
     const char* deserialize(const char* buf, MutableColumnPtr* column,
                             int be_exec_version) const override;
-    Field get_default() const override { return VariantMap(); }
+    Field get_default() const override { return Field::create_field<TYPE_VARIANT>(VariantMap()); }
 
-    Field get_field(const TExprNode& node) const override {
-        if (node.__isset.string_literal) {
-            return Field(node.string_literal.value);
-        }
-        if (node.node_type == TExprNodeType::NULL_LITERAL) {
-            return {};
-        }
-        std::stringstream error_string;
-        node.printTo(error_string);
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Unkown literal {}", error_string.str());
-        return {};
-    }
+    Field get_field(const TExprNode& node) const override;
 
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
         return std::make_shared<DataTypeVariantSerDe>(nesting_level);

@@ -1308,6 +1308,13 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int max_get_kafka_meta_timeout_second = 60;
 
+
+    /**
+     * the expire time of routine load blacklist.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int routine_load_blacklist_expire_time_second = 300;
+
     /**
      * The max number of files store in SmallFileMgr
      */
@@ -1589,7 +1596,7 @@ public class Config extends ConfigBase {
      * Used to set default db data quota bytes.
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static long default_db_data_quota_bytes = 1024L * 1024 * 1024 * 1024 * 1024L; // 1PB
+    public static long default_db_data_quota_bytes = Long.MAX_VALUE; // 8192 PB
 
     /**
      * Used to set default db replica quota num.
@@ -2911,7 +2918,7 @@ public class Config extends ConfigBase {
     public static int workload_sched_policy_interval_ms = 10000; // 10s
 
     @ConfField(mutable = true, masterOnly = true)
-    public static int workload_group_check_interval_ms = 30000; // 30s
+    public static int workload_group_check_interval_ms = 2000; // 2s
 
     @ConfField(mutable = true, masterOnly = true)
     public static int workload_max_policy_num = 25;

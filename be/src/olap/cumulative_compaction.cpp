@@ -220,8 +220,8 @@ Status CumulativeCompaction::pick_rowsets_to_compact() {
                     .tag("tablet id:", tablet()->tablet_id())
                     .tag("after cumulative compaction, cumu point:",
                          tablet()->cumulative_layer_point());
-            return Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>(
-                    "_last_delete_version.first not equal to -1");
+            return Status::Error<CUMULATIVE_MEET_DELETE_VERSION>(
+                    "cumulative compaction meet delete version");
         }
 
         // we did not meet any delete version. which means compaction_score is not enough to do cumulative compaction.

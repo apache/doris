@@ -106,9 +106,9 @@ class FieldVisitorReplaceScalars : public StaticVisitor<Field> {
 public:
     FieldVisitorReplaceScalars(const Field& replacement_, size_t num_dimensions_to_keep_)
             : replacement(replacement_), num_dimensions_to_keep(num_dimensions_to_keep_) {}
-    template <typename T>
-    Field operator()(const T& x) const {
-        if constexpr (std::is_same_v<T, Array>) {
+    template <PrimitiveType T>
+    Field operator()(const typename PrimitiveTypeTraits<T>::NearestFieldType& x) const {
+        if constexpr (T == TYPE_ARRAY) {
             if (num_dimensions_to_keep == 0) {
                 return replacement;
             }
@@ -118,7 +118,7 @@ public:
                 res[i] = apply_visitor(
                         FieldVisitorReplaceScalars(replacement, num_dimensions_to_keep - 1), x[i]);
             }
-            return res;
+            return Field::create_field<TYPE_ARRAY>(res);
         } else {
             return replacement;
         }
@@ -149,7 +149,7 @@ void parse_json_to_variant(IColumn& column, const char* src, size_t length,
         }
         // Treat as string
         PathInData root_path;
-        Field field(String(src, length));
+        Field field = Field::create_field<TYPE_STRING>(String(src, length));
         result = ParseResult {{root_path}, {field}};
     }
     auto& [paths, values] = *result;

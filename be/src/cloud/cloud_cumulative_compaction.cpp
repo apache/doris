@@ -97,8 +97,8 @@ Status CloudCumulativeCompaction::prepare_compact() {
             // NOTICE: after that, the cumulative point may be larger than max version of this tablet, but it doesn't matter.
             update_cumulative_point();
             if (!config::enable_sleep_between_delete_cumu_compaction) {
-                st = Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>(
-                        "_last_delete_version.first not equal to -1");
+                st = Status::Error<CUMULATIVE_MEET_DELETE_VERSION>(
+                        "cumulative compaction meet delete version");
             }
         }
         return st;
@@ -165,7 +165,8 @@ Status CloudCumulativeCompaction::request_global_lock() {
             LOG_WARNING("failed to prepare cumu compaction")
                     .tag("job_id", _uuid)
                     .tag("msg", resp.status().msg());
-            return Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>("no suitable versions");
+            return Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>(
+                    "cumu no suitable versions: job tablet busy");
         } else if (resp.status().code() == cloud::JOB_CHECK_ALTER_VERSION) {
             (static_cast<CloudTablet*>(_tablet.get()))->set_alter_version(resp.alter_version());
             std::stringstream ss;
@@ -493,7 +494,8 @@ Status CloudCumulativeCompaction::pick_rowsets_to_compact() {
                 });
     }
     if (candidate_rowsets.empty()) {
-        return Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>("no suitable versions");
+        return Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>(
+                "no suitable versions: candidate rowsets empty");
     }
     std::sort(candidate_rowsets.begin(), candidate_rowsets.end(), Rowset::comparator);
     if (auto st = check_version_continuity(candidate_rowsets); !st.ok()) {
@@ -521,12 +523,14 @@ Status CloudCumulativeCompaction::pick_rowsets_to_compact() {
                                  &_last_delete_version, &compaction_score);
 
     if (_input_rowsets.empty()) {
-        return Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>("no suitable versions");
+        return Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>(
+                "no suitable versions: input rowsets empty");
     } else if (_input_rowsets.size() == 1 &&
                !_input_rowsets.front()->rowset_meta()->is_segments_overlapping()) {
         VLOG_DEBUG << "there is only one rowset and not overlapping. tablet_id="
                    << _tablet->tablet_id() << ", version=" << _input_rowsets.front()->version();
-        return Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>("no suitable versions");
+        return Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>(
+                "no suitable versions: only one rowset and not overlapping");
     }
     return Status::OK();
 }
