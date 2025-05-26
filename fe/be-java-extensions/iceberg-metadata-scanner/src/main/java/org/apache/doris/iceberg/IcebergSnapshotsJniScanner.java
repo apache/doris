@@ -35,7 +35,7 @@ class IcebergSnapshotsJniScanner extends IcebergMetadataJniScanner {
         SNAPSHOTS_SCHEMA.put("parent_id", "long");
         SNAPSHOTS_SCHEMA.put("operation", "string");
         SNAPSHOTS_SCHEMA.put("manifest_list", "string");
-        SNAPSHOTS_SCHEMA.put("summary", "string");
+        SNAPSHOTS_SCHEMA.put("summary", "map<string, string>");
     }
 
     private Iterator<Snapshot> reader;

@@ -62,9 +62,9 @@ public class IcebergTableValuedFunction extends MetadataTableValuedFunction {
             new Column("snapshot_id", PrimitiveType.BIGINT, false),
             new Column("parent_id", PrimitiveType.BIGINT, false),
             new Column("operation", PrimitiveType.STRING, false),
-            // todo: compress manifest_list string
             new Column("manifest_list", PrimitiveType.STRING, false),
-            new Column("summary", PrimitiveType.STRING, false));
+            // TODO: complete kv type in summary
+            new Column("summary", PrimitiveType.MAP, false));
 
     private static final ImmutableMap<String, Integer> COLUMN_TO_INDEX;
 
