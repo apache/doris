@@ -159,7 +159,6 @@ REPLICA_NUM	int	Yes	false	\N
 STORAGE_POLICY	text	Yes	false	\N	
 STORAGE_MEDIUM	text	Yes	false	\N	
 COOLDOWN_TIME_MS	text	Yes	false	\N	
-IS_IN_MEMORY	boolean	Yes	false	\N	
 LAST_CONSISTENCY_CHECK_TIME	text	Yes	false	\N	
 BUCKET_NUM	int	Yes	false	\N	
 COMMITTED_VERSION	bigint	Yes	false	\N	
