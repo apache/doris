@@ -150,6 +150,9 @@ public class HiveTableSink extends BaseExternalTableDataSink {
         }
         locationParams.setFileType(fileType);
         tSink.setLocation(locationParams);
+        if (fileType.equals(TFileType.FILE_BROKER)) {
+            tSink.setBrokerAddresses(getBrokerAddresses(targetTable.getCatalog().bindBrokerName()));
+        }
 
         tSink.setHadoopConfig(targetTable.getHadoopProperties());
 
