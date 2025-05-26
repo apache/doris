@@ -396,6 +396,15 @@ public:
     long row_store_page_size() const { return _row_store_page_size; }
     void set_storage_page_size(long storage_page_size) { _storage_page_size = storage_page_size; }
     long storage_page_size() const { return _storage_page_size; }
+    bool has_global_row_id() const {
+        for (auto [col_name, _] : _field_name_to_index) {
+            if (col_name.start_with(StringRef(BeConsts::GLOBAL_ROWID_COL.data(),
+                                              BeConsts::GLOBAL_ROWID_COL.size()))) {
+                return true;
+            }
+        }
+        return false;
+    }
 
     const std::vector<const TabletIndex*> inverted_indexes() const {
         std::vector<const TabletIndex*> inverted_indexes;
