@@ -217,7 +217,7 @@ public class ConfigBase {
             while (m.find()) {
                 String varName = (m.group(1) != null) ? m.group(1) : m.group(2);
                 String envValue = System.getProperty(varName);
-                envValue = (envValue != null) ? envValue : System.getenv(m.group(1));
+                envValue = (envValue != null) ? envValue : System.getenv(varName);
 
                 if (envValue != null) {
                     String originalPattern = (m.group(1) != null) ? "${" + varName + "}" : "$" + varName;
