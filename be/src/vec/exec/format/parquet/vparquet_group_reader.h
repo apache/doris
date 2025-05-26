@@ -158,6 +158,7 @@ public:
     Status next_batch(Block* block, size_t batch_size, size_t* read_rows, bool* batch_eof);
     int64_t lazy_read_filtered_rows() const { return _lazy_read_filtered_rows; }
     int64_t predicate_filter_time() const { return _predicate_filter_time; }
+    int64_t dict_filter_rewrite_time() const { return _dict_filter_rewrite_time; }
 
     ParquetColumnReader::Statistics statistics();
     void set_remaining_rows(int64_t rows) { _remaining_rows = rows; }
@@ -213,6 +214,7 @@ private:
     const LazyReadContext& _lazy_read_ctx;
     int64_t _lazy_read_filtered_rows = 0;
     int64_t _predicate_filter_time = 0;
+    int64_t _dict_filter_rewrite_time = 0;
     // If continuous batches are skipped, we can cache them to skip a whole page
     size_t _cached_filtered_rows = 0;
     std::unique_ptr<IColumn::Filter> _pos_delete_filter_ptr;
