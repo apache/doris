@@ -331,7 +331,6 @@ public class SchemaTable extends Table {
                                     .column("STORAGE_POLICY", ScalarType.createStringType())
                                     .column("STORAGE_MEDIUM", ScalarType.createStringType())
                                     .column("COOLDOWN_TIME_MS", ScalarType.createStringType())
-                                    .column("IS_IN_MEMORY", ScalarType.createType(PrimitiveType.BOOLEAN))
                                     .column("LAST_CONSISTENCY_CHECK_TIME", ScalarType.createStringType())
                                     .column("BUCKET_NUM", ScalarType.createType(PrimitiveType.INT))
                                     .column("COMMITTED_VERSION", ScalarType.createType(PrimitiveType.BIGINT))

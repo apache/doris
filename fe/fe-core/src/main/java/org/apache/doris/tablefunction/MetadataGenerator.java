@@ -1492,8 +1492,6 @@ public class MetadataGenerator {
                             .name())); // STORAGE_MEDIUM
                     trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(dataProperty
                             .getCooldownTimeMs()))); // COOLDOWN_TIME_MS
-                    trow.addToColumnValue(new TCell().setBoolVal(partitionInfo
-                            .getIsInMemory(partitionId))); // IS_IN_MEMORY
                     trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(partition
                             .getLastCheckTime()))); // LAST_CONSISTENCY_CHECK_TIME
                     trow.addToColumnValue(new TCell().setIntVal(partition.getDistributionInfo()

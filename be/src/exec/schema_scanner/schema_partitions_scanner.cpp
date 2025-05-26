@@ -73,7 +73,6 @@ std::vector<SchemaScanner::ColumnDesc> SchemaPartitionsScanner::_s_tbls_columns 
         {"STORAGE_POLICY", TYPE_STRING, sizeof(StringRef), true},
         {"STORAGE_MEDIUM", TYPE_STRING, sizeof(StringRef), true},
         {"COOLDOWN_TIME_MS", TYPE_STRING, sizeof(StringRef), true},
-        {"IS_IN_MEMORY", TYPE_BOOLEAN, sizeof(int8_t), true},
         {"LAST_CONSISTENCY_CHECK_TIME", TYPE_STRING, sizeof(StringRef), true},
         {"BUCKET_NUM", TYPE_INT, sizeof(int32_t), true},
         {"COMMITTED_VERSION", TYPE_BIGINT, sizeof(int64_t), true},
