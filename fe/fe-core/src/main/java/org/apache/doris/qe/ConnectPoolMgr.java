@@ -94,7 +94,7 @@ public class ConnectPoolMgr {
 
     public ConnectContext getContextWithQueryId(String queryId) {
         for (ConnectContext context : connectionMap.values()) {
-            if (queryId.equals(DebugUtil.printId(context.queryId))) {
+            if (queryId.equals(DebugUtil.printId(context.queryId)) || queryId.equals(context.traceId())) {
                 return context;
             }
         }
