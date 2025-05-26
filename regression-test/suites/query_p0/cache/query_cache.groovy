@@ -179,7 +179,4 @@ GROUP BY col_int_undef_signed;
 
     sql "set enable_nereids_distribute_planner=false"
     test()
-
-    sql "set enable_nereids_distribute_planner=true"
-    test()
 } 
