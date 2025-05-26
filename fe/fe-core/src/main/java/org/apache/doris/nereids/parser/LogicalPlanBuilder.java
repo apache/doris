@@ -380,6 +380,7 @@ import org.apache.doris.nereids.DorisParser.ShowStagesContext;
 import org.apache.doris.nereids.DorisParser.ShowStatusContext;
 import org.apache.doris.nereids.DorisParser.ShowStorageEnginesContext;
 import org.apache.doris.nereids.DorisParser.ShowStoragePolicyContext;
+import org.apache.doris.nereids.DorisParser.ShowStorageVaultContext;
 import org.apache.doris.nereids.DorisParser.ShowSyncJobContext;
 import org.apache.doris.nereids.DorisParser.ShowTableCreationContext;
 import org.apache.doris.nereids.DorisParser.ShowTableIdContext;
@@ -666,6 +667,7 @@ import org.apache.doris.nereids.trees.plans.commands.RefreshMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ReplayCommand;
 import org.apache.doris.nereids.trees.plans.commands.ResumeJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.ResumeMTMVCommand;
+import org.apache.doris.nereids.trees.plans.commands.RevokeResourcePrivilegeCommand;
 import org.apache.doris.nereids.trees.plans.commands.RevokeRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.SetDefaultStorageVaultCommand;
 import org.apache.doris.nereids.trees.plans.commands.SetOptionsCommand;
@@ -737,6 +739,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowStagesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowStorageEnginesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowStoragePolicyCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowStorageVaultCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowSyncJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTableCreationCommand;
@@ -1164,8 +1167,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public String visitCommentSpec(DorisParser.CommentSpecContext ctx) {
         String commentSpec = ctx == null ? "''" : ctx.STRING_LITERAL().getText();
-        return
-                LogicalPlanBuilderAssistant.escapeBackSlash(commentSpec.substring(1, commentSpec.length() - 1));
+        return LogicalPlanBuilderAssistant.escapeBackSlash(commentSpec.substring(1, commentSpec.length() - 1));
     }
 
     /**
@@ -1569,7 +1571,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             info = new AlterViewInfo(new TableNameInfo(nameParts), comment);
         } else {
             String querySql = getOriginSql(ctx.query());
-            info = new AlterViewInfo(new TableNameInfo(nameParts), querySql,
+            if (ctx.STRING_LITERAL() != null) {
+                comment = ctx.STRING_LITERAL().getText();
+                comment = LogicalPlanBuilderAssistant.escapeBackSlash(comment.substring(1, comment.length() - 1));
+            }
+            info = new AlterViewInfo(new TableNameInfo(nameParts), comment, querySql,
                     ctx.cols == null ? Lists.newArrayList() : visitSimpleColumnDefs(ctx.cols));
         }
         return new AlterViewCommand(info);
@@ -4710,6 +4716,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
+    public LogicalPlan visitShowStorageVault(ShowStorageVaultContext ctx) {
+        return new ShowStorageVaultCommand();
+    }
+
+    @Override
     public SetUserPropertiesCommand visitSetUserProperties(SetUserPropertiesContext ctx) {
         String user = ctx.user != null ? stripQuotes(ctx.user.getText()) : null;
         Map<String, String> userPropertiesMap = visitPropertyItemList(ctx.propertyItemList());
@@ -6288,14 +6299,15 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitKillQuery(KillQueryContext ctx) {
-        String queryId;
+        String queryId = null;
+        int connectionId = -1;
         TerminalNode integerValue = ctx.INTEGER_VALUE();
         if (integerValue != null) {
-            queryId = integerValue.getText();
+            connectionId = Integer.valueOf(integerValue.getText());
         } else {
             queryId = stripQuotes(ctx.STRING_LITERAL().getText());
         }
-        return new KillQueryCommand(queryId);
+        return new KillQueryCommand(queryId, connectionId);
     }
 
     @Override
@@ -7387,6 +7399,43 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 .collect(ImmutableList.toImmutableList());
 
         return new RevokeRoleCommand(userIdentity, roles);
+    }
+
+    @Override
+    public LogicalPlan visitRevokeResourcePrivilege(DorisParser.RevokeResourcePrivilegeContext ctx) {
+        List<AccessPrivilegeWithCols> accessPrivilegeWithCols = visitPrivilegeList(ctx.privilegeList());
+
+        String name = visitIdentifierOrTextOrAsterisk(ctx.identifierOrTextOrAsterisk());
+        Optional<ResourcePattern> resourcePattern = Optional.empty();
+        Optional<WorkloadGroupPattern> workloadGroupPattern = Optional.empty();
+
+        if (ctx.CLUSTER() != null || ctx.COMPUTE() != null) {
+            resourcePattern = Optional.of(new ResourcePattern(name, ResourceTypeEnum.CLUSTER));
+        } else if (ctx.STAGE() != null) {
+            resourcePattern = Optional.of(new ResourcePattern(name, ResourceTypeEnum.STAGE));
+        } else if (ctx.STORAGE() != null) {
+            resourcePattern = Optional.of(new ResourcePattern(name, ResourceTypeEnum.STORAGE_VAULT));
+        } else if (ctx.RESOURCE() != null) {
+            resourcePattern = Optional.of(new ResourcePattern(name, ResourceTypeEnum.GENERAL));
+        } else if (ctx.WORKLOAD() != null) {
+            workloadGroupPattern = Optional.of(new WorkloadGroupPattern(name));
+        }
+
+        Optional<UserIdentity> userIdentity = Optional.empty();
+        Optional<String> role = Optional.empty();
+
+        if (ctx.ROLE() != null) {
+            role = Optional.of(visitIdentifierOrText(ctx.identifierOrText()));
+        } else if (ctx.userIdentify() != null) {
+            userIdentity = Optional.of(visitUserIdentify(ctx.userIdentify()));
+        }
+
+        return new RevokeResourcePrivilegeCommand(
+            accessPrivilegeWithCols,
+            resourcePattern,
+            workloadGroupPattern,
+            role,
+            userIdentity);
     }
 
     public LogicalPlan visitDropAnalyzeJob(DorisParser.DropAnalyzeJobContext ctx) {
