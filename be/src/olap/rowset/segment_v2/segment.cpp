@@ -22,10 +22,12 @@
 #include <gen_cpp/segment_v2.pb.h>
 
 #include <cstring>
+#include <exception>
 #include <memory>
 #include <utility>
 
 #include "cloud/config.h"
+#include "common/config.h"
 #include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"
@@ -1229,6 +1231,61 @@ StoragePageCache::CacheKey Segment::get_segment_footer_cache_key() const {
     // So we use the size of file minus 12 as the cache key, which is unique for each segment file.
     return StoragePageCache::CacheKey(_file_reader->path().native(), _file_reader->size(),
                                       _file_reader->size() - 12);
+}
+
+std::map<uint32_t, Segment::ZoneMapInfo> Segment::get_zone_maps() {
+    if (config::cache_zone_map_max_columns_count <= 0) {
+        return {};
+    }
+
+    std::shared_ptr<SegmentFooterPB> footer_pb;
+    try {
+        auto st = _get_segment_footer(footer_pb, nullptr);
+        if (!st.ok()) {
+            LOG(INFO) << "cannot get footer from segment: " << _segment_id
+                      << ", rowset: " << _rowset_id << ", error: " << st.to_string();
+            return {};
+        }
+    } catch (const std::exception& e) {
+        LOG(WARNING) << "Failed to get segment footer for segment: " << _segment_id
+                     << ", rowset: " << _rowset_id << ", error: " << e.what();
+        return {};
+    }
+
+    std::map<uint32_t, ZoneMapInfo> zone_maps;
+
+    const auto& schema_columns = _tablet_schema->columns();
+    const auto pb_columns_count = footer_pb->columns().size();
+    if (pb_columns_count <= 0) {
+        return {};
+    }
+
+    const auto columns_count =
+            std::min(std::min(schema_columns.size(), static_cast<size_t>(pb_columns_count)),
+                     static_cast<size_t>(config::cache_zone_map_max_columns_count));
+
+    for (size_t ordinal = 0; ordinal != columns_count; ++ordinal) {
+        const auto& column_pb = footer_pb->columns(ordinal);
+        const auto& column = _tablet_schema->column(ordinal);
+        if (column.unique_id() < 0 || column.unique_id() != column_pb.unique_id()) {
+            VLOG_DEBUG << "skip zone map for unmatched col id: " << column.unique_id() << " : "
+                       << column_pb.unique_id() << ", column name: " << column.name();
+            continue;
+        }
+
+        for (int i = 0; i < column_pb.indexes_size(); i++) {
+            const auto& index_meta = column_pb.indexes(i);
+            if (index_meta.type() != ZONE_MAP_INDEX) {
+                continue;
+            }
+
+            ZoneMapPB zone_map_pb(index_meta.zone_map_index().segment_zone_map());
+            zone_maps[column.unique_id()] = ZoneMapInfo {
+                    std::move(zone_map_pb), (FieldType)(column_pb.type()), column_pb.length()};
+            break;
+        }
+    }
+    return zone_maps;
 }
 
 } // namespace doris::segment_v2

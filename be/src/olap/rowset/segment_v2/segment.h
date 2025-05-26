@@ -220,6 +220,14 @@ public:
 
     const TabletSchemaSPtr& tablet_schema() { return _tablet_schema; }
 
+    struct ZoneMapInfo {
+        ZoneMapPB zone_map;
+        FieldType field_type;
+        int32_t field_length;
+    };
+
+    std::map<uint32_t, ZoneMapInfo> get_zone_maps();
+
 private:
     DISALLOW_COPY_AND_ASSIGN(Segment);
     Segment(uint32_t segment_id, RowsetId rowset_id, TabletSchemaSPtr tablet_schema,
