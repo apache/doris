@@ -193,13 +193,13 @@ public class S3PropertiesTest {
     @Test
     public void testS3IamRoleWithExternalId() throws UserException {
         origProps.put("s3.endpoint", "s3.us-west-2.amazonaws.com");
-        origProps.put("s3.iam_role", "arn:aws:iam::123456789012:role/MyTestRole");
+        origProps.put("s3.role_arn", "arn:aws:iam::123456789012:role/MyTestRole");
         origProps.put("s3.external_id", "external-123");
 
         S3Properties s3Props = (S3Properties) StorageProperties.createPrimary(origProps);
         Map<String, String> backendProperties = s3Props.getBackendConfigProperties();
 
-        Assertions.assertEquals("arn:aws:iam::123456789012:role/MyTestRole", backendProperties.get("AWS_IAM_ROLE"));
+        Assertions.assertEquals("arn:aws:iam::123456789012:role/MyTestRole", backendProperties.get("AWS_ROLE_ARN"));
         Assertions.assertEquals("external-123", backendProperties.get("AWS_EXTERNAL_ID"));
     }
 
@@ -220,7 +220,7 @@ public class S3PropertiesTest {
         };
 
         origProps.put("s3.endpoint", "s3.us-west-2.amazonaws.com");
-        origProps.put("s3.iam_role", "arn:aws:iam::123456789012:role/MyTestRole");
+        origProps.put("s3.role_arn", "arn:aws:iam::123456789012:role/MyTestRole");
         origProps.put("s3.external_id", "external-123");
         origProps.put("s3.region", "us-west-2");
         S3Properties s3Props = (S3Properties) StorageProperties.createPrimary(origProps);
@@ -244,7 +244,7 @@ public class S3PropertiesTest {
         provider = s3Props.getAwsCredentialsProvider();
         Assertions.assertNotNull(provider);
         Assertions.assertTrue(provider instanceof StaticCredentialsProvider);
-        origProps.put("s3.iam_role", "arn:aws:iam::123456789012:role/MyTestRole");
+        origProps.put("s3.role_arn", "arn:aws:iam::123456789012:role/MyTestRole");
         origProps.put("s3.external_id", "external-123");
         s3Props = (S3Properties) StorageProperties.createPrimary(origProps);
         provider = s3Props.getAwsCredentialsProvider();

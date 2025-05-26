@@ -103,7 +103,7 @@ public class S3Properties extends AbstractS3CompatibleProperties {
             description = "The sts region of S3.")
     protected String s3StsRegion = "";
 
-    @ConnectorProperty(names = {"s3.iam_role"},
+    @ConnectorProperty(names = {"s3.role_arn"},
             required = false,
             description = "The iam role of S3.")
     protected String s3IAMRole = "";
@@ -222,7 +222,7 @@ public class S3Properties extends AbstractS3CompatibleProperties {
 
         if (StringUtils.isNotBlank(s3ExternalId)
                 && StringUtils.isNotBlank(s3IAMRole)) {
-            backendProperties.put("AWS_IAM_ROLE", s3IAMRole);
+            backendProperties.put("AWS_ROLE_ARN", s3IAMRole);
             backendProperties.put("AWS_EXTERNAL_ID", s3ExternalId);
         }
         return backendProperties;
