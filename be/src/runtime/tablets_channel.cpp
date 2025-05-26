@@ -133,9 +133,6 @@ Status BaseTabletsChannel::open(const PTabletWriterOpenRequest& request) {
     if (_state == kOpened || _state == kFinished) {
         return Status::OK();
     }
-    LOG(INFO) << fmt::format("open tablets channel {}, tablets num: {} timeout(s): {}",
-                             _key.to_string(), request.tablets().size(),
-                             request.load_channel_timeout_s());
     _txn_id = request.txn_id();
     _index_id = request.index_id();
     _schema = std::make_shared<OlapTableSchemaParam>();
@@ -163,8 +160,10 @@ Status BaseTabletsChannel::open(const PTabletWriterOpenRequest& request) {
         _num_remaining_senders = max_sender;
     }
     LOG(INFO) << fmt::format(
-            "txn {}: TabletsChannel of index {} init senders {} with incremental {}", _txn_id,
-            _index_id, _num_remaining_senders, _open_by_incremental ? "on" : "off");
+            "open tablets channel {}, tablets num: {} timeout(s): {}, init senders {} with "
+            "incremental {}",
+            _key.to_string(), request.tablets().size(), request.load_channel_timeout_s(),
+            _num_remaining_senders, _open_by_incremental ? "on" : "off");
     // just use max_sender no matter incremental or not cuz we dont know how many senders will open.
     _next_seqs.resize(max_sender, 0);
     _closed_senders.Reset(max_sender);
