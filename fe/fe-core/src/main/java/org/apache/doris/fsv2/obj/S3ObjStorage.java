@@ -128,7 +128,9 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
             S3URI uri = S3URI.create(remotePath, isUsePathStyle, forceParsingByStandardUri);
             HeadObjectResponse response = getClient()
                     .headObject(HeadObjectRequest.builder().bucket(uri.getBucket()).key(uri.getKey()).build());
-            LOG.info("head file " + remotePath + " success: " + response.toString());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("headObject success: {}, response: {}", remotePath, response);
+            }
             return Status.OK;
         } catch (S3Exception e) {
             if (e.statusCode() == HttpStatus.SC_NOT_FOUND) {
@@ -149,7 +151,9 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
             S3URI uri = S3URI.create(remoteFilePath, isUsePathStyle, forceParsingByStandardUri);
             GetObjectResponse response = getClient().getObject(
                     GetObjectRequest.builder().bucket(uri.getBucket()).key(uri.getKey()).build(), localFile.toPath());
-            LOG.info("get file " + remoteFilePath + " success: " + response.toString());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("get file {} success: {}", remoteFilePath, response);
+            }
             return Status.OK;
         } catch (S3Exception s3Exception) {
             return new Status(
@@ -173,7 +177,9 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                             .putObject(
                                     PutObjectRequest.builder().bucket(uri.getBucket()).key(uri.getKey()).build(),
                                     body);
-            LOG.info("put object success: {} " + response);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("put object success: {}", response);
+            }
             return Status.OK;
         } catch (S3Exception e) {
             LOG.warn("put object failed: ", e);
@@ -192,7 +198,9 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                     getClient()
                             .deleteObject(
                                     DeleteObjectRequest.builder().bucket(uri.getBucket()).key(uri.getKey()).build());
-            LOG.info("delete file {} success:{}", remotePath, response);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("delete file {} success: {}", remotePath, response);
+            }
             return Status.OK;
         } catch (S3Exception e) {
             LOG.warn("delete file failed: ", e);
@@ -233,15 +241,19 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                         LOG.warn("{} errors returned while deleting {} objects for dir {}",
                                 resp.errors().size(), objectList.size(), absolutePath);
                     }
-                    LOG.info("{} of {} objects deleted for dir {}",
-                            resp.deleted().size(), objectList.size(), absolutePath);
-                    totalObjects += objectList.size();
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("{} of {} objects deleted for dir {}",
+                                resp.deleted().size(), objectList.size(), absolutePath);
+                        totalObjects += objectList.size();
+                    }
                 }
 
                 isTruncated = objects.isTruncated();
                 continuationToken = objects.getContinuationToken();
             } while (isTruncated);
-            LOG.info("total delete {} objects for dir {}", totalObjects, absolutePath);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("total delete {} objects for dir {}", totalObjects, absolutePath);
+            }
             return Status.OK;
         } catch (DdlException e) {
             LOG.warn("deleteObjects:", e);
@@ -264,7 +276,9 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                                     .destinationBucket(descUri.getBucket())
                                     .destinationKey(descUri.getKey())
                                     .build());
-            LOG.info("copy file from {} to {} success: {} ", origFilePath, destFilePath, response);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("copy file from {} to {} success: {} ", origFilePath, destFilePath, response);
+            }
             return Status.OK;
         } catch (S3Exception e) {
             LOG.warn("copy file failed: ", e);
@@ -398,15 +412,17 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
             String bucket = uri.getBucket();
             String globPath = uri.getKey(); // eg: path/to/*.csv
 
-            LOG.info("globList globPath:{}, remotePath:{}", globPath, remotePath);
-
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("globList globPath:{}, remotePath:{}", globPath, remotePath);
+            }
             java.nio.file.Path pathPattern = Paths.get(globPath);
             PathMatcher matcher = FileSystems.getDefault().getPathMatcher("glob:" + pathPattern);
             HashSet<String> directorySet = new HashSet<>();
 
             String listPrefix = S3Util.getLongestPrefix(globPath); // similar to Azure
-            LOG.info("globList listPrefix: {}", listPrefix);
-
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("globList listPrefix: {}", listPrefix);
+            }
             ListObjectsV2Request request = ListObjectsV2Request.builder()
                     .bucket(bucket)
                     .prefix(listPrefix)
@@ -467,9 +483,11 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
         } finally {
             long endTime = System.nanoTime();
             long duration = endTime - startTime;
-            LOG.info("process {} elements under prefix {} for {} round, match {} elements, take {} ms",
-                    elementCnt, remotePath, roundCnt, matchCnt,
-                    duration / 1000 / 1000);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("process {} elements under prefix {} for {} round, match {} elements, take {} ms",
+                        elementCnt, remotePath, roundCnt, matchCnt,
+                        duration / 1000 / 1000);
+            }
         }
     }
 }
