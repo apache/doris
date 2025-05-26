@@ -2306,7 +2306,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         TableScanParams scanParams = null;
         if (ctx.optScanParams() != null) {
             Map<String, String> map = visitPropertyItemList(ctx.optScanParams().mapParams);
-            List<String> list = visitIdentifierSeq(ctx.optScanParams().listParams);
+            List<String> list;
+            if (ctx.optScanParams().listParams == null) {
+                list = ImmutableList.of();
+            } else {
+                list = visitIdentifierSeq(ctx.optScanParams().listParams);
+            }
             scanParams = new TableScanParams(ctx.optScanParams().funcName.getText(), map, list);
         }
 
@@ -5487,7 +5492,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     private TableScanParams visitOptScanParamsContext(OptScanParamsContext ctx) {
         if (ctx != null) {
             Map<String, String> map = visitPropertyItemList(ctx.mapParams);
-            List<String> list = visitIdentifierSeq(ctx.listParams);
+            List<String> list;
+            if (ctx.listParams == null) {
+                list = ImmutableList.of();
+            } else {
+                list = visitIdentifierSeq(ctx.listParams);
+            }
             return new TableScanParams(ctx.funcName.getText(), map, list);
         }
         return null;
