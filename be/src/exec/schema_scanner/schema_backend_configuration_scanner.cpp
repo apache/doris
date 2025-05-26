@@ -32,7 +32,7 @@ namespace doris {
 std::vector<SchemaScanner::ColumnDesc> SchemaBackendConfigurationScanner::_s_tbls_columns = {
         //   name,       type,          size,     is_null
         {"BE_ID", TYPE_BIGINT, sizeof(int64_t), true},
-        {"CONFIGURATION", TYPE_STRING, sizeof(StringRef), true},
+        {"CONFIGURATION_NAME", TYPE_STRING, sizeof(StringRef), true},
         {"CONFIGURATION_TYPE", TYPE_STRING, sizeof(StringRef), true},
         {"CONFIGURATION_VALUE", TYPE_STRING, sizeof(StringRef), true},
         {"IS_MUTABLE", TYPE_BOOLEAN, sizeof(bool), true}};
