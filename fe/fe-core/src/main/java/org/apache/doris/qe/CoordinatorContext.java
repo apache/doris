@@ -335,7 +335,7 @@ public class CoordinatorContext {
         }
         queryOptions.setFeProcessUuid(ExecuteEnv.getInstance().getProcessUUID());
         queryOptions.setMysqlRowBinaryFormat(context.getCommand() == MysqlCommand.COM_STMT_EXECUTE);
-
+        queryOptions.setRuntimeFilterMaxBuildRowCount(context.getSessionVariable().runtimeFilterMaxBuildRowCount);
         setOptionsFromUserProperty(context, queryOptions);
         return queryOptions;
     }
