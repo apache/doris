@@ -2314,7 +2314,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             if (ctx.tableSnapshot().TIME() != null) {
                 tableSnapshot = TableSnapshot.timeOf(ctx.tableSnapshot().time.getText());
             } else {
-                tableSnapshot = TableSnapshot.versionOf(ctx.tableSnapshot().version.getText());
+                tableSnapshot = TableSnapshot.versionOf(stripQuotes(ctx.tableSnapshot().version.getText()));
             }
         }
 

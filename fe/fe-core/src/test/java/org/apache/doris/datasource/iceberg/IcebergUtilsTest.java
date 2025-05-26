@@ -17,6 +17,9 @@
 
 package org.apache.doris.datasource.iceberg;
 
+import org.apache.doris.analysis.TableSnapshot;
+import org.apache.doris.datasource.iceberg.source.IcebergTableQueryInfo;
+
 import org.apache.iceberg.GenericManifestFile;
 import org.apache.iceberg.GenericPartitionFieldSummary;
 import org.apache.iceberg.ManifestContent;
@@ -24,6 +27,10 @@ import org.apache.iceberg.ManifestFile;
 import org.apache.iceberg.ManifestFile.PartitionFieldSummary;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.Snapshot;
+import org.apache.iceberg.SnapshotRef;
+import org.apache.iceberg.Table;
+import org.apache.iceberg.TableOperations;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.expressions.UnboundPredicate;
@@ -33,8 +40,10 @@ import org.apache.iceberg.types.Conversions;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.types.Types.LongType;
 import org.apache.iceberg.types.Types.StructType;
+import org.apache.iceberg.util.SnapshotUtil;
 import org.junit.Assert;
 import org.junit.Test;
+import org.mockito.Mockito;
 
 import java.lang.reflect.Field;
 import java.nio.ByteBuffer;
@@ -206,6 +215,76 @@ public class IcebergUtilsTest {
 
     @Test
     public void testGetQuerySpecSnapshot() {
+        Table table = Mockito.mock(Table.class);
 
+        // init schemas 0,1,2
+        HashMap<Integer, Schema> schemas = new HashMap<>();
+        schemas.put(0, mockSchemaWithId(0));
+        schemas.put(1, mockSchemaWithId(1));
+        schemas.put(2, mockSchemaWithId(2));
+        Mockito.when(table.schemas()).thenReturn(schemas);
+        // init current schema
+        Mockito.when(table.schema()).thenReturn(schemas.get(2));
+
+        // init snapshot 1,2,3,4
+        Snapshot s1 = mockSnapshot(1, 0);
+        Mockito.when(table.snapshot(1)).thenReturn(s1);
+        Snapshot s2 = mockSnapshot(2, 0);
+        Mockito.when(table.snapshot(2)).thenReturn(s2);
+        Snapshot s3 = mockSnapshot(3, 1);
+        Mockito.when(table.snapshot(3)).thenReturn(s3);
+        Snapshot s4 = mockSnapshot(4, 1);
+        Mockito.when(table.snapshot(4)).thenReturn(s4);
+
+        // create some refs
+        HashMap<String, SnapshotRef> refs = new HashMap<>();
+        String tag1 = "tag1";
+        refs.put(tag1, SnapshotRef.tagBuilder(1).build());
+        String branch1 = "branch1";
+        refs.put(branch1, SnapshotRef.branchBuilder(1).build());
+        String branch2 = "branch2";
+        refs.put(branch2, SnapshotRef.branchBuilder(3).build());
+        Mockito.when(table.refs()).thenReturn(refs);
+
+        // query tag1
+        assertQuerySpecSnapshot(table, tag1, 1, 0, tag1);
+
+        // query branch1
+        assertQuerySpecSnapshot(table, branch1, 1, 2, branch1);
+
+        // query branch2
+        assertQuerySpecSnapshot(table, branch2, 3, 2, branch2);
+
+        // query snapshotId 1
+        assertQuerySpecSnapshot(table, "1", 1, 0, null);
+
+        // query snapshotId 3
+        assertQuerySpecSnapshot(table, "3", 3, 1, null);
+    }
+
+    private Snapshot mockSnapshot(long snapshotId, int schemaId) {
+        Snapshot snapshot = Mockito.mock(Snapshot.class);
+        Mockito.when(snapshot.snapshotId()).thenReturn(snapshotId);
+        Mockito.when(snapshot.schemaId()).thenReturn(schemaId);
+        return snapshot;
+    }
+
+    private Schema mockSchemaWithId(int id) {
+        Schema schema = Mockito.mock(Schema.class);
+        Mockito.when(schema.schemaId()).thenReturn(id);
+        return schema;
+    }
+
+    private void assertQuerySpecSnapshot(
+            Table table,
+            String version,
+            long expectSnapshotId,
+            int expectSchemaId,
+            String expectRef) {
+        TableSnapshot ts3 = TableSnapshot.versionOf(version);
+        IcebergTableQueryInfo qs3 = IcebergUtils.getQuerySpecSnapshot(table, ts3);
+        Assert.assertEquals(expectSnapshotId, qs3.getSnapshotId());
+        Assert.assertEquals(expectSchemaId, qs3.getSchemaId());
+        Assert.assertEquals(expectRef, qs3.getRef());
     }
 }

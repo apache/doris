@@ -1749,7 +1749,7 @@ sampleMethod
     ;
 
 tableSnapshot
-    : FOR VERSION AS OF version=STRING_LITERAL
+    : FOR VERSION AS OF version=(INTEGER_VALUE | STRING_LITERAL)
     | FOR TIME AS OF time=STRING_LITERAL
     ;
 

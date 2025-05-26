@@ -162,6 +162,7 @@ public class IcebergUtils {
 
     private static final Pattern BRANCH = Pattern.compile("branch_(.*)");
     private static final Pattern TAG = Pattern.compile("tag_(.*)");
+    private static final Pattern SNAPSHOT_ID = Pattern.compile("\\d+");
 
     public static Expression convertToIcebergExpr(Expr expr, Schema schema) {
         if (expr == null) {
@@ -793,28 +794,23 @@ public class IcebergUtils {
         String value = queryTableSnapshot.getValue();
         TableSnapshot.VersionType type = queryTableSnapshot.getType();
         if (type == TableSnapshot.VersionType.VERSION) {
-            String refName = null;
-            Matcher branchRef = BRANCH.matcher(value);
-            if (branchRef.matches()) {
-                refName = branchRef.group(1);
-            }
-            Matcher tagRef = TAG.matcher(value);
-            if (tagRef.matches()) {
-                refName = tagRef.group(1);
-            }
-            if (refName != null) {
+            if (SNAPSHOT_ID.matcher(value).matches()) {
+                long snapshotId = Long.parseLong(value);
                 return new IcebergTableQueryInfo(
-                    table.refs().get(refName).snapshotId(),
-                    refName,
-                    SnapshotUtil.schemaFor(table, refName).schemaId()
+                    snapshotId,
+                    null,
+                    table.snapshot(snapshotId).schemaId()
                 );
             }
-            long snapshotId = Long.parseLong(value);
-            return new IcebergTableQueryInfo(
-                snapshotId,
-                null,
-                table.snapshot(snapshotId).schemaId()
-            );
+
+            if (!table.refs().containsKey(value)) {
+                throw new IllegalArgumentException("Table " + table.name() + " does not have a ref named " + value);
+            }
+                return new IcebergTableQueryInfo(
+                    table.refs().get(value).snapshotId(),
+                    value,
+                    SnapshotUtil.schemaFor(table, value).schemaId()
+                );
         } else {
             long timestamp = TimeUtils.timeStringToLong(value, TimeUtils.getTimeZone());
             if (timestamp < 0) {
