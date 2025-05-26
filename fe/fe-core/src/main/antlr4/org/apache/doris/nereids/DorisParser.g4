@@ -22,7 +22,7 @@ parser grammar DorisParser;
 options { tokenVocab = DorisLexer; }
 
 @members {
-    public boolean doris_legacy_SQL_syntax = true;
+    public boolean ansiSQLSyntax = false;
 }
 
 multiStatements
@@ -249,9 +249,11 @@ dictionaryColumnDef:
 supportedAlterStatement
     : ALTER SYSTEM alterSystemClause                                                        #alterSystem
     | ALTER VIEW name=multipartIdentifier
-        ((MODIFY commentSpec) | ((LEFT_PAREN cols=simpleColumnDefs RIGHT_PAREN)? AS query)) #alterView
-    | ALTER CATALOG name=identifier RENAME newName=identifier                       #alterCatalogRename
-    | ALTER ROLE role=identifierOrText commentSpec                                        #alterRole
+      (MODIFY commentSpec |
+      (LEFT_PAREN cols=simpleColumnDefs RIGHT_PAREN)?
+      (COMMENT STRING_LITERAL)? AS query)                                                   #alterView
+    | ALTER CATALOG name=identifier RENAME newName=identifier                               #alterCatalogRename
+    | ALTER ROLE role=identifierOrText commentSpec                                          #alterRole
     | ALTER STORAGE VAULT name=multipartIdentifier properties=propertyClause                #alterStorageVault
     | ALTER WORKLOAD GROUP name=identifierOrText (FOR computeGroup=identifierOrText)?
         properties=propertyClause?                                                          #alterWorkloadGroup
@@ -333,6 +335,7 @@ supportedShowStatement
         (FROM |IN) tableName=multipartIdentifier
         ((FROM | IN) database=identifier)?                                          #showView
     | SHOW PLUGINS                                                                  #showPlugins
+    | SHOW STORAGE (VAULT | VAULTS)                                                 #showStorageVault    
     | SHOW REPOSITORIES                                                             #showRepositories
     | SHOW ENCRYPTKEYS ((FROM | IN) database=multipartIdentifier)?
         (LIKE STRING_LITERAL)?                                                      #showEncryptKeys
@@ -373,6 +376,8 @@ supportedShowStatement
     | SHOW OPEN TABLES ((FROM | IN) database=multipartIdentifier)? wildWhere?       #showOpenTables
     | SHOW FRONTENDS name=identifier?                                               #showFrontends
     | SHOW DATABASE databaseId=INTEGER_VALUE                                        #showDatabaseId
+    | SHOW FULL? (COLUMNS | FIELDS) (FROM | IN) tableName=multipartIdentifier
+        ((FROM | IN) database=multipartIdentifier)? wildWhere?          #showColumns    
     | SHOW TABLE tableId=INTEGER_VALUE                                              #showTableId
     | SHOW TRASH (ON backend=STRING_LITERAL)?                                       #showTrash
     | SHOW (CLUSTERS | (COMPUTE GROUPS))                                            #showClusters    
@@ -395,6 +400,7 @@ supportedShowStatement
     | SHOW CATALOG RECYCLE BIN (WHERE expression)?                                  #showCatalogRecycleBin
     | SHOW TABLET tabletId=INTEGER_VALUE                                            #showTabletId
     | SHOW DICTIONARIES wildWhere?                                                  #showDictionaries
+    | SHOW WORKLOAD GROUPS (LIKE STRING_LITERAL)?                                   #showWorkloadGroups
     | SHOW COPY ((FROM | IN) database=identifier)?
         whereClause? sortClause? limitClause?                                       #showCopy
     | SHOW QUERY STATS ((FOR database=identifier)
@@ -455,13 +461,10 @@ lockTable
     ;
 
 unsupportedShowStatement
-    : SHOW STORAGE (VAULT | VAULTS)                                                 #showStorageVault
-    | SHOW CREATE MATERIALIZED VIEW name=multipartIdentifier                        #showMaterializedView
+    : SHOW CREATE MATERIALIZED VIEW name=multipartIdentifier                        #showMaterializedView
     | SHOW CREATE statementScope? FUNCTION functionIdentifier
         LEFT_PAREN functionArguments? RIGHT_PAREN
         ((FROM | IN) database=multipartIdentifier)?                                 #showCreateFunction
-    | SHOW FULL? (COLUMNS | FIELDS) (FROM | IN) tableName=multipartIdentifier
-        ((FROM | IN) database=multipartIdentifier)? wildWhere?                      #showColumns
     | SHOW LOAD WARNINGS ((((FROM | IN) database=multipartIdentifier)?
         wildWhere? limitClause?) | (ON url=STRING_LITERAL))                         #showLoadWarings
     | SHOW EXPORT ((FROM | IN) database=multipartIdentifier)? wildWhere?
@@ -471,7 +474,6 @@ unsupportedShowStatement
         sortClause? limitClause?                                                    #showAlterTable
     | SHOW TEMPORARY? PARTITIONS FROM tableName=multipartIdentifier
         wildWhere? sortClause? limitClause?                                         #showPartitions
-    | SHOW WORKLOAD GROUPS wildWhere?                                               #showWorkloadGroups
     | SHOW TYPECAST ((FROM | IN) database=multipartIdentifier)?                     #showTypeCast
     | SHOW (KEY | KEYS | INDEX | INDEXES)
         (FROM |IN) tableName=multipartIdentifier
@@ -638,20 +640,20 @@ supportedTransactionStatement
 
 supportedGrantRevokeStatement
     : GRANT privilegeList ON multipartIdentifierOrAsterisk
-        TO (userIdentify | ROLE identifierOrText)                                     #grantTablePrivilege
+        TO (userIdentify | ROLE identifierOrText)                                           #grantTablePrivilege
     | GRANT privilegeList ON
         (RESOURCE | CLUSTER | COMPUTE GROUP | STAGE | STORAGE VAULT | WORKLOAD GROUP)
-        identifierOrTextOrAsterisk TO (userIdentify | ROLE identifierOrText)          #grantResourcePrivilege
-    | GRANT roles+=identifierOrText (COMMA roles+=identifierOrText)* TO userIdentify  #grantRole
-    | REVOKE roles+=identifierOrText (COMMA roles+=identifierOrText)* FROM userIdentify #revokeRole
+        identifierOrTextOrAsterisk TO (userIdentify | ROLE identifierOrText)                #grantResourcePrivilege
+    | GRANT roles+=identifierOrText (COMMA roles+=identifierOrText)* TO userIdentify        #grantRole
+    | REVOKE roles+=identifierOrText (COMMA roles+=identifierOrText)* FROM userIdentify     #revokeRole
+    | REVOKE privilegeList ON
+            (RESOURCE | CLUSTER | COMPUTE GROUP | STAGE | STORAGE VAULT | WORKLOAD GROUP)
+            identifierOrTextOrAsterisk FROM (userIdentify | ROLE identifierOrText)          #revokeResourcePrivilege
     ;
 
 unsupportedGrantRevokeStatement
     : REVOKE privilegeList ON multipartIdentifierOrAsterisk
         FROM (userIdentify | ROLE identifierOrText)                                   #revokeTablePrivilege
-    | REVOKE privilegeList ON
-        (RESOURCE | CLUSTER | COMPUTE GROUP | STAGE | STORAGE VAULT | WORKLOAD GROUP)
-        identifierOrTextOrAsterisk FROM (userIdentify | ROLE identifierOrText)        #revokeResourcePrivilege
     ;
 
 privilege
@@ -1171,7 +1173,7 @@ querySpecification
       aggClause?
       havingClause?
       qualifyClause?
-      {doris_legacy_SQL_syntax}? queryOrganization                         #regularQuerySpecification
+      ({!ansiSQLSyntax}? queryOrganization | {ansiSQLSyntax}?)         #regularQuerySpecification
     ;
 
 cte

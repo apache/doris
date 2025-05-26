@@ -130,6 +130,7 @@ import org.apache.doris.nereids.trees.plans.commands.RefreshMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ReplayCommand;
 import org.apache.doris.nereids.trees.plans.commands.ResumeJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.ResumeMTMVCommand;
+import org.apache.doris.nereids.trees.plans.commands.RevokeResourcePrivilegeCommand;
 import org.apache.doris.nereids.trees.plans.commands.RevokeRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.SetDefaultStorageVaultCommand;
 import org.apache.doris.nereids.trees.plans.commands.SetOptionsCommand;
@@ -146,6 +147,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowCharsetCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowClustersCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCollationCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowColumnHistogramStatsCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowColumnsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConfigCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConstraintsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConvertLSCCommand;
@@ -199,6 +201,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowStagesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowStorageEnginesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowStoragePolicyCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowStorageVaultCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowSyncJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTableCreationCommand;
@@ -217,6 +220,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowWarningErrorCountCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowWarningErrorsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowWhiteListCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowWorkloadGroupsCommand;
 import org.apache.doris.nereids.trees.plans.commands.SyncCommand;
 import org.apache.doris.nereids.trees.plans.commands.TransactionBeginCommand;
 import org.apache.doris.nereids.trees.plans.commands.TransactionCommitCommand;
@@ -410,6 +414,10 @@ public interface CommandVisitor<R, C> {
         return visitCommand(resumeMTMVCommand, context);
     }
 
+    default R visitShowStorageVaultCommand(ShowStorageVaultCommand showStorageVaultCommand, C context) {
+        return visitCommand(showStorageVaultCommand, context);
+    }
+
     default R visitShowCreateMTMVCommand(ShowCreateMTMVCommand showCreateMTMVCommand, C context) {
         return visitCommand(showCreateMTMVCommand, context);
     }
@@ -484,6 +492,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitAlterViewCommand(AlterViewCommand alterViewCommand, C context) {
         return visitCommand(alterViewCommand, context);
+    }
+
+    default R visitShowColumnsCommand(ShowColumnsCommand showColumnsCommand, C context) {
+        return visitCommand(showColumnsCommand, context);
     }
 
     default R visitDropCatalogCommand(DropCatalogCommand dropCatalogCommand, C context) {
@@ -1168,6 +1180,10 @@ public interface CommandVisitor<R, C> {
         return visitCommand(dropStageCommand, context);
     }
 
+    default R visitShowWorkloadGroupsCommand(ShowWorkloadGroupsCommand showWorkloadGroupCommand, C context) {
+        return visitCommand(showWorkloadGroupCommand, context);
+    }
+
     default R visitTruncateTableCommand(TruncateTableCommand truncateTableCommand, C context) {
         return visitCommand(truncateTableCommand, context);
     }
@@ -1191,5 +1207,9 @@ public interface CommandVisitor<R, C> {
 
     default R visitRevokeRoleCommand(RevokeRoleCommand revokeRoleCommand, C context) {
         return visitCommand(revokeRoleCommand, context);
+    }
+
+    default R visitRevokeResourcePrivilegeCommand(RevokeResourcePrivilegeCommand command, C context) {
+        return visitCommand(command, context);
     }
 }

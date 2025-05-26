@@ -737,6 +737,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_SQL_CONVERTOR_FEATURES = "enable_sql_convertor_features";
 
+    public static final String SHOW_COLUMN_COMMENT_IN_DESCRIBE = "show_column_comment_in_describe";
+
     public static final String SQL_CONVERTOR_CONFIG = "sql_convertor_config";
 
     /**
@@ -2596,6 +2598,13 @@ public class SessionVariable implements Serializable, Writable {
             })
     public String enableSqlConvertorFeatures = "";
 
+    @VariableMgr.VarAttr(name = SHOW_COLUMN_COMMENT_IN_DESCRIBE, needForward = true,
+            description = {
+                    "是否在 DESCRIBE TABLE 语句中显示列注释",
+                    "whether to show column comments in DESCRIBE TABLE statement"
+            })
+    public boolean showColumnCommentInDescribe = false;
+
     @VariableMgr.VarAttr(name = SQL_CONVERTOR_CONFIG, needForward = true,
             description = {
                     "SQL 转换器的相关配置，使用 Json 格式。以 {} 为根元素。",
@@ -4404,6 +4413,7 @@ public class SessionVariable implements Serializable, Writable {
     /**
      * The sessionContext is as follows:
      * "k1:v1;k2:v2;..."
+     * eg: set session_context="trace_id:123456"
      * Here we want to get value with key named "trace_id",
      * Return empty string is not found.
      *
