@@ -20,6 +20,7 @@ package org.apache.doris.nereids.types;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.types.coercion.IntegralType;
 import org.apache.doris.nereids.types.coercion.PrimitiveType;
 import org.apache.doris.nereids.types.coercion.RangeScalable;
 
@@ -30,6 +31,7 @@ public class TimeV2Type extends PrimitiveType implements RangeScalable {
 
     public static final int MAX_SCALE = 6;
     public static final TimeV2Type INSTANCE = new TimeV2Type();
+    public static final TimeV2Type MAX = new TimeV2Type(MAX_SCALE);
 
     private static final int WIDTH = 8;
     private final int scale;
@@ -60,6 +62,28 @@ public class TimeV2Type extends PrimitiveType implements RangeScalable {
     @Override
     public boolean equals(Object o) {
         return o instanceof TimeV2Type;
+    }
+
+    //TODO: implement this method by parsing the string and get the scale of it
+    public static TimeV2Type forTypeFromString(String s) {
+        return MAX;
+    }
+
+    /**
+     * return proper type of timev2 for other type
+     */
+    public static TimeV2Type forType(DataType dataType) {
+        if (dataType instanceof TimeV2Type) {
+            return (TimeV2Type) dataType;
+        }
+        if (dataType instanceof IntegralType || dataType instanceof BooleanType || dataType instanceof NullType
+                || dataType instanceof DateTimeType) {
+            return INSTANCE;
+        }
+        if (dataType instanceof DateTimeV2Type) {
+            return TimeV2Type.of(((DateTimeV2Type) dataType).getScale());
+        }
+        return MAX;
     }
 
     @Override
