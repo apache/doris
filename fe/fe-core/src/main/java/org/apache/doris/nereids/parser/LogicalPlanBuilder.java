@@ -2307,10 +2307,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (ctx.optScanParams() != null) {
             Map<String, String> map = visitPropertyItemList(ctx.optScanParams().mapParams);
             List<String> list;
-            if (ctx.optScanParams().listParams == null) {
-                list = ImmutableList.of();
-            } else {
+            if (ctx.optScanParams().listParams != null) {
                 list = visitIdentifierSeq(ctx.optScanParams().listParams);
+            } else {
+                list = ImmutableList.of();
             }
             scanParams = new TableScanParams(ctx.optScanParams().funcName.getText(), map, list);
         }

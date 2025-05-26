@@ -248,25 +248,90 @@ public class IcebergUtilsTest {
 
         // query tag1
         assertQuerySpecSnapshotByVersionTimeOf(table, tag1, 1, 0, tag1);
-//        assertQuerySpecSnapshotByAtTagMap(table, tag1, 1, 0, tag1);
+        assertQuerySpecSnapshotByAtTagMap(table, tag1, 1, 0, tag1);
+        assertQuerySpecSnapshotByAtTagList(table, tag1, 1, 0, tag1);
 
         // query branch1
         assertQuerySpecSnapshotByVersionTimeOf(table, branch1, 1, 2, branch1);
+        assertQuerySpecSnapshotByAtBranchMap(table, branch1, 1, 2, branch1);
+        assertQuerySpecSnapshotByAtBranchList(table, branch1, 1, 2, branch1);
 
         // query branch2
         assertQuerySpecSnapshotByVersionTimeOf(table, branch2, 3, 2, branch2);
+        assertQuerySpecSnapshotByAtBranchMap(table, branch2, 3, 2, branch2);
+        assertQuerySpecSnapshotByAtBranchList(table, branch2, 3, 2, branch2);
 
         // query snapshotId 1
         assertQuerySpecSnapshotByVersionTimeOf(table, "1", 1, 0, null);
+
+        // query snapshotId 2
+        assertQuerySpecSnapshotByVersionTimeOf(table, "2", 2, 0, null);
 
         // query snapshotId 3
         assertQuerySpecSnapshotByVersionTimeOf(table, "3", 3, 1, null);
 
         // query ref not exists
-        Assert.assertThrows(IllegalArgumentException.class, () -> assertQuerySpecSnapshotByVersionTimeOf(table, "ref_not_exists", -1, -1, null));
+        Assert.assertThrows(
+                IllegalArgumentException.class,
+                () -> assertQuerySpecSnapshotByVersionTimeOf(table, "ref_not_exists", -1, -1, null));
 
         // query snapshotId not exists
-        Assert.assertThrows(IllegalArgumentException.class, () -> assertQuerySpecSnapshotByVersionTimeOf(table, "99", -3, -1, null));
+        Assert.assertThrows(
+                IllegalArgumentException.class,
+                () -> assertQuerySpecSnapshotByVersionTimeOf(table, "99", -3, -1, null));
+
+        // query branch not exists
+        Assert.assertThrows(
+                IllegalArgumentException.class,
+                () -> assertQuerySpecSnapshotByAtBranchMap(table, "branch_not_exists", -3, -1, null));
+
+        // query tag not exists
+        Assert.assertThrows(
+                IllegalArgumentException.class,
+                () -> assertQuerySpecSnapshotByAtTagMap(table, "tag_not_exists", -3, -1, null));
+
+        // query tag with @branch
+        Assert.assertThrows(
+                IllegalArgumentException.class,
+                () -> assertQuerySpecSnapshotByAtBranchMap(table, tag1, -3, -1, null));
+
+        // query branch with @tag
+        Assert.assertThrows(
+                IllegalArgumentException.class,
+                () -> assertQuerySpecSnapshotByAtTagMap(table, branch1, -3, -1, null));
+        Assert.assertThrows(
+                IllegalArgumentException.class,
+                () -> assertQuerySpecSnapshotByAtTagMap(table, branch2, -3, -1, null));
+
+        // query version with tag
+        Assert.assertThrows(
+                IllegalArgumentException.class,
+                () -> IcebergUtils.getQuerySpecSnapshot(
+                    table,
+                    Optional.of(TableSnapshot.timeOf("v1")),
+                    Optional.of(new TableScanParams("tag", null,
+                            new ArrayList<String>() {{
+                                    add("v1");
+                                }
+                            }))
+                ));
+
+        // query version with branch
+        Assert.assertThrows(
+                IllegalArgumentException.class,
+                () -> IcebergUtils.getQuerySpecSnapshot(
+                    table,
+                    Optional.of(TableSnapshot.timeOf("v1")),
+                    Optional.of(new TableScanParams("branch", null,
+                            new ArrayList<String>() {{
+                                    add("v1");
+                                }
+                            }))
+                ));
+    }
+
+    private TableScanParams generateTableScanParams(String type, Map<String, String> map, List<String> list) {
+        return new TableScanParams(type, map, list);
     }
 
     private Snapshot mockSnapshot(long snapshotId, int schemaId) {
@@ -291,12 +356,9 @@ public class IcebergUtilsTest {
         Optional<TableSnapshot> tableSnapshot = Optional.of(TableSnapshot.versionOf(version));
         IcebergTableQueryInfo queryInfo = IcebergUtils.getQuerySpecSnapshot(table, tableSnapshot, Optional.empty());
         assertQueryInfo(queryInfo, expectSnapshotId, expectSchemaId, expectRef);
-//        Assert.assertEquals(expectSnapshotId, queryInfo.getSnapshotId());
-//        Assert.assertEquals(expectSchemaId, queryInfo.getSchemaId());
-//        Assert.assertEquals(expectRef, queryInfo.getRef());
     }
 
-    // select * from abc@tag()
+    // select * from abc@tag('name'='tag_name')
     private void assertQuerySpecSnapshotByAtTagMap(
             Table table,
             String version,
@@ -310,7 +372,21 @@ public class IcebergUtilsTest {
         assertQueryInfo(queryInfo, expectSnapshotId, expectSchemaId, expectRef);
     }
 
-    // select * from abc@branch()
+    // select * from abc@tag(tag_name)
+    private void assertQuerySpecSnapshotByAtTagList(
+            Table table,
+            String version,
+            long expectSnapshotId,
+            int expectSchemaId,
+            String expectRef) {
+        List<String> list = new ArrayList<>();
+        list.add(version);
+        TableScanParams tsp = new TableScanParams("tag", null, list);
+        IcebergTableQueryInfo queryInfo = IcebergUtils.getQuerySpecSnapshot(table, Optional.empty(), Optional.of(tsp));
+        assertQueryInfo(queryInfo, expectSnapshotId, expectSchemaId, expectRef);
+    }
+
+    // select * from abc@branch('name'='branch_name')
     private void assertQuerySpecSnapshotByAtBranchMap(
             Table table,
             String version,
@@ -320,6 +396,20 @@ public class IcebergUtilsTest {
         HashMap<String, String> map = new HashMap<>();
         map.put("name", version);
         TableScanParams tsp = new TableScanParams("branch", map, null);
+        IcebergTableQueryInfo queryInfo = IcebergUtils.getQuerySpecSnapshot(table, Optional.empty(), Optional.of(tsp));
+        assertQueryInfo(queryInfo, expectSnapshotId, expectSchemaId, expectRef);
+    }
+
+    // select * from abc@branch(branch_name)
+    private void assertQuerySpecSnapshotByAtBranchList(
+            Table table,
+            String version,
+            long expectSnapshotId,
+            int expectSchemaId,
+            String expectRef) {
+        List<String> list = new ArrayList<>();
+        list.add(version);
+        TableScanParams tsp = new TableScanParams("branch", null, list);
         IcebergTableQueryInfo queryInfo = IcebergUtils.getQuerySpecSnapshot(table, Optional.empty(), Optional.of(tsp));
         assertQueryInfo(queryInfo, expectSnapshotId, expectSchemaId, expectRef);
     }

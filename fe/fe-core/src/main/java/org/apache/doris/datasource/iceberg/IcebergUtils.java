@@ -84,6 +84,7 @@ import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.PartitionsTable;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
+import org.apache.iceberg.SnapshotRef;
 import org.apache.iceberg.StructLike;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableProperties;
@@ -799,33 +800,37 @@ public class IcebergUtils {
                 queryTableSnapshot.isPresent() || isIcebergBranchOrTag(scanParams),
                 "should spec version or time or branch or tag");
 
-        if (scanParams.isPresent()) {
-//            String refName;
-//            TableScanParams params = scanParams.get();
-//            // TODO 如果写的是 @branch()， 那参数是map还是list？map是null还是空？list是null还是空？
-//            if (!params.getMapParams().isEmpty()) {
-//                Preconditions.checkArgument(
-//                    params.getMapParams().containsKey("name"),
-//                    "Table " + table.name() + " does not have tag or branch named " + value);
-//                refName = params.getMapParams().get("name");
-//            } else {
-//                Preconditions.checkArgument(
-//                    params.getListParams().size() == 1,
-//                    "Table " + table.name() + " does not have tag or branch named " + value);
-//                refName = params.getListParams().get(0);
-//            }
-//            if (params.isBranch()) {
-//                Preconditions.checkArgument(
-//                    table.refs().containsKey(params),
-//                    "Table " + table.name() + " does not have tag or branch named " + value);
-//            } else (params.isTag()) {
-//
-//            }
-        }
-//        if (!queryTableSnapshot.isPresent()) {
-//            return null;
-//        }
+        // not support `select * from tb@branch/tag(b) for version/time as of ...`
+        Preconditions.checkArgument(
+                !(queryTableSnapshot.isPresent() && isIcebergBranchOrTag(scanParams)),
+                "could not spec a version/time with tag/branch");
 
+        // solve @branch/@tag
+        if (scanParams.isPresent()) {
+            String refName;
+            TableScanParams params = scanParams.get();
+            if (!params.getMapParams().isEmpty()) {
+                refName = params.getMapParams().get("name");
+            } else {
+                refName = params.getListParams().get(0);
+            }
+            SnapshotRef snapshotRef = table.refs().get(refName);
+            if (params.isBranch()) {
+                Preconditions.checkArgument(
+                    snapshotRef != null && snapshotRef.isBranch(),
+                    "Table " + table.name() + " does not have branch named " + refName);
+            } else {
+                Preconditions.checkArgument(
+                    snapshotRef != null && snapshotRef.isTag(),
+                    "Table " + table.name() + " does not have tag named " + refName);
+            }
+            return new IcebergTableQueryInfo(
+                snapshotRef.snapshotId(),
+                refName,
+                SnapshotUtil.schemaFor(table, refName).schemaId());
+        }
+
+        // solve version/time as of
         String value = queryTableSnapshot.get().getValue();
         TableSnapshot.VersionType type = queryTableSnapshot.get().getType();
         if (type == TableSnapshot.VersionType.VERSION) {
@@ -869,7 +874,22 @@ public class IcebergUtils {
             return false;
         }
         TableScanParams params = scanParams.get();
-        return params.isBranch() || params.isTag();
+        if (params.isBranch() || params.isTag()) {
+            if (!params.getMapParams().isEmpty()) {
+                Preconditions.checkArgument(
+                        params.getMapParams().containsKey("name"),
+                        "must contain key 'name' in params"
+                );
+            } else {
+                Preconditions.checkArgument(
+                        params.getListParams().size() == 1
+                                && params.getListParams().get(0) != null,
+                        "must contain a branch/tag name in params"
+                );
+            }
+            return true;
+        }
+        return false;
     }
 
     // read schema from external schema cache
