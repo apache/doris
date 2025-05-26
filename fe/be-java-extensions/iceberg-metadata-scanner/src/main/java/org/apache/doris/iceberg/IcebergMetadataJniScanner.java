@@ -28,7 +28,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.TimeZone;
 import java.util.stream.Collectors;
@@ -45,12 +44,10 @@ public abstract class IcebergMetadataJniScanner extends JniScanner {
     private PreExecutionAuthenticator preExecutionAuthenticator;
     private final ClassLoader classLoader;
     private final String serializedTable;
-    private final int batchSize;
     private ColumnType[] requiredTypes;
 
     public IcebergMetadataJniScanner(int batchSize, Map<String, String> params) {
         this.classLoader = this.getClass().getClassLoader();
-        this.batchSize = batchSize;
         this.requiredFields = params.get("required_fields").split(",");
         this.serializedTable = params.get("serialized_table");
         this.timezone = params.getOrDefault("time_zone", TimeZone.getDefault().getID());
@@ -91,12 +88,13 @@ public abstract class IcebergMetadataJniScanner extends JniScanner {
     /**
      * Get the metadata schema from the table.
      *
-     * @return a map of metadata column name to type
+     * @return a map of metadata column name to type, see {@link ColumnType} for how
+     *         to parse the type.
      */
-    protected abstract HashMap<String, String> getMetadataSchema();
+    protected abstract Map<String, String> getMetadataSchema();
 
     private void parseRequiredTypes() {
-        HashMap<String, String> metadataSchema = getMetadataSchema();
+        Map<String, String> metadataSchema = getMetadataSchema();
         requiredTypes = new ColumnType[requiredFields.length];
         for (int i = 0; i < requiredFields.length; i++) {
             String field = requiredFields[i];
@@ -104,7 +102,11 @@ public abstract class IcebergMetadataJniScanner extends JniScanner {
             if (type == null) {
                 throw new IllegalArgumentException("Field " + field + " not found in metadata column map");
             }
-            requiredTypes[i] = ColumnType.parseType(field, type);
+            ColumnType parsedType = ColumnType.parseType(field, type);
+            if (parsedType.isUnsupported()) {
+                throw new IllegalArgumentException("Unsupported type " + type + " for field " + field);
+            }
+            requiredTypes[i] = parsedType;
         }
     }
 }

@@ -18,25 +18,27 @@
 package org.apache.doris.iceberg;
 
 import org.apache.doris.common.jni.vec.ColumnValue;
-
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Maps;
-import com.google.common.collect.Streams;
-import org.apache.iceberg.MetadataTableType;
-import org.apache.iceberg.MetadataTableUtils;
-import org.apache.iceberg.StructLike;
+import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
-import org.apache.iceberg.TableScan;
-import org.apache.iceberg.io.CloseableIterator;
 
 import java.io.IOException;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.Map;
 
 class IcebergSnapshotsJniScanner extends IcebergMetadataJniScanner {
 
-    private CloseableIterator<StructLike> reader;
-    private Map<String, Integer> columnNameToPosition = new HashMap<>();
+    private static final Map<String, String> SNAPSHOTS_SCHEMA = new HashMap<>();
+    static {
+        SNAPSHOTS_SCHEMA.put("committed_at", "datetime");
+        SNAPSHOTS_SCHEMA.put("snapshot_id", "long");
+        SNAPSHOTS_SCHEMA.put("parent_id", "long");
+        SNAPSHOTS_SCHEMA.put("operation", "string");
+        SNAPSHOTS_SCHEMA.put("manifest_list", "string");
+        SNAPSHOTS_SCHEMA.put("summary", "string");
+    }
+
+    private Iterator<Snapshot> reader;
 
     public IcebergSnapshotsJniScanner(int batchSize, Map<String, String> params) {
         super(batchSize, params);
@@ -44,17 +46,7 @@ class IcebergSnapshotsJniScanner extends IcebergMetadataJniScanner {
 
     @Override
     protected void loadTable(Table table) throws IOException {
-        TableScan tableScan = MetadataTableUtils.createMetadataTableInstance(table, MetadataTableType.SNAPSHOTS)
-                .newScan();
-        this.columnNameToPosition = Streams.mapWithIndex(tableScan.schema().columns().stream(),
-                (column, position) -> Maps.immutableEntry(column.name(), Long.valueOf(position).intValue()))
-                .collect(ImmutableMap.toImmutableMap(Map.Entry::getKey, Map.Entry::getValue));
-        for (String requiredField : requiredFields) {
-            if (!columnNameToPosition.containsKey(requiredField)) {
-                throw new IOException("Invalid required field: " + requiredField);
-            }
-        }
-        this.reader = tableScan.planFiles().iterator().next().asDataTask().rows().iterator();
+        reader = table.snapshots().iterator();
     }
 
     @Override
@@ -64,10 +56,10 @@ class IcebergSnapshotsJniScanner extends IcebergMetadataJniScanner {
         }
         int rows = 0;
         while (reader.hasNext() && rows < getBatchSize()) {
-            StructLike dataRow = reader.next();
+            Snapshot snapshot = reader.next();
             for (int i = 0; i < requiredFields.length; i++) {
                 String columnName = requiredFields[i];
-                Object value = getValue(columnName, dataRow);
+                Object value = getValue(columnName, snapshot);
                 if (value == null) {
                     appendData(i, null);
                 } else {
@@ -82,39 +74,34 @@ class IcebergSnapshotsJniScanner extends IcebergMetadataJniScanner {
 
     @Override
     public void close() throws IOException {
+        // TODO: move this to base class
         if (reader != null) {
-            reader.close();
+            reader = null; // Clear the iterator to release resources
         }
     }
 
     @Override
-    protected HashMap<String, String> getMetadataSchema() {
-        HashMap<String, String> metadataSchema = new HashMap<>();
-        metadataSchema.put("committed_at", "long");
-        metadataSchema.put("snapshot_id", "long");
-        metadataSchema.put("parent_id", "long");
-        metadataSchema.put("operation", "string");
-        metadataSchema.put("manifest_list", "string");
-        metadataSchema.put("summary", "string");
-        return metadataSchema;
+    protected Map<String, String> getMetadataSchema() {
+        return SNAPSHOTS_SCHEMA;
     }
 
-    private Object getValue(String columnName, StructLike dataRow) {
+    private Object getValue(String columnName, Snapshot snapshot) {
         switch (columnName) {
             case "committed_at":
-                return dataRow.get(columnNameToPosition.get(columnName), Long.class) / 1000;
+                return snapshot.timestampMillis();
             case "snapshot_id":
-                return dataRow.get(columnNameToPosition.get(columnName), Long.class);
+                return snapshot.snapshotId();
             case "parent_id":
-                return dataRow.get(columnNameToPosition.get(columnName), Long.class);
+                return snapshot.parentId();
             case "operation":
-                return dataRow.get(columnNameToPosition.get(columnName), String.class);
+                return snapshot.operation();
             case "manifest_list":
-                return dataRow.get(columnNameToPosition.get(columnName), String.class);
+                return snapshot.manifestListLocation();
             case "summary":
-                return dataRow.get(columnNameToPosition.get(columnName), Map.class);
+                return snapshot.summary();
             default:
-                throw new IllegalArgumentException("Unrecognized column name " + columnName);
+                throw new IllegalArgumentException(
+                        "Unrecognized column name " + columnName + " in Iceberg snapshot metadata table");
         }
     }
 }
