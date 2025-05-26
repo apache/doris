@@ -320,6 +320,32 @@ static void add_tablet_metas(MetaServiceProxy* meta_service, std::string instanc
     ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
 }
 
+static void start_compaction_job(MetaService* meta_service, int64_t tablet_id,
+                                 const std::string& job_id, const std::string& initiator,
+                                 int base_compaction_cnt, int cumu_compaction_cnt,
+                                 TabletCompactionJobPB::CompactionType type,
+                                 StartTabletJobResponse& res,
+                                 std::pair<int64_t, int64_t> input_version = {0, 0}) {
+    brpc::Controller cntl;
+    StartTabletJobRequest req;
+    req.mutable_job()->mutable_idx()->set_tablet_id(tablet_id);
+    auto compaction = req.mutable_job()->add_compaction();
+    compaction->set_id(job_id);
+    compaction->set_initiator(initiator);
+    compaction->set_base_compaction_cnt(base_compaction_cnt);
+    compaction->set_cumulative_compaction_cnt(cumu_compaction_cnt);
+    compaction->set_type(type);
+    long now = time(nullptr);
+    compaction->set_expiration(now + 12);
+    compaction->set_lease(now + 3);
+    if (input_version.second > 0) {
+        compaction->add_input_versions(input_version.first);
+        compaction->add_input_versions(input_version.second);
+        compaction->set_check_input_versions_range(true);
+    }
+    meta_service->start_tablet_job(&cntl, &req, &res, nullptr);
+};
+
 TEST(MetaServiceTest, GetInstanceIdTest) {
     extern std::string get_instance_id(const std::shared_ptr<ResourceManager>& rc_mgr,
                                        const std::string& cloud_unique_id);
@@ -9247,4 +9273,316 @@ TEST(MetaServiceTest, AddObjInfoWithRole) {
     SyncPoint::get_instance()->disable_processing();
     SyncPoint::get_instance()->clear_all_call_backs();
 }
+
+TEST(MetaServiceTest, CheckJobExisted) {
+    auto meta_service = get_meta_service();
+
+    std::string instance_id = "check_job_existed_instance_id";
+    auto sp = SyncPoint::get_instance();
+    std::unique_ptr<int, std::function<void(int*)>> defer(
+            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
+    sp->enable_processing();
+
+    // OK
+    {
+        constexpr auto table_id = 952701, index_id = 952702, partition_id = 952703,
+                       tablet_id = 952704;
+        int64_t txn_id = 952705;
+        std::string label = "update_rowset_meta_test_label1";
+        CreateRowsetResponse res;
+
+        ASSERT_NO_FATAL_FAILURE(
+                create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id));
+
+        auto rowset = create_rowset(txn_id, tablet_id, partition_id);
+
+        {
+            StartTabletJobResponse res;
+            start_compaction_job(meta_service.get(), tablet_id, "compaction1", "ip:port", 0, 0,
+                                 TabletCompactionJobPB::BASE, res);
+        }
+
+        brpc::Controller cntl;
+        auto arena = res.GetArena();
+        auto req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
+        req->set_tablet_job_id("compaction1");
+        req->mutable_rowset_meta()->CopyFrom(rowset);
+        meta_service->prepare_rowset(&cntl, req, &res, nullptr);
+        if (!arena) delete req;
+
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+        res.Clear();
+    }
+
+    // job does not exist,
+    {
+        constexpr auto table_id = 952801, index_id = 952802, partition_id = 952803,
+                       tablet_id = 952804;
+        int64_t txn_id = 952805;
+        std::string label = "update_rowset_meta_test_label1";
+        CreateRowsetResponse res;
+
+        ASSERT_NO_FATAL_FAILURE(
+                create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id));
+
+        auto rowset = create_rowset(txn_id, tablet_id, partition_id);
+
+        brpc::Controller cntl;
+        auto arena = res.GetArena();
+        auto req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
+        req->set_tablet_job_id("compaction1");
+        req->mutable_rowset_meta()->CopyFrom(rowset);
+        meta_service->prepare_rowset(&cntl, req, &res, nullptr);
+        if (!arena) delete req;
+
+        ASSERT_EQ(res.status().code(), MetaServiceCode::STALE_PREPARE_ROWSET) << res.status().msg();
+        res.Clear();
+    }
+
+    // compaction job exists, job id not match
+    {
+        constexpr auto table_id = 952901, index_id = 952902, partition_id = 952903,
+                       tablet_id = 952904;
+        int64_t txn_id = 952905;
+        std::string label = "update_rowset_meta_test_label1";
+        CreateRowsetResponse res;
+
+        ASSERT_NO_FATAL_FAILURE(
+                create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id));
+
+        auto rowset = create_rowset(txn_id, tablet_id, partition_id);
+
+        {
+            StartTabletJobResponse res;
+            start_compaction_job(meta_service.get(), tablet_id, "compaction1", "ip:port", 0, 0,
+                                 TabletCompactionJobPB::BASE, res);
+        }
+
+        brpc::Controller cntl;
+        auto arena = res.GetArena();
+        auto req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
+        req->set_tablet_job_id("compaction2");
+        req->mutable_rowset_meta()->CopyFrom(rowset);
+        meta_service->prepare_rowset(&cntl, req, &res, nullptr);
+        if (!arena) delete req;
+
+        ASSERT_EQ(res.status().code(), MetaServiceCode::STALE_PREPARE_ROWSET) << res.status().msg();
+        res.Clear();
+    }
+
+    // do not set job id
+    {
+        constexpr auto table_id = 953501, index_id = 953502, partition_id = 953503,
+                       tablet_id = 953504;
+        int64_t txn_id = 953505;
+        std::string label = "update_rowset_meta_test_label1";
+        CreateRowsetResponse res;
+
+        ASSERT_NO_FATAL_FAILURE(
+                create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id));
+
+        auto rowset = create_rowset(txn_id, tablet_id, partition_id);
+
+        {
+            StartTabletJobResponse res;
+            start_compaction_job(meta_service.get(), tablet_id, "compaction1", "ip:port", 0, 0,
+                                 TabletCompactionJobPB::BASE, res);
+        }
+
+        brpc::Controller cntl;
+        auto arena = res.GetArena();
+        auto req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
+        req->mutable_rowset_meta()->CopyFrom(rowset);
+        meta_service->prepare_rowset(&cntl, req, &res, nullptr);
+        if (!arena) delete req;
+
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+        res.Clear();
+    }
+
+    // job id is empty string
+    {
+        constexpr auto table_id = 953601, index_id = 953602, partition_id = 953603,
+                       tablet_id = 953604;
+        int64_t txn_id = 953605;
+        std::string label = "update_rowset_meta_test_label1";
+        CreateRowsetResponse res;
+
+        ASSERT_NO_FATAL_FAILURE(
+                create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id));
+
+        auto rowset = create_rowset(txn_id, tablet_id, partition_id);
+
+        {
+            StartTabletJobResponse res;
+            start_compaction_job(meta_service.get(), tablet_id, "compaction1", "ip:port", 0, 0,
+                                 TabletCompactionJobPB::BASE, res);
+        }
+
+        brpc::Controller cntl;
+        auto arena = res.GetArena();
+        auto req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
+        req->set_tablet_job_id("");
+        req->mutable_rowset_meta()->CopyFrom(rowset);
+        meta_service->prepare_rowset(&cntl, req, &res, nullptr);
+        if (!arena) delete req;
+
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+        res.Clear();
+    }
+
+    // commit rowset OK
+    {
+        constexpr auto table_id = 953001, index_id = 953002, partition_id = 953003,
+                       tablet_id = 953004;
+        int64_t txn_id = 953005;
+        std::string label = "update_rowset_meta_test_label1";
+        CreateRowsetResponse res;
+
+        ASSERT_NO_FATAL_FAILURE(
+                create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id));
+
+        auto rowset = create_rowset(txn_id, tablet_id, partition_id);
+
+        {
+            StartTabletJobResponse res;
+            start_compaction_job(meta_service.get(), tablet_id, "compaction1", "ip:port", 0, 0,
+                                 TabletCompactionJobPB::BASE, res);
+        }
+
+        brpc::Controller cntl;
+        auto arena = res.GetArena();
+        auto req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
+        req->set_tablet_job_id("compaction1");
+        req->mutable_rowset_meta()->CopyFrom(rowset);
+        meta_service->commit_rowset(&cntl, req, &res, nullptr);
+        if (!arena) delete req;
+
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+        res.Clear();
+    }
+
+    // commit rowset, job does not exist,
+    {
+        constexpr auto table_id = 953101, index_id = 953102, partition_id = 953103,
+                       tablet_id = 953104;
+        int64_t txn_id = 952805;
+        std::string label = "update_rowset_meta_test_label1";
+        CreateRowsetResponse res;
+
+        ASSERT_NO_FATAL_FAILURE(
+                create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id));
+
+        auto rowset = create_rowset(txn_id, tablet_id, partition_id);
+
+        brpc::Controller cntl;
+        auto arena = res.GetArena();
+        auto req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
+        req->set_tablet_job_id("compaction1");
+        req->mutable_rowset_meta()->CopyFrom(rowset);
+        meta_service->commit_rowset(&cntl, req, &res, nullptr);
+        if (!arena) delete req;
+
+        ASSERT_EQ(res.status().code(), MetaServiceCode::STALE_PREPARE_ROWSET) << res.status().msg();
+        res.Clear();
+    }
+
+    // commit rowset, compaction job exists, job id not match
+    {
+        constexpr auto table_id = 953201, index_id = 953202, partition_id = 953203,
+                       tablet_id = 953204;
+        int64_t txn_id = 952905;
+        std::string label = "update_rowset_meta_test_label1";
+        CreateRowsetResponse res;
+
+        ASSERT_NO_FATAL_FAILURE(
+                create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id));
+
+        auto rowset = create_rowset(txn_id, tablet_id, partition_id);
+
+        {
+            StartTabletJobResponse res;
+            start_compaction_job(meta_service.get(), tablet_id, "compaction1", "ip:port", 0, 0,
+                                 TabletCompactionJobPB::BASE, res);
+        }
+
+        brpc::Controller cntl;
+        auto arena = res.GetArena();
+        auto req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
+        req->set_tablet_job_id("compaction2");
+        req->mutable_rowset_meta()->CopyFrom(rowset);
+        meta_service->commit_rowset(&cntl, req, &res, nullptr);
+        if (!arena) delete req;
+
+        ASSERT_EQ(res.status().code(), MetaServiceCode::STALE_PREPARE_ROWSET) << res.status().msg();
+        res.Clear();
+    }
+
+    // do not set job id when commit rowset
+    {
+        constexpr auto table_id = 953301, index_id = 953302, partition_id = 953303,
+                       tablet_id = 953304;
+        int64_t txn_id = 953305;
+        std::string label = "update_rowset_meta_test_label1";
+        CreateRowsetResponse res;
+
+        ASSERT_NO_FATAL_FAILURE(
+                create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id));
+
+        auto rowset = create_rowset(txn_id, tablet_id, partition_id);
+
+        {
+            StartTabletJobResponse res;
+            start_compaction_job(meta_service.get(), tablet_id, "compaction1", "ip:port", 0, 0,
+                                 TabletCompactionJobPB::BASE, res);
+        }
+
+        brpc::Controller cntl;
+        auto arena = res.GetArena();
+        auto req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
+        req->mutable_rowset_meta()->CopyFrom(rowset);
+        meta_service->commit_rowset(&cntl, req, &res, nullptr);
+        if (!arena) delete req;
+
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+        res.Clear();
+    }
+
+    // job id is empty string when commit rowset
+    {
+        constexpr auto table_id = 953401, index_id = 953402, partition_id = 953403,
+                       tablet_id = 953404;
+        int64_t txn_id = 953405;
+        std::string label = "update_rowset_meta_test_label1";
+        CreateRowsetResponse res;
+
+        ASSERT_NO_FATAL_FAILURE(
+                create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id));
+
+        auto rowset = create_rowset(txn_id, tablet_id, partition_id);
+
+        {
+            StartTabletJobResponse res;
+            start_compaction_job(meta_service.get(), tablet_id, "compaction1", "ip:port", 0, 0,
+                                 TabletCompactionJobPB::BASE, res);
+        }
+
+        brpc::Controller cntl;
+        auto arena = res.GetArena();
+        auto req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
+        req->set_tablet_job_id("");
+        req->mutable_rowset_meta()->CopyFrom(rowset);
+        meta_service->commit_rowset(&cntl, req, &res, nullptr);
+        if (!arena) delete req;
+
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+        res.Clear();
+    }
+}
+
 } // namespace doris::cloud
