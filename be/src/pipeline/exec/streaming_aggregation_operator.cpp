@@ -374,7 +374,6 @@ Status StreamingAggLocalState::_pre_agg_with_serialized_key(doris::vectorized::B
                 value_columns.emplace_back(
                         std::move(*out_block->get_by_position(i + key_size).column).mutate());
             } else {
-                // slot type of value it should always be string type
                 value_columns.emplace_back(
                         _aggregate_evaluators[i]->function()->create_serialize_column());
             }
