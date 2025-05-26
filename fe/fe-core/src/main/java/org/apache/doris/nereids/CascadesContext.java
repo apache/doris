@@ -143,7 +143,8 @@ public class CascadesContext implements ScheduleContext {
         this.jobScheduler = new SimpleJobScheduler();
         this.currentJobContext = new JobContext(this, requireProperties, Double.MAX_VALUE);
         this.subqueryExprIsAnalyzed = new HashMap<>();
-        this.runtimeFilterContext = new RuntimeFilterContext(getConnectContext().getSessionVariable());
+        this.runtimeFilterContext = new RuntimeFilterContext(
+                getConnectContext() == null ? new SessionVariable() : getConnectContext().getSessionVariable());
         this.materializationContexts = new HashSet<>();
         if (statementContext.getConnectContext() != null) {
             ConnectContext connectContext = statementContext.getConnectContext();
