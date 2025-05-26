@@ -92,17 +92,17 @@ public class AutoBucketUtils {
         } else if (partitionSize <= SIZE_1GB) {
             return 2;
         } else {
-            int partition_size_per_bucket = Config.autobucket_partition_size_per_bucket_gb;
-            if (partition_size_per_bucket <= 0) {
+            int partitionSizePerBucket = Config.autobucket_partition_size_per_bucket_gb;
+            if (partitionSizePerBucket <= 0) {
                 if (Config.isCloudMode()) {
-                    partition_size_per_bucket = 10;
+                    partitionSizePerBucket = 10;
                 } else {
-                    partition_size_per_bucket = 5;
+                    partitionSizePerBucket = 5;
                 }
                 logger.debug("autobucket_partition_size_per_bucket_gb <= 0, use adaptive {}",
-                        partition_size_per_bucket);
+                        partitionSizePerBucket);
             }
-            return  (int) ((partitionSize - 1) / (partition_size_per_bucket * SIZE_1GB) + 1);
+            return  (int) ((partitionSize - 1) / (partitionSizePerBucket * SIZE_1GB) + 1);
         }
     }
 
