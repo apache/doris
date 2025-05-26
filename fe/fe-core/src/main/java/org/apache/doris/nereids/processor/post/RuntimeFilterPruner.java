@@ -189,8 +189,8 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
     private boolean isVisibleColumn(Slot slot) {
         if (slot instanceof SlotReference) {
             SlotReference slotReference = (SlotReference) slot;
-            if (slotReference.getColumn().isPresent()) {
-                return slotReference.getColumn().get().isVisible();
+            if (slotReference.getOriginalColumn().isPresent()) {
+                return slotReference.getOriginalColumn().get().isVisible();
             }
         }
         return true;

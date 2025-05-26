@@ -62,7 +62,7 @@ public class GroupBitAnd extends NullableAggregateFunction
     }
 
     private GroupBitAnd(boolean distinct, boolean alwaysNullable, Expression child) {
-        super("group_bit_and", distinct, alwaysNullable, child);
+        super("group_bit_and", false, alwaysNullable, child);
     }
 
     /**

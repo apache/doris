@@ -60,6 +60,11 @@ suite("test_create_or_replace_view") {
         CREATE OR REPLACE VIEW view_test_create_or_replace_view
         AS SELECT * FROM test_create_or_replace_view_tbl2;
     """
+
+    qt_desc_view_upper_after_replace """
+        desc view_test_create_or_replace_view
+    """
+
     qt_sql_2 """select * from view_test_create_or_replace_view"""
 
     qt_desc_view_upper_after_replace """

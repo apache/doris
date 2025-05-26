@@ -451,6 +451,10 @@ public class OlapQueryCacheTest {
         Analyzer createViewAnalyzer = new Analyzer(env, ctx);
         createViewAnalyzer.setRootStatementClazz(CreateViewStmt.class);
         view.setInlineViewDefWithSqlMode(parseSql(originStmt, createViewAnalyzer, true).toSql(), 0L);
+        view.setNewFullSchema(Lists.newArrayList(
+                new Column("eventdate", ScalarType.DATE),
+                new Column("_count_2", ScalarType.BIGINT)
+        ));
         return view;
     }
 
@@ -460,6 +464,10 @@ public class OlapQueryCacheTest {
         Analyzer createViewAnalyzer = new Analyzer(env, ctx);
         createViewAnalyzer.setRootStatementClazz(CreateViewStmt.class);
         view.setInlineViewDefWithSqlMode(parseSql(originStmt, createViewAnalyzer, true).toSql(), 0L);
+        view.setNewFullSchema(Lists.newArrayList(
+                new Column("eventdate", ScalarType.DATE),
+                new Column("userid", ScalarType.INT)
+        ));
         return view;
     }
 
@@ -470,6 +478,10 @@ public class OlapQueryCacheTest {
         Analyzer createViewAnalyzer = new Analyzer(env, ctx);
         createViewAnalyzer.setRootStatementClazz(CreateViewStmt.class);
         view.setInlineViewDefWithSqlMode(parseSql(originStmt, createViewAnalyzer, true).toSql(), 0L);
+        view.setNewFullSchema(Lists.newArrayList(
+                new Column("eventdate", ScalarType.DATE),
+                new Column("_count_2", ScalarType.BIGINT)
+        ));
         return view;
     }
 
@@ -481,6 +493,10 @@ public class OlapQueryCacheTest {
         createViewAnalyzer.setRootStatementClazz(CreateViewStmt.class);
         view.setInlineViewDefWithSqlMode(
                 parseSql(originStmt, createViewAnalyzer, true).toSql(), 0L);
+        view.setNewFullSchema(Lists.newArrayList(
+                new Column("eventdate", ScalarType.DATE),
+                new Column("_count_2", ScalarType.BIGINT)
+        ));
         return view;
     }
 
