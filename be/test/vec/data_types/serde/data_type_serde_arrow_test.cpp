@@ -60,6 +60,7 @@
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_bitmap.h"
 #include "vec/data_types/data_type_date.h"
+#include "vec/data_types/data_type_date_or_datetime_v2.h"
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_hll.h"
@@ -71,7 +72,6 @@
 #include "vec/data_types/data_type_quantilestate.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/data_types/data_type_struct.h"
-#include "vec/data_types/data_type_time_v2.h"
 #include "vec/runtime/vdatetime_value.h"
 #include "vec/utils/arrow_column_to_doris_column.h"
 
@@ -129,7 +129,8 @@ void serialize_and_deserialize_arrow_test(std::vector<PrimitiveType> cols, int r
                         if (i % 2 == 0) {
                             mutable_nullable_vector->insert_default();
                         } else {
-                            mutable_nullable_vector->insert(int32(i));
+                            mutable_nullable_vector->insert(
+                                    Field::create_field<TYPE_INT>(int32(i)));
                         }
                     }
                     auto data_type = vectorized::make_nullable(
@@ -299,7 +300,8 @@ void serialize_and_deserialize_arrow_test(std::vector<PrimitiveType> cols, int r
             char to[64] = {};
             std::cout << "value: " << value.to_string(to) << std::endl;
             for (int i = 0; i < row_num; ++i) {
-                column_vector_datetimev2->insert(value.to_date_int_val());
+                column_vector_datetimev2->insert(
+                        Field::create_field<TYPE_DATETIMEV2>(value.to_date_int_val()));
             }
             vectorized::DataTypePtr datetimev2_type(
                     std::make_shared<vectorized::DataTypeDateTimeV2>(3));
@@ -312,17 +314,17 @@ void serialize_and_deserialize_arrow_test(std::vector<PrimitiveType> cols, int r
             DataTypePtr s = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
             DataTypePtr au = std::make_shared<DataTypeArray>(s);
             Array a1, a2;
-            a1.push_back(Field("sss"));
-            a1.push_back(Null());
-            a1.push_back(Field("clever amory"));
-            a2.push_back(Field("hello amory"));
-            a2.push_back(Null());
-            a2.push_back(Field("cute amory"));
-            a2.push_back(Field("sf"));
+            a1.push_back(Field::create_field<TYPE_STRING>("sss"));
+            a1.push_back(Field());
+            a1.push_back(Field::create_field<TYPE_STRING>("clever amory"));
+            a2.push_back(Field::create_field<TYPE_STRING>("hello amory"));
+            a2.push_back(Field());
+            a2.push_back(Field::create_field<TYPE_STRING>("cute amory"));
+            a2.push_back(Field::create_field<TYPE_STRING>("sf"));
             MutableColumnPtr array_column = au->create_column();
             array_column->reserve(2);
-            array_column->insert(a1);
-            array_column->insert(a2);
+            array_column->insert(Field::create_field<TYPE_ARRAY>(a1));
+            array_column->insert(Field::create_field<TYPE_ARRAY>(a2));
             vectorized::ColumnWithTypeAndName type_and_name(array_column->get_ptr(), au, col_name);
             block->insert(type_and_name);
             type_desc = au;
@@ -334,29 +336,29 @@ void serialize_and_deserialize_arrow_test(std::vector<PrimitiveType> cols, int r
             DataTypePtr m = std::make_shared<DataTypeMap>(s, d);
             type_desc = m;
             Array k1, k2, v1, v2;
-            k1.push_back("null");
-            k1.push_back("doris");
-            k1.push_back("clever amory");
-            v1.push_back("ss");
-            v1.push_back(Null());
-            v1.push_back("NULL");
-            k2.push_back("hello amory");
-            k2.push_back("NULL");
-            k2.push_back("cute amory");
-            k2.push_back("doris");
-            v2.push_back("s");
-            v2.push_back("0");
-            v2.push_back("sf");
-            v2.push_back(Null());
+            k1.push_back(Field::create_field<TYPE_STRING>("null"));
+            k1.push_back(Field::create_field<TYPE_STRING>("doris"));
+            k1.push_back(Field::create_field<TYPE_STRING>("clever amory"));
+            v1.push_back(Field::create_field<TYPE_STRING>("ss"));
+            v1.push_back(Field());
+            v1.push_back(Field::create_field<TYPE_STRING>("NULL"));
+            k2.push_back(Field::create_field<TYPE_STRING>("hello amory"));
+            k2.push_back(Field::create_field<TYPE_STRING>("NULL"));
+            k2.push_back(Field::create_field<TYPE_STRING>("cute amory"));
+            k2.push_back(Field::create_field<TYPE_STRING>("doris"));
+            v2.push_back(Field::create_field<TYPE_STRING>("s"));
+            v2.push_back(Field::create_field<TYPE_STRING>("0"));
+            v2.push_back(Field::create_field<TYPE_STRING>("sf"));
+            v2.push_back(Field());
             Map m1, m2;
-            m1.push_back(k1);
-            m1.push_back(v1);
-            m2.push_back(k2);
-            m2.push_back(v2);
+            m1.push_back(Field::create_field<TYPE_ARRAY>(k1));
+            m1.push_back(Field::create_field<TYPE_ARRAY>(v1));
+            m2.push_back(Field::create_field<TYPE_ARRAY>(k2));
+            m2.push_back(Field::create_field<TYPE_ARRAY>(v2));
             MutableColumnPtr map_column = m->create_column();
             map_column->reserve(2);
-            map_column->insert(m1);
-            map_column->insert(m2);
+            map_column->insert(Field::create_field<TYPE_MAP>(m1));
+            map_column->insert(Field::create_field<TYPE_MAP>(m2));
             vectorized::ColumnWithTypeAndName type_and_name(map_column->get_ptr(), m, col_name);
             block->insert(type_and_name);
         } break;
@@ -367,16 +369,16 @@ void serialize_and_deserialize_arrow_test(std::vector<PrimitiveType> cols, int r
             DataTypePtr st = std::make_shared<DataTypeStruct>(std::vector<DataTypePtr> {s, d, m});
             type_desc = st;
             Tuple t1, t2;
-            t1.push_back(Field("amory cute"));
-            t1.push_back(__int128_t(37));
-            t1.push_back(true);
-            t2.push_back("null");
-            t2.push_back(__int128_t(26));
-            t2.push_back(false);
+            t1.push_back(Field::create_field<TYPE_STRING>("amory cute"));
+            t1.push_back(Field::create_field<TYPE_LARGEINT>(__int128_t(37)));
+            t1.push_back(Field::create_field<TYPE_BOOLEAN>(true));
+            t2.push_back(Field::create_field<TYPE_STRING>("null"));
+            t2.push_back(Field::create_field<TYPE_LARGEINT>(__int128_t(26)));
+            t2.push_back(Field::create_field<TYPE_BOOLEAN>(false));
             MutableColumnPtr struct_column = st->create_column();
             struct_column->reserve(2);
-            struct_column->insert(t1);
-            struct_column->insert(t2);
+            struct_column->insert(Field::create_field<TYPE_STRUCT>(t1));
+            struct_column->insert(Field::create_field<TYPE_STRUCT>(t2));
             vectorized::ColumnWithTypeAndName type_and_name(struct_column->get_ptr(), st, col_name);
             block->insert(type_and_name);
         } break;
@@ -435,32 +437,32 @@ TEST(DataTypeSerDeArrowTest, DataTypeMapNullKeySerDeTest) {
         DataTypePtr d = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>());
         DataTypePtr m = std::make_shared<DataTypeMap>(s, d);
         Array k1, k2, v1, v2, k3, v3;
-        k1.push_back("doris");
-        k1.push_back("clever amory");
-        v1.push_back(Null());
-        v1.push_back(30);
-        k2.push_back("hello amory");
-        k2.push_back("NULL");
-        k2.push_back("cute amory");
-        k2.push_back("doris");
-        v2.push_back(26);
-        v2.push_back(Null());
-        v2.push_back(6);
-        v2.push_back(7);
-        k3.push_back("test");
-        v3.push_back(11);
+        k1.push_back(Field::create_field<TYPE_STRING>("doris"));
+        k1.push_back(Field::create_field<TYPE_STRING>("clever amory"));
+        v1.push_back(Field());
+        v1.push_back(Field::create_field<TYPE_INT>(30));
+        k2.push_back(Field::create_field<TYPE_STRING>("hello amory"));
+        k2.push_back(Field::create_field<TYPE_STRING>("NULL"));
+        k2.push_back(Field::create_field<TYPE_STRING>("cute amory"));
+        k2.push_back(Field::create_field<TYPE_STRING>("doris"));
+        v2.push_back(Field::create_field<TYPE_INT>(26));
+        v2.push_back(Field());
+        v2.push_back(Field::create_field<TYPE_INT>(6));
+        v2.push_back(Field::create_field<TYPE_INT>(7));
+        k3.push_back(Field::create_field<TYPE_STRING>("test"));
+        v3.push_back(Field::create_field<TYPE_INT>(11));
         Map m1, m2, m3;
-        m1.push_back(k1);
-        m1.push_back(v1);
-        m2.push_back(k2);
-        m2.push_back(v2);
-        m3.push_back(k3);
-        m3.push_back(v3);
+        m1.push_back(Field::create_field<TYPE_ARRAY>(k1));
+        m1.push_back(Field::create_field<TYPE_ARRAY>(v1));
+        m2.push_back(Field::create_field<TYPE_ARRAY>(k2));
+        m2.push_back(Field::create_field<TYPE_ARRAY>(v2));
+        m3.push_back(Field::create_field<TYPE_ARRAY>(k3));
+        m3.push_back(Field::create_field<TYPE_ARRAY>(v3));
         MutableColumnPtr map_column = m->create_column();
         map_column->reserve(3);
-        map_column->insert(m1);
-        map_column->insert(m2);
-        map_column->insert(m3);
+        map_column->insert(Field::create_field<TYPE_MAP>(m1));
+        map_column->insert(Field::create_field<TYPE_MAP>(m2));
+        map_column->insert(Field::create_field<TYPE_MAP>(m3));
         vectorized::ColumnWithTypeAndName type_and_name(map_column->get_ptr(), m, col_name);
         block->insert(type_and_name);
     }

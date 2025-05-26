@@ -52,22 +52,22 @@ public class HttpDialectUtilsTest {
     public void testSqlConvert() {
         String originSql = "select * from t1 where \"k1\" = 1";
         String expectedSql = "select * from t1 where `k1` = 1";
-
+        String[] features = new String[] {"ctas"};
         String targetURL = "http://127.0.0.1:" + port + "/api/v1/convert";
-        String res = HttpDialectUtils.convertSql(targetURL, originSql, "presto");
+        String res = HttpDialectUtils.convertSql(targetURL, originSql, "presto", features, "{}");
         Assert.assertEquals(originSql, res);
         // test presto
         server.setResponse("{\"version\": \"v1\", \"data\": \"" + expectedSql + "\", \"code\": 0, \"message\": \"\"}");
-        res = HttpDialectUtils.convertSql(targetURL, originSql, "presto");
+        res = HttpDialectUtils.convertSql(targetURL, originSql, "presto", features, "{}");
         Assert.assertEquals(expectedSql, res);
         // test response version error
         server.setResponse("{\"version\": \"v2\", \"data\": \"" + expectedSql + "\", \"code\": 0, \"message\": \"\"}");
-        res = HttpDialectUtils.convertSql(targetURL, originSql, "presto");
+        res = HttpDialectUtils.convertSql(targetURL, originSql, "presto", features, "{}");
         Assert.assertEquals(originSql, res);
-        // 7. test response code error
+        // test response code error
         server.setResponse(
                 "{\"version\": \"v1\", \"data\": \"" + expectedSql + "\", \"code\": 400, \"message\": \"\"}");
-        res = HttpDialectUtils.convertSql(targetURL, originSql, "presto");
+        res = HttpDialectUtils.convertSql(targetURL, originSql, "presto", features, "{}");
         Assert.assertEquals(originSql, res);
     }
 

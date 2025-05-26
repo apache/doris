@@ -30,12 +30,11 @@
 #include "agent/be_exec_version_manager.h"
 #include "olap/olap_common.h"
 #include "runtime/define_primitive_type.h"
-#include "runtime/types.h"
+#include "runtime/large_int_value.h"
 #include "testutil/test_util.h"
 #include "vec/columns/column.h"
 #include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
-#include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/common_data_type_serder_test.h"
 #include "vec/data_types/common_data_type_test.h"
@@ -129,7 +128,7 @@ TEST_F(DataTypeNumberTest, MetaInfoTest) {
     auto col_meta = std::make_shared<PColumnMeta>();
     col_meta->set_type(PGenericType_TypeId_INT8);
     CommonDataTypeTest::DataTypeMetaInfo meta_info_to_assert = {
-            .type_id = TypeIndex::Int8,
+            .type_id = PrimitiveType::TYPE_TINYINT,
             .type_as_type_descriptor = type_descriptor,
             .family_name = dt_int8.get_family_name(),
             .has_subtypes = false,
@@ -144,7 +143,7 @@ TEST_F(DataTypeNumberTest, MetaInfoTest) {
             .is_value_represented_by_number = true,
             .pColumnMeta = col_meta.get(),
             .is_value_unambiguously_represented_in_contiguous_memory_region = true,
-            .default_field = (Int8)0,
+            .default_field = Field::create_field<TYPE_TINYINT>((Int8)0),
     };
     auto tmp_dt = DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_TINYINT, false);
     helper->meta_info_assert(tmp_dt, meta_info_to_assert);
@@ -169,85 +168,87 @@ TEST_F(DataTypeNumberTest, get_storage_field_type) {
     EXPECT_EQ(dt_uint8.get_storage_field_type(), doris::FieldType::OLAP_FIELD_TYPE_BOOL);
 }
 TEST_F(DataTypeNumberTest, get_default) {
-    EXPECT_EQ(dt_int8.get_default(), 0);
-    EXPECT_EQ(dt_int16.get_default(), 0);
-    EXPECT_EQ(dt_int32.get_default(), 0);
-    EXPECT_EQ(dt_int64.get_default(), 0);
-    EXPECT_EQ(dt_int128.get_default(), Int128(0));
+    EXPECT_EQ(dt_int8.get_default(), Field::create_field<TYPE_TINYINT>(0));
+    EXPECT_EQ(dt_int16.get_default(), Field::create_field<TYPE_SMALLINT>(0));
+    EXPECT_EQ(dt_int32.get_default(), Field::create_field<TYPE_INT>(0));
+    EXPECT_EQ(dt_int64.get_default(), Field::create_field<TYPE_BIGINT>(0));
+    EXPECT_EQ(dt_int128.get_default(), Field::create_field<TYPE_LARGEINT>(Int128(0)));
 }
-template <typename T>
-void test_int_field(const T& dt) {
+template <PrimitiveType T>
+void test_int_field(const typename PrimitiveTypeTraits<T>::DataType& dt) {
     TExprNode expr_node;
-    typename T::FieldType value {std::numeric_limits<typename T::FieldType>::min()};
+    typename PrimitiveTypeTraits<T>::ColumnItemType value {
+            std::numeric_limits<typename PrimitiveTypeTraits<T>::ColumnItemType>::min()};
     expr_node.int_literal.value = value;
-    EXPECT_EQ(dt.get_field(expr_node), value);
+    EXPECT_EQ(dt.get_field(expr_node), Field::create_field<T>(value));
 
-    value = std::numeric_limits<typename T::FieldType>::max();
+    value = std::numeric_limits<typename PrimitiveTypeTraits<T>::ColumnItemType>::max();
     expr_node.int_literal.value = value;
-    EXPECT_EQ(dt.get_field(expr_node), value);
+    EXPECT_EQ(dt.get_field(expr_node), Field::create_field<T>(value));
 
     value = 0;
     expr_node.int_literal.value = value;
-    EXPECT_EQ(dt.get_field(expr_node), value);
+    EXPECT_EQ(dt.get_field(expr_node), Field::create_field<T>(value));
 
     value = -1;
     expr_node.int_literal.value = value;
-    EXPECT_EQ(dt.get_field(expr_node), value);
+    EXPECT_EQ(dt.get_field(expr_node), Field::create_field<T>(value));
 
     value = 1;
     expr_node.int_literal.value = value;
-    EXPECT_EQ(dt.get_field(expr_node), value);
+    EXPECT_EQ(dt.get_field(expr_node), Field::create_field<T>(value));
 }
 TEST_F(DataTypeNumberTest, get_field) {
     std::cout << "get field bool\n";
     {
         TExprNode expr_node;
         expr_node.bool_literal.value = true;
-        EXPECT_EQ(dt_uint8.get_field(expr_node), UInt8(1));
+        EXPECT_EQ(dt_uint8.get_field(expr_node), Field::create_field<TYPE_BOOLEAN>(UInt8(1)));
         expr_node.bool_literal.value = false;
-        EXPECT_EQ(dt_uint8.get_field(expr_node), UInt8(0));
+        EXPECT_EQ(dt_uint8.get_field(expr_node), Field::create_field<TYPE_BOOLEAN>(UInt8(0)));
     }
     std::cout << "get field int8\n";
-    test_int_field(dt_int8);
+    test_int_field<TYPE_TINYINT>(dt_int8);
     std::cout << "get field int16\n";
-    test_int_field(dt_int16);
+    test_int_field<TYPE_SMALLINT>(dt_int16);
     std::cout << "get field int32\n";
-    test_int_field(dt_int32);
+    test_int_field<TYPE_INT>(dt_int32);
     std::cout << "get field int64\n";
-    test_int_field(dt_int64);
+    test_int_field<TYPE_BIGINT>(dt_int64);
     std::cout << "get field int128\n";
     {
         TExprNode expr_node;
         expr_node.large_int_literal.value = "0";
-        EXPECT_EQ(dt_int128.get_field(expr_node), Int128(0));
+        EXPECT_EQ(dt_int128.get_field(expr_node), Field::create_field<TYPE_LARGEINT>(Int128(0)));
         expr_node.large_int_literal.value = "-1";
-        EXPECT_EQ(dt_int128.get_field(expr_node), Int128(-1));
+        EXPECT_EQ(dt_int128.get_field(expr_node), Field::create_field<TYPE_LARGEINT>(Int128(-1)));
         expr_node.large_int_literal.value = "1";
-        EXPECT_EQ(dt_int128.get_field(expr_node), Int128(1));
+        EXPECT_EQ(dt_int128.get_field(expr_node), Field::create_field<TYPE_LARGEINT>(Int128(1)));
 
         // max
         expr_node.large_int_literal.value = "170141183460469231731687303715884105727";
-        EXPECT_EQ(dt_int128.get_field(expr_node), MAX_INT128);
+        EXPECT_EQ(dt_int128.get_field(expr_node), Field::create_field<TYPE_LARGEINT>(MAX_INT128));
         // min
         expr_node.large_int_literal.value = "-170141183460469231731687303715884105728";
-        EXPECT_EQ(dt_int128.get_field(expr_node), MIN_INT128);
+        EXPECT_EQ(dt_int128.get_field(expr_node), Field::create_field<TYPE_LARGEINT>(MIN_INT128));
     }
     std::cout << "get field float\n";
     {
         TExprNode expr_node;
         Float32 value = 0;
         expr_node.float_literal.value = value;
-        EXPECT_EQ(dt_float32.get_field(expr_node), value);
+        EXPECT_EQ(dt_float32.get_field(expr_node), Field::create_field<TYPE_FLOAT>(value));
 
         value = -1;
         expr_node.float_literal.value = value;
-        EXPECT_EQ(dt_float32.get_field(expr_node), value);
+        EXPECT_EQ(dt_float32.get_field(expr_node), Field::create_field<TYPE_FLOAT>(value));
 
         value = 1;
         expr_node.float_literal.value = value;
-        EXPECT_EQ(dt_float32.get_field(expr_node), value);
+        EXPECT_EQ(dt_float32.get_field(expr_node), Field::create_field<TYPE_FLOAT>(value));
     }
 }
+
 TEST_F(DataTypeNumberTest, ser_deser) {
     auto test_func = [](auto dt, const auto& column, int be_exec_version) {
         std::cout << "test serialize/deserialize datatype " << dt.get_family_name()
@@ -387,6 +388,7 @@ TEST_F(DataTypeNumberTest, ser_deser) {
     test_func(DataTypeUInt64(), *column_uint64, USE_CONST_SERDE);
     test_func(DataTypeUInt64(), *column_uint64, AGGREGATION_2_1_VERSION);
 }
+
 TEST_F(DataTypeNumberTest, to_string) {
     auto test_func = [](auto& dt, const auto& source_column) {
         std::cout << "test datatype to string: " << dt.get_family_name() << std::endl;

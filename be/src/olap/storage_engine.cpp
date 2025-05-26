@@ -1267,7 +1267,8 @@ Status StorageEngine::create_tablet(const TCreateTabletReq& request, RuntimeProf
     return _tablet_manager->create_tablet(request, stores, profile);
 }
 
-Result<BaseTabletSPtr> StorageEngine::get_tablet(int64_t tablet_id, SyncRowsetStats* sync_stats) {
+Result<BaseTabletSPtr> StorageEngine::get_tablet(int64_t tablet_id, SyncRowsetStats* sync_stats,
+                                                 bool force_use_cache) {
     BaseTabletSPtr tablet;
     std::string err;
     tablet = _tablet_manager->get_tablet(tablet_id, true, &err);
@@ -1542,7 +1543,7 @@ Status StorageEngine::_persist_broken_paths() {
 
     if (config_value.length() > 0) {
         auto st = config::set_config("broken_storage_path", config_value, true);
-        LOG(INFO) << "persist broken_storae_path " << config_value << st;
+        LOG(INFO) << "persist broken_storage_path " << config_value << st;
         return st;
     }
 

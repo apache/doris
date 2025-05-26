@@ -32,8 +32,8 @@
 #include "util/mysql_row_buffer.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h" // UInt32
+#include "vec/data_types/data_type_date_or_datetime_v2.h"
 #include "vec/data_types/data_type_factory.hpp"
-#include "vec/data_types/data_type_time_v2.h"
 #include "vec/io/reader_buffer.h"
 
 using namespace doris;
@@ -86,7 +86,7 @@ static void from_thrift_checker(UInt32 scale, const String& input, const String&
 
     auto field = datetime_ptr->get_field(expr_node);
     //  = datetime_ptr->get_storage_field_type();
-    EXPECT_EQ(field.get_type(), PrimitiveType::TYPE_DATETIMEV2);
+    EXPECT_EQ(field.get_type(), PrimitiveType::TYPE_DATETIMEV2) << type_to_string(field.get_type());
     auto column = datetime_ptr->create_column_const(1, field);
     EXPECT_EQ(datetime_ptr->to_string(*column, 1), expected);
 }

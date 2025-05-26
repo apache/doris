@@ -647,6 +647,7 @@ DEFINE_Int32(num_cores, "0");
 // When BE start, If there is a broken disk, BE process will exit by default.
 // Otherwise, we will ignore the broken disk,
 DEFINE_Bool(ignore_broken_disk, "false");
+DEFINE_Bool(ignore_file_cache_dir_upgrade_failure, "false");
 
 // Sleep time in milliseconds between memory maintenance iterations
 DEFINE_mInt32(memory_maintenance_sleep_time_ms, "50");
@@ -881,9 +882,6 @@ DEFINE_Int32(send_batch_thread_pool_queue_size, "102400");
 DEFINE_mInt32(max_segment_num_per_rowset, "1000");
 DEFINE_mInt32(segment_compression_threshold_kb, "256");
 
-// The connection timeout when connecting to external table such as odbc table.
-DEFINE_mInt32(external_table_connect_timeout_sec, "30");
-
 // Time to clean up useless JDBC connection pool cache
 DEFINE_mInt32(jdbc_connection_pool_cache_clear_time_sec, "28800");
 
@@ -1074,11 +1072,11 @@ DEFINE_Int64(file_cache_each_block_size, "1048576"); // 1MB
 
 DEFINE_Bool(clear_file_cache, "false");
 DEFINE_Bool(enable_file_cache_query_limit, "false");
-DEFINE_mInt32(file_cache_enter_disk_resource_limit_mode_percent, "88");
-DEFINE_mInt32(file_cache_exit_disk_resource_limit_mode_percent, "80");
+DEFINE_mInt32(file_cache_enter_disk_resource_limit_mode_percent, "90");
+DEFINE_mInt32(file_cache_exit_disk_resource_limit_mode_percent, "88");
 DEFINE_mBool(enable_evict_file_cache_in_advance, "true");
-DEFINE_mInt32(file_cache_enter_need_evict_cache_in_advance_percent, "78");
-DEFINE_mInt32(file_cache_exit_need_evict_cache_in_advance_percent, "75");
+DEFINE_mInt32(file_cache_enter_need_evict_cache_in_advance_percent, "88");
+DEFINE_mInt32(file_cache_exit_need_evict_cache_in_advance_percent, "85");
 DEFINE_mInt32(file_cache_evict_in_advance_interval_ms, "1000");
 DEFINE_mInt64(file_cache_evict_in_advance_batch_bytes, "31457280"); // 30MB
 DEFINE_mInt64(file_cache_evict_in_advance_recycle_keys_num_threshold, "1000");
@@ -1208,6 +1206,9 @@ DEFINE_mBool(enable_merge_on_write_correctness_check, "true");
 // USED FOR DEBUGING
 // core directly if the compaction found there's duplicate key on mow table
 DEFINE_mBool(enable_mow_compaction_correctness_check_core, "false");
+// USED FOR DEBUGING
+// let compaction fail if the compaction found there's duplicate key on mow table
+DEFINE_mBool(enable_mow_compaction_correctness_check_fail, "false");
 // rowid conversion correctness check when compaction for mow table
 DEFINE_mBool(enable_rowid_conversion_correctness_check, "false");
 // missing rows correctness check when compaction for mow table
@@ -1492,6 +1493,8 @@ DEFINE_mInt64(base_compaction_interval_seconds_since_last_operation, "86400");
 DEFINE_mBool(enable_compaction_pause_on_high_memory, "true");
 
 DEFINE_mBool(enable_calc_delete_bitmap_between_segments_concurrently, "false");
+
+DEFINE_mBool(enable_update_delete_bitmap_kv_check_core, "false");
 
 // clang-format off
 #ifdef BE_TEST

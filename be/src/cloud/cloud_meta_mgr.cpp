@@ -18,6 +18,7 @@
 
 #include <brpc/channel.h>
 #include <brpc/controller.h>
+#include <brpc/errno.pb.h>
 #include <bthread/bthread.h>
 #include <bthread/condition_variable.h>
 #include <bthread/mutex.h>
@@ -385,9 +386,11 @@ Status retry_rpc(std::string_view op_name, const Request& req, Response* res,
         }
         cntl.set_max_retry(kBrpcRetryTimes);
         res->Clear();
+        int error_code = 0;
         (stub.get()->*method)(&cntl, &req, res, nullptr);
         if (cntl.Failed()) [[unlikely]] {
             error_msg = cntl.ErrorText();
+            error_code = cntl.ErrorCode();
             proxy->set_unhealthy();
         } else if (res->status().code() == MetaServiceCode::OK) {
             return Status::OK();
@@ -401,7 +404,12 @@ Status retry_rpc(std::string_view op_name, const Request& req, Response* res,
             error_msg = res->status().msg();
         }
 
-        if (++retry_times > config::meta_service_rpc_retry_times) {
+        ++retry_times;
+        if (retry_times > config::meta_service_rpc_retry_times ||
+            (retry_times > config::meta_service_rpc_timeout_retry_times &&
+             error_code == brpc::ERPCTIMEDOUT) ||
+            (retry_times > config::meta_service_conflict_error_retry_times &&
+             res->status().code() == MetaServiceCode::KV_TXN_CONFLICT)) {
             break;
         }
 
@@ -592,7 +600,7 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
                                                 resp.stats(), req.idx(), &delete_bitmap,
                                                 options.full_sync, sync_stats);
             if (st.is<ErrorCode::ROWSETS_EXPIRED>() && tried++ < retry_times) {
-                LOG_WARNING("rowset meta is expired, need to retry")
+                LOG_INFO("rowset meta is expired, need to retry")
                         .tag("tablet", tablet->tablet_id())
                         .tag("tried", tried)
                         .error(st);
@@ -1279,6 +1287,12 @@ Status CloudMetaMgr::update_delete_bitmap(const CloudTablet& tablet, int64_t loc
                 lock_id);
     });
     auto st = retry_rpc("update delete bitmap", req, &res, &MetaService_Stub::update_delete_bitmap);
+    if (config::enable_update_delete_bitmap_kv_check_core &&
+        res.status().code() == MetaServiceCode::UPDATE_OVERRIDE_EXISTING_KV) {
+        auto& msg = res.status().msg();
+        LOG_WARNING(msg);
+        CHECK(false) << msg;
+    }
     if (res.status().code() == MetaServiceCode::LOCK_EXPIRED) {
         return Status::Error<ErrorCode::DELETE_BITMAP_LOCK_ERROR, false>(
                 "lock expired when update delete bitmap, tablet_id: {}, lock_id: {}, initiator: "

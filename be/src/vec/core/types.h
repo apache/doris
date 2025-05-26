@@ -51,62 +51,6 @@ namespace vectorized {
 
 struct Null {};
 
-#ifdef BE_TEST
-// The identifier should be less than int16, because castexpr using the identifier
-// instead of type name as type parameter. It will using int16 as column type.
-enum class TypeIndex {
-    Nothing = 0,
-    UInt8 = 1,
-    UInt16 = 2,
-    UInt32 = 3,
-    UInt64 = 4,
-    UInt128 = 5,
-    Int8 = 6,
-    Int16 = 7,
-    Int32 = 8,
-    Int64 = 9,
-    Int128 = 10,
-    Float32 = 11,
-    Float64 = 12,
-    Date = 13,
-    DateTime = 14,
-    String = 15,
-    FixedString = 16,
-    Enum8 = 17,
-    Enum16 = 18,
-    Decimal32 = 19,
-    Decimal64 = 20,
-    Decimal128V2 = 21,
-    UUID = 22,
-    Array = 23,
-    Tuple = 24,
-    Set = 25,
-    Interval = 26,
-    Nullable = 27,
-    Function = 28,
-    AggregateFunction = 29,
-    LowCardinality = 30,
-    BitMap = 31,
-    HLL = 32,
-    DateV2 = 33,
-    DateTimeV2 = 34,
-    TimeV2 = 35,
-    FixedLengthObject = 36,
-    JSONB = 37,
-    Decimal128V3 = 38,
-    Map = 39,
-    Struct = 40,
-    VARIANT = 41,
-    QuantileState = 42,
-    Time = 43,
-    AggState = 44,
-    Decimal256 = 45,
-    IPv4 = 46,
-    IPv6 = 47,
-    Int256 = 48
-};
-#endif
-
 using UInt8 = uint8_t;
 using UInt16 = uint16_t;
 using UInt32 = uint32_t;
@@ -292,7 +236,7 @@ inline constexpr Int128 decimal_scale_multiplier<Int128>(UInt32 scale) {
 }
 // gcc report error if add constexpr in declaration
 template <>
-inline wide::Int256 decimal_scale_multiplier<wide::Int256>(UInt32 scale) {
+inline constexpr wide::Int256 decimal_scale_multiplier<wide::Int256>(UInt32 scale) {
     return common::exp10_i256(scale);
 }
 template <typename T>
@@ -454,6 +398,7 @@ template <typename T>
 concept DecimalNativeTypeConcept = std::is_same_v<T, Int32> || std::is_same_v<T, Int64> ||
                                    std::is_same_v<T, Int128> || std::is_same_v<T, wide::Int256>;
 
+struct Decimal128V3;
 /// Own FieldType for Decimal.
 /// It is only a "storage" for decimal. To perform operations, you also have to provide a scale (number of digits after point).
 template <DecimalNativeTypeConcept T>
@@ -644,6 +589,9 @@ struct Decimal128V3 : public Decimal<Int128> {
     Decimal128V3(const Decimal<U>& x) {
         value = x;
     }
+    static Decimal128V3 from_int_frac(Int128 integer, Int128 fraction, int scale) {
+        return {integer * common::exp10_i128(scale) + fraction};
+    }
 };
 
 using Decimal32 = Decimal<Int32>;
@@ -696,6 +644,8 @@ template <>
 inline constexpr bool IsDecimalNumber<Decimal128V2> = true;
 template <>
 inline constexpr bool IsDecimalNumber<Decimal128V3> = true;
+template <>
+inline constexpr bool IsDecimalNumber<DecimalV2Value> = true;
 template <>
 inline constexpr bool IsDecimalNumber<Decimal256> = true;
 

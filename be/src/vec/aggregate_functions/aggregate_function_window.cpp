@@ -41,7 +41,8 @@ AggregateFunctionPtr create_function_lead_lag_first_last(const String& name,
     // FE have rewrite case first_value(k1,false)--->first_value(k1)
     // so size is 2, must will be arg_ignore_null_value
     if (argument_types.size() == 2) {
-        DCHECK(name == "first_value" || name == "last_value") << "invalid function name: " << name;
+        DCHECK(name == "first_value" || name == "last_value" || name == "nth_value")
+                << "invalid function name: " << name;
         arg_ignore_null_value = true;
     }
     switch (argument_types[0]->get_primitive_type()) {
@@ -294,11 +295,11 @@ AggregateFunctionPtr create_function_lead_lag_first_last(const String& name,
     case PrimitiveType::TYPE_VARIANT: {
         if (arg_ignore_null_value) {
             return std::make_shared<AggregateFunctionTemplate<
-                    Impl<Data<ColumnObject, result_is_nullable, arg_is_nullable>, true>>>(
+                    Impl<Data<ColumnVariant, result_is_nullable, arg_is_nullable>, true>>>(
                     argument_types);
         } else {
             return std::make_shared<AggregateFunctionTemplate<
-                    Impl<Data<ColumnObject, result_is_nullable, arg_is_nullable>, false>>>(
+                    Impl<Data<ColumnVariant, result_is_nullable, arg_is_nullable>, false>>>(
                     argument_types);
         }
     }
@@ -374,6 +375,8 @@ CREATE_WINDOW_FUNCTION_WITH_NAME_AND_DATA(create_aggregate_function_window_first
                                           WindowFunctionFirstImpl);
 CREATE_WINDOW_FUNCTION_WITH_NAME_AND_DATA(create_aggregate_function_window_last, FirstLastData,
                                           WindowFunctionLastImpl);
+CREATE_WINDOW_FUNCTION_WITH_NAME_AND_DATA(create_aggregate_function_window_nth_value, FirstLastData,
+                                          WindowFunctionNthValueImpl);
 
 void register_aggregate_function_window_rank(AggregateFunctionSimpleFactory& factory) {
     factory.register_function("dense_rank", creator_without_type::creator<WindowFunctionDenseRank>);
@@ -391,6 +394,7 @@ void register_aggregate_function_window_lead_lag_first_last(
     factory.register_function_both("lag", create_aggregate_function_window_lag);
     factory.register_function_both("first_value", create_aggregate_function_window_first);
     factory.register_function_both("last_value", create_aggregate_function_window_last);
+    factory.register_function_both("nth_value", create_aggregate_function_window_nth_value);
 }
 
 } // namespace doris::vectorized

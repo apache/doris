@@ -81,7 +81,7 @@ public class AlterLightSchChangeHelper {
         if (connectContext == null) {
             rpcTimoutMs = DEFAULT_RPC_TIMEOUT * 1000L;
         } else {
-            rpcTimoutMs = connectContext.getExecTimeout() * 1000L;
+            rpcTimoutMs = connectContext.getExecTimeoutS() * 1000L;
         }
     }
 

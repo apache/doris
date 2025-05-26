@@ -1233,18 +1233,22 @@ Status OrcReader::set_fill_columns(
         }
     }
 
-    if (!_slot_id_to_filter_conjuncts) {
-        return Status::OK();
+    if (!_not_single_slot_filter_conjuncts.empty()) {
+        _filter_conjuncts.insert(_filter_conjuncts.end(), _not_single_slot_filter_conjuncts.begin(),
+                                 _not_single_slot_filter_conjuncts.end());
+        _disable_dict_filter = true;
     }
 
-    // Add predicate_partition_columns in _slot_id_to_filter_conjuncts(single slot conjuncts)
-    // to _filter_conjuncts, others should be added from not_single_slot_filter_conjuncts.
-    for (auto& kv : _lazy_read_ctx.predicate_partition_columns) {
-        auto& [value, slot_desc] = kv.second;
-        auto iter = _slot_id_to_filter_conjuncts->find(slot_desc->id());
-        if (iter != _slot_id_to_filter_conjuncts->end()) {
-            for (const auto& ctx : iter->second) {
-                _filter_conjuncts.push_back(ctx);
+    if (_slot_id_to_filter_conjuncts && !_slot_id_to_filter_conjuncts->empty()) {
+        // Add predicate_partition_columns in _slot_id_to_filter_conjuncts(single slot conjuncts)
+        // to _filter_conjuncts, others should be added from not_single_slot_filter_conjuncts.
+        for (auto& kv : _lazy_read_ctx.predicate_partition_columns) {
+            auto& [value, slot_desc] = kv.second;
+            auto iter = _slot_id_to_filter_conjuncts->find(slot_desc->id());
+            if (iter != _slot_id_to_filter_conjuncts->end()) {
+                for (const auto& ctx : iter->second) {
+                    _filter_conjuncts.push_back(ctx);
+                }
             }
         }
     }
@@ -2008,16 +2012,8 @@ Status OrcReader::get_next_block_impl(Block* block, size_t* read_rows, bool* eof
             RETURN_IF_CATCH_EXCEPTION(
                     Block::filter_block_internal(block, columns_to_filter, *_filter));
         }
-        if (!_not_single_slot_filter_conjuncts.empty()) {
-            RETURN_IF_ERROR(_convert_dict_cols_to_string_cols(block, &batch_vec));
-            RETURN_IF_CATCH_EXCEPTION(
-                    RETURN_IF_ERROR(VExprContext::execute_conjuncts_and_filter_block(
-                            _not_single_slot_filter_conjuncts, block, columns_to_filter,
-                            column_to_keep)));
-        } else {
-            Block::erase_useless_column(block, column_to_keep);
-            RETURN_IF_ERROR(_convert_dict_cols_to_string_cols(block, &batch_vec));
-        }
+        Block::erase_useless_column(block, column_to_keep);
+        RETURN_IF_ERROR(_convert_dict_cols_to_string_cols(block, &batch_vec));
         *read_rows = block->rows();
     } else {
         uint64_t rr;
@@ -2134,17 +2130,8 @@ Status OrcReader::get_next_block_impl(Block* block, size_t* read_rows, bool* eof
                 RETURN_IF_CATCH_EXCEPTION(
                         Block::filter_block_internal(block, columns_to_filter, result_filter));
             }
-            //_not_single_slot_filter_conjuncts check : missing column1 == missing column2 , missing column == exists column  ...
-            if (!_not_single_slot_filter_conjuncts.empty()) {
-                RETURN_IF_ERROR(_convert_dict_cols_to_string_cols(block, &batch_vec));
-                RETURN_IF_CATCH_EXCEPTION(
-                        RETURN_IF_ERROR(VExprContext::execute_conjuncts_and_filter_block(
-                                _not_single_slot_filter_conjuncts, block, columns_to_filter,
-                                column_to_keep)));
-            } else {
-                Block::erase_useless_column(block, column_to_keep);
-                RETURN_IF_ERROR(_convert_dict_cols_to_string_cols(block, &batch_vec));
-            }
+            Block::erase_useless_column(block, column_to_keep);
+            RETURN_IF_ERROR(_convert_dict_cols_to_string_cols(block, &batch_vec));
         } else {
             if (_delete_rows_filter_ptr) {
                 _execute_filter_position_delete_rowids(*_delete_rows_filter_ptr);
@@ -2323,7 +2310,7 @@ Status OrcReader::fill_dict_filter_column_names(
     int i = 0;
     for (const auto& predicate_col_name : predicate_col_names) {
         int slot_id = predicate_col_slot_ids[i];
-        if (_can_filter_by_dict(slot_id)) {
+        if (!_disable_dict_filter && _can_filter_by_dict(slot_id)) {
             _dict_filter_cols.emplace_back(predicate_col_name, slot_id);
             column_names.emplace_back(_col_name_to_file_col_name[predicate_col_name]);
         } else {
@@ -2360,22 +2347,16 @@ bool OrcReader::_can_filter_by_dict(int slot_id) {
         return false;
     }
 
-    std::function<bool(const VExpr* expr)> visit_function_call = [&](const VExpr* expr) {
-        // TODO: The current implementation of dictionary filtering does not take into account
-        //  the implementation of NULL values because the dictionary itself does not contain
-        //  NULL value encoding. As a result, many NULL-related functions or expressions
-        //  cannot work properly, such as is null, is not null, coalesce, etc.
-        //  Here we first disable dictionary filtering when predicate expr is not slot.
-        //  Implementation of NULL value dictionary filtering will be carried out later.
-        if (expr->node_type() != TExprNodeType::SLOT_REF) {
-            return false;
-        }
-        return std::ranges::all_of(expr->children(), [&](const auto& child) {
-            return visit_function_call(child.get());
-        });
-    };
+    // TODO: The current implementation of dictionary filtering does not take into account
+    //  the implementation of NULL values because the dictionary itself does not contain
+    //  NULL value encoding. As a result, many NULL-related functions or expressions
+    //  cannot work properly, such as is null, is not null, coalesce, etc.
+    //  Here we check if the predicate expr is IN or BINARY_PRED.
+    //  Implementation of NULL value dictionary filtering will be carried out later.
     return std::ranges::all_of(_slot_id_to_filter_conjuncts->at(slot_id), [&](const auto& ctx) {
-        return visit_function_call(ctx->root().get());
+        return (ctx->root()->node_type() == TExprNodeType::IN_PRED ||
+                ctx->root()->node_type() == TExprNodeType::BINARY_PRED) &&
+               ctx->root()->children()[0]->node_type() == TExprNodeType::SLOT_REF;
     });
 }
 
@@ -2812,6 +2793,8 @@ void ORCFileInputStream::_build_small_ranges_input_stripe_streams(
     all_ranges.reserve(ranges.size());
     std::transform(ranges.begin(), ranges.end(), std::back_inserter(all_ranges),
                    [](const auto& pair) { return pair.second; });
+    std::sort(all_ranges.begin(), all_ranges.end(),
+              [](const auto& a, const auto& b) { return a.start_offset < b.start_offset; });
 
     auto merged_ranges = io::PrefetchRange::merge_adjacent_seq_ranges(
             all_ranges, _orc_max_merge_distance_bytes, _orc_once_max_read_bytes);

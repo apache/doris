@@ -685,6 +685,7 @@ DECLARE_Int32(num_cores);
 // When BE start, If there is a broken disk, BE process will exit by default.
 // Otherwise, we will ignore the broken disk,
 DECLARE_Bool(ignore_broken_disk);
+DECLARE_Bool(ignore_file_cache_dir_upgrade_failure);
 
 // Sleep time in milliseconds between memory maintenance iterations
 DECLARE_mInt32(memory_maintenance_sleep_time_ms);
@@ -925,9 +926,6 @@ DECLARE_mInt32(max_segment_num_per_rowset);
 // Store segment without compression if a segment is smaller than
 // segment_compression_threshold_kb.
 DECLARE_mInt32(segment_compression_threshold_kb);
-
-// The connection timeout when connecting to external table such as odbc table.
-DECLARE_mInt32(external_table_connect_timeout_sec);
 
 // Time to clean up useless JDBC connection pool cache
 DECLARE_mInt32(jdbc_connection_pool_cache_clear_time_sec);
@@ -1274,6 +1272,9 @@ DECLARE_mBool(enable_merge_on_write_correctness_check);
 // USED FOR DEBUGING
 // core directly if the compaction found there's duplicate key on mow table
 DECLARE_mBool(enable_mow_compaction_correctness_check_core);
+// USED FOR DEBUGING
+// let compaction fail if the compaction found there's duplicate key on mow table
+DECLARE_mBool(enable_mow_compaction_correctness_check_fail);
 // rowid conversion correctness check when compaction for mow table
 DECLARE_mBool(enable_rowid_conversion_correctness_check);
 // missing rows correctness check when compaction for mow table
@@ -1566,6 +1567,8 @@ DECLARE_mInt64(base_compaction_interval_seconds_since_last_operation);
 DECLARE_mBool(enable_compaction_pause_on_high_memory);
 
 DECLARE_mBool(enable_calc_delete_bitmap_between_segments_concurrently);
+
+DECLARE_mBool(enable_update_delete_bitmap_kv_check_core);
 
 #ifdef BE_TEST
 // test s3

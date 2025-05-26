@@ -154,7 +154,8 @@ public:
 
     // Requires ExenEnv ready
     static Result<BaseTabletSPtr> get_tablet(int64_t tablet_id,
-                                             SyncRowsetStats* sync_stats = nullptr);
+                                             SyncRowsetStats* sync_stats = nullptr,
+                                             bool force_use_cache = false);
 
     static bool ready() { return _s_ready.load(std::memory_order_acquire); }
     static bool tracking_memory() { return _s_tracking_memory.load(std::memory_order_acquire); }
@@ -374,9 +375,6 @@ private:
 
     Status _init_mem_env();
     Status _check_deploy_mode();
-
-    void _register_metrics();
-    void _deregister_metrics();
 
     inline static std::atomic_bool _s_ready {false};
     inline static std::atomic_bool _s_tracking_memory {false};

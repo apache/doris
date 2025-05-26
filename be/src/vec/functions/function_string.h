@@ -674,8 +674,8 @@ public:
                         uint32_t result, size_t input_rows_count) const override {
         auto int_type = std::make_shared<DataTypeInt32>();
         size_t num_columns_without_result = block.columns();
-        block.insert({int_type->create_column_const(input_rows_count, to_field(1)), int_type,
-                      "const 1"});
+        block.insert({int_type->create_column_const(input_rows_count, to_field<TYPE_INT>(1)),
+                      int_type, "const 1"});
         ColumnNumbers temp_arguments(3);
         temp_arguments[0] = arguments[0];
         temp_arguments[1] = num_columns_without_result;
@@ -4816,22 +4816,6 @@ public:
     }
 
 private:
-    // Build the text of the node and all its children.
-    static std::string get_text(const pugi::xml_node& node) {
-        std::string result;
-        build_text(node, result);
-        return result;
-    }
-
-    static void build_text(const pugi::xml_node& node, std::string& builder) {
-        if (node.type() == pugi::node_pcdata || node.type() == pugi::node_cdata) {
-            builder += node.value();
-        }
-        for (pugi::xml_node child : node.children()) {
-            build_text(child, builder);
-        }
-    }
-
     static Status parse_xml(const StringRef& xml_str, pugi::xml_document& xml_doc) {
         pugi::xml_parse_result result = xml_doc.load_buffer(xml_str.data, xml_str.size);
         if (!result) {
@@ -4841,19 +4825,32 @@ private:
         return Status::OK();
     }
 
+    static Status build_xpath_query(const StringRef& xpath_str, pugi::xpath_query& xpath_query) {
+        // xpath_query will throws xpath_exception on compilation errors.
+        try {
+            // NOTE!!!: don't use to_string_view(), because xpath_str maybe not null-terminated
+            xpath_query = pugi::xpath_query(xpath_str.to_string().c_str());
+        } catch (const pugi::xpath_exception& e) {
+            return Status::InvalidArgument("Function {} failed to build XPath query: {}", name,
+                                           e.what());
+        }
+        return Status::OK();
+    }
+
     template <bool left_const, bool right_const>
     static Status execute_vector(const size_t input_rows_count, const ColumnString& xml_col,
                                  const ColumnString& xpath_col, ColumnNullable& res_col) {
         pugi::xml_document xml_doc;
-        StringRef xpath_str;
+        pugi::xpath_query xpath_query;
         // first check right_const, because we want to check empty input first
         if constexpr (right_const) {
-            xpath_str = xpath_col.get_data_at(0);
+            auto xpath_str = xpath_col.get_data_at(0);
             if (xpath_str.empty()) {
                 // should return null if xpath_str is empty
                 res_col.insert_many_defaults(input_rows_count);
                 return Status::OK();
             }
+            RETURN_IF_ERROR(build_xpath_query(xpath_str, xpath_query));
         }
         if constexpr (left_const) {
             auto xml_str = xml_col.get_data_at(0);
@@ -4867,12 +4864,13 @@ private:
 
         for (size_t i = 0; i < input_rows_count; ++i) {
             if constexpr (!right_const) {
-                xpath_str = xpath_col.get_data_at(i);
+                auto xpath_str = xpath_col.get_data_at(i);
                 if (xpath_str.empty()) {
                     // should return null if xpath_str is empty
                     res_col.insert_default();
                     continue;
                 }
+                RETURN_IF_ERROR(build_xpath_query(xpath_str, xpath_query));
             }
             if constexpr (!left_const) {
                 auto xml_str = xml_col.get_data_at(i);
@@ -4883,15 +4881,13 @@ private:
                 }
                 RETURN_IF_ERROR(parse_xml(xml_str, xml_doc));
             }
-            // NOTE!!!: don't use to_string_view(), because xpath_str maybe not null-terminated
-            pugi::xpath_node node = xml_doc.select_node(xpath_str.to_string().c_str());
-            if (!node) {
-                // should return empty string if not found
-                auto empty_str = std::string("");
-                res_col.insert_data(empty_str.data(), empty_str.size());
-                continue;
+            std::string text;
+            try {
+                text = xpath_query.evaluate_string(xml_doc);
+            } catch (const pugi::xpath_exception& e) {
+                return Status::InvalidArgument("Function {} failed to query XPath string: {}", name,
+                                               e.what());
             }
-            auto text = get_text(node.node());
             res_col.insert_data(text.data(), text.size());
         }
         return Status::OK();

@@ -25,6 +25,7 @@
 #include <cstddef>
 #include <sstream>
 
+#include "common/bvars.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/util.h"
@@ -670,21 +671,12 @@ static void remove_delete_bitmap_update_lock(std::unique_ptr<Transaction>& txn,
     }
 }
 
-static bool use_new_version_random() {
-    std::mt19937 gen {std::random_device {}()};
-    auto p = 0.5;
-    std::bernoulli_distribution inject_fault {p};
-    if (inject_fault(gen)) {
-        return true;
-    }
-    return false;
-}
-
 void process_compaction_job(MetaServiceCode& code, std::string& msg, std::stringstream& ss,
                             std::unique_ptr<Transaction>& txn,
                             const FinishTabletJobRequest* request,
                             FinishTabletJobResponse* response, TabletJobInfoPB& recorded_job,
-                            std::string& instance_id, std::string& job_key, bool& need_commit) {
+                            std::string& instance_id, std::string& job_key, bool& need_commit,
+                            std::string& use_version) {
     //==========================================================================
     //                                check
     //==========================================================================
@@ -755,10 +747,6 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
         INSTANCE_LOG(INFO) << "abort tablet compaction job, tablet_id=" << tablet_id
                            << " key=" << hex(job_key);
         if (compaction.has_delete_bitmap_lock_initiator()) {
-            std::string use_version = config::use_delete_bitmap_lock_version;
-            if (config::use_delete_bitmap_lock_random_version && !use_new_version_random()) {
-                use_version = "v1";
-            }
             remove_delete_bitmap_update_lock(
                     txn, instance_id, table_id, tablet_id, COMPACTION_DELETE_BITMAP_LOCK_ID,
                     compaction.delete_bitmap_lock_initiator(), use_version);
@@ -911,10 +899,6 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
 
     // remove delete bitmap update lock for MoW table
     if (compaction.has_delete_bitmap_lock_initiator()) {
-        std::string use_version = config::use_delete_bitmap_lock_version;
-        if (config::use_delete_bitmap_lock_random_version && !use_new_version_random()) {
-            use_version = "v1";
-        }
         bool success = check_and_remove_delete_bitmap_update_lock(
                 code, msg, ss, txn, instance_id, table_id, tablet_id,
                 COMPACTION_DELETE_BITMAP_LOCK_ID, compaction.delete_bitmap_lock_initiator(),
@@ -1099,7 +1083,8 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
                                std::unique_ptr<Transaction>& txn,
                                const FinishTabletJobRequest* request,
                                FinishTabletJobResponse* response, TabletJobInfoPB& recorded_job,
-                               std::string& instance_id, std::string& job_key, bool& need_commit) {
+                               std::string& instance_id, std::string& job_key, bool& need_commit,
+                               std::string& use_version) {
     //==========================================================================
     //                                check
     //==========================================================================
@@ -1180,7 +1165,9 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
 
     // MUST check initiator to let the retried BE commit this schema_change job.
     if (schema_change.id() != recorded_schema_change.id() ||
-        schema_change.initiator() != recorded_schema_change.initiator()) {
+        (schema_change.initiator() != recorded_schema_change.initiator() &&
+         request->action() != FinishTabletJobRequest::ABORT)) {
+        // abort is from FE, so initiator differ from the original one, just skip this check
         SS << "unmatched job id or initiator, recorded_id=" << recorded_schema_change.id()
            << " given_id=" << schema_change.id()
            << " recorded_job=" << proto_to_json(recorded_schema_change)
@@ -1413,10 +1400,6 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
 
     // process mow table, check lock
     if (new_tablet_meta.enable_unique_key_merge_on_write()) {
-        std::string use_version = config::use_delete_bitmap_lock_version;
-        if (config::use_delete_bitmap_lock_random_version && !use_new_version_random()) {
-            use_version = "v1";
-        }
         bool success = check_and_remove_delete_bitmap_update_lock(
                 code, msg, ss, txn, instance_id, new_table_id, new_tablet_id,
                 SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID, schema_change.delete_bitmap_lock_initiator(),
@@ -1553,30 +1536,43 @@ void MetaServiceImpl::finish_tablet_job(::google::protobuf::RpcController* contr
     recorded_job.ParseFromString(job_val);
     VLOG_DEBUG << "get tablet job, tablet_id=" << tablet_id
                << " job=" << proto_to_json(recorded_job);
+    FinishTabletJobRequest_Action action = request->action();
 
-    std::unique_ptr<int, std::function<void(int*)>> defer_commit(
-            (int*)0x01, [&ss, &txn, &code, &msg, &need_commit](int*) {
-                if (!need_commit) return;
-                TxnErrorCode err = txn->commit();
-                if (err != TxnErrorCode::TXN_OK) {
-                    code = cast_as<ErrCategory::COMMIT>(err);
-                    ss << "failed to commit job kv, err=" << err;
-                    msg = ss.str();
-                    return;
+    std::unique_ptr<int, std::function<void(int*)>> defer_commit((int*)0x01, [&ss, &txn, &code,
+                                                                              &msg, &need_commit,
+                                                                              &action](int*) {
+        if (!need_commit) return;
+        TxnErrorCode err = txn->commit();
+        if (err != TxnErrorCode::TXN_OK) {
+            if (err == TxnErrorCode::TXN_CONFLICT) {
+                if (action == FinishTabletJobRequest::COMMIT) {
+                    g_bvar_delete_bitmap_lock_txn_remove_conflict_by_compaction_commit_counter << 1;
+                } else if (action == FinishTabletJobRequest::LEASE) {
+                    g_bvar_delete_bitmap_lock_txn_remove_conflict_by_compaction_lease_counter << 1;
+                } else if (action == FinishTabletJobRequest::ABORT) {
+                    g_bvar_delete_bitmap_lock_txn_remove_conflict_by_compaction_abort_counter << 1;
                 }
-            });
-
+            }
+            code = cast_as<ErrCategory::COMMIT>(err);
+            ss << "failed to commit job kv, err=" << err;
+            msg = ss.str();
+            return;
+        }
+    });
+    std::string use_version =
+            delete_bitmap_lock_white_list_->get_delete_bitmap_lock_version(instance_id);
+    LOG(INFO) << "finish_tablet_job instance_id=" << instance_id << " use_version=" << use_version;
     // Process compaction commit
     if (!request->job().compaction().empty()) {
         process_compaction_job(code, msg, ss, txn, request, response, recorded_job, instance_id,
-                               job_key, need_commit);
+                               job_key, need_commit, use_version);
         return;
     }
 
     // Process schema change commit
     if (request->job().has_schema_change()) {
         process_schema_change_job(code, msg, ss, txn, request, response, recorded_job, instance_id,
-                                  job_key, need_commit);
+                                  job_key, need_commit, use_version);
         return;
     }
 }

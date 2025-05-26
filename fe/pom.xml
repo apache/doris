@@ -321,7 +321,7 @@ under the License.
          you can find avro version info in iceberg mvn repository -->
         <iceberg.version>1.6.1</iceberg.version>
         <maxcompute.version>0.49.0-public</maxcompute.version>
-        <arrow.version>17.0.0</arrow.version>
+        <arrow.version>18.2.0</arrow.version>
         <presto.hadoop.version>2.7.4-11</presto.hadoop.version>
         <presto.hive.version>3.0.0-8</presto.hive.version>
         <!-- lakesoul -->
@@ -340,6 +340,7 @@ under the License.
         <aws-java-sdk.version>1.12.669</aws-java-sdk.version>
         <mariadb-java-client.version>3.0.9</mariadb-java-client.version>
         <hadoop.version>3.3.6</hadoop.version>
+        <re2j.version>1.8</re2j.version>
         <hadoop.thirdparty.guava.version>1.2.0</hadoop.thirdparty.guava.version>
         <hadoop.thirdparty.protobuf_3_7.version>1.1.1</hadoop.thirdparty.protobuf_3_7.version>
         <hbase.version>2.4.9</hbase.version>
@@ -383,6 +384,7 @@ under the License.
         <aliyun-sdk-oss.version>3.15.0</aliyun-sdk-oss.version>
         <awssdk.version>2.29.26</awssdk.version>
         <s3tables.catalog.version>0.1.4</s3tables.catalog.version>
+        <mockito.version>4.11.0</mockito.version>
     </properties>
     <profiles>
         <profile>
@@ -627,6 +629,11 @@ under the License.
                         <artifactId>slf4j-reload4j</artifactId>
                     </exclusion>
                 </exclusions>
+            </dependency>
+            <dependency>
+                <groupId>com.google.re2j</groupId>
+                <artifactId>re2j</artifactId>
+                <version>${re2j.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.apache.hadoop</groupId>
@@ -1507,6 +1514,11 @@ under the License.
                 <version>${aws-java-sdk.version}</version>
             </dependency>
             <dependency>
+                <groupId>com.amazonaws</groupId>
+                <artifactId>aws-java-sdk-sts</artifactId>
+                <version>${aws-java-sdk.version}</version>
+            </dependency>
+            <dependency>
                 <groupId>org.mariadb.jdbc</groupId>
                 <artifactId>mariadb-java-client</artifactId>
                 <version>${mariadb-java-client.version}</version>
@@ -1703,6 +1715,16 @@ under the License.
                 <groupId>org.semver4j</groupId>
                 <artifactId>semver4j</artifactId>
                 <version>${semver4j.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.mockito</groupId>
+                <artifactId>mockito-core</artifactId>
+                <version>${mockito.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.mockito</groupId>
+                <artifactId>mockito-inline</artifactId>
+                <version>${mockito.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>

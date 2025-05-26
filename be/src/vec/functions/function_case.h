@@ -217,11 +217,24 @@ public:
                 }
             } else {
                 if constexpr (when_null) {
-                    // TODO: need simd
+                    const auto* column_nullable_ptr =
+                            assert_cast<const ColumnNullable*>(when_column_ptr.get());
+                    const auto* __restrict cond_raw_data =
+                            assert_cast<const ColumnUInt8*>(
+                                    column_nullable_ptr->get_nested_column_ptr().get())
+                                    ->get_data()
+                                    .data();
+                    const auto* __restrict cond_raw_nullmap =
+                            assert_cast<const ColumnUInt8*>(
+                                    column_nullable_ptr->get_null_map_column_ptr().get())
+                                    ->get_data()
+                                    .data();
+
+                    // simd automatically
                     for (int row_idx = 0; row_idx < rows_count; row_idx++) {
-                        if (!then_idx_ptr[row_idx] && when_column_ptr->get_bool(row_idx)) {
-                            then_idx_ptr[row_idx] = i;
-                        }
+                        then_idx_ptr[row_idx] |= (!then_idx_ptr[row_idx] * cond_raw_data[row_idx] *
+                                                  !cond_raw_nullmap[row_idx]) *
+                                                 i;
                     }
                 } else {
                     const auto* __restrict cond_raw_data =
@@ -252,7 +265,7 @@ public:
                       std::is_same_v<ColumnType, ColumnArray> ||
                       std::is_same_v<ColumnType, ColumnMap> ||
                       std::is_same_v<ColumnType, ColumnStruct> ||
-                      std::is_same_v<ColumnType, ColumnObject> ||
+                      std::is_same_v<ColumnType, ColumnVariant> ||
                       std::is_same_v<ColumnType, ColumnHLL> ||
                       std::is_same_v<ColumnType, ColumnQuantileState> ||
                       std::is_same_v<ColumnType, ColumnIPv4> ||
@@ -471,8 +484,8 @@ public:
             return execute_get_when_null<ColumnStruct>(data_type, block, arguments, result,
                                                        input_rows_count);
         case PrimitiveType::TYPE_VARIANT:
-            return execute_get_when_null<ColumnObject>(data_type, block, arguments, result,
-                                                       input_rows_count);
+            return execute_get_when_null<ColumnVariant>(data_type, block, arguments, result,
+                                                        input_rows_count);
         case PrimitiveType::TYPE_OBJECT:
             return execute_get_when_null<ColumnBitmap>(data_type, block, arguments, result,
                                                        input_rows_count);
