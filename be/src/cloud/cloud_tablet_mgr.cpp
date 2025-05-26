@@ -153,7 +153,8 @@ void set_tablet_access_time_ms(CloudTablet* tablet) {
 
 Result<std::shared_ptr<CloudTablet>> CloudTabletMgr::get_tablet(int64_t tablet_id, bool warmup_data,
                                                                 bool sync_delete_bitmap,
-                                                                SyncRowsetStats* sync_stats) {
+                                                                SyncRowsetStats* sync_stats,
+                                                                bool force_use_cache) {
     // LRU value type. `Value`'s lifetime MUST NOT be longer than `CloudTabletMgr`
     class Value : public LRUCacheValueBase {
     public:
@@ -170,6 +171,12 @@ Result<std::shared_ptr<CloudTablet>> CloudTabletMgr::get_tablet(int64_t tablet_i
     auto tablet_id_str = std::to_string(tablet_id);
     CacheKey key(tablet_id_str);
     auto* handle = _cache->lookup(key);
+
+    if (handle == nullptr && force_use_cache) {
+        return ResultError(
+                Status::InternalError("failed to get cloud tablet from cache {}", tablet_id));
+    }
+
     if (handle == nullptr) {
         if (sync_stats) {
             ++sync_stats->tablet_meta_cache_miss;
