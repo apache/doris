@@ -239,6 +239,12 @@ public class CloudEnv extends Env {
             }
 
             type = nodeInfoPB.getNodeType();
+            // If is very first time to start the this node of the cluster, we use new fe node name,
+            // If the ROLE file exist, we should use the node name in ROLE file.
+            if (isStartFromEmpty()) {
+                nodeName = genFeNodeNameFromMeta(nodeInfoPB.getHost(), nodeInfoPB.getEditLogPort(),
+                        nodeInfoPB.getCtime() * 1000);
+            }
             break;
         }
 
