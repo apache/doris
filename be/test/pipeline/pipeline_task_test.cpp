@@ -26,6 +26,8 @@
 #include "pipeline/pipeline_fragment_context.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
+#include "testutil/mock/mock_runtime_state.h"
+#include "testutil/mock/mock_thread_mem_tracker_mgr.h"
 #include "thrift_builder.h"
 
 namespace doris::pipeline {
@@ -37,6 +39,8 @@ public:
     PipelineTaskTest() : _obj_pool(new ObjectPool()) {}
     ~PipelineTaskTest() override = default;
     void SetUp() override {
+        _thread_mem_tracker_mgr = std::move(thread_context()->thread_mem_tracker_mgr);
+        thread_context()->thread_mem_tracker_mgr = std::make_unique<MockThreadMemTrackerMgr>();
         _query_options = TQueryOptionsBuilder()
                                  .set_enable_local_exchange(true)
                                  .set_enable_local_shuffle(true)
@@ -51,7 +55,10 @@ public:
         _task_queue = std::make_unique<DummyTaskQueue>(1);
         _build_fragment_context();
     }
-    void TearDown() override {}
+    void TearDown() override {
+        // Origin `thread_mem_tracker_mgr` must be restored otherwise `ThreadContextTest` will fail.
+        thread_context()->thread_mem_tracker_mgr = std::move(_thread_mem_tracker_mgr);
+    }
 
 private:
     void _build_fragment_context() {
@@ -61,9 +68,9 @@ private:
                 std::bind<Status>(std::mem_fn(&FragmentMgr::trigger_pipeline_context_report),
                                   ExecEnv::GetInstance()->fragment_mgr(), std::placeholders::_1,
                                   std::placeholders::_2));
-        _runtime_state = RuntimeState::create_unique(_query_id, fragment_id, _query_options,
-                                                     _query_ctx->query_globals,
-                                                     ExecEnv::GetInstance(), _query_ctx.get());
+        _runtime_state = std::make_unique<MockRuntimeState>(
+                _query_id, fragment_id, _query_options, _query_ctx->query_globals,
+                ExecEnv::GetInstance(), _query_ctx.get());
         _runtime_state->set_task_execution_context(
                 std::static_pointer_cast<TaskExecutionContext>(_context));
     }
@@ -73,6 +80,7 @@ private:
     std::unique_ptr<RuntimeState> _runtime_state;
     std::shared_ptr<QueryContext> _query_ctx;
     TUniqueId _query_id = TUniqueId();
+    std::unique_ptr<ThreadMemTrackerMgr> _thread_mem_tracker_mgr;
     TQueryOptions _query_options;
     std::unique_ptr<DummyTaskQueue> _task_queue;
     const std::string LOCALHOST = BackendOptions::get_localhost();
@@ -642,6 +650,131 @@ TEST_F(PipelineTaskTest, TEST_SINK_EOF) {
         EXPECT_TRUE(task->_wake_up_early);
         EXPECT_TRUE(task->_operators.front()->cast<DummyOperator>()._terminated);
         EXPECT_TRUE(task->_sink->cast<DummySinkOperatorX>()._terminated);
+        EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);
+    }
+}
+
+TEST_F(PipelineTaskTest, TEST_RESERVE_MEMORY) {
+    {
+        _query_options = TQueryOptionsBuilder()
+                                 .set_enable_local_exchange(true)
+                                 .set_enable_local_shuffle(true)
+                                 .set_runtime_filter_max_in_num(15)
+                                 .set_enable_reserve_memory(true)
+                                 .build();
+        auto fe_address = TNetworkAddress();
+        fe_address.hostname = LOCALHOST;
+        fe_address.port = DUMMY_PORT;
+        _query_ctx =
+                QueryContext::create(_query_id, ExecEnv::GetInstance(), _query_options, fe_address,
+                                     true, fe_address, QuerySource::INTERNAL_FRONTEND);
+        _task_queue = std::make_unique<DummyTaskQueue>(1);
+        _build_fragment_context();
+        ((MockRuntimeState*)_runtime_state.get())->_workload_group =
+                std::make_shared<DummyWorkloadGroup>();
+        ((MockThreadMemTrackerMgr*)thread_context()->thread_mem_tracker_mgr.get())
+                ->_test_low_memory = true;
+    }
+    auto num_instances = 1;
+    auto pip_id = 0;
+    auto task_id = 0;
+    auto pip = std::make_shared<Pipeline>(pip_id, num_instances, num_instances);
+    Dependency* read_dep;
+    Dependency* write_dep;
+    Dependency* source_finish_dep;
+    {
+        OperatorPtr source_op;
+        // 1. create and set the source operator of multi_cast_data_stream_source for new pipeline
+        source_op.reset(new DummyOperator());
+        EXPECT_TRUE(pip->add_operator(source_op, num_instances).ok());
+
+        int op_id = 1;
+        int node_id = 2;
+        int dest_id = 3;
+        DataSinkOperatorPtr sink_op;
+        sink_op.reset(new DummySinkOperatorX(op_id, node_id, dest_id));
+        EXPECT_TRUE(pip->set_sink(sink_op).ok());
+    }
+    auto profile = std::make_shared<RuntimeProfile>("Pipeline : " + std::to_string(pip_id));
+    std::map<int,
+             std::pair<std::shared_ptr<BasicSharedState>, std::vector<std::shared_ptr<Dependency>>>>
+            shared_state_map;
+    _runtime_state->resize_op_id_to_local_state(-1);
+    auto task = std::make_shared<PipelineTask>(pip, task_id, _runtime_state.get(), _context,
+                                               profile.get(), shared_state_map, task_id);
+    task->set_task_queue(_task_queue.get());
+    {
+        std::vector<TScanRangeParams> scan_range;
+        int sender_id = 0;
+        TDataSink tsink;
+        EXPECT_TRUE(task->prepare(scan_range, sender_id, tsink).ok());
+        EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);
+        EXPECT_FALSE(task->_filter_dependencies.empty());
+        read_dep = _runtime_state->get_local_state_result(task->_operators.front()->operator_id())
+                           .value()
+                           ->dependencies()
+                           .front();
+        write_dep = _runtime_state->get_sink_local_state()->dependencies().front();
+    }
+    {
+        _query_ctx->get_execution_dependency()->set_ready();
+        // Task is blocked by read dependency.
+        read_dep->block();
+        EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);
+        bool done = false;
+        EXPECT_TRUE(task->execute(&done).ok());
+        EXPECT_FALSE(task->_eos);
+        EXPECT_FALSE(done);
+        EXPECT_FALSE(task->_wake_up_early);
+        EXPECT_FALSE(task->_read_dependencies.empty());
+        EXPECT_FALSE(task->_write_dependencies.empty());
+        EXPECT_FALSE(task->_finish_dependencies.empty());
+        EXPECT_FALSE(task->_spill_dependencies.empty());
+        EXPECT_TRUE(task->_opened);
+        EXPECT_FALSE(read_dep->ready());
+        EXPECT_TRUE(write_dep->ready());
+        EXPECT_FALSE(read_dep->_blocked_task.empty());
+        source_finish_dep =
+                _runtime_state->get_local_state_result(task->_operators.front()->operator_id())
+                        .value()
+                        ->finishdependency();
+        EXPECT_EQ(task->_exec_state, PipelineTask::State::BLOCKED);
+    }
+    {
+        // set low memory mode and do not pause.
+        read_dep->set_ready();
+        EXPECT_FALSE(_query_ctx->_low_memory_mode);
+        EXPECT_FALSE(task->_operators.front()->cast<DummyOperator>()._low_memory_mode);
+        EXPECT_FALSE(task->_sink->cast<DummySinkOperatorX>()._low_memory_mode);
+        EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);
+        bool done = false;
+        EXPECT_TRUE(task->execute(&done).ok());
+        EXPECT_TRUE(_query_ctx->_low_memory_mode);
+        EXPECT_TRUE(task->_operators.front()->cast<DummyOperator>()._low_memory_mode);
+        EXPECT_TRUE(task->_sink->cast<DummySinkOperatorX>()._low_memory_mode);
+        EXPECT_FALSE(task->_eos);
+        EXPECT_FALSE(done);
+        EXPECT_FALSE(task->_wake_up_early);
+        EXPECT_TRUE(source_finish_dep->ready());
+        EXPECT_TRUE(source_finish_dep->_blocked_task.empty());
+        EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);
+    }
+    {
+        // set low memory mode and do not pause.
+        task->_operators.front()->cast<DummyOperator>()._eos = true;
+        _query_ctx->_low_memory_mode = false;
+        EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);
+        bool done = false;
+        EXPECT_TRUE(task->execute(&done).ok());
+        EXPECT_TRUE(_query_ctx->_low_memory_mode);
+        EXPECT_TRUE(task->_operators.front()->cast<DummyOperator>()._low_memory_mode);
+        EXPECT_TRUE(task->_sink->cast<DummySinkOperatorX>()._low_memory_mode);
+        EXPECT_TRUE(task->_eos);
+        EXPECT_TRUE(done);
+        EXPECT_FALSE(task->_wake_up_early);
+        EXPECT_FALSE(task->_spilling);
+        EXPECT_TRUE(source_finish_dep->ready());
+        EXPECT_TRUE(source_finish_dep->_blocked_task.empty());
         EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);
     }
 }
