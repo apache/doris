@@ -86,7 +86,7 @@ public class AliasFunction extends Function {
     }
 
     public static void initBuiltins(FunctionSet functionSet) {
-        String oriStmt = "select concat(left(id,3),'****',right(id,4));";
+        String oriStmt = "concat(left(id,3),'****',right(id,4));";
         try {
             /**
              * Please ensure that the condition checks in {@link #analyze} are satisfied
