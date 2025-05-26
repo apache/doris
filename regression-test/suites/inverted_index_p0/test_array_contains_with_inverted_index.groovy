@@ -85,7 +85,7 @@ suite("test_array_contains_with_inverted_index"){
     def param = [["\'s\'", "\'t\'"], [], null, ["\'s\'", "\'\'", "\'t\'"], ["\'s\'", null, "\'t\'"], [null, "\'\'"], ["\'s\'", null, "\'t\'", "\'\'"]] // null for arrays_overlap will return null which in predicate will lead to return empty set
 
     sql "set enable_common_expr_pushdown = true"
-    for (i = 0 ; i < param.size(); ++i) {
+    for (def i = 0 ; i < param.size(); ++i) {
         def p = param[i]
         log.info("param: ${p}")
         order_qt_sql """ select * from tai where arrays_overlap(inventors, ${p}) order by id; """
@@ -99,7 +99,7 @@ suite("test_array_contains_with_inverted_index"){
         order_qt_sql """ select * from tai where (arrays_overlap(inventors, ${p}) and apply_date = '2017-01-01') or apply_date = '2019-01-01' order by id; """
     }
    sql "set enable_common_expr_pushdown = false"
-       for (i = 0 ; i < param.size(); ++i) {
+       for (def i = 0 ; i < param.size(); ++i) {
         def p = param[i]
         log.info("param: ${p}")
         order_qt_sql """ select * from tai where arrays_overlap(inventors, ${p}) order by id; """
