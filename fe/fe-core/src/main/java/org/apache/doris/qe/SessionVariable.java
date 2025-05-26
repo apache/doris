@@ -2632,12 +2632,9 @@ public class SessionVariable implements Serializable, Writable {
         this.enableLocalExchange = random.nextBoolean();
         this.enableSharedExchangeSinkBuffer = random.nextBoolean();
         this.useSerialExchange = random.nextBoolean();
-        // This will cause be dead loop, disable it first
-        // this.disableJoinReorder = random.nextBoolean();
         this.enableCommonExpPushDownForInvertedIndex = random.nextBoolean();
         this.disableStreamPreaggregations = random.nextBoolean();
         this.enableShareHashTableForBroadcastJoin = random.nextBoolean();
-        this.enableParallelResultSink = random.nextBoolean();
 
         // 4KB = 4 * 1024 bytes
         int minBytes = 4 * 1024;
