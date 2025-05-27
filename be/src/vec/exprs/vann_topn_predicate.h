@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "runtime/runtime_state.h"
 #include "vec/columns/column.h"
 #include "vec/exprs/varray_literal.h"
 #include "vec/exprs/vcast_expr.h"
@@ -32,8 +33,8 @@ class AnnTopNDescriptor {
     ENABLE_FACTORY_CREATOR(AnnTopNDescriptor);
 
 public:
-    AnnTopNDescriptor(size_t limit, VExprContextSPtr order_by_expr_ctx)
-            : _limit(limit), _order_by_expr_ctx(order_by_expr_ctx) {};
+    AnnTopNDescriptor(bool asc, size_t limit, VExprContextSPtr order_by_expr_ctx)
+            : _asc(asc), _limit(limit), _order_by_expr_ctx(order_by_expr_ctx) {};
 
     Status prepare(RuntimeState* state, const RowDescriptor& row_desc);
 
@@ -43,14 +44,16 @@ public:
                                       roaring::Roaring& row_bitmap,
                                       vectorized::IColumn::MutablePtr& result_column,
                                       std::unique_ptr<std::vector<uint64_t>>& row_ids);
-
+    segment_v2::VectorIndex::Metric get_metric_type() const { return _metric_type; }
     std::string debug_string() const;
 
     size_t get_src_column_idx() const { return _src_column_idx; }
 
     size_t get_dest_column_idx() const { return _dest_column_idx; }
+    bool is_asc() const { return _asc; }
 
 private:
+    const bool _asc;
     // limit N
     const size_t _limit;
     // order by distance(xxx, [1,2])
@@ -59,7 +62,9 @@ private:
     std::string _name = "AnnTopNDescriptor";
     size_t _src_column_idx = -1;
     size_t _dest_column_idx = -1;
+    segment_v2::VectorIndex::Metric _metric_type;
     IColumn::Ptr _query_array;
+    doris::VectorSearchUserParams _user_params;
 };
 
 } // namespace doris::vectorized

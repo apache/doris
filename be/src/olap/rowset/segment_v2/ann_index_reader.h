@@ -19,13 +19,13 @@
 
 #include "olap/rowset/segment_v2/index_reader.h"
 #include "olap/tablet_schema.h"
+#include "runtime/runtime_state.h"
 #include "vector/vector_index.h"
 
 namespace doris::segment_v2 {
 
 struct AnnIndexParam;
 struct RangeSearchParams;
-struct CustomSearchParams;
 struct RangeSearchResult;
 
 class IndexFileReader;
@@ -44,14 +44,16 @@ public:
 
     Status query(io::IOContext* io_ctx, AnnIndexParam* param);
 
-    Status range_search(const RangeSearchParams& params, const CustomSearchParams& custom_params,
-                        RangeSearchResult* result, io::IOContext* io_ctx = nullptr);
+    Status range_search(const RangeSearchParams& params,
+                        const VectorSearchUserParams& custom_params, RangeSearchResult* result,
+                        io::IOContext* io_ctx = nullptr);
 
     uint64_t get_index_id() const override { return _index_meta.index_id(); }
 
     Status new_iterator(const io::IOContext& io_ctx, OlapReaderStatistics* stats,
                         RuntimeState* runtime_state,
                         std::unique_ptr<IndexIterator>* iterator) override;
+    VectorIndex::Metric get_metric_type() const { return _metric_type; }
 
 private:
     TabletIndex _index_meta;
@@ -59,6 +61,7 @@ private:
     std::unique_ptr<VectorIndex> _vector_index;
     // TODO: Use integer.
     std::string _index_type;
+    VectorIndex::Metric _metric_type;
 };
 
 using AnnIndexReaderPtr = std::shared_ptr<AnnIndexReader>;

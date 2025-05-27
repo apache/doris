@@ -50,6 +50,7 @@ public:
     static constexpr const char* INDEX_TYPE = "index_type";
     static constexpr const char* METRIC_TYPE = "metric_type";
     static constexpr const char* QUANTILIZER = "quantilizer";
+    static constexpr const char* PQ_M = "pq_m";
     static constexpr const char* DIM = "dim";
     static constexpr const char* MAX_DEGREE = "max_degree";
 

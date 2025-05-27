@@ -38,9 +38,9 @@ public:
 
     Status init(const ColumnIteratorOptions& opts) override;
 
-    Status seek_to_first() override { return Status::OK(); }
+    Status seek_to_first() override;
 
-    Status seek_to_ordinal(ordinal_t ord_idx) override { return Status::OK(); }
+    Status seek_to_ordinal(ordinal_t ord_idx) override;
 
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override;
 
@@ -57,9 +57,10 @@ private:
     vectorized::IColumn::Ptr _materialized_column_ptr;
     // segment rowid to index in column.
     std::map<uint64_t, uint64_t> _row_id_to_idx;
-
     doris::vectorized::IColumn::Filter _filter;
     size_t _size = 0;
+
+    ordinal_t _current_ordinal = 0;
 };
 
 } // namespace doris::segment_v2

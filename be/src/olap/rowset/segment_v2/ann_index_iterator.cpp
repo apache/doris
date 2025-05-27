@@ -37,7 +37,7 @@ Status AnnIndexIterator::read_from_index(const IndexParam& param) {
 }
 
 Status AnnIndexIterator::range_search(const RangeSearchParams& params,
-                                      const CustomSearchParams& custom_params,
+                                      const VectorSearchUserParams& custom_params,
                                       RangeSearchResult* result) {
     if (_ann_reader == nullptr) {
         return Status::Error<ErrorCode::INDEX_INVALID_PARAMETERS>("_ann_reader is null");

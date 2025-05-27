@@ -36,6 +36,7 @@
 #include "olap/tablet.h"
 #include "olap/tablet_reader.h"
 #include "olap/tablet_schema.h"
+#include "runtime/runtime_state.h"
 #include "vec/data_types/data_type.h"
 #include "vec/exec/scan/scanner.h"
 
@@ -118,6 +119,8 @@ public:
     std::map<size_t, vectorized::DataTypePtr> _vir_col_idx_to_type;
 
     std::shared_ptr<vectorized::AnnTopNDescriptor> _ann_topn_descriptor;
+
+    VectorSearchUserParams _vector_search_params;
 };
 } // namespace vectorized
 } // namespace doris

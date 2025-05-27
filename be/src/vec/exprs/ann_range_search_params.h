@@ -22,18 +22,21 @@
 #include <string>
 
 #include "olap/rowset/segment_v2/ann_index_iterator.h"
+#include "runtime/runtime_state.h"
+#include "vector/vector_index.h"
 
 namespace doris::vectorized {
-struct AnnRangeSearchParams {
+struct RangeSearchRuntimeInfo {
     bool is_ann_range_search = false;
     bool is_le_or_lt = true;
     size_t src_col_idx = 0;
     int64_t dst_col_idx = -1;
     double radius = 0.0;
-    int ef_search = 0;
+    segment_v2::VectorIndex::Metric metric_type;
+    doris::VectorSearchUserParams user_params;
     std::unique_ptr<float[]> query_value;
 
-    segment_v2::RangeSearchParams toRangeSearchParams() {
+    segment_v2::RangeSearchParams to_range_search_params() {
         segment_v2::RangeSearchParams params;
         params.query_value = query_value.get();
         params.radius = static_cast<float>(radius);
@@ -42,17 +45,13 @@ struct AnnRangeSearchParams {
         return params;
     }
 
-    segment_v2::CustomSearchParams toCustomSearchParams() {
-        segment_v2::CustomSearchParams params;
-        params.ef_search = ef_search;
-        return params;
-    }
-
     std::string to_string() const {
         return fmt::format(
                 "is_ann_range_search: {}, is_le_or_lt: {}, src_col_idx: {}, "
-                "dst_col_idx: {}, radius: {}, ef_search: {}",
-                is_ann_range_search, is_le_or_lt, src_col_idx, dst_col_idx, radius, ef_search);
+                "dst_col_idx: {}, metric_type {}, radius: {}, user params: {}",
+                is_ann_range_search, is_le_or_lt, src_col_idx, dst_col_idx,
+                segment_v2::VectorIndex::metric_to_string(metric_type), radius,
+                user_params.to_string());
     }
 };
 } // namespace doris::vectorized

@@ -49,13 +49,52 @@ void VirtualColumnIterator::prepare_materialization(vectorized::IColumn::Ptr col
     _filter = doris::vectorized::IColumn::Filter(_size, 0);
 }
 
+Status VirtualColumnIterator::seek_to_first() {
+    if (_size < 0) {
+        // _materialized_column is not set. do nothing.
+        return Status::OK();
+    }
+    _current_ordinal = 0;
+
+    return Status::OK();
+}
+
+Status VirtualColumnIterator::seek_to_ordinal(ordinal_t ord_idx) {
+    if (_size < 0 ||
+        vectorized::check_and_get_column<vectorized::ColumnNothing>(*_materialized_column_ptr)) {
+        // _materialized_column is not set. do nothing.
+        return Status::OK();
+    }
+
+    if (ord_idx >= _size) {
+        return Status::InternalError("Seek to ordinal out of range: {} out of {}", ord_idx, _size);
+    }
+
+    _current_ordinal = ord_idx;
+
+    return Status::OK();
+}
+
 // Next batch implementation
 Status VirtualColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& dst,
                                          bool* has_null) {
     if (vectorized::check_and_get_column<vectorized::ColumnNothing>(*_materialized_column_ptr)) {
         return Status::OK();
     }
+    size_t rows_num_to_read = *n;
+    if (_row_id_to_idx.find(_current_ordinal) == _row_id_to_idx.end()) {
+        return Status::InternalError("Current ordinal {} not found in row_id_to_idx map",
+                                     _current_ordinal);
+    }
+    size_t start = _row_id_to_idx[_current_ordinal];
+    // Update dst column
+    dst = _materialized_column_ptr->clone_empty();
+    dst->insert_range_from(*_materialized_column_ptr, start, rows_num_to_read);
 
+    LOG_INFO("Virtual column iterators, next_batch, rows reads: {}, dst size: {}", rows_num_to_read,
+             dst->size());
+
+    _current_ordinal += rows_num_to_read;
     return Status::OK();
 }
 
@@ -75,9 +114,10 @@ Status VirtualColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t
     // Apply filter to materialized column
     doris::vectorized::IColumn::Ptr res_col = _materialized_column_ptr->filter(_filter, 0);
     // Update dst column
-    dst->clear();
-    dst->insert_range_from(*res_col, 0, res_col->size());
+    dst = res_col->assume_mutable();
 
+    LOG_INFO("Virtual column iterators, read_by_rowids, rowids size: {}, dst size: {}", count,
+             dst->size());
     return Status::OK();
 }
 

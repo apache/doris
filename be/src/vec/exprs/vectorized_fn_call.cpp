@@ -57,6 +57,7 @@
 #include "vec/functions/function_rpc.h"
 #include "vec/functions/simple_function_factory.h"
 #include "vec/utils/util.hpp"
+#include "vector/vector_index.h"
 
 namespace doris {
 class RowDescriptor;
@@ -258,6 +259,10 @@ const std::string& VectorizedFnCall::expr_name() const {
     return _expr_name;
 }
 
+std::string VectorizedFnCall::function_name() const {
+    return _function_name;
+}
+
 std::string VectorizedFnCall::debug_string() const {
     std::stringstream out;
     out << "VectorizedFn[";
@@ -327,7 +332,8 @@ bool VectorizedFnCall::equals(const VExpr& other) {
     SlotRef
 */
 
-Status VectorizedFnCall::prepare_ann_range_search() {
+Status VectorizedFnCall::prepare_ann_range_search(
+        const doris::VectorSearchUserParams& user_params) {
     std::set<TExprOpcode::type> ops = {TExprOpcode::GE, TExprOpcode::LE, TExprOpcode::LE,
                                        TExprOpcode::GT, TExprOpcode::LT};
     if (ops.find(this->op()) == ops.end()) {
@@ -376,9 +382,13 @@ Status VectorizedFnCall::prepare_ann_range_search() {
     }
 
     // Now left child is a function call, we need to check if it is a distance function
-    if (function_call->_function_name != L2Distance::name) {
+    std::set<std::string> distance_functions = {L2Distance::name, InnerProduct::name};
+    if (distance_functions.find(function_call->_function_name) == distance_functions.end()) {
         LOG_INFO("Left child is not a distance function. Got {}", function_call->_function_name);
         return Status::OK();
+    } else {
+        _ann_range_search_params.metric_type =
+                segment_v2::VectorIndex::string_to_metric(function_call->_function_name);
     }
 
     if (function_call->get_num_children() != 2) {
@@ -430,6 +440,7 @@ Status VectorizedFnCall::prepare_ann_range_search() {
         _ann_range_search_params.query_value[i] = static_cast<Float32>(cf64->get_data()[i]);
     }
     _ann_range_search_params.is_ann_range_search = true;
+    _ann_range_search_params.user_params = user_params;
     LOG_INFO("Ann range search params: {}", _ann_range_search_params.to_string());
     return Status::OK();
 }
@@ -452,26 +463,37 @@ Status VectorizedFnCall::evaluate_ann_range_search(
 
     ColumnId src_col_cid = idx_to_cid[idx_in_block];
     DCHECK(src_col_cid < cid_to_index_iterators.size());
-    segment_v2::IndexIterator* index_iterators = cid_to_index_iterators[src_col_cid].get();
-    if (index_iterators == nullptr) {
+    segment_v2::IndexIterator* index_iterator = cid_to_index_iterators[src_col_cid].get();
+    if (index_iterator == nullptr) {
         LOG_INFO("No index iterator for column cid {}", src_col_cid);
         return Status::OK();
     }
 
-    segment_v2::AnnIndexIterator* ann_index_iterators =
-            dynamic_cast<segment_v2::AnnIndexIterator*>(index_iterators);
-    if (ann_index_iterators == nullptr) {
+    segment_v2::AnnIndexIterator* ann_index_iterator =
+            dynamic_cast<segment_v2::AnnIndexIterator*>(index_iterator);
+    if (ann_index_iterator == nullptr) {
         LOG_INFO("No index iterator for column cid {}", src_col_cid);
         return Status::OK();
     }
+    DCHECK(ann_index_iterator->get_reader() != nullptr)
+            << "Ann index iterator should have reader. Column cid: " << src_col_cid;
+    std::shared_ptr<AnnIndexReader> ann_index_reader =
+            std::dynamic_pointer_cast<AnnIndexReader>(ann_index_iterator->get_reader());
+    DCHECK(ann_index_reader != nullptr)
+            << "Ann index reader should not be null. Column cid: " << src_col_cid;
+    // Check if metrics type is match.
+    if (ann_index_reader->get_metric_type() != _ann_range_search_params.metric_type) {
+        LOG_INFO("Metric type not match, can not execute range search by index.");
+        return Status::OK();
+    }
 
-    RangeSearchParams params = _ann_range_search_params.toRangeSearchParams();
-    CustomSearchParams custom_params = _ann_range_search_params.toCustomSearchParams();
+    RangeSearchParams params = _ann_range_search_params.to_range_search_params();
 
     params.roaring = &row_bitmap;
     DCHECK(params.roaring != nullptr);
     RangeSearchResult result;
-    RETURN_IF_ERROR(ann_index_iterators->range_search(params, custom_params, &result));
+    RETURN_IF_ERROR(ann_index_iterator->range_search(params, _ann_range_search_params.user_params,
+                                                     &result));
 
 #ifndef NDEBUG
     if (this->_ann_range_search_params.is_le_or_lt == false) {

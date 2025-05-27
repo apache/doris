@@ -21,7 +21,7 @@
 #include <roaring/roaring.hh>
 
 #include "common/status.h"
-#include "gutil/integral_types.h"
+#include "vec/functions/array/function_array_distance.h"
 
 namespace lucene::store {
 class Directory;
@@ -50,11 +50,13 @@ struct IndexSearchParameters {
 
 struct HNSWSearchParameters : public IndexSearchParameters {
     int ef_search = 16;
+    bool check_relative_distance = true;
+    bool bounded_queue = true;
 };
 
 class VectorIndex {
 public:
-    enum class Metric { L2, COSINE, INNER_PRODUCT, UNKNOWN };
+    enum class Metric { L2, INNER_PRODUCT, UNKNOWN };
 
     /** Add n vectors of dimension d to the index.
      *
@@ -87,21 +89,17 @@ public:
     static std::string metric_to_string(Metric metric) {
         switch (metric) {
         case Metric::L2:
-            return "L2";
-        case Metric::COSINE:
-            return "COSINE";
+            return vectorized::L2Distance::name;
         case Metric::INNER_PRODUCT:
-            return "INNER_PRODUCT";
+            return vectorized::InnerProduct::name;
         default:
             return "UNKNOWN";
         }
     }
     static Metric string_to_metric(const std::string& metric) {
-        if (metric == "l2") {
+        if (metric == vectorized::L2Distance::name) {
             return Metric::L2;
-        } else if (metric == "cosine") {
-            return Metric::COSINE;
-        } else if (metric == "inner_product") {
+        } else if (metric == vectorized::InnerProduct::name) {
             return Metric::INNER_PRODUCT;
         } else {
             return Metric::UNKNOWN;
@@ -112,6 +110,7 @@ public:
     size_t get_dimension() const { return _dimension; }
 
 protected:
+    // When adding vectors to the index, use this variable to check the dimension of the vectors.
     size_t _dimension = 0;
 };
 

@@ -24,6 +24,7 @@
 #include "common/config.h"
 #include "olap/rowset/segment_v2/index_file_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_compound_reader.h"
+#include "runtime/runtime_state.h"
 #include "vector/faiss_vector_index.h"
 #include "vector/vector_index.h"
 
@@ -49,6 +50,9 @@ AnnIndexReader::AnnIndexReader(const TabletIndex* index_meta,
     auto it = index_properties.find("index_type");
     DCHECK(it != index_properties.end());
     _index_type = it->second;
+    it = index_properties.find("metric_type");
+    DCHECK(it != index_properties.end());
+    _metric_type = VectorIndex::string_to_metric(it->second);
 }
 
 Status AnnIndexReader::new_iterator(const io::IOContext& io_ctx, OlapReaderStatistics* stats,
@@ -71,16 +75,27 @@ Status AnnIndexReader::load_index(io::IOContext* io_ctx) {
 }
 
 Status AnnIndexReader::query(io::IOContext* io_ctx, AnnIndexParam* param) {
+#ifndef BE_TEST
     RETURN_IF_ERROR(_index_file_reader->init(config::inverted_index_read_buffer_size, io_ctx));
     RETURN_IF_ERROR(load_index(io_ctx));
+#endif
     DCHECK(_vector_index != nullptr);
     const float* query_vec = param->query_value;
     const int limit = param->limit;
-    IndexSearchParameters index_search_params;
     IndexSearchResult index_search_result;
-    index_search_params.roaring = param->roaring;
-    RETURN_IF_ERROR(_vector_index->ann_topn_search(query_vec, limit, index_search_params,
-                                                   index_search_result));
+    if (_index_type == "hnsw") {
+        HNSWSearchParameters hnsw_search_params;
+        hnsw_search_params.roaring = param->roaring;
+        hnsw_search_params.ef_search = param->_user_params.hnsw_ef_search;
+        hnsw_search_params.check_relative_distance =
+                param->_user_params.hnsw_check_relative_distance;
+        hnsw_search_params.bounded_queue = param->_user_params.hnsw_bounded_queue;
+        RETURN_IF_ERROR(_vector_index->ann_topn_search(query_vec, limit, hnsw_search_params,
+                                                       index_search_result));
+    } else {
+        throw Status::NotSupported("Unsupported index type: {}", _index_type);
+    }
+
     DCHECK(index_search_result.roaring != nullptr);
     DCHECK(index_search_result.distances != nullptr);
     DCHECK(index_search_result.row_ids != nullptr);
@@ -92,17 +107,21 @@ Status AnnIndexReader::query(io::IOContext* io_ctx, AnnIndexParam* param) {
 }
 
 Status AnnIndexReader::range_search(const RangeSearchParams& params,
-                                    const CustomSearchParams& custom_params,
+                                    const VectorSearchUserParams& custom_params,
                                     RangeSearchResult* result, io::IOContext* io_ctx) {
+#ifndef BE_TEST
     RETURN_IF_ERROR(_index_file_reader->init(config::inverted_index_read_buffer_size, io_ctx));
     RETURN_IF_ERROR(load_index(io_ctx));
+#endif
     DCHECK(_vector_index != nullptr);
     IndexSearchResult search_result;
     std::unique_ptr<IndexSearchParameters> search_param = nullptr;
 
     if (_index_type == "hnsw") {
         auto hnsw_param = std::make_unique<HNSWSearchParameters>();
-        hnsw_param->ef_search = custom_params.ef_search;
+        hnsw_param->ef_search = custom_params.hnsw_ef_search;
+        hnsw_param->check_relative_distance = custom_params.hnsw_check_relative_distance;
+        hnsw_param->bounded_queue = custom_params.hnsw_bounded_queue;
         search_param = std::move(hnsw_param);
     } else {
         throw Status::NotSupported("Unsupported index type: {}", _index_type);

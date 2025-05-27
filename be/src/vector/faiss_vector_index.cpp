@@ -129,9 +129,48 @@ doris::Status FaissVectorIndex::add(int n, const float* vec) {
 void FaissVectorIndex::set_build_params(const FaissBuildParameter& params) {
     _dimension = params.d;
     if (params.index_type == FaissBuildParameter::IndexType::BruteForce) {
-        _index = std::make_unique<faiss::IndexFlatL2>(params.d);
+        if (params.metric_type == FaissBuildParameter::MetricType::L2) {
+            _index = std::make_unique<faiss::IndexFlatL2>(params.d);
+        } else if (params.metric_type == FaissBuildParameter::MetricType::IP) {
+            _index = std::make_unique<faiss::IndexFlatIP>(params.d);
+        } else {
+            throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
+                                   "Unsupported metric type: {}",
+                                   static_cast<int>(params.metric_type));
+        }
     } else if (params.index_type == FaissBuildParameter::IndexType::HNSW) {
-        _index = std::make_unique<faiss::IndexHNSWFlat>(params.d, params.m);
+        if (params.quantilizer == FaissBuildParameter::Quantilizer::FLAT) {
+            if (params.metric_type == FaissBuildParameter::MetricType::L2) {
+                _index = std::make_unique<faiss::IndexHNSWFlat>(params.d, params.m);
+            } else if (params.metric_type == FaissBuildParameter::MetricType::IP) {
+                _index = std::make_unique<faiss::IndexHNSWFlat>(params.d, params.m,
+                                                                faiss::METRIC_INNER_PRODUCT);
+            } else {
+                throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
+                                       "Unsupported metric type: {}",
+                                       static_cast<int>(params.metric_type));
+            }
+        } else if (params.quantilizer == FaissBuildParameter::Quantilizer::PQ) {
+            if (params.pq_m <= 0) {
+                throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
+                                       "pq_m should be greater than 0 for PQ quantilizer");
+            }
+
+            if (params.metric_type == FaissBuildParameter::MetricType::L2) {
+                _index = std::make_unique<faiss::IndexHNSWPQ>(params.d, params.m, params.pq_m);
+            } else if (params.metric_type == FaissBuildParameter::MetricType::IP) {
+                _index = std::make_unique<faiss::IndexHNSWPQ>(params.d, params.m, params.pq_m,
+                                                              faiss::METRIC_INNER_PRODUCT);
+            } else {
+                throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
+                                       "Unsupported metric type: {}",
+                                       static_cast<int>(params.metric_type));
+            }
+        } else {
+            throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
+                                   "Unsupported quantilizer type: {}",
+                                   static_cast<int>(params.quantilizer));
+        }
     } else {
         throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT, "Unsupported index type: {}",
                                static_cast<int>(params.index_type));
@@ -158,7 +197,16 @@ doris::Status FaissVectorIndex::ann_topn_search(const float* query_vec, int k,
         std::unique_ptr<faiss::IDSelector> id_sel = nullptr;
         id_sel = roaring_to_faiss_selector(*params.roaring);
         faiss::SearchParametersHNSW param;
+        const HNSWSearchParameters* hnsw_params =
+                dynamic_cast<const HNSWSearchParameters*>(&params);
+        if (hnsw_params == nullptr) {
+            return doris::Status::InvalidArgument(
+                    "HNSW search parameters should not be null for HNSW index");
+        }
         param.sel = id_sel.get();
+        param.efSearch = hnsw_params->ef_search;
+        param.check_relative_distance = hnsw_params->check_relative_distance;
+        param.bounded_queue = hnsw_params->bounded_queue;
 
         _index->search(1, query_vec, k, distances, labels, &param);
     }
@@ -193,6 +241,8 @@ doris::Status FaissVectorIndex::range_search(const float* query_vec, const float
     if (hnsw_params != nullptr) {
         faiss::SearchParametersHNSW param;
         param.efSearch = hnsw_params->ef_search;
+        param.check_relative_distance = hnsw_params->check_relative_distance;
+        param.bounded_queue = hnsw_params->bounded_queue;
         param.sel = sel ? sel.get() : nullptr;
         _index->range_search(1, query_vec, radius * radius, &native_search_result, &param);
     } else {

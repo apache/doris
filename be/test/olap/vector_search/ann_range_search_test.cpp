@@ -28,7 +28,9 @@
 
 #include "common/object_pool.h"
 #include "olap/rowset/segment_v2/ann_index_iterator.h"
+#include "olap/rowset/segment_v2/ann_index_reader.h"
 #include "olap/rowset/segment_v2/column_reader.h"
+#include "olap/rowset/segment_v2/index_file_reader.h"
 #include "olap/rowset/segment_v2/virtual_column_iterator.h"
 #include "olap/vector_search/vector_search_utils.h"
 #include "runtime/descriptors.h"
@@ -826,10 +828,11 @@ TEST_F(VectorSearchTest, TestPrepareAnnRangeSearch) {
     state->set_desc_tbl(desc_tbl_ptr);
 
     VExprContextSPtr range_search_ctx;
+    doris::VectorSearchUserParams user_params;
     ASSERT_TRUE(vectorized::VExpr::create_expr_tree(texpr, range_search_ctx).ok());
     ASSERT_TRUE(range_search_ctx->prepare(state.get(), row_desc).ok());
     ASSERT_TRUE(range_search_ctx->open(state.get()).ok());
-    ASSERT_TRUE(range_search_ctx->prepare_ann_range_search().ok());
+    ASSERT_TRUE(range_search_ctx->prepare_ann_range_search(user_params).ok());
     std::shared_ptr<VectorizedFnCall> fn_call =
             std::dynamic_pointer_cast<VectorizedFnCall>(range_search_ctx->root());
 
@@ -840,7 +843,7 @@ TEST_F(VectorSearchTest, TestPrepareAnnRangeSearch) {
     ASSERT_EQ(fn_call->_ann_range_search_params.radius, 10);
 
     doris::segment_v2::RangeSearchParams range_search_params =
-            fn_call->_ann_range_search_params.toRangeSearchParams();
+            fn_call->_ann_range_search_params.to_range_search_params();
     EXPECT_EQ(range_search_params.radius, 10.0f);
     std::vector<int> query_array_groud_truth = {1, 2, 3, 4, 5, 6, 7, 20};
     std::vector<int> query_array_f32;
@@ -867,11 +870,11 @@ TEST_F(VectorSearchTest, TestEvaluateAnnRangeSearch) {
     ASSERT_TRUE(vectorized::VExpr::create_expr_tree(texpr, range_search_ctx).ok());
     ASSERT_TRUE(range_search_ctx->prepare(state.get(), row_desc).ok());
     ASSERT_TRUE(range_search_ctx->open(state.get()).ok());
-    ASSERT_TRUE(range_search_ctx->prepare_ann_range_search().ok());
-
+    doris::VectorSearchUserParams user_params;
+    ASSERT_TRUE(range_search_ctx->prepare_ann_range_search(user_params).ok());
     std::shared_ptr<VectorizedFnCall> fn_call =
             std::dynamic_pointer_cast<VectorizedFnCall>(range_search_ctx->root());
-
+    ASSERT_EQ(fn_call->_ann_range_search_params.user_params, user_params);
     ASSERT_TRUE(fn_call->_ann_range_search_params.is_ann_range_search == true);
     ASSERT_EQ(fn_call->_ann_range_search_params.is_le_or_lt, false);
     ASSERT_EQ(fn_call->_ann_range_search_params.src_col_idx, 1);
@@ -897,6 +900,12 @@ TEST_F(VectorSearchTest, TestEvaluateAnnRangeSearch) {
             dynamic_cast<doris::vector_search_utils::MockAnnIndexIterator*>(
                     cid_to_index_iterators[1].get());
 
+    std::map<std::string, std::string> properties;
+    properties["index_type"] = "hnsw";
+    properties["metric_type"] = "l2_distance";
+    auto pair = vector_search_utils::create_tmp_ann_index_reader(properties);
+    mock_ann_index_iter->_ann_reader = pair.second;
+
     // Explain:
     // 1. predicate is dist >= 10, so it is not a within range search
     // 2. return 10 results
@@ -906,18 +915,11 @@ TEST_F(VectorSearchTest, TestEvaluateAnnRangeSearch) {
                              }),
                              testing::_, testing::_))
             .WillOnce(testing::Invoke([](const doris::segment_v2::RangeSearchParams& params,
-                                         const doris::segment_v2::CustomSearchParams& custom_params,
+                                         const doris::VectorSearchUserParams& custom_params,
                                          doris::segment_v2::RangeSearchResult* result) {
-                // size_t num_results = 10;
                 result->roaring = std::make_shared<roaring::Roaring>();
                 result->row_ids = nullptr;
                 result->distance = nullptr;
-                // result->row_ids = std::make_unique<std::vector<uint64_t>>();
-                // for (size_t i = 0; i < num_results; ++i) {
-                //     result->roaring->add(i * 10);
-                //     result->row_ids->push_back(i * 10);
-                // }
-                // result->distance = std::make_unique<float[]>(10);
                 return Status::OK();
             }));
 
@@ -960,7 +962,8 @@ TEST_F(VectorSearchTest, TestEvaluateAnnRangeSearch2) {
     ASSERT_TRUE(vectorized::VExpr::create_expr_tree(texpr, range_search_ctx).ok());
     ASSERT_TRUE(range_search_ctx->prepare(state.get(), row_desc).ok());
     ASSERT_TRUE(range_search_ctx->open(state.get()).ok());
-    ASSERT_TRUE(range_search_ctx->prepare_ann_range_search().ok());
+    doris::VectorSearchUserParams user_params;
+    ASSERT_TRUE(range_search_ctx->prepare_ann_range_search(user_params).ok());
 
     std::shared_ptr<VectorizedFnCall> fn_call =
             std::dynamic_pointer_cast<VectorizedFnCall>(range_search_ctx->root());
@@ -984,11 +987,15 @@ TEST_F(VectorSearchTest, TestEvaluateAnnRangeSearch2) {
     std::vector<std::unique_ptr<segment_v2::ColumnIterator>> column_iterators;
     column_iterators.resize(4);
     column_iterators[3] = std::make_unique<doris::segment_v2::VirtualColumnIterator>();
-
     roaring::Roaring row_bitmap;
     doris::vector_search_utils::MockAnnIndexIterator* mock_ann_index_iter =
             dynamic_cast<doris::vector_search_utils::MockAnnIndexIterator*>(
                     cid_to_index_iterators[1].get());
+    std::map<std::string, std::string> properties;
+    properties["index_type"] = "hnsw";
+    properties["metric_type"] = "l2_distance";
+    auto pair = vector_search_utils::create_tmp_ann_index_reader(properties);
+    mock_ann_index_iter->_ann_reader = pair.second;
 
     // Explain:
     // 1. predicate is dist >= 10, so it is not a within range search
@@ -999,7 +1006,7 @@ TEST_F(VectorSearchTest, TestEvaluateAnnRangeSearch2) {
                              }),
                              testing::_, testing::_))
             .WillOnce(testing::Invoke([](const doris::segment_v2::RangeSearchParams& params,
-                                         const doris::segment_v2::CustomSearchParams& custom_params,
+                                         const doris::VectorSearchUserParams& custom_params,
                                          doris::segment_v2::RangeSearchResult* result) {
                 size_t num_results = 10;
                 result->roaring = std::make_shared<roaring::Roaring>();
