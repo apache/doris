@@ -256,7 +256,7 @@ struct ArrayAggregateImpl {
         }
     }
 
-    template <PrimitiveType Element, typename ColumnType, typename CreateColumnFunc>
+    template <typename ColumnType, typename CreateColumnFunc>
     static bool execute_type_impl(ColumnPtr& res_ptr, const DataTypePtr& type, const IColumn* data,
                                   const ColumnArray::Offsets64& offsets,
                                   CreateColumnFunc create_column_func) {
@@ -310,8 +310,8 @@ struct ArrayAggregateImpl {
                 return ColumnString::create();
             };
 
-            return execute_type_impl<String, ColumnString, decltype(create_column)>(
-                    res_ptr, type, data, offsets, create_column);
+            return execute_type_impl<ColumnString, decltype(create_column)>(res_ptr, type, data,
+                                                                            offsets, create_column);
         } else {
             using ColVecType = typename PrimitiveTypeTraits<Element>::ColumnType;
             static constexpr PrimitiveType ResultType =
@@ -326,8 +326,8 @@ struct ArrayAggregateImpl {
                 }
             };
 
-            return execute_type_impl<Element, ColVecType, decltype(create_column)>(
-                    res_ptr, type, data, offsets, create_column);
+            return execute_type_impl<ColVecType, decltype(create_column)>(res_ptr, type, data,
+                                                                          offsets, create_column);
         }
     }
 };
