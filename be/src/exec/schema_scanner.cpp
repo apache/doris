@@ -239,6 +239,8 @@ std::unique_ptr<SchemaScanner> SchemaScanner::create(TSchemaTableType::type type
         return SchemaTabletsScanner::create_unique();
     case TSchemaTableType::SCH_VIEW_DEPENDENCY:
         return SchemaViewDependencyScanner::create_unique();
+    case TSchemaTableType::SCH_BACKENDS:
+        return SchemaBackendsScanner::create_unique();
     default:
         return SchemaDummyScanner::create_unique();
         break;
