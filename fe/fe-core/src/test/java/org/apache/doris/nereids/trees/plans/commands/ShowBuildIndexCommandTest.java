@@ -75,8 +75,8 @@ public class ShowBuildIndexCommandTest extends TestWithFeService {
         Assertions.assertDoesNotThrow(() -> command2.validate(ctx));
 
         //WHERE compound predicate
-        Expression subWhere1 = new GreaterThan(new UnboundSlot(Lists.newArrayList("createtime")),
-                new StringLiteral("2019-12-02 14:54:00"));
+        Expression subWhere1 = new EqualTo(new UnboundSlot(Lists.newArrayList("TableName")),
+                new StringLiteral("table1"));
         Expression subWhere2 = new EqualTo(new UnboundSlot(Lists.newArrayList("state")),
                 new StringLiteral("RUNNING"));
         Expression where2 = new And(subWhere1, subWhere2);
