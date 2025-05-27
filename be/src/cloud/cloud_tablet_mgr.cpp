@@ -152,9 +152,9 @@ void set_tablet_access_time_ms(CloudTablet* tablet) {
 }
 
 Result<CloudTabletSPtr> CloudTabletMgr::get_tablet(int64_t tablet_id, bool warmup_data,
-                                                                bool sync_delete_bitmap,
-                                                                SyncRowsetStats* sync_stats,
-                                                                bool force_use_cache) {
+                                                   bool sync_delete_bitmap,
+                                                   SyncRowsetStats* sync_stats,
+                                                   bool force_use_cache) {
     // LRU value type. `Value`'s lifetime MUST NOT be longer than `CloudTabletMgr`
     class Value : public LRUCacheValueBase {
     public:
