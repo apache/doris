@@ -42,6 +42,8 @@
 #include "vec/core/types.h"
 
 namespace doris {
+template <PrimitiveType type>
+struct PrimitiveTypeTraits;
 namespace vectorized {
 template <typename T>
 struct TypeName;
@@ -58,76 +60,6 @@ struct NearestFieldTypeImpl {
 
 template <typename T>
 using NearestFieldType = typename NearestFieldTypeImpl<T>::Type;
-
-template <typename T>
-struct AvgNearestFieldTypeTrait {
-    using Type = typename NearestFieldTypeImpl<T>::Type;
-};
-
-template <>
-struct AvgNearestFieldTypeTrait<Decimal32> {
-    using Type = Decimal128V3;
-};
-
-template <>
-struct AvgNearestFieldTypeTrait<Decimal64> {
-    using Type = Decimal128V3;
-};
-
-template <>
-struct AvgNearestFieldTypeTrait<Decimal128V2> {
-    using Type = Decimal128V2;
-};
-
-template <>
-struct AvgNearestFieldTypeTrait<Decimal128V3> {
-    using Type = Decimal128V3;
-};
-
-template <>
-struct AvgNearestFieldTypeTrait<Decimal256> {
-    using Type = Decimal256;
-};
-
-template <>
-struct AvgNearestFieldTypeTrait<Int64> {
-    using Type = double;
-};
-
-template <typename T>
-struct AvgNearestFieldTypeTrait256 {
-    using Type = typename NearestFieldTypeImpl<T>::Type;
-};
-
-template <>
-struct AvgNearestFieldTypeTrait256<Decimal32> {
-    using Type = Decimal256;
-};
-
-template <>
-struct AvgNearestFieldTypeTrait256<Decimal64> {
-    using Type = Decimal256;
-};
-
-template <>
-struct AvgNearestFieldTypeTrait256<Decimal128V2> {
-    using Type = Decimal128V2;
-};
-
-template <>
-struct AvgNearestFieldTypeTrait256<Decimal128V3> {
-    using Type = Decimal256;
-};
-
-template <>
-struct AvgNearestFieldTypeTrait256<Decimal256> {
-    using Type = Decimal256;
-};
-
-template <>
-struct AvgNearestFieldTypeTrait256<Int64> {
-    using Type = double;
-};
 
 class Field;
 
@@ -255,6 +187,8 @@ template <typename T>
 class DecimalField {
 public:
     DecimalField(T value, UInt32 scale_) : dec(value), scale(scale_) {}
+    // Store the underlying data ignoring scale.
+    DecimalField(T value) : dec(value), scale(0) {}
 
     operator T() const { return dec; }
     T get_value() const { return dec; }
@@ -331,7 +265,19 @@ public:
     static const int MIN_NON_POD = 16;
     Field() : type(PrimitiveType::TYPE_NULL) {}
     // set Types::Null explictly and avoid other types
-    Field(PrimitiveType w) : type(w) { DCHECK_EQ(PrimitiveType::TYPE_NULL, type); }
+    Field(PrimitiveType w) : type(w) {}
+    template <PrimitiveType T>
+    static Field create_field(const typename PrimitiveTypeTraits<T>::NearestFieldType& data) {
+        auto f = Field(PrimitiveTypeTraits<T>::NearestPrimitiveType);
+        f.template create_concrete<PrimitiveTypeTraits<T>::NearestPrimitiveType>(data);
+        return f;
+    }
+    template <PrimitiveType T>
+    static Field create_field(const typename PrimitiveTypeTraits<T>::NearestFieldType&& data) {
+        auto f = Field(PrimitiveTypeTraits<T>::NearestPrimitiveType);
+        f.template create_concrete<PrimitiveTypeTraits<T>::NearestPrimitiveType>(data);
+        return f;
+    }
 
     /** Despite the presence of a template constructor, this constructor is still needed,
       *  since, in its absence, the compiler will still generate the default constructor.
@@ -339,12 +285,6 @@ public:
     Field(const Field& rhs) { create(rhs); }
 
     Field(Field&& rhs) { create(std::move(rhs)); }
-
-    // Make the constructor with a String parameter explicit to prevent accidentally creating a Field with the wrong string type.
-    // Other types don't require explicit construction to avoid extensive modifications.
-    template <typename T>
-        requires(!std::is_same_v<std::decay_t<T>, Field>)
-    explicit(std::is_same_v<std::decay_t<T>, String>) Field(T&& rhs);
 
     Field& operator=(const Field& rhs) {
         if (this != &rhs) {
@@ -374,10 +314,6 @@ public:
         }
         return *this;
     }
-
-    template <typename T>
-        requires(!std::is_same_v<std::decay_t<T>, Field>)
-    Field& operator=(T&& rhs);
 
     ~Field() { destroy(); }
 
@@ -440,6 +376,8 @@ public:
             return get<Int128>() <=> rhs.get<Int128>();
         case PrimitiveType::TYPE_IPV6:
             return get<IPv6>() <=> rhs.get<IPv6>();
+        case PrimitiveType::TYPE_IPV4:
+            return get<IPv4>() <=> rhs.get<IPv4>();
         case PrimitiveType::TYPE_DOUBLE:
             return get<Float64>() < rhs.get<Float64>()    ? std::strong_ordering::less
                    : get<Float64>() == rhs.get<Float64>() ? std::strong_ordering::equal
@@ -549,68 +487,21 @@ private:
     PrimitiveType type;
 
     /// Assuming there was no allocated state or it was deallocated (see destroy).
-    template <typename T>
-    void create_concrete(T&& x);
-
+    template <PrimitiveType Type>
+    void create_concrete(typename PrimitiveTypeTraits<Type>::NearestFieldType&& x);
+    template <PrimitiveType Type>
+    void create_concrete(const typename PrimitiveTypeTraits<Type>::NearestFieldType& x);
     /// Assuming same types.
-    template <typename T>
-    void assign_concrete(T&& x);
+    template <PrimitiveType Type>
+    void assign_concrete(typename PrimitiveTypeTraits<Type>::NearestFieldType&& x);
+    template <PrimitiveType Type>
+    void assign_concrete(const typename PrimitiveTypeTraits<Type>::NearestFieldType& x);
 
-    void create(const Field& x) {
-        dispatch([this](auto& value) { create_concrete(value); }, x);
-    }
+    void create(const Field& field);
 
-    void create(Field&& x) {
-        dispatch([this](auto& value) { create_concrete(std::move(value)); }, x);
-    }
+    void assign(const Field& x);
 
-    void assign(const Field& x) {
-        dispatch([this](auto& value) { assign_concrete(value); }, x);
-    }
-
-    void assign(Field&& x) {
-        dispatch([this](auto& value) { assign_concrete(std::move(value)); }, x);
-    }
-
-    ALWAYS_INLINE void destroy() {
-        // TODO(gabriel): Use `PrimitiveTypeTraits<>::CppType`
-        switch (type) {
-        case PrimitiveType::TYPE_STRING:
-        case PrimitiveType::TYPE_CHAR:
-        case PrimitiveType::TYPE_VARCHAR:
-            destroy<String>();
-            break;
-        case PrimitiveType::TYPE_JSONB:
-            destroy<JsonbField>();
-            break;
-        case PrimitiveType::TYPE_ARRAY:
-            destroy<Array>();
-            break;
-        case PrimitiveType::TYPE_STRUCT:
-            destroy<Tuple>();
-            break;
-        case PrimitiveType::TYPE_MAP:
-            destroy<Map>();
-            break;
-        case PrimitiveType::TYPE_VARIANT:
-            destroy<VariantMap>();
-            break;
-        case PrimitiveType::TYPE_OBJECT:
-            destroy<BitmapValue>();
-            break;
-        case PrimitiveType::TYPE_HLL:
-            destroy<HyperLogLog>();
-            break;
-        case PrimitiveType::TYPE_QUANTILE_STATE:
-            destroy<QuantileState>();
-            break;
-        default:
-            break;
-        }
-
-        type = PrimitiveType::
-                TYPE_NULL; /// for exception safety in subsequent calls to destroy and create, when create fails.
-    }
+    void destroy();
 
     template <typename T>
     void destroy() {
@@ -763,20 +654,6 @@ decltype(auto) cast_to_nearest_field_type(T&& x) {
     } else {
         return U(x);
     }
-}
-
-/// This (rather tricky) code is to avoid ambiguity in expressions like
-/// Field f = 1;
-/// instead of
-/// Field f = Int64(1);
-/// Things to note:
-/// 1. float <--> int needs explicit cast
-/// 2. customized types needs explicit cast
-template <typename T>
-    requires(!std::is_same_v<std::decay_t<T>, Field>)
-Field::Field(T&& rhs) {
-    auto&& val = cast_to_nearest_field_type(std::forward<T>(rhs));
-    create_concrete(std::forward<decltype(val)>(val));
 }
 
 } // namespace doris::vectorized

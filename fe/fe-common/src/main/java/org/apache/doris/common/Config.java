@@ -1308,6 +1308,13 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int max_get_kafka_meta_timeout_second = 60;
 
+
+    /**
+     * the expire time of routine load blacklist.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int routine_load_blacklist_expire_time_second = 300;
+
     /**
      * The max number of files store in SmallFileMgr
      */
@@ -1589,7 +1596,7 @@ public class Config extends ConfigBase {
      * Used to set default db data quota bytes.
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static long default_db_data_quota_bytes = 1024L * 1024 * 1024 * 1024 * 1024L; // 1PB
+    public static long default_db_data_quota_bytes = Long.MAX_VALUE; // 8192 PB
 
     /**
      * Used to set default db replica quota num.
@@ -2825,6 +2832,17 @@ public class Config extends ConfigBase {
             "Maximal number of connections of Arrow Flight Server per FE."})
     public static int arrow_flight_max_connections = 4096;
 
+    @ConfField(mutable = true, masterOnly = true, description = {
+        "Auto Buckets中按照partition size去估算bucket数，存算一体partition size 1G估算一个bucket，"
+            + "但存算分离下partition size 10G估算一个bucket。 若配置小于0，会在在代码中会自适应存算一体模式默认1G，在存算分离默认10G",
+        "In Auto Buckets, the number of buckets is estimated based on the partition size. "
+            + "For storage and computing integration, a partition size of 1G is estimated as one bucket."
+            + " but for cloud, a partition size of 10G is estimated as one bucket. "
+            + "If the configuration is less than 0, the code will have an adaptive non-cloud mode with a default of 1G,"
+            + " and in cloud mode with a default of 10G."
+    })
+    public static int autobucket_partition_size_per_bucket_gb = -1;
+
     @ConfField(description = {"(已弃用，被 arrow_flight_max_connection 替代) Arrow Flight Server中所有用户token的缓存上限，"
             + "超过后LRU淘汰, arrow flight sql是无状态的协议，连接通常不会主动断开，"
             + "bearer token 从 cache 淘汰的同时会 unregister Connection.",
@@ -2911,7 +2929,7 @@ public class Config extends ConfigBase {
     public static int workload_sched_policy_interval_ms = 10000; // 10s
 
     @ConfField(mutable = true, masterOnly = true)
-    public static int workload_group_check_interval_ms = 30000; // 30s
+    public static int workload_group_check_interval_ms = 2000; // 2s
 
     @ConfField(mutable = true, masterOnly = true)
     public static int workload_max_policy_num = 25;

@@ -111,7 +111,7 @@ using IPV6 = uint128_t;
 //TODO: make default_value constexpr when we upgrade to clang++17
 template <typename DataType>
 struct ut_input_type {};
-template <typename NativeType>
+template <PrimitiveType NativeType>
 struct ut_input_type<DataTypeNumber<NativeType>> {
     using type = DataTypeNumber<NativeType>::FieldType;
     inline static type default_value = 123;
@@ -193,6 +193,9 @@ inline auto DECIMAL32 = [](int32_t x, int32_t y, int scale) {
 inline auto DECIMAL64 = [](int64_t x, int64_t y, int scale) {
     return Decimal64::from_int_frac(x, y, scale);
 };
+inline auto DECIMAL128V2 = [](int128_t x, int128_t y, int scale) {
+    return Decimal128V2::from_int_frac(x, y, scale);
+};
 inline auto DECIMAL128V3 = [](int128_t x, int128_t y, int scale) {
     return Decimal128V3::from_int_frac(x, y, scale);
 };
@@ -213,7 +216,8 @@ using UTDataTypeDescs = std::vector<UTDataTypeDesc>;
 
 bool parse_ut_data_type(const std::vector<AnyType>& input_types, ut_type::UTDataTypeDescs& descs);
 
-bool insert_cell(MutableColumnPtr& column, DataTypePtr type_ptr, const AnyType& cell);
+bool insert_cell(MutableColumnPtr& column, DataTypePtr type_ptr, const AnyType& cell,
+                 bool datetime_is_string_format = true);
 
 void check_vec_table_function(TableFunction* fn, const InputTypeSet& input_types,
                               const InputDataSet& input_set, const InputTypeSet& output_types,
@@ -285,7 +289,7 @@ struct Consted {
 // NOLINTBEGIN(readability-function-size)
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 template <typename ResultType, bool ResultNullable = false, int ResultScale = -1,
-          int ResultPrecision = -1>
+          int ResultPrecision = -1, bool datetime_is_string_format = true>
 Status check_function(const std::string& func_name, const InputTypeSet& input_types,
                       const DataSet& data_set, bool expect_execute_fail = false,
                       bool expect_result_ne = false) {
@@ -306,7 +310,8 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
 
         for (int j = 0; j < row_size; j++) {
             // null dealed in insert_cell
-            EXPECT_TRUE(insert_cell(column, desc.data_type, data_set[j].first[i]));
+            EXPECT_TRUE(insert_cell(column, desc.data_type, data_set[j].first[i],
+                                    datetime_is_string_format));
         }
 
         if (desc.is_const) {
@@ -391,7 +396,8 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
     }
     MutableColumnPtr expected_col_ptr = result_type_ptr->create_column();
     for (int i = 0; i < row_size; i++) {
-        EXPECT_TRUE(insert_cell(expected_col_ptr, result_type_ptr, data_set[i].second));
+        EXPECT_TRUE(insert_cell(expected_col_ptr, result_type_ptr, data_set[i].second,
+                                datetime_is_string_format));
     }
 
     // 3.1. check the result of function
@@ -411,9 +417,16 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
                     << block.get_data_types()[result]->to_string(*column, i)
                     << ", expected result: " << result_type_ptr->to_string(*expected_col_ptr, i);
         } else {
-            EXPECT_EQ(0, column->compare_at(i, i, *expected_col_ptr, 1))
-                    << ", function result: "
-                    << block.get_data_types()[result]->to_string(*column, i)
+            auto comp_res = column->compare_at(i, i, *expected_col_ptr, 1);
+            if (0 != comp_res) {
+                std::cerr << "function " << func_name << " result mismatch, row " << i << ":\n"
+                          << block.dump_data(i, 1) << std::endl
+                          << ", expected result: "
+                          << result_type_ptr->to_string(*expected_col_ptr, i) << std::endl;
+            }
+            EXPECT_EQ(0, comp_res)
+                    << ", function " << func_name
+                    << " result: " << block.get_data_types()[result]->to_string(*column, i)
                     << ", expected result: " << result_type_ptr->to_string(*expected_col_ptr, i);
         }
     }

@@ -66,6 +66,7 @@
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_agg_state.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_bitmap.h"
 #include "vec/data_types/data_type_date.h"
@@ -108,10 +109,7 @@ namespace doris::vectorized {
   */
 inline UInt32 extract_to_decimal_scale(const ColumnWithTypeAndName& named_column) {
     const auto* arg_type = named_column.type.get();
-    bool ok = check_and_get_data_type<DataTypeUInt64>(arg_type) ||
-              check_and_get_data_type<DataTypeUInt32>(arg_type) ||
-              check_and_get_data_type<DataTypeUInt16>(arg_type) ||
-              check_and_get_data_type<DataTypeUInt8>(arg_type);
+    bool ok = check_and_get_data_type<DataTypeUInt8>(arg_type);
     if (!ok) {
         throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "Illegal type of toDecimal() scale {}",
                                named_column.type->get_name());
@@ -1101,9 +1099,6 @@ public:
 };
 
 using FunctionToUInt8 = FunctionConvert<DataTypeUInt8, NameToUInt8>;
-using FunctionToUInt16 = FunctionConvert<DataTypeUInt16, NameToUInt16>;
-using FunctionToUInt32 = FunctionConvert<DataTypeUInt32, NameToUInt32>;
-using FunctionToUInt64 = FunctionConvert<DataTypeUInt64, NameToUInt64>;
 using FunctionToInt8 = FunctionConvert<DataTypeInt8, NameToInt8>;
 using FunctionToInt16 = FunctionConvert<DataTypeInt16, NameToInt16>;
 using FunctionToInt32 = FunctionConvert<DataTypeInt32, NameToInt32>;
@@ -1132,18 +1127,6 @@ struct FunctionTo;
 template <>
 struct FunctionTo<DataTypeUInt8> {
     using Type = FunctionToUInt8;
-};
-template <>
-struct FunctionTo<DataTypeUInt16> {
-    using Type = FunctionToUInt16;
-};
-template <>
-struct FunctionTo<DataTypeUInt32> {
-    using Type = FunctionToUInt32;
-};
-template <>
-struct FunctionTo<DataTypeUInt64> {
-    using Type = FunctionToUInt64;
 };
 template <>
 struct FunctionTo<DataTypeInt8> {
@@ -2164,8 +2147,12 @@ private:
 
     /// 'from_type' and 'to_type' are nested types in case of Nullable.
     /// 'requested_result_is_nullable' is true if CAST to Nullable type is requested.
-    WrapperType prepare_impl(FunctionContext* context, const DataTypePtr& from_type,
-                             const DataTypePtr& to_type, bool requested_result_is_nullable) const {
+    WrapperType prepare_impl(FunctionContext* context, const DataTypePtr& origin_from_type,
+                             const DataTypePtr& origin_to_type,
+                             bool requested_result_is_nullable) const {
+        auto to_type = get_serialized_type(origin_to_type);
+        auto from_type = get_serialized_type(origin_from_type);
+
         if (from_type->equals(*to_type)) {
             return create_identity_wrapper(from_type);
         }
@@ -2195,9 +2182,6 @@ private:
             using ToDataType = typename Types::LeftType;
 
             if constexpr (std::is_same_v<ToDataType, DataTypeUInt8> ||
-                          std::is_same_v<ToDataType, DataTypeUInt16> ||
-                          std::is_same_v<ToDataType, DataTypeUInt32> ||
-                          std::is_same_v<ToDataType, DataTypeUInt64> ||
                           std::is_same_v<ToDataType, DataTypeInt8> ||
                           std::is_same_v<ToDataType, DataTypeInt16> ||
                           std::is_same_v<ToDataType, DataTypeInt32> ||

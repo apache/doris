@@ -103,6 +103,10 @@ under the License.
             <artifactId>commons-pool</artifactId>
         </dependency>
         <dependency>
+            <groupId>com.google.re2j</groupId>
+            <artifactId>re2j</artifactId>
+        </dependency>
+        <dependency>
             <groupId>org.apache.commons</groupId>
             <artifactId>commons-text</artifactId>
         </dependency>
@@ -958,6 +962,17 @@ under the License.
             <artifactId>sdk-core</artifactId>
             <version>${awssdk.version}</version>
         </dependency>
+
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-inline</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
     <repositories>
         <!-- for hive-catalog-shade -->
@@ -1084,6 +1099,10 @@ under the License.
                 </configuration>
             </plugin>
             <!-- jmockit -->
+            <!--fixme  Unify mocking framework usage across the project.
+            Currently, multiple mocking libraries (e.g., JMockit, Powermock) are used, 
+            which increases maintenance complexity and may cause agent conflicts (e.g., with JaCoCo).
+            Evaluate existing usages and standardize on a single framework where possible.-->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
@@ -1094,7 +1113,7 @@ under the License.
                     <reuseForks>false</reuseForks>
                     <useFile>false</useFile>
                     <argLine>
-                        -Xmx512m -javaagent:${settings.localRepository}/org/jmockit/jmockit/${jmockit.version}/jmockit-${jmockit.version}.jar @{argLine}
+                        -Xmx1024m -javaagent:${settings.localRepository}/org/jmockit/jmockit/${jmockit.version}/jmockit-${jmockit.version}.jar @{argLine}
                     </argLine>
                 </configuration>
             </plugin>

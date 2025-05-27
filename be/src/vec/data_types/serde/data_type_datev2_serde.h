@@ -41,9 +41,10 @@ class JsonbOutStream;
 namespace vectorized {
 class Arena;
 
-class DataTypeDateV2SerDe : public DataTypeNumberSerDe<UInt32> {
+class DataTypeDateV2SerDe : public DataTypeNumberSerDe<PrimitiveType::TYPE_DATEV2> {
 public:
-    DataTypeDateV2SerDe(int nesting_level = 1) : DataTypeNumberSerDe<UInt32>(nesting_level) {};
+    DataTypeDateV2SerDe(int nesting_level = 1)
+            : DataTypeNumberSerDe<PrimitiveType::TYPE_DATEV2>(nesting_level) {};
 
     Status serialize_one_cell_to_json(const IColumn& column, int64_t row_num, BufferWritable& bw,
                                       FormatOptions& options) const override;

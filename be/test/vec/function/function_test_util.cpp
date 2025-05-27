@@ -277,7 +277,7 @@ bool parse_ut_data_type(const std::vector<AnyType>& input_types, ut_type::UTData
         if (res <= 0) {
             std::cout << "return error, res:" << res << ", i:" << i
                       << ", input_types.size():" << input_types.size()
-                      << "desc : " << desc.data_type->get_name() << std::endl;
+                      << ", desc : " << desc.data_type->get_name() << std::endl;
             return false;
         }
         if (desc.is_nullable) {
@@ -291,18 +291,22 @@ bool parse_ut_data_type(const std::vector<AnyType>& input_types, ut_type::UTData
 }
 
 template <typename DataType>
-bool insert_datetime_cell(MutableColumnPtr& column, DataTypePtr date_type_ptr,
-                          const AnyType& cell) {
-    // accept cell of type string
-    auto datetime_str = any_cast<std::string>(cell);
+bool insert_datetime_cell(MutableColumnPtr& column, DataTypePtr date_type_ptr, const AnyType& cell,
+                          bool datetime_is_string_format) {
+    bool result = true;
     date_cast::TypeToValueTypeV<DataType> date_value;
+    if (datetime_is_string_format) {
+        // accept cell of type string
+        auto datetime_str = any_cast<std::string>(cell);
 
-    bool result;
-    if constexpr (std::is_same_v<DataType, DataTypeDateTimeV2>) {
-        result = date_value.from_date_str(datetime_str.c_str(), datetime_str.size(),
-                                          date_type_ptr->get_scale());
+        if constexpr (std::is_same_v<DataType, DataTypeDateTimeV2>) {
+            result = date_value.from_date_str(datetime_str.c_str(), datetime_str.size(),
+                                              date_type_ptr->get_scale());
+        } else {
+            result = date_value.from_date_str(datetime_str.c_str(), datetime_str.size());
+        }
     } else {
-        result = date_value.from_date_str(datetime_str.c_str(), datetime_str.size());
+        date_value = any_cast<date_cast::TypeToValueTypeV<DataType>>(cell);
     }
     // deal for v1
     if constexpr (std::is_same_v<DataType, DataTypeDate>) {
@@ -320,13 +324,14 @@ bool insert_datetime_cell(MutableColumnPtr& column, DataTypePtr date_type_ptr,
     return false;
 }
 
-bool insert_array_cell(MutableColumnPtr& column, DataTypePtr type_ptr, const AnyType& cell) {
+bool insert_array_cell(MutableColumnPtr& column, DataTypePtr type_ptr, const AnyType& cell,
+                       bool datetime_is_string_format) {
     //NOLINTNEXTLINE(modernize-use-auto)
     std::vector<AnyType> origin_input_array = any_cast<TestArray>(cell);
     DataTypePtr sub_type = assert_cast<const DataTypeArray*>(type_ptr.get())->get_nested_type();
     MutableColumnPtr sub_column = sub_type->create_column();
     for (const auto& item : origin_input_array) {
-        insert_cell(sub_column, sub_type, item);
+        insert_cell(sub_column, sub_type, item, datetime_is_string_format);
     }
 
     Array field_vector; // derived from std::vector<Field>
@@ -334,12 +339,13 @@ bool insert_array_cell(MutableColumnPtr& column, DataTypePtr type_ptr, const Any
         field_vector.push_back((*sub_column)[i]);
     }
 
-    column->insert(field_vector);
+    column->insert(Field::create_field<TYPE_ARRAY>(field_vector));
     return true;
 }
 
 // NOLINTBEGIN(readability-function-size)
-bool insert_cell(MutableColumnPtr& column, DataTypePtr type_ptr, const AnyType& cell) {
+bool insert_cell(MutableColumnPtr& column, DataTypePtr type_ptr, const AnyType& cell,
+                 bool datetime_is_string_format) {
     if (cell.type() == &typeid(Null)) {
         assert_cast<ColumnNullable*>(column.get())->insert_default();
         return true;
@@ -354,7 +360,7 @@ bool insert_cell(MutableColumnPtr& column, DataTypePtr type_ptr, const AnyType& 
         auto col = nullable_column->get_nested_column_ptr();
         auto* nullmap_column =
                 assert_cast<ColumnUInt8*>(nullable_column->get_null_map_column_ptr().get());
-        bool ok = insert_cell(col, col_type, cell);
+        bool ok = insert_cell(col, col_type, cell, datetime_is_string_format);
         nullmap_column->insert_value(ok ? 0 : 1);
     } else {
         auto type = type_ptr->get_primitive_type();
@@ -458,30 +464,38 @@ bool insert_cell(MutableColumnPtr& column, DataTypePtr type_ptr, const AnyType& 
             break;
         }
         case PrimitiveType::TYPE_DATE: {
-            RETURN_IF_FALSE((insert_datetime_cell<DataTypeDate>(column, type_ptr, cell)));
+            RETURN_IF_FALSE((insert_datetime_cell<DataTypeDate>(column, type_ptr, cell,
+                                                                datetime_is_string_format)));
             break;
         }
         case PrimitiveType::TYPE_DATEV2: {
-            RETURN_IF_FALSE((insert_datetime_cell<DataTypeDateV2>(column, type_ptr, cell)));
+            RETURN_IF_FALSE((insert_datetime_cell<DataTypeDateV2>(column, type_ptr, cell,
+                                                                  datetime_is_string_format)));
             break;
         }
         case PrimitiveType::TYPE_DATETIME: {
-            RETURN_IF_FALSE((insert_datetime_cell<DataTypeDateTime>(column, type_ptr, cell)));
+            RETURN_IF_FALSE((insert_datetime_cell<DataTypeDateTime>(column, type_ptr, cell,
+                                                                    datetime_is_string_format)));
             break;
         }
         case PrimitiveType::TYPE_DATETIMEV2: {
-            RETURN_IF_FALSE((insert_datetime_cell<DataTypeDateTimeV2>(column, type_ptr, cell)));
+            RETURN_IF_FALSE((insert_datetime_cell<DataTypeDateTimeV2>(column, type_ptr, cell,
+                                                                      datetime_is_string_format)));
             break;
         }
         case PrimitiveType::TYPE_TIMEV2: {
-            auto value = any_cast<std::string>(cell);
-            double time_value = 0;
-            RETURN_IF_FALSE((TimeValue::try_as_time(value.c_str(), value.size(), time_value)));
+            TimeValue::TimeType time_value = 0;
+            if (datetime_is_string_format) {
+                auto value = any_cast<std::string>(cell);
+                RETURN_IF_FALSE((TimeValue::try_as_time(value.c_str(), value.size(), time_value)));
+            } else {
+                time_value = any_cast<TimeValue::TimeType>(cell);
+            }
             column->insert_data(reinterpret_cast<char*>(&time_value), 0);
             break;
         }
         case PrimitiveType::TYPE_ARRAY: {
-            RETURN_IF_FALSE((insert_array_cell(column, type_ptr, cell)));
+            RETURN_IF_FALSE((insert_array_cell(column, type_ptr, cell, datetime_is_string_format)));
             break;
         }
         case PrimitiveType::TYPE_STRUCT: {
@@ -496,7 +510,8 @@ bool insert_cell(MutableColumnPtr& column, DataTypePtr type_ptr, const AnyType& 
             for (size_t i = 0; i < v.size(); ++i) {
                 auto& field = v[i];
                 auto col = struct_column->get_column(i).get_ptr();
-                RETURN_IF_FALSE(insert_cell(col, struct_type->get_element(i), field));
+                RETURN_IF_FALSE(insert_cell(col, struct_type->get_element(i), field,
+                                            datetime_is_string_format));
             }
             break;
         }

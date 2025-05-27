@@ -213,7 +213,8 @@ TEST_F(DataTypeDecimalTest, MetaInfoTest) {
             .is_value_represented_by_number = true,
             .pColumnMeta = col_meta.get(),
             .is_value_unambiguously_represented_in_contiguous_memory_region = true,
-            .default_field = DecimalField<Decimal32>(0, tmp_dt->get_scale()),
+            .default_field = Field::create_field<TYPE_DECIMAL32>(
+                    DecimalField<Decimal32>(0, tmp_dt->get_scale())),
     };
     helper->meta_info_assert(tmp_dt, meta_info_to_assert);
 }
@@ -738,9 +739,6 @@ TEST_F(DataTypeDecimalTest, get_decimal_scale) {
     EXPECT_EQ(get_decimal_scale(DataTypeInt64()), 0);
     EXPECT_EQ(get_decimal_scale(DataTypeInt128()), 0);
     EXPECT_EQ(get_decimal_scale(DataTypeUInt8()), 0);
-    EXPECT_EQ(get_decimal_scale(DataTypeUInt16()), 0);
-    EXPECT_EQ(get_decimal_scale(DataTypeUInt32()), 0);
-    EXPECT_EQ(get_decimal_scale(DataTypeUInt64()), 0);
     EXPECT_EQ(get_decimal_scale(DataTypeFloat32()), 0);
     EXPECT_EQ(get_decimal_scale(DataTypeFloat64()), 0);
 }
