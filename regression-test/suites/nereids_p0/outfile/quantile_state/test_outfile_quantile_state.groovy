@@ -26,7 +26,7 @@ suite("test_outfile_quantile_state") {
     sql "set return_object_data_as_binary=true"
     def outFilePath = """./tmp/test_outfile_quantile_state"""
     File path = new File(outFilePath)
-    path.delete()
+    path.deleteDir()
     path.mkdirs()
 
     sql "DROP TABLE IF EXISTS q_table"

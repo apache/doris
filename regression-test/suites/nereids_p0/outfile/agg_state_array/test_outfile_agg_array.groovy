@@ -24,7 +24,7 @@ import java.nio.file.Paths
 suite("test_outfile_agg_state_array") {
     def outFilePath = """./tmp/test_outfile_agg_state_array"""
     File path = new File(outFilePath)
-    path.delete()
+    path.deleteDir()
     path.mkdirs()
 
     sql "set enable_agg_state=true"
