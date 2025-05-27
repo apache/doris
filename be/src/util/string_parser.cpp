@@ -124,14 +124,14 @@ T StringParser::string_to_decimal(const char* __restrict s, int len, int type_pr
                     if (exponent > std::numeric_limits<int32_t>::max()) {
                         *result = StringParser::PARSE_OVERFLOW;
                         std::cout << fmt::format(
-                                "cast \"{}\" to Decimal({}, {}), exponent overflow\n",
+                                "cast \"{}\" to Decimal({}, {}), exponent overflow",
                                 std::string(orign_s, origin_len), type_precision, type_scale);
                         return 0;
                     }
                 } else {
                     // '123e12abc', '123e1.2'
                     std::cout << fmt::format(
-                            "cast \"{}\" to Decimal({}, {}), invalid exponent format 2\n",
+                            "cast \"{}\" to Decimal({}, {}), invalid exponent format 2",
                             std::string(orign_s, origin_len), type_precision, type_scale);
                     *result = StringParser::PARSE_FAILURE;
                     return 0;
@@ -142,7 +142,7 @@ T StringParser::string_to_decimal(const char* __restrict s, int len, int type_pr
             }
         } else {
             *result = StringParser::PARSE_FAILURE;
-            std::cout << fmt::format("cast \"{}\" to Decimal({}, {}), invalid format\n",
+            LOG(INFO) << fmt::format("cast \"{}\" to Decimal({}, {}), invalid format",
                                      std::string(orign_s, origin_len), type_precision, type_scale);
             return 0;
         }
@@ -158,7 +158,7 @@ T StringParser::string_to_decimal(const char* __restrict s, int len, int type_pr
     if (tmp_actual_int_part_count > std::numeric_limits<int>::max() ||
         tmp_actual_int_part_count < std::numeric_limits<int>::min()) {
         *result = StringParser::PARSE_OVERFLOW;
-        std::cout << fmt::format("cast \"{}\" to Decimal({}, {}), exponent overflow\n",
+        LOG(INFO) << fmt::format("cast \"{}\" to Decimal({}, {}), int part overflow",
                                  std::string(orign_s, origin_len), type_precision, type_scale);
         return 0;
     }
@@ -167,7 +167,17 @@ T StringParser::string_to_decimal(const char* __restrict s, int len, int type_pr
     int digit_index = 0;
     if (actual_int_part_count >= 0) {
         int max_index = std::min(actual_int_part_count, total_digit_count);
-        // test 0.00, .00
+        // skip zero number
+        for (; digit_index != max_index && digits[digit_index] == 0; ++digit_index) {
+        }
+        // test 0.00, .00, 0.{00...}e2147483647
+        // 0.00000e2147483647
+        if (max_index - digit_index > type_precision - type_scale) {
+            *result = is_negative ? StringParser::PARSE_UNDERFLOW : StringParser::PARSE_OVERFLOW;
+            LOG(INFO) << fmt::format("cast \"{}\" to Decimal({}, {}), int part overflow",
+                                     std::string(orign_s, origin_len), type_precision, type_scale);
+            return 0;
+        }
         // get int part number
         for (; digit_index != max_index; ++digit_index) {
             int_part_number = int_part_number * 10 + digits[digit_index];
@@ -202,7 +212,7 @@ T StringParser::string_to_decimal(const char* __restrict s, int len, int type_pr
     }
     if (int_part_number >= get_scale_multiplier<T>(type_precision - type_scale)) {
         *result = is_negative ? StringParser::PARSE_UNDERFLOW : StringParser::PARSE_OVERFLOW;
-        std::cout << fmt::format("cast \"{}\" to Decimal({}, {}), Overflow\n",
+        LOG(INFO) << fmt::format("cast \"{}\" to Decimal({}, {}), Overflow\n",
                                  std::string(orign_s, origin_len), type_precision, type_scale);
         return 0;
     }

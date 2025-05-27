@@ -311,7 +311,7 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
                 data_set.push_back({{input}, Null()});
             }
             check_function_for_cast<DataTypeNumber<FloatPType>, -1, -1, false>(input_types,
-                                                                              data_set);
+                                                                               data_set);
         }
 
         // strict mode
@@ -412,7 +412,7 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
 
         check_function_for_cast<DataTypeNumber<FloatPType>>(input_types, data_set);
     }
-    template <typename FromT, int FromPrecision, int FromScale, PrimitiveType FloatPType>
+    template <typename FromT, int FromPrecision, int FromScale, PrimitiveType FloatPType,
               bool enable_strict_cast>
     void from_decimalv3_no_overflow_test_func() {
         static_assert(IsDecimalNumber<FromT>, "FromT must be a decimal type");
@@ -562,9 +562,8 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
             EXPECT_TRUE(have_inf);
         }
 
-
         check_function_for_cast<DataTypeNumber<FloatPType>, -1, -1, enable_strict_cast>(input_types,
-                                                                                       data_set);
+                                                                                        data_set);
     }
 
     template <typename FromT, PrimitiveType ToPT, bool enable_strict_cast>

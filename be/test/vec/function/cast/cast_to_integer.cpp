@@ -503,7 +503,7 @@ struct FunctionCastToIntTest : public FunctionCastTest {
             DataSet data_set;
             data_set.push_back({{input}, Null()});
             EXPECT_THROW((check_function_for_cast<DataTypeNumber<PT>, -1, -1, true>(input_types,
-                                                                                   data_set)),
+                                                                                    data_set)),
                          Exception);
         }
     }
