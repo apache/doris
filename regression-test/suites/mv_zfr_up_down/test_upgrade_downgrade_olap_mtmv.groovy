@@ -30,11 +30,11 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr","p0,mtmv,restart_fe") {
     String tableName7 = """${suiteName}_tb7"""
     String tableName8 = """${suiteName}_tb8"""
     String tableName9 = """${suiteName}_tb9"""
+    String tableName10 = """${suiteName}_tb10"""
     String mtmvName1 = """${suiteName}_mtmv1"""
     String mtmvName2 = """${suiteName}_mtmv2"""
     String mtmvName3 = """${suiteName}_mtmv3"""
     String mtmvName4 = """${suiteName}_mtmv4"""
-    String mtmvName4_rn = """${suiteName}_mtmv4_rn"""
     String mtmvName5 = """${suiteName}_mtmv5"""
     String mtmvName6 = """${suiteName}_mtmv6"""
 
@@ -109,7 +109,7 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr","p0,mtmv,restart_fe") {
     assertTrue(state_mtmv3[0][1] == "SUCCESS")
     assertTrue(state_mtmv3[0][2] == false)
 
-    def test_sql3 = """SELECT a.* FROM ${tableName3} a inner join ${tableName4} b on a.user_id=b.user_id"""
+    def test_sql3 = """SELECT a.* FROM ${tableName3} a inner join ${tableName10} b on a.user_id=b.user_id"""
 
     connect('root', context.config.jdbcPassword, follower_jdbc_url) {
         sql """use ${dbName}"""
@@ -144,7 +144,7 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr","p0,mtmv,restart_fe") {
     assertTrue(state_mtmv1[0][1] == "SUCCESS")
     assertTrue(state_mtmv1[0][2] == false)
 
-    def test_sql1 = """SELECT * FROM ${tableName4}"""
+    def test_sql1 = """SELECT * FROM ${tableName10}"""
     connect('root', context.config.jdbcPassword, follower_jdbc_url) {
         sql """use ${dbName}"""
         mv_not_part_in(test_sql1, mtmvName1)
@@ -163,7 +163,7 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr","p0,mtmv,restart_fe") {
             DISTRIBUTED BY RANDOM BUCKETS 2
             PROPERTIES ('replication_num' = '1')
             AS
-            SELECT user_id, age FROM ${tableName4};
+            SELECT user_id, age FROM ${tableName10};
         """
     waitingMTMVTaskFinishedByMvName(cur_mtmvName3)
 
@@ -197,7 +197,7 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr","p0,mtmv,restart_fe") {
         }
     }
 
-    def sql2 = "SELECT a.* FROM ${tableName2} a inner join ${tableName4} b on a.user_id=b.user_id"
+    def sql2 = "SELECT a.* FROM ${tableName2} a inner join ${tableName10} b on a.user_id=b.user_id"
     connect('root', context.config.jdbcPassword, follower_jdbc_url) {
         sql """use ${dbName}"""
         mv_rewrite_success(sql2, mtmvName2)
