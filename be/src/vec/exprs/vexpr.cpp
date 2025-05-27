@@ -807,9 +807,9 @@ Status VExpr::evaluate_ann_range_search(
     return Status::OK();
 }
 
-Status VExpr::prepare_ann_range_search() {
+Status VExpr::prepare_ann_range_search(const doris::VectorSearchUserParams& params) {
     for (auto& child : _children) {
-        RETURN_IF_ERROR(child->prepare_ann_range_search());
+        RETURN_IF_ERROR(child->prepare_ann_range_search(params));
     }
     return Status::OK();
 }

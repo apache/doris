@@ -65,8 +65,8 @@ TEST_F(VectorSearchTest, AnnTopNDescriptorConstructor) {
     v->set_virtual_column_expr(distanc_calcu_fn_call_ctx->root());
 
     std::shared_ptr<AnnTopNDescriptor> predicate;
-    predicate = AnnTopNDescriptor::create_shared(limit, virtual_slot_expr_ctx);
-    ASSERT_TRUE(predicate != nullptr) << "AnnTopNDescriptor::create_shared() failed";
+    predicate = AnnTopNDescriptor::create_shared(true, limit, virtual_slot_expr_ctx);
+    ASSERT_TRUE(predicate != nullptr) << "AnnTopNDescriptor::create_shared(true,) failed";
 }
 
 TEST_F(VectorSearchTest, AnnTopNDescriptorPrepare) {
@@ -86,7 +86,7 @@ TEST_F(VectorSearchTest, AnnTopNDescriptorPrepare) {
 
     v->set_virtual_column_expr(distanc_calcu_fn_call_ctx->root());
     std::shared_ptr<AnnTopNDescriptor> predicate;
-    predicate = AnnTopNDescriptor::create_shared(limit, virtual_slot_expr_ctx);
+    predicate = AnnTopNDescriptor::create_shared(true, limit, virtual_slot_expr_ctx);
     st = predicate->prepare(&_runtime_state, _row_desc);
     ASSERT_TRUE(st.ok()) << fmt::format("st: {}, expr {}", st.to_string(),
                                         predicate->get_order_by_expr_ctx()->root()->debug_string());
@@ -111,7 +111,7 @@ TEST_F(VectorSearchTest, AnnTopNDescriptorEvaluateTopN) {
 
     v->set_virtual_column_expr(distanc_calcu_fn_call_ctx->root());
     std::shared_ptr<AnnTopNDescriptor> predicate;
-    predicate = AnnTopNDescriptor::create_shared(limit, virtual_slot_expr_ctx);
+    predicate = AnnTopNDescriptor::create_shared(true, limit, virtual_slot_expr_ctx);
     st = predicate->prepare(&_runtime_state, _row_desc);
     ASSERT_TRUE(st.ok()) << fmt::format("st: {}, expr {}", st.to_string(),
                                         predicate->get_order_by_expr_ctx()->root()->debug_string());

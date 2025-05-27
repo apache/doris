@@ -29,6 +29,7 @@ namespace doris::vector_search_utils {
 static void accumulate(double x, double y, double& sum) {
     sum += (x - y) * (x - y);
 }
+
 static double finalize(double sum) {
     return sqrt(sum);
 }
@@ -245,5 +246,15 @@ float get_radius_from_matrix(const float* vector, int dim,
     float radius = distances[percentile_index].second;
 
     return radius;
+}
+
+std::pair<std::unique_ptr<MockTabletIndex>, std::shared_ptr<segment_v2::AnnIndexReader>>
+create_tmp_ann_index_reader(std::map<std::string, std::string> properties) {
+    auto mock_tablet_index = std::make_unique<MockTabletIndex>();
+    mock_tablet_index->_properties = properties;
+    auto mock_index_file_reader = std::make_shared<MockIndexFileReader>();
+    auto ann_reader = std::make_shared<segment_v2::AnnIndexReader>(mock_tablet_index.get(),
+                                                                   mock_index_file_reader);
+    return std::make_pair(std::move(mock_tablet_index), ann_reader);
 }
 } // namespace doris::vector_search_utils

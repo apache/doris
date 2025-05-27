@@ -22,6 +22,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "runtime/runtime_state.h"
 #include "udf/udf.h"
 #include "vec/core/column_numbers.h"
 #include "vec/exprs/ann_range_search_params.h"
@@ -60,6 +61,7 @@ public:
                 FunctionContext::FunctionStateScope scope) override;
     void close(VExprContext* context, FunctionContext::FunctionStateScope scope) override;
     const std::string& expr_name() const override;
+    std::string function_name() const;
     std::string debug_string() const override;
     bool is_constant() const override {
         if (!_function->is_use_default_implementation_for_constants() ||
@@ -82,13 +84,13 @@ public:
             const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
             roaring::Roaring& row_bitmap) override;
 
-    Status prepare_ann_range_search() override;
+    Status prepare_ann_range_search(const doris::VectorSearchUserParams& params) override;
 
 protected:
     FunctionBasePtr _function;
     std::string _expr_name;
     std::string _function_name;
-    AnnRangeSearchParams _ann_range_search_params;
+    RangeSearchRuntimeInfo _ann_range_search_params;
 
 private:
     Status _do_execute(doris::vectorized::VExprContext* context, doris::vectorized::Block* block,

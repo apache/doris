@@ -27,8 +27,9 @@
 #include <thrift/protocol/TDebugProtocol.h>
 #include <thrift/protocol/TJSONProtocol.h>
 
-#include <iostream>
 #include <memory>
+#include <string>
+#include <utility>
 
 #include "common/object_pool.h"
 #include "olap/rowset/segment_v2/ann_index_iterator.h"
@@ -150,42 +151,22 @@ public:
     MOCK_METHOD(Status, read_from_index, (const doris::segment_v2::IndexParam& param), (override));
     MOCK_METHOD(Status, range_search,
                 (const segment_v2::RangeSearchParams& params,
-                 const segment_v2::CustomSearchParams& custom_params,
+                 const VectorSearchUserParams& custom_params,
                  segment_v2::RangeSearchResult* result),
                 (override));
 
 private:
     io::IOContext _io_ctx_mock;
 };
+
+class MockAnnIndexReader : public doris::segment_v2::AnnIndexReader {};
+
+std::pair<std::unique_ptr<MockTabletIndex>, std::shared_ptr<segment_v2::AnnIndexReader>>
+create_tmp_ann_index_reader(std::map<std::string, std::string> properties);
+
 } // namespace doris::vector_search_utils
 
 namespace doris::vectorized {
-template <typename T>
-T read_from_json(const std::string& json_str) {
-    auto memBufferIn = std::make_shared<apache::thrift::transport::TMemoryBuffer>(
-            reinterpret_cast<uint8_t*>(const_cast<char*>(json_str.data())),
-            static_cast<uint32_t>(json_str.size()));
-    auto jsonProtocolIn = std::make_shared<apache::thrift::protocol::TJSONProtocol>(memBufferIn);
-    T params;
-    params.read(jsonProtocolIn.get());
-    return params;
-}
-
-template <typename T>
-void write_to_json(const std::string& path, std::string name, const T& expr) {
-    auto memBuffer = std::make_shared<apache::thrift::transport::TMemoryBuffer>();
-    auto jsonProtocol = std::make_shared<apache::thrift::protocol::TJSONProtocol>(memBuffer);
-
-    expr.write(jsonProtocol.get());
-    uint8_t* buf;
-    uint32_t size;
-    memBuffer->getBuffer(&buf, &size);
-    std::string file_path = fmt::format("{}/{}.json", path, name);
-    std::ofstream ofs(file_path, std::ios::binary);
-    ofs.write(reinterpret_cast<const char*>(buf), size);
-    ofs.close();
-    std::cout << fmt::format("Serialized JSON written to {}\n", file_path);
-}
 
 class VectorSearchTest : public ::testing::Test {
 public:
