@@ -19,11 +19,14 @@
 
 #include <cctz/time_zone.h>
 
+#include <cmath>
+#include <cstdint>
 #include <string>
 
 #include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
 #include "util/date_func.h"
+#include "util/faststring.h"
 #include "util/string_parser.hpp"
 #include "vec/data_types/data_type_time.h"
 
@@ -100,6 +103,9 @@ public:
         if (s[0] == '-') {
             neg = true;
             s = s.substr(1);
+        } else if (s[0] == '+') {
+            neg = false;
+            s = s.substr(1);
         }
         if (s.find(':') == std::string::npos) {
             std::string tail;
@@ -134,17 +140,30 @@ public:
         }
         auto p1 = s.find(':');
         auto p2 = s.rfind(':');
-        auto p3 = s.find('.');
         hour = std::stoi(s.substr(0, p1));
         minute = std::stoi(s.substr(p1 + 1, p2 - p1));
-        if (p3 != std::string::npos) {
-            second = std::stoi(s.substr(p2 + 1, p3 - p2));
-            // Supplement 0 to save 6 digits while satisfying precision
-            microsecond =
-                    std::stoi(s.substr(p3 + 1, scale) +
-                              std::string(std::max(6 - scale, 7 - (int)s.length() + (int)p3), '0'));
+
+        // if the part is 60.000 it will cause judge feed execute error
+        if (s.substr(p2 + 1).starts_with("60")) {
+            return false;
+        }
+        double sec_part = std::stod(s.substr(p2 + 1));
+        sec_part = sec_part * double(long(pow(10, scale)));
+        sec_part = round(sec_part);
+        sec_part = double((long)sec_part * (long)pow(10, 6 - scale));
+        second = int64_t(sec_part) / 1000000;
+
+        if (scale != 0) {
+            microsecond = int64_t(sec_part) % 1000000;
+            if (second == 60) {
+                minute += 1;
+                second -= 60;
+                if (minute == 60) {
+                    hour += 1;
+                    minute -= 60;
+                }
+            }
         } else {
-            second = std::stoi(s.substr(p2 + 1));
             microsecond = 0;
         }
         v = make_time(hour, minute, second, microsecond);

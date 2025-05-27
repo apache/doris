@@ -36,10 +36,10 @@ public class TimeV2Literal extends Literal {
     private static final TimeV2Literal PART_MIN = new TimeV2Literal(-838, 0, 0, 0, 0);
     private static final TimeV2Literal PART_MAX = new TimeV2Literal(838, 59, 59, 999999, 6);
 
-    protected int hour;
-    protected int minute;
-    protected int second;
-    protected int microsecond;
+    protected long hour;
+    protected long minute;
+    protected long second;
+    protected long microsecond;
     protected boolean negative;
 
     public TimeV2Literal(TimeV2Type dataType, String s) {
@@ -58,24 +58,24 @@ public class TimeV2Literal extends Literal {
         }
         this.negative = 1.0 / value < 0;
         long v = (long) Math.abs(value);
-        this.microsecond = (int) (v % 1000000);
+        this.microsecond = (long) (v % 1000000);
         v /= 1000000;
-        this.second = (int) (v % 60);
+        this.second = (long) (v % 60);
         v /= 60;
-        this.minute = (int) (v % 60);
+        this.minute = (long) (v % 60);
         v /= 60;
-        this.hour = (int) v;
+        this.hour = (long) v;
     }
 
     /**
      * C'tor for time type.
      */
-    public TimeV2Literal(int hour, int minute, int second, int microsecond, int scale) throws AnalysisException {
+    public TimeV2Literal(long hour, long minute, long second, long microsecond, int scale) throws AnalysisException {
         super(TimeV2Type.of(scale));
         this.hour = Math.abs(hour);
         this.minute = minute;
         this.second = second;
-        this.microsecond = (int) (microsecond / Math.pow(10, 6 - scale)) * (int) Math.pow(10, 6 - scale);
+        this.microsecond = (long) (microsecond / Math.pow(10, 6 - scale)) * (long) Math.pow(10, 6 - scale);
         while (microsecond != 0 && this.microsecond < 100000) {
             this.microsecond *= 10;
         }
@@ -91,7 +91,11 @@ public class TimeV2Literal extends Literal {
         if (s.charAt(0) == '-') {
             s = s.substring(1);
             negative = true;
+        } else if (s.charAt(0) == '+') {
+            s = s.substring(1);
+            negative = false;
         }
+        // just a number
         if (!s.contains(":")) {
             String tail = "";
             if (s.contains(".")) {
@@ -138,32 +142,30 @@ public class TimeV2Literal extends Literal {
         } catch (NumberFormatException e) {
             throw new AnalysisException("Invalid minute format", e);
         }
-
-        String[] secondParts = parts[2].split("\\.");
-        if (secondParts.length > 2) {
-            throw new AnalysisException("Invalid second format");
+        int scale = ((TimeV2Type) dataType).getScale();
+        // if parts[2] is 60.000 it will cause judge feed execute error
+        if (parts[2].startsWith("60")) {
+            throw new AnalysisException("second out of range");
         }
-
+        double secPart;
         try {
-            second = Integer.parseInt(secondParts[0]);
+            secPart = Double.parseDouble(parts[2]);
         } catch (NumberFormatException e) {
             throw new AnalysisException("Invalid second format", e);
         }
-
-        if (((TimeV2Type) dataType).getScale() != 0 && secondParts.length == 2) {
-            String microStr = secondParts[1];
-            int len = microStr.length();
-
-            microStr = microStr.substring(0, Math.min(len, ((TimeV2Type) dataType).getScale()));
-            StringBuilder sb = new StringBuilder(microStr);
-            while (sb.length() < 6) {
-                sb.append('0');
-            }
-
-            try {
-                microsecond = Integer.parseInt(sb.toString());
-            } catch (NumberFormatException e) {
-                throw new AnalysisException("Invalid microsecond format", e);
+        secPart = secPart * (long) Math.pow(10, scale);
+        secPart = Math.round(secPart);
+        secPart = (long) secPart * (long) Math.pow(10, 6 - scale);
+        second = (long) secPart / 1000000;
+        if (scale != 0) {
+            microsecond = (long) secPart % 1000000;
+            if (second == 60) {
+                minute += 1;
+                second -= 60;
+                if (minute == 60) {
+                    hour += 1;
+                    minute -= 60;
+                }
             }
         } else {
             microsecond = 0;
@@ -179,21 +181,21 @@ public class TimeV2Literal extends Literal {
                 || microsecond > 999999 || microsecond < 0;
     }
 
-    public int getHour() {
+    public long getHour() {
         return hour;
     }
 
-    public int getMinute() {
+    public long getMinute() {
         return minute;
     }
 
-    public int getSecond() {
+    public long getSecond() {
         return second;
     }
 
-    public int getMicroSecond() {
-        int scale = ((TimeV2Type) dataType).getScale();
-        return (int) (microsecond / Math.pow(10, 6 - scale)) * (int) Math.pow(10, 6 - scale);
+    public long getMicroSecond() {
+        long scale = ((TimeV2Type) dataType).getScale();
+        return (long) (microsecond / Math.pow(10, 6 - scale)) * (long) Math.pow(10, 6 - scale);
     }
 
     @Override
@@ -223,7 +225,7 @@ public class TimeV2Literal extends Literal {
         // the scale is 3, we need make sure it not become start with 1
         int scale = ((TimeV2Type) dataType).getScale();
         if (scale > 0) {
-            sb.append(String.format(".%0" + scale + "d", microsecond / (int) Math.pow(10, 6 - scale)));
+            sb.append(String.format(".%0" + scale + "d", microsecond / (long) Math.pow(10, 6 - scale)));
         }
         return sb.toString();
     }
@@ -237,6 +239,11 @@ public class TimeV2Literal extends Literal {
             throw new AnalysisException("datetime out of range: " + dateTime.toString());
         }
         return new TimeV2Literal(dateTime.getHour(), dateTime.getMinute(), dateTime.getSecond(), 0, 0);
+    }
+
+    public LocalDateTime toJavaDateType() {
+        return LocalDateTime.of(0, 1, 1, ((int) getHour()), ((int) getMinute()), ((int) getSecond()),
+                (int) getMicroSecond() * 1000);
     }
 
     @Override

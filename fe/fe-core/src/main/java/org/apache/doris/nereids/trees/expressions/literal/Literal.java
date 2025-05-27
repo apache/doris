@@ -198,11 +198,6 @@ public abstract class Literal extends Expression implements LeafExpression {
                         String.format("%s can't cast to %s", desc, targetType));
             }
         }
-        if (getDataType().isTimeLikeType() && !(targetType.isStringType()
-                || targetType.isTimeLikeType() || targetType.isVariantType())) {
-            throw new AnalysisException(
-                    String.format("can't cast %s to %s", getDataType(), targetType));
-        }
         return uncheckedCastTo(targetType);
     }
 

@@ -29,10 +29,10 @@ public class TimeV2Literal extends LiteralExpr {
     public static final TimeV2Literal PART_MIN = new TimeV2Literal(-838, 0, 0, 0, 0);
     public static final TimeV2Literal PART_MAX = new TimeV2Literal(838, 59, 59, 999999, 6);
 
-    protected int hour;
-    protected int minute;
-    protected int second;
-    protected int microsecond;
+    protected long hour;
+    protected long minute;
+    protected long second;
+    protected long microsecond;
     protected boolean negative;
 
     /**
@@ -57,23 +57,23 @@ public class TimeV2Literal extends LiteralExpr {
         this.type = ScalarType.createTimeV2Type(6);
         this.negative = 1.0 / value < 0;
         long v = (long) Math.abs(value);
-        this.microsecond = (int) (v % 1000000);
+        this.microsecond = (long) (v % 1000000);
         v /= 1000000;
-        this.second = (int) (v % 60);
+        this.second = (long) (v % 60);
         v /= 60;
-        this.minute = (int) (v % 60);
+        this.minute = (long) (v % 60);
         v /= 60;
-        this.hour = (int) v;
+        this.hour = (long) v;
         analysisDone();
     }
 
-    public TimeV2Literal(int hour, int minute, int second, int microsecond, int scale) throws AnalysisException {
+    public TimeV2Literal(long hour, long minute, long second, long microsecond, int scale) throws AnalysisException {
         super();
         this.type = ScalarType.createTimeV2Type(scale);
         this.hour = Math.abs(hour);
         this.minute = minute;
         this.second = second;
-        this.microsecond = (int) (microsecond / Math.pow(10, 6 - scale)) * (int) Math.pow(10, 6 - scale);
+        this.microsecond = (long) (microsecond / Math.pow(10, 6 - scale)) * (long) Math.pow(10, 6 - scale);
         while (microsecond != 0 && this.microsecond < 100000) {
             this.microsecond *= 10;
         }
@@ -98,6 +98,7 @@ public class TimeV2Literal extends LiteralExpr {
         this.minute = other.getMinute();
         this.second = other.getSecond();
         this.microsecond = other.getMicroSecond();
+        this.negative = other.isNegative();
     }
 
     @Override
@@ -111,7 +112,11 @@ public class TimeV2Literal extends LiteralExpr {
         if (s.charAt(0) == '-') {
             s = s.substring(1);
             negative = true;
+        } else if (s.charAt(0) == '+') {
+            s = s.substring(1);
+            negative = false;
         }
+        // just a number
         if (!s.contains(":")) {
             String tail = "";
             if (s.contains(".")) {
@@ -158,37 +163,33 @@ public class TimeV2Literal extends LiteralExpr {
         } catch (NumberFormatException e) {
             throw new AnalysisException("Invalid minute format", e);
         }
-
-        String[] secondParts = parts[2].split("\\.");
-        if (secondParts.length > 2) {
-            throw new AnalysisException("Invalid second format");
+        int scale = ((ScalarType) type).getScalarScale();
+        // if parts[2] is 60.000 it will cause judge feed execute error
+        if (parts[2].startsWith("60")) {
+            throw new AnalysisException("second out of range");
         }
-
+        double secPart;
         try {
-            second = Integer.parseInt(secondParts[0]);
+            secPart = Double.parseDouble(parts[2]);
         } catch (NumberFormatException e) {
             throw new AnalysisException("Invalid second format", e);
         }
-
-        if (((ScalarType) type).getScalarScale() != 0 && secondParts.length == 2) {
-            String microStr = secondParts[1];
-            int len = microStr.length();
-
-            microStr = microStr.substring(0, Math.min(len, ((ScalarType) type).getScalarScale()));
-
-            StringBuilder sb = new StringBuilder(microStr);
-            while (sb.length() < 6) {
-                sb.append('0');
-            }
-
-            try {
-                microsecond = Integer.parseInt(sb.toString());
-            } catch (NumberFormatException e) {
-                throw new AnalysisException("Invalid microsecond format", e);
+        secPart = secPart * (long) Math.pow(10, scale);
+        secPart = Math.round(secPart);
+        secPart = (long) secPart * (long) Math.pow(10, 6 - scale);
+        second = (long) secPart / 1000000;
+        if (scale != 0) {
+            microsecond = (long) secPart % 1000000;
+            if (second == 60) {
+                minute += 1;
+                second -= 60;
+                if (minute == 60) {
+                    hour += 1;
+                    minute -= 60;
+                }
             }
         } else {
             microsecond = 0;
-            this.type = ScalarType.createTimeV2Type(0);
         }
 
         if (checkRange(hour, minute, second, microsecond)) {
@@ -209,7 +210,6 @@ public class TimeV2Literal extends LiteralExpr {
 
     @Override
     public boolean isMinValue() {
-        // MAX_TIME and MIN_TIME just store every part min max value, so real time min is -MAX_TIME.getValue()
         return getValue() == -PART_MAX.getValue();
     }
 
@@ -231,30 +231,34 @@ public class TimeV2Literal extends LiteralExpr {
         }
         int scale = ((ScalarType) type).getScalarScale();
         if (scale > 0) {
-            sb.append(String.format(".%0" + scale + "d", microsecond / (int) Math.pow(10, 6 - scale)));
+            sb.append(String.format(".%0" + scale + "d", microsecond / (long) Math.pow(10, 6 - scale)));
         }
         return sb.toString();
     }
 
-    protected static boolean checkRange(int hour, int minute, int second, int microsecond) {
+    protected static boolean checkRange(long hour, long minute, long second, long microsecond) {
         return hour > 838 || minute > 59 || second > 59 || hour < 0 || minute < 0 || second < 0
                 || microsecond > 999999 || microsecond < 0;
     }
 
-    public int getHour() {
+    public long getHour() {
         return hour;
     }
 
-    public int getMinute() {
+    public long getMinute() {
         return minute;
     }
 
-    public int getSecond() {
+    public long getSecond() {
         return second;
     }
 
-    public int getMicroSecond() {
+    public long getMicroSecond() {
         return microsecond;
+    }
+
+    public boolean isNegative() {
+        return negative;
     }
 
     public double getValue() {

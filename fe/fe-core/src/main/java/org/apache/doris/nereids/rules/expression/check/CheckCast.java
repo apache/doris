@@ -126,11 +126,6 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         if (originalType.isObjectType() || targetType.isObjectType()) {
             return false;
         }
-        // only allowed time cast to [string, time, variant]
-        if (originalType.isTimeLikeType() && !(targetType.isStringLikeType()
-                || targetType.isTimeLikeType() || targetType.isVariantType())) {
-            return false;
-        }
         if (targetType.isNullType()) {
             return false;
         }
