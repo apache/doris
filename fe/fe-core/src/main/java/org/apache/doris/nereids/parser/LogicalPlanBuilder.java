@@ -607,6 +607,7 @@ import org.apache.doris.nereids.trees.plans.commands.CreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateProcedureCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateRepositoryCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateResourceCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateSqlBlockRuleCommand;
@@ -6832,6 +6833,35 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             ctx.IF() != null,
                 new DbName(catalogName, databaseName),
             Maps.newHashMap(properties));
+    }
+
+    @Override
+    public LogicalPlan visitCreateRepository(DorisParser.CreateRepositoryContext ctx) {
+        String name = stripQuotes(ctx.name.getText());
+        String location = stripQuotes(ctx.storageBackend().STRING_LITERAL().getText());
+
+        String storageName = "";
+        if (ctx.storageBackend().brokerName != null) {
+            storageName = stripQuotes(ctx.storageBackend().brokerName.getText());
+        }
+
+        Map<String, String> properties = visitPropertyClause(ctx.storageBackend().properties);
+
+        StorageBackend.StorageType storageType = null;
+        if (ctx.storageBackend().BROKER() != null) {
+            storageType = StorageBackend.StorageType.BROKER;
+        } else if (ctx.storageBackend().S3() != null) {
+            storageType = StorageBackend.StorageType.S3;
+        } else if (ctx.storageBackend().HDFS() != null) {
+            storageType = StorageBackend.StorageType.HDFS;
+        } else if (ctx.storageBackend().LOCAL() != null) {
+            storageType = StorageBackend.StorageType.LOCAL;
+        }
+
+        return new CreateRepositoryCommand(
+            ctx.READ() != null,
+            name,
+                new StorageBackend(storageName, location, storageType, Maps.newHashMap(properties)));
     }
 
     @Override
