@@ -525,11 +525,13 @@ Status VectorizedFnCall::evaluate_ann_range_search(
             DCHECK(virtual_column_iterator != nullptr);
             // Now convert distance to column
             size_t size = result.roaring->cardinality();
-            // TODO: need to consider nullable column.
-            auto distance_col = ColumnFloat32::create();
-
-            distance_col->insert_many_raw_data(reinterpret_cast<char*>(result.distance.get()),
-                                               size);
+            auto distance_col = ColumnFloat64::create(size);
+            // float* -> double*，需要逐个转换
+            const float* src = reinterpret_cast<const float*>(result.distance.get());
+            double* dst = distance_col->get_data().data();
+            for (size_t i = 0; i < size; ++i) {
+                dst[i] = static_cast<double>(src[i]);
+            }
             virtual_column_iterator->prepare_materialization(std::move(distance_col),
                                                              std::move(result.row_ids));
         } else {

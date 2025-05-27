@@ -59,7 +59,7 @@ Status AnnIndexColumnWriter::init() {
     _vector_index = nullptr;
     const auto& properties = _index_meta->properties();
     const std::string index_type = get_or_default(properties, INDEX_TYPE, "hnsw");
-    const std::string metric_type = get_or_default(properties, METRIC_TYPE, "l2");
+    const std::string metric_type = get_or_default(properties, METRIC_TYPE, "l2_distance");
     const std::string quantilizer = get_or_default(properties, QUANTILIZER, "flat");
     FaissBuildParameter builderParameter;
     std::shared_ptr<FaissVectorIndex> faiss_index = std::make_shared<FaissVectorIndex>();

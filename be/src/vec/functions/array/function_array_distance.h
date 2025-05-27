@@ -96,9 +96,8 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        LOG_INFO("Function {} is executed with {} rows, stack {}", get_name(), input_rows_count,
-                 doris::get_stack_trace());
-
+        // LOG_INFO("Function {} is executed with {} rows, stack {}", get_name(), input_rows_count,
+        //          doris::get_stack_trace());
         const auto& arg1 = block.get_by_position(arguments[0]);
         const auto& arg2 = block.get_by_position(arguments[1]);
         if (!_check_input_type(arg1.type) || !_check_input_type(arg2.type)) {
