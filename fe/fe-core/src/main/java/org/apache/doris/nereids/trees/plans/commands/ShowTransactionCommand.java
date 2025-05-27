@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Like;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -127,10 +128,6 @@ public class ShowTransactionCommand extends ShowCommand {
     }
 
     private boolean analyzeWhereClause() throws AnalysisException {
-        if (expr == null) {
-            return true;
-        }
-
         if (!(expr instanceof EqualTo || expr instanceof Like)) {
             return false;
         }
@@ -140,12 +137,13 @@ public class ShowTransactionCommand extends ShowCommand {
         }
 
         String leftKey = ((UnboundSlot) expr.child(0)).getName();
-        if (leftKey.equalsIgnoreCase("id") && (expr.child(1) instanceof IntegerLikeLiteral)) {
-            txnId = ((IntegerLikeLiteral) expr.child(1)).getLongValue();
-        } else if (leftKey.equalsIgnoreCase("label") && (expr.child(1) instanceof StringLiteral)) {
-            label = ((StringLiteral) expr.child(1)).getStringValue();
-        } else if (leftKey.equalsIgnoreCase("status") && (expr.child(1) instanceof StringLiteral)) {
-            String txnStatus = ((StringLiteral) expr.child(1)).getStringValue();
+        Expression right = expr.child(1);
+        if (leftKey.equalsIgnoreCase("id") && (right instanceof IntegerLikeLiteral)) {
+            txnId = ((IntegerLikeLiteral) right).getLongValue();
+        } else if (leftKey.equalsIgnoreCase("label") && (right instanceof StringLikeLiteral)) {
+            label = ((StringLikeLiteral) right).getStringValue();
+        } else if (leftKey.equalsIgnoreCase("status") && (right instanceof StringLiteral)) {
+            String txnStatus = ((StringLiteral) right).getStringValue();
             try {
                 status = TransactionStatus.valueOf(txnStatus.toUpperCase());
             } catch (Exception e) {
