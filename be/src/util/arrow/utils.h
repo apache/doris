@@ -55,15 +55,14 @@ namespace doris {
         }                                     \
     } while (false)
 
-#define RETURN_ARROW_STATUS_IF_CATCH_EXCEPTION(stmt)                                             \
-    do {                                                                                         \
-        try {                                                                                    \
-            arrow::Status _status_ = (stmt);                                                     \
-            return _status_;                                                                     \
-        } catch (const doris::Exception& e) {                                                    \
-            ARROW_RETURN_NOT_OK(to_arrow_status(Status::Error<false>(e.code(), e.to_string()))); \
-            return arrow::Status::OK();                                                          \
-        }                                                                                        \
+#define RETURN_ARROW_STATUS_IF_CATCH_EXCEPTION(stmt)                               \
+    do {                                                                           \
+        try {                                                                      \
+            arrow::Status _status_ = (stmt);                                       \
+            return _status_;                                                       \
+        } catch (const doris::Exception& e) {                                      \
+            return to_arrow_status(Status::Error<false>(e.code(), e.to_string())); \
+        }                                                                          \
     } while (0)
 
 // Pretty print a arrow RecordBatch.
