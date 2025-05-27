@@ -17,6 +17,33 @@
 
 suite("test_upgrade_downgrade_olap_mtmv_zfr","p0,mtmv,restart_fe") {
 
+    def waitingMTMVTaskByMvName = { mvName, dbName ->
+        Thread.sleep(2000);
+        String showTasks = "select TaskId,JobId,JobName,MvId,Status,MvName,MvDatabaseName,ErrorMsg from tasks('type'='mv') where MvDatabaseName = '${dbName}' and MvName = '${mvName}' order by CreateTime ASC"
+        String status = "NULL"
+        List<List<Object>> result
+        long startTime = System.currentTimeMillis()
+        long timeoutTimestamp = startTime + 5 * 60 * 1000 // 5 min
+        List<String> toCheckTaskRow = new ArrayList<>();
+        while (timeoutTimestamp > System.currentTimeMillis() && (status == 'PENDING' || status == 'RUNNING' || status == 'NULL')) {
+            result = sql(showTasks)
+            logger.info("current db is " + dbName + ", showTasks is " + result.toString())
+            if (result.isEmpty()) {
+                logger.info("waitingMTMVTaskFinishedByMvName toCheckTaskRow is empty")
+                Thread.sleep(1000);
+                continue;
+            }
+            toCheckTaskRow = result.last();
+            status = toCheckTaskRow.get(4)
+            logger.info("The state of ${showTasks} is ${status}")
+            Thread.sleep(1000);
+        }
+//        if (status != "SUCCESS") {
+//            logger.info("status is not success")
+//        }
+//        Assert.assertEquals("SUCCESS", status)
+    }
+
     String suiteName = "mtmv_up_down_olap"
     String dbName = context.config.getDbNameByFile(context.file)
 
@@ -284,7 +311,7 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr","p0,mtmv,restart_fe") {
         }
 
         sql """refresh MATERIALIZED VIEW ${mtmvName4} auto;"""
-        waitingMTMVTaskFinishedByMvName(mtmvName4)
+        waitingMTMVTaskByMvName(mtmvName4, dbName)
         state_mtmv4 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName4}';"""
         assertTrue(state_mtmv4[0][0] == "NORMAL")
         assertTrue(state_mtmv4[0][1] == "SUCCESS")
@@ -320,7 +347,7 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr","p0,mtmv,restart_fe") {
         }
 
         sql """refresh MATERIALIZED VIEW ${mtmvName4} auto;"""
-        waitingMTMVTaskFinishedByMvName(mtmvName4)
+        waitingMTMVTaskByMvName(mtmvName4, dbName)
         state_mtmv4 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName4}';"""
         assertTrue(state_mtmv4[0][0] == "SCHEMA_CHANGE")
         assertTrue(state_mtmv4[0][1] == "FAIL")
