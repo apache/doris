@@ -328,10 +328,7 @@ WrapperType prepare_impl(FunctionContext* context, const DataTypePtr& origin_fro
         if constexpr (std::is_same_v<ToDataType, DataTypeUInt8>) {
             ret = create_boolean_wrapper(context, from_type);
             return true;
-        } else if constexpr (std::is_same_v<ToDataType, DataTypeUInt16> ||
-                             std::is_same_v<ToDataType, DataTypeUInt32> ||
-                             std::is_same_v<ToDataType, DataTypeUInt64> ||
-                             std::is_same_v<ToDataType, DataTypeInt8> ||
+        } else if constexpr (std::is_same_v<ToDataType, DataTypeInt8> ||
                              std::is_same_v<ToDataType, DataTypeInt16> ||
                              std::is_same_v<ToDataType, DataTypeInt32> ||
                              std::is_same_v<ToDataType, DataTypeInt64> ||
