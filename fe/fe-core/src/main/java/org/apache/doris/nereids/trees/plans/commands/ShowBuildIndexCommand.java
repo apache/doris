@@ -37,7 +37,7 @@ import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Not;
-import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.types.DateTimeType;
@@ -183,12 +183,12 @@ public class ShowBuildIndexCommand extends ShowCommand {
         if (leftKey.equalsIgnoreCase("tablename")
                 || leftKey.equalsIgnoreCase("state")
                 || leftKey.equalsIgnoreCase("partitionname")) {
-            if (!(expr.child(1) instanceof StringLiteral) || !(expr instanceof EqualTo)) {
+            if (!(expr.child(1) instanceof StringLikeLiteral) || !(expr instanceof EqualTo)) {
                 throw new AnalysisException("Where clause : TableName = \"table1\" or "
                     + "State = \"FINISHED|CANCELLED|RUNNING|PENDING|WAITING_TXN\"");
             }
         } else if (leftKey.equalsIgnoreCase("createtime") || leftKey.equalsIgnoreCase("finishtime")) {
-            if (!(expr.child(1) instanceof StringLiteral)) {
+            if (!(expr.child(1) instanceof StringLikeLiteral)) {
                 throw new AnalysisException("Where clause : CreateTime/FinishTime =|>=|<=|>|<|!= "
                     + "\"2019-12-02|2019-12-02 14:54:00\"");
             }
