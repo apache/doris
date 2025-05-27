@@ -161,19 +161,21 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
                 throw new AnalysisException("disable_load_job is set to true, all load jobs are prevented");
             }
 
+            long validTimeoutSecond = timeoutSecond;
+
             switch (sourceType) {
                 case BACKEND_STREAMING:
-                    checkValidTimeoutSecond(timeoutSecond, Config.max_stream_load_timeout_second,
+                    validTimeoutSecond = checkValidTimeoutSecond(timeoutSecond, Config.max_stream_load_timeout_second,
                             Config.min_load_timeout_second);
                     break;
                 default:
-                    checkValidTimeoutSecond(timeoutSecond, Config.max_load_timeout_second,
+                    validTimeoutSecond = checkValidTimeoutSecond(timeoutSecond, Config.max_load_timeout_second,
                             Config.min_load_timeout_second);
             }
 
             DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(dbId);
             return dbTransactionMgr.beginTransaction(tableIdList, label, requestId,
-                coordinator, sourceType, listenerId, timeoutSecond);
+                    coordinator, sourceType, listenerId, validTimeoutSecond);
         } catch (DuplicatedRequestException e) {
             throw e;
         } catch (Exception e) {
