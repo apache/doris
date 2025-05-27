@@ -52,6 +52,14 @@ public class ConfigBaseTest {
         Assert.assertThrows("no such env variable", Exception.class,
                 () -> replacedByEnvMethod.invoke(configBase, properties));
 
+        // format: $env, get value from system env
+        envName = "DORIS_HOME_key_123_env";
+        System.getenv().put(envName, "test_dir_env");
+
+        properties.setProperty(confKeyName, "$" + envName + "/conf");
+        replacedByEnvMethod.invoke(configBase, properties);
+        Assert.assertEquals("test_dir_env/conf", properties.getProperty(confKeyName));
+
     }
 
 }
