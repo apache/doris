@@ -96,7 +96,7 @@ TEST_F(UnionOperatorTest, test_all_const_expr) {
     LocalStateInfo info {.parent_profile = &profile,
                          .scan_ranges = {},
                          .shared_state = nullptr,
-                         .le_state_map = {},
+                         .shared_state_map = {},
                          .task_idx = 0};
     EXPECT_TRUE(source_local_state->init(state.get(), info));
     state->resize_op_id_to_local_state(-100);
@@ -190,7 +190,7 @@ TEST_F(UnionOperatorTest, test_sink_and_source) {
         LocalStateInfo info {.parent_profile = &profile,
                              .scan_ranges = {},
                              .shared_state = shared_state.get(),
-                             .le_state_map = {},
+                             .shared_state_map = {},
                              .task_idx = 0};
         EXPECT_TRUE(source_local_state->init(state.get(), info));
         state->resize_op_id_to_local_state(-100);
@@ -209,7 +209,7 @@ TEST_F(UnionOperatorTest, test_sink_and_source) {
                                      .parent_profile = &profile,
                                      .sender_id = 0,
                                      .shared_state = shared_state.get(),
-                                     .le_state_map = {},
+                                     .shared_state_map = {},
                                      .tsink = TDataSink {}};
             EXPECT_TRUE(sink_local_state->init(sink_state[i].get(), info));
             sink_state[i]->resize_op_id_to_local_state(-100);

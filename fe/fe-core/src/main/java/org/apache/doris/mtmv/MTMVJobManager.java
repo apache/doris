@@ -52,6 +52,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * when do some operation, do something about job
@@ -144,7 +145,7 @@ public class MTMVJobManager implements MTMVHookService {
     }
 
     @Override
-    public void deregisterMTMV(MTMV mtmv) {
+    public void unregisterMTMV(MTMV mtmv) {
 
     }
 
@@ -189,7 +190,7 @@ public class MTMVJobManager implements MTMVHookService {
     }
 
     @Override
-    public void alterTable(Table table, String oldTableName) {
+    public void alterTable(BaseTableInfo oldTableInfo, Optional<BaseTableInfo> newTableInfo, boolean isReplace) {
 
     }
 

@@ -26,7 +26,6 @@
 #include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "gutil/integral_types.h"
 #include "vec/core/types.h"
 #include "vec/functions/function_binary_arithmetic.h"
 #include "vec/functions/simple_function_factory.h"
@@ -43,9 +42,9 @@ struct NameBitShiftRight {
 
 template <typename A, typename B>
 struct BitShiftLeftImpl {
-    using ResultType = typename NumberTraits::ResultOfBit<A, B>::Type;
+    static constexpr PrimitiveType ResultType = NumberTraits::ResultOfBit<A, B>::Type;
 
-    template <typename Result = ResultType>
+    template <typename Result = typename PrimitiveTypeTraits<ResultType>::CppType>
     static inline Result apply(A a, B b) {
         if constexpr (!std::is_same_v<A, Int64> || !std::is_same_v<B, Int8>) {
             throw Exception(ErrorCode::NOT_FOUND,
@@ -63,9 +62,9 @@ struct BitShiftLeftImpl {
 
 template <typename A, typename B>
 struct BitShiftRightImpl {
-    using ResultType = typename NumberTraits::ResultOfBit<A, B>::Type;
+    static constexpr PrimitiveType ResultType = NumberTraits::ResultOfBit<A, B>::Type;
 
-    template <typename Result = ResultType>
+    template <typename Result = typename PrimitiveTypeTraits<ResultType>::CppNativeType>
     static inline Result apply(A a, B b) {
         if constexpr (!std::is_same_v<A, Int64> || !std::is_same_v<B, Int8>) {
             throw Exception(ErrorCode::NOT_FOUND,

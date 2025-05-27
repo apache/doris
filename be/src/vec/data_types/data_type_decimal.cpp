@@ -42,11 +42,64 @@
 #include "vec/common/typeid_cast.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_factory.hpp"
+#include "vec/data_types/data_type_map.h"
+#include "vec/data_types/data_type_nullable.h"
+#include "vec/data_types/data_type_struct.h"
 #include "vec/io/io_helper.h"
 #include "vec/io/reader_buffer.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
+
+DataTypePtr get_data_type_with_default_argument(DataTypePtr type) {
+    auto transform = [&](DataTypePtr t) -> DataTypePtr {
+        if (t->get_primitive_type() == PrimitiveType::TYPE_DECIMALV2) {
+            auto res = DataTypeFactory::instance().create_data_type(
+                    TYPE_DECIMALV2, t->is_nullable(), BeConsts::MAX_DECIMALV2_PRECISION,
+                    BeConsts::MAX_DECIMALV2_SCALE);
+            DCHECK_EQ(res->get_scale(), BeConsts::MAX_DECIMALV2_SCALE);
+            return res;
+        } else if (is_string_type(t->get_primitive_type()) ||
+                   t->get_primitive_type() == PrimitiveType::TYPE_BINARY ||
+                   t->get_primitive_type() == PrimitiveType::TYPE_LAMBDA_FUNCTION) {
+            return DataTypeFactory::instance().create_data_type(TYPE_STRING, t->is_nullable());
+        } else {
+            return t;
+        }
+    };
+    // FIXME(gabriel): DECIMALV2 should be processed in a more general way.
+    if (type->get_primitive_type() == PrimitiveType::TYPE_ARRAY) {
+        auto nested = std::make_shared<DataTypeArray>(get_data_type_with_default_argument(
+                assert_cast<const DataTypeArray*>(remove_nullable(type).get())->get_nested_type()));
+        return type->is_nullable() ? make_nullable(nested) : nested;
+    } else if (type->get_primitive_type() == PrimitiveType::TYPE_MAP) {
+        auto nested = std::make_shared<DataTypeMap>(
+                get_data_type_with_default_argument(
+                        assert_cast<const DataTypeMap*>(remove_nullable(type).get())
+                                ->get_key_type()),
+                get_data_type_with_default_argument(
+                        assert_cast<const DataTypeMap*>(remove_nullable(type).get())
+                                ->get_value_type()));
+        return type->is_nullable() ? make_nullable(nested) : nested;
+    } else if (type->get_primitive_type() == PrimitiveType::TYPE_STRUCT) {
+        std::vector<DataTypePtr> data_types;
+        std::vector<std::string> names;
+        const auto* type_struct = assert_cast<const DataTypeStruct*>(remove_nullable(type).get());
+        data_types.reserve(type_struct->get_elements().size());
+        names.reserve(type_struct->get_elements().size());
+        for (size_t i = 0; i < type_struct->get_elements().size(); i++) {
+            data_types.push_back(get_data_type_with_default_argument(type_struct->get_element(i)));
+            names.push_back(type_struct->get_element_name(i));
+        }
+        auto nested = std::make_shared<DataTypeStruct>(data_types, names);
+        return type->is_nullable() ? make_nullable(nested) : nested;
+    } else {
+        return transform(type);
+    }
+}
+
 template <typename T>
 std::string DataTypeDecimal<T>::do_get_name() const {
     std::stringstream ss;
@@ -281,7 +334,20 @@ void DataTypeDecimal<T>::to_pb_column_meta(PColumnMeta* col_meta) const {
 
 template <typename T>
 Field DataTypeDecimal<T>::get_default() const {
-    return DecimalField(T(), scale);
+    if constexpr (std::is_same_v<T, Decimal32>) {
+        return Field::create_field<TYPE_DECIMAL32>(DecimalField<Decimal32>(Decimal32(), scale));
+    } else if constexpr (std::is_same_v<T, Decimal64>) {
+        return Field::create_field<TYPE_DECIMAL64>(DecimalField<Decimal64>(Decimal64(), scale));
+    } else if constexpr (std::is_same_v<T, Decimal128V2>) {
+        return Field::create_field<TYPE_DECIMALV2>(
+                DecimalField<Decimal128V2>(Decimal128V2(), scale));
+    } else if constexpr (std::is_same_v<T, Decimal128V3>) {
+        return Field::create_field<TYPE_DECIMAL128I>(
+                DecimalField<Decimal128V3>(Decimal128V3(), scale));
+    } else if constexpr (std::is_same_v<T, Decimal256>) {
+        return Field::create_field<TYPE_DECIMAL256>(DecimalField<Decimal256>(Decimal256(), scale));
+    }
+    throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT, "Invalid type {}", do_get_name());
 }
 template <typename T>
 MutableColumnPtr DataTypeDecimal<T>::create_column() const {

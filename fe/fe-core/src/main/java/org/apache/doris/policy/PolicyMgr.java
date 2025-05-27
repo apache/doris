@@ -18,8 +18,6 @@
 package org.apache.doris.policy;
 
 import org.apache.doris.analysis.AlterPolicyStmt;
-import org.apache.doris.analysis.CompoundPredicate;
-import org.apache.doris.analysis.CreatePolicyStmt;
 import org.apache.doris.analysis.DropPolicyStmt;
 import org.apache.doris.analysis.ShowPolicyStmt;
 import org.apache.doris.analysis.ShowStoragePolicyUsingStmt;
@@ -47,7 +45,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
-import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -115,13 +112,6 @@ public class PolicyMgr implements Writable {
             writeUnlock();
         }
         LOG.info("Create default storage success.");
-    }
-
-    /**
-     * Create policy through stmt.
-     **/
-    public void createPolicy(CreatePolicyStmt stmt) throws UserException {
-        createPolicy(Policy.fromCreateStmt(stmt), stmt.isIfNotExists());
     }
 
     public void createPolicy(Policy policy, boolean isIfNotExists) throws UserException {
@@ -376,17 +366,6 @@ public class PolicyMgr implements Writable {
         typeToPolicyMap.put(log.getType(), policies);
     }
 
-    /**
-     * Match row policy and return it.
-     **/
-    public RowPolicy getMatchTablePolicy(String ctlName, String dbName, String tableName, UserIdentity user) {
-        List<RowPolicy> res = getUserPolicies(ctlName, dbName, tableName, user);
-        if (CollectionUtils.isEmpty(res)) {
-            return null;
-        }
-        return mergeRowPolicies(res);
-    }
-
     public List<RowPolicy> getUserPolicies(String ctlName, String dbName, String tableName, UserIdentity user) {
         List<RowPolicy> res = Lists.newArrayList();
         // Make a judgment in advance to reduce the number of times to obtain getRoles
@@ -418,40 +397,6 @@ public class PolicyMgr implements Writable {
         }
     }
 
-    private RowPolicy mergeRowPolicies(List<RowPolicy> policys) {
-        if (CollectionUtils.isEmpty(policys)) {
-            return null;
-        }
-        RowPolicy andPolicy = null;
-        RowPolicy orPolicy = null;
-        for (RowPolicy rowPolicy : policys) {
-            if (CompoundPredicate.Operator.AND.equals(rowPolicy.getFilterType().getOp())) {
-                if (andPolicy == null) {
-                    andPolicy = rowPolicy.clone();
-                } else {
-                    andPolicy.setWherePredicate(new CompoundPredicate(CompoundPredicate.Operator.AND,
-                            andPolicy.getWherePredicate(), rowPolicy.getWherePredicate()));
-                }
-            } else {
-                if (orPolicy == null) {
-                    orPolicy = rowPolicy;
-                } else {
-                    orPolicy.setWherePredicate(new CompoundPredicate(CompoundPredicate.Operator.OR,
-                            orPolicy.getWherePredicate(), rowPolicy.getWherePredicate()));
-                }
-            }
-        }
-        if (andPolicy == null) {
-            return orPolicy;
-        }
-        if (orPolicy == null) {
-            return andPolicy;
-        }
-        andPolicy.setWherePredicate(new CompoundPredicate(CompoundPredicate.Operator.AND, andPolicy.getWherePredicate(),
-                orPolicy.getWherePredicate()));
-        return andPolicy;
-    }
-
     private ShowResultSet getShowPolicy(Policy finalCheckedPolicy, PolicyTypeEnum type) throws AnalysisException {
         List<List<String>> rows = Lists.newArrayList();
         readLock();
@@ -477,6 +422,24 @@ public class PolicyMgr implements Writable {
         } finally {
             readUnlock();
         }
+    }
+
+
+
+    /**
+     * Show Row Policy.
+     **/
+    public ShowResultSet showRowPolicy(UserIdentity user, String role) throws AnalysisException {
+        RowPolicy rowPolicy = new RowPolicy();
+        if (user != null) {
+            rowPolicy.setUser(user);
+        }
+        if (!StringUtils.isEmpty(role)) {
+            rowPolicy.setRoleName(role);
+        }
+
+        final Policy finalCheckedPolicy = rowPolicy;
+        return getShowPolicy(finalCheckedPolicy, PolicyTypeEnum.ROW);
     }
 
     /**
@@ -744,13 +707,11 @@ public class PolicyMgr implements Writable {
         }
     }
 
-    /**
-     * Alter policy by stmt.
+    /*
+     * Alter policy by policyName and properties.
      **/
-    public void alterPolicy(AlterPolicyStmt stmt) throws DdlException, AnalysisException {
-        String storagePolicyName = stmt.getPolicyName();
-        Map<String, String> properties = stmt.getProperties();
-
+    public void alterPolicy(String storagePolicyName, Map<String, String> properties)
+                throws DdlException, AnalysisException {
         if (findPolicy(storagePolicyName, PolicyTypeEnum.ROW).isPresent()) {
             throw new DdlException("Current not support alter row policy");
         }
@@ -770,6 +731,13 @@ public class PolicyMgr implements Writable {
         }
         AgentTaskExecutor.submit(batchTask);
         LOG.info("Alter storage policy success. policy: {}", storagePolicy);
+    }
+
+    /*
+     * Alter policy by stmt.
+     **/
+    public void alterPolicy(AlterPolicyStmt stmt) throws DdlException, AnalysisException {
+        alterPolicy(stmt.getPolicyName(), stmt.getProperties());
     }
 
     /**

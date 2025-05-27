@@ -37,7 +37,6 @@
 #include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_writer_context.h"
 #include "util/slice.h"
-#include "util/spinlock.h"
 #include "vec/core/block.h"
 
 namespace doris {

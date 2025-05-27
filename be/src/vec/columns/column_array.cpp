@@ -133,7 +133,7 @@ Field ColumnArray::operator[](size_t n) const {
 
     for (size_t i = 0; i < size; ++i) res[i] = get_data()[offset + i];
 
-    return res;
+    return Field::create_field<TYPE_ARRAY>(res);
 }
 
 void ColumnArray::get(size_t n, Field& res) const {
@@ -146,7 +146,7 @@ void ColumnArray::get(size_t n, Field& res) const {
                                "single field, maximum size {}",
                                size, n, max_array_size_as_field);
 
-    res = Array(size);
+    res = Field::create_field<TYPE_ARRAY>(Array(size));
     Array& res_arr = doris::vectorized::get<Array&>(res);
 
     for (size_t i = 0; i < size; ++i) get_data().get(offset + i, res_arr[i]);
@@ -312,9 +312,9 @@ void ColumnArray::update_crcs_with_value(uint32_t* __restrict hash, PrimitiveTyp
 }
 
 void ColumnArray::insert(const Field& x) {
-    DCHECK_EQ(x.get_type(), Field::Types::Array);
+    DCHECK_EQ(x.get_type(), PrimitiveType::TYPE_ARRAY);
     if (x.is_null()) {
-        get_data().insert(Null());
+        get_data().insert(Field::create_field<TYPE_NULL>(Null()));
         get_offsets().push_back(get_offsets().back() + 1);
     } else {
         const auto& array = doris::vectorized::get<const Array&>(x);
@@ -1064,6 +1064,24 @@ ColumnPtr ColumnArray::permute(const Permutation& perm, size_t limit) const {
         res->data = data->permute(nested_perm, nested_perm.size());
     }
     return res;
+}
+
+void ColumnArray::erase(size_t start, size_t length) {
+    if (start >= size() || length == 0) {
+        return;
+    }
+    length = std::min(length, size() - start);
+
+    const auto& offsets_data = get_offsets();
+    auto data_start = offsets_data[start - 1];
+    auto data_end = offsets_data[start + length - 1];
+    auto data_length = data_end - data_start;
+    data->erase(data_start, data_length);
+    offsets->erase(start, length);
+
+    for (auto i = start; i < size(); ++i) {
+        get_offsets()[i] -= data_length;
+    }
 }
 
 } // namespace doris::vectorized

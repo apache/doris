@@ -56,7 +56,7 @@ Status FunctionMatchBase::evaluate_inverted_index(
         // if query value is null, skip evaluate inverted index
         return Status::OK();
     }
-    auto param_type = arguments[0].type->get_type_as_type_descriptor().type;
+    auto param_type = arguments[0].type->get_primitive_type();
     if (!is_string_type(param_type)) {
         return Status::Error<ErrorCode::INVERTED_INDEX_INVALID_PARAMETERS>(
                 "arguments for match must be string");
@@ -235,7 +235,7 @@ Status FunctionMatchBase::check(FunctionContext* context, const std::string& fun
 
     DBUG_EXECUTE_IF("match.invert_index_not_support_execute_match", {
         return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
-                "{} not support execute_match", function_name);
+                "debug point: {} not support execute_match", function_name);
     });
 
     return Status::OK();

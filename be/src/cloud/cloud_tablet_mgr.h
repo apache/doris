@@ -33,6 +33,7 @@ class CloudTablet;
 class CloudStorageEngine;
 class LRUCachePolicy;
 class CountDownLatch;
+struct SyncRowsetStats;
 
 using CloudTabletSPtr = std::shared_ptr<CloudTablet>;
 
@@ -46,7 +47,9 @@ public:
     // If the tablet is in cache, return this tablet directly; otherwise will get tablet meta first,
     // sync rowsets after, and download segment data in background if `warmup_data` is true.
     Result<CloudTabletSPtr> get_tablet(int64_t tablet_id, bool warmup_data = false,
-                                       bool sync_delete_bitmap = true);
+                                                    bool sync_delete_bitmap = true,
+                                                    SyncRowsetStats* sync_stats = nullptr,
+                                                    bool force_use_cache = false);
 
     void erase_tablet(int64_t tablet_id);
 
@@ -87,6 +90,9 @@ public:
                                              uint64_t* max_base_rowset_delete_bitmap_score);
 
     std::vector<CloudTabletSPtr> get_all_tablet();
+
+    // **ATTN: JUST FOR UT**
+    void put_tablet_for_UT(std::shared_ptr<CloudTablet> tablet);
 
 private:
     CloudStorageEngine& _engine;

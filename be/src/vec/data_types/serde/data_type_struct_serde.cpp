@@ -111,6 +111,7 @@ Status DataTypeStructSerDe::deserialize_one_cell_from_json(IColumn& column, Slic
     char quote_char = 0;
 
     auto elem_size = elem_serdes_ptrs.size();
+    DCHECK_EQ(elem_size, elem_names.size());
     int field_pos = 0;
 
     for (; idx < slice_size; ++idx) {
@@ -138,6 +139,15 @@ Status DataTypeStructSerDe::deserialize_one_cell_from_json(IColumn& column, Slic
             next.trim_prefix();
             next.trim_quote();
             // check field_name
+            if (field_pos >= elem_size) {
+                // we should do column revert if error
+                for (size_t j = 0; j < field_pos; j++) {
+                    struct_column.get_column(j).pop_back(1);
+                }
+                return Status::InvalidArgument(
+                        "Actual struct field number is more than schema field number {}.",
+                        field_pos, elem_size);
+            }
             if (elem_names[field_pos] != next) {
                 // we should do column revert if error
                 for (size_t j = 0; j < field_pos; j++) {
@@ -260,6 +270,12 @@ Status DataTypeStructSerDe::deserialize_one_cell_from_hive_text(
         }
     }
     auto& struct_column = static_cast<ColumnStruct&>(column);
+
+    for (auto i = slices.size(); i < struct_column.get_columns().size(); ++i) {
+        // Hive schema change will cause the number of sub-columns in the file to
+        // be inconsistent with the number of sub-columns of the column in the table.
+        slices.emplace_back(options.null_format, options.null_len);
+    }
     for (size_t loc = 0; loc < struct_column.get_columns().size(); loc++) {
         Status st = elem_serdes_ptrs[loc]->deserialize_one_cell_from_hive_text(
                 struct_column.get_column(loc), slices[loc], options,
@@ -351,7 +367,8 @@ Status DataTypeStructSerDe::_write_column_to_mysql(const IColumn& column,
     bool begin = true;
     for (size_t j = 0; j < elem_serdes_ptrs.size(); ++j) {
         if (!begin) {
-            if (0 != result.push_string(", ", 2)) {
+            if (0 != result.push_string(options.mysql_collection_delim.c_str(),
+                                        options.mysql_collection_delim.size())) {
                 return Status::InternalError("pack mysql buffer failed.");
             }
         }

@@ -419,7 +419,8 @@ Status DataTypeMapSerDe::_write_column_to_mysql(const IColumn& column,
     const auto& offsets = map_column.get_offsets();
     for (auto j = offsets[col_index - 1]; j < offsets[col_index]; ++j) {
         if (j != offsets[col_index - 1]) {
-            if (0 != result.push_string(", ", 2)) {
+            if (0 != result.push_string(options.mysql_collection_delim.c_str(),
+                                        options.mysql_collection_delim.size())) {
                 return Status::InternalError("pack mysql buffer failed.");
             }
         }

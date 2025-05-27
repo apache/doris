@@ -18,6 +18,7 @@
 
 #include <brpc/channel.h>
 #include <brpc/controller.h>
+#include <brpc/errno.pb.h>
 #include <bthread/bthread.h>
 #include <bthread/condition_variable.h>
 #include <bthread/mutex.h>
@@ -385,9 +386,11 @@ Status retry_rpc(std::string_view op_name, const Request& req, Response* res,
         }
         cntl.set_max_retry(kBrpcRetryTimes);
         res->Clear();
+        int error_code = 0;
         (stub.get()->*method)(&cntl, &req, res, nullptr);
         if (cntl.Failed()) [[unlikely]] {
             error_msg = cntl.ErrorText();
+            error_code = cntl.ErrorCode();
             proxy->set_unhealthy();
         } else if (res->status().code() == MetaServiceCode::OK) {
             return Status::OK();
@@ -401,7 +404,12 @@ Status retry_rpc(std::string_view op_name, const Request& req, Response* res,
             error_msg = res->status().msg();
         }
 
-        if (++retry_times > config::meta_service_rpc_retry_times) {
+        ++retry_times;
+        if (retry_times > config::meta_service_rpc_retry_times ||
+            (retry_times > config::meta_service_rpc_timeout_retry_times &&
+             error_code == brpc::ERPCTIMEDOUT) ||
+            (retry_times > config::meta_service_conflict_error_retry_times &&
+             res->status().code() == MetaServiceCode::KV_TXN_CONFLICT)) {
             break;
         }
 
@@ -481,7 +489,16 @@ Status CloudMetaMgr::get_tablet_meta(int64_t tablet_id, TabletMetaSharedPtr* tab
     return Status::OK();
 }
 
-Status CloudMetaMgr::sync_tablet_rowsets(CloudTablet* tablet, const SyncOptions& options) {
+Status CloudMetaMgr::sync_tablet_rowsets(CloudTablet* tablet, const SyncOptions& options,
+                                         SyncRowsetStats* sync_stats) {
+    std::unique_lock lock {tablet->get_sync_meta_lock()};
+    return sync_tablet_rowsets_unlocked(tablet, lock, options, sync_stats);
+}
+
+Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
+                                                  std::unique_lock<bthread::Mutex>& lock,
+                                                  const SyncOptions& options,
+                                                  SyncRowsetStats* sync_stats) {
     using namespace std::chrono;
 
     TEST_SYNC_POINT_RETURN_WITH_VALUE("CloudMetaMgr::sync_tablet_rowsets", Status::OK(), tablet);
@@ -523,8 +540,9 @@ Status CloudMetaMgr::sync_tablet_rowsets(CloudTablet* tablet, const SyncOptions&
                                   ? GetRowsetRequest::NO_DICT
                                   : GetRowsetRequest::RETURN_DICT);
         VLOG_DEBUG << "send GetRowsetRequest: " << req.ShortDebugString();
-
+        auto start = std::chrono::steady_clock::now();
         stub->get_rowset(&cntl, &req, &resp, nullptr);
+        auto end = std::chrono::steady_clock::now();
         int64_t latency = cntl.latency_us();
         _get_rowset_latency << latency;
         int retry_times = config::meta_service_rpc_retry_times;
@@ -566,6 +584,12 @@ Status CloudMetaMgr::sync_tablet_rowsets(CloudTablet* tablet, const SyncOptions&
         int64_t now = duration_cast<seconds>(system_clock::now().time_since_epoch()).count();
         tablet->last_sync_time_s = now;
 
+        if (sync_stats) {
+            sync_stats->get_remote_rowsets_rpc_ns +=
+                    std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count();
+            sync_stats->get_remote_rowsets_num += resp.rowset_meta().size();
+        }
+
         // If is mow, the tablet has no delete bitmap in base rowsets.
         // So dont need to sync it.
         if (options.sync_delete_bitmap && tablet->enable_unique_key_merge_on_write() &&
@@ -574,9 +598,9 @@ Status CloudMetaMgr::sync_tablet_rowsets(CloudTablet* tablet, const SyncOptions&
             int64_t old_max_version = req.start_version() - 1;
             auto st = sync_tablet_delete_bitmap(tablet, old_max_version, resp.rowset_meta(),
                                                 resp.stats(), req.idx(), &delete_bitmap,
-                                                options.full_sync);
+                                                options.full_sync, sync_stats);
             if (st.is<ErrorCode::ROWSETS_EXPIRED>() && tried++ < retry_times) {
-                LOG_WARNING("rowset meta is expired, need to retry")
+                LOG_INFO("rowset meta is expired, need to retry")
                         .tag("tablet", tablet->tablet_id())
                         .tag("tried", tried)
                         .error(st);
@@ -590,6 +614,12 @@ Status CloudMetaMgr::sync_tablet_rowsets(CloudTablet* tablet, const SyncOptions&
             }
             tablet->tablet_meta()->delete_bitmap().merge(delete_bitmap);
         }
+        DBUG_EXECUTE_IF("CloudMetaMgr::sync_tablet_rowsets.before.modify_tablet_meta", {
+            auto target_tablet_id = dp->param<int64_t>("tablet_id", -1);
+            if (target_tablet_id == tablet->tablet_id()) {
+                DBUG_BLOCK
+            }
+        });
         {
             const auto& stats = resp.stats();
             std::unique_lock wlock(tablet->get_header_lock());
@@ -746,13 +776,17 @@ bool CloudMetaMgr::sync_tablet_delete_bitmap_by_cache(CloudTablet* tablet, int64
 Status CloudMetaMgr::sync_tablet_delete_bitmap(CloudTablet* tablet, int64_t old_max_version,
                                                std::ranges::range auto&& rs_metas,
                                                const TabletStatsPB& stats, const TabletIndexPB& idx,
-                                               DeleteBitmap* delete_bitmap, bool full_sync) {
+                                               DeleteBitmap* delete_bitmap, bool full_sync,
+                                               SyncRowsetStats* sync_stats) {
     if (rs_metas.empty()) {
         return Status::OK();
     }
 
     if (!full_sync &&
         sync_tablet_delete_bitmap_by_cache(tablet, old_max_version, rs_metas, delete_bitmap)) {
+        if (sync_stats) {
+            sync_stats->get_local_delete_bitmap_rowsets_num += rs_metas.size();
+        }
         return Status::OK();
     } else {
         DeleteBitmapPtr new_delete_bitmap = std::make_shared<DeleteBitmap>(tablet->tablet_id());
@@ -788,12 +822,15 @@ Status CloudMetaMgr::sync_tablet_delete_bitmap(CloudTablet* tablet, int64_t old_
             req.add_end_versions(new_max_version);
         }
     }
+    if (sync_stats) {
+        sync_stats->get_remote_delete_bitmap_rowsets_num += req.rowset_ids_size();
+    }
 
     VLOG_DEBUG << "send GetDeleteBitmapRequest: " << req.ShortDebugString();
 
-    auto start = std::chrono::high_resolution_clock::now();
+    auto start = std::chrono::steady_clock::now();
     auto st = retry_rpc("get delete bitmap", req, &res, &MetaService_Stub::get_delete_bitmap);
-    auto end = std::chrono::high_resolution_clock::now();
+    auto end = std::chrono::steady_clock::now();
     if (st.code() == ErrorCode::THRIFT_RPC_ERROR) {
         return st;
     }
@@ -839,6 +876,14 @@ Status CloudMetaMgr::sync_tablet_delete_bitmap(CloudTablet* tablet, int64_t old_
                 "get delete bitmap data wrong,"
                 "rowset_ids.size={},segment_ids.size={},vers.size={},delete_bitmaps.size={}",
                 rowset_ids.size(), segment_ids.size(), vers.size(), delete_bitmaps.size());
+    }
+    if (sync_stats) {
+        sync_stats->get_remote_delete_bitmap_rpc_ns +=
+                std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count();
+        sync_stats->get_remote_delete_bitmap_key_count += delete_bitmaps.size();
+        for (const auto& dbm : delete_bitmaps) {
+            sync_stats->get_remote_delete_bitmap_bytes += dbm.length();
+        }
     }
     for (int i = 0; i < rowset_ids.size(); i++) {
         RowsetId rst_id;
@@ -1190,7 +1235,8 @@ Status CloudMetaMgr::update_tablet_schema(int64_t tablet_id, const TabletSchema&
 
 Status CloudMetaMgr::update_delete_bitmap(const CloudTablet& tablet, int64_t lock_id,
                                           int64_t initiator, DeleteBitmap* delete_bitmap,
-                                          int64_t txn_id, bool is_explicit_txn) {
+                                          int64_t txn_id, bool is_explicit_txn,
+                                          int64_t next_visible_version) {
     VLOG_DEBUG << "update_delete_bitmap , tablet_id: " << tablet.tablet_id();
     UpdateDeleteBitmapRequest req;
     UpdateDeleteBitmapResponse res;
@@ -1203,6 +1249,9 @@ Status CloudMetaMgr::update_delete_bitmap(const CloudTablet& tablet, int64_t loc
     req.set_is_explicit_txn(is_explicit_txn);
     if (txn_id > 0) {
         req.set_txn_id(txn_id);
+    }
+    if (next_visible_version > 0) {
+        req.set_next_visible_version(next_visible_version);
     }
     for (auto& [key, bitmap] : delete_bitmap->delete_bitmap) {
         req.add_rowset_ids(std::get<0>(key).to_string());
@@ -1238,6 +1287,12 @@ Status CloudMetaMgr::update_delete_bitmap(const CloudTablet& tablet, int64_t loc
                 lock_id);
     });
     auto st = retry_rpc("update delete bitmap", req, &res, &MetaService_Stub::update_delete_bitmap);
+    if (config::enable_update_delete_bitmap_kv_check_core &&
+        res.status().code() == MetaServiceCode::UPDATE_OVERRIDE_EXISTING_KV) {
+        auto& msg = res.status().msg();
+        LOG_WARNING(msg);
+        CHECK(false) << msg;
+    }
     if (res.status().code() == MetaServiceCode::LOCK_EXPIRED) {
         return Status::Error<ErrorCode::DELETE_BITMAP_LOCK_ERROR, false>(
                 "lock expired when update delete bitmap, tablet_id: {}, lock_id: {}, initiator: "
@@ -1301,9 +1356,12 @@ Status CloudMetaMgr::get_delete_bitmap_update_lock(const CloudTablet& tablet, in
     std::default_random_engine rng = make_random_engine();
     std::uniform_int_distribution<uint32_t> u(500, 2000);
     do {
+        bool test_conflict = false;
         st = retry_rpc("get delete bitmap update lock", req, &res,
                        &MetaService_Stub::get_delete_bitmap_update_lock);
-        if (res.status().code() != MetaServiceCode::LOCK_CONFLICT) {
+        DBUG_EXECUTE_IF("CloudMetaMgr::test_get_delete_bitmap_update_lock_conflict",
+                        { test_conflict = true; });
+        if (!test_conflict && res.status().code() != MetaServiceCode::LOCK_CONFLICT) {
             break;
         }
 
@@ -1312,7 +1370,19 @@ Status CloudMetaMgr::get_delete_bitmap_update_lock(const CloudTablet& tablet, in
                      << " retry_times=" << retry_times << " sleep=" << duration_ms
                      << "ms : " << res.status().msg();
         bthread_usleep(duration_ms * 1000);
-    } while (++retry_times <= 100);
+    } while (++retry_times <= config::get_delete_bitmap_lock_max_retry_times);
+    DBUG_EXECUTE_IF("CloudMetaMgr.get_delete_bitmap_update_lock.inject_sleep", {
+        auto p = dp->param("percent", 0.01);
+        // 100s > Config.calculate_delete_bitmap_task_timeout_seconds = 60s
+        auto sleep_time = dp->param("sleep", 15);
+        std::mt19937 gen {std::random_device {}()};
+        std::bernoulli_distribution inject_fault {p};
+        if (inject_fault(gen)) {
+            LOG_INFO("injection sleep for {} seconds, tablet_id={}", sleep_time,
+                     tablet.tablet_id());
+            std::this_thread::sleep_for(std::chrono::seconds(sleep_time));
+        }
+    });
     if (res.status().code() == MetaServiceCode::KV_TXN_CONFLICT_RETRY_EXCEEDED_MAX_TIMES) {
         return Status::Error<ErrorCode::DELETE_BITMAP_LOCK_ERROR, false>(
                 "txn conflict when get delete bitmap update lock, table_id {}, lock_id {}, "

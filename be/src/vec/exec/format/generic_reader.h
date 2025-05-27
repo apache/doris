@@ -41,13 +41,15 @@ public:
 
     virtual Status get_next_block(Block* block, size_t* read_rows, bool* eof) = 0;
 
-    virtual Status get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
+    // Type is always nullable to process illegal values.
+    virtual Status get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
                                std::unordered_set<std::string>* missing_cols) {
         return Status::NotSupported("get_columns is not implemented");
     }
 
+    // `col_types` is always nullable to process illegal values.
     virtual Status get_parsed_schema(std::vector<std::string>* col_names,
-                                     std::vector<TypeDescriptor>* col_types) {
+                                     std::vector<DataTypePtr>* col_types) {
         return Status::NotSupported("get_parsed_schema is not implemented for this reader.");
     }
     ~GenericReader() override = default;

@@ -125,6 +125,7 @@ public:
         if (_spill_gc_thread) {
             _spill_gc_thread->join();
         }
+        _spill_io_thread_pool->shutdown();
     }
 
     // 创建SpillStream并登记

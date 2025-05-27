@@ -25,6 +25,7 @@
 #include <vector>
 
 #include "olap/hll.h"
+#include "runtime/primitive_type.h"
 #include "util/bitmap_value.h"
 #include "util/quantile_state.h"
 #include "vec/columns/column.h"
@@ -130,29 +131,42 @@ public:
     MutableColumnPtr clone_resized(size_t size) const override;
 
     void insert(const Field& x) override {
-        DCHECK_EQ(x.get_type(), Field::TypeToEnum<T>::value);
         const T& s = doris::vectorized::get<const T&>(x);
         data.push_back(s);
     }
 
     Field operator[](size_t n) const override {
         assert(n < size());
-        return Field(data[n]);
+        if constexpr (std::is_same_v<BitmapValue, T>) {
+            return Field::create_field<TYPE_OBJECT>(data[n]);
+        } else if constexpr (std::is_same_v<HyperLogLog, T>) {
+            return Field::create_field<TYPE_HLL>(data[n]);
+        } else if constexpr (std::is_same_v<QuantileState, T>) {
+            return Field::create_field<TYPE_QUANTILE_STATE>(data[n]);
+        } else {
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR, "INVALID TYPE");
+        }
     }
 
     void get(size_t n, Field& res) const override {
         assert(n < size());
-        res = Field(data[n]);
+        if constexpr (std::is_same_v<BitmapValue, T>) {
+            res = Field::create_field<TYPE_OBJECT>(data[n]);
+        } else if constexpr (std::is_same_v<HyperLogLog, T>) {
+            res = Field::create_field<TYPE_HLL>(data[n]);
+        } else if constexpr (std::is_same_v<QuantileState, T>) {
+            res = Field::create_field<TYPE_QUANTILE_STATE>(data[n]);
+        } else {
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR, "INVALID TYPE");
+        }
     }
 
     [[noreturn]] bool get_bool(size_t n) const override {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR, "get field not implemented");
-        __builtin_unreachable();
     }
 
     [[noreturn]] Int64 get_int(size_t n) const override {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR, "get field not implemented");
-        __builtin_unreachable();
     }
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override {
@@ -229,11 +243,29 @@ public:
 
     T& get_element(size_t n) { return data[n]; }
 
+#ifdef BE_TEST
+    int compare_at(size_t n, size_t m, const IColumn& rhs_, int nan_direction_hint) const override {
+        std::string lhs = get_element(n).to_string();
+        std::string rhs = assert_cast<const Self&>(rhs_).get_element(m).to_string();
+        return lhs.compare(rhs);
+    }
+#endif
+
     ColumnPtr replicate(const IColumn::Offsets& replicate_offsets) const override;
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
         DCHECK(size() > self_row);
         data[self_row] = assert_cast<const Self&, TypeCheckOnRelease::DISABLE>(rhs).data[row];
+    }
+
+    void erase(size_t start, size_t length) override {
+        if (start >= data.size() || length == 0) {
+            return;
+        }
+        length = std::min(length, data.size() - start);
+        size_t remain_size = data.size() - length;
+        std::move(data.begin() + start + length, data.end(), data.begin() + start);
+        data.resize(remain_size);
     }
 
 private:

@@ -46,7 +46,6 @@ class RuntimeFilterProducerHelperCrossTest : public RuntimeFilterTest {
 
         _task.reset(new pipeline::PipelineTask(_pipeline, 0, _runtime_states[0].get(), nullptr,
                                                &_profile, {}, 0));
-        _runtime_states[0]->set_task(_task.get());
     }
 
     pipeline::OperatorPtr _op;
@@ -57,7 +56,7 @@ class RuntimeFilterProducerHelperCrossTest : public RuntimeFilterTest {
 };
 
 TEST_F(RuntimeFilterProducerHelperCrossTest, basic) {
-    auto helper = RuntimeFilterProducerHelperCross(&_profile);
+    auto helper = RuntimeFilterProducerHelperCross();
 
     vectorized::VExprContextSPtr ctx;
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(vectorized::VExpr::create_expr_tree(
@@ -73,8 +72,8 @@ TEST_F(RuntimeFilterProducerHelperCrossTest, basic) {
 
     vectorized::Block block;
     auto column = vectorized::ColumnInt32::create();
-    column->insert(1);
-    column->insert(2);
+    column->insert(vectorized::Field::create_field<TYPE_INT>(1));
+    column->insert(vectorized::Field::create_field<TYPE_INT>(2));
     block.insert({std::move(column), std::make_shared<vectorized::DataTypeInt32>(), "col1"});
 
     vectorized::Blocks blocks = {block};

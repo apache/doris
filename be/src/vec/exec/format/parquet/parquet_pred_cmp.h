@@ -123,7 +123,8 @@ private:
                                    const ScanPredicate& predicate, const FieldSchema* col_schema,
                                    const std::string& encoded_min, const std::string& encoded_max,
                                    const cctz::time_zone& ctz, bool use_min_max_value = false) {
-        using CppType = typename PrimitiveTypeTraits<primitive_type>::CppType;
+        using CppType = std::conditional_t<primitive_type == TYPE_HLL, StringRef,
+                                           typename PrimitiveTypeTraits<primitive_type>::CppType>;
         std::vector<CppType> predicate_values;
         for (const void* v : predicate.values) {
             predicate_values.emplace_back(*reinterpret_cast<const CppType*>(v));
@@ -387,7 +388,8 @@ private:
     template <PrimitiveType primitive_type>
     static std::vector<ScanPredicate> _value_range_to_predicate(
             const ColumnValueRange<primitive_type>& col_val_range, PrimitiveType src_type) {
-        using CppType = typename PrimitiveTypeTraits<primitive_type>::CppType;
+        using CppType = std::conditional_t<primitive_type == TYPE_HLL, StringRef,
+                                           typename PrimitiveTypeTraits<primitive_type>::CppType>;
         std::vector<ScanPredicate> predicates;
 
         if (src_type != primitive_type) {
@@ -507,8 +509,8 @@ public:
         bool need_filter = false;
         std::visit(
                 [&](auto&& range) {
-                    std::vector<ScanPredicate> filters =
-                            _value_range_to_predicate(range, col_schema->type.type);
+                    std::vector<ScanPredicate> filters = _value_range_to_predicate(
+                            range, col_schema->data_type->get_primitive_type());
                     // Currently, ScanPredicate doesn't include "is null" && "x = null", filters will be empty when contains these exprs.
                     // So we can handle is_all_null safely.
                     if (!filters.empty()) {

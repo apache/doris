@@ -62,7 +62,7 @@ TEST_F(SpillSortSourceOperatorTest, Basic) {
     LocalStateInfo info {.parent_profile = _helper.runtime_profile.get(),
                          .scan_ranges = {},
                          .shared_state = shared_state.get(),
-                         .le_state_map = {},
+                         .shared_state_map = {},
                          .task_idx = 0};
 
     st = source_operator->setup_local_state(_helper.runtime_state.get(), info);
@@ -109,7 +109,7 @@ TEST_F(SpillSortSourceOperatorTest, GetBlock) {
     LocalStateInfo info {.parent_profile = _helper.runtime_profile.get(),
                          .scan_ranges = {},
                          .shared_state = shared_state.get(),
-                         .le_state_map = {},
+                         .shared_state_map = {},
                          .task_idx = 0};
 
     st = source_operator->setup_local_state(_helper.runtime_state.get(), info);
@@ -186,7 +186,7 @@ TEST_F(SpillSortSourceOperatorTest, GetBlockWithSpill) {
     LocalStateInfo info {.parent_profile = _helper.runtime_profile.get(),
                          .scan_ranges = {},
                          .shared_state = shared_state.get(),
-                         .le_state_map = {},
+                         .shared_state_map = {},
                          .task_idx = 0};
 
     st = source_operator->setup_local_state(_helper.runtime_state.get(), info);
@@ -332,7 +332,7 @@ TEST_F(SpillSortSourceOperatorTest, GetBlockWithSpill2) {
     LocalStateInfo info {.parent_profile = _helper.runtime_profile.get(),
                          .scan_ranges = {},
                          .shared_state = shared_state.get(),
-                         .le_state_map = {},
+                         .shared_state_map = {},
                          .task_idx = 0};
 
     st = source_operator->setup_local_state(_helper.runtime_state.get(), info);
@@ -482,7 +482,7 @@ TEST_F(SpillSortSourceOperatorTest, GetBlockWithSpillError) {
     LocalStateInfo info {.parent_profile = _helper.runtime_profile.get(),
                          .scan_ranges = {},
                          .shared_state = shared_state.get(),
-                         .le_state_map = {},
+                         .shared_state_map = {},
                          .task_idx = 0};
 
     st = source_operator->setup_local_state(_helper.runtime_state.get(), info);

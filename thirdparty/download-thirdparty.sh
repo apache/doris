@@ -574,4 +574,49 @@ else
     fi
 fi
 
+# patch thrift
+if [[ " ${TP_ARCHIVES[*]} " =~ " THRIFT " ]]; then
+    if [[ "${THRIFT_SOURCE}" == 'thrift-0.16.0' ]]; then
+        cd "${TP_SOURCE_DIR}/${THRIFT_SOURCE}"
+        if [[ ! -f "${PATCHED_MARK}" ]]; then
+            for patch_file in "${TP_PATCH_DIR}"/thrift-0.16*; do
+                echo "patch ${patch_file}"
+                patch -p1 --ignore-whitespace <"${patch_file}"
+            done
+            touch "${PATCHED_MARK}"
+        fi
+        cd -
+    fi
+    echo "Finished patching ${THRIFT_SOURCE}"
+fi
+
+# patch faiss cmake so that we can use openblas
+if [[ " ${TP_ARCHIVES[*]} " =~ " FAISS " ]]; then
+    if [[ "${FAISS_SOURCE}" = "faiss-1.10.0" ]]; then
+        cd "${TP_SOURCE_DIR}/${FAISS_SOURCE}"
+        if [[ ! -f "${PATCHED_MARK}" ]]; then
+            patch -p2 <"${TP_PATCH_DIR}/faiss-1.10.0.patch"
+            touch "${PATCHED_MARK}"
+        fi
+        cd -
+    fi
+    echo "Finished patching ${FAISS_SOURCE}"
+fi
+
+# patch re2
+if [[ " ${TP_ARCHIVES[*]} " =~ " RE2 " ]]; then
+    if [[ "${RE2_SOURCE}" == 're2-2021-02-02' ]]; then
+        cd "${TP_SOURCE_DIR}/${RE2_SOURCE}"
+        if [[ ! -f "${PATCHED_MARK}" ]]; then
+            for patch_file in "${TP_PATCH_DIR}"/re2-*; do
+                echo "patch ${patch_file}"
+                patch -p1 --ignore-whitespace <"${patch_file}"
+            done
+            touch "${PATCHED_MARK}"
+        fi
+        cd -
+    fi
+    echo "Finished patching ${RE2_SOURCE}"
+fi
+
 # vim: ts=4 sw=4 ts=4 tw=100:

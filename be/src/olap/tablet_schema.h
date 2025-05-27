@@ -34,7 +34,6 @@
 
 #include "common/consts.h"
 #include "common/status.h"
-#include "gutil/stringprintf.h"
 #include "olap/metadata_adder.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/options.h"
@@ -263,8 +262,8 @@ public:
     int64_t index_id() const { return _index_id; }
     const std::string& index_name() const { return _index_name; }
     IndexType index_type() const { return _index_type; }
-    const vector<int32_t>& col_unique_ids() const { return _col_unique_ids; }
-    const std::map<string, string>& properties() const { return _properties; }
+    const std::vector<int32_t>& col_unique_ids() const { return _col_unique_ids; }
+    const std::map<std::string, std::string>& properties() const { return _properties; }
     int32_t get_gram_size() const {
         if (_properties.contains("gram_size")) {
             return std::stoi(_properties.at("gram_size"));
@@ -291,7 +290,7 @@ private:
     std::string _index_name;
     IndexType _index_type;
     std::vector<int32_t> _col_unique_ids;
-    std::map<string, string> _properties;
+    std::map<std::string, std::string> _properties;
 };
 
 using TabletIndexPtr = std::shared_ptr<TabletIndex>;
@@ -478,8 +477,8 @@ public:
     // only reserve extracted columns
     void reserve_extracted_columns();
 
-    string get_all_field_names() const {
-        string str = "[";
+    std::string get_all_field_names() const {
+        std::string str = "[";
         for (auto p : _field_name_to_index) {
             if (str.size() > 1) {
                 str += ", ";
@@ -491,8 +490,8 @@ public:
     }
 
     // Dump [(name, type, is_nullable), ...]
-    string dump_structure() const {
-        string str = "[";
+    std::string dump_structure() const {
+        std::string str = "[";
         for (auto p : _cols) {
             if (str.size() > 1) {
                 str += ", ";
@@ -510,8 +509,8 @@ public:
         return str;
     }
 
-    string dump_full_schema() const {
-        string str = "[";
+    std::string dump_full_schema() const {
+        std::string str = "[";
         for (auto p : _cols) {
             if (str.size() > 1) {
                 str += ", ";
@@ -560,6 +559,23 @@ private:
     std::unordered_map<int32_t, int32_t> _field_id_to_index;
     std::unordered_map<vectorized::PathInDataRef, int32_t, vectorized::PathInDataRef::Hash>
             _field_path_to_index;
+
+    // index_type/col_unique_id/suffix -> idx in _indexes
+    using IndexKey = std::tuple<IndexType, int32_t, std::string>;
+    struct IndexKeyHash {
+        size_t operator()(const IndexKey& t) const {
+            std::size_t seed = 0;
+            seed = doris::HashUtil::hash((const char*)&std::get<0>(t), sizeof(std::get<0>(t)),
+                                         seed);
+            seed = doris::HashUtil::hash((const char*)&std::get<1>(t), sizeof(std::get<1>(t)),
+                                         seed);
+            seed = doris::HashUtil::hash((const char*)std::get<2>(t).c_str(), std::get<2>(t).size(),
+                                         seed);
+            return seed;
+        }
+    };
+    std::unordered_map<IndexKey, int32_t, IndexKeyHash> _col_id_suffix_to_index;
+
     size_t _num_columns = 0;
     size_t _num_variant_columns = 0;
     size_t _num_key_columns = 0;
@@ -594,7 +610,6 @@ private:
     // ATTN: For compability reason empty cids means all columns of tablet schema are encoded to row column
     std::vector<int32_t> _row_store_column_unique_ids;
     bool _enable_variant_flatten_nested = false;
-    int64_t _vl_field_mem_size {0}; // variable length field
 };
 
 bool operator==(const TabletSchema& a, const TabletSchema& b);

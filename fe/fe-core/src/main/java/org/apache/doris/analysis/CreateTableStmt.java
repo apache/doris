@@ -611,9 +611,7 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
             Set<Pair<IndexType, List<String>>> distinctCol = new HashSet<>();
             TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat = PropertyAnalyzer
                     .analyzeInvertedIndexFileStorageFormat(new HashMap<>(properties));
-            boolean disableInvertedIndexV1ForVariant =
-                    (invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.V1)
-                            && ConnectContext.get().getSessionVariable().getDisableInvertedIndexV1ForVaraint();
+
             for (IndexDef indexDef : indexDefs) {
                 indexDef.analyze();
                 if (!engineName.equalsIgnoreCase(DEFAULT_ENGINE_NAME)) {
@@ -626,8 +624,7 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
                             indexDef.checkColumn(column,
                                     getKeysDesc().getKeysType(),
                                     enableUniqueKeyMergeOnWrite,
-                                    invertedIndexFileStorageFormat,
-                                    disableInvertedIndexV1ForVariant);
+                                    invertedIndexFileStorageFormat);
                             found = true;
                             break;
                         }
@@ -677,14 +674,12 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
             }
         }
 
-        if (!Config.enable_odbc_mysql_broker_table && (engineName.equals("odbc")
+        if ((engineName.equals("odbc")
                 || engineName.equals("mysql") || engineName.equals("broker"))) {
             throw new AnalysisException(
                     "odbc, mysql and broker table is no longer supported."
                             + " For odbc and mysql external table, use jdbc table or jdbc catalog instead."
-                            + " For broker table, use table valued function instead."
-                            + ". Or you can temporarily set 'disable_odbc_mysql_broker_table=false'"
-                            + " in fe.conf to reopen this feature.");
+                            + " For broker table, use table valued function instead.");
         }
     }
 

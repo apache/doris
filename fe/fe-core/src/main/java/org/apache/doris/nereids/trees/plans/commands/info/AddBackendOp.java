@@ -23,6 +23,7 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.Tag;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -36,7 +37,7 @@ public class AddBackendOp extends BackendOp {
 
     public AddBackendOp(List<String> hostPorts, Map<String, String> properties) {
         super(hostPorts);
-        this.properties = properties;
+        this.properties = new HashMap<>(properties);
     }
 
     @Override

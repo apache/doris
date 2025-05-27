@@ -100,7 +100,7 @@ TEST_F(VWindowFunnelTest, testSerialize) {
     const int NUM_CONDS = 4;
     auto column_mode = ColumnString::create();
     for (int i = 0; i < NUM_CONDS; i++) {
-        column_mode->insert("mode");
+        column_mode->insert(vectorized::Field::create_field<TYPE_STRING>("mode"));
     }
 
     auto column_timestamp = ColumnVector<Int64>::create();
@@ -110,32 +110,32 @@ TEST_F(VWindowFunnelTest, testSerialize) {
         column_timestamp->insert_data((char*)&time_value, 0);
     }
     auto column_event1 = ColumnVector<UInt8>::create();
-    column_event1->insert(1);
-    column_event1->insert(0);
-    column_event1->insert(0);
-    column_event1->insert(0);
+    column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
+    column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
 
     auto column_event2 = ColumnVector<UInt8>::create();
-    column_event2->insert(0);
-    column_event2->insert(1);
-    column_event2->insert(0);
-    column_event2->insert(0);
+    column_event2->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event2->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
+    column_event2->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event2->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
 
     auto column_event3 = ColumnVector<UInt8>::create();
-    column_event3->insert(0);
-    column_event3->insert(0);
-    column_event3->insert(1);
-    column_event3->insert(0);
+    column_event3->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event3->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event3->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
+    column_event3->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
 
     auto column_event4 = ColumnVector<UInt8>::create();
-    column_event4->insert(0);
-    column_event4->insert(0);
-    column_event4->insert(0);
-    column_event4->insert(1);
+    column_event4->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event4->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event4->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event4->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
 
     auto column_window = ColumnVector<Int64>::create();
     for (int i = 0; i < NUM_CONDS; i++) {
-        column_window->insert(2);
+        column_window->insert(vectorized::Field::create_field<TYPE_BIGINT>(2));
     }
 
     std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
@@ -175,7 +175,7 @@ TEST_F(VWindowFunnelTest, testMax4SortedNoMerge) {
     const int NUM_CONDS = 4;
     auto column_mode = ColumnString::create();
     for (int i = 0; i < NUM_CONDS; i++) {
-        column_mode->insert("mode");
+        column_mode->insert(vectorized::Field::create_field<TYPE_STRING>("mode"));
     }
     auto column_timestamp = ColumnVector<Int64>::create();
     for (int i = 0; i < NUM_CONDS; i++) {
@@ -184,33 +184,33 @@ TEST_F(VWindowFunnelTest, testMax4SortedNoMerge) {
         column_timestamp->insert_data((char*)&time_value, 0);
     }
     auto column_event1 = ColumnVector<UInt8>::create();
-    column_event1->insert(1);
-    column_event1->insert(0);
-    column_event1->insert(0);
-    column_event1->insert(0);
+    column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
+    column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
 
     auto column_event2 = ColumnVector<UInt8>::create();
-    column_event2->insert(0);
-    column_event2->insert(1);
-    column_event2->insert(0);
-    column_event2->insert(0);
+    column_event2->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event2->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
+    column_event2->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event2->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
 
     auto column_event3 = ColumnVector<UInt8>::create();
-    column_event3->insert(0);
-    column_event3->insert(0);
-    column_event3->insert(1);
-    column_event3->insert(0);
+    column_event3->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event3->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event3->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
+    column_event3->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
 
     auto column_event4 = ColumnVector<UInt8>::create();
-    column_event4->insert(0);
-    column_event4->insert(0);
-    column_event4->insert(0);
-    column_event4->insert(1);
+    column_event4->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event4->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event4->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event4->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
 
     for (int win = -1; win < NUM_CONDS + 1; win++) {
         auto column_window = ColumnVector<Int64>::create();
         for (int i = 0; i < NUM_CONDS; i++) {
-            column_window->insert(win);
+            column_window->insert(vectorized::Field::create_field<TYPE_BIGINT>(win));
         }
 
         std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
@@ -236,7 +236,7 @@ TEST_F(VWindowFunnelTest, testMax4SortedMerge) {
     const int NUM_CONDS = 4;
     auto column_mode = ColumnString::create();
     for (int i = 0; i < NUM_CONDS; i++) {
-        column_mode->insert("mode");
+        column_mode->insert(vectorized::Field::create_field<TYPE_STRING>("mode"));
     }
     auto column_timestamp = ColumnVector<Int64>::create();
     for (int i = 0; i < NUM_CONDS; i++) {
@@ -245,33 +245,33 @@ TEST_F(VWindowFunnelTest, testMax4SortedMerge) {
         column_timestamp->insert_data((char*)&time_value, 0);
     }
     auto column_event1 = ColumnVector<UInt8>::create();
-    column_event1->insert(1);
-    column_event1->insert(0);
-    column_event1->insert(0);
-    column_event1->insert(0);
+    column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
+    column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
 
     auto column_event2 = ColumnVector<UInt8>::create();
-    column_event2->insert(0);
-    column_event2->insert(1);
-    column_event2->insert(0);
-    column_event2->insert(0);
+    column_event2->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event2->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
+    column_event2->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event2->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
 
     auto column_event3 = ColumnVector<UInt8>::create();
-    column_event3->insert(0);
-    column_event3->insert(0);
-    column_event3->insert(1);
-    column_event3->insert(0);
+    column_event3->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event3->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event3->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
+    column_event3->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
 
     auto column_event4 = ColumnVector<UInt8>::create();
-    column_event4->insert(0);
-    column_event4->insert(0);
-    column_event4->insert(0);
-    column_event4->insert(1);
+    column_event4->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event4->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event4->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event4->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
 
     for (int win = -1; win < NUM_CONDS + 1; win++) {
         auto column_window = ColumnVector<Int64>::create();
         for (int i = 0; i < NUM_CONDS; i++) {
-            column_window->insert(win);
+            column_window->insert(vectorized::Field::create_field<TYPE_BIGINT>(win));
         }
 
         std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
@@ -303,7 +303,7 @@ TEST_F(VWindowFunnelTest, testMax4ReverseSortedNoMerge) {
     const int NUM_CONDS = 4;
     auto column_mode = ColumnString::create();
     for (int i = 0; i < NUM_CONDS; i++) {
-        column_mode->insert("mode");
+        column_mode->insert(vectorized::Field::create_field<TYPE_STRING>("mode"));
     }
     auto column_timestamp = ColumnVector<Int64>::create();
     for (int i = 0; i < NUM_CONDS; i++) {
@@ -312,33 +312,33 @@ TEST_F(VWindowFunnelTest, testMax4ReverseSortedNoMerge) {
         column_timestamp->insert_data((char*)&time_value, 0);
     }
     auto column_event1 = ColumnVector<UInt8>::create();
-    column_event1->insert(0);
-    column_event1->insert(0);
-    column_event1->insert(0);
-    column_event1->insert(1);
+    column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
 
     auto column_event2 = ColumnVector<UInt8>::create();
-    column_event2->insert(0);
-    column_event2->insert(0);
-    column_event2->insert(1);
-    column_event2->insert(0);
+    column_event2->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event2->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event2->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
+    column_event2->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
 
     auto column_event3 = ColumnVector<UInt8>::create();
-    column_event3->insert(0);
-    column_event3->insert(1);
-    column_event3->insert(0);
-    column_event3->insert(0);
+    column_event3->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event3->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
+    column_event3->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event3->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
 
     auto column_event4 = ColumnVector<UInt8>::create();
-    column_event4->insert(1);
-    column_event4->insert(0);
-    column_event4->insert(0);
-    column_event4->insert(0);
+    column_event4->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
+    column_event4->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event4->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event4->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
 
     for (int win = -1; win < NUM_CONDS + 1; win++) {
         auto column_window = ColumnVector<Int64>::create();
         for (int i = 0; i < NUM_CONDS; i++) {
-            column_window->insert(win);
+            column_window->insert(vectorized::Field::create_field<TYPE_BIGINT>(win));
         }
 
         std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
@@ -365,7 +365,7 @@ TEST_F(VWindowFunnelTest, testMax4ReverseSortedMerge) {
     const int NUM_CONDS = 4;
     auto column_mode = ColumnString::create();
     for (int i = 0; i < NUM_CONDS; i++) {
-        column_mode->insert("mode");
+        column_mode->insert(vectorized::Field::create_field<TYPE_STRING>("mode"));
     }
     auto column_timestamp = ColumnVector<Int64>::create();
     for (int i = 0; i < NUM_CONDS; i++) {
@@ -374,33 +374,33 @@ TEST_F(VWindowFunnelTest, testMax4ReverseSortedMerge) {
         column_timestamp->insert_data((char*)&time_value, 0);
     }
     auto column_event1 = ColumnVector<UInt8>::create();
-    column_event1->insert(0);
-    column_event1->insert(0);
-    column_event1->insert(0);
-    column_event1->insert(1);
+    column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
 
     auto column_event2 = ColumnVector<UInt8>::create();
-    column_event2->insert(0);
-    column_event2->insert(0);
-    column_event2->insert(1);
-    column_event2->insert(0);
+    column_event2->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event2->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event2->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
+    column_event2->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
 
     auto column_event3 = ColumnVector<UInt8>::create();
-    column_event3->insert(0);
-    column_event3->insert(1);
-    column_event3->insert(0);
-    column_event3->insert(0);
+    column_event3->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event3->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
+    column_event3->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event3->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
 
     auto column_event4 = ColumnVector<UInt8>::create();
-    column_event4->insert(1);
-    column_event4->insert(0);
-    column_event4->insert(0);
-    column_event4->insert(0);
+    column_event4->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
+    column_event4->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event4->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event4->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
 
     for (int win = -1; win < NUM_CONDS + 1; win++) {
         auto column_window = ColumnVector<Int64>::create();
         for (int i = 0; i < NUM_CONDS; i++) {
-            column_window->insert(win);
+            column_window->insert(vectorized::Field::create_field<TYPE_BIGINT>(win));
         }
 
         std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);

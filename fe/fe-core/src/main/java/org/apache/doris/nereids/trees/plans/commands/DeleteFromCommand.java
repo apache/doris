@@ -128,7 +128,14 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
         LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(logicalQuery, ctx.getStatementContext());
         updateSessionVariableForDelete(ctx.getSessionVariable());
         NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
-        planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
+        boolean originalIsSkipAuth = ctx.isSkipAuth();
+        // delete not need select priv
+        ctx.setSkipAuth(true);
+        try {
+            planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
+        } finally {
+            ctx.setSkipAuth(originalIsSkipAuth);
+        }
         executor.setPlanner(planner);
         executor.checkBlockRules();
         // if fe could do fold constant to get delete will do nothing for table, just return.
@@ -290,10 +297,10 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
 
     private void checkColumn(Set<String> tableColumns, SlotReference slotReference, OlapTable table) {
         // 0. must slot from table
-        if (!slotReference.getColumn().isPresent()) {
+        if (!slotReference.getOriginalColumn().isPresent()) {
             throw new AnalysisException("");
         }
-        Column column = slotReference.getColumn().get();
+        Column column = slotReference.getOriginalColumn().get();
 
         if (Column.DELETE_SIGN.equalsIgnoreCase(column.getName())) {
             return;

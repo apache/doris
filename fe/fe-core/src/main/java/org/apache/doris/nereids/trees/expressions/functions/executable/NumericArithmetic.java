@@ -966,9 +966,6 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "asinh")
     public static Expression asinh(DoubleLiteral first) {
-        if (inputOutOfBound(first, Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY, false, false)) {
-            return new NullLiteral(DoubleType.INSTANCE);
-        }
         return checkOutputBoundary(new DoubleLiteral(FastMath.asinh(first.getValue())));
     }
 
@@ -977,7 +974,7 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "acosh")
     public static Expression acosh(DoubleLiteral first) {
-        if (inputOutOfBound(first, Double.NEGATIVE_INFINITY, 1.0, false, false)) {
+        if (inputOutOfBound(first, 1.0, Double.POSITIVE_INFINITY, true, true)) {
             return new NullLiteral(DoubleType.INSTANCE);
         }
         return checkOutputBoundary(new DoubleLiteral(FastMath.acosh(first.getValue())));
@@ -988,8 +985,7 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "atanh")
     public static Expression atanh(DoubleLiteral first) {
-        if (inputOutOfBound(first, 1.0, Double.POSITIVE_INFINITY, true, false)
-                || inputOutOfBound(first, Double.NEGATIVE_INFINITY, -1.0, false, true)) {
+        if (inputOutOfBound(first, -1.0, 1.0, false, false)) {
             return new NullLiteral(DoubleType.INSTANCE);
         }
         return checkOutputBoundary(new DoubleLiteral(FastMath.atanh(first.getValue())));

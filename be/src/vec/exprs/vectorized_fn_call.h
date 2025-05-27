@@ -45,6 +45,9 @@ class VectorizedFnCall : public VExpr {
     ENABLE_FACTORY_CREATOR(VectorizedFnCall);
 
 public:
+#ifdef BE_TEST
+    VectorizedFnCall() = default;
+#endif
     VectorizedFnCall(const TExprNode& node);
     Status execute(VExprContext* context, Block* block, int* result_column_id) override;
     Status execute_runtime_fitler(doris::vectorized::VExprContext* context,

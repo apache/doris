@@ -267,7 +267,7 @@ public:
     template <typename T>
     T get_value() const {
         // Here the cast is correct, relevant code is rather tricky.
-        return static_cast<T>(get_field().safe_get<NearestFieldType<T>>());
+        return static_cast<T>(get_field().get<NearestFieldType<T>>());
     }
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
@@ -276,6 +276,14 @@ public:
     }
 
     void finalize() override { data->finalize(); }
+
+    void erase(size_t start, size_t length) override {
+        if (start >= s || length == 0) {
+            return;
+        }
+        length = std::min(length, s - start);
+        s = s - length;
+    }
 };
 } // namespace doris::vectorized
 #include "common/compile_check_end.h"

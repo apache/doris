@@ -51,16 +51,12 @@
 #include <string>
 #include <vector>
 
+#include "absl/strings/substitute.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "gutil/atomicops.h"
-#include "gutil/dynamic_annotations.h"
-#include "gutil/map-util.h"
-#include "gutil/stringprintf.h"
-#include "gutil/strings/substitute.h"
 #include "http/web_page_handler.h"
 #include "runtime/thread_context.h"
-#include "util/debug/sanitizer_scopes.h"
 #include "util/easy_json.h"
 #include "util/os_util.h"
 #include "util/scoped_cleanup.h"
@@ -204,49 +200,27 @@ void ThreadMgr::set_thread_nice_value(int64_t tid) {
 
 void ThreadMgr::add_thread(const pthread_t& pthread_id, const std::string& name,
                            const std::string& category, int64_t tid) {
-    // These annotations cause TSAN to ignore the synchronization on lock_
-    // without causing the subsequent mutations to be treated as data races
-    // in and of themselves (that's what IGNORE_READS_AND_WRITES does).
-    //
-    // Why do we need them here and in SuperviseThread()? TSAN operates by
-    // observing synchronization events and using them to establish "happens
-    // before" relationships between threads. Where these relationships are
-    // not built, shared state access constitutes a data race. The
-    // synchronization events here, in RemoveThread(), and in
-    // SuperviseThread() may cause TSAN to establish a "happens before"
-    // relationship between thread functors, ignoring potential data races.
-    // The annotations prevent this from happening.
-    ANNOTATE_IGNORE_SYNC_BEGIN();
-    debug::ScopedTSANIgnoreReadsAndWrites ignore_tsan;
-    {
-        std::unique_lock<std::mutex> l(_lock);
-        _thread_categories[category][pthread_id] = ThreadDescriptor(category, name, tid);
-        _threads_running_metric++;
-        _threads_started_metric++;
-    }
-    ANNOTATE_IGNORE_SYNC_END();
+    std::unique_lock<std::mutex> l(_lock);
+    _thread_categories[category][pthread_id] = ThreadDescriptor(category, name, tid);
+    _threads_running_metric++;
+    _threads_started_metric++;
 }
 
 void ThreadMgr::remove_thread(const pthread_t& pthread_id, const std::string& category) {
-    ANNOTATE_IGNORE_SYNC_BEGIN();
-    debug::ScopedTSANIgnoreReadsAndWrites ignore_tsan;
-    {
-        std::unique_lock<std::mutex> l(_lock);
-        auto category_it = _thread_categories.find(category);
-        DCHECK(category_it != _thread_categories.end());
-        category_it->second.erase(pthread_id);
-        _threads_running_metric--;
-    }
-    ANNOTATE_IGNORE_SYNC_END();
+    std::unique_lock<std::mutex> l(_lock);
+    auto category_it = _thread_categories.find(category);
+    DCHECK(category_it != _thread_categories.end());
+    category_it->second.erase(pthread_id);
+    _threads_running_metric--;
 }
 
 void ThreadMgr::display_thread_callback(const WebPageHandler::ArgumentMap& args,
                                         EasyJson* ej) const {
-    const auto* category_name = FindOrNull(args, "group");
-    if (category_name) {
-        bool requested_all = (*category_name == "all");
+    if (args.contains("group")) {
+        const auto& category_name = args.at("group");
+        bool requested_all = category_name == "all";
         ej->Set("requested_thread_group", EasyJson::kObject);
-        (*ej)["group_name"] = escape_for_html_to_string(*category_name);
+        (*ej)["group_name"] = escape_for_html_to_string(category_name);
         (*ej)["requested_all"] = requested_all;
 
         // The critical section is as short as possible so as to minimize the delay
@@ -254,11 +228,10 @@ void ThreadMgr::display_thread_callback(const WebPageHandler::ArgumentMap& args,
         std::vector<ThreadDescriptor> descriptors_to_print;
         if (!requested_all) {
             std::unique_lock<std::mutex> l(_lock);
-            const auto* category = FindOrNull(_thread_categories, *category_name);
-            if (!category) {
+            if (!_thread_categories.contains(category_name)) {
                 return;
             }
-            for (const auto& elem : *category) {
+            for (const auto& elem : _thread_categories.at(category_name)) {
                 descriptors_to_print.emplace_back(elem.second);
             }
         } else {
@@ -277,7 +250,7 @@ void ThreadMgr::display_thread_callback(const WebPageHandler::ArgumentMap& args,
         }
     } else {
         // List all thread groups and the number of threads running in each.
-        std::vector<std::pair<string, uint64_t>> thread_categories_info;
+        std::vector<std::pair<std::string, uint64_t>> thread_categories_info;
         uint64_t running;
         {
             std::unique_lock<std::mutex> l(_lock);
@@ -290,7 +263,7 @@ void ThreadMgr::display_thread_callback(const WebPageHandler::ArgumentMap& args,
             (*ej)["total_threads_running"] = running;
             EasyJson groups = ej->Set("groups", EasyJson::kArray);
             for (const auto& elem : thread_categories_info) {
-                string category_arg;
+                std::string category_arg;
                 url_encode(elem.first, &category_arg);
                 EasyJson group = groups.PushBack(EasyJson::kObject);
                 group["encoded_group_name"] = category_arg;
@@ -362,8 +335,7 @@ const std::string& Thread::category() const {
 }
 
 std::string Thread::to_string() const {
-    return strings::Substitute("Thread $0 (name: \"$1\", category: \"$2\")", tid(), _name,
-                               _category);
+    return absl::Substitute("Thread $0 (name: \"$1\", category: \"$2\")", tid(), _name, _category);
 }
 
 Thread* Thread::current_thread() {
@@ -469,9 +441,7 @@ void* Thread::supervise_thread(void* arg) {
     PCHECK(system_tid != -1);
 
     // Take an additional reference to the thread manager, which we'll need below.
-    ANNOTATE_IGNORE_SYNC_BEGIN();
     std::shared_ptr<ThreadMgr> thread_mgr_ref = thread_manager;
-    ANNOTATE_IGNORE_SYNC_END();
 
     // Set up the TLS.
     //
@@ -487,7 +457,7 @@ void* Thread::supervise_thread(void* arg) {
     // WaitForTid().
     Release_Store(&t->_tid, system_tid);
 
-    std::string name = strings::Substitute("$0-$1", t->name(), system_tid);
+    std::string name = absl::Substitute("$0-$1", t->name(), system_tid);
     thread_manager->set_thread_name(name, t->_tid);
     thread_manager->add_thread(pthread_self(), name, t->category(), t->_tid);
 
@@ -562,8 +532,8 @@ Status ThreadJoiner::join() {
     bool keep_trying = true;
     while (keep_trying) {
         if (waited_ms >= _warn_after_ms) {
-            LOG(WARNING) << strings::Substitute("Waited for $0ms trying to join with $1 (tid $2)",
-                                                waited_ms, _thread->_name, _thread->_tid);
+            LOG(WARNING) << absl::Substitute("Waited for $0ms trying to join with $1 (tid $2)",
+                                             waited_ms, _thread->_name, _thread->_tid);
         }
 
         int remaining_before_giveup = std::numeric_limits<int>::max();
