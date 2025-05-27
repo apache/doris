@@ -43,6 +43,7 @@
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/rowset.h"
+#include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_meta_manager.h"
 #include "olap/tablet_fwd.h"
 #include "olap/tablet_meta_manager.h"
@@ -819,6 +820,11 @@ Version TabletMeta::max_version() const {
             max_version = rs_meta->version();
         }
     }
+    {
+        std::string msg {rowsets_digest()};
+        LOG_INFO("[xxx TabletMeta::max_version] tablet={}, max_version={}, rs_metas:\n{}",
+                 tablet_id(), max_version.to_string(), msg);
+    }
     return max_version;
 }
 
@@ -847,6 +853,8 @@ Status TabletMeta::add_rs_meta(const RowsetMetaSharedPtr& rs_meta) {
         }
     }
     _rs_metas.push_back(rs_meta);
+    LOG_INFO("[xxx TabletMeta::add_rs_meta] tablet={}, rowsets:\n{}", tablet_id(),
+             rowsets_digest());
     return Status::OK();
 }
 
@@ -854,6 +862,8 @@ void TabletMeta::add_rowsets_unchecked(const std::vector<RowsetSharedPtr>& to_ad
     for (const auto& rs : to_add) {
         _rs_metas.push_back(rs->rowset_meta());
     }
+    LOG_INFO("[xxx TabletMeta::add_rowsets_unchecked] tablet={}, rowsets:\n{}", tablet_id(),
+             rowsets_digest());
 }
 
 void TabletMeta::delete_rs_meta_by_version(const Version& version,
@@ -876,6 +886,19 @@ void TabletMeta::delete_rs_meta_by_version(const Version& version,
         }
     }
     _check_mow_rowset_cache_version_size(rowset_cache_version_size);
+    LOG_INFO("[xxx TabletMeta::delete_rs_meta_by_version] tablet={}, rowsets:\n{}", tablet_id(),
+             rowsets_digest());
+}
+
+std::string TabletMeta::rowsets_digest() const {
+    std::string ret;
+    auto rs_metas = _rs_metas;
+    std::sort(rs_metas.begin(), rs_metas.end(), RowsetMeta::comparator);
+    for (const auto& rs : rs_metas) {
+        ret += fmt::format("ver={},txn={},rs={}\n", rs->version().to_string(), rs->txn_id(),
+                           rs->rowset_id().to_string());
+    }
+    return ret;
 }
 
 void TabletMeta::modify_rs_metas(const std::vector<RowsetMetaSharedPtr>& to_add,
@@ -906,6 +929,8 @@ void TabletMeta::modify_rs_metas(const std::vector<RowsetMetaSharedPtr>& to_add,
     // put to_add rowsets in _rs_metas.
     _rs_metas.insert(_rs_metas.end(), to_add.begin(), to_add.end());
     _check_mow_rowset_cache_version_size(rowset_cache_version_size);
+    LOG_INFO("[xxx TabletMeta::modify_rs_metas] tablet={}, rowsets:\n{}", tablet_id(),
+             rowsets_digest());
 }
 
 // Use the passing "rs_metas" to replace the rs meta in this tablet meta
@@ -1008,6 +1033,8 @@ void TabletMeta::clear_rowsets() {
     if (_enable_unique_key_merge_on_write) {
         _delete_bitmap->clear_rowset_cache_version();
     }
+    LOG_INFO("[xxx TabletMeta::clear_rowsets] tablet={}, rowsets:\n{}", tablet_id(),
+             rowsets_digest());
 }
 
 void TabletMeta::_check_mow_rowset_cache_version_size(size_t rowset_cache_version_size) {

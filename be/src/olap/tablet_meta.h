@@ -298,6 +298,8 @@ public:
 
     int64_t avg_rs_meta_serialize_size() const { return _avg_rs_meta_serialize_size; }
 
+    std::string rowsets_digest() const;
+
 private:
     Status _save_meta(DataDir* data_dir);
     void _check_mow_rowset_cache_version_size(size_t rowset_cache_version_size);
