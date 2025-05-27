@@ -43,6 +43,7 @@ suite("test_upgrade_downgrade_prepare_olap_mtmv_zfr","p0,mtmv,restart_fe") {
     String tableName5 = """${suiteName}_tb5"""
     String tableName6 = """${suiteName}_tb6"""
     String tableName7 = """${suiteName}_tb7"""
+    String tableName8 = """${suiteName}_tb8"""
     String mtmvName1 = """${suiteName}_mtmv1"""
     String mtmvName2 = """${suiteName}_mtmv2"""
     String mtmvName3 = """${suiteName}_mtmv3"""
@@ -231,6 +232,19 @@ suite("test_upgrade_downgrade_prepare_olap_mtmv_zfr","p0,mtmv,restart_fe") {
     sql """
         insert into ${tableName7} values(1,1),(2,2),(3,3),(4,4),(5,5),(6,6),(7,7),(8,8),(9,9),(10,10),(11,11),(12,12);
         """
+    sql """
+        CREATE TABLE `${tableName8}` (
+          `user_id` LARGEINT NOT NULL COMMENT '\"用户id\"',
+          `age` SMALLINT NOT NULL COMMENT '\"年龄\"'
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`user_id`, `age`)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`user_id`) BUCKETS 2
+        PROPERTIES ('replication_num' = '1') ;
+        """
+    sql """
+        insert into ${tableName8} values(1,1),(2,2),(3,3),(4,4),(5,5),(6,6),(7,7),(8,8),(9,9),(10,10),(11,11),(12,12);
+        """
 
 
     sql """
@@ -285,7 +299,7 @@ suite("test_upgrade_downgrade_prepare_olap_mtmv_zfr","p0,mtmv,restart_fe") {
             DISTRIBUTED BY RANDOM BUCKETS 2
             PROPERTIES ('replication_num' = '1')
             AS
-            SELECT a.* FROM ${tableName5} a inner join ${tableName4} b on a.user_id=b.user_id;
+            SELECT a.* FROM ${tableName5} a inner join ${tableName8} b on a.user_id=b.user_id;
         """
     waitingMTMVTaskFinishedByMvName(mtmvName5)
 

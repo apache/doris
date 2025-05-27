@@ -28,6 +28,7 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr","p0,mtmv,restart_fe") {
     String tableName5 = """${suiteName}_tb5"""
     String tableName6 = """${suiteName}_tb6"""
     String tableName7 = """${suiteName}_tb7"""
+    String tableName8 = """${suiteName}_tb8"""
     String mtmvName1 = """${suiteName}_mtmv1"""
     String mtmvName2 = """${suiteName}_mtmv2"""
     String mtmvName3 = """${suiteName}_mtmv3"""
@@ -88,7 +89,7 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr","p0,mtmv,restart_fe") {
     assertTrue(state_mtmv5[0][0] == "NORMAL")
     assertTrue(state_mtmv5[0][1] == "SUCCESS")
     assertTrue(state_mtmv5[0][2] == true)
-    def test_sql5 = """SELECT a.* FROM ${tableName5} a inner join ${tableName4} b on a.user_id=b.user_id"""
+    def test_sql5 = """SELECT a.* FROM ${tableName5} a inner join ${tableName8} b on a.user_id=b.user_id"""
     connect('root', context.config.jdbcPassword, follower_jdbc_url) {
         sql """use ${dbName}"""
         mv_rewrite_success(test_sql5, mtmvName5)
