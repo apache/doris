@@ -34,7 +34,6 @@
 #include "util/jsonb_document.h"
 #include "util/jsonb_error.h"
 #include "util/jsonb_parser_simd.h"
-#endif
 #include "util/jsonb_stream.h"
 #include "util/jsonb_utils.h"
 #include "util/jsonb_writer.h"
