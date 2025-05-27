@@ -284,6 +284,7 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr","p0,mtmv,restart_fe") {
         }
 
         sql """refresh MATERIALIZED VIEW ${mtmvName4} auto;"""
+        waitingMTMVTaskFinishedByMvName(mtmvName4)
         state_mtmv4 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName4}';"""
         assertTrue(state_mtmv4[0][0] == "NORMAL")
         assertTrue(state_mtmv4[0][1] == "SUCCESS")
@@ -319,11 +320,11 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr","p0,mtmv,restart_fe") {
         }
 
         sql """refresh MATERIALIZED VIEW ${mtmvName4} auto;"""
+        waitingMTMVTaskFinishedByMvName(mtmvName4)
         state_mtmv4 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName4}';"""
         assertTrue(state_mtmv4[0][0] == "SCHEMA_CHANGE")
         assertTrue(state_mtmv4[0][1] == "FAIL")
         assertTrue(state_mtmv4[0][2] == false)
-
     }
 
     // mtmv6: drop table of dependent table
