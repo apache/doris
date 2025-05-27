@@ -57,6 +57,10 @@ public class ConfigBaseTest {
         properties.setProperty(confKeyName, "$" + envName + "/conf");
         replacedByEnvMethod.invoke(configBase, properties);
         Assert.assertEquals("test_dir_env/conf", properties.getProperty(confKeyName));
+
+        properties.setProperty(confKeyName, "$" + envName + "/conf");
+        replacedByEnvMethod.invoke(configBase, properties);
+        Assert.assertEquals("test_dir_env/conf", properties.getProperty(confKeyName));
     }
 
 }
