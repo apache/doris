@@ -352,7 +352,7 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr","p0,mtmv,restart_fe") {
             DISTRIBUTED BY RANDOM BUCKETS 2
             PROPERTIES ('replication_num' = '1')
             AS
-            SELECT user_id, age FROM ${tableName6};
+            SELECT user_id, date, num FROM ${tableName6};
         """
     waitingMTMVTaskFinishedByMvName(cur_mtmvName6)
 //    if (2.1.5) {
