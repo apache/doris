@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include <algorithm>
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -43,32 +42,21 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/functions/function.h"
-#include "vec/utils/template_helpers.hpp"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
-template <bool has_case, bool has_else>
+template <bool has_else>
 struct FunctionCaseName;
 
 template <>
-struct FunctionCaseName<false, false> {
+struct FunctionCaseName<false> {
     static constexpr auto name = "case";
 };
 
 template <>
-struct FunctionCaseName<true, false> {
-    static constexpr auto name = "case_has_case";
-};
-
-template <>
-struct FunctionCaseName<false, true> {
+struct FunctionCaseName<true> {
     static constexpr auto name = "case_has_else";
-};
-
-template <>
-struct FunctionCaseName<true, true> {
-    static constexpr auto name = "case_has_case_has_else";
 };
 
 struct CaseWhenColumnHolder {
@@ -80,16 +68,15 @@ struct CaseWhenColumnHolder {
     size_t rows_count;
 
     CaseWhenColumnHolder(Block& block, const ColumnNumbers& arguments, size_t input_rows_count,
-                         bool has_case, bool has_else, bool when_null, bool then_null)
+                         bool has_else, bool when_null, bool then_null)
             : rows_count(input_rows_count) {
-        when_ptrs.emplace_back(has_case ? OptionalPtr(block.get_by_position(arguments[0]).column)
-                                        : std::nullopt);
+        when_ptrs.emplace_back(std::nullopt);
         then_ptrs.emplace_back(
                 has_else
                         ? OptionalPtr(block.get_by_position(arguments[arguments.size() - 1]).column)
                         : std::nullopt);
 
-        int begin = 0 + has_case;
+        int begin = 0;
         int end = cast_set<int>(arguments.size() - has_else);
         pair_count = (end - begin) / 2 + 1; // when/then at [1: pair_count)
 
@@ -121,17 +108,17 @@ struct CaseWhenColumnHolder {
     }
 };
 
-template <bool has_case, bool has_else>
+template <bool has_else>
 class FunctionCase : public IFunction {
 public:
-    static constexpr auto name = FunctionCaseName<has_case, has_else>::name;
+    static constexpr auto name = FunctionCaseName<has_else>::name;
     static FunctionPtr create() { return std::make_shared<FunctionCase>(); }
     String get_name() const override { return name; }
     size_t get_number_of_arguments() const override { return 0; }
     bool is_variadic() const override { return true; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        int loop_start = has_case ? 2 : 1;
+        int loop_start = 1;
         int loop_end = cast_set<int>(has_else ? arguments.size() - 1 : arguments.size());
 
         bool is_nullable = false;
@@ -308,7 +295,7 @@ public:
                                  const ColumnNumbers& arguments, uint32_t result,
                                  size_t input_rows_count) const {
         bool then_null = false;
-        for (int i = 1 + has_case; i < arguments.size() - has_else; i += 2) {
+        for (int i = 1; i < arguments.size() - has_else; i += 2) {
             if (block.get_by_position(arguments[i]).type->is_nullable()) {
                 then_null = true;
             }
@@ -322,7 +309,7 @@ public:
         }
 
         CaseWhenColumnHolder column_holder = CaseWhenColumnHolder(
-                block, arguments, input_rows_count, has_case, has_else, when_null, then_null);
+                block, arguments, input_rows_count, has_else, when_null, then_null);
         if (column_holder.pair_count > UINT16_MAX) {
             return Status::NotSupported(
                     "case when do not support more than UINT16_MAX pairs conditions");
@@ -349,13 +336,7 @@ public:
                                  const ColumnNumbers& arguments, uint32_t result,
                                  size_t input_rows_count) const {
         bool when_null = false;
-        if constexpr (has_case) {
-            block.replace_by_position_if_const(arguments[0]);
-            if (block.get_by_position(arguments[0]).type->is_nullable()) {
-                when_null = true;
-            }
-        }
-        for (int i = has_case; i < arguments.size() - has_else; i += 2) {
+        for (int i = 0; i < arguments.size() - has_else; i += 2) {
             block.replace_by_position_if_const(arguments[i]);
             if (block.get_by_position(arguments[i]).type->is_nullable()) {
                 when_null = true;
@@ -464,9 +445,6 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        if constexpr (has_case) {
-            return Status::NotSupported("case when has_case not supported");
-        }
         return execute_get_type(block.get_by_position(result).type, block, arguments, result,
                                 input_rows_count);
     }
