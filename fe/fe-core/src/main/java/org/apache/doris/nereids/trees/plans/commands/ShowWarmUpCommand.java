@@ -125,7 +125,7 @@ public class ShowWarmUpCommand extends ShowCommand {
     }
 
     @Override
-    public RedirectStatus getRedirectStatus() {
+    public RedirectStatus toRedirectStatus() {
         return RedirectStatus.FORWARD_NO_SYNC;
     }
 }
