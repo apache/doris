@@ -2811,6 +2811,9 @@ public class Coordinator implements CoordInterface {
                     //the scan instance num should not larger than the tablets num
                     expectedInstanceNum = Math.min(scanRange.size(), parallelExecInstanceNum);
                 }
+                if (params.fragment != null && params.fragment.queryCacheParam != null) {
+                    expectedInstanceNum = scanRange.size();
+                }
                 // 2. split how many scanRange one instance should scan
                 List<List<Pair<Integer, Map<Integer, List<TScanRangeParams>>>>> perInstanceScanRanges
                         = ListUtil.splitBySize(scanRange, expectedInstanceNum);
