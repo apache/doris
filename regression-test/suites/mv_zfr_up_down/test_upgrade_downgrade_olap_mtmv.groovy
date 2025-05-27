@@ -197,13 +197,13 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr","p0,mtmv,restart_fe") {
     def sql2 = "SELECT a.* FROM ${tableName2} a inner join ${tableName4} b on a.user_id=b.user_id"
     connect('root', context.config.jdbcPassword, follower_jdbc_url) {
         sql """use ${dbName}"""
-        mv_rewrite_success(sql2, tableName4)
+        mv_rewrite_success(sql2, mtmvName2)
         compare_res(sql2 + " order by 1,2,3")
     }
 
     connect('root', context.config.jdbcPassword, master_jdbc_url) {
         sql """use ${dbName}"""
-        mv_rewrite_success(sql2, tableName4)
+        mv_rewrite_success(sql2, mtmvName2)
         compare_res(sql2 + " order by 1,2,3")
     }
 
