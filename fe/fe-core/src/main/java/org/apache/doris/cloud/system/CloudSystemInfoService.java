@@ -539,7 +539,7 @@ public class CloudSystemInfoService extends SystemInfoService {
 
         Map<Long, Backend> idToBackend = Maps.newHashMap();
         try {
-            String cluster = ctx.getCurrentCloudCluster();
+            String cluster = ctx.getCloudCluster();
             if (Strings.isNullOrEmpty(cluster)) {
                 throw new AnalysisException("cluster name is empty");
             }

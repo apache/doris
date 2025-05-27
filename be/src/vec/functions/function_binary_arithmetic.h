@@ -240,6 +240,7 @@ struct DecimalBinaryOperation {
     using OpTraits = OperationTraits<Operation, A, B>;
 
     using NativeResultType = typename NativeType<ResultType>::Type;
+    static constexpr PrimitiveType PType = ResultType::PType;
     using Op = Operation<NativeResultType, NativeResultType>;
 
     using Traits = NumberTraits::BinaryOperatorTraits<A, B>;
@@ -751,10 +752,6 @@ inline constexpr bool UseLeftDecimal<DataTypeDecimal<Decimal128V3>, DataTypeDeci
 template <>
 inline constexpr bool UseLeftDecimal<DataTypeDecimal<Decimal64>, DataTypeDecimal<Decimal32>> = true;
 
-template <typename T>
-using DataTypeFromFieldType =
-        std::conditional_t<std::is_same_v<T, NumberTraits::Error>, InvalidType, DataTypeNumber<T>>;
-
 template <template <typename, typename> class Operation, typename LeftDataType,
           typename RightDataType>
 struct BinaryOperationTraits {
@@ -792,7 +789,7 @@ struct BinaryOperationTraits {
                  InvalidType>,
             /// number <op> number -> see corresponding impl
             Case<!IsDataTypeDecimal<LeftDataType> && !IsDataTypeDecimal<RightDataType>,
-                 DataTypeFromFieldType<typename Op::ResultType>>>;
+                 typename PrimitiveTypeTraits<Op::ResultType>::DataType>>;
 };
 
 template <typename LeftDataType, typename RightDataType, typename FEResultDataType,

@@ -29,7 +29,6 @@ import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Objects;
-import java.util.Optional;
 
 /**
  * it is item from array, which used in lambda function
@@ -144,7 +143,7 @@ public class ArrayItemReference extends NamedExpression implements ExpectsInputT
          */
         public ArrayItemSlot(ExprId exprId, String name, DataType dataType, boolean nullable) {
             super(exprId, name, dataType, nullable, ImmutableList.of(),
-                    null, null, Optional.empty(), ImmutableList.of());
+                    null, null, null, null, ImmutableList.of());
         }
 
         @Override
