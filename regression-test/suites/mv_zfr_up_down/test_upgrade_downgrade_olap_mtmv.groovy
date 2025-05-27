@@ -29,6 +29,7 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr","p0,mtmv,restart_fe") {
     String tableName6 = """${suiteName}_tb6"""
     String tableName7 = """${suiteName}_tb7"""
     String tableName8 = """${suiteName}_tb8"""
+    String tableName9 = """${suiteName}_tb9"""
     String mtmvName1 = """${suiteName}_mtmv1"""
     String mtmvName2 = """${suiteName}_mtmv2"""
     String mtmvName3 = """${suiteName}_mtmv3"""
@@ -263,9 +264,8 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr","p0,mtmv,restart_fe") {
         sql """ALTER TABLE ${tableName4_rn} RENAME ${tableName4};"""
     }
 
-//    def test_sql4 = """SELECT a.* FROM ${tableName1} a inner join ${tableName4} b on a.user_id=b.user_id"""
     if (!is_exists) {
-        def test_sql4 = """SELECT a.* FROM ${tableName1} a inner join ${tableName4} b on a.user_id=b.user_id"""
+        def test_sql4 = """SELECT a.* FROM ${tableName9} a inner join ${tableName4} b on a.user_id=b.user_id"""
         def state_mtmv4 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName4}';"""
         assertTrue(state_mtmv4[0][0] == "SCHEMA_CHANGE")
         assertTrue(state_mtmv4[0][1] == "SUCCESS")
@@ -283,7 +283,7 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr","p0,mtmv,restart_fe") {
             compare_res(test_sql4 + " order by 1,2,3")
         }
     } else {
-        def test_sql4 = """SELECT a.* FROM ${tableName1} a inner join ${tableName4_rn} b on a.user_id=b.user_id"""
+        def test_sql4 = """SELECT a.* FROM ${tableName9} a inner join ${tableName4_rn} b on a.user_id=b.user_id"""
         def state_mtmv4 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName4}';"""
         assertTrue(state_mtmv4[0][0] == "SCHEMA_CHANGE")
         assertTrue(state_mtmv4[0][1] == "SUCCESS")
