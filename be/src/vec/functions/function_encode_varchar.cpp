@@ -51,7 +51,7 @@ struct EncodeAsLargeInt {
     static constexpr auto name = "encode_as_largeint";
 };
 
-template <typename Name, typename ReturnType>
+template <typename Name, PrimitiveType ReturnType>
 class FunctionEncodeVarchar : public IFunction {
 public:
     static constexpr auto name = Name::name;
@@ -62,7 +62,7 @@ public:
     size_t get_number_of_arguments() const override { return 1; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return std::make_shared<DataTypeNumber<ReturnType>>();
+        return std::make_shared<typename PrimitiveTypeTraits<ReturnType>::DataType>();
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
@@ -73,30 +73,34 @@ public:
         // max_row_byte_size = size of string + size of offset value
         size_t max_str_size = col_str->get_max_row_byte_size() - sizeof(UInt32);
 
-        if (max_str_size > sizeof(ReturnType) - 1) {
+        if (max_str_size > sizeof(typename PrimitiveTypeTraits<ReturnType>::ColumnItemType) - 1) {
             return Status::InternalError(
                     "String is too long to encode, input string size {}, max valid string "
                     "size for {} is {}",
-                    max_str_size, name, sizeof(ReturnType) - 1);
+                    max_str_size, name,
+                    sizeof(typename PrimitiveTypeTraits<ReturnType>::ColumnItemType) - 1);
         }
 
-        auto col_res = ColumnVector<ReturnType>::create(input_rows_count, 0);
+        auto col_res = PrimitiveTypeTraits<ReturnType>::ColumnType::create(input_rows_count, 0);
         auto& col_res_data = col_res->get_data();
 
         for (size_t i = 0; i < input_rows_count; ++i) {
             const char* str_ptr = col_str->get_data_at(i).data;
-            UInt8 str_size = static_cast<UInt8>(col_str->get_data_at(i).size);
-            ReturnType* res = &col_res_data[i];
-            UInt8* __restrict ui8_ptr = reinterpret_cast<UInt8*>(res);
+            auto str_size = static_cast<UInt8>(col_str->get_data_at(i).size);
+            auto* res = &col_res_data[i];
+            auto* __restrict ui8_ptr = reinterpret_cast<UInt8*>(res);
 
             // "reverse" the order of string on little endian machine.
-            simd::reverse_copy_bytes(ui8_ptr, sizeof(ReturnType), str_ptr, str_size);
+            simd::reverse_copy_bytes(
+                    ui8_ptr, sizeof(typename PrimitiveTypeTraits<ReturnType>::ColumnItemType),
+                    str_ptr, str_size);
             // Lowest byte of Integer stores the size of the string, bit left shiflted by 1 so that we can get
             // correct size after right shifting by 1
             memset(ui8_ptr, str_size << 1, 1);
             *res >>= 1;
             // operator &= can not be applied to Int128
-            *res = *res & std::numeric_limits<ReturnType>::max();
+            *res = *res & std::numeric_limits<
+                                  typename PrimitiveTypeTraits<ReturnType>::ColumnItemType>::max();
         }
 
         block.get_by_position(result).column = std::move(col_res);
@@ -106,10 +110,10 @@ public:
 };
 
 void register_function_encode_varchar(SimpleFunctionFactory& factory) {
-    factory.register_function<FunctionEncodeVarchar<EncodeAsSmallInt, Int16>>();
-    factory.register_function<FunctionEncodeVarchar<EncodeAsInt, Int32>>();
-    factory.register_function<FunctionEncodeVarchar<EncodeAsBigInt, Int64>>();
-    factory.register_function<FunctionEncodeVarchar<EncodeAsLargeInt, Int128>>();
+    factory.register_function<FunctionEncodeVarchar<EncodeAsSmallInt, TYPE_SMALLINT>>();
+    factory.register_function<FunctionEncodeVarchar<EncodeAsInt, TYPE_INT>>();
+    factory.register_function<FunctionEncodeVarchar<EncodeAsBigInt, TYPE_BIGINT>>();
+    factory.register_function<FunctionEncodeVarchar<EncodeAsLargeInt, TYPE_LARGEINT>>();
 }
 
 } // namespace doris::vectorized
