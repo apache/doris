@@ -111,21 +111,7 @@ public class ShowBuildIndexCommand extends ShowCommand {
             }
         }
 
-        if (whereClause != null) {
-            if (whereClause instanceof CompoundPredicate) {
-                CompoundPredicate predicate = (CompoundPredicate) whereClause;
-                if (!(whereClause instanceof And)) {
-                    throw new AnalysisException("Only allow compound predicate with operator AND");
-                }
-                Expression left = predicate.child(0);
-                Expression right = predicate.child(1);
-                checkAndExpression(left, right);
-                analyzeSubExpr(left);
-                analyzeSubExpr(right);
-            } else {
-                analyzeSubExpr(whereClause);
-            }
-        }
+        analyzeSubExpr(whereClause);
 
         // order by
         if (orderByElements != null && !orderByElements.isEmpty()) {
@@ -170,6 +156,22 @@ public class ShowBuildIndexCommand extends ShowCommand {
             return;
         }
 
+        if (expr instanceof CompoundPredicate) {
+            CompoundPredicate predicate = (CompoundPredicate) expr;
+            if (!(expr instanceof And)) {
+                throw new AnalysisException("Only allow compound predicate with operator AND");
+            }
+            Expression left = predicate.child(0);
+            Expression right = predicate.child(1);
+            checkAndExpression(left, right);
+            analyzeSubExpr(left);
+            analyzeSubExpr(right);
+        } else {
+            getExprValue(expr);
+        }
+    }
+
+    private void getExprValue(Expression expr) throws AnalysisException {
         if (!(expr instanceof ComparisonPredicate || (expr instanceof Not && expr.child(0) instanceof EqualTo))) {
             throw new AnalysisException("The operator =|>=|<=|>|<|!= are supported.");
         }
