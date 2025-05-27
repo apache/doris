@@ -737,6 +737,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_SQL_CONVERTOR_FEATURES = "enable_sql_convertor_features";
 
+    public static final String ENABLE_SCHEMA_SCAN_FROM_MASTER_FE = "enable_schema_scan_from_master_fe";
+
     /**
      * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
      */
@@ -2593,6 +2595,16 @@ public class SessionVariable implements Serializable, Writable {
                     "enable SQL convertor features. Multiple features are separated by commas"
             })
     public String enableSqlConvertorFeatures = "";
+
+    // The default value is true,
+    // which throughs reducing rpc call from follower node to meta service to improve query performance
+    // for getting version is memory operation in master node,
+    // but it will slightly increase the pressure on the FE master.
+    @VariableMgr.VarAttr(name = ENABLE_SCHEMA_SCAN_FROM_MASTER_FE, description = {
+            "在follower节点查询时, 是否允许从master节点扫描information_schema.tables的结果",
+            "Whether to allow scanning information_schema.tables from the master node"
+    })
+    public boolean enableSchemaScanFromMasterFe = true;
 
     public void setEnableEsParallelScroll(boolean enableESParallelScroll) {
         this.enableESParallelScroll = enableESParallelScroll;
