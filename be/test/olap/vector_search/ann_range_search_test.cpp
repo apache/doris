@@ -1028,13 +1028,13 @@ TEST_F(VectorSearchTest, TestEvaluateAnnRangeSearch2) {
             dynamic_cast<doris::segment_v2::VirtualColumnIterator*>(column_iterators[3].get());
 
     vectorized::IColumn::Ptr column = virtual_column_iter->get_materialized_column();
-    const vectorized::ColumnFloat32* float_column =
-            check_and_get_column<const vectorized::ColumnFloat32>(column.get());
+    const vectorized::ColumnFloat64* double_column =
+            check_and_get_column<const vectorized::ColumnFloat64>(column.get());
     const vectorized::ColumnNothing* nothing_column =
             check_and_get_column<const vectorized::ColumnNothing>(column.get());
-    ASSERT_NE(float_column, nullptr);
+    ASSERT_NE(double_column, nullptr);
     ASSERT_EQ(nothing_column, nullptr);
-    EXPECT_EQ(float_column->size(), 10);
+    EXPECT_EQ(double_column->size(), 10);
     EXPECT_EQ(row_bitmap.cardinality(), 10);
 
     const auto& get_row_id_to_idx = virtual_column_iter->get_row_id_to_idx();

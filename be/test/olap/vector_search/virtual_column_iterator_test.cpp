@@ -20,6 +20,7 @@
 #include <gtest/gtest.h>
 
 #include "vec/columns/column.h"
+#include "vec/columns/column_nothing.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
 #include "vec/core/types.h"
@@ -344,4 +345,79 @@ TEST_F(VectorSearchTest, NextBatchTest1) {
     }
 }
 
+TEST_F(VectorSearchTest, TestPrepare1) {
+    VirtualColumnIterator iterator;
+
+    // Create a materialized int32_t column with values [10, 20, 30, 40, 50]
+    auto int_column = vectorized::ColumnVector<int32_t>::create();
+    int_column->insert(10);
+    int_column->insert(20);
+    int_column->insert(30);
+    int_column->insert(40);
+    int_column->insert(50);
+    auto labels = std::make_unique<std::vector<uint64_t>>();
+    labels->push_back(100);
+    labels->push_back(11);
+    labels->push_back(33);
+    labels->push_back(22);
+    labels->push_back(55);
+    // Set the materialized column
+    iterator.prepare_materialization(std::move(int_column), std::move(labels));
+
+    // Verify row_id_to_idx mapping
+    const auto& row_id_to_idx = iterator.get_row_id_to_idx();
+    ASSERT_EQ(row_id_to_idx.size(), 5);
+    ASSERT_EQ(row_id_to_idx.find(11)->second, 0);
+    ASSERT_EQ(row_id_to_idx.find(22)->second, 1);
+    ASSERT_EQ(row_id_to_idx.find(33)->second, 2);
+    ASSERT_EQ(row_id_to_idx.find(55)->second, 3);
+    ASSERT_EQ(row_id_to_idx.find(100)->second, 4);
+
+    auto materialization_col = iterator.get_materialized_column();
+    auto int_col_m =
+            assert_cast<const vectorized::ColumnVector<int32_t>*>(materialization_col.get());
+    ASSERT_EQ(int_col_m->get_data()[0], 20);
+    ASSERT_EQ(int_col_m->get_data()[1], 40);
+    ASSERT_EQ(int_col_m->get_data()[2], 30);
+    ASSERT_EQ(int_col_m->get_data()[3], 50);
+    ASSERT_EQ(int_col_m->get_data()[4], 10);
+}
+
+TEST_F(VectorSearchTest, TestColumnNothing) {
+    VirtualColumnIterator iterator;
+
+    // Create a materialized int32_t column with values [10, 20, 30, 40, 50]
+    auto int_column = vectorized::ColumnVector<int32_t>::create();
+    int_column->insert(10);
+    int_column->insert(20);
+    int_column->insert(30);
+    int_column->insert(40);
+    int_column->insert(50);
+    auto labels = std::make_unique<std::vector<uint64_t>>();
+    labels->push_back(100);
+    labels->push_back(11);
+    labels->push_back(33);
+    labels->push_back(22);
+    labels->push_back(55);
+    // Set the materialized column
+    iterator.prepare_materialization(std::move(int_column), std::move(labels));
+
+    // Create destination column
+    vectorized::MutableColumnPtr dst = vectorized::ColumnNothing::create(0);
+
+    // Read by rowids, should return empty result
+    rowid_t rowids[] = {11, 22, 33};
+    size_t count = sizeof(rowids) / sizeof(rowids[0]);
+    Status status = iterator.read_by_rowids(rowids, count, dst);
+    ASSERT_TRUE(status.ok());
+    auto tmp_nothing = vectorized::check_and_get_column<vectorized::ColumnNothing>(*dst);
+    ASSERT_TRUE(tmp_nothing == nullptr);
+    auto tmp_col_i32 = vectorized::check_and_get_column<vectorized::ColumnVector<int32_t>>(
+            *iterator.get_materialized_column());
+    ASSERT_TRUE(tmp_col_i32 != nullptr);
+    ASSERT_EQ(dst->size(), 3);
+    ASSERT_EQ(tmp_col_i32->get_data()[0], 20);
+    ASSERT_EQ(tmp_col_i32->get_data()[1], 40);
+    ASSERT_EQ(tmp_col_i32->get_data()[2], 30);
+}
 } // namespace doris::vectorized
