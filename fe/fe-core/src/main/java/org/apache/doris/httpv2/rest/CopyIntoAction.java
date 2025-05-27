@@ -186,7 +186,6 @@ public class CopyIntoAction extends RestBaseController {
             // 2. call RemoteBase to get pre-signedUrl
             RemoteBase rb = RemoteBase.newInstance(new ObjectInfo(objPb));
             String signedUrl = rb.getPresignedUrl(fileName);
-            LOG.info("get internal stage remote info: {}, and signedUrl: {}", rb.toString(), signedUrl);
             long elapseMs = System.currentTimeMillis() - startTime;
             MetricRepo.HISTO_HTTP_COPY_INTO_UPLOAD_LATENCY.update(elapseMs);
             return redirectToObj(signedUrl);
