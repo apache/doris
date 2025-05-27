@@ -335,12 +335,12 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr","p0,mtmv,restart_fe") {
     def test_sql6 = """SELECT * FROM ${tableName6}"""
     connect('root', context.config.jdbcPassword, follower_jdbc_url) {
         sql """use ${dbName}"""
-        mv_rewrite_fail(test_sql6, mtmvName1)
+        mv_not_part_in(test_sql6, mtmvName6)
     }
 
     connect('root', context.config.jdbcPassword, master_jdbc_url) {
         sql """use ${dbName}"""
-        mv_rewrite_fail(test_sql6, mtmvName1)
+        mv_not_part_in(test_sql6, mtmvName6)
     }
 
     // After deleting the table, you can create a new MTMV
