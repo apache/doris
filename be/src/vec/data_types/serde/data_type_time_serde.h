@@ -27,7 +27,7 @@ namespace doris {
 class JsonbOutStream;
 #include "common/compile_check_begin.h"
 namespace vectorized {
-class DataTypeTimeV2SerDe : public DataTypeNumberSerDe<PrimitiveType::TYPE_TIMEV2> {
+class DataTypeTimeV2SerDe final : public DataTypeNumberSerDe<PrimitiveType::TYPE_TIMEV2> {
 public:
     DataTypeTimeV2SerDe(int scale = 0, int nesting_level = 1)
             : DataTypeNumberSerDe<PrimitiveType::TYPE_TIMEV2>(nesting_level), scale(scale) {};
@@ -37,6 +37,8 @@ public:
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<false>& row_buffer,
                                  int64_t row_idx, bool col_const,
                                  const FormatOptions& options) const override;
+    Status serialize_column_to_jsonb_vector(const IColumn& from_column,
+                                            ColumnPtr& to_column) const override;
 
 private:
     template <bool is_binary_format>

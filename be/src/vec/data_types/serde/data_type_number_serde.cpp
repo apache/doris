@@ -393,6 +393,39 @@ Status DataTypeNumberSerDe<T>::write_column_to_orc(const std::string& timezone,
     return Status::OK();
 }
 
+template <PrimitiveType PT, typename T>
+void write_to_json_from_number_column(JsonbWriterT<JsonbOutStream>& result, const T& data) {
+    if constexpr (PT == TYPE_BOOLEAN) {
+        result.writeBool(data);
+    } else if constexpr (PT == TYPE_TINYINT) {
+        result.writeInt8(data);
+    } else if constexpr (PT == TYPE_SMALLINT) {
+        result.writeInt16(data);
+    } else if constexpr (PT == TYPE_INT) {
+        result.writeInt32(data);
+    } else if constexpr (PT == TYPE_BIGINT) {
+        result.writeInt64(data);
+    } else if constexpr (PT == TYPE_LARGEINT) {
+        result.writeInt128(data);
+    } else if constexpr (PT == TYPE_FLOAT) {
+        result.writeFloat(data);
+    } else if constexpr (PT == TYPE_DOUBLE) {
+        result.writeDouble(data);
+    } else {
+        throw doris::Exception(
+                ErrorCode::NOT_IMPLEMENTED_ERROR,
+                "write_one_cell_to_jsonb with type " + std::string(typeid(T).name()));
+    }
+}
+
+template <PrimitiveType T>
+Status DataTypeNumberSerDe<T>::serialize_column_to_jsonb_vector(const IColumn& from_column,
+                                                                ColumnPtr& to_column) const {
+    return serialize_column_to_jsonb_vector_number_impl(
+            from_column, to_column,
+            write_to_json_from_number_column<T, typename PrimitiveTypeTraits<T>::ColumnItemType>);
+}
+
 /// Explicit template instantiations - to avoid code bloat in headers.
 template class DataTypeNumberSerDe<TYPE_BOOLEAN>;
 template class DataTypeNumberSerDe<TYPE_TINYINT>;

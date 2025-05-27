@@ -23,6 +23,7 @@
 #include "vec/columns/column.h"
 #include "vec/core/field.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_jsonb.h"
 #include "vec/data_types/serde/data_type_jsonb_serde.h"
 
 namespace doris {
@@ -132,6 +133,51 @@ Status DataTypeSerDe::write_one_cell_to_json(const IColumn& column, rapidjson::V
 Status DataTypeSerDe::read_one_cell_from_json(IColumn& column,
                                               const rapidjson::Value& result) const {
     return Status::NotSupported("Not support read {} from rapidjson", column.get_name());
+}
+
+Status DataTypeSerDe::serialize_column_to_jsonb_vector(const IColumn& from_column,
+                                                       ColumnPtr& to_column) const {
+    ColumnUInt8::MutablePtr col_null_map_to = ColumnUInt8::create(from_column.size(), 0);
+    ColumnUInt8::Container* vec_null_map_to = &col_null_map_to->get_data();
+
+    DataTypeSerDe::FormatOptions format_options;
+    format_options.converted_from_string = true;
+
+    auto col_to = DataTypeJsonb::ColumnType::create();
+
+    JsonbWriter writer;
+    auto tmp_col = ColumnString::create();
+
+    vectorized::DataTypeSerDe::FormatOptions options;
+    DataTypeJsonbSerDe jsonb_serde;
+    options.escape_char = '\\';
+
+    for (size_t i = 0; i < from_column.size(); i++) {
+        // convert to string
+        tmp_col->clear();
+        VectorBufferWriter write_buffer(*tmp_col.get());
+        Status st = serialize_column_to_json(from_column, i, i + 1, write_buffer, options);
+        // if serialized failed, will return null
+        (*vec_null_map_to)[i] = !st.ok();
+        if (!st.ok()) {
+            col_to->insert_default();
+            continue;
+        }
+        write_buffer.commit();
+        writer.reset();
+        auto str_ref = tmp_col->get_data_at(0);
+        Slice data((char*)(str_ref.data), str_ref.size);
+        // first try to parse string
+        st = jsonb_serde.deserialize_one_cell_from_json(*col_to, data, format_options);
+        // if parsing failed, will return null
+        (*vec_null_map_to)[i] = !st.ok();
+        if (!st.ok()) {
+            col_to->insert_default();
+        }
+    }
+
+    to_column = ColumnNullable::create(std::move(col_to), std::move(col_null_map_to));
+    return Status::OK();
 }
 
 const std::string DataTypeSerDe::NULL_IN_COMPLEX_TYPE = "null";

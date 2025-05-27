@@ -75,6 +75,18 @@ Status DataTypeDateTimeV2SerDe::serialize_one_cell_to_json(const IColumn& column
     return Status::OK();
 }
 
+Status DataTypeDateTimeV2SerDe::serialize_column_to_jsonb_vector(const IColumn& from_column,
+                                                                 ColumnPtr& to_column) const {
+    return serialize_column_to_jsonb_vector_number_impl(
+            from_column, to_column, [](JsonbWriter& writer, UInt64 int_val) {
+                DateV2Value<DateTimeV2ValueType> val =
+                        binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(int_val);
+                char buf[64];
+                char* pos = val.to_string(buf);
+                write_json_string(writer, std::string_view(buf, pos - buf - 1));
+            });
+}
+
 Status DataTypeDateTimeV2SerDe::deserialize_column_from_json_vector(
         IColumn& column, std::vector<Slice>& slices, uint64_t* num_deserialized,
         const FormatOptions& options) const {

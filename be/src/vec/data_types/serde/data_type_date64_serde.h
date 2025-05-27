@@ -79,6 +79,9 @@ public:
                                int64_t start, int64_t end,
                                std::vector<StringRef>& buffer_list) const override;
 
+    Status serialize_column_to_jsonb_vector(const IColumn& from_column,
+                                            ColumnPtr& to_column) const override;
+
 protected:
     template <bool is_date>
     void _read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int64_t start,

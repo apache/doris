@@ -526,57 +526,6 @@ struct ConvertImplGenericFromString {
         return Status::OK();
     }
 };
-
-// Generic conversion of number to jsonb.
-template <typename ColumnType>
-struct ConvertImplNumberToJsonb {
-    static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          const uint32_t result, size_t input_rows_count) {
-        const auto& col_with_type_and_name = block.get_by_position(arguments[0]);
-
-        auto column_string = ColumnString::create();
-        JsonbWriter writer;
-
-        const auto* col =
-                check_and_get_column<const ColumnType>(col_with_type_and_name.column.get());
-        const auto& data = col->get_data();
-
-        for (size_t i = 0; i < input_rows_count; i++) {
-            writer.reset();
-            if constexpr (std::is_same_v<ColumnUInt8, ColumnType>) {
-                writer.writeBool(data[i]);
-            } else if constexpr (std::is_same_v<ColumnInt8, ColumnType>) {
-                writer.writeInt8(data[i]);
-            } else if constexpr (std::is_same_v<ColumnInt16, ColumnType>) {
-                writer.writeInt16(data[i]);
-            } else if constexpr (std::is_same_v<ColumnInt32, ColumnType>) {
-                writer.writeInt32(data[i]);
-            } else if constexpr (std::is_same_v<ColumnInt64, ColumnType>) {
-                writer.writeInt64(data[i]);
-            } else if constexpr (std::is_same_v<ColumnInt128, ColumnType>) {
-                writer.writeInt128(data[i]);
-            } else if constexpr (std::is_same_v<ColumnFloat64, ColumnType>) {
-                writer.writeDouble(data[i]);
-            } else {
-                static_assert(std::is_same_v<ColumnType, ColumnUInt8> ||
-                                      std::is_same_v<ColumnType, ColumnInt8> ||
-                                      std::is_same_v<ColumnType, ColumnInt16> ||
-                                      std::is_same_v<ColumnType, ColumnInt32> ||
-                                      std::is_same_v<ColumnType, ColumnInt64> ||
-                                      std::is_same_v<ColumnType, ColumnInt128> ||
-                                      std::is_same_v<ColumnType, ColumnFloat64>,
-                              "unsupported type");
-                __builtin_unreachable();
-            }
-            column_string->insert_data(writer.getOutput()->getBuffer(),
-                                       writer.getOutput()->getSize());
-        }
-
-        block.replace_by_position(result, std::move(column_string));
-        return Status::OK();
-    }
-};
-
 struct ConvertImplStringToJsonbAsJsonbString {
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           const uint32_t result, size_t input_rows_count) {
@@ -685,52 +634,15 @@ struct ConvertImplGenericFromJsonb {
 struct ConvertImplGenericToJsonb {
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           const uint32_t result, size_t input_rows_count) {
-        auto data_type_to = block.get_by_position(result).type;
         const auto& col_with_type_and_name = block.get_by_position(arguments[0]);
-        const IDataType& type = *col_with_type_and_name.type;
+        const IDataType& type_from = *col_with_type_and_name.type;
         const IColumn& col_from = *col_with_type_and_name.column;
 
-        auto column_string = ColumnString::create();
-        JsonbWriter writer;
+        ColumnPtr col_to;
 
-        ColumnUInt8::MutablePtr col_null_map_to = ColumnUInt8::create(col_from.size(), 0);
-        ColumnUInt8::Container* vec_null_map_to = &col_null_map_to->get_data();
-        DataTypeSerDe::FormatOptions format_options;
-        format_options.converted_from_string = true;
-        DataTypeSerDeSPtr from_serde = type.get_serde();
-        DataTypeSerDeSPtr to_serde = data_type_to->get_serde();
-        auto col_to = data_type_to->create_column();
+        RETURN_IF_ERROR(type_from.get_serde()->serialize_column_to_jsonb_vector(col_from, col_to));
 
-        auto tmp_col = ColumnString::create();
-        vectorized::DataTypeSerDe::FormatOptions options;
-        options.escape_char = '\\';
-        for (size_t i = 0; i < input_rows_count; i++) {
-            // convert to string
-            tmp_col->clear();
-            VectorBufferWriter write_buffer(*tmp_col.get());
-            Status st =
-                    from_serde->serialize_column_to_json(col_from, i, i + 1, write_buffer, options);
-            // if serialized failed, will return null
-            (*vec_null_map_to)[i] = !st.ok();
-            if (!st.ok()) {
-                col_to->insert_default();
-                continue;
-            }
-            write_buffer.commit();
-            writer.reset();
-            auto str_ref = tmp_col->get_data_at(0);
-            Slice data((char*)(str_ref.data), str_ref.size);
-            // first try to parse string
-            st = to_serde->deserialize_one_cell_from_json(*col_to, data, format_options);
-            // if parsing failed, will return null
-            (*vec_null_map_to)[i] = !st.ok();
-            if (!st.ok()) {
-                col_to->insert_default();
-            }
-        }
-
-        block.replace_by_position(
-                result, ColumnNullable::create(std::move(col_to), std::move(col_null_map_to)));
+        block.replace_by_position(result, col_to);
         return Status::OK();
     }
 };
@@ -1717,20 +1629,6 @@ private:
     WrapperType create_jsonb_wrapper(const DataTypePtr& from_type, const DataTypeJsonb& to_type,
                                      bool string_as_jsonb_string) const {
         switch (from_type->get_primitive_type()) {
-        case PrimitiveType::TYPE_BOOLEAN:
-            return &ConvertImplNumberToJsonb<ColumnUInt8>::execute;
-        case PrimitiveType::TYPE_TINYINT:
-            return &ConvertImplNumberToJsonb<ColumnInt8>::execute;
-        case PrimitiveType::TYPE_SMALLINT:
-            return &ConvertImplNumberToJsonb<ColumnInt16>::execute;
-        case PrimitiveType::TYPE_INT:
-            return &ConvertImplNumberToJsonb<ColumnInt32>::execute;
-        case PrimitiveType::TYPE_BIGINT:
-            return &ConvertImplNumberToJsonb<ColumnInt64>::execute;
-        case PrimitiveType::TYPE_LARGEINT:
-            return &ConvertImplNumberToJsonb<ColumnInt128>::execute;
-        case PrimitiveType::TYPE_DOUBLE:
-            return &ConvertImplNumberToJsonb<ColumnFloat64>::execute;
         case PrimitiveType::TYPE_STRING:
         case PrimitiveType::TYPE_CHAR:
         case PrimitiveType::TYPE_VARCHAR:

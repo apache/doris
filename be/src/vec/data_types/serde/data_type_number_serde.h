@@ -75,6 +75,28 @@ public:
                                               uint64_t* num_deserialized,
                                               const FormatOptions& options) const override;
 
+    Status serialize_column_to_jsonb_vector(const IColumn& from_column,
+                                            ColumnPtr& to_column) const override;
+
+    template <typename Func>
+    Status serialize_column_to_jsonb_vector_number_impl(const IColumn& from_column,
+                                                        ColumnPtr& to_column,
+                                                        Func write_to_json) const {
+        auto column_string = ColumnString::create();
+        JsonbWriter writer;
+
+        const auto& data = assert_cast<const ColumnType&>(from_column).get_data();
+        for (size_t i = 0; i < data.size(); i++) {
+            writer.reset();
+            write_to_json(writer, data[i]);
+            column_string->insert_data(writer.getOutput()->getBuffer(),
+                                       writer.getOutput()->getSize());
+        }
+
+        to_column = std::move(column_string);
+        return Status::OK();
+    }
+
     void insert_column_last_value_multiple_times(IColumn& column, uint64_t times) const override;
 
     Status write_column_to_pb(const IColumn& column, PValues& result, int64_t start,

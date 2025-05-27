@@ -137,6 +137,18 @@ Status DataTypeDateTimeSerDe::serialize_one_cell_to_json(const IColumn& column, 
     }
     return Status::OK();
 }
+template <PrimitiveType T>
+Status DataTypeDate64SerDe<T>::serialize_column_to_jsonb_vector(const IColumn& from_column,
+                                                                ColumnPtr& to_column) const {
+    return DataTypeNumberSerDe<T>::serialize_column_to_jsonb_vector_number_impl(
+            from_column, to_column, [](JsonbWriter& writer, Int64 int_val) {
+                doris::VecDateTimeValue value =
+                        binary_cast<Int64, doris::VecDateTimeValue>(int_val);
+                char buf[64];
+                char* pos = value.to_string(buf);
+                DataTypeSerDe::write_json_string(writer, std::string_view(buf, pos - buf - 1));
+            });
+}
 
 Status DataTypeDateTimeSerDe::deserialize_column_from_json_vector(
         IColumn& column, std::vector<Slice>& slices, uint64_t* num_deserialized,

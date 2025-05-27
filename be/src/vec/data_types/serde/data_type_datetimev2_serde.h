@@ -41,7 +41,7 @@ class JsonbOutStream;
 namespace vectorized {
 class Arena;
 
-class DataTypeDateTimeV2SerDe : public DataTypeNumberSerDe<PrimitiveType::TYPE_DATETIMEV2> {
+class DataTypeDateTimeV2SerDe final : public DataTypeNumberSerDe<PrimitiveType::TYPE_DATETIMEV2> {
 public:
     DataTypeDateTimeV2SerDe(int scale, int nesting_level = 1)
             : DataTypeNumberSerDe<PrimitiveType::TYPE_DATETIMEV2>(nesting_level), scale(scale) {};
@@ -58,6 +58,9 @@ public:
     Status deserialize_column_from_json_vector(IColumn& column, std::vector<Slice>& slices,
                                                uint64_t* num_deserialized,
                                                const FormatOptions& options) const override;
+
+    Status serialize_column_to_jsonb_vector(const IColumn& from_column,
+                                            ColumnPtr& to_column) const override;
 
     void write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
