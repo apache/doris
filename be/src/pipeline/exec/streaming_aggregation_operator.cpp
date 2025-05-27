@@ -463,7 +463,7 @@ Status StreamingAggLocalState::_get_results_with_serialized_key(RuntimeState* st
                         agg_method.init_iterator();
                         auto& data = *agg_method.hash_table;
                         const auto size = std::min(data.size(), size_t(state->batch_size()));
-                        using KeyType = std::decay_t<decltype(agg_method.iterator->get_first())>;
+                        using KeyType = std::decay_t<decltype(agg_method)>::Key;
                         std::vector<KeyType> keys(size);
                         if (_values.size() < size + 1) {
                             _values.resize(size + 1);
