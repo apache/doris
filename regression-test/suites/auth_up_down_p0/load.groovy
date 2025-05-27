@@ -17,6 +17,16 @@
 
 suite("test_upgrade_downgrade_prepare_auth","p0,auth,restart_fe") {
 
+    def forComputeGroupStr = "";
+
+    //cloud-mode
+    if (isCloudMode()) {
+        def clusters = sql " SHOW CLUSTERS; "
+        assertTrue(!clusters.isEmpty())
+        def validCluster = clusters[0][0]
+        forComputeGroupStr = " for  $validCluster "
+    }
+
     String user1 = 'test_upgrade_downgrade_compatibility_auth_user1'
     String user2 = 'test_upgrade_downgrade_compatibility_auth_user2'
     String role1 = 'test_upgrade_downgrade_compatibility_auth_role1'
@@ -80,13 +90,13 @@ suite("test_upgrade_downgrade_prepare_auth","p0,auth,restart_fe") {
         );
         """
 
-    sql """drop WORKLOAD GROUP if exists '${wg1}'"""
-    sql """drop WORKLOAD GROUP if exists '${wg2}'"""
-    sql """CREATE WORKLOAD GROUP "${wg1}"
+    sql """drop WORKLOAD GROUP if exists '${wg1}' $forComputeGroupStr """
+    sql """drop WORKLOAD GROUP if exists '${wg2}' $forComputeGroupStr """
+    sql """CREATE WORKLOAD GROUP "${wg1}" $forComputeGroupStr
         PROPERTIES (
             "cpu_share"="10"
         );"""
-    sql """CREATE WORKLOAD GROUP "${wg2}"
+    sql """CREATE WORKLOAD GROUP "${wg2}" $forComputeGroupStr
         PROPERTIES (
             "cpu_share"="10"
         );"""
