@@ -39,21 +39,11 @@ import java.util.List;
  */
 public class JsonObject extends ScalarFunction implements CustomSignature, AlwaysNotNullable {
 
-    private boolean typeCoercion = false;
-
     /**
      * constructor with 0 or more arguments.
      */
     public JsonObject(Expression... varArgs) {
         super("json_object", ExpressionUtils.mergeArguments(varArgs));
-    }
-
-    public void typeCoercion() {
-        this.typeCoercion = true;
-    }
-
-    public boolean isTypeCoercion() {
-        return typeCoercion;
     }
 
     @Override
@@ -72,7 +62,7 @@ public class JsonObject extends ScalarFunction implements CustomSignature, Alway
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        if ((arity() & 1) == 1 && !typeCoercion) {
+        if ((arity() & 1) == 1) {
             throw new AnalysisException("json_object can't be odd parameters, need even parameters: " + this.toSql());
         }
         for (int i = 0; i < arity(); i++) {
@@ -87,11 +77,7 @@ public class JsonObject extends ScalarFunction implements CustomSignature, Alway
      */
     @Override
     public JsonObject withChildren(List<Expression> children) {
-        JsonObject jsonObject = new JsonObject(children.toArray(new Expression[0]));
-        if (typeCoercion) {
-            jsonObject.typeCoercion();
-        }
-        return jsonObject;
+        return new JsonObject(children.toArray(new Expression[0]));
     }
 
     @Override
