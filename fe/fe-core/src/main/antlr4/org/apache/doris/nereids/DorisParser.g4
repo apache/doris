@@ -230,6 +230,7 @@ supportedCreateStatement
             passwordOption commentSpec?                                             #createUser
     | CREATE (DATABASE | SCHEMA) (IF NOT EXISTS)? name=multipartIdentifier
               properties=propertyClause?                                            #createDatabase
+    | CREATE (READ ONLY)? REPOSITORY name=identifier WITH storageBackend            #createRepository
     | CREATE EXTERNAL? RESOURCE (IF NOT EXISTS)?
             name=identifierOrText properties=propertyClause?                        #createResource
     | CREATE DICTIONARY (IF NOT EXISTS)? name = multipartIdentifier
@@ -646,8 +647,8 @@ supportedGrantRevokeStatement
     | GRANT roles+=identifierOrText (COMMA roles+=identifierOrText)* TO userIdentify        #grantRole
     | REVOKE roles+=identifierOrText (COMMA roles+=identifierOrText)* FROM userIdentify     #revokeRole
     | REVOKE privilegeList ON
-            (RESOURCE | CLUSTER | COMPUTE GROUP | STAGE | STORAGE VAULT | WORKLOAD GROUP)
-            identifierOrTextOrAsterisk FROM (userIdentify | ROLE identifierOrText)          #revokeResourcePrivilege
+        (RESOURCE | CLUSTER | COMPUTE GROUP | STAGE | STORAGE VAULT | WORKLOAD GROUP)
+        identifierOrTextOrAsterisk FROM (userIdentify | ROLE identifierOrText)              #revokeResourcePrivilege
     ;
 
 unsupportedGrantRevokeStatement
@@ -810,8 +811,7 @@ analyzeProperties
     ;
 
 unsupportedCreateStatement
-    : CREATE (READ ONLY)? REPOSITORY name=identifier WITH storageBackend        #createRepository
-    | CREATE STORAGE VAULT (IF NOT EXISTS)?
+    : CREATE STORAGE VAULT (IF NOT EXISTS)?
         name=identifierOrText properties=propertyClause?                        #createStorageVault
     ;
 

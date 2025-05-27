@@ -69,6 +69,7 @@ import org.apache.doris.nereids.trees.plans.commands.CreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateProcedureCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateRepositoryCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateResourceCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateSqlBlockRuleCommand;
@@ -524,6 +525,10 @@ public interface CommandVisitor<R, C> {
     }
 
     default R visitCreateDatabaseCommand(CreateDatabaseCommand command, C context) {
+        return visitCommand(command, context);
+    }
+
+    default R visitCreateRepositoryCommand(CreateRepositoryCommand command, C context) {
         return visitCommand(command, context);
     }
 
@@ -1200,9 +1205,8 @@ public interface CommandVisitor<R, C> {
         return visitCommand(grantTablePrivilegeCommand, context);
     }
 
-    default R visitGrantResourcePrivilegeCommand(GrantResourcePrivilegeCommand grantResourcePrivilegeCommand,
-            C context) {
-        return visitCommand(grantResourcePrivilegeCommand, context);
+    default R visitGrantResourcePrivilegeCommand(GrantResourcePrivilegeCommand command, C context) {
+        return visitCommand(command, context);
     }
 
     default R visitRevokeRoleCommand(RevokeRoleCommand revokeRoleCommand, C context) {
