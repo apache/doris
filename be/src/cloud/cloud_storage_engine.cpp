@@ -496,7 +496,7 @@ void CloudStorageEngine::_compaction_tasks_producer_callback() {
 
 std::vector<CloudTabletSPtr> CloudStorageEngine::_generate_cloud_compaction_tasks(
         CompactionType compaction_type, bool check_score) {
-    std::vector<std::shared_ptr<CloudTablet>> tablets_compaction;
+    std::vector<CloudTabletSPtr> tablets_compaction;
 
     int64_t max_compaction_score = 0;
     std::unordered_set<int64_t> tablet_preparing_cumu_compaction;

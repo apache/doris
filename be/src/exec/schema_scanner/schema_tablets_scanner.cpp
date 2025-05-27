@@ -22,6 +22,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <utility>
@@ -31,6 +32,7 @@
 #include "cloud/cloud_tablet_mgr.h"
 #include "cloud/config.h"
 #include "olap/storage_engine.h"
+#include "olap/tablet_fwd.h"
 #include "olap/tablet_manager.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/exec_env.h"
@@ -64,9 +66,7 @@ std::vector<SchemaScanner::ColumnDesc> SchemaTabletsScanner::_s_tbls_columns = {
 };
 
 SchemaTabletsScanner::SchemaTabletsScanner()
-        : SchemaScanner(_s_tbls_columns, TSchemaTableType::SCH_BACKEND_TABLETS),
-          _backend_id(0),
-          _tablets_idx(0) {};
+        : SchemaScanner(_s_tbls_columns, TSchemaTableType::SCH_BACKEND_TABLETS) {};
 
 Status SchemaTabletsScanner::start(RuntimeState* state) {
     if (!_is_init) {
@@ -79,12 +79,21 @@ Status SchemaTabletsScanner::start(RuntimeState* state) {
 
 Status SchemaTabletsScanner::_get_all_tablets() {
     if (config::is_cloud_mode()) {
-        // TODO get tablets on cloud
-        return Status::InternalError("Not support get tablets on the cloud");
+        auto tablets =
+                ExecEnv::GetInstance()->storage_engine().to_cloud().tablet_mgr().get_all_tablet();
+        std::ranges::for_each(tablets, [&](auto& tablet) {
+            _tablets.push_back(std::static_pointer_cast<BaseTablet>(tablet));
+        });
+    } else {
+        auto tablets = ExecEnv::GetInstance()
+                               ->storage_engine()
+                               .to_local()
+                               .tablet_manager()
+                               ->get_all_tablet();
+        std::ranges::for_each(tablets, [&](auto& tablet) {
+            _tablets.push_back(std::static_pointer_cast<BaseTablet>(tablet));
+        });
     }
-    auto tablets =
-            ExecEnv::GetInstance()->storage_engine().to_local().tablet_manager()->get_all_tablet();
-    _tablets = std::move(tablets);
     return Status::OK();
 }
 
@@ -117,10 +126,10 @@ Status SchemaTabletsScanner::_fill_block_impl(vectorized::Block* block) {
     std::vector<void*> datas(fill_tablets_num);
 
     auto fill_column = [&](auto&& get_value, size_t column_index) {
-        using ValueType = std::decay_t<decltype(get_value(std::declval<TabletSharedPtr>()))>;
+        using ValueType = std::decay_t<decltype(get_value(std::declval<BaseTabletSPtr>()))>;
         std::vector<ValueType> srcs(fill_tablets_num);
         for (size_t i = fill_idx_begin; i < fill_idx_end; ++i) {
-            TabletSharedPtr tablet = _tablets[i];
+            BaseTabletSPtr tablet = _tablets[i];
             srcs[i - fill_idx_begin] = get_value(tablet);
             datas[i - fill_idx_begin] = &srcs[i - fill_idx_begin];
         }
@@ -130,7 +139,7 @@ Status SchemaTabletsScanner::_fill_block_impl(vectorized::Block* block) {
     auto fill_boolean_column = [&](auto&& get_value, size_t column_index) {
         std::vector<int8_t> srcs(fill_tablets_num);
         for (size_t i = fill_idx_begin; i < fill_idx_end; ++i) {
-            TabletSharedPtr tablet = _tablets[i];
+            BaseTabletSPtr tablet = _tablets[i];
             srcs[i - fill_idx_begin] = get_value(tablet);
             datas[i - fill_idx_begin] = &srcs[i - fill_idx_begin];
         }
@@ -139,36 +148,49 @@ Status SchemaTabletsScanner::_fill_block_impl(vectorized::Block* block) {
 
     RETURN_IF_ERROR(fill_column([this](auto tablet) { return _backend_id; }, 0));
     RETURN_IF_ERROR(fill_column(
-            [](TabletSharedPtr tablet) { return tablet->tablet_meta()->table_id(); }, 1));
+            [](BaseTabletSPtr tablet) { return tablet->tablet_meta()->table_id(); }, 1));
     RETURN_IF_ERROR(fill_column(
-            [](TabletSharedPtr tablet) { return tablet->tablet_meta()->replica_id(); }, 2));
+            [](BaseTabletSPtr tablet) { return tablet->tablet_meta()->replica_id(); }, 2));
     RETURN_IF_ERROR(fill_column(
-            [](TabletSharedPtr tablet) { return tablet->tablet_meta()->partition_id(); }, 3));
-    RETURN_IF_ERROR(fill_column([](TabletSharedPtr tablet) { return tablet->tablet_path(); }, 4));
+            [](BaseTabletSPtr tablet) { return tablet->tablet_meta()->partition_id(); }, 3));
     RETURN_IF_ERROR(fill_column(
-            [](TabletSharedPtr tablet) { return tablet->tablet_meta()->tablet_local_size(); }, 5));
+            [](BaseTabletSPtr tablet) {
+                if (config::is_cloud_mode()) {
+                    return std::string {};
+                }
+                return std::static_pointer_cast<Tablet>(tablet)->tablet_path();
+            },
+            4));
     RETURN_IF_ERROR(fill_column(
-            [](TabletSharedPtr tablet) { return tablet->tablet_meta()->tablet_remote_size(); }, 6));
+            [](BaseTabletSPtr tablet) { return tablet->tablet_meta()->tablet_local_size(); }, 5));
     RETURN_IF_ERROR(fill_column(
-            [](TabletSharedPtr tablet) {
+            [](BaseTabletSPtr tablet) { return tablet->tablet_meta()->tablet_remote_size(); }, 6));
+    RETURN_IF_ERROR(fill_column(
+            [](BaseTabletSPtr tablet) {
                 return static_cast<int64_t>(tablet->tablet_meta()->version_count());
             },
             7));
     RETURN_IF_ERROR(fill_column(
-            [](TabletSharedPtr tablet) { return tablet->tablet_meta()->get_all_segments_size(); },
+            [](BaseTabletSPtr tablet) { return tablet->tablet_meta()->get_all_segments_size(); },
             8));
     RETURN_IF_ERROR(fill_column(
-            [](TabletSharedPtr tablet) { return tablet->tablet_meta()->tablet_columns_num(); }, 9));
+            [](BaseTabletSPtr tablet) { return tablet->tablet_meta()->tablet_columns_num(); }, 9));
     RETURN_IF_ERROR(fill_column(
-            [](TabletSharedPtr tablet) { return static_cast<int64_t>(tablet->row_size()); }, 10));
-    RETURN_IF_ERROR(
-            fill_column([](TabletSharedPtr tablet) { return tablet->get_compaction_score(); }, 11));
+            [](BaseTabletSPtr tablet) { return static_cast<int64_t>(tablet->row_size()); }, 10));
     RETURN_IF_ERROR(fill_column(
-            [](TabletSharedPtr tablet) { return CompressKind_Name(tablet->compress_kind()); }, 12));
-    RETURN_IF_ERROR(
-            fill_boolean_column([](TabletSharedPtr tablet) { return tablet->is_used(); }, 13));
+            [](BaseTabletSPtr tablet) { return tablet->get_real_compaction_score(); }, 11));
+    RETURN_IF_ERROR(fill_column(
+            [](BaseTabletSPtr tablet) { return CompressKind_Name(tablet->compress_kind()); }, 12));
     RETURN_IF_ERROR(fill_boolean_column(
-            [](TabletSharedPtr tablet) { return tablet->is_alter_failed(); }, 14));
+            [](BaseTabletSPtr tablet) {
+                if (config::is_cloud_mode()) {
+                    return false;
+                }
+                return std::static_pointer_cast<Tablet>(tablet)->is_used();
+            },
+            13));
+    RETURN_IF_ERROR(fill_boolean_column(
+            [](BaseTabletSPtr tablet) { return tablet->is_alter_failed(); }, 14));
 
     _tablets_idx += fill_tablets_num;
     return Status::OK();

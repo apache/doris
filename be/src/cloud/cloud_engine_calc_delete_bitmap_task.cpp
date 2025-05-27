@@ -144,7 +144,7 @@ Status CloudTabletCalcDeleteBitmapTask::handle() const {
     int64_t t1 = MonotonicMicros();
     auto base_tablet = DORIS_TRY(_engine.get_tablet(_tablet_id));
     auto get_tablet_time_us = MonotonicMicros() - t1;
-    std::shared_ptr<CloudTablet> tablet = std::dynamic_pointer_cast<CloudTablet>(base_tablet);
+    CloudTabletSPtr tablet = std::dynamic_pointer_cast<CloudTablet>(base_tablet);
     if (tablet == nullptr) {
         LOG(WARNING) << "can't get tablet when calculate delete bitmap. tablet_id=" << _tablet_id;
         auto error_st = Status::Error<ErrorCode::PUSH_TABLE_NOT_EXIST>(
@@ -267,7 +267,7 @@ Status CloudTabletCalcDeleteBitmapTask::handle() const {
 }
 
 Status CloudTabletCalcDeleteBitmapTask::_handle_rowset(
-        std::shared_ptr<CloudTablet> tablet, int64_t version, int64_t sub_txn_id,
+        CloudTabletSPtr tablet, int64_t version, int64_t sub_txn_id,
         std::vector<RowsetSharedPtr>* invisible_rowsets,
         DeleteBitmapPtr tablet_delete_bitmap) const {
     int64_t transaction_id = sub_txn_id == -1 ? _transaction_id : sub_txn_id;
