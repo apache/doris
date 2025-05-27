@@ -214,6 +214,8 @@ Status CloudTablet::sync_if_not_running(SyncRowsetStats* stats) {
         _tablet_meta->clear_rowsets();
         _tablet_meta->clear_stale_rowset();
         _max_version = -1;
+        LOG_INFO("[xxx CloudTablet::sync_if_not_running] tablet={}, state={}", tablet_id(),
+                 tablet_state());
     }
 
     st = _engine.meta_mgr().sync_tablet_rowsets_unlocked(this, lock, {}, stats);
@@ -367,6 +369,8 @@ void CloudTablet::add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_
     }
 
     add_rowsets_directly(to_add_directly);
+    LOG_INFO("[xxx CloudTablet::add_rowsets] tablet={}, state={}, rowsets:\n{}", tablet_id(),
+             tablet_state(), _tablet_meta->rowsets_digest());
 }
 
 void CloudTablet::delete_rowsets(const std::vector<RowsetSharedPtr>& to_delete,
