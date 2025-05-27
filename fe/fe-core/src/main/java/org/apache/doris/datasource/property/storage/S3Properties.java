@@ -142,7 +142,8 @@ public class S3Properties extends AbstractS3CompatibleProperties {
         if (StringUtils.isNotBlank(s3ExternalId) && StringUtils.isNotBlank(s3IAMRole)) {
             return;
         }
-        throw new StoragePropertiesException("Please set access_key and secret_key or iam_role and external_id");
+        throw new StoragePropertiesException("Please set s3.access_key and s3.secret_key or s3.iam_role and "
+                + "s3.external_id");
     }
 
     /**

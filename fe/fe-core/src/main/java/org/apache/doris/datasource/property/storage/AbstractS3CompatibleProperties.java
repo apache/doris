@@ -145,10 +145,10 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
         s3Props.put("AWS_MAX_CONNECTIONS", maxConnections);
         s3Props.put("AWS_REQUEST_TIMEOUT_MS", requestTimeoutMs);
         s3Props.put("AWS_CONNECTION_TIMEOUT_MS", connectionTimeoutMs);
+        s3Props.put("use_path_style", usePathStyle);
         if (StringUtils.isNotBlank(getSessionToken())) {
             s3Props.put("AWS_TOKEN", getSessionToken());
         }
-        s3Props.put("use_path_style", usePathStyle);
         return s3Props;
     }
 
