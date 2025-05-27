@@ -393,9 +393,9 @@ Status DataTypeNumberSerDe<T>::write_column_to_orc(const std::string& timezone,
     return Status::OK();
 }
 
-template <typename T, bool is_strict_mode>
-bool read_number_text_impl(StringRef& str, T& val) {
-    if constexpr (std::is_same_v<T, uint8_t>) {
+template <PrimitiveType PT, bool is_strict_mode>
+bool read_number_text_impl(StringRef& str, typename PrimitiveTypeTraits<PT>::ColumnItemType& val) {
+    if constexpr (PT == TYPE_BOOLEAN) {
         return try_read_bool_text(val, str);
     }
     // else if constexpr (){
@@ -406,11 +406,11 @@ bool read_number_text_impl(StringRef& str, T& val) {
     return false;
 }
 
-template <typename T>
+template <PrimitiveType T>
 Status DataTypeNumberSerDe<T>::from_string(StringRef& str, IColumn& column,
                                            const FormatOptions& options) const {
     auto& column_data = assert_cast<ColumnType&, TypeCheckOnRelease::DISABLE>(column);
-    T val;
+    typename PrimitiveTypeTraits<T>::ColumnItemType val;
     if (!read_number_text_impl<T, false>(str, val)) {
         return Status::InvalidArgument("parse number fail, string: '{}'", str.to_string());
     }
@@ -418,11 +418,11 @@ Status DataTypeNumberSerDe<T>::from_string(StringRef& str, IColumn& column,
     return Status::OK();
 }
 
-template <typename T>
+template <PrimitiveType T>
 Status DataTypeNumberSerDe<T>::from_string_strict_mode(StringRef& str, IColumn& column,
                                                        const FormatOptions& options) const {
     auto& column_data = assert_cast<ColumnType&, TypeCheckOnRelease::DISABLE>(column);
-    T val;
+    typename PrimitiveTypeTraits<T>::ColumnItemType val;
     if (!read_number_text_impl<T, true>(str, val)) {
         return Status::InvalidArgument("parse number fail, string: '{}'", str.to_string());
     }
@@ -430,7 +430,7 @@ Status DataTypeNumberSerDe<T>::from_string_strict_mode(StringRef& str, IColumn& 
     return Status::OK();
 }
 
-template <typename T>
+template <PrimitiveType T>
 Status DataTypeNumberSerDe<T>::from_string_batch(const ColumnString& str, ColumnNullable& column,
                                                  const FormatOptions& options) const {
     const auto size = str.size();
@@ -444,7 +444,7 @@ Status DataTypeNumberSerDe<T>::from_string_batch(const ColumnString& str, Column
     return Status::OK();
 }
 
-template <typename T>
+template <PrimitiveType T>
 Status DataTypeNumberSerDe<T>::from_string_strict_mode_batch(const ColumnString& str,
                                                              ColumnNullable& column,
                                                              const FormatOptions& options) const {

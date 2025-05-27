@@ -47,18 +47,12 @@ template <>
 inline constexpr bool is_signed_integer<DataTypeInt128> = true;
 
 template <typename T>
-constexpr static bool is_unsigned_integer = false;
+constexpr static bool is_bool = false;
 template <>
-inline constexpr bool is_unsigned_integer<DataTypeUInt8> = true;
-template <>
-inline constexpr bool is_unsigned_integer<DataTypeUInt16> = true;
-template <>
-inline constexpr bool is_unsigned_integer<DataTypeUInt32> = true;
-template <>
-inline constexpr bool is_unsigned_integer<DataTypeUInt64> = true;
+inline constexpr bool is_bool<DataTypeUInt8> = true;
 
 template <typename T>
-constexpr static bool is_integer = is_signed_integer<T> || is_unsigned_integer<T>;
+constexpr static bool is_integer_or_bool = is_signed_integer<T> || is_bool<T>;
 
 template <typename T>
 constexpr static bool is_floating_point = false;
@@ -68,7 +62,7 @@ template <>
 inline constexpr bool is_floating_point<DataTypeFloat64> = true;
 
 template <typename T>
-constexpr static bool is_number = is_integer<T> || is_floating_point<T>;
+constexpr static bool is_number = is_integer_or_bool<T> || is_floating_point<T>;
 
 template <typename T>
 constexpr static bool is_decimal = false;
@@ -109,8 +103,8 @@ template <>
 inline constexpr bool is_string<DataTypeString> = true;
 
 template <typename T>
-constexpr static bool is_base_cast_to_type =
-        is_integer<T> || is_floating_point<T> || is_decimal<T> || is_date_time<T> || is_ip<T>;
+constexpr static bool is_base_cast_to_type = is_integer_or_bool<T> || is_floating_point<T> ||
+                                             is_decimal<T> || is_date_time<T> || is_ip<T>;
 
 template <typename T>
 constexpr static bool is_base_cast_from_type = is_base_cast_to_type<T> || is_string<T>;
