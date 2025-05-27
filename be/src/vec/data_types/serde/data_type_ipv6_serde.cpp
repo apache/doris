@@ -26,8 +26,7 @@
 #include "vec/core/types.h"
 #include "vec/io/io_helper.h"
 
-namespace doris {
-namespace vectorized {
+namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
 template <bool is_binary_format>
@@ -223,5 +222,4 @@ Status DataTypeIPv6SerDe::write_column_to_orc(const std::string& timezone, const
     return Status::OK();
 }
 
-} // namespace vectorized
-} // namespace doris
+} // namespace doris::vectorized

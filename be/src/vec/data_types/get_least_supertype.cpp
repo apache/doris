@@ -147,14 +147,12 @@ void get_numeric_type(const PrimitiveTypeSet& types, DataTypePtr* type) {
             if (min_bit_width_of_integer <= 8) {
                 *type = std::make_shared<DataTypeUInt8>();
                 return;
-            } else if (min_bit_width_of_integer <= 16) {
-                *type = std::make_shared<DataTypeUInt16>();
-                return;
-            } else if (min_bit_width_of_integer <= 32) {
-                *type = std::make_shared<DataTypeUInt32>();
-                return;
             } else if (min_bit_width_of_integer <= 64) {
-                *type = std::make_shared<DataTypeUInt64>();
+                throw Exception(Status::InternalError(
+                        "min_bit_width_of_integer={}, max_bits_of_signed_integer={}, "
+                        "max_bits_of_unsigned_integer={}",
+                        min_bit_width_of_integer, max_bits_of_signed_integer,
+                        max_bits_of_unsigned_integer));
                 return;
             } else {
                 LOG(WARNING) << "Logical error: "

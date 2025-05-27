@@ -356,10 +356,11 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
         check_function_for_cast<DataTypeDecimal<T>, Scale, Precision>(input_types, data_set);
     }
 
-    template <typename FromT, typename ToT, int Precision, int Scale>
+    template <PrimitiveType FromPT, typename ToT, int Precision, int Scale>
     void from_int_test_func_() {
+        using FromT = typename PrimitiveTypeTraits<FromPT>::CppType;
         static_assert(std::numeric_limits<FromT>::is_integer, "FromT must be an integer type");
-        DataTypeNumber<FromT> dt_from;
+        DataTypeNumber<FromPT> dt_from;
         InputTypeSet input_types = {dt_from.get_primitive_type()};
         std::cout << "test cast from int to Decimal(" << Precision << ", " << Scale << ")\n";
 
@@ -413,81 +414,82 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
     }
     template <typename DecimalType>
     void from_int_test_func() {
-        from_int_test_func_<Int8, DecimalType, 1, 0>();
+        from_int_test_func_<TYPE_TINYINT, DecimalType, 1, 0>();
         {
             constexpr int p = max_decimal_precision<DecimalType>() / 2;
-            from_int_test_func_<Int8, DecimalType, p, 0>();
-            from_int_test_func_<Int8, DecimalType, p, p / 2>();
-            from_int_test_func_<Int8, DecimalType, p, p - 1>();
+            from_int_test_func_<TYPE_TINYINT, DecimalType, p, 0>();
+            from_int_test_func_<TYPE_TINYINT, DecimalType, p, p / 2>();
+            from_int_test_func_<TYPE_TINYINT, DecimalType, p, p - 1>();
         }
         {
             constexpr int p = max_decimal_precision<DecimalType>();
-            from_int_test_func_<Int8, DecimalType, p, 0>();
-            from_int_test_func_<Int8, DecimalType, p, p / 2>();
-            from_int_test_func_<Int8, DecimalType, p, p - 1>();
+            from_int_test_func_<TYPE_TINYINT, DecimalType, p, 0>();
+            from_int_test_func_<TYPE_TINYINT, DecimalType, p, p / 2>();
+            from_int_test_func_<TYPE_TINYINT, DecimalType, p, p - 1>();
         }
 
-        from_int_test_func_<Int16, DecimalType, 1, 0>();
+        from_int_test_func_<TYPE_SMALLINT, DecimalType, 1, 0>();
         {
             constexpr int p = max_decimal_precision<DecimalType>() / 2;
-            from_int_test_func_<Int16, DecimalType, p, 0>();
-            from_int_test_func_<Int16, DecimalType, p, p / 2>();
-            from_int_test_func_<Int16, DecimalType, p, p - 1>();
+            from_int_test_func_<TYPE_SMALLINT, DecimalType, p, 0>();
+            from_int_test_func_<TYPE_SMALLINT, DecimalType, p, p / 2>();
+            from_int_test_func_<TYPE_SMALLINT, DecimalType, p, p - 1>();
         }
         {
             constexpr int p = max_decimal_precision<DecimalType>();
-            from_int_test_func_<Int16, DecimalType, p, 0>();
-            from_int_test_func_<Int16, DecimalType, p, p / 2>();
-            from_int_test_func_<Int16, DecimalType, p, p - 1>();
+            from_int_test_func_<TYPE_SMALLINT, DecimalType, p, 0>();
+            from_int_test_func_<TYPE_SMALLINT, DecimalType, p, p / 2>();
+            from_int_test_func_<TYPE_SMALLINT, DecimalType, p, p - 1>();
         }
 
-        from_int_test_func_<Int32, DecimalType, 1, 0>();
+        from_int_test_func_<TYPE_INT, DecimalType, 1, 0>();
         {
             constexpr int p = max_decimal_precision<DecimalType>() / 2;
-            from_int_test_func_<Int32, DecimalType, p, 0>();
-            from_int_test_func_<Int32, DecimalType, p, p / 2>();
-            from_int_test_func_<Int32, DecimalType, p, p - 1>();
+            from_int_test_func_<TYPE_INT, DecimalType, p, 0>();
+            from_int_test_func_<TYPE_INT, DecimalType, p, p / 2>();
+            from_int_test_func_<TYPE_INT, DecimalType, p, p - 1>();
         }
         {
             constexpr int p = max_decimal_precision<DecimalType>();
-            from_int_test_func_<Int32, DecimalType, p, 0>();
-            from_int_test_func_<Int32, DecimalType, p, p / 2>();
-            from_int_test_func_<Int32, DecimalType, p, p - 1>();
+            from_int_test_func_<TYPE_INT, DecimalType, p, 0>();
+            from_int_test_func_<TYPE_INT, DecimalType, p, p / 2>();
+            from_int_test_func_<TYPE_INT, DecimalType, p, p - 1>();
         }
 
-        from_int_test_func_<Int64, DecimalType, 1, 0>();
+        from_int_test_func_<TYPE_BIGINT, DecimalType, 1, 0>();
         {
             constexpr int p = max_decimal_precision<DecimalType>() / 2;
-            from_int_test_func_<Int64, DecimalType, p, 0>();
-            from_int_test_func_<Int64, DecimalType, p, p / 2>();
-            from_int_test_func_<Int64, DecimalType, p, p - 1>();
+            from_int_test_func_<TYPE_BIGINT, DecimalType, p, 0>();
+            from_int_test_func_<TYPE_BIGINT, DecimalType, p, p / 2>();
+            from_int_test_func_<TYPE_BIGINT, DecimalType, p, p - 1>();
         }
         {
             constexpr int p = max_decimal_precision<DecimalType>();
-            from_int_test_func_<Int64, DecimalType, p, 0>();
-            from_int_test_func_<Int64, DecimalType, p, p / 2>();
-            from_int_test_func_<Int64, DecimalType, p, p - 1>();
+            from_int_test_func_<TYPE_BIGINT, DecimalType, p, 0>();
+            from_int_test_func_<TYPE_BIGINT, DecimalType, p, p / 2>();
+            from_int_test_func_<TYPE_BIGINT, DecimalType, p, p - 1>();
         }
 
-        from_int_test_func_<Int128, DecimalType, 1, 0>();
+        from_int_test_func_<TYPE_LARGEINT, DecimalType, 1, 0>();
         {
             constexpr int p = max_decimal_precision<DecimalType>() / 2;
-            from_int_test_func_<Int128, DecimalType, p, 0>();
-            from_int_test_func_<Int128, DecimalType, p, p / 2>();
-            from_int_test_func_<Int128, DecimalType, p, p - 1>();
+            from_int_test_func_<TYPE_LARGEINT, DecimalType, p, 0>();
+            from_int_test_func_<TYPE_LARGEINT, DecimalType, p, p / 2>();
+            from_int_test_func_<TYPE_LARGEINT, DecimalType, p, p - 1>();
         }
         {
             constexpr int p = max_decimal_precision<DecimalType>();
-            from_int_test_func_<Int128, DecimalType, p, 0>();
-            from_int_test_func_<Int128, DecimalType, p, p / 2>();
-            from_int_test_func_<Int128, DecimalType, p, p - 1>();
+            from_int_test_func_<TYPE_LARGEINT, DecimalType, p, 0>();
+            from_int_test_func_<TYPE_LARGEINT, DecimalType, p, p / 2>();
+            from_int_test_func_<TYPE_LARGEINT, DecimalType, p, p - 1>();
         }
     }
 
-    template <typename FromT, typename T, int Precision, int Scale>
+    template <PrimitiveType FromPT, typename T, int Precision, int Scale>
     void from_float_double_test_func() {
+        using FromT = typename PrimitiveTypeTraits<FromPT>::CppType;
         static_assert(std::numeric_limits<FromT>::is_iec559, "FromT must be a floating point type");
-        DataTypeNumber<FromT> dt_from;
+        DataTypeNumber<FromPT> dt_from;
         InputTypeSet input_types = {dt_from.get_primitive_type()};
         std::cout << fmt::format("test cast {} to {}({}, {}), both int and fraction part\n",
                                  TypeName<FromT>::get(), TypeName<T>::get(), Precision, Scale);
@@ -1006,37 +1008,37 @@ mysql> select f1, f2, f1 = f2 from test_float;
 1 row in set (0.00 sec)
 */
 TEST_F(FunctionCastToDecimalTest, test_from_float_double) {
-    from_float_double_test_func<float, Decimal32, 9, 0>();
-    from_float_double_test_func<float, Decimal32, 9, 3>();
-    from_float_double_test_func<float, Decimal32, 9, 8>();
+    from_float_double_test_func<TYPE_FLOAT, Decimal32, 9, 0>();
+    from_float_double_test_func<TYPE_FLOAT, Decimal32, 9, 3>();
+    from_float_double_test_func<TYPE_FLOAT, Decimal32, 9, 8>();
 
-    from_float_double_test_func<float, Decimal64, 18, 0>();
-    from_float_double_test_func<float, Decimal64, 18, 9>();
-    from_float_double_test_func<float, Decimal64, 18, 17>();
+    from_float_double_test_func<TYPE_FLOAT, Decimal64, 18, 0>();
+    from_float_double_test_func<TYPE_FLOAT, Decimal64, 18, 9>();
+    from_float_double_test_func<TYPE_FLOAT, Decimal64, 18, 17>();
 
-    from_float_double_test_func<float, Decimal128V3, 38, 0>();
-    from_float_double_test_func<float, Decimal128V3, 38, 19>();
-    from_float_double_test_func<float, Decimal128V3, 38, 37>();
+    from_float_double_test_func<TYPE_FLOAT, Decimal128V3, 38, 0>();
+    from_float_double_test_func<TYPE_FLOAT, Decimal128V3, 38, 19>();
+    from_float_double_test_func<TYPE_FLOAT, Decimal128V3, 38, 37>();
 
-    from_float_double_test_func<float, Decimal256, 76, 0>();
-    from_float_double_test_func<float, Decimal256, 76, 38>();
-    from_float_double_test_func<float, Decimal256, 76, 75>();
+    from_float_double_test_func<TYPE_FLOAT, Decimal256, 76, 0>();
+    from_float_double_test_func<TYPE_FLOAT, Decimal256, 76, 38>();
+    from_float_double_test_func<TYPE_FLOAT, Decimal256, 76, 75>();
 
-    from_float_double_test_func<double, Decimal32, 9, 0>();
-    from_float_double_test_func<double, Decimal32, 9, 3>();
-    from_float_double_test_func<double, Decimal32, 9, 8>();
+    from_float_double_test_func<TYPE_DOUBLE, Decimal32, 9, 0>();
+    from_float_double_test_func<TYPE_DOUBLE, Decimal32, 9, 3>();
+    from_float_double_test_func<TYPE_DOUBLE, Decimal32, 9, 8>();
 
-    from_float_double_test_func<double, Decimal64, 18, 0>();
-    from_float_double_test_func<double, Decimal64, 18, 9>();
-    from_float_double_test_func<double, Decimal64, 18, 17>();
+    from_float_double_test_func<TYPE_DOUBLE, Decimal64, 18, 0>();
+    from_float_double_test_func<TYPE_DOUBLE, Decimal64, 18, 9>();
+    from_float_double_test_func<TYPE_DOUBLE, Decimal64, 18, 17>();
 
-    from_float_double_test_func<double, Decimal128V3, 38, 0>();
-    from_float_double_test_func<double, Decimal128V3, 38, 19>();
-    from_float_double_test_func<double, Decimal128V3, 38, 37>();
+    from_float_double_test_func<TYPE_DOUBLE, Decimal128V3, 38, 0>();
+    from_float_double_test_func<TYPE_DOUBLE, Decimal128V3, 38, 19>();
+    from_float_double_test_func<TYPE_DOUBLE, Decimal128V3, 38, 37>();
 
-    from_float_double_test_func<double, Decimal256, 76, 0>();
-    from_float_double_test_func<double, Decimal256, 76, 38>();
-    from_float_double_test_func<double, Decimal256, 76, 75>();
+    from_float_double_test_func<TYPE_DOUBLE, Decimal256, 76, 0>();
+    from_float_double_test_func<TYPE_DOUBLE, Decimal256, 76, 38>();
+    from_float_double_test_func<TYPE_DOUBLE, Decimal256, 76, 75>();
 }
 TEST_F(FunctionCastToDecimalTest, test_between_decimal_types) {
     from_any_decimals_to_this_decimal_test_func<Decimal32>();

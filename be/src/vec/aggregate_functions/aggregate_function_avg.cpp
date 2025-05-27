@@ -30,7 +30,8 @@ namespace doris::vectorized {
 template <PrimitiveType T>
 struct Avg {
     using FieldType = typename PrimitiveTypeTraits<T>::AvgNearestFieldType;
-    using Function = AggregateFunctionAvg<T, AggregateFunctionAvgData<FieldType>>;
+    using Function = AggregateFunctionAvg<
+            T, AggregateFunctionAvgData<PrimitiveTypeTraits<T>::AvgNearestPrimitiveType>>;
 };
 
 template <PrimitiveType T>
@@ -39,7 +40,8 @@ using AggregateFuncAvg = typename Avg<T>::Function;
 template <PrimitiveType T>
 struct AvgDecimal256 {
     using FieldType = typename PrimitiveTypeTraits<T>::AvgNearestFieldType256;
-    using Function = AggregateFunctionAvg<T, AggregateFunctionAvgData<FieldType>>;
+    using Function = AggregateFunctionAvg<
+            T, AggregateFunctionAvgData<PrimitiveTypeTraits<T>::AvgNearestPrimitiveType256>>;
 };
 
 template <PrimitiveType T>

@@ -581,7 +581,7 @@ Status OlapTableBlockConvertor::_partial_update_fill_auto_inc_cols(vectorized::B
         dst_values.emplace_back(_auto_inc_id_allocator.next_id());
     }
     block->insert(vectorized::ColumnWithTypeAndName(std::move(dst_column),
-                                                    std::make_shared<DataTypeNumber<Int64>>(),
+                                                    std::make_shared<DataTypeInt64>(),
                                                     BeConsts::PARTIAL_UPDATE_AUTO_INC_COL));
     return Status::OK();
 }

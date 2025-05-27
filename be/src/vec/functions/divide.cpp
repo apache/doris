@@ -35,12 +35,13 @@ static const DecimalV2Value one(1, 0);
 
 template <typename A, typename B>
 struct DivideFloatingImpl {
-    using ResultType = typename NumberTraits::ResultOfFloatingPointDivision<A, B>::Type;
+    static constexpr PrimitiveType ResultType =
+            NumberTraits::ResultOfFloatingPointDivision<A, B>::Type;
     using Traits = NumberTraits::BinaryOperatorTraits<A, B>;
 
     static const constexpr bool allow_decimal = true;
 
-    template <typename Result = ResultType>
+    template <typename Result = typename PrimitiveTypeTraits<ResultType>::CppNativeType>
     static void apply(const typename Traits::ArrayA& a, B b,
                       typename ColumnVector<Result>::Container& c,
                       typename Traits::ArrayNull& null_map) {
@@ -61,7 +62,7 @@ struct DivideFloatingImpl {
         return a / (is_null ? one : b);
     }
 
-    template <typename Result = ResultType>
+    template <typename Result = typename PrimitiveTypeTraits<ResultType>::CppNativeType>
     static inline Result apply(A a, B b, UInt8& is_null) {
         is_null = b == 0;
         return static_cast<Result>(a) / (b + is_null);

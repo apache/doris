@@ -206,18 +206,6 @@ DataTypePtr DataTypeFactory::create_data_type(const PColumnMeta& pcolumn) {
     case PGenericType::UINT8:
         nested = std::make_shared<DataTypeUInt8>();
         break;
-    case PGenericType::UINT16:
-        nested = std::make_shared<DataTypeUInt16>();
-        break;
-    case PGenericType::UINT32:
-        nested = std::make_shared<DataTypeUInt32>();
-        break;
-    case PGenericType::UINT64:
-        nested = std::make_shared<DataTypeUInt64>();
-        break;
-    case PGenericType::UINT128:
-        nested = std::make_shared<DataTypeUInt128>();
-        break;
     case PGenericType::INT8:
         nested = std::make_shared<DataTypeInt8>();
         break;
