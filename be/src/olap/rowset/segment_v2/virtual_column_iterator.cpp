@@ -20,6 +20,7 @@
 #include <cstring>
 #include <memory>
 
+#include "gutil/integral_types.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nothing.h"
 
@@ -36,16 +37,50 @@ Status VirtualColumnIterator::init(const ColumnIteratorOptions& opts) {
 
 void VirtualColumnIterator::prepare_materialization(vectorized::IColumn::Ptr column,
                                                     std::unique_ptr<std::vector<uint64_t>> labels) {
-    _materialized_column_ptr = column;
-    _row_id_to_idx.clear();
-    DCHECK(labels->size() == _materialized_column_ptr->size())
-            << "labels size: " << labels->size()
-            << ", materialized column size: " << _materialized_column_ptr->size();
-    _size = _materialized_column_ptr->size();
-    for (size_t i = 0; i < _size; ++i) {
-        _row_id_to_idx[(*labels)[i]] = i;
+    DCHECK(labels->size() == column->size()) << "labels size: " << labels->size()
+                                             << ", materialized column size: " << column->size();
+    // 1. do sort to labels
+    // column: [100, 101, 102, 99, 50, 49]
+    // lables: [5,   4,   1,   10, 7,  2]
+    const std::vector<uint64_t>& labels_ref = *labels;
+    const size_t n = labels_ref.size();
+    LOG_INFO("Input labels {}", fmt::join(labels_ref, ", "));
+    std::vector<size_t> order(n);
+    // global_row_id_to_idx:
+    // {5:0, 4:1, 1:2, 10:3, 7:4, 2:5}
+    std::map<size_t, size_t> global_row_id_to_idx;
+    for (size_t i = 0; i < n; ++i) {
+        order[i] = labels_ref[i];
+        global_row_id_to_idx[labels_ref[i]] = i;
     }
 
+    // orders: [1,2,4,5,7,10]
+    std::sort(order.begin(), order.end(), [&](size_t a, size_t b) { return a < b; });
+    LOG_INFO("Sorted order {}", fmt::join(order, ", "));
+    // 2. scatter column
+    auto scattered_column = column->clone_empty();
+    // We need a mapping from global row id to local index in the materialized column.
+    _row_id_to_idx.clear();
+    for (size_t i = 0; i < n; ++i) {
+        size_t global_idx = order[i];
+        size_t original_col_idx = global_row_id_to_idx[global_idx];
+        _row_id_to_idx[global_idx] = i;
+        scattered_column->insert_from(*column, original_col_idx);
+    }
+
+    // After scatter:
+    // scattered_column: [102, 49, 101, 100, 50, 99]
+    // _row_id_to_idx: {1:0, 2:1, 4:2, 5:3, 7:4, 10:5}
+    _materialized_column_ptr = std::move(scattered_column);
+
+    _size = n;
+
+    std::string msg;
+    for (const auto& pair : _row_id_to_idx) {
+        msg += fmt::format("{}: {}, ", pair.first, pair.second);
+    }
+
+    LOG_INFO("virtual column iterator, row_idx_to_idx:\n{}", msg);
     _filter = doris::vectorized::IColumn::Filter(_size, 0);
 }
 
@@ -86,10 +121,15 @@ Status VirtualColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr
         return Status::InternalError("Current ordinal {} not found in row_id_to_idx map",
                                      _current_ordinal);
     }
-    size_t start = _row_id_to_idx[_current_ordinal];
+
     // Update dst column
-    dst = _materialized_column_ptr->clone_empty();
-    dst->insert_range_from(*_materialized_column_ptr, start, rows_num_to_read);
+    if (vectorized::check_and_get_column<vectorized::ColumnNothing>(*dst)) {
+        LOG_INFO("Dst is nothing column, create new mutable column");
+        dst = _materialized_column_ptr->clone_resized(rows_num_to_read);
+    } else {
+        size_t start = _row_id_to_idx[_current_ordinal];
+        dst->insert_range_from(*_materialized_column_ptr, start, rows_num_to_read);
+    }
 
     LOG_INFO("Virtual column iterators, next_batch, rows reads: {}, dst size: {}", rows_num_to_read,
              dst->size());
@@ -114,7 +154,12 @@ Status VirtualColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t
     // Apply filter to materialized column
     doris::vectorized::IColumn::Ptr res_col = _materialized_column_ptr->filter(_filter, 0);
     // Update dst column
-    dst = res_col->assume_mutable();
+    if (vectorized::check_and_get_column<vectorized::ColumnNothing>(*dst)) {
+        LOG_INFO("Dst is nothing column, create new mutable column");
+        dst = res_col->assume_mutable();
+    } else {
+        dst->insert_range_from(*res_col, 0, res_col->size());
+    }
 
     LOG_INFO("Virtual column iterators, read_by_rowids, rowids size: {}, dst size: {}", count,
              dst->size());

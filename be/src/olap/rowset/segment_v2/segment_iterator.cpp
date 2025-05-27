@@ -1882,9 +1882,10 @@ Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint32
     SCOPED_RAW_TIMER(&_opts.stats->predicate_column_read_ns);
 
     nrows_read = _range_iter->read_batch_rowids(_block_rowids.data(), nrows_read_limit);
-    LOG_INFO("nrows_read from range iterator: {}", nrows_read);
     bool is_continuous = (nrows_read > 1) &&
                          (_block_rowids[nrows_read - 1] - _block_rowids[0] == nrows_read - 1);
+    LOG_INFO("nrows_read from range iterator: {}, is_continus {}", nrows_read, is_continuous);
+
     std::vector<ColumnId> predicate_column_ids_and_virtual_columns;
     predicate_column_ids_and_virtual_columns.reserve(_cols_read_by_column_predicate.size() +
                                                      _virtual_column_exprs.size());
@@ -2922,7 +2923,6 @@ bool SegmentIterator::_can_opt_topn_reads() {
 
 Status SegmentIterator::_materialization_of_virtual_column(vectorized::Block* block) {
     size_t prev_block_columns = block->columns();
-    LOG_INFO("Materialize all {} virtual columns", _virtual_column_exprs.size());
     for (const auto& cid_and_expr : _virtual_column_exprs) {
         auto cid = cid_and_expr.first;
         auto column_expr = cid_and_expr.second;
@@ -2947,7 +2947,6 @@ Status SegmentIterator::_materialization_of_virtual_column(vectorized::Block* bl
     // During execution of expr, some columns may be added to the end of the block.
     // Remove them to keep consistent with current block.
     block->erase_tail(prev_block_columns);
-    LOG_INFO("Materialize all {} virtual columns end.", _virtual_column_exprs.size());
     return Status::OK();
 }
 
