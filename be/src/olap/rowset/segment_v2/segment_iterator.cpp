@@ -2389,7 +2389,8 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
             is_nothing = true;
         }
 
-        LOG_INFO("SegmentIterator next block replace virtual column, cid {}, position {}, still "
+        LOG_INFO(
+                "SegmentIterator next block replace virtual column, cid {}, position {}, still "
                 "nothing {}",
                 cid, position, is_nothing);
     }
