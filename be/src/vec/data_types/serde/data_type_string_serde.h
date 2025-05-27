@@ -26,7 +26,6 @@
 
 #include "common/status.h"
 #include "data_type_serde.h"
-#include "util/arrow/row_batch.h"
 #include "util/jsonb_writer.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_fixed_length_object.h"
@@ -293,13 +292,15 @@ public:
     Status write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                  arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
                                  const cctz::time_zone& ctz) const override {
-        const auto& string_column = assert_cast<const ColumnType&>(column);
-        if (string_column.byte_size() >= MAX_ARROW_UTF8) {
+        if (array_builder->type()->id() == arrow::Type::LARGE_STRING) {
             auto& builder = assert_cast<arrow::LargeStringBuilder&>(*array_builder);
             return write_column_to_arrow_impl(column, null_map, builder, start, end);
-        } else {
+        } else if (array_builder->type()->id() == arrow::Type::STRING) {
             auto& builder = assert_cast<arrow::StringBuilder&>(*array_builder);
             return write_column_to_arrow_impl(column, null_map, builder, start, end);
+        } else {
+            return Status::InvalidArgument("Unsupported arrow type for string column: {}",
+                                           array_builder->type()->name());
         }
     }
 
