@@ -29,8 +29,8 @@ class IcebergSnapshotsJniScanner extends IcebergMetadataJniScanner {
 
     static {
         SNAPSHOTS_SCHEMA.put("committed_at", "datetime");
-        SNAPSHOTS_SCHEMA.put("snapshot_id", "long");
-        SNAPSHOTS_SCHEMA.put("parent_id", "long");
+        SNAPSHOTS_SCHEMA.put("snapshot_id", "bigint");
+        SNAPSHOTS_SCHEMA.put("parent_id", "bigint");
         SNAPSHOTS_SCHEMA.put("operation", "string");
         SNAPSHOTS_SCHEMA.put("manifest_list", "string");
         SNAPSHOTS_SCHEMA.put("summary", "map<string, string>");

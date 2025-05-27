@@ -20,7 +20,8 @@ package org.apache.doris.tablefunction;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.MapType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -58,18 +59,17 @@ public class IcebergTableValuedFunction extends MetadataTableValuedFunction {
     private static final ImmutableSet<String> PROPERTIES_SET = ImmutableSet.of(TABLE, QUERY_TYPE);
 
     private static final ImmutableList<Column> SCHEMA_SNAPSHOT = ImmutableList.of(
-            new Column("committed_at", PrimitiveType.DATETIMEV2, false),
-            new Column("snapshot_id", PrimitiveType.BIGINT, false),
-            new Column("parent_id", PrimitiveType.BIGINT, false),
-            new Column("operation", PrimitiveType.STRING, false),
-            new Column("manifest_list", PrimitiveType.STRING, false),
-            // TODO: complete kv type in summary
-            new Column("summary", PrimitiveType.MAP, false));
+            new Column("committed_at", ScalarType.DATETIMEV2),
+            new Column("snapshot_id", ScalarType.BIGINT),
+            new Column("parent_id", ScalarType.BIGINT),
+            new Column("operation", ScalarType.STRING),
+            new Column("manifest_list", ScalarType.STRING),
+            new Column("summary", new MapType(ScalarType.STRING, ScalarType.STRING)));
 
     private static final ImmutableMap<String, Integer> COLUMN_TO_INDEX;
 
     static {
-        ImmutableMap.Builder<String, Integer> builder = new ImmutableMap.Builder();
+        ImmutableMap.Builder<String, Integer> builder = new ImmutableMap.Builder<>();
         for (int i = 0; i < SCHEMA_SNAPSHOT.size(); i++) {
             builder.put(SCHEMA_SNAPSHOT.get(i).getName().toLowerCase(), i);
         }
