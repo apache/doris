@@ -60,6 +60,7 @@ suite("test_upgrade_downgrade_prepare_olap_mtmv_zfr","p0,mtmv,restart_fe") {
     sql """drop table if exists `${tableName5}`"""
     sql """drop table if exists `${tableName6}`"""
     sql """drop table if exists `${tableName7}`"""
+    sql """drop table if exists `${tableName8}`"""
     sql """drop materialized view if exists ${mtmvName1};"""
     sql """drop materialized view if exists ${mtmvName2};"""
     sql """drop materialized view if exists ${mtmvName3};"""
