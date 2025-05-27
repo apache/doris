@@ -74,22 +74,6 @@ public class BuildIndexOp extends AlterTableOp {
         this.indexList = new ArrayList<>();
     }
 
-    /**
-     * Constructor for BuildIndexOp.
-     *
-     * @param tableName the name of the table
-     * @param alter true if it's an alter table operation, false for create index
-     */
-    public BuildIndexOp(TableNameInfo tableName, boolean alter) {
-        super(AlterOpType.SCHEMA_CHANGE);
-        this.tableName = tableName;
-        this.alter = alter;
-        this.indexName = null;
-        this.partitionNamesInfo = null;
-        this.indexDefinitionList = new ArrayList<>();
-        this.indexList = new ArrayList<>();
-    }
-
     @Override
     public Map<String, String> getProperties() {
         return Maps.newHashMap();

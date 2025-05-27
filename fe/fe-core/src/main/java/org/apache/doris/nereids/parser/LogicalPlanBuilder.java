@@ -121,7 +121,6 @@ import org.apache.doris.nereids.DorisParser.BooleanLiteralContext;
 import org.apache.doris.nereids.DorisParser.BracketDistributeTypeContext;
 import org.apache.doris.nereids.DorisParser.BracketRelationHintContext;
 import org.apache.doris.nereids.DorisParser.BuildIndexContext;
-import org.apache.doris.nereids.DorisParser.BuildIndexOnTableContext;
 import org.apache.doris.nereids.DorisParser.BuildModeContext;
 import org.apache.doris.nereids.DorisParser.CallProcedureContext;
 import org.apache.doris.nereids.DorisParser.CancelMTMVTaskContext;
@@ -5248,13 +5247,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
         List<AlterTableOp> alterTableOps = Lists.newArrayList(new BuildIndexOp(tableName, name, partitionNamesInfo,
                 false));
-        return new AlterTableCommand(tableName, alterTableOps);
-    }
-
-    @Override
-    public Command visitBuildIndexOnTable(BuildIndexOnTableContext ctx) {
-        TableNameInfo tableName = new TableNameInfo(visitMultipartIdentifier(ctx.tableName));
-        List<AlterTableOp> alterTableOps = Lists.newArrayList(new BuildIndexOp(tableName, null, null, false));
         return new AlterTableCommand(tableName, alterTableOps);
     }
 
