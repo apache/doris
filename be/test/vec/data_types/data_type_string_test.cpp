@@ -342,25 +342,25 @@ TEST_F(DataTypeStringTest, escape_string) {
     {
         char test_str[] = "hello\\world";
         size_t len = strlen(test_str);
-        escape_string(test_str, &len, '\\');
+        escape_string(test_str, len, '\\');
         EXPECT_EQ(std::string(test_str, len), "helloworld");
     }
     {
         char test_str[] = "helloworld";
         size_t len = strlen(test_str);
-        escape_string(test_str, &len, '\\');
+        escape_string(test_str, len, '\\');
         EXPECT_EQ(std::string(test_str, len), "helloworld");
     }
     {
         char test_str[] = R"(hello\\world)";
         size_t len = strlen(test_str);
-        escape_string(test_str, &len, '\\');
+        escape_string(test_str, len, '\\');
         EXPECT_EQ(std::string(test_str, len), R"(hello\world)");
     }
     {
         char test_str[] = R"(\\hello\\)";
         size_t len = strlen(test_str);
-        escape_string(test_str, &len, '\\');
+        escape_string(test_str, len, '\\');
         EXPECT_EQ(std::string(test_str, len), R"(\hello\)");
     }
 }
@@ -369,31 +369,31 @@ TEST_F(DataTypeStringTest, escape_string_for_csv) {
     {
         char test_str[] = R"(hello""world)";
         size_t len = strlen(test_str);
-        escape_string_for_csv(test_str, &len, '\\', '"');
+        escape_string_for_csv(test_str, len, '\\', '"');
         EXPECT_EQ(std::string(test_str, len), R"(hello"world)");
     }
     {
         char test_str[] = "helloworld";
         size_t len = strlen(test_str);
-        escape_string_for_csv(test_str, &len, '\\', '"');
+        escape_string_for_csv(test_str, len, '\\', '"');
         EXPECT_EQ(std::string(test_str, len), "helloworld");
     }
     {
         char test_str[] = R"("hello""world")";
         size_t len = strlen(test_str);
-        escape_string_for_csv(test_str, &len, '\\', '"');
+        escape_string_for_csv(test_str, len, '\\', '"');
         EXPECT_EQ(std::string(test_str, len), R"("hello"world")");
     }
     {
         char test_str[] = R"(\\"hello\\""world\\)";
         size_t len = strlen(test_str);
-        escape_string_for_csv(test_str, &len, '\\', '"');
+        escape_string_for_csv(test_str, len, '\\', '"');
         EXPECT_EQ(std::string(test_str, len), R"(\"hello\"world\)");
     }
     {
         char test_str[] = "";
         size_t len = strlen(test_str);
-        escape_string_for_csv(test_str, &len, '\\', '"');
+        escape_string_for_csv(test_str, len, '\\', '"');
         EXPECT_EQ(std::string(test_str, len), "");
     }
 }
