@@ -26,6 +26,7 @@ import java.util.Map;
 class IcebergSnapshotsJniScanner extends IcebergMetadataJniScanner {
     private static final String NAME = "snapshots";
     private static final Map<String, String> SNAPSHOTS_SCHEMA = new HashMap<>();
+
     static {
         SNAPSHOTS_SCHEMA.put("committed_at", "datetime");
         SNAPSHOTS_SCHEMA.put("snapshot_id", "long");

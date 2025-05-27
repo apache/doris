@@ -29,13 +29,14 @@ import java.util.Set;
 class IcebergHistoryJniScanner extends IcebergMetadataJniScanner {
     private static final String NAME = "history";
     private static final Map<String, String> HISTORY_SCHEMA = new HashMap<>();
+
     static {
         HISTORY_SCHEMA.put("made_current_at", "datetime");
         HISTORY_SCHEMA.put("snapshot_id", "bigint");
         HISTORY_SCHEMA.put("parent_id", "bigint");
         HISTORY_SCHEMA.put("is_current_ancestor", "boolean");
-
     }
+
     Set<Long> ancestorIds;
 
     public IcebergHistoryJniScanner(int batchSize, Map<String, String> params) {

@@ -29,6 +29,7 @@ import java.util.Map;
 class IcebergFilesJniScanner extends IcebergMetadataJniScanner {
     private static final String NAME = "files";
     private static final Map<String, String> FILES_SCHEMA = new HashMap<>();
+
     static {
         FILES_SCHEMA.put("content", "int");
         FILES_SCHEMA.put("file_path", "string");

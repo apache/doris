@@ -22,6 +22,7 @@ import org.apache.doris.common.jni.vec.ColumnType;
 import org.apache.doris.common.jni.vec.ColumnValue;
 import org.apache.doris.common.security.authentication.PreExecutionAuthenticator;
 import org.apache.doris.common.security.authentication.PreExecutionAuthenticatorCache;
+
 import org.apache.iceberg.Table;
 import org.apache.iceberg.util.SerializationUtil;
 import org.slf4j.Logger;
