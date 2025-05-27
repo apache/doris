@@ -329,11 +329,12 @@ Status DataTypeStructSerDe::write_column_to_arrow(const IColumn& column, const N
     const auto& struct_column = assert_cast<const ColumnStruct&>(column);
     for (auto r = start; r < end; ++r) {
         if (null_map != nullptr && (*null_map)[r]) {
-            RETURN_IF_ARROW_ERROR(builder.AppendNull(), struct_column.get_name(),
-                                  builder.type()->name());
+            RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), struct_column.get_name(),
+                                             builder.type()->name()));
             continue;
         }
-        RETURN_IF_ARROW_ERROR(builder.Append(), struct_column.get_name(), builder.type()->name());
+        RETURN_IF_ERROR(checkArrowStatus(builder.Append(), struct_column.get_name(),
+                                         builder.type()->name()));
         for (auto ei = 0; ei < struct_column.tuple_size(); ++ei) {
             auto* elem_builder = builder.field_builder(ei);
             RETURN_IF_ERROR(elem_serdes_ptrs[ei]->write_column_to_arrow(

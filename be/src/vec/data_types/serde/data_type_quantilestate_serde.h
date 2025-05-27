@@ -121,15 +121,16 @@ public:
         auto& builder = assert_cast<arrow::BinaryBuilder&>(*array_builder);
         for (size_t string_i = start; string_i < end; ++string_i) {
             if (null_map && (*null_map)[string_i]) {
-                RETURN_IF_ARROW_ERROR(builder.AppendNull(), column.get_name(),
-                                      array_builder->type()->name());
+                RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column.get_name(),
+                                                 array_builder->type()->name()));
             } else {
                 auto& quantile_state_value = const_cast<QuantileState&>(col.get_element(string_i));
                 std::string memory_buffer(quantile_state_value.get_serialized_size(), '0');
                 quantile_state_value.serialize((uint8_t*)memory_buffer.data());
-                RETURN_IF_ARROW_ERROR(builder.Append(memory_buffer.data(),
-                                                     static_cast<int>(memory_buffer.size())),
-                                      column.get_name(), array_builder->type()->name());
+                RETURN_IF_ERROR(
+                        checkArrowStatus(builder.Append(memory_buffer.data(),
+                                                        static_cast<int>(memory_buffer.size())),
+                                         column.get_name(), array_builder->type()->name()));
             }
         }
         return Status::OK();

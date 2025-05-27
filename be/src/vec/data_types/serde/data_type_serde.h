@@ -414,14 +414,6 @@ inline Status checkArrowStatus(const arrow::Status& status, const std::string& c
     return Status::OK();
 }
 
-#define RETURN_IF_ARROW_ERROR(...)                       \
-    do {                                                 \
-        Status _status_ = checkArrowStatus(__VA_ARGS__); \
-        if (UNLIKELY(!_status_.ok())) {                  \
-            return _status_;                             \
-        }                                                \
-    } while (false)
-
 DataTypeSerDeSPtrs create_data_type_serdes(
         const std::vector<std::shared_ptr<const IDataType>>& types);
 DataTypeSerDeSPtrs create_data_type_serdes(const std::vector<SlotDescriptor*>& slots);

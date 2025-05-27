@@ -132,15 +132,15 @@ Status DataTypeHLLSerDe::write_column_to_arrow(const IColumn& column, const Null
     auto& builder = assert_cast<arrow::BinaryBuilder&>(*array_builder);
     for (size_t string_i = start; string_i < end; ++string_i) {
         if (null_map && (*null_map)[string_i]) {
-            RETURN_IF_ARROW_ERROR(builder.AppendNull(), column.get_name(),
-                                  array_builder->type()->name());
+            RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column.get_name(),
+                                             array_builder->type()->name()));
         } else {
             auto& hll_value = const_cast<HyperLogLog&>(col.get_element(string_i));
             std::string memory_buffer(hll_value.max_serialized_size(), '0');
             hll_value.serialize((uint8_t*)memory_buffer.data());
-            RETURN_IF_ARROW_ERROR(
+            RETURN_IF_ERROR(checkArrowStatus(
                     builder.Append(memory_buffer.data(), static_cast<int>(memory_buffer.size())),
-                    column.get_name(), array_builder->type()->name());
+                    column.get_name(), array_builder->type()->name()));
         }
     }
     return Status::OK();

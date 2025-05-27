@@ -158,17 +158,18 @@ Status DataTypeVariantSerDe::write_column_to_arrow(const IColumn& column, const 
     auto& builder = assert_cast<arrow::StringBuilder&>(*array_builder);
     for (size_t i = start; i < end; ++i) {
         if (null_map && (*null_map)[i]) {
-            RETURN_IF_ARROW_ERROR(builder.AppendNull(), column.get_name(),
-                                  array_builder->type()->name());
+            RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column.get_name(),
+                                             array_builder->type()->name()));
         } else {
             std::string serialized_value;
             if (!var->serialize_one_row_to_string(i, &serialized_value)) {
                 return Status::Error(ErrorCode::INTERNAL_ERROR, "Failed to serialize variant {}",
                                      var->dump_structure());
             }
-            RETURN_IF_ARROW_ERROR(builder.Append(serialized_value.data(),
-                                                 static_cast<int>(serialized_value.size())),
-                                  column.get_name(), array_builder->type()->name());
+            RETURN_IF_ERROR(
+                    checkArrowStatus(builder.Append(serialized_value.data(),
+                                                    static_cast<int>(serialized_value.size())),
+                                     column.get_name(), array_builder->type()->name()));
         }
     }
     return Status::OK();

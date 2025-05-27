@@ -117,8 +117,8 @@ Status DataTypeDateTimeV2SerDe::write_column_to_arrow(const IColumn& column,
     auto& timestamp_builder = assert_cast<arrow::TimestampBuilder&>(*array_builder);
     for (size_t i = start; i < end; ++i) {
         if (null_map && (*null_map)[i]) {
-            RETURN_IF_ARROW_ERROR(timestamp_builder.AppendNull(), column.get_name(),
-                                  array_builder->type()->name());
+            RETURN_IF_ERROR(checkArrowStatus(timestamp_builder.AppendNull(), column.get_name(),
+                                             array_builder->type()->name()));
         } else {
             int64_t timestamp = 0;
             DateV2Value<DateTimeV2ValueType> datetime_val =
@@ -132,8 +132,8 @@ Status DataTypeDateTimeV2SerDe::write_column_to_arrow(const IColumn& column,
                 uint32_t millisecond = datetime_val.microsecond() / 1000;
                 timestamp = (timestamp * 1000) + millisecond;
             }
-            RETURN_IF_ARROW_ERROR(timestamp_builder.Append(timestamp), column.get_name(),
-                                  array_builder->type()->name());
+            RETURN_IF_ERROR(checkArrowStatus(timestamp_builder.Append(timestamp), column.get_name(),
+                                             array_builder->type()->name()));
         }
     }
     return Status::OK();

@@ -348,8 +348,8 @@ Status DataTypeMapSerDe::write_column_to_arrow(const IColumn& column, const Null
 
     for (size_t r = start; r < end; ++r) {
         if ((null_map && (*null_map)[r])) {
-            RETURN_IF_ARROW_ERROR(builder.AppendNull(), column.get_name(),
-                                  array_builder->type()->name());
+            RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column.get_name(),
+                                             array_builder->type()->name()));
         } else if (simd::contain_byte(keys_nullmap_data + offsets[r - 1],
                                       offsets[r] - offsets[r - 1], 1)) {
             // arrow do not support key is null, so we ignore the null key-value
@@ -363,8 +363,8 @@ Status DataTypeMapSerDe::write_column_to_arrow(const IColumn& column, const Null
                 key_mutable_data->insert_from(nested_keys_column, i);
                 value_mutable_data->insert_from(nested_values_column, i);
             }
-            RETURN_IF_ARROW_ERROR(builder.Append(), column.get_name(),
-                                  array_builder->type()->name());
+            RETURN_IF_ERROR(checkArrowStatus(builder.Append(), column.get_name(),
+                                             array_builder->type()->name()));
 
             RETURN_IF_ERROR(key_serde->write_column_to_arrow(
                     *key_mutable_data, nullptr, key_builder, 0, key_mutable_data->size(), ctz));
@@ -372,8 +372,8 @@ Status DataTypeMapSerDe::write_column_to_arrow(const IColumn& column, const Null
                                                                value_builder, 0,
                                                                value_mutable_data->size(), ctz));
         } else {
-            RETURN_IF_ARROW_ERROR(builder.Append(), column.get_name(),
-                                  array_builder->type()->name());
+            RETURN_IF_ERROR(checkArrowStatus(builder.Append(), column.get_name(),
+                                             array_builder->type()->name()));
             RETURN_IF_ERROR(key_serde->write_column_to_arrow(
                     nested_keys_column, nullptr, key_builder, offsets[r - 1], offsets[r], ctz));
             RETURN_IF_ERROR(value_serde->write_column_to_arrow(

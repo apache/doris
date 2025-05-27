@@ -130,11 +130,11 @@ Status DataTypeIPv4SerDe::write_column_to_arrow(const IColumn& column, const Nul
     auto& int32_builder = assert_cast<arrow::Int32Builder&>(*array_builder);
     auto arrow_null_map = revert_null_map(null_map, start, end);
     auto* arrow_null_map_data = arrow_null_map.empty() ? nullptr : arrow_null_map.data();
-    RETURN_IF_ARROW_ERROR(
+    RETURN_IF_ERROR(checkArrowStatus(
             int32_builder.AppendValues(reinterpret_cast<const Int32*>(col_data.data()) + start,
                                        end - start,
                                        reinterpret_cast<const uint8_t*>(arrow_null_map_data)),
-            column.get_name(), array_builder->type()->name());
+            column.get_name(), array_builder->type()->name()));
     return Status::OK();
 }
 

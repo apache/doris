@@ -153,14 +153,14 @@ Status DataTypeIPv6SerDe::write_column_to_arrow(const IColumn& column, const Nul
     auto& string_builder = assert_cast<arrow::StringBuilder&>(*array_builder);
     for (size_t i = start; i < end; ++i) {
         if (null_map && (*null_map)[i]) {
-            RETURN_IF_ARROW_ERROR(string_builder.AppendNull(), column.get_name(),
-                                  array_builder->type()->name());
+            RETURN_IF_ERROR(checkArrowStatus(string_builder.AppendNull(), column.get_name(),
+                                             array_builder->type()->name()));
         } else {
             std::string ipv6_str = IPv6Value::to_string(col_data[i]);
-            RETURN_IF_ARROW_ERROR(
+            RETURN_IF_ERROR(checkArrowStatus(
                     string_builder.Append(ipv6_str.c_str(),
                                           cast_set<int, size_t, false>(ipv6_str.size())),
-                    column.get_name(), array_builder->type()->name());
+                    column.get_name(), array_builder->type()->name()));
         }
     }
     return Status::OK();

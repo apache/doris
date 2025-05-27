@@ -99,8 +99,8 @@ Status DataTypeDecimalSerDe<T>::write_column_to_arrow(const IColumn& column,
                 std::make_shared<arrow::Decimal128Type>(27, 9);
         for (size_t i = start; i < end; ++i) {
             if (null_map && (*null_map)[i]) {
-                RETURN_IF_ARROW_ERROR(builder.AppendNull(), column.get_name(),
-                                      array_builder->type()->name());
+                RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column.get_name(),
+                                                 array_builder->type()->name()));
                 continue;
             }
             const auto& data_ref = col.get_data_at(i);
@@ -108,8 +108,8 @@ Status DataTypeDecimalSerDe<T>::write_column_to_arrow(const IColumn& column,
             int64_t high = (p_value->value) >> 64;
             uint64 low = cast_set<uint64>((p_value->value) & 0xFFFFFFFFFFFFFFFF);
             arrow::Decimal128 value(high, low);
-            RETURN_IF_ARROW_ERROR(builder.Append(value), column.get_name(),
-                                  array_builder->type()->name());
+            RETURN_IF_ERROR(checkArrowStatus(builder.Append(value), column.get_name(),
+                                             array_builder->type()->name()));
         }
     } else if constexpr (std::is_same_v<T, Decimal128V3>) {
         auto& builder = reinterpret_cast<arrow::Decimal128Builder&>(*array_builder);
@@ -117,8 +117,8 @@ Status DataTypeDecimalSerDe<T>::write_column_to_arrow(const IColumn& column,
                 std::make_shared<arrow::Decimal128Type>(38, col.get_scale());
         for (size_t i = start; i < end; ++i) {
             if (null_map && (*null_map)[i]) {
-                RETURN_IF_ARROW_ERROR(builder.AppendNull(), column.get_name(),
-                                      array_builder->type()->name());
+                RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column.get_name(),
+                                                 array_builder->type()->name()));
                 continue;
             }
             const auto& data_ref = col.get_data_at(i);
@@ -126,8 +126,8 @@ Status DataTypeDecimalSerDe<T>::write_column_to_arrow(const IColumn& column,
             int64_t high = (p_value->value) >> 64;
             uint64 low = cast_set<uint64>((p_value->value) & 0xFFFFFFFFFFFFFFFF);
             arrow::Decimal128 value(high, low);
-            RETURN_IF_ARROW_ERROR(builder.Append(value), column.get_name(),
-                                  array_builder->type()->name());
+            RETURN_IF_ERROR(checkArrowStatus(builder.Append(value), column.get_name(),
+                                             array_builder->type()->name()));
         }
     } else if constexpr (std::is_same_v<T, Decimal<Int32>>) {
         auto& builder = reinterpret_cast<arrow::Decimal128Builder&>(*array_builder);
@@ -135,14 +135,14 @@ Status DataTypeDecimalSerDe<T>::write_column_to_arrow(const IColumn& column,
                 std::make_shared<arrow::Decimal128Type>(8, col.get_scale());
         for (size_t i = start; i < end; ++i) {
             if (null_map && (*null_map)[i]) {
-                RETURN_IF_ARROW_ERROR(builder.AppendNull(), column.get_name(),
-                                      array_builder->type()->name());
+                RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column.get_name(),
+                                                 array_builder->type()->name()));
                 continue;
             }
             Int128 p_value = Int128(col.get_element(i));
             arrow::Decimal128 value(reinterpret_cast<const uint8_t*>(&p_value));
-            RETURN_IF_ARROW_ERROR(builder.Append(value), column.get_name(),
-                                  array_builder->type()->name());
+            RETURN_IF_ERROR(checkArrowStatus(builder.Append(value), column.get_name(),
+                                             array_builder->type()->name()));
         }
     } else if constexpr (std::is_same_v<T, Decimal<Int64>>) {
         auto& builder = reinterpret_cast<arrow::Decimal128Builder&>(*array_builder);
@@ -150,14 +150,14 @@ Status DataTypeDecimalSerDe<T>::write_column_to_arrow(const IColumn& column,
                 std::make_shared<arrow::Decimal128Type>(18, col.get_scale());
         for (size_t i = start; i < end; ++i) {
             if (null_map && (*null_map)[i]) {
-                RETURN_IF_ARROW_ERROR(builder.AppendNull(), column.get_name(),
-                                      array_builder->type()->name());
+                RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column.get_name(),
+                                                 array_builder->type()->name()));
                 continue;
             }
             Int128 p_value = Int128(col.get_element(i));
             arrow::Decimal128 value(reinterpret_cast<const uint8_t*>(&p_value));
-            RETURN_IF_ARROW_ERROR(builder.Append(value), column.get_name(),
-                                  array_builder->type()->name());
+            RETURN_IF_ERROR(checkArrowStatus(builder.Append(value), column.get_name(),
+                                             array_builder->type()->name()));
         }
     } else if constexpr (std::is_same_v<T, Decimal256>) {
         auto& builder = reinterpret_cast<arrow::Decimal256Builder&>(*array_builder);
@@ -165,8 +165,8 @@ Status DataTypeDecimalSerDe<T>::write_column_to_arrow(const IColumn& column,
                 std::make_shared<arrow::Decimal256Type>(76, col.get_scale());
         for (size_t i = start; i < end; ++i) {
             if (null_map && (*null_map)[i]) {
-                RETURN_IF_ARROW_ERROR(builder.AppendNull(), column.get_name(),
-                                      array_builder->type()->name());
+                RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column.get_name(),
+                                                 array_builder->type()->name()));
                 continue;
             }
             auto p_value = wide::Int256(col.get_element(i));
@@ -178,8 +178,8 @@ Status DataTypeDecimalSerDe<T>::write_column_to_arrow(const IColumn& column,
 
             std::array<uint64_t, 4> word_array = {a0, a1, a2, a3};
             arrow::Decimal256 value(arrow::Decimal256::LittleEndianArray, word_array);
-            RETURN_IF_ARROW_ERROR(builder.Append(value), column.get_name(),
-                                  array_builder->type()->name());
+            RETURN_IF_ERROR(checkArrowStatus(builder.Append(value), column.get_name(),
+                                             array_builder->type()->name()));
         }
     } else {
         return Status::InvalidArgument("write_column_to_arrow with type " + column.get_name());

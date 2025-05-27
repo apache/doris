@@ -188,11 +188,11 @@ Status DataTypeDate64SerDe<T>::write_column_to_arrow(const IColumn& column, cons
         const VecDateTimeValue* time_val = (const VecDateTimeValue*)(&col_data[i]);
         size_t len = time_val->to_buffer(buf);
         if (null_map && (*null_map)[i]) {
-            RETURN_IF_ARROW_ERROR(string_builder.AppendNull(), column.get_name(),
-                                  array_builder->type()->name());
+            RETURN_IF_ERROR(checkArrowStatus(string_builder.AppendNull(), column.get_name(),
+                                             array_builder->type()->name()));
         } else {
-            RETURN_IF_ARROW_ERROR(string_builder.Append(buf, cast_set<int32_t>(len)),
-                                  column.get_name(), array_builder->type()->name());
+            RETURN_IF_ERROR(checkArrowStatus(string_builder.Append(buf, cast_set<int32_t>(len)),
+                                             column.get_name(), array_builder->type()->name()));
         }
     }
     return Status::OK();

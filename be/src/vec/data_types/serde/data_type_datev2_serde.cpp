@@ -100,11 +100,12 @@ Status DataTypeDateV2SerDe::write_column_to_arrow(const IColumn& column, const N
         auto daynr = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(col_data[i]).daynr() -
                      date_threshold;
         if (null_map && (*null_map)[i]) {
-            RETURN_IF_ARROW_ERROR(date32_builder.AppendNull(), column.get_name(),
-                                  array_builder->type()->name());
+            RETURN_IF_ERROR(checkArrowStatus(date32_builder.AppendNull(), column.get_name(),
+                                             array_builder->type()->name()));
         } else {
-            RETURN_IF_ARROW_ERROR(date32_builder.Append(cast_set<int, int64_t, false>(daynr)),
-                                  column.get_name(), array_builder->type()->name());
+            RETURN_IF_ERROR(
+                    checkArrowStatus(date32_builder.Append(cast_set<int, int64_t, false>(daynr)),
+                                     column.get_name(), array_builder->type()->name()));
         }
     }
     return Status::OK();

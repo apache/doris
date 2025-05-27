@@ -281,11 +281,12 @@ Status DataTypeArraySerDe::write_column_to_arrow(const IColumn& column, const Nu
     auto* nested_builder = builder.value_builder();
     for (size_t array_idx = start; array_idx < end; ++array_idx) {
         if (null_map && (*null_map)[array_idx]) {
-            RETURN_IF_ARROW_ERROR(builder.AppendNull(), column.get_name(),
-                                  array_builder->type()->name());
+            RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column.get_name(),
+                                             array_builder->type()->name()));
             continue;
         }
-        RETURN_IF_ARROW_ERROR(builder.Append(), column.get_name(), array_builder->type()->name());
+        RETURN_IF_ERROR(checkArrowStatus(builder.Append(), column.get_name(),
+                                         array_builder->type()->name()));
         RETURN_IF_ERROR(nested_serde->write_column_to_arrow(nested_data, nullptr, nested_builder,
                                                             offsets[array_idx - 1],
                                                             offsets[array_idx], ctz));

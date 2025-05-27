@@ -83,16 +83,16 @@ Status DataTypeNumberSerDe<T>::write_column_to_arrow(const IColumn& column, cons
         auto* null_builder = dynamic_cast<arrow::NullBuilder*>(array_builder);
         if (null_builder) {
             for (size_t i = start; i < end; ++i) {
-                RETURN_IF_ARROW_ERROR(null_builder->AppendNull(), column.get_name(),
-                                      null_builder->type()->name());
+                RETURN_IF_ERROR(checkArrowStatus(null_builder->AppendNull(), column.get_name(),
+                                                 null_builder->type()->name()));
             }
         } else {
             auto& builder = assert_cast<ARROW_BUILDER_TYPE&>(*array_builder);
-            RETURN_IF_ARROW_ERROR(
+            RETURN_IF_ERROR(checkArrowStatus(
                     builder.AppendValues(reinterpret_cast<const uint8_t*>(col_data.data() + start),
                                          end - start,
                                          reinterpret_cast<const uint8_t*>(arrow_null_map_data)),
-                    column.get_name(), array_builder->type()->name());
+                    column.get_name(), array_builder->type()->name()));
         }
 
     } else if constexpr (T == TYPE_LARGEINT) {
@@ -101,22 +101,22 @@ Status DataTypeNumberSerDe<T>::write_column_to_arrow(const IColumn& column, cons
             auto& data_value = col_data[i];
             std::string value_str = fmt::format("{}", data_value);
             if (null_map && (*null_map)[i]) {
-                RETURN_IF_ARROW_ERROR(string_builder.AppendNull(), column.get_name(),
-                                      array_builder->type()->name());
+                RETURN_IF_ERROR(checkArrowStatus(string_builder.AppendNull(), column.get_name(),
+                                                 array_builder->type()->name()));
             } else {
-                RETURN_IF_ARROW_ERROR(
+                RETURN_IF_ERROR(checkArrowStatus(
                         string_builder.Append(value_str.data(),
                                               cast_set<int, size_t, false>(value_str.length())),
-                        column.get_name(), array_builder->type()->name());
+                        column.get_name(), array_builder->type()->name()));
             }
         }
     } else if constexpr (T == TYPE_IPV6) {
     } else {
         auto& builder = assert_cast<ARROW_BUILDER_TYPE&>(*array_builder);
-        RETURN_IF_ARROW_ERROR(
+        RETURN_IF_ERROR(checkArrowStatus(
                 builder.AppendValues(col_data.data() + start, end - start,
                                      reinterpret_cast<const uint8_t*>(arrow_null_map_data)),
-                column.get_name(), array_builder->type()->name());
+                column.get_name(), array_builder->type()->name()));
     }
     return Status::OK();
 }

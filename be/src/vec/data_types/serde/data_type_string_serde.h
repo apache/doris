@@ -278,14 +278,14 @@ public:
         const auto& string_column = assert_cast<const ColumnType&>(column);
         for (size_t string_i = start; string_i < end; ++string_i) {
             if (null_map && (*null_map)[string_i]) {
-                RETURN_IF_ARROW_ERROR(builder.AppendNull(), column.get_name(),
-                                      builder.type()->name());
+                RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column.get_name(),
+                                                 builder.type()->name()));
                 continue;
             }
             auto string_ref = string_column.get_data_at(string_i);
-            RETURN_IF_ARROW_ERROR(
+            RETURN_IF_ERROR(checkArrowStatus(
                     builder.Append(string_ref.data, cast_set<int, size_t, false>(string_ref.size)),
-                    column.get_name(), builder.type()->name());
+                    column.get_name(), builder.type()->name()));
         }
         return Status::OK();
     }
