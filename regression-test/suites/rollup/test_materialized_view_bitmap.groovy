@@ -33,7 +33,7 @@ suite("test_materialized_view_bitmap", "rollup") {
         """
 
     sql "CREATE MATERIALIZED VIEW test_neg as select k1,bitmap_union(to_bitmap(k2)), bitmap_union(to_bitmap(k3)) FROM ${tbName1} GROUP BY k1;"
-    max_try_secs = 60
+    def max_try_secs = 60
     while (max_try_secs--) {
         String res = getJobState(tbName1)
         if (res == "FINISHED" || res == "CANCELLED") {
