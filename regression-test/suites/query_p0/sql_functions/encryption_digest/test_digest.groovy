@@ -27,9 +27,26 @@ suite("test_digest") {
     qt_sha2_4 "select sha2('abc', 384)"
     qt_sha2_5 "select sha2(NULL, 384)"
 
-    try {
-        result = sql """ select sha2("123", 255) """
-    } catch (Exception e) {
-        assertTrue(e.getMessage().contains("only support 224/256/384/512"))
+    test {
+        sql """ select sha2("123", 255) """
+        exception "only support digest length of"
+    }
+
+    sql " drop table if exists test_digest"
+    sql """
+        create table test_digest(
+        k0 varchar not null,
+        k1 int not null
+        )
+        DISTRIBUTED BY HASH(`k0`) BUCKETS auto
+        properties("replication_num" = "1");
+    """
+    test {
+        sql """ select sha2(k0, k1) from test_digest; """
+        exception "must be a literal"
+    }
+    test {
+        sql """ select sha2('str', k1) from test_digest; """
+        exception "must be a literal"
     }
 }

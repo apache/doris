@@ -1008,8 +1008,9 @@ static void decimal_checker(const DecimalTestDataSet& round_test_cases, bool dec
     }
 }
 
-template <typename FuncType, typename FloatType>
+template <typename FuncType, PrimitiveType FloatPType>
 static void float_checker(const FloatTestDataSet& round_test_cases, bool float_col_is_const) {
+    using FloatType = typename PrimitiveTypeTraits<FloatPType>::CppType;
     static_assert(IsNumber<FloatType>);
     auto func = std::dynamic_pointer_cast<FuncType>(FuncType::create());
     FunctionContext* context = nullptr;
@@ -1034,14 +1035,14 @@ static void float_checker(const FloatTestDataSet& round_test_cases, bool float_c
 
         if (float_col_is_const) {
             block.insert({ColumnConst::create(col_general->clone_resized(1), 1),
-                          std::make_shared<DataTypeNumber<FloatType>>(), "col_general_const"});
+                          std::make_shared<DataTypeNumber<FloatPType>>(), "col_general_const"});
         } else {
-            block.insert({col_general->clone(), std::make_shared<DataTypeNumber<FloatType>>(),
+            block.insert({col_general->clone(), std::make_shared<DataTypeNumber<FloatPType>>(),
                           "col_general"});
         }
 
         block.insert({col_scale->clone(), std::make_shared<DataTypeInt32>(), "col_scale"});
-        block.insert({nullptr, std::make_shared<DataTypeNumber<FloatType>>(), "col_res"});
+        block.insert({nullptr, std::make_shared<DataTypeNumber<FloatPType>>(), "col_res"});
 
         auto status = func->execute_impl(context, block, arguments, res_idx, 1);
         auto col_res = assert_cast<const ColumnVector<FloatType>&>(
@@ -1096,38 +1097,38 @@ TEST(RoundFunctionTest, normal_decimal_const) {
 
 /// tests for func(Column, Column) with float input
 TEST(RoundFunctionTest, normal_float) {
-    float_checker<FloatTruncateFunction, Float32>(trunc_float32_cases, false);
-    float_checker<FloatTruncateFunction, Float64>(trunc_float64_cases, false);
+    float_checker<FloatTruncateFunction, TYPE_FLOAT>(trunc_float32_cases, false);
+    float_checker<FloatTruncateFunction, TYPE_DOUBLE>(trunc_float64_cases, false);
 
-    float_checker<FloatFloorFunction, Float32>(floor_float32_cases, false);
-    float_checker<FloatFloorFunction, Float64>(floor_float64_cases, false);
+    float_checker<FloatFloorFunction, TYPE_FLOAT>(floor_float32_cases, false);
+    float_checker<FloatFloorFunction, TYPE_DOUBLE>(floor_float64_cases, false);
 
-    float_checker<FloatCeilFunction, Float32>(ceil_float32_cases, false);
-    float_checker<FloatCeilFunction, Float64>(ceil_float64_cases, false);
+    float_checker<FloatCeilFunction, TYPE_FLOAT>(ceil_float32_cases, false);
+    float_checker<FloatCeilFunction, TYPE_DOUBLE>(ceil_float64_cases, false);
 
-    float_checker<FloatRoundFunction, Float32>(round_float32_cases, false);
-    float_checker<FloatRoundFunction, Float64>(round_float64_cases, false);
+    float_checker<FloatRoundFunction, TYPE_FLOAT>(round_float32_cases, false);
+    float_checker<FloatRoundFunction, TYPE_DOUBLE>(round_float64_cases, false);
 
-    float_checker<FloatRoundBankersFunction, Float32>(round_bankers_float32_cases, false);
-    float_checker<FloatRoundBankersFunction, Float64>(round_bankers_float64_cases, false);
+    float_checker<FloatRoundBankersFunction, TYPE_FLOAT>(round_bankers_float32_cases, false);
+    float_checker<FloatRoundBankersFunction, TYPE_DOUBLE>(round_bankers_float64_cases, false);
 }
 
 /// tests for func(ColumnConst, Column) with float input
 TEST(RoundFunctionTest, normal_float_const) {
-    float_checker<FloatTruncateFunction, Float32>(trunc_float32_cases, true);
-    float_checker<FloatTruncateFunction, Float64>(trunc_float64_cases, true);
+    float_checker<FloatTruncateFunction, TYPE_FLOAT>(trunc_float32_cases, true);
+    float_checker<FloatTruncateFunction, TYPE_DOUBLE>(trunc_float64_cases, true);
 
-    float_checker<FloatFloorFunction, Float32>(floor_float32_cases, true);
-    float_checker<FloatFloorFunction, Float64>(floor_float64_cases, true);
+    float_checker<FloatFloorFunction, TYPE_FLOAT>(floor_float32_cases, true);
+    float_checker<FloatFloorFunction, TYPE_DOUBLE>(floor_float64_cases, true);
 
-    float_checker<FloatCeilFunction, Float32>(ceil_float32_cases, true);
-    float_checker<FloatCeilFunction, Float64>(ceil_float64_cases, true);
+    float_checker<FloatCeilFunction, TYPE_FLOAT>(ceil_float32_cases, true);
+    float_checker<FloatCeilFunction, TYPE_DOUBLE>(ceil_float64_cases, true);
 
-    float_checker<FloatRoundFunction, Float32>(round_float32_cases, true);
-    float_checker<FloatRoundFunction, Float64>(round_float64_cases, true);
+    float_checker<FloatRoundFunction, TYPE_FLOAT>(round_float32_cases, true);
+    float_checker<FloatRoundFunction, TYPE_DOUBLE>(round_float64_cases, true);
 
-    float_checker<FloatRoundBankersFunction, Float32>(round_bankers_float32_cases, true);
-    float_checker<FloatRoundBankersFunction, Float64>(round_bankers_float64_cases, true);
+    float_checker<FloatRoundBankersFunction, TYPE_FLOAT>(round_bankers_float32_cases, true);
+    float_checker<FloatRoundBankersFunction, TYPE_DOUBLE>(round_bankers_float64_cases, true);
 }
 
 } // namespace doris::vectorized

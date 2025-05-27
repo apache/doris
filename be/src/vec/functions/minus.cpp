@@ -30,10 +30,10 @@ namespace doris::vectorized {
 
 template <typename A, typename B>
 struct MinusImpl {
-    using ResultType = typename NumberTraits::ResultOfSubtraction<A, B>::Type;
+    static constexpr PrimitiveType ResultType = NumberTraits::ResultOfSubtraction<A, B>::Type;
     static const constexpr bool allow_decimal = true;
 
-    template <typename Result = ResultType>
+    template <typename Result = typename PrimitiveTypeTraits<ResultType>::CppNativeType>
     static inline Result apply(A a, B b) {
         return static_cast<Result>(a) - b;
     }
@@ -44,7 +44,7 @@ struct MinusImpl {
     }
 
     /// Apply operation and check overflow. It's used for Decimal operations. @returns true if overflowed, false otherwise.
-    template <typename Result = ResultType>
+    template <typename Result = typename PrimitiveTypeTraits<ResultType>::CppNativeType>
     static inline bool apply(A a, B b, Result& c) {
         return common::sub_overflow(static_cast<Result>(a), b, c);
     }

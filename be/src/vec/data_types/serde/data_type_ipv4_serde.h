@@ -35,12 +35,12 @@
 #include "vec/core/types.h"
 #include "vec/runtime/ipv4_value.h"
 
-namespace doris {
-namespace vectorized {
+namespace doris::vectorized {
 
-class DataTypeIPv4SerDe : public DataTypeNumberSerDe<IPv4> {
+class DataTypeIPv4SerDe : public DataTypeNumberSerDe<PrimitiveType::TYPE_IPV4> {
 public:
-    DataTypeIPv4SerDe(int nesting_level = 1) : DataTypeNumberSerDe<IPv4>(nesting_level) {};
+    DataTypeIPv4SerDe(int nesting_level = 1)
+            : DataTypeNumberSerDe<PrimitiveType::TYPE_IPV4>(nesting_level) {};
 
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer,
                                  int64_t row_idx, bool col_const,
@@ -67,5 +67,4 @@ private:
                                   int64_t row_idx, bool col_const,
                                   const FormatOptions& options) const;
 };
-} // namespace vectorized
-} // namespace doris
+} // namespace doris::vectorized

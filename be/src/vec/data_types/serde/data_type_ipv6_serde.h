@@ -41,9 +41,10 @@ class JsonbOutStream;
 namespace vectorized {
 class Arena;
 
-class DataTypeIPv6SerDe : public DataTypeNumberSerDe<IPv6> {
+class DataTypeIPv6SerDe : public DataTypeNumberSerDe<PrimitiveType::TYPE_IPV6> {
 public:
-    DataTypeIPv6SerDe(int nesting_level = 1) : DataTypeNumberSerDe<IPv6>(nesting_level) {};
+    DataTypeIPv6SerDe(int nesting_level = 1)
+            : DataTypeNumberSerDe<PrimitiveType::TYPE_IPV6>(nesting_level) {};
 
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer,
                                  int64_t row_idx, bool col_const,
