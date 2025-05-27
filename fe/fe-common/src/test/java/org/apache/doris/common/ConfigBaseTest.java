@@ -25,6 +25,7 @@ import java.lang.reflect.Method;
 import java.util.Properties;
 
 public class ConfigBaseTest {
+
     @Test
     public void testReplacedByEnv() throws NoSuchMethodException, InvocationTargetException, IllegalAccessException {
         ConfigBase configBase = new ConfigBase();
