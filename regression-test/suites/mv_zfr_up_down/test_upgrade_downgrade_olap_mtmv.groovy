@@ -268,7 +268,6 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr","p0,mtmv,restart_fe") {
         def test_sql4 = """SELECT a.* FROM ${tableName9} a inner join ${tableName4} b on a.user_id=b.user_id"""
         def state_mtmv4 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName4}';"""
         assertTrue(state_mtmv4[0][0] == "SCHEMA_CHANGE")
-        assertTrue(state_mtmv4[0][1] == "SUCCESS")
         assertTrue(state_mtmv4[0][2] == false)
 
         connect('root', context.config.jdbcPassword, follower_jdbc_url) {
@@ -282,24 +281,37 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr","p0,mtmv,restart_fe") {
             mv_rewrite_success(test_sql4, mtmvName4)
             compare_res(test_sql4 + " order by 1,2,3")
         }
+
+        sql """refresh MATERIALIZED VIEW ${mtmvName4} auto;"""
+        state_mtmv4 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName4}';"""
+        assertTrue(state_mtmv4[0][0] == "NORMAL")
+        assertTrue(state_mtmv4[0][1] == "SUCCESS")
+        assertTrue(state_mtmv4[0][2] == false)
+
     } else {
         def test_sql4 = """SELECT a.* FROM ${tableName9} a inner join ${tableName4_rn} b on a.user_id=b.user_id"""
         def state_mtmv4 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName4}';"""
         assertTrue(state_mtmv4[0][0] == "SCHEMA_CHANGE")
-        assertTrue(state_mtmv4[0][1] == "SUCCESS")
         assertTrue(state_mtmv4[0][2] == false)
 
         connect('root', context.config.jdbcPassword, follower_jdbc_url) {
             sql """use ${dbName}"""
-            mv_rewrite_success(test_sql4, mtmvName4_rn)
+            mv_not_part_in(test_sql4, mtmvName4)
             compare_res(test_sql4 + " order by 1,2,3")
         }
 
         connect('root', context.config.jdbcPassword, master_jdbc_url) {
             sql """use ${dbName}"""
-            mv_rewrite_success(test_sql4, mtmvName4_rn)
+            mv_not_part_in(test_sql4, mtmvName4)
             compare_res(test_sql4 + " order by 1,2,3")
         }
+
+        sql """refresh MATERIALIZED VIEW ${mtmvName4} auto;"""
+        state_mtmv4 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName4}';"""
+        assertTrue(state_mtmv4[0][0] == "SCHEMA_CHANGE")
+        assertTrue(state_mtmv4[0][1] == "FAIL")
+        assertTrue(state_mtmv4[0][2] == false)
+
     }
 
     // mtmv6: drop table of dependent table
