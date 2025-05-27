@@ -25,7 +25,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThreadPoolManager;
-import org.apache.doris.common.security.authentication.AuthenticationConfig;
 import org.apache.doris.common.security.authentication.HadoopAuthenticator;
 import org.apache.doris.common.security.authentication.PreExecutionAuthenticator;
 import org.apache.doris.common.util.Util;
