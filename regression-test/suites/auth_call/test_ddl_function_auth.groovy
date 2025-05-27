@@ -40,7 +40,7 @@ suite("test_ddl_function_auth","p0,auth_call") {
     sql """grant select_priv on ${dbName}.* to ${user}"""
 
     // ddl create,show,drop
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
             sql """CREATE ALIAS FUNCTION ${dbName}.${functionName}(INT) WITH PARAMETER(id)  AS CONCAT(LEFT(id, 3), '****', RIGHT(id, 4));"""
             exception "denied"
@@ -56,7 +56,7 @@ suite("test_ddl_function_auth","p0,auth_call") {
         }
     }
     sql """grant admin_priv on *.*.* to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """CREATE ALIAS FUNCTION ${dbName}.${functionName}(INT) WITH PARAMETER(id)  AS CONCAT(LEFT(id, 3), '****', RIGHT(id, 4));"""
         sql """use ${dbName}"""
         def res = sql """show functions"""
@@ -74,7 +74,7 @@ suite("test_ddl_function_auth","p0,auth_call") {
     sql """use ${dbName}"""
     def func_res = sql """show functions"""
     assertTrue(func_res.size() == 1)
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """use ${dbName}"""
         def res = sql """SHOW CREATE FUNCTION ${dbName}.${functionName}(INT)"""
         logger.info("res: " + res)

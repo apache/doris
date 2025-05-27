@@ -63,7 +63,7 @@ suite("test_dml_insert_auth","p0,auth_call") {
                    (3, "333")
             """
 
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         def insert_res = sql """SHOW LAST INSERT"""
         logger.info("insert_res: " + insert_res)
         test {
@@ -83,7 +83,7 @@ suite("test_dml_insert_auth","p0,auth_call") {
         }
     }
     sql """grant load_priv on ${dbName}.${tableName} to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """
                 INSERT INTO ${dbName}.${tableName} (id, username)
                 VALUES (1, "111"),
@@ -101,7 +101,7 @@ suite("test_dml_insert_auth","p0,auth_call") {
     assertTrue(rows[0][0] == 3)
 
     // insert overwrite
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """
             INSERT OVERWRITE table ${dbName}.${tableName} VALUES (4, "444");
             """
@@ -110,7 +110,7 @@ suite("test_dml_insert_auth","p0,auth_call") {
     assertTrue(rows[0][0] == 1)
 
     sql """grant select_priv on ${dbName}.${srcTableName} to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """INSERT OVERWRITE table ${dbName}.${tableName} SELECT * FROM ${dbName}.${srcTableName};"""
     }
     rows = sql """select count() from ${dbName}.${tableName}"""

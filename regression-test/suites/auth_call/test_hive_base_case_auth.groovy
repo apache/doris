@@ -52,7 +52,7 @@ suite("test_hive_base_case_auth", "p0,auth_call") {
         sql """grant select_priv on regression_test to ${user}"""
 
         // create catalog
-        connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+        connect(user, "${pwd}", context.config.jdbcUrl) {
             test {
                 sql """create catalog if not exists ${catalogName} properties (
                     'type'='hms'
@@ -67,7 +67,7 @@ suite("test_hive_base_case_auth", "p0,auth_call") {
         );"""
         sql """grant Create_priv on ${catalogName}.*.* to ${user}"""
         try_sql """drop catalog if exists ${catalogName}"""
-        connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+        connect(user, "${pwd}", context.config.jdbcUrl) {
             sql """create catalog if not exists ${catalogName} properties (
                 'type'='hms',
                 'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}',
@@ -81,7 +81,7 @@ suite("test_hive_base_case_auth", "p0,auth_call") {
         sql """revoke Create_priv on ${catalogName}.*.* from ${user}"""
 
         // create database
-        connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+        connect(user, "${pwd}", context.config.jdbcUrl) {
             test {
                 sql """create database ${catalogName}.${dbName};"""
                 exception "denied"
@@ -91,13 +91,13 @@ suite("test_hive_base_case_auth", "p0,auth_call") {
         sql """grant Create_priv on ${catalogName}.${dbName}.* to ${user}"""
         sql """drop table if exists ${catalogName}.${dbName}.${tableName};"""
         sql """drop database ${catalogName}.${dbName};"""
-        connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+        connect(user, "${pwd}", context.config.jdbcUrl) {
             sql """create database ${catalogName}.${dbName};"""
         }
         sql """revoke Create_priv on ${catalogName}.${dbName}.* from ${user}"""
 
         // create table
-        connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+        connect(user, "${pwd}", context.config.jdbcUrl) {
             test {
                 sql """create table ${catalogName}.${dbName}.${tableName} (
                     id BIGINT,
@@ -118,7 +118,7 @@ suite("test_hive_base_case_auth", "p0,auth_call") {
         );"""
         sql """grant Create_priv on ${catalogName}.${dbName}.${tableName} to ${user}"""
         sql """drop table ${catalogName}.${dbName}.${tableName}"""
-        connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+        connect(user, "${pwd}", context.config.jdbcUrl) {
             sql """create table ${catalogName}.${dbName}.${tableName} (
                 id BIGINT,
                 username VARCHAR(20)
@@ -135,7 +135,7 @@ suite("test_hive_base_case_auth", "p0,auth_call") {
         sql """revoke Create_priv on ${catalogName}.${dbName}.${tableName} from ${user}"""
 
         // load
-        connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+        connect(user, "${pwd}", context.config.jdbcUrl) {
             test {
                 sql """
                 insert into ${catalogName}.${dbName}.${tableName} values 
@@ -146,7 +146,7 @@ suite("test_hive_base_case_auth", "p0,auth_call") {
             }
         }
         sql """grant LOAD_PRIV on ${catalogName}.${dbName}.${tableName} to ${user}"""
-        connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+        connect(user, "${pwd}", context.config.jdbcUrl) {
             sql """
             insert into ${catalogName}.${dbName}.${tableName} values 
             (1, "111"),
@@ -156,21 +156,21 @@ suite("test_hive_base_case_auth", "p0,auth_call") {
         sql """revoke LOAD_PRIV on ${catalogName}.${dbName}.${tableName} from ${user}"""
 
         // alter
-//        connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+//        connect(user, "${pwd}", context.config.jdbcUrl) {
 //            test {
 //                sql """ALTER table ${catalogName}.${dbName}.${tableName} RENAME ${tableNameNew};"""
 //                exception "denied"
 //            }
 //        }
 //        sql """grant ALTER_PRIV on ${catalogName}.${dbName}.${tableName} to ${user}"""
-//        connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+//        connect(user, "${pwd}", context.config.jdbcUrl) {
 //            sql """ALTER table ${catalogName}.${dbName}.${tableName} RENAME ${tableNameNew};"""
 //        }
 //        sql """revoke ALTER_PRIV on ${catalogName}.${dbName}.${tableName} from ${user}"""
 //        sql """ALTER table ${catalogName}.${dbName}.${tableNameNew} RENAME ${tableName};"""
 
         // drop
-        connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+        connect(user, "${pwd}", context.config.jdbcUrl) {
             test {
                 sql """drop catalog ${catalogName}"""
                 exception "denied"
@@ -185,7 +185,7 @@ suite("test_hive_base_case_auth", "p0,auth_call") {
             }
         }
         sql """grant DROP_PRIV on ${catalogName}.*.* to ${user}"""
-        connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+        connect(user, "${pwd}", context.config.jdbcUrl) {
             sql """drop table ${catalogName}.${dbName}.${tableName}"""
             sql """drop database ${catalogName}.${dbName}"""
             sql """drop catalog ${catalogName}"""

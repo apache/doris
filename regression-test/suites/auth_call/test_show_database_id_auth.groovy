@@ -37,7 +37,7 @@ suite("test_show_database_id_auth","p0,auth_call") {
     sql """grant select_priv on regression_test to ${user}"""
     sql """create database ${dbName}"""
 
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
             sql """show database 1001"""
             exception "denied"
@@ -52,7 +52,7 @@ suite("test_show_database_id_auth","p0,auth_call") {
         }
     }
     sql """grant admin_priv on *.*.* to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """show database 1001"""
         sql """show table 1001"""
         sql """SHOW CATALOG RECYCLE BIN;"""

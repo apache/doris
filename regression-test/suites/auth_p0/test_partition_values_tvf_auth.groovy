@@ -48,7 +48,7 @@ suite("test_partition_values_tvf_auth","p0,auth") {
             }
 
             sql """grant select_priv on regression_test to ${user}"""
-             connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+             connect(user, "${pwd}", context.config.jdbcUrl) {
                  test {
                        sql """
                           select * from partition_values("catalog" = "${catalog_name}", "database" = "multi_catalog", "table" = "orc_partitioned_columns") order by t_int, t_float;
@@ -57,7 +57,7 @@ suite("test_partition_values_tvf_auth","p0,auth") {
                  }
              }
             sql """grant select_priv on ${catalog_name}.multi_catalog.orc_partitioned_columns to ${user}"""
-            connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+            connect(user, "${pwd}", context.config.jdbcUrl) {
                sql """
                   select * from partition_values("catalog" = "${catalog_name}", "database" = "multi_catalog", "table" = "orc_partitioned_columns") order by t_int, t_float;
                """

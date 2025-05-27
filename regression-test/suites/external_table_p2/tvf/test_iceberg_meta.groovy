@@ -67,7 +67,7 @@ suite("test_iceberg_meta", "p2,external,iceberg,external_remote,external_remote_
          }
 
          sql """grant select_priv on regression_test to ${user}"""
-         connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+         connect(user, "${pwd}", context.config.jdbcUrl) {
              test {
                    sql """
                       select committed_at, snapshot_id, parent_id, operation from iceberg_meta(
@@ -78,7 +78,7 @@ suite("test_iceberg_meta", "p2,external,iceberg,external_remote,external_remote_
              }
          }
          sql """grant select_priv on ${iceberg_catalog_name}.${db}.multi_partition to ${user}"""
-         connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+         connect(user, "${pwd}", context.config.jdbcUrl) {
            sql """
               select committed_at, snapshot_id, parent_id, operation from iceberg_meta(
                                           "table" = "${iceberg_catalog_name}.${db}.multi_partition",
