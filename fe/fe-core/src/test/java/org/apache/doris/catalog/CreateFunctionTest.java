@@ -61,7 +61,7 @@ public class CreateFunctionTest {
         FeConstants.runningUnitTest = true;
         // create connect context
         connectContext = UtFrameUtils.createDefaultCtx();
-        connectContext.getSessionVariable().setEnableNereidsPlanner(false);
+        connectContext.getSessionVariable().setEnableNereidsPlanner(true);
     }
 
     @AfterClass
@@ -73,7 +73,7 @@ public class CreateFunctionTest {
     @Test
     public void test() throws Exception {
         ConnectContext ctx = UtFrameUtils.createDefaultCtx();
-        ctx.getSessionVariable().setEnableNereidsPlanner(false);
+        ctx.getSessionVariable().setEnableNereidsPlanner(true);
         ctx.getSessionVariable().enableFallbackToOriginalPlanner = true;
         ctx.getSessionVariable().setEnableFoldConstantByBe(false);
         // create database db1
@@ -210,7 +210,7 @@ public class CreateFunctionTest {
     @Test
     public void testCreateGlobalFunction() throws Exception {
         ConnectContext ctx = UtFrameUtils.createDefaultCtx();
-        ctx.getSessionVariable().setEnableNereidsPlanner(false);
+        ctx.getSessionVariable().setEnableNereidsPlanner(true);
         ctx.getSessionVariable().setEnableFoldConstantByBe(false);
 
         // 1. create database db2
