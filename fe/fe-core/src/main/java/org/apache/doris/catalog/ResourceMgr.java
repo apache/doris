@@ -90,7 +90,7 @@ public class ResourceMgr implements Writable {
         if (info.getResourceType() == ResourceType.UNKNOWN) {
             throw new DdlException("Only support SPARK, ODBC_CATALOG ,JDBC, S3_COOLDOWN, S3, HDFS and HMS resource.");
         }
-        Resource resource = Resource.fromInfo(info);
+        Resource resource = Resource.fromCommand(command);
         if (createResource(resource, info.isIfNotExists())) {
             Env.getCurrentEnv().getEditLog().logCreateResource(resource);
             LOG.info("Create resource success. Resource: {}", resource.getName());
