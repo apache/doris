@@ -17,9 +17,10 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.proc.BuildIndexProcDir;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.expressions.And;
@@ -34,7 +35,6 @@ import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Lists;
-import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -42,13 +42,16 @@ import java.util.List;
 
 public class ShowBuildIndexCommandTest extends TestWithFeService {
 
-    private ConnectContext ctx = new ConnectContext();
-    @Mocked
-    private BuildIndexProcDir procDir;
+    private ConnectContext ctx;
+    private Env env;
+    private AccessControllerManager accessControllerManager;
     private String catalog = InternalCatalog.INTERNAL_CATALOG_NAME;
 
     @Override
     protected void runBeforeAll() throws Exception {
+        ctx = createDefaultCtx();
+        env = Env.getCurrentEnv();
+        accessControllerManager = env.getAccessManager();
         createDatabase("test_db");
         ctx.setSessionVariable(new SessionVariable());
         ctx.setThreadLocalInfo();
