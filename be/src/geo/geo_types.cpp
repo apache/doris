@@ -48,7 +48,7 @@
 
 namespace doris {
 
-constexpr double TOLERANCE = 1e-6;
+constexpr double TOLERANCE = 1e-14;
 
 GeoPoint::GeoPoint() : _point(new S2Point()) {}
 GeoPoint::~GeoPoint() = default;
@@ -1004,7 +1004,7 @@ bool GeoPolygon::touches(const GeoShape* rhs) const {
         // "Touches" equivalent to boundary contact  but no internal overlap
         std::unique_ptr<S2Polygon> intersection(new S2Polygon());
         intersection->InitToIntersection(*polygon1, *polygon2);
-        return (intersection->GetArea() < S1Angle::Radians(TOLERANCE).radians() &&
+        return (intersection->GetArea() < S1Angle::Radians(1e-6).radians() &&
                 polygon_touch_polygon(polygon1, polygon2));
     }
     case GEO_SHAPE_MULTI_POLYGON: {
@@ -1052,27 +1052,86 @@ bool GeoPolygon::contains(const GeoShape* rhs) const {
     }
     case GEO_SHAPE_LINE_STRING: {
         const GeoLine* line = (const GeoLine*)rhs;
+        const S2Polyline* polyline = line->polyline();
 
-        // solve the problem caused by the `Contains(const S2Polyline)` in the S2 library
-        // due to the direction of the line segment
-        for (int i = 0; i < _polygon->num_loops(); ++i) {
-            const S2Loop* loop = _polygon->loop(i);
-            for (int j = 0; j < loop->num_vertices(); ++j) {
-                const S2Point& p1 = loop->vertex(j);
-                const S2Point& p2 = loop->vertex((j + 1) % loop->num_vertices());
-                for (int k = 0; k < line->polyline()->num_vertices() - 1; ++k) {
-                    const S2Point& p3 = line->polyline()->vertex(k);
-                    const S2Point& p4 = line->polyline()->vertex(k + 1);
-                    if ((compute_distance_to_line(p3, p1, p2) < TOLERANCE ||
-                         compute_distance_to_line(p4, p1, p2) < TOLERANCE) &&
-                        !is_line_touches_line(p1, p2, p3, p4)) {
-                        return false;
+        // 1.Check whether all vertices of the line lie within or on the boundary of the polygon.
+        // 2.Check if points on line are only on the boundary of polygon
+        bool all_in_boundary = true;
+        for (int i = 0; i < polyline->num_vertices(); ++i) {
+            bool vertex_contained = false;
+            if (is_point_in_polygon(polyline->vertex(i), _polygon.get())) {
+                vertex_contained = true;
+                all_in_boundary = false;
+            } else {
+                for (int j = 0; j < _polygon->num_loops(); ++j) {
+                    const S2Loop* loop = _polygon->loop(j);
+                    for (int k = 0; k < loop->num_vertices(); ++k) {
+                        const S2Point& p1 = loop->vertex(k);
+                        const S2Point& p2 = loop->vertex((k + 1) % loop->num_vertices());
+                        if (compute_distance_to_line(polyline->vertex(i), p1, p2) < TOLERANCE) {
+                            vertex_contained = true;
+                            if (all_in_boundary && i != polyline->num_vertices() - 1 &&
+                                compute_distance_to_line(polyline->vertex(i + 1), p1, p2) >
+                                        TOLERANCE) {
+                                all_in_boundary = false;
+                            }
+                            break;
+                        }
+                    }
+                    if (vertex_contained) {
+                        break;
+                    }
+                }
+            }
+
+            if (!vertex_contained || all_in_boundary) {
+                return false;
+            }
+        }
+
+        // 3.Checks if a line segment crosses a polygon boundary
+        for (int i = 0; i < polyline->num_vertices() - 1; ++i) {
+            const S2Point& line_start = polyline->vertex(i);
+            const S2Point& line_end = polyline->vertex(i + 1);
+
+            bool on_boundary = false;
+            for (int j = 0; j < _polygon->num_loops(); ++j) {
+                const S2Loop* loop = _polygon->loop(j);
+                for (int k = 0; k < loop->num_vertices(); ++k) {
+                    const S2Point& p1 = loop->vertex(k);
+                    const S2Point& p2 = loop->vertex((k + 1) % loop->num_vertices());
+
+                    if (compute_distance_to_line(line_start, p1, p2) < TOLERANCE &&
+                        compute_distance_to_line(line_end, p1, p2) < TOLERANCE) {
+                        on_boundary = true;
+                        break;
+                    }
+                }
+                if (on_boundary) {
+                    break;
+                }
+            }
+
+            if (!on_boundary) {
+                for (int j = 0; j < _polygon->num_loops(); ++j) {
+                    const S2Loop* loop = _polygon->loop(j);
+                    for (int k = 0; k < loop->num_vertices(); ++k) {
+                        const S2Point& p1 = loop->vertex(k);
+                        const S2Point& p2 = loop->vertex((k + 1) % loop->num_vertices());
+
+                        if (is_segments_intersect(line_start, line_end, p1, p2) &&
+                            compute_distance_to_line(p1, line_start, line_end) > TOLERANCE &&
+                            compute_distance_to_line(p2, line_start, line_end) > TOLERANCE &&
+                            compute_distance_to_line(line_start, p1, p2) > TOLERANCE &&
+                            compute_distance_to_line(line_end, p1, p2) > TOLERANCE) {
+                            return false;
+                        }
                     }
                 }
             }
         }
 
-        return _polygon->Contains(*line->polyline());
+        return true;
     }
     case GEO_SHAPE_POLYGON: {
         const GeoPolygon* other = (const GeoPolygon*)rhs;

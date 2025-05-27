@@ -28,6 +28,22 @@ suite("test_gis_function") {
     qt_sql "SELECT ST_Contains(ST_Polygon(\"POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))\"), ST_Point(50, 50));"
     qt_sql "SELECT ST_Contains(ST_GeomFromText('POLYGON((0 0, 0 10, 10 10, 10 0, 0 0))'), ST_GeomFromText('POINT(2 10)'));"
 
+    qt_sql "SELECT ST_Contains(ST_GeomFromText('POLYGON((0 0, 10 0, 10 10, 0 10, 0 0))'),ST_GeomFromText('LINESTRING(0 0, 10 0)'));"
+    qt_sql "SELECT ST_Contains(ST_GeomFromText('POLYGON((0 0, 10 0, 10 10, 0 10, 0 0))'),ST_GeomFromText('LINESTRING(9.99999999999999 10, 9.99999999999999 0)'));"
+    qt_sql "SELECT ST_Contains(ST_GeomFromText('POLYGON((0 0, 10 0, 10 10, 0 10, 0 0))'),ST_GeomFromText('LINESTRING(0 0, 10.00000000000001 0)'));"
+    qt_sql "SELECT ST_Contains(ST_GeomFromText('POLYGON((75.62577778481297 31.015290003114895, 136.5188060447714 31.015290003114895, 136.5188060447714 41.80408059113187, 75.62577778481297 41.80408059113187, 75.62577778481297 31.015290003114895))'),ST_GeomFromText('LINESTRING(121.22987634491871 31.023080519150707, 121.22741910198357 31.022786576236115)'));"
+    qt_sql "SELECT ST_Contains(ST_GeomFromText('POLYGON((0 0, 10 0, 10 10, 0 10, 0 0))'),ST_GeomFromText('LINESTRING(0 0, 10 10)'));"
+    qt_sql "SELECT ST_Contains(ST_GeomFromText('POLYGON((0 0, 10 0, 10 10, 0 10, 0 0))'),ST_GeomFromText('LINESTRING(10 0, 5 0, 5 10)'));"
+    qt_sql "SELECT ST_Contains(ST_GeomFromText('POLYGON((0 0, 10 0, 10 10, 0 10, 0 0), (3 2, 4 2, 4 9, 3 9, 3 2))'),ST_GeomFromText('LINESTRING(0 5, 10 5)'));"
+    qt_sql "SELECT ST_Contains(ST_GeomFromText('POLYGON((0 0, 10 0, 10 10, 0 10, 0 0), (3 2, 4 2, 4 9, 3 9, 3 2))'),ST_GeomFromText('LINESTRING(4 9, 10 10)'));"
+    qt_sql "SELECT ST_Contains(ST_GeomFromText('POLYGON((0 0, 10 0, 10 10, 0 10, 0 0), (3 2, 4 2, 4 9, 3 9, 3 2))'),ST_GeomFromText('LINESTRING(2.5 0, 10 10)'));"
+    qt_sql "SELECT ST_Contains(ST_GeomFromText('POLYGON((0 0, 10 0, 10 10, 0 10, 0 0), (3 2, 4 2, 4 9, 3 9, 3 2))'),ST_GeomFromText('LINESTRING(0 9, 10 9)'));"
+    qt_sql "SELECT ST_Contains(ST_GeomFromText('POLYGON((0 0, 10 0, 10 10, 0 10, 0 0))'),ST_GeomFromText('LINESTRING(0 9, 0 0, 9 0)'));"
+    qt_sql "SELECT ST_Contains(ST_GeomFromText('POLYGON((0 0, 10 0, 10 5, 5 5, 5 10, 0 10, 0 0))'),ST_GeomFromText('LINESTRING(0 10, 10 10)'));"
+
+    qt_sql "SELECT ST_Contains(ST_GeomFromText(\"POLYGON((0 0, 0 10, 10 10, 10 0, 0 0))\"),ST_GeomFromText(\"MULTIPOLYGON(((2 2, 4 2, 4 4, 2 4, 2 2)), ((6 6, 8 6, 8 8, 6 8, 6 6)))\"));"
+    qt_sql "SELECT ST_Contains(ST_GeomFromText(\"POLYGON((0 0, 0 10, 10 10, 10 0, 0 0))\"),ST_GeomFromText(\"MULTIPOLYGON(((2 2, 2 8, 8 8, 8 2, 2 2)), ((10 10, 10 15, 15 15, 15 10, 10 10)))\"));"
+
     qt_sql "SELECT ST_Contains(ST_GeomFromText('POLYGON((0 0, 0 10, 10 10, 10 0, 0 0))'), ST_GeomFromText('LINESTRING(2 0, 8 0)'));"
     qt_sql "SELECT ST_Contains(ST_GeomFromText('POLYGON((0 0, 0 10, 10 10, 10 0, 0 0))'), ST_GeomFromText('LINESTRING(2 5, 8 5)'));"
     qt_sql "SELECT ST_Contains(ST_GeomFromText('POLYGON((0 0, 0 10, 10 10, 10 0, 0 0))'), ST_GeomFromText('LINESTRING(0 0, 10 0)'));"

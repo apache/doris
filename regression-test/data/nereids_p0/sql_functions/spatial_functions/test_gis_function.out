@@ -114,6 +114,44 @@ false
 -- !sql --
 true
 
+-- POLYGON_Contains_LINESTRING
+-- !sql --
+false
+
+-- !sql --
+true
+
+-- !sql --
+false
+
+-- !sql --
+true
+
+-- !sql --
+true
+
+-- !sql --
+true
+
+-- !sql --
+false
+
+-- !sql --
+true
+
+-- !sql --
+true
+
+-- !sql --
+true
+
+-- !sql --
+false
+
+-- !sql --
+false
+
+-- POLYGON_Contains_MULTIPOLYGON
 -- !sql --
 true
 
