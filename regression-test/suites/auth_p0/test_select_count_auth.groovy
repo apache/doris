@@ -34,7 +34,7 @@ suite("test_select_count_auth","p0,auth") {
 
     sql """grant select_priv on regression_test to ${user}"""
 
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
               sql """
                   select count(*) from __internal_schema.audit_log;

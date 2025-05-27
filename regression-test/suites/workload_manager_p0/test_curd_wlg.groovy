@@ -794,8 +794,8 @@ suite("test_crud_wlg") {
         
         // curl backend http port to get metrics
         // get first backendId
-        backendId = backendId_to_backendIP.keySet().iterator().next();
-        backendIP = backendId_to_backendIP.get(backendId);
+        def backendId = backendId_to_backendIP.keySet().iterator().next();
+        def backendIP = backendId_to_backendIP.get(backendId);
         backendHttpPort = backendId_to_backendHttpPort.get(backendId);
         logger.info("backendId: " + backendId + ", backendIP: " + backendIP + ", backendHttpPort: " + backendHttpPort);
 
