@@ -277,6 +277,9 @@ Status BaseTablet::get_all_rs_id(int64_t max_version, RowsetIdUnorderedSet* rows
 Status BaseTablet::get_all_rs_id_unlocked(int64_t max_version,
                                           RowsetIdUnorderedSet* rowset_ids) const {
     //  Ensure that the obtained versions of rowsets are continuous
+    if (max_version <= 0) {
+        return Status::OK();
+    }
     Version spec_version(0, max_version);
     Versions version_path;
     auto st = _timestamped_version_tracker.capture_consistent_versions(spec_version, &version_path);
