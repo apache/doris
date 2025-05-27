@@ -60,6 +60,7 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskQueue;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.thrift.TSortType;
 import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.utframe.MockedMetaServerFactory;
@@ -285,10 +286,16 @@ public class CloudIndexTest {
         dataSortInfo.setSortType(TSortType.LEXICAL);
         table.setDataSortInfo(dataSortInfo);
         String indexName = "ngram_bf_index";
+
+        // Add required properties for NGRAM_BF index
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put("gram_size", "2");
+        properties.put("bf_size", "256");
+
         IndexDef indexDef = new IndexDef(indexName, false,
                 Lists.newArrayList(table.getBaseSchema().get(3).getName()),
                 org.apache.doris.analysis.IndexDef.IndexType.NGRAM_BF,
-                Maps.newHashMap(), "ngram bf index");
+                properties, "ngram bf index");
         TableName tableName = new TableName(masterEnv.getInternalCatalog().getName(), db.getName(),
                 table.getName());
         createIndexClause = new CreateIndexClause(tableName, indexDef, false);
@@ -356,10 +363,16 @@ public class CloudIndexTest {
         table.setDataSortInfo(dataSortInfo);
         //table.setInvertedIndexFileStorageFormat(TInvertedIndexFileStorageFormat.V2);
         String indexName = "ngram_bf_index";
+
+        // Add required properties for NGRAM_BF index
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put("gram_size", "2");
+        properties.put("bf_size", "256");
+
         IndexDef indexDef = new IndexDef(indexName, false,
                 Lists.newArrayList(table.getBaseSchema().get(3).getName()),
                 org.apache.doris.analysis.IndexDef.IndexType.NGRAM_BF,
-                Maps.newHashMap(), "ngram bf index");
+                properties, "ngram bf index");
         TableName tableName = new TableName(masterEnv.getInternalCatalog().getName(), db.getName(),
                 table.getName());
         createIndexClause = new CreateIndexClause(tableName, indexDef, false);
@@ -615,10 +628,6 @@ public class CloudIndexTest {
         schemaChangeHandler.runAfterCatalogReady();
         Assert.assertEquals(AlterJobV2.JobState.WAITING_TXN, jobV2.getJobState());
         Assert.assertEquals(0, jobV2.schemaChangeBatchTask.getTaskNum());
-
-        schemaChangeHandler.runAfterCatalogReady();
-        Assert.assertEquals(AlterJobV2.JobState.RUNNING, jobV2.getJobState());
-        Assert.assertEquals(1, jobV2.schemaChangeBatchTask.getTaskNum());
 
         schemaChangeHandler.runAfterCatalogReady();
         Assert.assertEquals(AlterJobV2.JobState.RUNNING, jobV2.getJobState());
@@ -889,5 +898,287 @@ public class CloudIndexTest {
 
         schemaChangeHandler.runAfterCatalogReady();
         Assert.assertEquals(AlterJobV2.JobState.CANCELLED, job2V2.getJobState());
+    }
+
+    @Test
+    public void testCreateTokenizedInvertedIndex() throws Exception {
+        Assert.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
+
+        SystemInfoService cloudSystemInfo = Env.getCurrentSystemInfo();
+        fakeEnv = new FakeEnv();
+        fakeEditLog = new FakeEditLog();
+        FakeEnv.setEnv(masterEnv);
+        FakeEnv.setSystemInfo(cloudSystemInfo);
+
+        Assert.assertTrue(Env.getCurrentInternalCatalog() instanceof CloudInternalCatalog);
+        Assert.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
+        CatalogTestUtil.createDupTable(db);
+        OlapTable table = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId2);
+        DataSortInfo dataSortInfo = new DataSortInfo();
+        dataSortInfo.setSortType(TSortType.LEXICAL);
+        table.setDataSortInfo(dataSortInfo);
+
+        // Set inverted index file storage format to V2 for cloud mode
+        table.setInvertedIndexFileStorageFormat(TInvertedIndexFileStorageFormat.V2);
+
+        String indexName = "tokenized_inverted_index";
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put("parser", "english");
+        properties.put("support_phrase", "true");
+        properties.put("lower_case", "true");
+
+        // Use VARCHAR column v1 (index 2) for string type support
+        IndexDef indexDef = new IndexDef(indexName, false,
+                Lists.newArrayList(table.getBaseSchema().get(2).getName()),
+                IndexType.INVERTED,
+                properties, "tokenized inverted index with english parser");
+        TableName tableName = new TableName(masterEnv.getInternalCatalog().getName(), db.getName(),
+                table.getName());
+        createIndexClause = new CreateIndexClause(tableName, indexDef, false);
+        createIndexClause.analyze(analyzer);
+        SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
+        ArrayList<AlterClause> alterClauses = new ArrayList<>();
+        alterClauses.add(createIndexClause);
+        schemaChangeHandler.process(alterClauses, db, table);
+        Map<Long, AlterJobV2> indexChangeJobMap = schemaChangeHandler.getAlterJobsV2();
+        Assert.assertEquals(1, indexChangeJobMap.size());
+        Assert.assertEquals(OlapTableState.SCHEMA_CHANGE, table.getState());
+
+        SchemaChangeJobV2 jobV2 = (SchemaChangeJobV2) indexChangeJobMap.values().stream()
+                .findFirst()
+                .orElse(null);
+        Assert.assertEquals(0, jobV2.schemaChangeBatchTask.getTaskNum());
+
+        // This should be a heavyweight schema change for tokenized index
+        schemaChangeHandler.runAfterCatalogReady();
+        Assert.assertEquals(AlterJobV2.JobState.WAITING_TXN, jobV2.getJobState());
+        Assert.assertEquals(0, jobV2.schemaChangeBatchTask.getTaskNum());
+
+        schemaChangeHandler.runAfterCatalogReady();
+        Assert.assertEquals(AlterJobV2.JobState.RUNNING, jobV2.getJobState());
+        Assert.assertEquals(1, jobV2.schemaChangeBatchTask.getTaskNum());
+
+        List<AgentTask> tasks = AgentTaskQueue.getTask(TTaskType.ALTER);
+        Assert.assertEquals(1, tasks.size());
+        for (AgentTask agentTask : tasks) {
+            agentTask.setFinished(true);
+        }
+
+        schemaChangeHandler.runAfterCatalogReady();
+        Assert.assertEquals(AlterJobV2.JobState.FINISHED, jobV2.getJobState());
+
+        Assert.assertEquals(1, table.getIndexes().size());
+        Assert.assertEquals("tokenized_inverted_index", table.getIndexes().get(0).getIndexName());
+
+        // Verify that the index has the correct properties
+        Assert.assertEquals("english", table.getIndexes().get(0).getProperties().get("parser"));
+        Assert.assertEquals("true", table.getIndexes().get(0).getProperties().get("support_phrase"));
+        Assert.assertEquals("true", table.getIndexes().get(0).getProperties().get("lower_case"));
+    }
+
+    @Test
+    public void testCreateMixedIndexes() throws Exception {
+        Assert.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
+
+        SystemInfoService cloudSystemInfo = Env.getCurrentSystemInfo();
+        fakeEnv = new FakeEnv();
+        fakeEditLog = new FakeEditLog();
+        FakeEnv.setEnv(masterEnv);
+        FakeEnv.setSystemInfo(cloudSystemInfo);
+
+        Assert.assertTrue(Env.getCurrentInternalCatalog() instanceof CloudInternalCatalog);
+        Assert.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
+        CatalogTestUtil.createDupTable(db);
+        OlapTable table = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId2);
+        DataSortInfo dataSortInfo = new DataSortInfo();
+        dataSortInfo.setSortType(TSortType.LEXICAL);
+        table.setDataSortInfo(dataSortInfo);
+
+        // Set inverted index file storage format to V2 for cloud mode
+        table.setInvertedIndexFileStorageFormat(TInvertedIndexFileStorageFormat.V2);
+
+        TableName tableName = new TableName(masterEnv.getInternalCatalog().getName(), db.getName(),
+                table.getName());
+        SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
+        ArrayList<AlterClause> alterClauses = new ArrayList<>();
+
+        // Step 1: Create tokenized inverted index (heavyweight schema change)
+        String tokenizedIndexName = "tokenized_index";
+        Map<String, String> tokenizedProperties = Maps.newHashMap();
+        tokenizedProperties.put("parser", "chinese");
+        tokenizedProperties.put("support_phrase", "false");
+        tokenizedProperties.put("lower_case", "true");
+
+        IndexDef tokenizedIndexDef = new IndexDef(tokenizedIndexName, false,
+                Lists.newArrayList(table.getBaseSchema().get(2).getName()),
+                IndexType.INVERTED,
+                tokenizedProperties, "tokenized inverted index with chinese parser");
+        createIndexClause = new CreateIndexClause(tableName, tokenizedIndexDef, false);
+        createIndexClause.analyze(analyzer);
+        alterClauses.add(createIndexClause);
+        schemaChangeHandler.process(alterClauses, db, table);
+
+        Map<Long, AlterJobV2> indexChangeJobMap = schemaChangeHandler.getAlterJobsV2();
+        Assert.assertEquals(1, indexChangeJobMap.size());
+        Assert.assertEquals(OlapTableState.SCHEMA_CHANGE, table.getState());
+
+        SchemaChangeJobV2 tokenizedJobV2 = (SchemaChangeJobV2) indexChangeJobMap.values().stream()
+                .findFirst()
+                .orElse(null);
+        long tokenizedJobId = tokenizedJobV2.getJobId();
+
+        // Execute tokenized index creation (heavyweight schema change)
+        schemaChangeHandler.runAfterCatalogReady();
+        Assert.assertEquals(AlterJobV2.JobState.WAITING_TXN, tokenizedJobV2.getJobState());
+
+        schemaChangeHandler.runAfterCatalogReady();
+        Assert.assertEquals(AlterJobV2.JobState.RUNNING, tokenizedJobV2.getJobState());
+        Assert.assertEquals(1, tokenizedJobV2.schemaChangeBatchTask.getTaskNum());
+
+        List<AgentTask> tasks = AgentTaskQueue.getTask(TTaskType.ALTER);
+        Assert.assertEquals(1, tasks.size());
+        for (AgentTask agentTask : tasks) {
+            agentTask.setFinished(true);
+        }
+
+        schemaChangeHandler.runAfterCatalogReady();
+        Assert.assertEquals(AlterJobV2.JobState.FINISHED, tokenizedJobV2.getJobState());
+        Assert.assertEquals(1, table.getIndexes().size());
+
+        // Step 2: Create NGRAM_BF index (lightweight)
+        String ngramBfIndexName = "ngram_bf_mixed_index";
+        Map<String, String> ngramBfProperties = Maps.newHashMap();
+        ngramBfProperties.put("gram_size", "3");
+        ngramBfProperties.put("bf_size", "512");
+
+        IndexDef ngramBfIndexDef = new IndexDef(ngramBfIndexName, false,
+                Lists.newArrayList(table.getBaseSchema().get(3).getName()),
+                IndexType.NGRAM_BF,
+                ngramBfProperties, "ngram bf mixed index");
+        createIndexClause = new CreateIndexClause(tableName, ngramBfIndexDef, false);
+        createIndexClause.analyze(analyzer);
+        alterClauses.clear();
+        alterClauses.add(createIndexClause);
+        schemaChangeHandler.process(alterClauses, db, table);
+
+        indexChangeJobMap = schemaChangeHandler.getAlterJobsV2();
+        Assert.assertEquals(2, indexChangeJobMap.size());
+        Assert.assertEquals(2, table.getIndexes().size());
+        long ngramBfJobId = indexChangeJobMap.values().stream()
+                .filter(job -> job.jobId != tokenizedJobId)
+                .findFirst().get().jobId;
+
+        // Step 3: Create raw inverted index (lightweight)
+        String rawInvertedIndexName = "raw_inverted_mixed_index";
+        IndexDef rawInvertedIndexDef = new IndexDef(rawInvertedIndexName, false,
+                Lists.newArrayList(table.getBaseSchema().get(1).getName()),
+                IndexType.INVERTED,
+                Maps.newHashMap(), "raw inverted mixed index");
+        createIndexClause = new CreateIndexClause(tableName, rawInvertedIndexDef, false);
+        createIndexClause.analyze(analyzer);
+        alterClauses.clear();
+        alterClauses.add(createIndexClause);
+        schemaChangeHandler.process(alterClauses, db, table);
+
+        indexChangeJobMap = schemaChangeHandler.getAlterJobsV2();
+        Assert.assertEquals(3, indexChangeJobMap.size());
+        Assert.assertEquals(3, table.getIndexes().size());
+        long rawInvertedJobId = indexChangeJobMap.values().stream()
+                .filter(job -> job.jobId != tokenizedJobId && job.jobId != ngramBfJobId)
+                .findFirst().get().jobId;
+
+        // Verify all indexes were created with correct names and types
+        boolean hasTokenizedIndex = false;
+        boolean hasNgramBfIndex = false;
+        boolean hasRawInvertedIndex = false;
+        for (int i = 0; i < table.getIndexes().size(); i++) {
+            String name = table.getIndexes().get(i).getIndexName();
+            if (name.equals(tokenizedIndexName)) {
+                hasTokenizedIndex = true;
+                // Verify tokenized index properties
+                Assert.assertEquals("chinese", table.getIndexes().get(i).getProperties().get("parser"));
+                Assert.assertEquals("false", table.getIndexes().get(i).getProperties().get("support_phrase"));
+                Assert.assertEquals("true", table.getIndexes().get(i).getProperties().get("lower_case"));
+            } else if (name.equals(ngramBfIndexName)) {
+                hasNgramBfIndex = true;
+                // Verify ngram bf index properties
+                Assert.assertEquals("3", table.getIndexes().get(i).getProperties().get("gram_size"));
+                Assert.assertEquals("512", table.getIndexes().get(i).getProperties().get("bf_size"));
+            } else if (name.equals(rawInvertedIndexName)) {
+                hasRawInvertedIndex = true;
+                // Verify raw inverted index has no special properties
+                Assert.assertTrue(table.getIndexes().get(i).getProperties().isEmpty()
+                        || !table.getIndexes().get(i).getProperties().containsKey("parser"));
+            }
+        }
+        Assert.assertTrue("Tokenized index should be created", hasTokenizedIndex);
+        Assert.assertTrue("NGRAM_BF index should be created", hasNgramBfIndex);
+        Assert.assertTrue("Raw inverted index should be created", hasRawInvertedIndex);
+
+        // Step 4: Build NGRAM_BF index
+        buildIndexClause = new BuildIndexClause(tableName, ngramBfIndexName, null, false);
+        buildIndexClause.analyze(analyzer);
+        alterClauses.clear();
+        alterClauses.add(buildIndexClause);
+        schemaChangeHandler.process(alterClauses, db, table);
+
+        Assert.assertEquals(OlapTableState.SCHEMA_CHANGE, table.getState());
+        SchemaChangeJobV2 ngramBfBuildJobV2 = (SchemaChangeJobV2) indexChangeJobMap.values().stream()
+                .filter(job -> job.jobId != tokenizedJobId && job.jobId != ngramBfJobId && job.jobId != rawInvertedJobId)
+                .findFirst()
+                .orElse(null);
+        Assert.assertNotNull("NGRAM_BF build job should be created", ngramBfBuildJobV2);
+        long ngramBfBuildJobId = ngramBfBuildJobV2.getJobId();
+
+        schemaChangeHandler.runAfterCatalogReady();
+        Assert.assertEquals(AlterJobV2.JobState.WAITING_TXN, ngramBfBuildJobV2.getJobState());
+
+        schemaChangeHandler.runAfterCatalogReady();
+        Assert.assertEquals(AlterJobV2.JobState.RUNNING, ngramBfBuildJobV2.getJobState());
+        Assert.assertEquals(1, ngramBfBuildJobV2.schemaChangeBatchTask.getTaskNum());
+
+        tasks = AgentTaskQueue.getTask(TTaskType.ALTER);
+        Assert.assertEquals(2, tasks.size());
+        for (AgentTask agentTask : tasks) {
+            agentTask.setFinished(true);
+        }
+
+        schemaChangeHandler.runAfterCatalogReady();
+        Assert.assertEquals(AlterJobV2.JobState.FINISHED, ngramBfBuildJobV2.getJobState());
+
+        // Step 5: Build raw inverted index
+        buildIndexClause = new BuildIndexClause(tableName, rawInvertedIndexName, null, false);
+        buildIndexClause.analyze(analyzer);
+        alterClauses.clear();
+        alterClauses.add(buildIndexClause);
+        schemaChangeHandler.process(alterClauses, db, table);
+
+        Assert.assertEquals(OlapTableState.SCHEMA_CHANGE, table.getState());
+        SchemaChangeJobV2 rawInvertedBuildJobV2 = (SchemaChangeJobV2) indexChangeJobMap.values().stream()
+                .filter(job -> job.jobId != tokenizedJobId && job.jobId != ngramBfJobId
+                           && job.jobId != rawInvertedJobId && job.jobId != ngramBfBuildJobId)
+                .findFirst()
+                .orElse(null);
+        Assert.assertNotNull("Raw inverted build job should be created", rawInvertedBuildJobV2);
+
+        schemaChangeHandler.runAfterCatalogReady();
+        Assert.assertEquals(AlterJobV2.JobState.WAITING_TXN, rawInvertedBuildJobV2.getJobState());
+
+        schemaChangeHandler.runAfterCatalogReady();
+        Assert.assertEquals(AlterJobV2.JobState.RUNNING, rawInvertedBuildJobV2.getJobState());
+        Assert.assertEquals(1, rawInvertedBuildJobV2.schemaChangeBatchTask.getTaskNum());
+
+        tasks = AgentTaskQueue.getTask(TTaskType.ALTER);
+        Assert.assertEquals(3, tasks.size());
+        for (AgentTask agentTask : tasks) {
+            agentTask.setFinished(true);
+        }
+
+        schemaChangeHandler.runAfterCatalogReady();
+        Assert.assertEquals(AlterJobV2.JobState.FINISHED, rawInvertedBuildJobV2.getJobState());
+
+        // Final verification: all 3 indexes should exist and be properly configured
+        Assert.assertEquals(3, table.getIndexes().size());
+        LOG.info("Successfully created and built mixed indexes: tokenized, NGRAM_BF, and raw inverted");
     }
 }

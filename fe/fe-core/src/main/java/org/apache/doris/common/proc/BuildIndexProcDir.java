@@ -26,7 +26,6 @@ import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.OrderByPair;
 
@@ -117,11 +116,7 @@ public class BuildIndexProcDir implements ProcDirInterface {
         Preconditions.checkNotNull(schemaChangeHandler);
 
         List<List<Comparable>> indexChangeJobInfos;
-        if (Config.isCloudMode()) {
-            indexChangeJobInfos = schemaChangeHandler.getAllIndexChangeJobInfosInCloud(db);
-        } else {
-            indexChangeJobInfos = schemaChangeHandler.getAllIndexChangeJobInfos(db);
-        }
+        indexChangeJobInfos = schemaChangeHandler.getAllIndexChangeJobInfos(db);
 
         //where
         List<List<Comparable>> jobInfos;

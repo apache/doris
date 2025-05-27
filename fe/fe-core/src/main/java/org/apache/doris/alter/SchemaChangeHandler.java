@@ -1845,25 +1845,15 @@ public class SchemaChangeHandler extends AlterHandler {
             // which already check the ADMIN priv.
             indexChangeJob.getInfo(indexChangeJobInfos);
         }
-
+        for (AlterJobV2 alterJob : ImmutableList.copyOf(alterJobsV2.values())) {
+            if (alterJob instanceof SchemaChangeJobV2 && ((SchemaChangeJobV2) alterJob).hasIndexChange()) {
+                ((SchemaChangeJobV2) alterJob).getBuildIndexInfo(indexChangeJobInfos);
+            }
+        }
         // sort by "JobId", "TableName", "PartitionName", "CreateTime", "FinishTime"
         ListComparator<List<Comparable>> comparator = new ListComparator<List<Comparable>>(0, 1, 2, 3, 4);
         indexChangeJobInfos.sort(comparator);
         return indexChangeJobInfos;
-    }
-
-    public List<List<Comparable>> getAllIndexChangeJobInfosInCloud() {
-        List<List<Comparable>> schemaChangeJobInfos = new LinkedList<>();
-        for (AlterJobV2 alterJob : ImmutableList.copyOf(alterJobsV2.values())) {
-            if (alterJob instanceof SchemaChangeJobV2 && ((SchemaChangeJobV2) alterJob).hasIndexChange()) {
-                ((SchemaChangeJobV2) alterJob).getBuildIndexInfo(schemaChangeJobInfos);
-            }
-        }
-
-        // sort by "JobId", "PartitionName", "CreateTime", "FinishTime", "IndexName", "IndexState"
-        ListComparator<List<Comparable>> comparator = new ListComparator<List<Comparable>>(0, 1, 2, 3, 4);
-        schemaChangeJobInfos.sort(comparator);
-        return schemaChangeJobInfos;
     }
 
     public List<List<Comparable>> getAllIndexChangeJobInfos(Database db) {
@@ -1874,28 +1864,20 @@ public class SchemaChangeHandler extends AlterHandler {
             }
             indexChangeJob.getInfo(indexChangeJobInfos);
         }
+        for (AlterJobV2 alterJob : ImmutableList.copyOf(alterJobsV2.values())) {
+            if (alterJob.getDbId() != db.getId()) {
+                continue;
+            }
+            if (alterJob instanceof SchemaChangeJobV2 && ((SchemaChangeJobV2) alterJob).hasIndexChange()) {
+                ((SchemaChangeJobV2) alterJob).getBuildIndexInfo(indexChangeJobInfos);
+            }
+        }
 
 
         // sort by "JobId", "TableName", "PartitionName", "CreateTime", "FinishTime"
         ListComparator<List<Comparable>> comparator = new ListComparator<List<Comparable>>(0, 1, 2, 3, 4);
         indexChangeJobInfos.sort(comparator);
         return indexChangeJobInfos;
-    }
-
-    public List<List<Comparable>> getAllIndexChangeJobInfosInCloud(Database db) {
-        List<List<Comparable>> schemaChangeJobInfos = new LinkedList<>();
-        for (AlterJobV2 alterJob : ImmutableList.copyOf(alterJobsV2.values())) {
-            if (alterJob.getDbId() != db.getId()) {
-                continue;
-            }
-            if (alterJob instanceof SchemaChangeJobV2 && ((SchemaChangeJobV2) alterJob).hasIndexChange()) {
-                ((SchemaChangeJobV2) alterJob).getBuildIndexInfo(schemaChangeJobInfos);
-            }
-        }
-
-        ListComparator<List<Comparable>> comparator = new ListComparator<List<Comparable>>(0, 1, 2, 3, 4);
-        schemaChangeJobInfos.sort(comparator);
-        return schemaChangeJobInfos;
     }
 
     public List<List<Comparable>> getAllAlterJobInfos() {

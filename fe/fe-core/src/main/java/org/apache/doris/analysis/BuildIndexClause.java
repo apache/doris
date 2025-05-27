@@ -45,14 +45,6 @@ public class BuildIndexClause extends AlterTableClause {
     private String indexName;
     private PartitionNames partitionNames;
 
-    public BuildIndexClause(TableName tableName, boolean alter) {
-        super(AlterOpType.SCHEMA_CHANGE);
-        this.tableName = tableName;
-        this.alter = alter;
-        this.indexDefList = Lists.newArrayList();
-        this.indexList = Lists.newArrayList();
-    }
-
     public BuildIndexClause(TableName tableName, String indexName, PartitionNames partitionNames, boolean alter) {
         super(AlterOpType.SCHEMA_CHANGE);
         this.tableName = tableName;

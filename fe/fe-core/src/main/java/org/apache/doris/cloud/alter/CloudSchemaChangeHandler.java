@@ -17,6 +17,8 @@
 
 package org.apache.doris.cloud.alter;
 
+import org.apache.doris.alter.AlterJobV2;
+import org.apache.doris.alter.CloudSchemaChangeJobV2;
 import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -33,9 +35,11 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.PropertyAnalyzer;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -487,5 +491,39 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
                 throw new UserException(response.getStatus().getMsg());
             }
         }
+    }
+
+    @Override
+    public List<List<Comparable>> getAllIndexChangeJobInfos(Database db)  {
+        List<List<Comparable>> schemaChangeJobInfos = new java.util.LinkedList<>();
+        for (AlterJobV2 alterJob : ImmutableList.copyOf(alterJobsV2.values())) {
+            if (alterJob.getDbId() != db.getId()) {
+                continue;
+            }
+            if (alterJob instanceof CloudSchemaChangeJobV2 && ((CloudSchemaChangeJobV2) alterJob).hasIndexChange()) {
+                ((CloudSchemaChangeJobV2) alterJob).getBuildIndexInfo(schemaChangeJobInfos);
+            }
+        }
+
+        ListComparator<List<Comparable>>
+                comparator = new ListComparator<List<Comparable>>(0, 1, 2, 3, 4);
+        schemaChangeJobInfos.sort(comparator);
+        return schemaChangeJobInfos;
+    }
+
+    @Override
+    public List<List<Comparable>> getAllIndexChangeJobInfos() {
+        List<List<Comparable>> schemaChangeJobInfos = new java.util.LinkedList<>();
+        for (AlterJobV2 alterJob : ImmutableList.copyOf(alterJobsV2.values())) {
+            if (alterJob instanceof CloudSchemaChangeJobV2 && ((CloudSchemaChangeJobV2) alterJob).hasIndexChange()) {
+                ((CloudSchemaChangeJobV2) alterJob).getBuildIndexInfo(schemaChangeJobInfos);
+            }
+        }
+
+        // sort by "JobId", "PartitionName", "CreateTime", "FinishTime", "IndexName", "IndexState"
+        ListComparator<List<Comparable>>
+                comparator = new ListComparator<List<Comparable>>(0, 1, 2, 3, 4);
+        schemaChangeJobInfos.sort(comparator);
+        return schemaChangeJobInfos;
     }
 }

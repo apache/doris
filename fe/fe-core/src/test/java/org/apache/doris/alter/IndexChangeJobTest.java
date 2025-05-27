@@ -20,12 +20,17 @@ package org.apache.doris.alter;
 import org.apache.doris.analysis.AccessTestUtil;
 import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.BuildIndexClause;
 import org.apache.doris.analysis.CancelAlterTableStmt;
 import org.apache.doris.analysis.CreateIndexClause;
 import org.apache.doris.analysis.DropIndexClause;
+import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.IndexDef;
 import org.apache.doris.analysis.ShowAlterStmt;
+import org.apache.doris.analysis.ShowBuildIndexStmt;
+import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.CatalogTestUtil;
 import org.apache.doris.catalog.Database;
@@ -46,6 +51,9 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ShowExecutor;
+import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.thrift.TStatusCode;
@@ -705,5 +713,78 @@ public class IndexChangeJobTest {
 
         schemaChangeHandler.runAfterCatalogReady();
         Assert.assertEquals(AlterJobV2.JobState.CANCELLED, jobV2.getJobState());
+    }
+
+    @Test
+    public void testShowBuildNgramIndex() throws Exception {
+        fakeEnv = new FakeEnv();
+        fakeEditLog = new FakeEditLog();
+        FakeEnv.setEnv(masterEnv);
+        db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
+
+        OlapTable table = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId2);
+        String indexName = "show_ngram_bf_index";
+        IndexDef indexDef = new IndexDef(indexName, false,
+                Lists.newArrayList(table.getBaseSchema().get(3).getName()),
+                org.apache.doris.analysis.IndexDef.IndexType.NGRAM_BF,
+                Maps.newHashMap(), "ngram bf index");
+        TableName tableName = new TableName(masterEnv.getInternalCatalog().getName(), db.getName(),
+                table.getName());
+        createIndexClause = new CreateIndexClause(tableName, indexDef, false);
+        createIndexClause.analyze(analyzer);
+        SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
+        ArrayList<AlterClause> alterClauses = new ArrayList<>();
+        alterClauses.add(createIndexClause);
+        schemaChangeHandler.process(alterClauses, db, table);
+        Map<Long, AlterJobV2> indexChangeJobMap = schemaChangeHandler.getAlterJobsV2();
+        Assert.assertEquals(1, indexChangeJobMap.size());
+        Assert.assertEquals(1, table.getIndexes().size());
+        Assert.assertEquals("show_ngram_bf_index", table.getIndexes().get(0).getIndexName());
+
+        long jobId = indexChangeJobMap.values().stream().findAny().get().jobId;
+
+        buildIndexClause = new BuildIndexClause(tableName, indexName, null, false);
+        buildIndexClause.analyze(analyzer);
+        alterClauses.clear();
+        alterClauses.add(buildIndexClause);
+
+        schemaChangeHandler.process(alterClauses, db, table);
+        Assert.assertEquals(2, indexChangeJobMap.size());
+        Assert.assertEquals(OlapTableState.SCHEMA_CHANGE, table.getState());
+
+        Expr where = new BinaryPredicate(
+                BinaryPredicate.Operator.EQ, new SlotRef(tableName, "TableName"),
+                new StringLiteral(table.getName()));
+        ConnectContext ctx = new ConnectContext();
+        Analyzer analyzer1 = new Analyzer(masterEnv, ctx);
+        ShowBuildIndexStmt
+                buildIndexStmt = new ShowBuildIndexStmt(db.getName(), where, null, null);
+        buildIndexStmt.analyze(analyzer1);
+        ShowExecutor executor = new ShowExecutor(ctx, buildIndexStmt);
+        ShowResultSet result = executor.execute();
+        Assert.assertEquals(1, result.getResultRows().size());
+
+        SchemaChangeJobV2 jobV2 = (SchemaChangeJobV2) indexChangeJobMap.values().stream()
+                .filter(job -> job.jobId != jobId)
+                .findFirst()
+                .orElse(null);
+        Assert.assertEquals(0, jobV2.schemaChangeBatchTask.getTaskNum());
+
+        schemaChangeHandler.runAfterCatalogReady();
+        Assert.assertEquals(AlterJobV2.JobState.WAITING_TXN, jobV2.getJobState());
+        Assert.assertEquals(0, jobV2.schemaChangeBatchTask.getTaskNum());
+
+        schemaChangeHandler.runAfterCatalogReady();
+        Assert.assertEquals(AlterJobV2.JobState.RUNNING, jobV2.getJobState());
+        Assert.assertEquals(1, jobV2.schemaChangeBatchTask.getTaskNum());
+
+        List<AgentTask> tasks = AgentTaskQueue.getTask(TTaskType.ALTER);
+        Assert.assertEquals(1, tasks.size());
+        for (AgentTask agentTask : tasks) {
+            agentTask.setFinished(true);
+        }
+
+        schemaChangeHandler.runAfterCatalogReady();
+        Assert.assertEquals(AlterJobV2.JobState.FINISHED, jobV2.getJobState());
     }
 }
