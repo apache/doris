@@ -24,6 +24,7 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr","p0,mtmv,restart_fe") {
     String tableName2 = """${suiteName}_tb2"""
     String tableName3 = """${suiteName}_tb3"""
     String tableName4 = """${suiteName}_tb4"""
+    String tableName4_rn = """${suiteName}_tb4_rn"""
     String tableName5 = """${suiteName}_tb5"""
     String tableName6 = """${suiteName}_tb6"""
     String tableName7 = """${suiteName}_tb7"""
@@ -245,29 +246,29 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr","p0,mtmv,restart_fe") {
     def tables_res = sql """show tables;"""
     boolean is_exists = false
     for (int i = 0; i < tables_res.size(); i++) {
-        if (tables_res[i][0] == mtmvName4) {
+        if (tables_res[i][0] == tableName4) {
             is_exists = true
             break
         }
-        if (tables_res[i][0] == mtmvName4_rn) {
+        if (tables_res[i][0] == tableName4_rn) {
             is_exists = false
             break
         }
     }
+
     if (is_exists) {
-        sql """ALTER TABLE ${mtmvName4} RENAME ${mtmvName4_rn};"""
+        sql """ALTER TABLE ${tableName4} RENAME ${tableName4_rn};"""
     } else {
-        sql """ALTER TABLE ${mtmvName4_rn} RENAME ${mtmvName4};"""
+        sql """ALTER TABLE ${tableName4_rn} RENAME ${tableName4};"""
     }
 
-
-    def test_sql4 = """SELECT a.* FROM ${tableName1} a inner join ${tableName4} b on a.user_id=b.user_id"""
-
-    if (is_exists) {
+//    def test_sql4 = """SELECT a.* FROM ${tableName1} a inner join ${tableName4} b on a.user_id=b.user_id"""
+    if (!is_exists) {
+        def test_sql4 = """SELECT a.* FROM ${tableName1} a inner join ${tableName4} b on a.user_id=b.user_id"""
         def state_mtmv4 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName4}';"""
-        assertTrue(state_mtmv4[0][0] == "NORMAL")
+        assertTrue(state_mtmv4[0][0] == "SCHEMA_CHANGE")
         assertTrue(state_mtmv4[0][1] == "SUCCESS")
-        assertTrue(state_mtmv4[0][2] == true)
+        assertTrue(state_mtmv4[0][2] == false)
 
         connect('root', context.config.jdbcPassword, follower_jdbc_url) {
             sql """use ${dbName}"""
@@ -282,9 +283,9 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr","p0,mtmv,restart_fe") {
         }
     } else {
         def state_mtmv4 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName4_rn}';"""
-        assertTrue(state_mtmv4[0][0] == "NORMAL")
+        assertTrue(state_mtmv4[0][0] == "SCHEMA_CHANGE")
         assertTrue(state_mtmv4[0][1] == "SUCCESS")
-        assertTrue(state_mtmv4[0][2] == true)
+        assertTrue(state_mtmv4[0][2] == false)
 
         connect('root', context.config.jdbcPassword, follower_jdbc_url) {
             sql """use ${dbName}"""
