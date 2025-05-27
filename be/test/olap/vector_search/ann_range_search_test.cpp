@@ -28,7 +28,9 @@
 
 #include "common/object_pool.h"
 #include "olap/rowset/segment_v2/ann_index_iterator.h"
+#include "olap/rowset/segment_v2/ann_index_reader.h"
 #include "olap/rowset/segment_v2/column_reader.h"
+#include "olap/rowset/segment_v2/index_file_reader.h"
 #include "olap/rowset/segment_v2/virtual_column_iterator.h"
 #include "olap/vector_search/vector_search_utils.h"
 #include "runtime/descriptors.h"
@@ -898,6 +900,12 @@ TEST_F(VectorSearchTest, TestEvaluateAnnRangeSearch) {
             dynamic_cast<doris::vector_search_utils::MockAnnIndexIterator*>(
                     cid_to_index_iterators[1].get());
 
+    std::map<std::string, std::string> properties;
+    properties["index_type"] = "hnsw";
+    properties["metric_type"] = "l2_distance";
+    auto pair = vector_search_utils::create_tmp_ann_index_reader(properties);
+    mock_ann_index_iter->_ann_reader = pair.second;
+
     // Explain:
     // 1. predicate is dist >= 10, so it is not a within range search
     // 2. return 10 results
@@ -909,16 +917,9 @@ TEST_F(VectorSearchTest, TestEvaluateAnnRangeSearch) {
             .WillOnce(testing::Invoke([](const doris::segment_v2::RangeSearchParams& params,
                                          const doris::VectorSearchUserParams& custom_params,
                                          doris::segment_v2::RangeSearchResult* result) {
-                // size_t num_results = 10;
                 result->roaring = std::make_shared<roaring::Roaring>();
                 result->row_ids = nullptr;
                 result->distance = nullptr;
-                // result->row_ids = std::make_unique<std::vector<uint64_t>>();
-                // for (size_t i = 0; i < num_results; ++i) {
-                //     result->roaring->add(i * 10);
-                //     result->row_ids->push_back(i * 10);
-                // }
-                // result->distance = std::make_unique<float[]>(10);
                 return Status::OK();
             }));
 
@@ -986,11 +987,15 @@ TEST_F(VectorSearchTest, TestEvaluateAnnRangeSearch2) {
     std::vector<std::unique_ptr<segment_v2::ColumnIterator>> column_iterators;
     column_iterators.resize(4);
     column_iterators[3] = std::make_unique<doris::segment_v2::VirtualColumnIterator>();
-
     roaring::Roaring row_bitmap;
     doris::vector_search_utils::MockAnnIndexIterator* mock_ann_index_iter =
             dynamic_cast<doris::vector_search_utils::MockAnnIndexIterator*>(
                     cid_to_index_iterators[1].get());
+    std::map<std::string, std::string> properties;
+    properties["index_type"] = "hnsw";
+    properties["metric_type"] = "l2_distance";
+    auto pair = vector_search_utils::create_tmp_ann_index_reader(properties);
+    mock_ann_index_iter->_ann_reader = pair.second;
 
     // Explain:
     // 1. predicate is dist >= 10, so it is not a within range search

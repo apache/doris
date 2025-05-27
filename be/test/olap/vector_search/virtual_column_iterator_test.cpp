@@ -336,17 +336,11 @@ TEST_F(VectorSearchTest, NextBatchTest1) {
         }
     }
 
-    // 4. seek到越界位置（如100），next_batch应该返回0行
+    // 4. seek到越界位置（如100），应该报错
     {
         vectorized::MutableColumnPtr dst = vectorized::ColumnVector<int32_t>::create();
         Status st = iterator.seek_to_ordinal(100);
-        ASSERT_TRUE(st.ok());
-        size_t rows_read = 10;
-        bool has_null = false;
-        st = iterator.next_batch(&rows_read, dst, &has_null);
-        ASSERT_TRUE(st.ok());
-        ASSERT_EQ(rows_read, 0);
-        ASSERT_EQ(dst->size(), 0);
+        ASSERT_EQ(st.ok(), false);
     }
 }
 
