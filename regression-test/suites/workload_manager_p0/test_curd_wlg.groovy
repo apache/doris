@@ -796,7 +796,7 @@ suite("test_crud_wlg") {
         // get first backendId
         def backendId = backendId_to_backendIP.keySet().iterator().next();
         def backendIP = backendId_to_backendIP.get(backendId);
-        backendHttpPort = backendId_to_backendHttpPort.get(backendId);
+        def backendHttpPort = backendId_to_backendHttpPort.get(backendId);
         logger.info("backendId: " + backendId + ", backendIP: " + backendIP + ", backendHttpPort: " + backendHttpPort);
 
         // Create a for loop to get metrics 5 times
