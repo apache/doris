@@ -144,87 +144,51 @@ suite("test_base_replace_mv_multi_level_mtmv","mtmv") {
     sql """
         ALTER MATERIALIZED VIEW ${mvName1} REPLACE WITH MATERIALIZED VIEW ${mvName11} PROPERTIES('swap' = 'true');;
         """
-
-    run_on_follower_and_master({ jdbc_url ->
-        connect(context.config.jdbcUser, context.config.jdbcPassword, jdbc_url) {
-            sql "sync"
-            sql """set enable_materialized_view_nest_rewrite = true;"""
-            sql "use ${dbName}"
-            order_qt_replace_true_mv_mv1 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName1}'"
-            order_qt_replace_true_mv_mv11 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName11}'"
-            order_qt_replace_true_mv_mv2 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName2}'"
-            order_qt_replace_true_mv_mv3 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName3}'"
-            order_qt_replace_true_mv_mv4 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName4}'"
-            // replace table will rename default partition name, so will change to async
-            mv_not_part_in(querySql, mvName1)
-            mv_not_part_in(querySql, mvName11)
-            mv_rewrite_success_without_check_chosen(querySql, mvName2)
-            mv_rewrite_success_without_check_chosen(querySql, mvName3)
-            mv_not_part_in(querySql, mvName4)
-        }
-    })
+    order_qt_replace_true_mv_mv1 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName1}'"
+    order_qt_replace_true_mv_mv11 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName11}'"
+    order_qt_replace_true_mv_mv2 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName2}'"
+    order_qt_replace_true_mv_mv3 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName3}'"
+    order_qt_replace_true_mv_mv4 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName4}'"
+    // replace table will rename default partition name, so will change to async
+    mv_not_part_in(querySql, mvName1)
+    mv_not_part_in(querySql, mvName11)
+    mv_rewrite_success_without_check_chosen(querySql, mvName2)
+    mv_rewrite_success_without_check_chosen(querySql, mvName3)
+    mv_not_part_in(querySql, mvName4)
 
     // after refresh,should can rewrite
     sql """
             REFRESH MATERIALIZED VIEW ${mvName1} auto
         """
     waitingMTMVTaskFinishedByMvName(mvName1)
-    run_on_follower_and_master({ jdbc_url ->
-        connect(context.config.jdbcUser, context.config.jdbcPassword, jdbc_url) {
-            sql "sync"
-            sql """set enable_materialized_view_nest_rewrite = true;"""
-            sql "use ${dbName}"
-            mv_rewrite_success_without_check_chosen(querySql, mvName1)
-        }
-    })
+    mv_rewrite_success_without_check_chosen(querySql, mvName1)
 
     // after refresh,should can rewrite
     sql """
             REFRESH MATERIALIZED VIEW ${mvName11} auto
         """
     waitingMTMVTaskFinishedByMvName(mvName11)
-    run_on_follower_and_master({ jdbc_url ->
-        connect(context.config.jdbcUser, context.config.jdbcPassword, jdbc_url) {
-            sql "sync"
-            sql """set enable_materialized_view_nest_rewrite = true;"""
-            sql "use ${dbName}"
-            mv_rewrite_success_without_check_chosen(querySql, mvName11)
-        }
-    })
+    mv_rewrite_success_without_check_chosen(querySql, mvName11)
 
     // replace mv1
     sql """
         ALTER MATERIALIZED VIEW ${mvName1} REPLACE WITH MATERIALIZED VIEW ${mvName11} PROPERTIES('swap' = 'false');;
         """
-    run_on_follower_and_master({ jdbc_url ->
-        connect(context.config.jdbcUser, context.config.jdbcPassword, jdbc_url) {
-            sql "sync"
-            sql """set enable_materialized_view_nest_rewrite = true;"""
-            sql "use ${dbName}"
-            order_qt_replace_false_mv_mv1 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName1}'"
-            order_qt_replace_false_mv_mv11 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName11}'"
-            order_qt_replace_false_mv_mv2 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName2}'"
-            order_qt_replace_false_mv_mv3 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName3}'"
-            order_qt_replace_false_mv_mv4 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName4}'"
-            // replace table will rename default partition name, so will change to async
-            mv_not_part_in(querySql, mvName1)
-            mv_rewrite_success_without_check_chosen(querySql, mvName2)
-            mv_rewrite_success_without_check_chosen(querySql, mvName3)
-            mv_not_part_in(querySql, mvName4)
-        }
-    })
+    order_qt_replace_false_mv_mv1 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName1}'"
+    order_qt_replace_false_mv_mv11 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName11}'"
+    order_qt_replace_false_mv_mv2 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName2}'"
+    order_qt_replace_false_mv_mv3 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName3}'"
+    order_qt_replace_false_mv_mv4 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName4}'"
+    // replace table will rename default partition name, so will change to async
+    mv_not_part_in(querySql, mvName1)
+    mv_rewrite_success_without_check_chosen(querySql, mvName2)
+    mv_rewrite_success_without_check_chosen(querySql, mvName3)
+    mv_not_part_in(querySql, mvName4)
 
     // after refresh,should can rewrite
     sql """
             REFRESH MATERIALIZED VIEW ${mvName1} auto
         """
     waitingMTMVTaskFinishedByMvName(mvName1)
-    run_on_follower_and_master({ jdbc_url ->
-        connect(context.config.jdbcUser, context.config.jdbcPassword, jdbc_url) {
-            sql "sync"
-            sql """set enable_materialized_view_nest_rewrite = true;"""
-            sql "use ${dbName}"
-            mv_rewrite_success_without_check_chosen(querySql, mvName1)
-        }
-    })
+    mv_rewrite_success_without_check_chosen(querySql, mvName1)
 }
