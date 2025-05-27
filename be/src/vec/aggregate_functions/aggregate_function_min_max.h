@@ -540,17 +540,13 @@ struct AggregateFunctionMinData : Data {
     static const char* name() { return "min"; }
 };
 
-struct AggregateFunctionAnyBase {
-    constexpr static bool IS_ANY = true;
-    static const char* name() { return "any"; }
-};
-
 // this is used for plain type about any_value function
 template <typename Data>
-struct AggregateFunctionAnyData : Data, AggregateFunctionAnyBase {
+struct AggregateFunctionAnyData : Data {
     using Self = AggregateFunctionAnyData;
     using Data::IsFixedLength;
-
+    static const char* name() { return "any"; }
+    constexpr static bool IS_ANY = true;
     void change_if_better(const IColumn& column, size_t row_num, Arena*) {
         this->change_first_time(column, row_num, nullptr);
     }
@@ -559,7 +555,9 @@ struct AggregateFunctionAnyData : Data, AggregateFunctionAnyBase {
 };
 
 // this is used for complex type about any_value function
-struct SingleValueDataComplexType : AggregateFunctionAnyBase {
+struct SingleValueDataComplexType {
+    static const char* name() { return "any"; }
+    constexpr static bool IS_ANY = true;
     constexpr static bool IsFixedLength = false;
     using Self = SingleValueDataComplexType;
 
@@ -573,21 +571,17 @@ struct SingleValueDataComplexType : AggregateFunctionAnyBase {
 
     bool has() const { return has_value; }
 
-    void change_first_time(const IColumn& column, size_t row_num) {
+    void change_first_time(const IColumn& column, size_t row_num, Arena*) {
         if (UNLIKELY(!has())) {
-            change(column, row_num);
+            change_impl(column, row_num);
         }
     }
 
-    void change_first_time(const Self& to) {
+    void change_first_time(const Self& to, Arena*) {
         if (UNLIKELY(!has() && to.has())) {
-            change(to);
+            change_impl(*to.column_data, 0);
         }
     }
-
-    void change(const IColumn& column, size_t row_num) { change_impl(column, row_num); }
-
-    void change(const Self& to) { change_impl(*to.column_data, 0); }
 
     void change_impl(const IColumn& column, size_t row_num) {
         DCHECK_EQ(column_data->size(), 0);
@@ -634,10 +628,10 @@ struct SingleValueDataComplexType : AggregateFunctionAnyBase {
     }
 
     void change_if_better(const IColumn& column, size_t row_num, Arena* arena) {
-        this->change_first_time(column, row_num);
+        this->change_first_time(column, row_num, nullptr);
     }
 
-    void change_if_better(const Self& to, Arena* arena) { this->change_first_time(to); }
+    void change_if_better(const Self& to, Arena* arena) { this->change_first_time(to, nullptr); }
 
 private:
     bool has_value = false;

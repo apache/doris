@@ -20,6 +20,7 @@
 
 #include "vec/aggregate_functions/aggregate_function_min_max.h"
 
+#include "runtime/define_primitive_type.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/factory_helpers.h"
 #include "vec/aggregate_functions/helpers.h"
@@ -102,17 +103,18 @@ AggregateFunctionPtr create_aggregate_function_single_value_any_value_function(
         return res;
     }
     const DataTypePtr& argument_type = remove_nullable(argument_types[0]);
-    if (is_complex_type(argument_type) || is_special_aggregation_type(argument_type) ||
-        is_agg_state_type(argument_type)) {
+    if (argument_type->get_primitive_type() == PrimitiveType::TYPE_ARRAY ||
+        argument_type->get_primitive_type() == PrimitiveType::TYPE_MAP ||
+        argument_type->get_primitive_type() == PrimitiveType::TYPE_STRUCT ||
+        argument_type->get_primitive_type() == PrimitiveType::TYPE_AGG_STATE ||
+        argument_type->get_primitive_type() == PrimitiveType::TYPE_OBJECT ||
+        argument_type->get_primitive_type() == PrimitiveType::TYPE_HLL ||
+        argument_type->get_primitive_type() == PrimitiveType::TYPE_QUANTILE_STATE) {
         return creator_without_type::create<
-                AggregateFunctionsSingleValue<SingleValueDataComplexType>>(argument_types,
-                                                                           result_is_nullable);
+                AggregateFunctionsSingleValue<Data<SingleValueDataComplexType>>>(
+                argument_types, result_is_nullable);
     }
-    if (is_json(argument_type)) {
-        return creator_without_type::create<
-                AggregateFunctionsSingleValue<Data<SingleValueDataString>>>(argument_types,
-                                                                            result_is_nullable);
-    }
+
     return nullptr;
 }
 
