@@ -19,6 +19,7 @@
 
 #include <cstddef>
 #include <memory>
+#include <string>
 
 #include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
 
@@ -57,21 +58,22 @@ Status AnnIndexColumnWriter::init() {
 
     _vector_index = nullptr;
     const auto& properties = _index_meta->properties();
-    std::string index_type = get_or_default(properties, INDEX_TYPE, "");
-    if (index_type == "hnsw") {
-        std::shared_ptr<FaissVectorIndex> faiss_index = std::make_shared<FaissVectorIndex>();
-        FaissBuildParameter builderParameter;
-        builderParameter.index_type = FaissBuildParameter::string_to_index_type("hnsw");
-        builderParameter.d = std::stoi(get_or_default(properties, DIM, "512"));
-        builderParameter.m = std::stoi(get_or_default(properties, MAX_DEGREE, "32"));
-        builderParameter.quantilizer = FaissBuildParameter::string_to_quantilizer(
-                get_or_default(properties, QUANTILIZER, "flat"));
-        faiss_index->set_build_params(builderParameter);
-        _vector_index = faiss_index;
-    } else {
-        return Status::NotSupported("Unsupported index type: " + index_type);
-    }
+    const std::string index_type = get_or_default(properties, INDEX_TYPE, "hnsw");
+    const std::string metric_type = get_or_default(properties, METRIC_TYPE, "l2");
+    const std::string quantilizer = get_or_default(properties, QUANTILIZER, "flat");
+    FaissBuildParameter builderParameter;
+    std::shared_ptr<FaissVectorIndex> faiss_index = std::make_shared<FaissVectorIndex>();
+    builderParameter.index_type = FaissBuildParameter::string_to_index_type(index_type);
+    builderParameter.d = std::stoi(get_or_default(properties, DIM, "512"));
+    builderParameter.m = std::stoi(get_or_default(properties, MAX_DEGREE, "32"));
+    builderParameter.pq_m = std::stoi(get_or_default(properties, PQ_M, "-1")); // -1 means not set
 
+    builderParameter.metric_type = FaissBuildParameter::string_to_metric_type(metric_type);
+    builderParameter.quantilizer = FaissBuildParameter::string_to_quantilizer(quantilizer);
+
+    faiss_index->set_build_params(builderParameter);
+
+    _vector_index = faiss_index;
     return Status::OK();
 }
 

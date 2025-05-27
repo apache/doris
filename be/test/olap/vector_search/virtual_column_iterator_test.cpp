@@ -45,7 +45,7 @@ TEST_F(VectorSearchTest, TestDefaultConstructor) {
 }
 
 // Test with a materialized int32_t column
-TEST_F(VectorSearchTest, TestWithint32_tColumn) {
+TEST_F(VectorSearchTest, ReadByRowIdsint32_tColumn) {
     VirtualColumnIterator iterator;
 
     // Create a materialized int32_t column with values [10, 20, 30, 40, 50]
@@ -78,7 +78,7 @@ TEST_F(VectorSearchTest, TestWithint32_tColumn) {
 }
 
 // Test with a String column
-TEST_F(VectorSearchTest, TestWithStringColumn) {
+TEST_F(VectorSearchTest, ReadByRowIdsStringColumn) {
     VirtualColumnIterator iterator;
 
     // Create a materialized String column
@@ -114,7 +114,7 @@ TEST_F(VectorSearchTest, TestWithStringColumn) {
 }
 
 // Test with empty rowids array
-TEST_F(VectorSearchTest, TestEmptyRowIds) {
+TEST_F(VectorSearchTest, ReadByRowIdsEmptyRowIds) {
     VirtualColumnIterator iterator;
 
     // Create a materialized int32_t column with values [10, 20, 30, 40, 50]
@@ -180,7 +180,7 @@ TEST_F(VectorSearchTest, TestLargeRowset) {
     }
 }
 
-TEST_F(VectorSearchTest, TestNoContinueRowIds) {
+TEST_F(VectorSearchTest, ReadByRowIdsNoContinueRowIds) {
     // Create a column with 1000 values (0-999)
     auto column = ColumnVector<int32_t>::create();
     auto labels = std::make_unique<std::vector<uint64_t>>();
@@ -273,6 +273,80 @@ TEST_F(VectorSearchTest, TestNoContinueRowIds) {
         ASSERT_EQ(dest_col->get_int(2), 23);
         ASSERT_EQ(dest_col->get_int(3), 50);
         ASSERT_EQ(dest_col->get_int(4), 999);
+    }
+}
+
+TEST_F(VectorSearchTest, NextBatchTest1) {
+    VirtualColumnIterator iterator;
+
+    // 构造一个有100行的int32列，值为0~99
+    auto int_column = vectorized::ColumnVector<int32_t>::create();
+    auto labels = std::make_unique<std::vector<uint64_t>>();
+    for (int i = 0; i < 100; ++i) {
+        int_column->insert(i);
+        labels->push_back(i);
+    }
+    iterator.prepare_materialization(std::move(int_column), std::move(labels));
+
+    // 1. seek到第10行，next_batch读取10行
+    {
+        vectorized::MutableColumnPtr dst = vectorized::ColumnVector<int32_t>::create();
+        Status st = iterator.seek_to_ordinal(10);
+        ASSERT_TRUE(st.ok());
+        size_t rows_read = 10;
+        bool has_null = false;
+        st = iterator.next_batch(&rows_read, dst, &has_null);
+        ASSERT_TRUE(st.ok());
+        ASSERT_EQ(rows_read, 10);
+        ASSERT_EQ(dst->size(), 10);
+        for (int i = 0; i < 10; ++i) {
+            ASSERT_EQ(dst->get_int(i), 10 + i);
+        }
+    }
+
+    // 2. seek到第85行，next_batch读取10行（只剩5行可读）
+    {
+        vectorized::MutableColumnPtr dst = vectorized::ColumnVector<int32_t>::create();
+        Status st = iterator.seek_to_ordinal(85);
+        ASSERT_TRUE(st.ok());
+        size_t rows_read = 10;
+        bool has_null = false;
+        st = iterator.next_batch(&rows_read, dst, &has_null);
+        ASSERT_TRUE(st.ok());
+        ASSERT_EQ(rows_read, 10);
+        ASSERT_EQ(dst->size(), 10);
+        for (int i = 0; i < 10; ++i) {
+            EXPECT_EQ(dst->get_int(i), 85 + i);
+        }
+    }
+
+    // 3. seek到第0行，next_batch读取全部100行
+    {
+        vectorized::MutableColumnPtr dst = vectorized::ColumnVector<int32_t>::create();
+        Status st = iterator.seek_to_ordinal(0);
+        ASSERT_TRUE(st.ok());
+        size_t rows_read = 100;
+        bool has_null = false;
+        st = iterator.next_batch(&rows_read, dst, &has_null);
+        ASSERT_TRUE(st.ok());
+        ASSERT_EQ(rows_read, 100);
+        ASSERT_EQ(dst->size(), 100);
+        for (int i = 0; i < 100; ++i) {
+            ASSERT_EQ(dst->get_int(i), i);
+        }
+    }
+
+    // 4. seek到越界位置（如100），next_batch应该返回0行
+    {
+        vectorized::MutableColumnPtr dst = vectorized::ColumnVector<int32_t>::create();
+        Status st = iterator.seek_to_ordinal(100);
+        ASSERT_TRUE(st.ok());
+        size_t rows_read = 10;
+        bool has_null = false;
+        st = iterator.next_batch(&rows_read, dst, &has_null);
+        ASSERT_TRUE(st.ok());
+        ASSERT_EQ(rows_read, 0);
+        ASSERT_EQ(dst->size(), 0);
     }
 }
 

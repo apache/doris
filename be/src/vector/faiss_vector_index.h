@@ -26,13 +26,20 @@
 #include <string>
 
 #include "common/status.h"
+#include "util/metrics.h"
 #include "vector_index.h"
 
 namespace doris::segment_v2 {
 struct FaissBuildParameter {
     enum class IndexType { BruteForce, IVF, HNSW };
 
-    enum class Quantilizer { FLAT, SQ, PQ };
+    enum class Quantilizer { FLAT, PQ };
+
+    enum class MetricType {
+        L2,    // Euclidean distance
+        IP,    // Inner product
+        COSINE // Cosine similarity
+    };
 
     static IndexType string_to_index_type(const std::string& type) {
         if (type == "brute_force") {
@@ -48,19 +55,30 @@ struct FaissBuildParameter {
     static Quantilizer string_to_quantilizer(const std::string& type) {
         if (type == "flat") {
             return Quantilizer::FLAT;
-        } else if (type == "sq") {
-            return Quantilizer::SQ;
         } else if (type == "pq") {
             return Quantilizer::PQ;
         }
         return Quantilizer::FLAT; // default
     }
 
+    static MetricType string_to_metric_type(const std::string& type) {
+        if (type == "l2") {
+            return MetricType::L2;
+        } else if (type == "ip") {
+            return MetricType::IP;
+        } else if (type == "cosine") {
+            return MetricType::COSINE;
+        }
+        return MetricType::L2; // default
+    }
+
     // HNSW
     int d = 0;
     int m = 0;
+    int pq_m = -1; // Only used for PQ quantilizer
     IndexType index_type;
     Quantilizer quantilizer;
+    MetricType metric_type = MetricType::L2;
 };
 
 class FaissVectorIndex : public VectorIndex {

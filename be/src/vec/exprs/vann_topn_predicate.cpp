@@ -102,7 +102,16 @@ Status AnnTopNDescriptor::prepare(RuntimeState* state, const RowDescriptor& row_
                                      distance_fn_call->children()[1]->debug_string());
     }
     _query_array = array_literal->get_column_ptr();
+    _user_params = state->get_vector_search_params();
 
+    std::set<std::string> distance_func_names = {vectorized::L2Distance::name,
+                                                 vectorized::InnerProduct::name};
+    if (distance_func_names.contains(distance_fn_call->function_name()) == false) {
+        return Status::InternalError("Ann topn expr expect distance function, got {}",
+                                     distance_fn_call->function_name());
+    }
+
+    _metric_type = segment_v2::VectorIndex::string_to_metric(distance_fn_call->function_name());
     VLOG_DEBUG << "AnnTopNDescriptor: {}" << this->debug_string();
     return Status::OK();
 }
@@ -112,6 +121,9 @@ Status AnnTopNDescriptor::evaluate_vector_ann_search(
         vectorized::IColumn::MutablePtr& result_column,
         std::unique_ptr<std::vector<uint64_t>>& row_ids) {
     DCHECK(ann_index_iterator != nullptr);
+    segment_v2::AnnIndexIterator* ann_index_iterator_casted =
+            dynamic_cast<segment_v2::AnnIndexIterator*>(ann_index_iterator);
+    DCHECK(ann_index_iterator_casted != nullptr);
     DCHECK(_order_by_expr_ctx != nullptr);
     DCHECK(_order_by_expr_ctx->root() != nullptr);
 
@@ -135,6 +147,7 @@ Status AnnTopNDescriptor::evaluate_vector_ann_search(
             .query_value = query_value_f32.get(),
             .query_value_size = query_value_size,
             .limit = _limit,
+            ._user_params = _user_params,
             .roaring = &roaring,
             .distance = nullptr,
             .row_ids = nullptr,
@@ -159,7 +172,9 @@ Status AnnTopNDescriptor::evaluate_vector_ann_search(
 std::string AnnTopNDescriptor::debug_string() const {
     return "AnnTopNDescriptor: limit=" + std::to_string(_limit) +
            ", src_col_idx=" + std::to_string(_src_column_idx) +
-           ", dest_col_idx=" + std::to_string(_dest_column_idx) +
+           ", dest_col_idx=" + std::to_string(_dest_column_idx) + ", asc=" + std::to_string(_asc) +
+           ", user_params=" + _user_params.to_string() +
+           ", metric_type=" + segment_v2::VectorIndex::metric_to_string(_metric_type) +
            ", order_by_expr=" + _order_by_expr_ctx->root()->debug_string();
 }
 } // namespace doris::vectorized
