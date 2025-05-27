@@ -73,6 +73,6 @@ public class RemoteIndexSchemaProcNode implements ProcNodeInterface {
         }
         List<Column> remoteSchema = new FetchRemoteTabletSchemaUtil(tablets).fetch();
         this.schema.addAll(remoteSchema);
-        return IndexSchemaProcNode.createResult(this.schema, this.bfColumns);
+        return IndexSchemaProcNode.createResult(this.schema, this.bfColumns, Lists.newArrayList());
     }
 }

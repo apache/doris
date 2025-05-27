@@ -79,7 +79,7 @@ void DataTypeTimeV2::to_string(const IColumn& column, size_t row_num, BufferWrit
 }
 
 MutableColumnPtr DataTypeTimeV2::create_column() const {
-    return DataTypeNumberBase<Float64>::create_column();
+    return DataTypeNumberBase<PrimitiveType::TYPE_TIMEV2>::create_column();
 }
 
 Field DataTypeTimeV2::get_field(const TExprNode& node) const {
