@@ -42,7 +42,6 @@ import java.util.Optional;
  * Logical file scan for external catalog.
  */
 public class LogicalFileScan extends LogicalCatalogRelation {
-
     protected final SelectedPartitions selectedPartitions;
     protected final Optional<TableSample> tableSample;
     protected final Optional<TableSnapshot> tableSnapshot;
