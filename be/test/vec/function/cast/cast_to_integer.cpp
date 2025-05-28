@@ -59,8 +59,8 @@ struct FunctionCastToIntTest : public FunctionCastTest {
             for (auto v : test_vals) {
                 bool is_negative = (v < 0);
                 std::string v_str;
+                // first get string format of number without sign
                 if (is_negative) {
-                    // string format without sign
                     if (v == min_val) {
                         v_str = min_val_str_no_sign;
                     } else {
@@ -106,7 +106,12 @@ struct FunctionCastToIntTest : public FunctionCastTest {
                 }
                 std::cout << "test cast from string to int, data set: " << dbg_str << std::endl;
             }
+<<<<<<< HEAD
             check_function_for_cast<DataTypeNumber<PType>>(input_types, data_set);
+=======
+            check_function_for_cast<DataTypeNumber<T>, -1, -1, true>(input_types, data_set);
+            check_function_for_cast<DataTypeNumber<T>, -1, -1, false>(input_types, data_set);
+>>>>>>> bf586e69e4 (improve cast to numbers)
         };
         // test leading and trailing white spaces, sign and leading zeros
         tmp_test_func(true, true, true);
@@ -151,6 +156,356 @@ struct FunctionCastToIntTest : public FunctionCastTest {
                 {{std::string("-999999")}, Exception("Underflow")}, // Large negative
         };
         */
+    }
+
+    template <PrimitiveType PT, bool enable_strict_cast>
+    void from_string_with_fraction_part_test_func() {
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
+        using T = typename PrimitiveTypeTraits<PT>::CppType;
+        using UnsignedT = typename std::make_unsigned<T>::type;
+        DataTypeNumber<PT> dt;
+        auto max_val = std::numeric_limits<T>::max();
+        auto min_val = std::numeric_limits<T>::min();
+        auto max_val_minus_1 = max_val - T {1};
+        auto min_val_plus_1 = min_val + T {1};
+        auto min_val_abs_val = UnsignedT(max_val) + 1;
+        std::string min_val_str_no_sign = DataTypeNumber<UnsignedT>::to_string(min_val_abs_val);
+        std::vector<T> test_vals = {T {0},  T {1},  T {9},    T {123}, max_val,
+                                    T {-1}, T {-9}, T {-123}, min_val};
+        test_vals.push_back(max_val_minus_1);
+        test_vals.push_back(min_val_plus_1);
+
+        // test leading zeros, sign, leading and trailing white spaces
+        auto tmp_test_func = [&](bool with_spaces, bool with_sign, bool leading_zeros) {
+            DataSet data_set;
+            for (auto v : test_vals) {
+                bool is_negative = (v < 0);
+                std::string v_str;
+                // first get string format of number without sign
+                if (is_negative) {
+                    if (v == min_val) {
+                        v_str = min_val_str_no_sign;
+                    } else {
+                        v_str = dt.to_string(-v);
+                    }
+                } else {
+                    v_str = dt.to_string(v);
+                }
+                if (leading_zeros) {
+                    v_str = "000" + v_str;
+                }
+                if (is_negative) {
+                    v_str = "-" + v_str;
+                } else {
+                    // optional '+'
+                    if (with_sign) {
+                        v_str = "+" + v_str;
+                    }
+                }
+                if constexpr (enable_strict_cast) {
+                    std::vector<std::string> test_strs;
+                    if (with_spaces) {
+                        test_strs.push_back(white_spaces_str + v_str + ".4");
+                        test_strs.push_back(white_spaces_str + v_str + ".5");
+
+                        test_strs.push_back(v_str + ".4" + white_spaces_str);
+                        test_strs.push_back(v_str + ".5" + white_spaces_str);
+
+                        test_strs.push_back(white_spaces_str + v_str + ".4" + white_spaces_str);
+                        test_strs.push_back(white_spaces_str + v_str + ".5" + white_spaces_str);
+                    } else {
+                        test_strs.push_back(v_str + ".4");
+                        test_strs.push_back(v_str + ".5");
+                    }
+                    for (const auto& v_str : test_strs) {
+                        DataSet tmp_data_set;
+                        tmp_data_set.push_back({{v_str}, Null()});
+                        EXPECT_THROW((check_function_for_cast<DataTypeNumber<PT>, -1, -1, true>(
+                                             input_types, tmp_data_set)),
+                                     Exception);
+                    }
+                } else {
+                    if (with_spaces) {
+                        data_set.push_back({{white_spaces_str + v_str + ".4"}, v});
+                        data_set.push_back({{white_spaces_str + v_str + ".5"}, v});
+                        data_set.push_back({{v_str + ".4" + white_spaces_str}, v});
+                        data_set.push_back({{v_str + ".5" + white_spaces_str}, v});
+                        data_set.push_back(
+                                {{white_spaces_str + v_str + ".4" + white_spaces_str}, v});
+                        data_set.push_back(
+                                {{white_spaces_str + v_str + ".5" + white_spaces_str}, v});
+                    } else {
+                        data_set.push_back({{v_str + ".4"}, v});
+                        data_set.push_back({{v_str + ".5"}, v});
+                    }
+                }
+            }
+            if constexpr (!enable_strict_cast) {
+                std::string dbg_str;
+                for (const auto& p : data_set) {
+                    dbg_str += "|" + any_cast<ut_type::STRING>(p.first[0]) + "|, ";
+                }
+                std::cout << fmt::format(
+                        "test cast from string to {}, enable_strict_cast: {}, data set: {}\n",
+                        TypeName<T>::get(), enable_strict_cast, dbg_str);
+                check_function_for_cast<DataTypeNumber<PT>, -1, -1, false>(input_types, data_set);
+            }
+        };
+        // test leading and trailing white spaces, sign and leading zeros
+        tmp_test_func(true, true, true);
+        // test leading and trailing spaces and sign
+        tmp_test_func(true, true, false);
+        // test leading and trailing spaces and leading zeros
+        tmp_test_func(true, false, true);
+        // test leading and trailing spaces
+        tmp_test_func(true, false, false);
+        // test with sign and leading zeros
+        tmp_test_func(false, true, true);
+        // test with sign
+        tmp_test_func(false, true, false);
+        // test only leading zeros
+        tmp_test_func(false, false, true);
+        // test strict digits
+        tmp_test_func(false, false, false);
+    }
+
+    template <typename PT, bool enable_strict_cast>
+    void from_string_overflow_test_func() {
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
+        using T = typename PrimitiveTypeTraits<PT>::CppType;
+        using UnsignedT = typename std::make_unsigned<T>::type;
+        DataTypeNumber<PT> dt;
+        UnsignedT max_val = std::numeric_limits<T>::max();
+
+        std::vector<std::string> test_vals;
+        std::string dbg_str0 =
+                fmt::format("test cast from string to {} overflow, enable_strict_cast: {}",
+                            TypeName<T>::get(), enable_strict_cast);
+        for (UnsignedT i = 1; i != 11; ++i) {
+            auto val_str = fmt::format("{}", max_val + i);
+            test_vals.push_back(val_str);
+
+            val_str = fmt::format("{}", max_val + i + 1);
+            val_str.insert(0, "-");
+            test_vals.push_back(val_str);
+        }
+        int count = 0;
+        for (auto i = std::numeric_limits<UnsignedT>::max(); count < 10; --i, ++count) {
+            auto val_str = fmt::format("{}", i);
+            test_vals.push_back(val_str);
+
+            val_str.insert(0, "-");
+            test_vals.push_back(val_str);
+        }
+        if constexpr (std::is_same_v<T, Int8>) {
+            test_vals.push_back(std::to_string(std::numeric_limits<Int16>::max()));
+            test_vals.push_back(std::to_string(std::numeric_limits<Int16>::min()));
+
+            test_vals.push_back(std::to_string(std::numeric_limits<Int32>::max()));
+            test_vals.push_back(std::to_string(std::numeric_limits<Int32>::min()));
+
+            test_vals.push_back(std::to_string(std::numeric_limits<Int64>::max()));
+            test_vals.push_back(std::to_string(std::numeric_limits<Int64>::min()));
+
+            test_vals.push_back(fmt::format("{}", std::numeric_limits<Int128>::max()));
+            test_vals.push_back(fmt::format("{}", std::numeric_limits<Int128>::min()));
+        } else if constexpr (std::is_same_v<T, Int16>) {
+            test_vals.push_back(std::to_string(std::numeric_limits<Int32>::max()));
+            test_vals.push_back(std::to_string(std::numeric_limits<Int32>::min()));
+
+            test_vals.push_back(std::to_string(std::numeric_limits<Int64>::max()));
+            test_vals.push_back(std::to_string(std::numeric_limits<Int64>::min()));
+
+            test_vals.push_back(fmt::format("{}", std::numeric_limits<Int128>::max()));
+            test_vals.push_back(fmt::format("{}", std::numeric_limits<Int128>::min()));
+        } else if constexpr (std::is_same_v<T, Int32>) {
+            test_vals.push_back(std::to_string(std::numeric_limits<Int64>::max()));
+            test_vals.push_back(std::to_string(std::numeric_limits<Int64>::min()));
+
+            test_vals.push_back(fmt::format("{}", std::numeric_limits<Int128>::max()));
+            test_vals.push_back(fmt::format("{}", std::numeric_limits<Int128>::min()));
+        } else if constexpr (std::is_same_v<T, Int64>) {
+            test_vals.push_back(fmt::format("{}", std::numeric_limits<Int128>::max()));
+            test_vals.push_back(fmt::format("{}", std::numeric_limits<Int128>::min()));
+        }
+        test_vals.push_back(fmt::format("{}", std::numeric_limits<wide::Int256>::max()));
+        test_vals.push_back(fmt::format("{}", std::numeric_limits<wide::Int256>::min()));
+
+        // test leading zeros, sign, leading and trailing white spaces for positive values
+        auto tmp_test_func = [&](bool with_spaces, bool with_sign, bool leading_zeros) {
+            DataSet data_set;
+            for (auto v_str : test_vals) {
+                bool is_negative = (v_str[0] == '-');
+                if (is_negative) {
+                    v_str = v_str.substr(1);
+                }
+                if (leading_zeros) {
+                    v_str = "000" + v_str;
+                }
+                if (is_negative) {
+                    v_str = "-" + v_str;
+                } else {
+                    // optional '+'
+                    if (with_sign) {
+                        v_str = "+" + v_str;
+                    }
+                }
+                if (with_spaces) {
+                    if constexpr (enable_strict_cast) {
+                        DataSet tmp_data_set;
+                        tmp_data_set.push_back(
+                                {{white_spaces_str + v_str + white_spaces_str}, Null()});
+                        EXPECT_THROW((check_function_for_cast<DataTypeNumber<PT>, -1, -1, true>(
+                                             input_types, tmp_data_set)),
+                                     Exception);
+                    } else {
+                        data_set.push_back({{white_spaces_str + v_str + white_spaces_str}, Null()});
+                    }
+                } else {
+                    if constexpr (enable_strict_cast) {
+                        DataSet tmp_data_set;
+                        tmp_data_set.push_back({{v_str}, Null()});
+                        EXPECT_THROW((check_function_for_cast<DataTypeNumber<PT>, -1, -1, true>(
+                                             input_types, tmp_data_set)),
+                                     Exception);
+                    } else {
+                        data_set.push_back({{v_str}, Null()});
+                    }
+                }
+            }
+            if constexpr (!enable_strict_cast) {
+                std::string dbg_str = dbg_str0 + ", data set: ";
+                for (const auto& p : data_set) {
+                    dbg_str += any_cast<ut_type::STRING>(p.first[0]) + ", ";
+                }
+                std::cout << dbg_str << std::endl;
+                check_function_for_cast<DataTypeNumber<PT>, -1, -1, false>(input_types, data_set);
+            }
+        };
+        // test leading and trailing white spaces, sign and leading zeros
+        tmp_test_func(true, true, true);
+        // test leading and trailing spaces and sign
+        tmp_test_func(true, true, false);
+        // test leading and trailing spaces and leading zeros
+        tmp_test_func(true, false, true);
+        // test leading and trailing spaces
+        tmp_test_func(true, false, false);
+        // test with sign and leading zeros
+        tmp_test_func(false, true, true);
+        // test with sign
+        tmp_test_func(false, true, false);
+        // test only leading zeros
+        tmp_test_func(false, false, true);
+        // test strict digits
+        tmp_test_func(false, false, false);
+    }
+
+    template <typename PT, bool enable_strict_cast>
+    void from_string_abnormal_test_func() {
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
+        using T = typename PrimitiveTypeTraits<PT>::CppType;
+
+        std::vector<std::string> test_vals;
+        std::string dbg_str0 =
+                fmt::format("test cast from string to {} abnormal cases, enable_strict_cast: {}",
+                            TypeName<T>::get(), enable_strict_cast);
+        std::vector<std::string> abnormal_inputs = {
+                "",
+                ".",
+                " ",
+                "\t",
+                "\n",
+                "\r",
+                "\f",
+                "\v",
+                "abc",
+                // Space between digits
+                "1 23",
+                "1\t23",
+                "1\n23",
+                "1\r23",
+                "1\v23",
+                "1\f23",
+                // invalid leading and trailing characters
+                "a123.456",
+                " a123.456",
+                "\ta123.456",
+                "\na123.456",
+                "\ra123.456",
+                "\fa123.456",
+                "\va123.456",
+                "123.456a",
+                "123.456a\t",
+                "123.456a\n",
+                "123.456a\r",
+                "123.456a\f",
+                "123.456a\v",
+                "123.456\ta",
+                "123.456\na",
+                "123.456\ra",
+                "123.456\fa",
+                "123.456\va",
+                // invalid char between numbers
+                "12a3.456",
+                "123a.456",
+                "123.a456",
+                "123.4a56",
+                // multiple positive/negative signs
+                "+-123.456",
+                "+- 123.456", // sign with following spaces
+                "-+123.456",
+                "++123.456",
+                "--123.456",
+                "+-.456",
+                "-+.456",
+                "++.456",
+                "--.456",
+                // hexadecimal
+                "0x123",
+                "0x123.456",
+                // does not support scientific notation
+                "1.234e3",
+                // invalid scientific notation
+                "e",
+                "-e",
+                "+e",
+                "e+",
+                "e-",
+                "e1",
+                "e+1",
+                "e-1",
+                ".e",
+                "+.e",
+                "-.e",
+                ".e+",
+                ".e-",
+                ".e+",
+                "1e",
+                "1e+",
+                "1e-",
+                "1e1a",
+                "1ea1",
+                "1e1.1",
+                "1e+1.1",
+                "1e-1.1",
+        };
+        // non-strict mode
+        {
+            DataSet data_set;
+            for (const auto& input : abnormal_inputs) {
+                data_set.push_back({{input}, Null()});
+            }
+            check_function_for_cast<DataTypeNumber<PT>, -1, -1, false>(input_types, data_set);
+        }
+
+        // strict mode
+        for (const auto& input : abnormal_inputs) {
+            DataSet data_set;
+            data_set.push_back({{input}, Null()});
+            EXPECT_THROW((check_function_for_cast<DataTypeNumber<PT>, -1, -1, true>(input_types,
+                                                                                    data_set)),
+                         Exception);
+        }
     }
 
     template <PrimitiveType FromPT, PrimitiveType ToPT>
@@ -600,6 +955,51 @@ TEST_F(FunctionCastToIntTest, test_from_string) {
     from_string_test_func<TYPE_INT>();
     from_string_test_func<TYPE_BIGINT>();
     from_string_test_func<TYPE_LARGEINT>();
+}
+TEST_F(FunctionCastToIntTest, test_from_string_with_fraction_part) {
+    // from_string_with_fraction_part_test_func<TYPE_TINYINT, true>();
+    from_string_with_fraction_part_test_func<TYPE_TINYINT, false>();
+
+    // from_string_with_fraction_part_test_func<TYPE_SMALLINT, true>();
+    // from_string_with_fraction_part_test_func<TYPE_SMALLINT, false>();
+
+    // from_string_with_fraction_part_test_func<TYPE_INT, true>();
+    // from_string_with_fraction_part_test_func<TYPE_INT, false>();
+
+    // from_string_with_fraction_part_test_func<TYPE_BIGINT, true>();
+    // from_string_with_fraction_part_test_func<TYPE_BIGINT, false>();
+
+    // from_string_with_fraction_part_test_func<TYPE_LARGEINT, true>();
+    // from_string_with_fraction_part_test_func<TYPE_LARGEINT, false>();
+}
+TEST_F(FunctionCastToIntTest, test_from_string_overflow) {
+    from_string_overflow_test_func<TYPE_TINYINT, false>();
+    from_string_overflow_test_func<TYPE_SMALLINT, false>();
+    from_string_overflow_test_func<TYPE_INT, false>();
+    from_string_overflow_test_func<TYPE_BIGINT, false>();
+    from_string_overflow_test_func<TYPE_LARGEINT, false>();
+
+    from_string_overflow_test_func<TYPE_TINYINT, true>();
+    from_string_overflow_test_func<TYPE_SMALLINT, true>();
+    from_string_overflow_test_func<TYPE_INT, true>();
+    from_string_overflow_test_func<TYPE_BIGINT, true>();
+    from_string_overflow_test_func<TYPE_LARGEINT, true>();
+}
+TEST_F(FunctionCastToIntTest, test_from_string_abnormal) {
+    from_string_abnormal_test_func<TYPE_TINYINT, false>();
+    from_string_abnormal_test_func<TYPE_TINYINT, true>();
+
+    from_string_abnormal_test_func<TYPE_SMALLINT, false>();
+    from_string_abnormal_test_func<TYPE_SMALLINT, true>();
+
+    from_string_abnormal_test_func<TYPE_INT, false>();
+    from_string_abnormal_test_func<TYPE_INT, true>();
+
+    from_string_abnormal_test_func<TYPE_BIGINT, false>();
+    from_string_abnormal_test_func<TYPE_BIGINT, true>();
+
+    from_string_abnormal_test_func<TYPE_LARGEINT, false>();
+    from_string_abnormal_test_func<TYPE_LARGEINT, true>();
 }
 TEST_F(FunctionCastToIntTest, test_from_bool) {
     InputTypeSet input_types = {PrimitiveType::TYPE_BOOLEAN};
