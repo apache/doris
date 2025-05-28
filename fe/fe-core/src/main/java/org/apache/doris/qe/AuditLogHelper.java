@@ -185,7 +185,15 @@ public class AuditLogHelper {
         } catch (ComputeGroupException e) {
             LOG.warn("Failed to get cloud cluster", e);
         }
-        String cluster = Config.isCloudMode() ? cloudCluster : "";
+
+        String resourceTag = "";
+        try {
+            resourceTag = ctx.getComputeGroup().getName();
+        } catch (Throwable t) {
+            LOG.warn("Failed to get resource tag ", t);
+        }
+
+        String cluster = Config.isCloudMode() ? cloudCluster : resourceTag;
 
         AuditEventBuilder auditEventBuilder = ctx.getAuditEventBuilder();
         // ATTN: MUST reset, otherwise, the same AuditEventBuilder instance will be used in the next query.
