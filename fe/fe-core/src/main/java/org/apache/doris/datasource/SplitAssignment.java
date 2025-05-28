@@ -97,7 +97,7 @@ public class SplitAssignment {
         }
     }
 
-    private boolean waitFirstSplit() {
+    public boolean waitFirstSplit() {
         return !scheduleFinished.get() && !isStopped.get() && exception == null;
     }
 
@@ -108,28 +108,22 @@ public class SplitAssignment {
             for (Split split : splits) {
                 locations.add(splitToScanRange.getScanRange(backend, locationProperties, split, pathPartitionKeys));
             }
-            int maxRetryTimes = 5;
-            int retryTimes = 0;
             while (true) {
-                if (retryTimes >= maxRetryTimes) {
-                    throw new UserException("Failed to offer batch split after " + maxRetryTimes + " times");
-                }
                 BlockingQueue<Collection<TScanRangeLocations>> queue =
                         assignment.computeIfAbsent(backend, be -> new LinkedBlockingQueue<>(10000));
                 try {
                     if (queue.offer(locations, 100, TimeUnit.MILLISECONDS)) {
-                        break;
+                        return;
                     }
-                } catch (Exception e) {
-                    throw new UserException("Failed to offer batch split", e);
+                } catch (InterruptedException e) {
+                    throw new UserException("Failed to offer batch split by interrupted", e);
                 }
-                if (isStopped.get() || scheduleFinished.get() || exception != null) {
+                if (waitFirstSplit()) {
                     // Throwing an exception here is to terminate the external thread.
                     // Otherwise, the external thread will still generate splits
                     //     and continue to add them to the queue.
-                    throw new UserException("No need to get split");
+                    return;
                 }
-                retryTimes++;
             }
         }
     }
