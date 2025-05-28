@@ -26,6 +26,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.hive.HiveUtil;
+import org.apache.doris.thrift.TSchemaInfoNode;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -44,6 +45,7 @@ import org.apache.paimon.table.source.ReadBuilder;
 import org.apache.paimon.types.ArrayType;
 import org.apache.paimon.types.CharType;
 import org.apache.paimon.types.DataField;
+import org.apache.paimon.types.DataType;
 import org.apache.paimon.types.DecimalType;
 import org.apache.paimon.types.MapType;
 import org.apache.paimon.types.RowType;
@@ -224,5 +226,82 @@ public class PaimonUtil {
 
     public static Type paimonTypeToDorisType(org.apache.paimon.types.DataType type) {
         return paimonPrimitiveTypeToDorisType(type);
+    }
+
+    public static void updatePaimonColumnUniqueId(Column column, DataType dataType) {
+        List<Column> columns = column.getChildren();
+        switch (dataType.getTypeRoot()) {
+            case ARRAY:
+                ArrayType arrayType = (ArrayType) dataType;
+                updatePaimonColumnUniqueId(columns.get(0), arrayType.getElementType());
+                break;
+            case MAP:
+                MapType mapType = (MapType) dataType;
+                updatePaimonColumnUniqueId(columns.get(0), mapType.getKeyType());
+                updatePaimonColumnUniqueId(columns.get(1), mapType.getValueType());
+                break;
+            case ROW:
+                RowType rowType = (RowType) dataType;
+                for (int idx = 0; idx < columns.size(); idx++) {
+                    updatePaimonColumnUniqueId(columns.get(idx), rowType.getFields().get(idx));
+                }
+                break;
+            default:
+                return;
+        }
+    }
+
+    public static void updatePaimonColumnUniqueId(Column column, DataField field) {
+        column.setUniqueId(field.id());
+        updatePaimonColumnUniqueId(column, field.type());
+    }
+
+    public static void getSchemaInfo(DataType dataType, TSchemaInfoNode root) {
+        switch (dataType.getTypeRoot()) {
+            case ARRAY: {
+                ArrayType arrayType = (ArrayType) dataType;
+
+                TSchemaInfoNode childNode = new TSchemaInfoNode();
+                childNode.name = "element";
+                childNode.children = new HashMap<>();
+                getSchemaInfo(arrayType.getElementType(), childNode);
+                root.children.put(0, childNode);
+                break;
+            }
+            case MAP: {
+                MapType mapType = (MapType) dataType;
+
+                TSchemaInfoNode keyNode = new TSchemaInfoNode();
+                keyNode.name = "key";
+                keyNode.children = new HashMap<>();
+                getSchemaInfo(mapType.getKeyType(), keyNode);
+                root.children.put(0, keyNode);
+
+
+                TSchemaInfoNode valueNode = new TSchemaInfoNode();
+                valueNode.name = "value";
+                valueNode.children = new HashMap<>();
+                getSchemaInfo(mapType.getValueType(), valueNode);
+                root.children.put(1, valueNode);
+
+                break;
+            }
+            case ROW:
+                RowType rowType = (RowType) dataType;
+                getSchemaInfo(rowType.getFields(), root);
+                break;
+            default:
+                break;
+        }
+    }
+
+    public static void getSchemaInfo(List<DataField> fields, TSchemaInfoNode root) {
+        for (DataField field : fields) {
+            TSchemaInfoNode childNode = new TSchemaInfoNode();
+            childNode.name = field.name().toLowerCase();
+            childNode.children = new HashMap<>();
+            getSchemaInfo(field.type(), childNode);
+            root.children.put(field.id(), childNode);
+        }
     }
 }

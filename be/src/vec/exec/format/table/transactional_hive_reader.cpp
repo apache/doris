@@ -22,6 +22,7 @@
 #include "transactional_hive_common.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/exec/format/orc/vorc_reader.h"
+#include "vec/exec/format/table/table_format_reader.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -62,6 +63,129 @@ Status TransactionalHiveReader::init_reader(
     _col_names.insert(_col_names.end(), column_names.begin(), column_names.end());
     _col_names.insert(_col_names.end(), TransactionalHive::READ_ROW_COLUMN_NAMES_LOWER_CASE.begin(),
                       TransactionalHive::READ_ROW_COLUMN_NAMES_LOWER_CASE.end());
+
+    // https://issues.apache.org/jira/browse/HIVE-15190
+    const orc::Type* orc_type_ptr = nullptr;
+    RETURN_IF_ERROR(orc_reader->get_file_type(&orc_type_ptr));
+    const auto& orc_type  =  *orc_type_ptr;
+
+    auto root = std::make_shared<TableSchemaChange::tableNode>();
+
+
+    for (auto idx = 0; idx<TransactionalHive::READ_ROW_COLUMN_NAMES_LOWER_CASE.size();idx++) {
+        auto child_node  =  std::make_shared<TableSchemaChange::tableNode>();
+        child_node->exists_in_file = true;
+        child_node->file_name = TransactionalHive::READ_ROW_COLUMN_NAMES[idx];
+        root->children.emplace(TransactionalHive::READ_ROW_COLUMN_NAMES_LOWER_CASE[idx], child_node);
+    }
+
+
+    std::function<Status(const TypeDescriptor,std::shared_ptr<TableSchemaChange::tableNode>&,const orc::Type*)>
+        loop = [&loop](const TypeDescriptor type_desc,
+            std::shared_ptr<TableSchemaChange::tableNode>& node, const orc::Type* orc_root)->Status{
+        switch(type_desc.type) {
+            case TYPE_MAP:{
+                if (orc::TypeKind::MAP != orc_root->getKind()) {
+//                    return Status::
+                }
+                {
+                    auto key_node = std::make_shared<TableSchemaChange::tableNode>();
+                    key_node->exists_in_file = true;
+                    key_node->file_name = orc_root->getFieldName(0);
+                    RETURN_IF_ERROR(loop(type_desc.children[0], key_node, orc_root->getSubtype(0)));
+                    node->children.emplace("key",key_node);
+                }
+                {
+                    auto value_node = std::make_shared<TableSchemaChange::tableNode>();
+                    value_node->exists_in_file = true;
+                    value_node->file_name = orc_root->getFieldName(1);
+                    RETURN_IF_ERROR(loop(type_desc.children[1], value_node, orc_root->getSubtype(1)));
+                    node->children.emplace("value",value_node);
+                }
+                break;
+            }
+            case TYPE_ARRAY:{
+                if (orc::TypeKind::LIST != orc_root->getKind()) {
+
+                }
+                auto element_node = std::make_shared<TableSchemaChange::tableNode>();
+                element_node->exists_in_file = true;
+                element_node->file_name = orc_root->getFieldName(0);
+                RETURN_IF_ERROR(loop(type_desc.children[0], element_node, orc_root->getSubtype(0)));
+                node->children.emplace("element",element_node);
+                break;
+            }
+            case TYPE_STRUCT:{
+
+                if (orc::TypeKind::STRUCT != orc_root->getKind()) {
+
+                }
+
+                std::map<std::string,uint64_t> orc_field_names;
+                for (uint64_t idx =0; idx  < orc_root->getSubtypeCount(); idx++) {
+                    orc_field_names.emplace(orc_root->getFieldName(idx), idx);
+                }
+
+                for (size_t idx = 0; idx <type_desc.field_names.size();idx++)  {
+                    const auto& doris_field_name = type_desc.field_names[idx];
+                    auto field_node = std::make_shared<TableSchemaChange::tableNode>();
+                    if (orc_field_names.contains(doris_field_name)){
+                        field_node->exists_in_file = true;
+                        field_node->file_name = doris_field_name;
+                        auto orc_field_idx = orc_field_names[doris_field_name];
+                        RETURN_IF_ERROR(loop(type_desc.children[idx],field_node, orc_root->getSubtype(orc_field_idx)));
+                    } else {
+                        field_node->exists_in_file = false;
+                    }
+                    node->children.emplace(doris_field_name,  field_node);
+                }
+                break;
+            }
+            default:{
+
+            }
+        }
+        return Status::OK();
+    };
+
+
+    //    auto  orc_type.getFieldName(5);
+    auto row_orc_type = orc_type.getSubtype(TransactionalHive::ROW_OFFSET);
+    // struct<operation:int,originalTransaction:bigint,bucket:int,rowId:bigint,currentTransaction:bigint,row:struct<id:int,name:string>>
+    std::vector<std::string> row_names;
+    std::map<std::string, uint64_t> row_names_map;
+    for (uint64_t idx =0; idx  < row_orc_type->getSubtypeCount(); idx++) {
+        const auto& file_column_name = row_orc_type->getFieldName(idx);
+        row_names.emplace_back(file_column_name);
+        row_names_map.emplace(file_column_name, idx);
+    }
+
+
+    // use name for match.
+    for (const auto& slot : tuple_descriptor->slots()) {
+        const auto& slot_name =  slot->col_name();
+
+        if (std::count(TransactionalHive::READ_ROW_COLUMN_NAMES_LOWER_CASE.begin(),
+                       TransactionalHive::READ_ROW_COLUMN_NAMES_LOWER_CASE.end(),slot_name) > 0){
+            return Status::InternalError("xxxx");
+        }
+
+        auto child_node  =  std::make_shared<TableSchemaChange::tableNode>();
+        if (row_names_map.contains(slot_name)) {
+            child_node->exists_in_file = true;
+
+            child_node->file_name = fmt::format("{}.{}",
+                                                TransactionalHive::ACID_COLUMN_NAMES[TransactionalHive::ROW_OFFSET],slot_name);
+
+            RETURN_IF_ERROR(loop(slot->type(), child_node,row_orc_type->getSubtype(row_names_map[slot_name])));
+        } else {
+            child_node->exists_in_file = false;
+        }
+        root->children.emplace(slot_name, child_node);
+    }
+
+    orc_reader->table_info_node_ptr = root;
+
     Status status = orc_reader->init_reader(
             &_col_names, {}, colname_to_value_range, conjuncts, true, tuple_descriptor,
             row_descriptor, not_single_slot_filter_conjuncts, slot_id_to_filter_conjuncts);
@@ -143,9 +267,24 @@ Status TransactionalHiveReader::init_row_filters() {
         OrcReader delete_reader(_profile, _state, _params, delete_range, _MIN_BATCH_SIZE,
                                 _state->timezone(), _io_ctx, false);
 
+
+        auto root = std::make_shared<TableSchemaChange::tableNode>();
+        for (auto idx= 0;  idx<TransactionalHive::DELETE_ROW_COLUMN_NAMES_LOWER_CASE.size();idx++) {
+
+            auto field_node = std::make_shared<TableSchemaChange::tableNode>();
+            auto const& table_column_name = TransactionalHive::DELETE_ROW_COLUMN_NAMES_LOWER_CASE[idx];
+            auto const& file_column_name = TransactionalHive::DELETE_ROW_COLUMN_NAMES[idx];
+            field_node->exists_in_file = true;
+            field_node->file_name = file_column_name;
+            root->children.emplace(table_column_name,field_node);
+        }
+
+        delete_reader.table_info_node_ptr = root;
+
         RETURN_IF_ERROR(delete_reader.init_reader(
                 &TransactionalHive::DELETE_ROW_COLUMN_NAMES_LOWER_CASE, {}, nullptr, {}, false,
                 nullptr, nullptr, nullptr, nullptr));
+
 
         std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
                 partition_columns;

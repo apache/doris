@@ -819,7 +819,13 @@ public class HiveMetaStoreClientHelper {
         // So, we should reload timeline so that we can read the latest commit files.
         metaClient.reloadActiveTimeline();
 
-        Option<InternalSchema> internalSchemaOption = schemaUtil.getTableInternalSchemaFromCommitMetadata(timestamp);
+        Option<InternalSchema> internalSchemaOption;
+        if (timestamp.equals("0")) {
+            internalSchemaOption = schemaUtil.getTableInternalSchemaFromCommitMetadata();
+        } else {
+            internalSchemaOption = schemaUtil.getTableInternalSchemaFromCommitMetadata(timestamp);
+        }
+
 
         if (internalSchemaOption.isPresent()) {
             enableSchemaEvolution[0] = true;

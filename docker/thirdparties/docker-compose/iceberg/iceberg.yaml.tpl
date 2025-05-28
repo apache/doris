@@ -35,8 +35,6 @@ services:
       - ./data:/mnt/data
       - ./scripts:/mnt/scripts
       - ./spark-defaults.conf:/opt/spark/conf/spark-defaults.conf
-      - ./data/input/jars/paimon-spark-3.5-0.8.0.jar:/opt/spark/jars/paimon-spark-3.5-0.8.0.jar
-      - ./data/input/jars/paimon-s3-0.8.0.jar:/opt/spark/jars/paimon-s3-0.8.0.jar
     environment:
       - AWS_ACCESS_KEY_ID=admin
       - AWS_SECRET_ACCESS_KEY=password
@@ -62,8 +60,6 @@ services:
       interval: 5s
       timeout: 60s
       retries: 120
-    volumes:
-      - ./data/input/pgdata:/var/lib/postgresql/data
     networks:
       - doris--iceberg
 
