@@ -80,7 +80,7 @@ public class SplitAssignment {
             int waitIntervalTimeMillis = 100;
             int initTimeoutMillis = 5000; // 5s
             int waitTotalTime = 0;
-            while (sampleSplit == null && waitFirstSplit()) {
+            while (sampleSplit == null && needMoreSplit()) {
                 try {
                     assignLock.wait(waitIntervalTimeMillis);
                 } catch (InterruptedException e) {
@@ -97,7 +97,7 @@ public class SplitAssignment {
         }
     }
 
-    public boolean waitFirstSplit() {
+    public boolean needMoreSplit() {
         return !scheduleFinished.get() && !isStopped.get() && exception == null;
     }
 
@@ -118,7 +118,7 @@ public class SplitAssignment {
                 } catch (InterruptedException e) {
                     throw new UserException("Failed to offer batch split by interrupted", e);
                 }
-                if (waitFirstSplit()) {
+                if (needMoreSplit()) {
                     // Throwing an exception here is to terminate the external thread.
                     // Otherwise, the external thread will still generate splits
                     //     and continue to add them to the queue.
