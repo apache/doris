@@ -103,6 +103,7 @@ import org.apache.iceberg.types.Types;
 import org.apache.iceberg.util.LocationUtil;
 import org.apache.iceberg.util.SnapshotUtil;
 import org.apache.iceberg.util.StructProjection;
+import org.apache.iceberg.view.View;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -629,18 +630,29 @@ public class IcebergUtils {
     /**
      * Get iceberg schema from catalog and convert them to doris schema
      */
-    public static List<Column> getSchema(ExternalCatalog catalog, String dbName, String name, long schemaId) {
+    public static List<Column> getSchema(
+            ExternalCatalog catalog, String dbName, String name, long schemaId, boolean isView) {
         try {
             return catalog.getPreExecutionAuthenticator().execute(() -> {
-                org.apache.iceberg.Table icebergTable = getIcebergTable(catalog, dbName, name);
                 Schema schema;
-                if (schemaId == NEWEST_SCHEMA_ID || icebergTable.currentSnapshot() == null) {
-                    schema = icebergTable.schema();
+                if (isView) {
+                    View icebergView = getIcebergView(catalog, dbName, name);
+                    if (schemaId == NEWEST_SCHEMA_ID) {
+                        schema = icebergView.schema();
+                    } else {
+                        schema = icebergView.schemas().get((int) schemaId);
+                    }
                 } else {
-                    schema = icebergTable.schemas().get((int) schemaId);
+                    Table icebergTable = getIcebergTable(catalog, dbName, name);
+                    if (schemaId == NEWEST_SCHEMA_ID || icebergTable.currentSnapshot() == null) {
+                        schema = icebergTable.schema();
+                    } else {
+                        schema = icebergTable.schemas().get((int) schemaId);
+                    }
                 }
+                String type = isView ? "view" : "table";
                 Preconditions.checkNotNull(schema,
-                        "Schema for table " + catalog.getName() + "." + dbName + "." + name + " is null");
+                        "Schema for " + type + " " + catalog.getName() + "." + dbName + "." + name + " is null");
                 return parseSchema(schema);
             });
         } catch (Exception e) {
@@ -1169,25 +1181,6 @@ public class IcebergUtils {
         }
     }
 
-    // load table schema from iceberg API to external schema cache.
-    public static Optional<SchemaCacheValue> loadSchemaCacheValue(
-            ExternalCatalog catalog, String dbName, String tbName, long schemaId) {
-        Table table = IcebergUtils.getIcebergTable(catalog, dbName, tbName);
-        List<Column> schema = IcebergUtils.getSchema(catalog, dbName, tbName, schemaId);
-        List<Column> tmpColumns = Lists.newArrayList();
-        PartitionSpec spec = table.spec();
-        for (PartitionField field : spec.fields()) {
-            Types.NestedField col = table.schema().findField(field.sourceId());
-            for (Column c : schema) {
-                if (c.getName().equalsIgnoreCase(col.name())) {
-                    tmpColumns.add(c);
-                    break;
-                }
-            }
-        }
-        return Optional.of(new IcebergSchemaCacheValue(schema, tmpColumns));
-    }
-
     public static List<Column> getIcebergSchema(
             TableIf tableIf,
             ExternalCatalog catalog,
@@ -1213,4 +1206,42 @@ public class IcebergUtils {
                 Optional.empty(), catalog, dbName, tbName, Optional.empty());
         }
     }
+
+    public static org.apache.iceberg.view.View getIcebergView(ExternalCatalog catalog, String dbName, String tblName) {
+        return getIcebergViewInternal(catalog, dbName, tblName);
+    }
+
+    private static org.apache.iceberg.view.View getIcebergViewInternal(ExternalCatalog catalog, String dbName,
+            String tblName) {
+        IcebergMetadataCache metadataCache = Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache();
+        return metadataCache.getIcebergView(catalog, dbName, tblName);
+    }
+
+    public static Optional<SchemaCacheValue> loadSchemaCacheValue(
+            ExternalCatalog catalog, String dbName, String tbName, long schemaId, boolean isView) {
+        List<Column> schema = IcebergUtils.getSchema(catalog, dbName, tbName, schemaId, isView);
+        List<Column> tmpColumns = Lists.newArrayList();
+        if (!isView) {
+            // get table partition column info
+            Table table = IcebergUtils.getIcebergTable(catalog, dbName, tbName);
+            PartitionSpec spec = table.spec();
+            for (PartitionField field : spec.fields()) {
+                Types.NestedField col = table.schema().findField(field.sourceId());
+                for (Column c : schema) {
+                    if (c.getName().equalsIgnoreCase(col.name())) {
+                        tmpColumns.add(c);
+                        break;
+                    }
+                }
+            }
+        }
+        return Optional.of(new IcebergSchemaCacheValue(schema, tmpColumns));
+    }
+
+    public static String showCreateView(IcebergExternalTable icebergExternalTable) {
+        return String.format("CREATE VIEW `%s` AS ", icebergExternalTable.getName())
+                +
+                icebergExternalTable.getViewText();
+    }
+
 }
