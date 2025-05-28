@@ -501,9 +501,9 @@ public class SchemaTable extends Table {
             .put("backend_configuration",
                     new SchemaTable(SystemIdGenerator.getNextId(), "backend_configuration", TableType.SCHEMA,
                             builder().column("BE_ID", ScalarType.createType(PrimitiveType.BIGINT))
-                                    .column("CONFIGURATION", ScalarType.createStringType())
-                                    .column("CONFIGURATION_TYPE", ScalarType.createStringType())
-                                    .column("CONFIGURATION_VALUE", ScalarType.createStringType())
+                                    .column("CONFIG_NAME", ScalarType.createStringType())
+                                    .column("CONFIG_TYPE", ScalarType.createStringType())
+                                    .column("CONFIG_VALUE", ScalarType.createStringType())
                                     .column("IS_MUTABLE", ScalarType.createType(PrimitiveType.BOOLEAN))
                                     .build()))
             .put("processlist",
