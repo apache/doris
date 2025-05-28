@@ -17,13 +17,13 @@
 
 package org.apache.doris.iceberg;
 
-import org.apache.doris.datasource.iceberg.share.ManifestFileBean;
-
 import org.apache.iceberg.DataFile;
+import org.apache.iceberg.ManifestFile;
 import org.apache.iceberg.ManifestFiles;
 import org.apache.iceberg.util.SerializationUtil;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -52,7 +52,7 @@ class IcebergFilesJniScanner extends IcebergMetadataJniScanner {
     }
 
     // A serializable bean that contains a bare minimum to read a manifest
-    private final ManifestFileBean manifestBean;
+    private final ManifestFile manifestBean;
 
     public IcebergFilesJniScanner(int batchSize, Map<String, String> params) {
         super(batchSize, params);
@@ -94,10 +94,12 @@ class IcebergFilesJniScanner extends IcebergMetadataJniScanner {
             case "nan_value_counts":
                 return dataFile.nanValueCounts();
             case "lower_bounds":
-                return dataFile.lowerBounds();
+                return convertKeyTypeToString(dataFile.lowerBounds());
             case "upper_bounds":
-                return dataFile.upperBounds();
+                return convertKeyTypeToString(dataFile.upperBounds());
             case "key_metadata":
+                // The key metadata is stored as a ByteBuffer, so we convert it to a string.
+                // TODO: how to parse this
                 return dataFile.keyMetadata() != null ? dataFile.keyMetadata().toString() : null;
             case "split_offsets":
                 return dataFile.splitOffsets();
@@ -115,5 +117,15 @@ class IcebergFilesJniScanner extends IcebergMetadataJniScanner {
                 throw new IllegalArgumentException(
                         "Unrecognized column name " + columnName + " in Iceberg " + NAME + " metadata table");
         }
+    }
+
+    private static Map<Integer, String> convertKeyTypeToString(Map<Integer, ByteBuffer> map) {
+        if (map == null) {
+            return null;
+        }
+        return map.entrySet().stream()
+                .collect(HashMap::new,
+                        (m, e) -> m.put(e.getKey(), e.getValue() != null ? e.getValue().toString() : null),
+                        HashMap::putAll);
     }
 }
