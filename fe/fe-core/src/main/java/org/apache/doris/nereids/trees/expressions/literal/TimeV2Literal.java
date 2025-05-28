@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.expressions.literal;
 
 import org.apache.doris.analysis.LiteralExpr;
-import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -33,13 +32,13 @@ public class TimeV2Literal extends Literal {
     private static final LocalDateTime START_OF_A_DAY = LocalDateTime.of(0, 1, 1, 0, 0, 0);
     private static final LocalDateTime END_OF_A_DAY = LocalDateTime.of(9999, 12, 31, 23, 59, 59, 999999000);
     // part min max store every part of time's min max value
-    private static final TimeV2Literal PART_MIN = new TimeV2Literal(-838, 0, 0, 0, 0);
-    private static final TimeV2Literal PART_MAX = new TimeV2Literal(838, 59, 59, 999999, 6);
+    private static final TimeV2Literal MIN_VALUE = new TimeV2Literal(-838, 59, 59, 999999, 6);
+    private static final TimeV2Literal MAX_VALUE = new TimeV2Literal(838, 59, 59, 999999, 6);
 
-    protected long hour;
-    protected long minute;
-    protected long second;
-    protected long microsecond;
+    protected int hour;
+    protected int minute;
+    protected int second;
+    protected int microsecond;
     protected boolean negative;
 
     public TimeV2Literal(TimeV2Type dataType, String s) {
@@ -52,33 +51,30 @@ public class TimeV2Literal extends Literal {
      */
     public TimeV2Literal(double value) throws AnalysisException {
         super(TimeV2Type.of(6));
-        if (value > (double) PART_MAX.getValue() || value < -(double) PART_MAX.getValue()) {
+        if (value > (double) MAX_VALUE.getValue() || value < (double) MIN_VALUE.getValue()) {
             throw new AnalysisException("The value " + value + " is out of range, expect value range is ["
-                    + (-(double) PART_MAX.getValue()) + ", " + PART_MAX.getValue() + "]");
+                    + (double) MIN_VALUE.getValue() + ", " + (double) MAX_VALUE.getValue() + "]");
         }
         this.negative = 1.0 / value < 0;
-        long v = (long) Math.abs(value);
-        this.microsecond = (long) (v % 1000000);
+        int v = (int) Math.abs(value);
+        this.microsecond = (int) (v % 1000000);
         v /= 1000000;
-        this.second = (long) (v % 60);
+        this.second = (int) (v % 60);
         v /= 60;
-        this.minute = (long) (v % 60);
+        this.minute = (int) (v % 60);
         v /= 60;
-        this.hour = (long) v;
+        this.hour = (int) v;
     }
 
     /**
      * C'tor for time type.
      */
-    public TimeV2Literal(long hour, long minute, long second, long microsecond, int scale) throws AnalysisException {
+    public TimeV2Literal(int hour, int minute, int second, int microsecond, int scale) throws AnalysisException {
         super(TimeV2Type.of(scale));
         this.hour = Math.abs(hour);
         this.minute = minute;
         this.second = second;
-        this.microsecond = (long) (microsecond / Math.pow(10, 6 - scale)) * (long) Math.pow(10, 6 - scale);
-        while (microsecond != 0 && this.microsecond < 100000) {
-            this.microsecond *= 10;
-        }
+        this.microsecond = (int) (microsecond / Math.pow(10, 6 - scale)) * (int) Math.pow(10, 6 - scale);
         this.negative = hour < 0;
         if (checkRange(this.hour, this.minute, this.second, this.microsecond) || scale > 6 || scale < 0) {
             throw new AnalysisException("time literal is out of range [-838:59:59.999999, 838:59:59.999999]");
@@ -153,12 +149,12 @@ public class TimeV2Literal extends Literal {
         } catch (NumberFormatException e) {
             throw new AnalysisException("Invalid second format", e);
         }
-        secPart = secPart * (long) Math.pow(10, scale);
+        secPart = secPart * (int) Math.pow(10, scale);
         secPart = Math.round(secPart);
         secPart = (long) secPart * (long) Math.pow(10, 6 - scale);
-        second = (long) secPart / 1000000;
+        second = (int) (secPart / 1000000);
         if (scale != 0) {
-            microsecond = (long) secPart % 1000000;
+            microsecond = (int) (secPart % 1000000);
             if (second == 60) {
                 minute += 1;
                 second -= 60;
@@ -176,26 +172,25 @@ public class TimeV2Literal extends Literal {
         }
     }
 
-    protected static boolean checkRange(double hour, long minute, long second, long microsecond) {
-        return hour > 838 || minute > 59 || second > 59 || hour < 0 || minute < 0 || second < 0
-                || microsecond > 999999 || microsecond < 0;
+    protected static boolean checkRange(double hour, int minute, int second, int microsecond) {
+        return hour > 838 || minute > 59 || second > 59 || microsecond > 999999 || minute < 0 || second < 0
+                || microsecond < 0;
     }
 
-    public long getHour() {
+    public int getHour() {
         return hour;
     }
 
-    public long getMinute() {
+    public int getMinute() {
         return minute;
     }
 
-    public long getSecond() {
+    public int getSecond() {
         return second;
     }
 
-    public long getMicroSecond() {
-        long scale = ((TimeV2Type) dataType).getScale();
-        return (long) (microsecond / Math.pow(10, 6 - scale)) * (long) Math.pow(10, 6 - scale);
+    public int getMicroSecond() {
+        return microsecond;
     }
 
     @Override
@@ -206,7 +201,7 @@ public class TimeV2Literal extends Literal {
     @Override
     public LiteralExpr toLegacyLiteral() {
         int scale = ((TimeV2Type) dataType).getScale();
-        return new org.apache.doris.analysis.TimeV2Literal(getStringValue(), ScalarType.createTimeV2Type(scale));
+        return new org.apache.doris.analysis.TimeV2Literal(hour, minute, second, microsecond, scale);
     }
 
     @Override
@@ -225,7 +220,7 @@ public class TimeV2Literal extends Literal {
         // the scale is 3, we need make sure it not become start with 1
         int scale = ((TimeV2Type) dataType).getScale();
         if (scale > 0) {
-            sb.append(String.format(".%0" + scale + "d", microsecond / (long) Math.pow(10, 6 - scale)));
+            sb.append(String.format(".%0" + scale + "d", microsecond / (int) Math.pow(10, 6 - scale)));
         }
         return sb.toString();
     }

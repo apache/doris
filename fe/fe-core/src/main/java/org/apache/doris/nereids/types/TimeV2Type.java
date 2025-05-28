@@ -59,7 +59,10 @@ public class TimeV2Type extends PrimitiveType implements RangeScalable {
 
     @Override
     public boolean equals(Object o) {
-        return o instanceof TimeV2Type;
+        if (o instanceof TimeV2Type) {
+            return ((TimeV2Type) o).getScale() == getScale();
+        }
+        return false;
     }
 
     @Override

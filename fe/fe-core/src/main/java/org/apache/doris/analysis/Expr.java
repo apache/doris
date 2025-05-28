@@ -2057,8 +2057,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         JSON_LITERAL(15),
         ARITHMETIC_EXPR(16),
         STRUCT_LITERAL(17),
-        MAP_LITERAL(18),
-        TIMEV2_LITERAL(19);
+        MAP_LITERAL(18);
 
         private static Map<Integer, ExprSerCode> codeMap = Maps.newHashMap();
 

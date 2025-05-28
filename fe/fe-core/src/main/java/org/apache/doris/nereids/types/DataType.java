@@ -356,7 +356,8 @@ public abstract class DataType {
             case DATETIME: return DateTimeType.INSTANCE;
             case DATEV2: return DateV2Type.INSTANCE;
             case DATE: return DateType.INSTANCE;
-            case TIMEV2: return TimeV2Type.INSTANCE;
+            case TIME: return TimeV2Type.INSTANCE;
+            case TIMEV2: return TimeV2Type.of(((ScalarType) type).getScalarScale());
             case HLL: return HllType.INSTANCE;
             case BITMAP: return BitmapType.INSTANCE;
             case QUANTILE_STATE: return QuantileStateType.INSTANCE;
