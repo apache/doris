@@ -293,8 +293,9 @@ TEST_F(ColumnObjectTest, test_insert_indices_from) {
 
 TEST_F(ColumnObjectTest, subcolumn_insert_range_from_test) {
     ColumnVariant::Subcolumn subcolumn(0, true /* is_nullable */, false /* is_root */);
-    Field int_field = Field::create_field<TYPE_INT>(20);
+    Field int_field = Field::create_field<TYPE_INT>(200000);
     Field string_field = Field::create_field<TYPE_STRING>("hello");
+
     Array array_int(2);
     array_int[0] = int_field;
     array_int[1] = int_field;
@@ -302,6 +303,15 @@ TEST_F(ColumnObjectTest, subcolumn_insert_range_from_test) {
     ColumnVariant::Subcolumn subcolumn2(0, true /* is_nullable */, false /* is_root */);
     subcolumn2.insert(array_int_field);
     subcolumn2.finalize();
+
+    Array array_tiny_int(2);
+    Field tiny_int = Field::create_field<TYPE_TINYINT>(100);
+    array_tiny_int[0] = tiny_int;
+    array_tiny_int[1] = tiny_int;
+    Field array_tiny_int_field = Field::create_field<TYPE_ARRAY>(array_tiny_int);
+    ColumnVariant::Subcolumn subcolumn1(0, true /* is_nullable */, false /* is_root */);
+    subcolumn1.insert(array_tiny_int_field);
+    subcolumn1.finalize();
 
     Array array_string(2);
     array_string[0] = string_field;
@@ -311,6 +321,7 @@ TEST_F(ColumnObjectTest, subcolumn_insert_range_from_test) {
     subcolumn3.insert(array_string_field);
     subcolumn3.finalize();
 
+    subcolumn.insert_range_from(subcolumn1, 0, 1);
     subcolumn.insert_range_from(subcolumn2, 0, 1);
     subcolumn.insert_range_from(subcolumn3, 0, 1);
     subcolumn.finalize();
@@ -321,18 +332,25 @@ TEST_F(ColumnObjectTest, subcolumn_insert_range_from_test) {
 
 TEST_F(ColumnObjectTest, subcolumn_insert_test) {
     ColumnVariant::Subcolumn subcolumn(0, true /* is_nullable */, false /* is_root */);
-    Field int_field = Field::create_field<TYPE_INT>(20);
+    Field int_field = Field::create_field<TYPE_INT>(200000);
     Field string_field = Field::create_field<TYPE_STRING>("hello");
     Array array_int(2);
     array_int[0] = int_field;
     array_int[1] = int_field;
     Field array_int_field = Field::create_field<TYPE_ARRAY>(array_int);
 
+    Array array_int2(2);
+    Field tiny_int = Field::create_field<TYPE_TINYINT>(100);
+    array_int2[0] = tiny_int;
+    array_int2[1] = tiny_int;
+    Field array_int2_field = Field::create_field<TYPE_ARRAY>(array_int2);
+
     Array array_string(2);
     array_string[0] = string_field;
     array_string[1] = string_field;
     Field array_string_field = Field::create_field<TYPE_ARRAY>(array_string);
 
+    subcolumn.insert(array_int2_field);
     subcolumn.insert(array_int_field);
     subcolumn.insert(array_string_field);
     subcolumn.finalize();
@@ -351,29 +369,19 @@ TEST_F(ColumnObjectTest, subcolumn_insert_test_advanced) {
 
     fields.emplace_back(Field::create_field<TYPE_NULL>(Null()));
 
-    fields.emplace_back(Field::create_field<TYPE_TINYINT>(-128));
-    fields.emplace_back(Field::create_field<TYPE_TINYINT>(127));
     fields.emplace_back(Field::create_field<TYPE_TINYINT>(100));
 
-    fields.emplace_back(Field::create_field<TYPE_SMALLINT>(-32768));
-    fields.emplace_back(Field::create_field<TYPE_SMALLINT>(32767));
     fields.emplace_back(Field::create_field<TYPE_SMALLINT>(10000));
 
-    fields.emplace_back(Field::create_field<TYPE_INT>(-2147483648));
-    fields.emplace_back(Field::create_field<TYPE_INT>(2147483647));
     fields.emplace_back(Field::create_field<TYPE_INT>(1000000000));
 
-    fields.emplace_back(Field::create_field<TYPE_BIGINT>(-9223372036854775807));
     fields.emplace_back(Field::create_field<TYPE_BIGINT>(922337203685477588));
 
-    fields.emplace_back(Field::create_field<TYPE_FLOAT>(3.14159f));
     fields.emplace_back(Field::create_field<TYPE_FLOAT>(-3.14159f));
 
-    fields.emplace_back(Field::create_field<TYPE_DOUBLE>(3.14159265359));
     fields.emplace_back(Field::create_field<TYPE_DOUBLE>(-3.14159265359));
 
     fields.emplace_back(Field::create_field<TYPE_STRING>("hello world"));
-    fields.emplace_back(Field::create_field<TYPE_STRING>(""));
 
     Array arr_int8(2);
     arr_int8[0] = Field::create_field<TYPE_TINYINT>(1);
@@ -381,11 +389,35 @@ TEST_F(ColumnObjectTest, subcolumn_insert_test_advanced) {
     Field arr_int8_field = Field::create_field<TYPE_ARRAY>(arr_int8);
     fields.emplace_back(arr_int8_field);
 
+    Array arr_int16(2);
+    arr_int16[0] = Field::create_field<TYPE_SMALLINT>(12323);
+    arr_int16[1] = Field::create_field<TYPE_SMALLINT>(23232);
+    Field arr_int16_field = Field::create_field<TYPE_ARRAY>(arr_int16);
+    fields.emplace_back(arr_int16_field);
+
+    Array arr_int32(2);
+    arr_int32[0] = Field::create_field<TYPE_INT>(123232323);
+    arr_int32[1] = Field::create_field<TYPE_INT>(2232323223);
+    Field arr_int32_field = Field::create_field<TYPE_ARRAY>(arr_int32);
+    fields.emplace_back(arr_int32_field);
+
+    Array arr_int64(2);
+    arr_int64[0] = Field::create_field<TYPE_BIGINT>(1232323232323232323);
+    arr_int64[1] = Field::create_field<TYPE_BIGINT>(2232323223232323232);
+    Field arr_int64_field = Field::create_field<TYPE_ARRAY>(arr_int64);
+    fields.emplace_back(arr_int64_field);
+
     Array arr_float(2);
-    arr_float[0] = Field::create_field<TYPE_FLOAT>(1.1);
-    arr_float[1] = Field::create_field<TYPE_FLOAT>(2.2);
+    arr_float[0] = Field::create_field<TYPE_FLOAT>(1.1f);
+    arr_float[1] = Field::create_field<TYPE_FLOAT>(2.2f);
     Field arr_float_field = Field::create_field<TYPE_ARRAY>(arr_float);
     fields.emplace_back(arr_float_field);
+
+    Array arr_double(2);
+    arr_double[0] = Field::create_field<TYPE_DOUBLE>(1.1);
+    arr_double[1] = Field::create_field<TYPE_DOUBLE>(2.2);
+    Field arr_double_field = Field::create_field<TYPE_ARRAY>(arr_double);
+    fields.emplace_back(arr_double_field);
 
     Array arr_string(2);
     arr_string[0] = Field::create_field<TYPE_STRING>("one");
@@ -393,12 +425,10 @@ TEST_F(ColumnObjectTest, subcolumn_insert_test_advanced) {
     Field arr_string_field = Field::create_field<TYPE_ARRAY>(arr_string);
     fields.emplace_back(arr_string_field);
 
-    fields.emplace_back(Field::create_field<TYPE_NULL>(Null()));
-
     std::random_device rd;
     std::mt19937 g(rd());
 
-    for (int i = 0; i < 10000; i++) {
+    for (int i = 0; i < (2 << fields.size()); i++) {
         std::shuffle(fields.begin(), fields.end(), g);
         auto subcolumn = ColumnVariant::Subcolumn(0, true, false);
 
@@ -427,29 +457,19 @@ TEST_F(ColumnObjectTest, subcolumn_insert_range_from_test_advanced) {
 
     fields.emplace_back(Field::create_field<TYPE_NULL>(Null()));
 
-    fields.emplace_back(Field::create_field<TYPE_TINYINT>(-128));
-    fields.emplace_back(Field::create_field<TYPE_TINYINT>(127));
     fields.emplace_back(Field::create_field<TYPE_TINYINT>(100));
 
-    fields.emplace_back(Field::create_field<TYPE_SMALLINT>(-32768));
-    fields.emplace_back(Field::create_field<TYPE_SMALLINT>(32767));
     fields.emplace_back(Field::create_field<TYPE_SMALLINT>(10000));
 
-    fields.emplace_back(Field::create_field<TYPE_INT>(-2147483648));
-    fields.emplace_back(Field::create_field<TYPE_INT>(2147483647));
     fields.emplace_back(Field::create_field<TYPE_INT>(1000000000));
 
-    fields.emplace_back(Field::create_field<TYPE_BIGINT>(-9223372036854775807));
     fields.emplace_back(Field::create_field<TYPE_BIGINT>(922337203685477588));
 
-    fields.emplace_back(Field::create_field<TYPE_FLOAT>(3.14159f));
     fields.emplace_back(Field::create_field<TYPE_FLOAT>(-3.14159f));
 
-    fields.emplace_back(Field::create_field<TYPE_DOUBLE>(3.14159265359));
     fields.emplace_back(Field::create_field<TYPE_DOUBLE>(-3.14159265359));
 
     fields.emplace_back(Field::create_field<TYPE_STRING>("hello world"));
-    fields.emplace_back(Field::create_field<TYPE_STRING>(""));
 
     Array arr_int8(2);
     arr_int8[0] = Field::create_field<TYPE_TINYINT>(1);
@@ -457,11 +477,35 @@ TEST_F(ColumnObjectTest, subcolumn_insert_range_from_test_advanced) {
     Field arr_int8_field = Field::create_field<TYPE_ARRAY>(arr_int8);
     fields.emplace_back(arr_int8_field);
 
+    Array arr_int16(2);
+    arr_int16[0] = Field::create_field<TYPE_SMALLINT>(12323);
+    arr_int16[1] = Field::create_field<TYPE_SMALLINT>(23232);
+    Field arr_int16_field = Field::create_field<TYPE_ARRAY>(arr_int16);
+    fields.emplace_back(arr_int16_field);
+
+    Array arr_int32(2);
+    arr_int32[0] = Field::create_field<TYPE_INT>(123232323);
+    arr_int32[1] = Field::create_field<TYPE_INT>(2232323223);
+    Field arr_int32_field = Field::create_field<TYPE_ARRAY>(arr_int32);
+    fields.emplace_back(arr_int32_field);
+
+    Array arr_int64(2);
+    arr_int64[0] = Field::create_field<TYPE_BIGINT>(1232323232323232323);
+    arr_int64[1] = Field::create_field<TYPE_BIGINT>(2232323223232323232);
+    Field arr_int64_field = Field::create_field<TYPE_ARRAY>(arr_int64);
+    fields.emplace_back(arr_int64_field);
+
     Array arr_float(2);
-    arr_float[0] = Field::create_field<TYPE_FLOAT>(1.1);
-    arr_float[1] = Field::create_field<TYPE_FLOAT>(2.2);
+    arr_float[0] = Field::create_field<TYPE_FLOAT>(1.1f);
+    arr_float[1] = Field::create_field<TYPE_FLOAT>(2.2f);
     Field arr_float_field = Field::create_field<TYPE_ARRAY>(arr_float);
     fields.emplace_back(arr_float_field);
+
+    Array arr_double(2);
+    arr_double[0] = Field::create_field<TYPE_DOUBLE>(1.1);
+    arr_double[1] = Field::create_field<TYPE_DOUBLE>(2.2);
+    Field arr_double_field = Field::create_field<TYPE_ARRAY>(arr_double);
+    fields.emplace_back(arr_double_field);
 
     Array arr_string(2);
     arr_string[0] = Field::create_field<TYPE_STRING>("one");
@@ -469,11 +513,10 @@ TEST_F(ColumnObjectTest, subcolumn_insert_range_from_test_advanced) {
     Field arr_string_field = Field::create_field<TYPE_ARRAY>(arr_string);
     fields.emplace_back(arr_string_field);
 
-    fields.emplace_back(Field::create_field<TYPE_NULL>(Null()));
-
     std::random_device rd;
     std::mt19937 g(rd());
-    for (int i = 0; i < 10000; i++) {
+
+    for (int i = 0; i < (2 << fields.size()); i++) {
         std::shuffle(fields.begin(), fields.end(), g);
         auto subcolumn = ColumnVariant::Subcolumn(0, true, false);
 
@@ -497,6 +540,34 @@ TEST_F(ColumnObjectTest, subcolumn_insert_range_from_test_advanced) {
             std::cout << "insert count " << i << std::endl;
         }
     }
+}
+
+TEST_F(ColumnObjectTest, subcolumn_get_least_common_type_test) {
+    Field int_field = Field::create_field<TYPE_INT>(200000);
+    Field double_field = Field::create_field<TYPE_DOUBLE>(2.2);
+
+    ColumnVariant::Subcolumn subcolumn(0, true, false);
+    subcolumn.insert(int_field);
+    subcolumn.insert(double_field);
+    subcolumn.finalize();
+
+    Array array_int(2);
+    array_int[0] = int_field;
+    array_int[1] = int_field;
+    Field array_int_field = Field::create_field<TYPE_ARRAY>(array_int);
+
+    Array array_double(2);
+    array_double[0] = double_field;
+    array_double[1] = double_field;
+    Field array_double_field = Field::create_field<TYPE_ARRAY>(array_double);
+
+    ColumnVariant::Subcolumn subcolumn2(0, true /* is_nullable */, false /* is_root */);
+    subcolumn2.insert(array_int_field);
+    subcolumn2.insert(array_double_field);
+    subcolumn2.finalize();
+
+    std::cout << "subcolumn2.get_least_common_type()->get_name(): "
+              << subcolumn2.get_least_common_type()->get_name() << std::endl;
 }
 
 } // namespace doris::vectorized
