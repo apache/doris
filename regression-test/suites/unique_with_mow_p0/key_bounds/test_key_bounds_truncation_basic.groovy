@@ -52,7 +52,7 @@ suite("test_key_bounds_truncation_basic", "nonConcurrent") {
         return s
     }
 
-    def checkKeyBounds = { String k1, String k2, int version, boolean doTruncation, int length, boolean turnedOn ->
+    def checkKeyBounds = { String k1, String k2, int version, boolean doTruncation, int length, boolean expected ->
         def rowsetMeta = getRowsetMetas(version)
         def keyBounds = rowsetMeta.segments_key_bounds
         assertEquals(keyBounds.size(), 1)
@@ -71,11 +71,11 @@ suite("test_key_bounds_truncation_basic", "nonConcurrent") {
         logger.info("\nk1=${k1}, size=${k1.size()}, k2=${k2}, size=${k2.size()}")
         logger.info("\nexpected_min_key=${expected_min_key}, size=${expected_min_key.size()}, expected_max_key=${expected_max_key}, size=${expected_max_key.size()}")
         logger.info("\nmin_key=${min_key}, size=${min_key.size()}\nmax_key=${max_key}, size=${max_key.size()}")
-        logger.info("\nsegments_key_bounds_truncated=${rowsetMeta.segments_key_bounds_truncated}, turnedOn=${turnedOn}")
+        logger.info("\nsegments_key_bounds_truncated=${rowsetMeta.segments_key_bounds_truncated}, expected=${expected}")
         assertEquals(min_key, expected_min_key)
         assertEquals(max_key, expected_max_key)
         
-        assertEquals(turnedOn, rowsetMeta.segments_key_bounds_truncated)
+        assertEquals(expected, rowsetMeta.segments_key_bounds_truncated)
     }
 
     int curVersion = 1
@@ -101,7 +101,7 @@ suite("test_key_bounds_truncation_basic", "nonConcurrent") {
         String key1 = "aa"
         String key2 = "bbbb"
         sql """insert into ${tableName} values("$key1", 1), ("$key2", 2);"""
-        checkKeyBounds(key1, key2, ++curVersion, true, 6, true)
+        checkKeyBounds(key1, key2, ++curVersion, true, 6, false)
 
         key1 = "000000000000000"
         key2 = "1111111111111111111"

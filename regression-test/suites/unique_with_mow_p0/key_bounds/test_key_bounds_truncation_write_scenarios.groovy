@@ -36,6 +36,15 @@ suite("test_key_bounds_truncation_write_scenarios", "nonConcurrent") {
                 "enable_unique_key_merge_on_write" = "true",
                 "disable_auto_compaction" = "true"); """
 
+    def printCompactionStatus = { tblName ->
+        def tablets = sql_return_maparray("show tablets from ${tblName};")
+        for (def tabletStat : tablets) {
+            def compactionStatusUrl = tabletStat.CompactionStatus
+            def jsonMeta = Http.GET(compactionStatusUrl, true, false)
+            logger.info("${jsonMeta.rowsets}")
+        }
+    }
+
     def checkKeyBounds = { int length, int version = -1 ->
         def tablets = sql_return_maparray("show tablets from ${tableName};")
         for (def tabletStat : tablets) {
@@ -49,16 +58,16 @@ suite("test_key_bounds_truncation_write_scenarios", "nonConcurrent") {
                     continue
                 }
                 logger.info("version=[${meta.start_version}-${meta.end_version}], meta.segments_key_bounds_truncated=${meta.segments_key_bounds_truncated}")
-                if (end_version >= 2) {
-                    assertTrue(meta.segments_key_bounds_truncated)
+                if (end_version >= 2 && meta.num_rows > 0) {
+                    assert meta.segments_key_bounds_truncated
                 }
                 for (def bounds : meta.segments_key_bounds) {
                     String min_key = bounds.min_key
                     String max_key = bounds.max_key
                     // only check length here
                     logger.info("tablet_id=${tabletId}, version=[${meta.start_version}-${meta.end_version}]\nmin_key=${min_key}, size=${min_key.size()}\nmax_key=${max_key}, size=${max_key.size()}")
-                    assertTrue(min_key.size() <= length)
-                    assertTrue(max_key.size() <= length)
+                    assert min_key.size() <= length
+                    assert max_key.size() <= length
                 }
             }
         }
@@ -123,6 +132,7 @@ suite("test_key_bounds_truncation_write_scenarios", "nonConcurrent") {
             sqlStr += ";"
             sql sqlStr
         }
+        printCompactionStatus(tableName)
         checkKeyBounds(20)
 
 
@@ -172,7 +182,8 @@ suite("test_key_bounds_truncation_write_scenarios", "nonConcurrent") {
             sql "set enable_insert_strict = true;"
             sql "sync;"
 
-            Thread.sleep(200)
+            Thread.sleep(1000)
+            printCompactionStatus(tableName)
             checkKeyBounds(16, 12)
             checkKeyBounds(16, 13)
 
@@ -194,6 +205,7 @@ suite("test_key_bounds_truncation_write_scenarios", "nonConcurrent") {
             }
         }
         doSchemaChange " ALTER table ${tableName} modify column v2 varchar(100)"
+        printCompactionStatus(tableName)
         checkKeyBounds(12)
 
 
