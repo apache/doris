@@ -27,6 +27,7 @@ import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.system.Backend;
 import org.apache.doris.tablefunction.MetadataTableValuedFunction;
 import org.apache.doris.thrift.TMetaScanNode;
+import org.apache.doris.thrift.TMetaScanRange;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
@@ -70,19 +71,21 @@ public class MetadataScanNode extends ExternalScanNode {
 
     @Override
     protected void createScanRangeLocations() throws UserException {
-        TScanRange scanRange = new TScanRange();
-        scanRange.setMetaScanRange(tvf.getMetaScanRange());
-        // set location
-        TScanRangeLocation location = new TScanRangeLocation();
-        Backend backend = backendPolicy.getNextBe();
-        location.setBackendId(backend.getId());
-        location.setServer(new TNetworkAddress(backend.getHost(), backend.getBePort()));
+        for (TMetaScanRange metaScanRange : tvf.getMetaScanRanges()) {
+            TScanRange scanRange = new TScanRange();
+            scanRange.setMetaScanRange(metaScanRange);
 
-        TScanRangeLocations locations = new TScanRangeLocations();
-        locations.addToLocations(location);
-        locations.setScanRange(scanRange);
+            TScanRangeLocation location = new TScanRangeLocation();
+            Backend backend = backendPolicy.getNextBe();
+            location.setBackendId(backend.getId());
+            location.setServer(new TNetworkAddress(backend.getHost(), backend.getBePort()));
 
-        scanRangeLocations.add(locations);
+            TScanRangeLocations locations = new TScanRangeLocations();
+            locations.addToLocations(location);
+            locations.setScanRange(scanRange);
+
+            scanRangeLocations.add(locations);
+        }
     }
 
     @Override

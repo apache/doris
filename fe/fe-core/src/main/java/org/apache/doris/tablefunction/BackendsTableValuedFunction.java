@@ -103,13 +103,13 @@ public class BackendsTableValuedFunction extends MetadataTableValuedFunction {
     }
 
     @Override
-    public TMetaScanRange getMetaScanRange() {
+    public List<TMetaScanRange> getMetaScanRanges() {
         TMetaScanRange metaScanRange = new TMetaScanRange();
         metaScanRange.setMetadataType(TMetadataType.BACKENDS);
         TBackendsMetadataParams backendsMetadataParams = new TBackendsMetadataParams();
         backendsMetadataParams.setClusterName("");
         metaScanRange.setBackendsParams(backendsMetadataParams);
-        return metaScanRange;
+        return List.of(metaScanRange);
     }
 
     @Override

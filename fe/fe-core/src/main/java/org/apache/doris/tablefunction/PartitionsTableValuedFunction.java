@@ -210,7 +210,7 @@ public class PartitionsTableValuedFunction extends MetadataTableValuedFunction {
     }
 
     @Override
-    public TMetaScanRange getMetaScanRange() {
+    public List<TMetaScanRange> getMetaScanRanges() {
         if (LOG.isDebugEnabled()) {
             LOG.debug("getMetaScanRange() start");
         }
@@ -224,7 +224,7 @@ public class PartitionsTableValuedFunction extends MetadataTableValuedFunction {
         if (LOG.isDebugEnabled()) {
             LOG.debug("getMetaScanRange() end");
         }
-        return metaScanRange;
+        return List.of(metaScanRange);
     }
 
     @Override

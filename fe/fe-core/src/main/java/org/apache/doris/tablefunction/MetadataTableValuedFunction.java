@@ -27,6 +27,8 @@ import org.apache.doris.thrift.TMetaScanRange;
 import org.apache.doris.thrift.TMetadataTableRequestParams;
 import org.apache.doris.thrift.TMetadataType;
 
+import java.util.List;
+
 public abstract class MetadataTableValuedFunction extends TableValuedFunctionIf {
 
     public static Integer getColumnIndexFromColumnName(TMetadataType type, String columnName,
@@ -58,7 +60,7 @@ public abstract class MetadataTableValuedFunction extends TableValuedFunctionIf 
 
     public abstract TMetadataType getMetadataType();
 
-    public abstract TMetaScanRange getMetaScanRange();
+    public abstract List<TMetaScanRange> getMetaScanRanges();
 
     @Override
     public ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc, SessionVariable sv) {
