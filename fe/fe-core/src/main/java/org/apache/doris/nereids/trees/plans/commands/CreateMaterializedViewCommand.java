@@ -289,7 +289,7 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
                 Set<Slot> slots = expr.getInputSlots();
                 for (Slot slot : slots) {
                     if (slot instanceof SlotReference) {
-                        Column column = ((SlotReference) slot).getColumn().orElse(null);
+                        Column column = ((SlotReference) slot).getOriginalColumn().orElse(null);
                         if (column != null) {
                             if (column.isVisible()) {
                                 AggregateType aggregateType = column.getAggregationType();
@@ -729,7 +729,7 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
 
         private AggregateType getAggTypeFromSlot(Slot slot) {
             if (slot instanceof SlotReference) {
-                Column column = ((SlotReference) slot).getColumn().orElse(null);
+                Column column = ((SlotReference) slot).getOriginalColumn().orElse(null);
                 if (column != null && column.isVisible()) {
                     return column.getAggregationType();
                 }

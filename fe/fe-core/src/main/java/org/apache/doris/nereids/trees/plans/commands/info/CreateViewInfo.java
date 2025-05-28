@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 
 import java.util.List;
@@ -49,7 +50,7 @@ public class CreateViewInfo extends BaseViewInfo {
         super(viewName, querySql, simpleColumnDefinitions);
         this.ifNotExists = ifNotExists;
         this.orReplace = orReplace;
-        this.comment = comment;
+        this.comment = Strings.nullToEmpty(comment);
     }
 
     /** init */

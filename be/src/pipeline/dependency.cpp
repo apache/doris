@@ -216,7 +216,7 @@ vectorized::MutableColumns AggSharedState::_get_keys_hash_table() {
                         auto& data = *agg_method.hash_table;
                         bool has_null_key = data.has_null_key_data();
                         const auto size = data.size() - has_null_key;
-                        using KeyType = std::decay_t<decltype(agg_method.iterator->get_first())>;
+                        using KeyType = std::decay_t<decltype(agg_method)>::Key;
                         std::vector<KeyType> keys(size);
 
                         size_t num_rows = 0;
@@ -288,7 +288,8 @@ Status AggSharedState::reset_hash_table() {
                         auto& hash_table = *agg_method.hash_table;
                         using HashTableType = std::decay_t<decltype(hash_table)>;
 
-                        agg_method.reset();
+                        agg_method.arena.clear();
+                        agg_method.inited_iterator = false;
 
                         hash_table.for_each_mapped([&](auto& mapped) {
                             if (mapped) {

@@ -92,11 +92,6 @@ public class MappingSlot extends Slot {
     }
 
     @Override
-    public String getInternalName() {
-        return slot.getInternalName();
-    }
-
-    @Override
     public Slot withName(String name) {
         return this;
     }

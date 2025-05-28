@@ -114,10 +114,8 @@ public class RevokeResourcePrivilegeCommand extends Command implements ForwardWi
 
         if (resourcePattern.isPresent()) {
             PrivBitSet.convertResourcePrivToCloudPriv(resourcePattern.get(), privileges);
-            // modify when grantCommand merged
             GrantResourcePrivilegeCommand.checkResourcePrivileges(privileges, resourcePattern.get());
         } else if (workloadGroupPattern.isPresent()) {
-            // modify when grantCommand merged
             GrantResourcePrivilegeCommand.checkWorkloadGroupPrivileges(privileges, workloadGroupPattern.get());
         }
     }

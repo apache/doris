@@ -158,12 +158,12 @@ public:
                 << "first argument for function: " << name << " should be DataTypeMap";
 
         if constexpr (OldVersion) {
-            return make_nullable(std::make_shared<DataTypeNumber<UInt8>>());
+            return make_nullable(std::make_shared<DataTypeBool>());
         } else {
             if (arguments[0]->is_nullable()) {
-                return make_nullable(std::make_shared<DataTypeNumber<UInt8>>());
+                return make_nullable(std::make_shared<DataTypeBool>());
             } else {
-                return std::make_shared<DataTypeNumber<UInt8>>();
+                return std::make_shared<DataTypeBool>();
             }
         }
     }

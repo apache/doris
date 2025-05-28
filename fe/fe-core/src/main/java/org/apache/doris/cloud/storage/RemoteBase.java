@@ -101,7 +101,7 @@ public abstract class RemoteBase {
             return "Obj{"
                 + "provider=" + provider
                 + ", ak='" + ak + '\''
-                + ", sk='" + sk + '\''
+                + ", sk='******" + '\''
                 + ", bucket='" + bucket + '\''
                 + ", endpoint='" + endpoint + '\''
                 + ", region='" + region + '\''

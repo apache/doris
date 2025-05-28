@@ -49,6 +49,9 @@ using int128_t = __int128;
 
 template <class OS_TYPE>
 class JsonbWriterT {
+    /// TODO: maybe we should not use a template class here
+    static_assert(std::is_same_v<OS_TYPE, JsonbOutStream>);
+
 public:
     JsonbWriterT() : alloc_(true), hasHdr_(false), kvState_(WS_Value), str_pos_(0) {
         os_ = new OS_TYPE();
@@ -73,40 +76,22 @@ public:
             ;
     }
 
-    uint32_t writeKey(const char* key, hDictInsert handler = nullptr) {
-        return writeKey(key, strlen(key), handler);
-    }
+    uint32_t writeKey(const char* key) { return writeKey(key, strlen(key)); }
 
     // write a key string (or key id if an external dict is provided)
-    uint32_t writeKey(const char* key, uint8_t len, hDictInsert handler = nullptr) {
+    uint32_t writeKey(const char* key, uint8_t len) {
         if (!stack_.empty() && verifyKeyState()) {
-            int key_id = -1;
-            if (handler) {
-                key_id = handler(key, len);
-            }
-
             uint32_t size = sizeof(uint8_t);
-            if (key_id < 0) {
-                os_->put(len);
-                if (len == 0) {
-                    // NOTE: we use sMaxKeyId to represent an empty key
-                    JsonbKeyValue::keyid_type idx = JsonbKeyValue::sMaxKeyId;
-                    os_->write((char*)&idx, sizeof(JsonbKeyValue::keyid_type));
-                    size += sizeof(JsonbKeyValue::keyid_type);
-                } else {
-                    os_->write(key, len);
-                    size += len;
-                }
-            } else if (key_id < JsonbKeyValue::sMaxKeyId) {
-                JsonbKeyValue::keyid_type idx = key_id;
-                os_->put(0);
+            os_->put(len);
+            if (len == 0) {
+                // NOTE: we use sMaxKeyId to represent an empty key
+                JsonbKeyValue::keyid_type idx = JsonbKeyValue::sMaxKeyId;
                 os_->write((char*)&idx, sizeof(JsonbKeyValue::keyid_type));
                 size += sizeof(JsonbKeyValue::keyid_type);
-            } else { // key id overflow
-                assert(0);
-                return 0;
+            } else {
+                os_->write(key, len);
+                size += len;
             }
-
             kvState_ = WS_Key;
             return size;
         }
@@ -559,7 +544,7 @@ private:
     bool first_ = true;
 };
 
-typedef JsonbWriterT<JsonbOutStream> JsonbWriter;
+using JsonbWriter = JsonbWriterT<JsonbOutStream>;
 
 } // namespace doris
 

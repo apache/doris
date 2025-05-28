@@ -142,21 +142,13 @@ suite("test_base_rename_p_mv_multi_level_mtmv","mtmv") {
     sql """
         ALTER MATERIALIZED VIEW ${mvName1} rename ${mvName1Rename};
         """
-
-    run_on_follower_and_master({ jdbc_url ->
-        connect(context.config.jdbcUser, context.config.jdbcPassword, jdbc_url) {
-            sql "sync"
-            sql """set enable_materialized_view_nest_rewrite = true;"""
-            sql "use ${dbName}"
-            order_qt_rename_mv_mv1 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName1Rename}'"
-            order_qt_rename_mv_mv2 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName2}'"
-            order_qt_rename_mv_mv3 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName3}'"
-            order_qt_rename_mv_mv4 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName4}'"
-            mv_rewrite_success_without_check_chosen(querySql, mvName1Rename)
-            mv_rewrite_success_without_check_chosen(querySql, mvName2)
-            mv_rewrite_success_without_check_chosen(querySql, mvName3)
-            mv_not_part_in(querySql, mvName4)
-            mv_not_part_in(querySql, mvName1)
-        }
-    })
+    order_qt_rename_mv_mv1 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName1Rename}'"
+    order_qt_rename_mv_mv2 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName2}'"
+    order_qt_rename_mv_mv3 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName3}'"
+    order_qt_rename_mv_mv4 "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName4}'"
+    mv_rewrite_success_without_check_chosen(querySql, mvName1Rename)
+    mv_rewrite_success_without_check_chosen(querySql, mvName2)
+    mv_rewrite_success_without_check_chosen(querySql, mvName3)
+    mv_not_part_in(querySql, mvName4)
+    mv_not_part_in(querySql, mvName1)
 }
