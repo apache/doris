@@ -22,6 +22,7 @@ import com.google.common.collect.Lists;
 import java.util.List;
 
 public class SupportedSysTables {
+    // TODO: use kv map
     public static final List<SysTable> HIVE_SUPPORTED_SYS_TABLES;
     public static final List<SysTable> ICEBERG_SUPPORTED_SYS_TABLES;
     public static final List<SysTable> PAIMON_SUPPORTED_SYS_TABLES;

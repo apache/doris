@@ -66,20 +66,6 @@ public class IcebergTableValuedFunction extends MetadataTableValuedFunction {
             new Column("manifest_list", ScalarType.STRING),
             new Column("summary", new MapType(ScalarType.STRING, ScalarType.STRING)));
 
-    private static final ImmutableMap<String, Integer> COLUMN_TO_INDEX;
-
-    static {
-        ImmutableMap.Builder<String, Integer> builder = new ImmutableMap.Builder<>();
-        for (int i = 0; i < SCHEMA_SNAPSHOT.size(); i++) {
-            builder.put(SCHEMA_SNAPSHOT.get(i).getName().toLowerCase(), i);
-        }
-        COLUMN_TO_INDEX = builder.build();
-    }
-
-    public static Integer getColumnIndexFromColumnName(String columnName) {
-        return COLUMN_TO_INDEX.get(columnName.toLowerCase());
-    }
-
     private TIcebergQueryType queryType;
 
     // here tableName represents the name of a table in Iceberg.

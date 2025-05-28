@@ -746,8 +746,16 @@ enum TMetadataType {
   HUDI,
 }
 
+// https://iceberg.apache.org/docs/nightly/spark-queries/#inspecting-tables
 enum TIcebergQueryType {
-  SNAPSHOTS
+  SNAPSHOTS,
+  HISTORY,
+  METADATA_LOG_ENTRIES,
+  ENTRIES,
+  FILES,
+  MANIFESTS,
+  PARTITIONS,
+  POSITION_DELETES
 }
 
 enum THudiQueryType {

@@ -39,8 +39,6 @@ public abstract class MetadataTableValuedFunction extends TableValuedFunctionIf 
                 return FrontendsTableValuedFunction.getColumnIndexFromColumnName(columnName);
             case FRONTENDS_DISKS:
                 return FrontendsDisksTableValuedFunction.getColumnIndexFromColumnName(columnName);
-            case ICEBERG:
-                return IcebergTableValuedFunction.getColumnIndexFromColumnName(columnName);
             case HUDI:
                 return HudiTableValuedFunction.getColumnIndexFromColumnName(columnName);
             case CATALOGS:

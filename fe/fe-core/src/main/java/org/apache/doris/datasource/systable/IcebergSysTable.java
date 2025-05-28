@@ -47,11 +47,11 @@ public class IcebergSysTable extends SysTable {
             new IcebergSysTable("partitions"),
             new IcebergSysTable("position_deletes"));
 
-    private final String sysTable;
+    private final String tableName;
 
-    private IcebergSysTable(String sysTable) {
-        super(sysTable, "iceberg_meta");
-        this.sysTable = sysTable;
+    private IcebergSysTable(String tableName) {
+        super(tableName, "iceberg_meta");
+        this.tableName = tableName;
     }
 
     public static List<IcebergSysTable> getSupportedIcebergSysTables() {
@@ -62,7 +62,7 @@ public class IcebergSysTable extends SysTable {
     public TableValuedFunction createFunction(String ctlName, String dbName, String sourceNameWithMetaName) {
         List<String> nameParts = Lists.newArrayList(ctlName, dbName,
                 getSourceTableName(sourceNameWithMetaName));
-        return IcebergMeta.createIcebergMeta(nameParts, sysTable);
+        return IcebergMeta.createIcebergMeta(nameParts, tableName);
     }
 
     @Override
@@ -71,7 +71,7 @@ public class IcebergSysTable extends SysTable {
                 getSourceTableName(sourceNameWithMetaName));
         Map<String, String> params = Maps.newHashMap();
         params.put(IcebergTableValuedFunction.TABLE, Joiner.on(".").join(nameParts));
-        params.put(IcebergTableValuedFunction.QUERY_TYPE, sysTable);
+        params.put(IcebergTableValuedFunction.QUERY_TYPE, tableName);
         try {
             return new TableValuedFunctionRef(tvfName, null, params);
         } catch (org.apache.doris.common.AnalysisException e) {
