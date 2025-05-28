@@ -229,7 +229,6 @@ public class StatementContext implements Closeable {
     // Record mtmv and valid partitions map because this is time-consuming behavior
     private final Map<BaseTableInfo, Collection<Partition>> mvCanRewritePartitionsMap = new HashMap<>();
 
-
     private final Map<MvccTableInfo, MvccSnapshot> snapshots = Maps.newHashMap();
 
     public StatementContext() {
