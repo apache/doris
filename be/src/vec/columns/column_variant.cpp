@@ -45,6 +45,7 @@
 #include "common/status.h"
 #include "exprs/json_functions.h"
 #include "olap/olap_common.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/jsonb_value.h"
 #include "runtime/primitive_type.h"
 #include "util/defer_op.h"
@@ -206,60 +207,51 @@ void ColumnVariant::Subcolumn::add_new_column_part(DataTypePtr type) {
 }
 
 void ColumnVariant::Subcolumn::insert(Field field, FieldInfo info) {
-    auto base_type = info.scalar_type_id;
-    if (base_type == PrimitiveType::INVALID_TYPE && info.num_dimensions == 0) {
+    if (field.is_null()) {
         insert_default();
         return;
     }
-    ++num_rows;
-    auto column_dim = least_common_type.get_dimensions();
-    auto value_dim = info.num_dimensions;
-    if (least_common_type.get_base()->get_primitive_type() == INVALID_TYPE) {
-        column_dim = value_dim;
-    }
-    if (base_type == PrimitiveType::INVALID_TYPE) {
-        value_dim = column_dim;
-    }
-    bool type_changed = false;
-    if (value_dim != column_dim || info.num_dimensions >= 2) {
-        // Deduce to JSONB
-        VLOG_DEBUG << fmt::format(
-                "Dimension of types mismatched between inserted value and column, "
-                "expected:{}, but meet:{} for type:{}",
-                column_dim, value_dim, least_common_type.get()->get_name());
-        base_type = MOST_COMMON_TYPE_ID;
-        value_dim = 0;
-        type_changed = true;
-    }
-    // Currently we support specify predefined schema for other types include decimal, datetime ...etc
-    // so we should set specified info to create correct types, and those predefined types are static and
-    // no conflict, so we can set them directly.
-    auto base_data_type =
-            create_array_of_type(base_type, value_dim, is_nullable, info.precision, info.scale);
+    auto from_type_id = info.scalar_type_id;
+    auto from_dim = info.num_dimensions;
+    auto least_common_type_id = least_common_type.get_base_type_id();
+    auto least_common_type_dim = least_common_type.get_dimensions();
+    bool type_changed = info.need_convert;
     if (data.empty()) {
-        add_new_column_part(base_data_type);
-    } else if ((least_common_type.get_base_type_id() != base_type &&
-                base_type != PrimitiveType::INVALID_TYPE) ||
-               type_changed) {
-        if (schema_util::is_conversion_required_between_integers(
-                    base_type, least_common_type.get_base_type_id())) {
-            DataTypePtr least_type;
-            get_least_supertype_jsonb(DataTypes {base_data_type, least_common_type.get()},
-                                      &least_type);
-            if (!least_type->equals(*base_data_type)) {
+        if (from_dim > 1) {
+            add_new_column_part(create_array_of_type(PrimitiveType::TYPE_JSONB, 0, is_nullable));
+            type_changed = true;
+        } else {
+            add_new_column_part(create_array_of_type(from_type_id, from_dim, is_nullable));
+        }
+    } else {
+        if (least_common_type_dim != from_dim) {
+            add_new_column_part(create_array_of_type(PrimitiveType::TYPE_JSONB, 0, is_nullable));
+            if (from_type_id != PrimitiveType::TYPE_JSONB || from_dim != 0) {
                 type_changed = true;
             }
-            add_new_column_part(least_type);
+        } else {
+            if (least_common_type_id != from_type_id &&
+                schema_util::is_conversion_required_between_integers(from_type_id,
+                                                                     least_common_type_id)) {
+                type_changed = true;
+                DataTypePtr new_least_common_base_type;
+                get_least_supertype_jsonb(PrimitiveTypeSet {from_type_id, least_common_type_id},
+                                          &new_least_common_base_type);
+                if (new_least_common_base_type->get_primitive_type() != least_common_type_id) {
+                    add_new_column_part(
+                            create_array_of_type(new_least_common_base_type->get_primitive_type(),
+                                                 least_common_type_dim, is_nullable));
+                }
+            }
         }
     }
-    // 1. type changed means encounter different type, we need to convert it to the least common type
-    // 2. need_convert means the type is not the same as the least common type, we need to convert it
-    if (type_changed || info.need_convert) {
+
+    if (type_changed) {
         Field new_field;
         convert_field_to_type(field, *least_common_type.get(), &new_field);
         field = new_field;
     }
-
+    ++num_rows;
     data.back()->insert(field);
 }
 
@@ -775,6 +767,11 @@ bool ColumnVariant::Subcolumn::is_null_at(size_t n) const {
     for (const auto& part : data) {
         if (ind < part->size()) {
             const auto* nullable = check_and_get_column<ColumnNullable>(part.get());
+            if (nullable) {
+                std::cout << "nullable: " << (nullable->is_null_at(ind) ? "true" : "false") << std::endl;
+            } else {
+                std::cout << "column is not nullable" << std::endl;
+            }
             return nullable ? nullable->is_null_at(ind) : false;
         }
         ind -= part->size();
