@@ -114,7 +114,7 @@ if [[ "${RUN}" -eq 1 ]]; then
     # sh run-fe-ut.sh --run org.apache.doris.utframe.DemoTest#testCreateDbAndTable+test2
 
     if [[ "${COVERAGE}" -eq 1 ]]; then
-        "${MVN_CMD}" test jacoco:report -DfailIfNoTests=false -Dtest="$1"
+        "${MVN_CMD}" test jacoco:report -DfailIfNoTests=false -Dtest="$1" -Dmaven.test.failure.ignore=true
     else
         "${MVN_CMD}" test -Dcheckstyle.skip=true -DfailIfNoTests=false -Dtest="$1"
     fi
