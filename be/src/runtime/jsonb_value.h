@@ -43,7 +43,7 @@ namespace doris {
 //     }
 
 struct JsonBinaryValue final {
-    static const int MAX_LENGTH = (1 << 30);
+    static constexpr int MAX_LENGTH = (1 << 30);
 
     JsonBinaryValue() = default;
 
@@ -52,6 +52,12 @@ struct JsonBinaryValue final {
     JsonBinaryValue(JsonBinaryValue&&) = delete;
     JsonBinaryValue& operator=(JsonBinaryValue&&) = delete;
 
+    /// TODO: The constructor here calls from_json_string and ignores its return value.
+    // If an error occurs, ptr = nullptr and len = 0.
+    // Previously, since the column was nullable, insert_data would handle ptr being null like this:
+    //     /// Will insert null value if pos=nullptr
+    //     void insert_data(const char* pos, size_t length) override;
+    // However, this approach should not be used.
     JsonBinaryValue(char* ptr, size_t len) {
         static_cast<void>(from_json_string(const_cast<const char*>(ptr), len));
     }
@@ -65,10 +71,18 @@ struct JsonBinaryValue final {
     size_t size() const { return len; }
 
     Status from_json_string(const char* s, size_t length) {
+        // reset all fields
+        ptr = nullptr;
+        len = 0;
+        writer.reset();
         RETURN_IF_ERROR(JsonbParser::parse(s, length, writer));
         ptr = writer.getOutput()->getBuffer();
         len = writer.getOutput()->getSize();
-        DCHECK_LE(len, MAX_LENGTH);
+        if (len > MAX_LENGTH) {
+            return Status::InternalError(
+                    "Jsonb value length {} exceeds maximum allowed length of {} bytes", len,
+                    MAX_LENGTH);
+        }
         return Status::OK();
     }
 
