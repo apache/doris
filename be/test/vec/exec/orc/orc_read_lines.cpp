@@ -111,6 +111,8 @@ static void read_orc_line(int64_t line, std::string block_dump) {
     range.path = "./be/test/exec/test_data/orc_scanner/my-file.orc";
     range.start_offset = 0;
     range.size = 2024;
+    range.table_format_params.table_format_type = "hive";
+    range.__isset.table_format_params = true;
 
     io::IOContext io_ctx;
     std::string time_zone = "CST";
@@ -129,7 +131,7 @@ static void read_orc_line(int64_t line, std::string block_dump) {
                            tuple_desc->slots().size());
     reader->set_row_id_column_iterator(iterator_pair);
 
-    auto status = reader->init_reader(&column_names, {}, nullptr, {}, false, tuple_desc, &row_desc,
+    auto status = reader->init_reader(&column_names, nullptr, {}, false, tuple_desc, &row_desc,
                                       nullptr, nullptr);
 
     EXPECT_TRUE(status.ok());
@@ -170,6 +172,8 @@ static void read_orc_line(int64_t line, std::string block_dump) {
 
     range.format_type = TFileFormatType::FORMAT_ORC;
     range.__isset.format_type = true;
+    range.table_format_params.table_format_type = "hive";
+    range.__isset.table_format_params = true;
     std::unordered_map<std::string, int> colname_to_slot_id;
     for (auto slot : tuple_desc->slots()) {
         TFileScanSlotInfo slot_info;

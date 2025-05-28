@@ -38,22 +38,6 @@ PaimonReader::PaimonReader(std::unique_ptr<GenericReader> file_format_reader,
             ADD_CHILD_TIMER(_profile, "DeleteFileReadTime", paimon_profile);
 }
 
-Status PaimonReader::get_file_col_id_to_name(bool& exist_schema,
-                                             std::map<int, std::string>& file_col_id_to_name) {
-    if (!_params.__isset.history_schema_info) [[unlikely]] {
-        return Status::RuntimeError("miss paimon schema info.");
-    }
-
-    if (!_params.history_schema_info.contains(_range.table_format_params.paimon_params.schema_id))
-            [[unlikely]] {
-        return Status::InternalError("miss paimon schema info.");
-    }
-
-    file_col_id_to_name =
-            _params.history_schema_info.at(_range.table_format_params.paimon_params.schema_id);
-    return Status::OK();
-}
-
 Status PaimonReader::init_row_filters() {
     const auto& table_desc = _range.table_format_params.paimon_params;
     if (!table_desc.__isset.deletion_file) {
@@ -123,9 +107,7 @@ Status PaimonReader::init_row_filters() {
 }
 
 Status PaimonReader::get_next_block_inner(Block* block, size_t* read_rows, bool* eof) {
-    RETURN_IF_ERROR(TableSchemaChangeHelper::get_next_block_before(block));
     RETURN_IF_ERROR(_file_format_reader->get_next_block(block, read_rows, eof));
-    RETURN_IF_ERROR(TableSchemaChangeHelper::get_next_block_after(block));
     return Status::OK();
 }
 #include "common/compile_check_end.h"

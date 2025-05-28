@@ -131,6 +131,7 @@ protected:
     std::vector<int64_t> _iceberg_delete_rows;
     std::vector<std::string> _expand_col_names;
     std::vector<ColumnWithTypeAndName> _expand_columns;
+    std::vector<std::string> _all_required_col_names;
 
     Fileformat _file_format = Fileformat::NONE;
 
@@ -165,7 +166,6 @@ public:
                                  kv_cache, io_ctx) {}
     Status init_reader(
             const std::vector<std::string>& file_col_names,
-            const std::unordered_map<int32_t, std::string>& col_id_name_map,
             const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
             const VExprContextSPtrs& conjuncts, const TupleDescriptor* tuple_descriptor,
             const RowDescriptor* row_descriptor,
@@ -180,9 +180,6 @@ public:
         auto* parquet_reader = (ParquetReader*)(_file_format_reader.get());
         parquet_reader->set_delete_rows(&_iceberg_delete_rows);
     }
-
-    Status get_file_col_id_to_name(bool& exist_schema,
-                                   std::map<int32_t, std::string>& file_col_id_to_name) final;
 
 protected:
     std::unique_ptr<GenericReader> _create_equality_reader(
@@ -212,16 +209,12 @@ public:
 
     Status init_reader(
             const std::vector<std::string>& file_col_names,
-            const std::unordered_map<int32_t, std::string>& col_id_name_map,
             const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
             const VExprContextSPtrs& conjuncts, const TupleDescriptor* tuple_descriptor,
             const RowDescriptor* row_descriptor,
             const std::unordered_map<std::string, int>* colname_to_slot_id,
             const VExprContextSPtrs* not_single_slot_filter_conjuncts,
             const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts);
-
-    Status get_file_col_id_to_name(bool& exist_schema,
-                                   std::map<int32_t, std::string>& file_col_id_to_name) final;
 
 protected:
     std::unique_ptr<GenericReader> _create_equality_reader(
@@ -231,7 +224,7 @@ protected:
     }
 
 private:
-    const std::string ICEBERG_ORC_ATTRIBUTE = "iceberg.id";
+    static const std::string ICEBERG_ORC_ATTRIBUTE;
 };
 
 } // namespace vectorized

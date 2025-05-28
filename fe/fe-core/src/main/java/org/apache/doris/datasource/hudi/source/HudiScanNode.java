@@ -30,6 +30,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.FileFormatUtils;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.ExternalUtil;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.TableFormatType;
 import org.apache.doris.datasource.hive.HivePartition;
@@ -115,6 +116,9 @@ public class HudiScanNode extends HiveScanNode {
     private TableScanParams scanParams;
     private IncrementalRelation incrementalRelation;
     private HoodieTableFileSystemView fsView;
+
+    // The schema information involved in the current query process (including historical schema).
+    protected ConcurrentHashMap<Long, Boolean> currentQuerySchema = new ConcurrentHashMap<>();
 
     /**
      * External file scan node for Query Hudi table
@@ -218,7 +222,12 @@ public class HudiScanNode extends HiveScanNode {
             .getExtMetaCacheMgr()
             .getFsViewProcessor(hmsTable.getCatalog())
             .getFsView(hmsTable.getDbName(), hmsTable.getName(), hudiClient);
-        params.setHistorySchemaInfo(new ConcurrentHashMap<>());
+        // Todo: Get the current schema id of the table, instead of using -1.
+        // In Be Parquet/Rrc reader, if `current table schema id == current file schema id`, then its
+        // `table_info_node_ptr` will be `TableSchemaChangeHelper::ConstNode`. When using `ConstNode`,
+        // you need to pay special attention to the `case difference` between the `table column name`
+        // and `the file column name`.
+        ExternalUtil.initSchemaInfo(params, -1L, table.getColumns());
     }
 
     @Override
@@ -253,6 +262,13 @@ public class HudiScanNode extends HiveScanNode {
         }
     }
 
+
+    private void putHistorySchemaInfo(InternalSchema internalSchema) {
+        if (currentQuerySchema.putIfAbsent(internalSchema.schemaId(), Boolean.TRUE) == null) {
+            params.addToHistorySchemaInfo(HudiUtils.getSchemaInfo(internalSchema));
+        }
+    }
+
     private void setHudiParams(TFileRangeDesc rangeDesc, HudiSplit hudiSplit) {
         TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();
         tableFormatFileDesc.setTableFormatType(hudiSplit.getTableFormatType().value());
@@ -276,18 +292,14 @@ public class HudiScanNode extends HiveScanNode {
                         new File(hudiSplit.getPath().getNormalizedLocation()).getName()));
                 InternalSchema internalSchema = hudiSchemaCacheValue
                         .getCommitInstantInternalSchema(hudiClient, commitInstantTime);
-                params.history_schema_info.computeIfAbsent(
-                        internalSchema.schemaId(),
-                        k -> HudiUtils.getSchemaInfo(internalSchema)); //for schema change. (native reader)
+                putHistorySchemaInfo(internalSchema); //for schema change. (native reader)
                 fileDesc.setSchemaId(internalSchema.schemaId());
             } else {
                 try {
                     TableSchemaResolver schemaUtil = new TableSchemaResolver(hudiClient);
                     InternalSchema internalSchema =
                             AvroInternalSchemaConverter.convert(schemaUtil.getTableAvroSchema(true));
-                    params.history_schema_info.computeIfAbsent(
-                            internalSchema.schemaId(),
-                            k -> HudiUtils.getSchemaInfo(internalSchema)); // Handle column name case for BE.
+                    putHistorySchemaInfo(internalSchema); //Handle column name case for BE
                     fileDesc.setSchemaId(internalSchema.schemaId());
                 } catch (Exception e) {
                     throw new RuntimeException("Cannot get hudi table schema.", e);
