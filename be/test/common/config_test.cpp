@@ -74,7 +74,7 @@ TEST_F(ConfigTest, UpdateConfigs) {
     DEFINE_mInt32(cfg_int32_t, "65536123");
     DEFINE_mInt64(cfg_int64_t, "4294967296123");
     DEFINE_String(cfg_std_string, "doris_config_test_string");
-    DEFINE_String(cfg_conf_path, "doris_config_test_conf_path");
+    DEFINE_mString(cfg_conf_path, "doris_config_test_conf_path");
 
     EXPECT_TRUE(config::init(nullptr, true));
 
@@ -150,7 +150,6 @@ TEST_F(ConfigTest, UpdateConfigs) {
     // replace
     setenv("TEST_CONF_ENV", "test_dir1", true);
     s = config::set_config("cfg_conf_path", "${TEST_CONF_ENV}/test");
-    EXPECT_EQ(s.to_string(), "");
     EXPECT_TRUE(s.ok());
     EXPECT_EQ(cfg_conf_path, "test_dir1/test");
 
