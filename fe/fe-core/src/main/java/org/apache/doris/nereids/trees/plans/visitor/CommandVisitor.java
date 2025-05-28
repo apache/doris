@@ -36,6 +36,7 @@ import org.apache.doris.nereids.trees.plans.commands.AlterColumnStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterDatabasePropertiesCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterJobStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterMTMVCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterResourceCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterSqlBlockRuleCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterStoragePolicyCommand;
@@ -376,6 +377,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitDropDictionaryCommand(DropDictionaryCommand dropDictionaryCommand, C context) {
         return visitCommand(dropDictionaryCommand, context);
+    }
+
+    default R visitAlterResourceCommand(AlterResourceCommand alterResourceCommand, C context) {
+        return visitCommand(alterResourceCommand, context);
     }
 
     default R visitDropJobCommand(DropJobCommand dropJobCommand, C context) {
