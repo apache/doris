@@ -18,7 +18,6 @@
 #include "olap/rowset_builder.h"
 
 #include <brpc/controller.h>
-#include <bthread/mutex.h>
 #include <fmt/format.h>
 
 #include <filesystem>
@@ -28,8 +27,6 @@
 #include <utility>
 
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
-#include "cloud/cloud_tablet.h"
-#include "cloud/config.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/status.h"
@@ -288,21 +285,6 @@ Status BaseRowsetBuilder::submit_calc_delete_bitmap_task() {
             RETURN_IF_ERROR(_tablet->calc_delete_bitmap_between_segments(_rowset->rowset_id(),
                                                                          segments, _delete_bitmap));
         }
-    }
-
-    // to prevent seeing intermediate state of a tablet
-    std::unique_lock<bthread::Mutex> sync_lock;
-    if (config::is_cloud_mode()) {
-        sync_lock = std::unique_lock<bthread::Mutex>(
-                std::static_pointer_cast<CloudTablet>(tablet())->get_sync_meta_lock());
-    }
-
-    // tablet is under alter process. The delete bitmap will be calculated after conversion.
-    if (_tablet->tablet_state() == TABLET_NOTREADY) {
-        LOG(INFO) << "tablet is under alter process, delete bitmap will be calculated later, "
-                     "tablet_id: "
-                  << _tablet->tablet_id() << " txn_id: " << _req.txn_id;
-        return Status::OK();
     }
 
     // For partial update, we need to fill in the entire row of data, during the calculation
