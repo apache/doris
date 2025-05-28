@@ -94,7 +94,10 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     @Override
     public List<String> listTableNames(SessionContext ctx, String dbName) {
         makeSureInitialized();
-        return metadataOps.listTableNames(dbName);
+        List<String> tableNames = metadataOps.listTableNames(dbName);
+        List<String> viewNames = metadataOps.listViewNames(dbName);
+        tableNames.addAll(viewNames);
+        return tableNames;
     }
 
     @Override
@@ -108,5 +111,10 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     protected void initS3Param(Configuration conf) {
         Map<String, String> properties = catalogProperty.getHadoopProperties();
         conf.set(Constants.AWS_CREDENTIALS_PROVIDER, PropertyConverter.getAWSCredentialsProviders(properties));
+    }
+
+    @Override
+    public boolean viewExists(String dbName, String viewName) {
+        return metadataOps.viewExists(dbName, viewName);
     }
 }

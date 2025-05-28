@@ -42,6 +42,9 @@ public class IcebergApiSource implements IcebergSource {
 
     public IcebergApiSource(IcebergExternalTable table, TupleDescriptor desc,
                             Map<String, ColumnRange> columnNameToRange) {
+        if (table.isView()) {
+            throw new UnsupportedOperationException("IcebergApiSource does not support view");
+        }
         this.icebergExtTable = table;
 
         this.originTable = Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache().getIcebergTable(

@@ -42,10 +42,14 @@ import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.SupportsNamespaces;
 import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.catalog.ViewCatalog;
+import org.apache.iceberg.types.Type;
+import org.apache.iceberg.view.View;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -126,7 +130,20 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         try {
             return preExecutionAuthenticator.execute(() -> {
                 List<TableIdentifier> tableIdentifiers = catalog.listTables(getNamespace(dbName));
-                return tableIdentifiers.stream().map(TableIdentifier::name).collect(Collectors.toList());
+                List<String> views;
+                if (catalog instanceof ViewCatalog) {
+                    views = ((ViewCatalog) catalog).listViews(getNamespace(dbName))
+                        .stream().map(TableIdentifier::name).collect(Collectors.toList());
+                } else {
+                    views = Collections.emptyList();
+                }
+                if (views.isEmpty()) {
+                    return tableIdentifiers.stream().map(TableIdentifier::name).collect(Collectors.toList());
+                } else {
+                    return tableIdentifiers.stream()
+                        .map(TableIdentifier::name)
+                        .filter(name -> !views.contains(name)).collect(Collectors.toList());
+                }
             });
         } catch (Exception e) {
             throw new RuntimeException("Failed to list table names, error message is:" + e.getMessage(), e);
@@ -279,7 +296,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                 .map(col -> new StructField(col.getName(), col.getType(), col.getComment(), col.isAllowNull()))
                 .collect(Collectors.toList());
         StructType structType = new StructType(new ArrayList<>(collect));
-        org.apache.iceberg.types.Type visit =
+        Type visit =
                 DorisTypeVisitor.visit(structType, new DorisTypeToIcebergType(structType));
         Schema schema = new Schema(visit.asNestedType().asStructType().fields());
         Map<String, String> properties = stmt.getProperties();
@@ -369,6 +386,31 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             return preExecutionAuthenticator.execute(() -> catalog.loadTable(getTableIdentifier(dbName, tblName)));
         } catch (Exception e) {
             throw new RuntimeException("Failed to load table, error message is:" + e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public boolean viewExists(String dbName, String viewName) {
+        try {
+            preExecutionAuthenticator.execute(() ->
+                    ((ViewCatalog) catalog).viewExists(getTableIdentifier(dbName, viewName)));
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to check view exist, error message is:" + e.getMessage(), e);
+
+        }
+        return false;
+    }
+
+    @Override
+    public View loadView(String dbName, String tblName) {
+        if (!(catalog instanceof ViewCatalog)) {
+            throw new RuntimeException("Catalog is not a ViewCatalog");
+        }
+        try {
+            ViewCatalog viewCatalog = (ViewCatalog) catalog;
+            return preExecutionAuthenticator.execute(() -> viewCatalog.loadView(TableIdentifier.of(dbName, tblName)));
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to load view, error message is:" + e.getMessage(), e);
         }
     }
 
