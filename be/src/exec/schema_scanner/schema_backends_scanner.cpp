@@ -34,7 +34,7 @@ namespace vectorized {
 class Block;
 } // namespace vectorized
 
-std::vector<SchemaScanner::ColumnDesc> SchemaBackendsScanner::_s_tbls_columns = {
+std::vector<SchemaScanner::ColumnDesc> SchemaBackendsScanner::_s_backends_columns = {
         //   name,       type,          size,     is_null
         {"BACKENDID", TYPE_BIGINT, sizeof(int64_t), true},
         {"HOST", TYPE_STRING, sizeof(StringRef), true},
@@ -66,7 +66,7 @@ std::vector<SchemaScanner::ColumnDesc> SchemaBackendsScanner::_s_tbls_columns = 
 };
 
 SchemaBackendsScanner::SchemaBackendsScanner()
-        : SchemaScanner(_s_tbls_columns, TSchemaTableType::SCH_BACKENDS) {}
+        : SchemaScanner(_s_backends_columns, TSchemaTableType::SCH_BACKENDS) {}
 
 SchemaBackendsScanner::~SchemaBackendsScanner() {}
 
@@ -96,9 +96,9 @@ Status SchemaBackendsScanner::_get_new_table() {
     }
 
     if (nullptr != _param->common_param->ip && 0 != _param->common_param->port) {
-        RETURN_IF_ERROR(SchemaHelper::list_table_privilege_status(*(_param->common_param->ip),
-                                                                  _param->common_param->port,
-                                                                  table_params, &_priv_result));
+        RETURN_IF_ERROR(SchemaHelper::fetch_backends(*(_param->common_param->ip),
+                                                     _param->common_param->port,
+                                                     table_params, &_backends_result));
     } else {
         return Status::InternalError("IP or port doesn't exists");
     }
@@ -114,7 +114,7 @@ Status SchemaBackendsScanner::get_next_block_internal(vectorized::Block* block, 
     }
 
     *eos = true;
-    if (_priv_result.privileges.empty()) {
+    if (_backends_result.backends.empty()) {
         return Status::OK();
     }
     return _fill_block_impl(block);
@@ -122,13 +122,30 @@ Status SchemaBackendsScanner::get_next_block_internal(vectorized::Block* block, 
 
 Status SchemaBackendsScanner::_fill_block_impl(vectorized::Block* block) {
     SCOPED_TIMER(_fill_block_timer);
-    auto privileges_num = _priv_result.privileges.size();
-    std::vector<void*> datas(privileges_num);
+    const auto& backends = _backends_result.backends;
+    size_t row_num = backends.size();
+    if (row_num == 0) {
+        return Status::OK();
+    }
+
+    for (size_t col_idx = 0; col_idx < _s_backends_columns.size(); ++col_idx) {
+        std::vector<void*> datas(row_num);
+
+        std::vector<StringRef> str_refs(row_num);
+        std::vector<int32_t> int32_refs(row_num);
+        std::vector<int64_t> int64_refs(row_num);
+        std::vector<bool> int64_refs(row_num);
+
+
+
+    }
+
+
 
     // grantee
     {
-        std::vector<StringRef> strs(privileges_num);
-        for (int i = 0; i < privileges_num; ++i) {
+        std::vector<StringRef> strs(row_num);
+        for (int i = 0; i < row_num; ++i) {
             const TPrivilegeStatus& priv_status = _priv_result.privileges[i];
             strs[i] = StringRef(priv_status.grantee.c_str(), priv_status.grantee.size());
             datas[i] = strs.data() + i;
@@ -140,15 +157,15 @@ Status SchemaBackendsScanner::_fill_block_impl(vectorized::Block* block) {
     {
         std::string definer = "def";
         StringRef str = StringRef(definer.c_str(), definer.size());
-        for (int i = 0; i < privileges_num; ++i) {
+        for (int i = 0; i < row_num; ++i) {
             datas[i] = &str;
         }
         RETURN_IF_ERROR(fill_dest_column_for_range(block, 1, datas));
     }
     // schema
     {
-        std::vector<StringRef> strs(privileges_num);
-        for (int i = 0; i < privileges_num; ++i) {
+        std::vector<StringRef> strs(row_num);
+        for (int i = 0; i < row_num; ++i) {
             const TPrivilegeStatus& priv_status = _priv_result.privileges[i];
             strs[i] = StringRef(priv_status.schema.c_str(), priv_status.schema.size());
             datas[i] = strs.data() + i;
@@ -157,8 +174,8 @@ Status SchemaBackendsScanner::_fill_block_impl(vectorized::Block* block) {
     }
     // table name
     {
-        std::vector<StringRef> strs(privileges_num);
-        for (int i = 0; i < privileges_num; ++i) {
+        std::vector<StringRef> strs(row_num);
+        for (int i = 0; i < row_num; ++i) {
             const TPrivilegeStatus& priv_status = _priv_result.privileges[i];
             strs[i] = StringRef(priv_status.table_name.c_str(), priv_status.table_name.size());
             datas[i] = strs.data() + i;
@@ -167,8 +184,8 @@ Status SchemaBackendsScanner::_fill_block_impl(vectorized::Block* block) {
     }
     // privilege type
     {
-        std::vector<StringRef> strs(privileges_num);
-        for (int i = 0; i < privileges_num; ++i) {
+        std::vector<StringRef> strs(row_num);
+        for (int i = 0; i < row_num; ++i) {
             const TPrivilegeStatus& priv_status = _priv_result.privileges[i];
             strs[i] = StringRef(priv_status.privilege_type.c_str(),
                                 priv_status.privilege_type.size());
@@ -178,8 +195,8 @@ Status SchemaBackendsScanner::_fill_block_impl(vectorized::Block* block) {
     }
     // is grantable
     {
-        std::vector<StringRef> strs(privileges_num);
-        for (int i = 0; i < privileges_num; ++i) {
+        std::vector<StringRef> strs(row_num);
+        for (int i = 0; i < row_num; ++i) {
             const TPrivilegeStatus& priv_status = _priv_result.privileges[i];
             strs[i] = StringRef(priv_status.is_grantable.c_str(), priv_status.is_grantable.size());
             datas[i] = strs.data() + i;

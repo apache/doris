@@ -44,8 +44,8 @@ private:
     Status _get_new_table();
     Status _fill_block_impl(vectorized::Block* block);
 
-    TListPrivilegesResult _priv_result;
-    static std::vector<SchemaScanner::ColumnDesc> _s_tbls_columns;
+    TFetchBackendsResult _backends_result;
+    static std::vector<SchemaScanner::ColumnDesc> _s_backends_columns;
 };
 
 } // namespace doris
