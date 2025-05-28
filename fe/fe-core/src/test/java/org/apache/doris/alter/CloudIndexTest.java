@@ -32,7 +32,9 @@ import org.apache.doris.analysis.ShowAlterStmt;
 import org.apache.doris.analysis.ShowBuildIndexStmt;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.TableName;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.CatalogTestUtil;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -51,10 +53,14 @@ import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
+import org.apache.doris.mysql.privilege.Auth;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowExecutor;
 import org.apache.doris.qe.ShowResultSet;
+import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.resource.computegroup.ComputeGroupMgr;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
@@ -232,6 +238,9 @@ public class CloudIndexTest {
         ctx = new ConnectContext();
         ctx.setEnv(masterEnv);
         ctx.setQualifiedUser("root");
+        UserIdentity rootUser = new UserIdentity("root", "%");
+        rootUser.setIsAnalyzed();
+        ctx.setCurrentUserIdentity(rootUser);
         ctx.setThreadLocalInfo();
         ctx.setCloudCluster("test_group");
         Assert.assertTrue(envFactory instanceof CloudEnvFactory);
@@ -252,6 +261,64 @@ public class CloudIndexTest {
                 return new ComputeGroupMgr(Env.getCurrentSystemInfo());
             }
         };
+
+        // Mock access manager to allow root user access
+        new MockUp<Env>() {
+            @Mock
+            public AccessControllerManager getAccessManager() {
+                return new AccessControllerManager(masterEnv.getAuth()) {
+                    @Override
+                    public boolean checkTblPriv(ConnectContext ctx, String ctl, String db, String tbl, PrivPredicate wanted) {
+                        return true; // Allow all access for test
+                    }
+
+                    @Override
+                    public boolean checkCloudPriv(UserIdentity user, String cluster, PrivPredicate wanted, ResourceTypeEnum resourceType) {
+                        return true; // Allow all cloud privileges for test
+                    }
+                };
+            }
+        };
+
+        new MockUp<Auth>() {
+            @Mock
+            public String getDefaultCloudCluster(String user) {
+                return "test_group"; // Return default cluster for test
+            }
+
+            @Mock
+            public ComputeGroup getComputeGroup(String user) {
+                try {
+                    return masterEnv.getComputeGroupMgr().getComputeGroupByName("test_group");
+                } catch (Exception e) {
+                    return masterEnv.getComputeGroupMgr().getAllBackendComputeGroup();
+                }
+            }
+        };
+
+        // Mock cloud environment permissions
+        new MockUp<CloudEnv>() {
+            @Mock
+            public void checkCloudClusterPriv(String cluster) throws Exception {
+                // Always allow for tests
+            }
+        };
+
+        // Mock ConnectContext to avoid compute group permission check
+        new MockUp<ConnectContext>() {
+            @Mock
+            public String getCloudCluster() {
+                return "test_group";
+            }
+
+            @Mock
+            public UserIdentity getCurrentUserIdentity() {
+                UserIdentity rootUser = new UserIdentity("root", "%");
+                rootUser.setIsAnalyzed();
+                return rootUser;
+            }
+        };
+
         analyzer = new Analyzer(masterEnv, ctx);
 
         Assert.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
@@ -262,6 +329,7 @@ public class CloudIndexTest {
         Assert.assertEquals("host1", backends.get(0).getHost());
         backends.get(0).setAlive(true);
         ctx.setComputeGroup(masterEnv.getComputeGroupMgr().getAllBackendComputeGroup());
+
         db = new Database(CatalogTestUtil.testDbId1, CatalogTestUtil.testDb1);
         masterEnv.unprotectCreateDb(db);
 
