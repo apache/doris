@@ -2031,7 +2031,9 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                     subTxnIdToTxnId.get(transactionId));
             transactionId = subTxnIdToTxnId.get(transactionId);
         }
-        LOG.info("try to get transaction state, dbId:{}, transactionId:{}", dbId, transactionId);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("try to get transaction state, dbId:{}, transactionId:{}", dbId, transactionId);
+        }
         GetTxnRequest.Builder builder = GetTxnRequest.newBuilder();
         builder.setDbId(dbId);
         builder.setTxnId(transactionId);
@@ -2040,10 +2042,12 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         final GetTxnRequest getTxnRequest = builder.build();
         GetTxnResponse getTxnResponse = null;
         try {
-            LOG.info("getTxnRequest:{}", getTxnRequest);
+            if (LOG.isDebugEnabled()) {
+                LOG.info("getTxnRequest:{}", getTxnRequest);
+            }
             getTxnResponse = MetaServiceProxy
                     .getInstance().getTxn(getTxnRequest);
-            LOG.info("getTxnRequest: {}", getTxnResponse);
+            LOG.info("getTxnResponse: {}", getTxnResponse);
         } catch (RpcException e) {
             LOG.info("getTransactionState exception: {}", e.getMessage());
             return null;

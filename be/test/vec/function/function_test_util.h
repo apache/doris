@@ -111,7 +111,7 @@ using IPV6 = uint128_t;
 //TODO: make default_value constexpr when we upgrade to clang++17
 template <typename DataType>
 struct ut_input_type {};
-template <typename NativeType>
+template <PrimitiveType NativeType>
 struct ut_input_type<DataTypeNumber<NativeType>> {
     using type = DataTypeNumber<NativeType>::FieldType;
     inline static type default_value = 123;
