@@ -17,8 +17,9 @@
 
 package org.apache.doris.iceberg;
 
+import org.apache.doris.datasource.iceberg.share.ManifestFileBean;
+
 import org.apache.iceberg.DataFile;
-import org.apache.iceberg.ManifestFile;
 import org.apache.iceberg.ManifestFiles;
 import org.apache.iceberg.util.SerializationUtil;
 
@@ -35,27 +36,28 @@ class IcebergFilesJniScanner extends IcebergMetadataJniScanner {
         FILES_SCHEMA.put("file_path", "string");
         FILES_SCHEMA.put("file_format", "string");
         FILES_SCHEMA.put("spec_id", "int");
-        FILES_SCHEMA.put("record_count", "long");
-        FILES_SCHEMA.put("file_size_in_bytes", "long");
-        FILES_SCHEMA.put("column_sizes", "map<int,long>");
-        FILES_SCHEMA.put("value_counts", "map<int,long>");
-        FILES_SCHEMA.put("null_value_counts", "map<int,long>");
-        FILES_SCHEMA.put("nan_value_counts", "map<int,long>");
+        FILES_SCHEMA.put("record_count", "bigint");
+        FILES_SCHEMA.put("file_size_in_bytes", "bigint");
+        FILES_SCHEMA.put("column_sizes", "map<int,bigint>");
+        FILES_SCHEMA.put("value_counts", "map<int,bigint>");
+        FILES_SCHEMA.put("null_value_counts", "map<int,bigint>");
+        FILES_SCHEMA.put("nan_value_counts", "map<int,bigint>");
         FILES_SCHEMA.put("lower_bounds", "map<int,string>");
         FILES_SCHEMA.put("upper_bounds", "map<int,string>");
         FILES_SCHEMA.put("key_metadata", "string");
-        FILES_SCHEMA.put("split_offsets", "array<long>");
+        FILES_SCHEMA.put("split_offsets", "array<bigint>");
         FILES_SCHEMA.put("equality_ids", "array<int>");
         FILES_SCHEMA.put("sort_order_id", "int");
         FILES_SCHEMA.put("readable_metrics", "string"); // This can be extended to include actual metrics if needed
     }
 
     // A serializable bean that contains a bare minimum to read a manifest
-    private final ManifestFile manifestBean;
+    private final ManifestFileBean manifestBean;
 
     public IcebergFilesJniScanner(int batchSize, Map<String, String> params) {
         super(batchSize, params);
-        manifestBean = SerializationUtil.deserializeFromBase64(params.get("serialized_manifest_bean"));
+        // TODO: use IcebergMetaSplit to pass the manifest file information
+        manifestBean = SerializationUtil.deserializeFromBase64(params.get("serialized_split"));
     }
 
     @Override

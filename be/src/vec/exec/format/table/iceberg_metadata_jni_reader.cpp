@@ -34,6 +34,7 @@ IcebergMetadataJniReader::IcebergMetadataJniReader(
     }
     std::map<std::string, std::string> params;
     params["serialized_table"] = range_params->serialized_table;
+    params["serialized_split"] = range_params->serialized_split;
     params["required_fields"] = join(required_fields, ",");
     // TODO: set time_zone
     for (const auto& kv : range_params->hadoop_props) {
@@ -41,6 +42,14 @@ IcebergMetadataJniReader::IcebergMetadataJniReader(
     }
 
     switch (range_params->iceberg_query_type) {
+    case TIcebergQueryType::HISTORY:
+        _jni_connector = std::make_unique<JniConnector>(
+                "org/apache/doris/iceberg/IcebergHistoryJniScanner", params, required_fields);
+        break;
+    case TIcebergQueryType::FILES:
+        _jni_connector = std::make_unique<JniConnector>(
+                "org/apache/doris/iceberg/IcebergFilesJniScanner", params, required_fields);
+        break;
     case TIcebergQueryType::SNAPSHOTS:
         _jni_connector = std::make_unique<JniConnector>(
                 "org/apache/doris/iceberg/IcebergSnapshotsJniScanner", params, required_fields);
