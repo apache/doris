@@ -491,11 +491,13 @@ Status BaseTablet::lookup_row_key(const Slice& encoded_key, TabletSchema* latest
             if (key_is_not_in_segment(key_without_seq, segments_key_bounds[j],
                                       rs->rowset_meta()->is_segments_key_bounds_truncated())) {
                 LOG_INFO(
-                        "[xxx] tablet={}, skip rowset={}, truncated={}, seg={}, key_bounds={} for "
-                        "key={}",
+                        "[xxx] tablet={}, skip rowset={}, truncated={}, seg={}, "
+                        "key_bounds=[min={}, max={}] for key={}",
                         tablet_id(), rs->rowset_id().to_string(),
                         rs->rowset_meta()->is_segments_key_bounds_truncated(), j,
-                        segments_key_bounds[j].ShortDebugString(), key_without_seq.to_string());
+                        to_hex(segments_key_bounds[j].min_key()),
+                        to_hex(segments_key_bounds[j].max_key()),
+                        to_hex(key_without_seq.to_string()));
                 continue;
             }
             picked_segments.emplace_back(j);
