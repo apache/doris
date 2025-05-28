@@ -156,11 +156,12 @@ public final class GlobalVariable {
     public static int auditPluginMaxSqlLength = 4096;
 
     @VariableMgr.VarAttr(name = AUDIT_PLUGIN_MAX_INSERT_STMT_LENGTH, flag = VariableMgr.GLOBAL,
-            description = {"专门用于限制 INSERT 语句的长度，"
+            description = {"专门用于限制 INSERT 语句的长度。设置为 <= 0，则使用 AUDIT_PLUGIN_MAX_SQL_LENGTH 的值。"
                     + "如果 INSERT 语句超过该长度，将会被截断。",
                     "This is specifically used to limit the length of INSERT statements. "
+                            + "Set to a <= 0 value to use the value of AUDIT_PLUGIN_MAX_SQL_LENGTH. "
                             + "If an INSERT statement exceeds this length, it will be truncated."})
-    public static int auditPluginMaxInsertStmtLength = 4096;
+    public static int auditPluginMaxInsertStmtLength = -1;
 
     @VariableMgr.VarAttr(name = AUDIT_PLUGIN_LOAD_TIMEOUT, flag = VariableMgr.GLOBAL)
     public static int auditPluginLoadTimeoutS = 600;
