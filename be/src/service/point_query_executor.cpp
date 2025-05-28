@@ -502,9 +502,14 @@ Status PointQueryExecutor::_lookup_row_data() {
                 vectorized::MutableColumnPtr column =
                         _result_block->get_by_position(pos).column->assume_mutable();
                 std::unique_ptr<ColumnIterator> iter;
-                RETURN_IF_ERROR(segment->seek_and_read_by_rowid(
-                        *_tablet->tablet_schema(), _reusable->tuple_desc()->slots()[pos], row_id,
-                        column, _read_stats, iter));
+                SlotDescriptor* slot = _reusable->tuple_desc()->slots()[pos];
+                RETURN_IF_ERROR(segment->seek_and_read_by_rowid(*_tablet->tablet_schema(), slot,
+                                                                row_id, column, _read_stats, iter));
+                if (_tablet->tablet_schema()
+                            ->column_by_uid(slot->col_unique_id())
+                            .has_char_type()) {
+                    column->shrink_padding_chars();
+                }
             }
         }
     }
