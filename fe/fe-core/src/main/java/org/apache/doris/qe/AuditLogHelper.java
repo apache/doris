@@ -59,6 +59,7 @@ import java.nio.charset.Charset;
 import java.nio.charset.CharsetDecoder;
 import java.nio.charset.CodingErrorAction;
 import java.util.List;
+import java.util.Optional;
 
 public class AuditLogHelper {
 
@@ -90,16 +91,23 @@ public class AuditLogHelper {
         if (origStmt == null) {
             return null;
         }
+        // 1. handle insert statement first
+        Optional<String> res = handleInsertStmt(origStmt, parsedStmt);
+        if (res.isPresent()) {
+            return res.get();
+        }
+
+        // 2. handle other statement
         int maxLen = GlobalVariable.auditPluginMaxSqlLength;
-        if (origStmt.length() <= maxLen) {
-            return origStmt.replace("\n", "\\n")
+        if (origStmt.length() > maxLen) {
+            origStmt = truncateByBytes(origStmt) + " ... /* truncated audit_plugin_max_sql_length=" + maxLen + " */";
+        }
+        return origStmt.replace("\n", "\\n")
                 .replace("\t", "\\t")
                 .replace("\r", "\\r");
-        }
-        origStmt = truncateByBytes(origStmt)
-            .replace("\n", "\\n")
-            .replace("\t", "\\t")
-            .replace("\r", "\\r");
+    }
+
+    private static Optional<String> handleInsertStmt(String origStmt, StatementBase parsedStmt) {
         int rowCnt = 0;
         // old planner
         if (parsedStmt instanceof NativeInsertStmt) {
@@ -122,12 +130,18 @@ public class AuditLogHelper {
             }
         }
         if (rowCnt > 0) {
-            return origStmt + " ... /* total " + rowCnt + " rows, truncated audit_plugin_max_sql_length="
-                + GlobalVariable.auditPluginMaxSqlLength + " */";
+            // This is an insert statement.
+            int maxLen = GlobalVariable.auditPluginMaxInsertStmtLength;
+            if (origStmt.length() > maxLen) {
+                origStmt = truncateByBytes(origStmt) + " ... /* truncated audit_plugin_max_insert_stmt_length=" + maxLen
+                        + " */";
+            }
+            origStmt = origStmt.replace("\n", "\\n")
+                    .replace("\t", "\\t")
+                    .replace("\r", "\\r");
+            return Optional.of(origStmt);
         } else {
-            return origStmt
-                + " ... /* truncated audit_plugin_max_sql_length="
-                + GlobalVariable.auditPluginMaxSqlLength + " */";
+            return Optional.empty();
         }
     }
 
