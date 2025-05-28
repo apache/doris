@@ -741,6 +741,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String SQL_CONVERTOR_CONFIG = "sql_convertor_config";
 
+    public static final String PREFER_UDF_OVER_BUILTIN = "prefer_udf_over_builtin";
+
     /**
      * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
      */
@@ -2612,6 +2614,13 @@ public class SessionVariable implements Serializable, Writable {
             })
     public String sqlConvertorConfig = "{}";
 
+    @VariableMgr.VarAttr(name = PREFER_UDF_OVER_BUILTIN, needForward = true,
+            description = {
+                    "是否优先查找 UDF 而不是内置函数",
+                    "Whether to prefer UDF over builtin functions"
+            })
+    public boolean preferUdfOverBuiltin = false;
+
     public void setEnableEsParallelScroll(boolean enableESParallelScroll) {
         this.enableESParallelScroll = enableESParallelScroll;
     }
@@ -4413,6 +4422,7 @@ public class SessionVariable implements Serializable, Writable {
     /**
      * The sessionContext is as follows:
      * "k1:v1;k2:v2;..."
+     * eg: set session_context="trace_id:123456"
      * Here we want to get value with key named "trace_id",
      * Return empty string is not found.
      *

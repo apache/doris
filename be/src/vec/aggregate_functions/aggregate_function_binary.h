@@ -44,6 +44,7 @@ struct StatFunc {
     using ColVecT2 = typename PrimitiveTypeTraits<T2>::ColumnType;
     using ResultType = Float64;
     using Data = Moments<TYPE_DOUBLE>;
+    static constexpr PrimitiveType ResultPrimitiveType = TYPE_DOUBLE;
 };
 
 template <typename StatFunc>
@@ -66,7 +67,7 @@ struct AggregateFunctionBinary
     void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
 
     DataTypePtr get_return_type() const override {
-        return std::make_shared<DataTypeNumber<ResultType>>();
+        return std::make_shared<DataTypeNumber<StatFunc::ResultPrimitiveType>>();
     }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,

@@ -53,7 +53,7 @@ namespace doris::vectorized {
 struct HLLCardinality {
     static constexpr auto name = "hll_cardinality";
 
-    using ReturnType = DataTypeNumber<Int64>;
+    using ReturnType = DataTypeInt64;
 
     static void vector(const std::vector<HyperLogLog>& data, MutableColumnPtr& col_res) {
         typename ColumnVector<Int64>::Container& res =
