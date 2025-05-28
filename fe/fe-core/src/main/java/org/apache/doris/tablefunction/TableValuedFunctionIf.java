@@ -26,6 +26,7 @@ import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.tablefunction.iceberg.IcebergTableValuedFunction;
 
 import java.util.List;
 import java.util.Map;
@@ -57,7 +58,7 @@ public abstract class TableValuedFunctionIf {
             case LocalTableValuedFunction.NAME:
                 return new LocalTableValuedFunction(params);
             case IcebergTableValuedFunction.NAME:
-                return new IcebergTableValuedFunction(params);
+                return IcebergTableValuedFunction.create(params);
             case HudiTableValuedFunction.NAME:
                 return new HudiTableValuedFunction(params);
             case BackendsTableValuedFunction.NAME:

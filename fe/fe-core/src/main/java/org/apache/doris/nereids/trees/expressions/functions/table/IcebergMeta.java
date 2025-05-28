@@ -22,8 +22,8 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Properties;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
-import org.apache.doris.tablefunction.IcebergTableValuedFunction;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
+import org.apache.doris.tablefunction.iceberg.IcebergTableValuedFunction;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.Maps;
@@ -53,7 +53,7 @@ public class IcebergMeta extends TableValuedFunction {
     protected TableValuedFunctionIf toCatalogFunction() {
         try {
             Map<String, String> arguments = getTVFProperties().getMap();
-            return new IcebergTableValuedFunction(arguments);
+            return IcebergTableValuedFunction.create(arguments);
         } catch (Throwable t) {
             throw new AnalysisException("Can not build IcebergTableValuedFunction by "
                     + this + ": " + t.getMessage(), t);

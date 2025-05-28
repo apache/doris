@@ -20,7 +20,7 @@ package org.apache.doris.datasource.systable;
 import org.apache.doris.analysis.TableValuedFunctionRef;
 import org.apache.doris.nereids.trees.expressions.functions.table.IcebergMeta;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
-import org.apache.doris.tablefunction.IcebergTableValuedFunction;
+import org.apache.doris.tablefunction.iceberg.IcebergTableValuedFunction;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;

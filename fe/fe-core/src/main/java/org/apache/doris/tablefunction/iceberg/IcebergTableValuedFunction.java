@@ -1,0 +1,184 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.tablefunction.iceberg;
+
+import org.apache.doris.analysis.TableName;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
+import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.datasource.iceberg.IcebergMetadataCache;
+import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.tablefunction.MetadataTableValuedFunction;
+import org.apache.doris.thrift.TIcebergMetadataParams;
+import org.apache.doris.thrift.TIcebergQueryType;
+import org.apache.doris.thrift.TMetaScanRange;
+import org.apache.doris.thrift.TMetadataType;
+
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import org.apache.iceberg.Table;
+import org.apache.iceberg.util.SerializationUtil;
+
+import java.util.List;
+import java.util.Map;
+
+/**
+ * The Abstract class of table valued function for iceberg metadata.
+ * iceberg_meta("table" = "ctl.db.tbl", "query_type" = "snapshots").
+ */
+public abstract class IcebergTableValuedFunction extends MetadataTableValuedFunction {
+
+    public static final String NAME = "iceberg_meta";
+    public static final String TABLE = "table";
+    public static final String QUERY_TYPE = "query_type";
+
+    private static final ImmutableSet<String> PROPERTIES_SET = ImmutableSet.of(TABLE, QUERY_TYPE);
+
+    private final TIcebergQueryType queryType;
+    private final TableName icebergTableName;
+
+    private final Map<String, String> hadoopProps;
+    protected final Table table;
+
+    public static IcebergTableValuedFunction create(Map<String, String> params)
+            throws AnalysisException {
+        Map<String, String> validParams = Maps.newHashMap();
+        for (String key : params.keySet()) {
+            if (!PROPERTIES_SET.contains(key.toLowerCase())) {
+                throw new AnalysisException("'" + key + "' is invalid property");
+            }
+            // check ctl, db, tbl
+            validParams.put(key.toLowerCase(), params.get(key));
+        }
+        String tableName = validParams.get(TABLE);
+        String queryTypeString = validParams.get(QUERY_TYPE);
+        if (tableName == null || queryTypeString == null) {
+            throw new AnalysisException("Invalid iceberg metadata query");
+        }
+        String[] names = tableName.split("\\.");
+        if (names.length != 3) {
+            throw new AnalysisException("The iceberg table name contains the catalogName, databaseName, and tableName");
+        }
+        TableName icebergTableName = new TableName(names[0], names[1], names[2]);
+        // check auth
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkTblPriv(ConnectContext.get(), icebergTableName, PrivPredicate.SELECT)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SELECT",
+                    ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
+                    icebergTableName.getDb() + ": " + icebergTableName.getTbl());
+        }
+        TIcebergQueryType queryType;
+        try {
+            queryType = TIcebergQueryType.valueOf(queryTypeString.toUpperCase());
+        } catch (IllegalArgumentException e) {
+            throw new AnalysisException("Unrecognized iceberg metadata query type: " + queryTypeString);
+        }
+
+        switch (queryType) {
+            case HISTORY:
+                return new IcebergHistoryTableValuedFunction(icebergTableName);
+            default:
+                throw new AnalysisException("Unsupported iceberg metadata query type: " + queryType);
+        }
+    }
+
+    public IcebergTableValuedFunction(TableName icebergTableName, TIcebergQueryType queryType)
+            throws AnalysisException {
+        this.icebergTableName = icebergTableName;
+        this.queryType = queryType;
+        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(icebergTableName.getCtl());
+        if (!(catalog instanceof ExternalCatalog)) {
+            throw new AnalysisException("Catalog " + icebergTableName.getCtl() + " is not an external catalog");
+        }
+        ExternalCatalog externalCatalog = (ExternalCatalog) catalog;
+        hadoopProps = externalCatalog.getCatalogProperty().getHadoopProperties();
+        IcebergMetadataCache icebergMetadataCache = Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache();
+        Table table = icebergMetadataCache.getIcebergTable(catalog, icebergTableName.getDb(),
+                icebergTableName.getTbl());
+        if (table == null) {
+            throw new AnalysisException("Iceberg table " + icebergTableName + " does not exist");
+        }
+        this.table = table;
+    }
+
+    public TIcebergQueryType getIcebergQueryType() {
+        return queryType;
+    }
+
+    @Override
+    public TMetadataType getMetadataType() {
+        return TMetadataType.ICEBERG;
+    }
+
+    @Override
+    public List<TMetaScanRange> getMetaScanRanges() {
+        List<TMetaScanRange> scanRanges = Lists.newArrayList();
+        List<String> splits = getSplits();
+        for (String split : splits) {
+            TMetaScanRange metaScanRange = new TMetaScanRange();
+            metaScanRange.setMetadataType(TMetadataType.ICEBERG);
+            // set iceberg metadata params
+            TIcebergMetadataParams icebergMetadataParams = new TIcebergMetadataParams();
+            icebergMetadataParams.setIcebergQueryType(queryType);
+            icebergMetadataParams.setCatalog(icebergTableName.getCtl());
+            icebergMetadataParams.setDatabase(icebergTableName.getDb());
+            icebergMetadataParams.setTable(icebergTableName.getTbl());
+            String serializedTable = SerializationUtil.serializeToBase64(table);
+            icebergMetadataParams.setSerializedTable(serializedTable);
+            icebergMetadataParams.setHadoopProps(hadoopProps);
+            icebergMetadataParams.setSerializedSplit(split);
+            metaScanRange.setIcebergParams(icebergMetadataParams);
+            scanRanges.add(metaScanRange);
+        }
+        return scanRanges;
+    }
+
+    @Override
+    public String getTableName() {
+        String queryTypeString = queryType.name().toLowerCase();
+        return "IcebergTableValuedFunction<" + queryTypeString + ">";
+    }
+
+    @Override
+    public List<Column> getTableColumns() {
+        return getSchema();
+    }
+
+    /**
+     * Get the splits for the iceberg table valued function.
+     * This method can be overridden to provide multiple splits for the table.
+     * 
+     * @return a list of splits
+     */
+    protected List<String> getSplits() {
+        return Lists.newArrayList("");
+    }
+
+    /**
+     * Get the schema for the iceberg table valued function.
+     * 
+     * @return a list of columns representing the schema
+     */
+    protected abstract List<Column> getSchema();
+}
