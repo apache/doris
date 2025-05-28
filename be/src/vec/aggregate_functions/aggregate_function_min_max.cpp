@@ -111,8 +111,8 @@ AggregateFunctionPtr create_aggregate_function_single_value_any_value_function(
         argument_type->get_primitive_type() == PrimitiveType::TYPE_HLL ||
         argument_type->get_primitive_type() == PrimitiveType::TYPE_QUANTILE_STATE) {
         return creator_without_type::create<
-                AggregateFunctionsSingleValue<Data<SingleValueDataComplexType>>>(
-                argument_types, result_is_nullable);
+                AggregateFunctionsSingleValue<SingleValueDataComplexType>>(argument_types,
+                                                                           result_is_nullable);
     }
 
     return nullptr;
