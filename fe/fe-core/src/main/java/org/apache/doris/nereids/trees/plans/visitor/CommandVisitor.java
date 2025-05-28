@@ -36,6 +36,7 @@ import org.apache.doris.nereids.trees.plans.commands.AlterColumnStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterDatabasePropertiesCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterJobStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterMTMVCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterResourceCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterSqlBlockRuleCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterStoragePolicyCommand;
@@ -69,6 +70,7 @@ import org.apache.doris.nereids.trees.plans.commands.CreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateProcedureCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateRepositoryCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateResourceCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateSqlBlockRuleCommand;
@@ -216,6 +218,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowTriggersCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowUserPropertyCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowVariablesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowViewCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowWarmUpCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowWarningErrorCountCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowWarningErrorsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowWhiteListCommand;
@@ -225,6 +228,7 @@ import org.apache.doris.nereids.trees.plans.commands.TransactionBeginCommand;
 import org.apache.doris.nereids.trees.plans.commands.TransactionCommitCommand;
 import org.apache.doris.nereids.trees.plans.commands.TransactionRollbackCommand;
 import org.apache.doris.nereids.trees.plans.commands.TruncateTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.UninstallPluginCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnlockTablesCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsetDefaultStorageVaultCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsetVariableCommand;
@@ -377,6 +381,10 @@ public interface CommandVisitor<R, C> {
         return visitCommand(dropDictionaryCommand, context);
     }
 
+    default R visitAlterResourceCommand(AlterResourceCommand alterResourceCommand, C context) {
+        return visitCommand(alterResourceCommand, context);
+    }
+
     default R visitDropJobCommand(DropJobCommand dropJobCommand, C context) {
         return visitCommand(dropJobCommand, context);
     }
@@ -523,6 +531,10 @@ public interface CommandVisitor<R, C> {
     }
 
     default R visitCreateDatabaseCommand(CreateDatabaseCommand command, C context) {
+        return visitCommand(command, context);
+    }
+
+    default R visitCreateRepositoryCommand(CreateRepositoryCommand command, C context) {
         return visitCommand(command, context);
     }
 
@@ -770,6 +782,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitAlterDatabasePropertiesCommand(AlterDatabasePropertiesCommand alterDatabasePropsCmd, C context) {
         return visitCommand(alterDatabasePropsCmd, context);
+    }
+
+    default R visitUninstallPluginCommand(UninstallPluginCommand command, C context) {
+        return visitCommand(command, context);
     }
 
     default R visitRecoverDatabaseCommand(RecoverDatabaseCommand recoverDatabaseCommand, C context) {
@@ -1195,13 +1211,16 @@ public interface CommandVisitor<R, C> {
         return visitCommand(grantTablePrivilegeCommand, context);
     }
 
-    default R visitGrantResourcePrivilegeCommand(GrantResourcePrivilegeCommand grantResourcePrivilegeCommand,
-            C context) {
-        return visitCommand(grantResourcePrivilegeCommand, context);
+    default R visitGrantResourcePrivilegeCommand(GrantResourcePrivilegeCommand command, C context) {
+        return visitCommand(command, context);
     }
 
     default R visitRevokeRoleCommand(RevokeRoleCommand revokeRoleCommand, C context) {
         return visitCommand(revokeRoleCommand, context);
+    }
+
+    default R visitShowWarmupCommand(ShowWarmUpCommand showWarmUpCommand, C context) {
+        return visitCommand(showWarmUpCommand, context);
     }
 
     default R visitRevokeResourcePrivilegeCommand(RevokeResourcePrivilegeCommand command, C context) {
