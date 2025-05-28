@@ -87,9 +87,10 @@ void PlainCsvTextFieldSplitter::_split_field_single_char(const Slice& line,
                                                          std::vector<Slice>* splitted_values) {
     const char* data = line.data;
     const size_t size = line.size;
+    char seq = _value_seq[0];
     size_t value_start = 0;
     for (size_t i = 0; i < size; ++i) {
-        if (data[i] == _value_sep[0]) {
+        if (data[i] == seq) {
             process_value_func(data, value_start, i - value_start, _trimming_char, splitted_values);
             value_start = i + _value_sep_len;
         }
