@@ -1,3 +1,4 @@
+create database if not exists demo.test_db;
 use demo.test_db;
 
 create table schema_change_with_time_travel (c1 int);

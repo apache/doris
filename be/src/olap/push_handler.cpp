@@ -672,10 +672,9 @@ Status PushBrokerReader::_get_next_reader() {
                         _io_ctx.get(), _runtime_state.get());
 
         RETURN_IF_ERROR(parquet_reader->open());
-        std::vector<std::string> place_holder;
         init_status = parquet_reader->init_reader(
-                _all_col_names, place_holder, _colname_to_value_range, _push_down_exprs,
-                _real_tuple_desc, _default_val_row_desc.get(), _col_name_to_slot_id,
+                _all_col_names, _colname_to_value_range, _push_down_exprs, _real_tuple_desc,
+                _default_val_row_desc.get(), _col_name_to_slot_id,
                 &_not_single_slot_filter_conjuncts, &_slot_id_to_filter_conjuncts, false);
         _cur_reader = std::move(parquet_reader);
         if (!init_status.ok()) {
