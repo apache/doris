@@ -1491,7 +1491,7 @@ booleanExpression
     : LOGICALNOT booleanExpression                                                  #logicalNot
     | EXISTS LEFT_PAREN query RIGHT_PAREN                                           #exist
     | (ISNULL | IS_NULL_PRED) LEFT_PAREN valueExpression RIGHT_PAREN                #isnull
-    | IS_NOT_NULL_PRED LEFT_PAREN valueExpression RIGHT_PAREN                       #is_not_null_pred
+    | (ISNOTNULL | IS_NOT_NULL_PRED) LEFT_PAREN valueExpression RIGHT_PAREN         #is_not_null_pred
     | valueExpression predicate?                                                    #predicated
     | NOT booleanExpression                                                         #logicalNot
     | left=booleanExpression operator=(AND | LOGICALAND) right=booleanExpression    #logicalBinary
