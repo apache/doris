@@ -29,6 +29,7 @@ import org.apache.doris.common.AnalysisException;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -160,11 +161,24 @@ public class BuildIndexClause extends AlterTableClause {
 
     @Override
     public String toSql() {
-        // TODO: support multiple index
+        if (indexDefList.isEmpty()) {
+            return "";
+        }
+
         if (alter) {
-            return indexDefList.get(0).toSql();
+            // For ALTER TABLE scenarios, generate comma-separated index definitions
+            List<String> indexSqls = new ArrayList<>();
+            for (IndexDef indexDef : indexDefList) {
+                indexSqls.add(indexDef.toSql());
+            }
+            return String.join(", ", indexSqls);
         } else {
-            return "BUILD " + indexDefList.get(0).toSql(tableName.toSql());
+            // For BUILD INDEX scenarios, generate multiple BUILD statements separated by semicolons
+            List<String> buildSqls = new ArrayList<>();
+            for (IndexDef indexDef : indexDefList) {
+                buildSqls.add("BUILD " + indexDef.toSql(tableName.toSql()));
+            }
+            return String.join("; ", buildSqls);
         }
     }
 }

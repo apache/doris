@@ -1839,40 +1839,35 @@ public class SchemaChangeHandler extends AlterHandler {
     }
 
     public List<List<Comparable>> getAllIndexChangeJobInfos() {
-        List<List<Comparable>> indexChangeJobInfos = new LinkedList<>();
-        for (IndexChangeJob indexChangeJob : ImmutableList.copyOf(indexChangeJobs.values())) {
-            // no need to check priv here. This method is only called in show proc stmt,
-            // which already check the ADMIN priv.
-            indexChangeJob.getInfo(indexChangeJobInfos);
-        }
-        for (AlterJobV2 alterJob : ImmutableList.copyOf(alterJobsV2.values())) {
-            if (alterJob instanceof SchemaChangeJobV2 && ((SchemaChangeJobV2) alterJob).hasIndexChange()) {
-                ((SchemaChangeJobV2) alterJob).getBuildIndexInfo(indexChangeJobInfos);
-            }
-        }
-        // sort by "JobId", "TableName", "PartitionName", "CreateTime", "FinishTime"
-        ListComparator<List<Comparable>> comparator = new ListComparator<List<Comparable>>(0, 1, 2, 3, 4);
-        indexChangeJobInfos.sort(comparator);
-        return indexChangeJobInfos;
+        return getIndexChangeJobInfos(null);
     }
 
     public List<List<Comparable>> getAllIndexChangeJobInfos(Database db) {
+        return getIndexChangeJobInfos(db);
+    }
+
+    private List<List<Comparable>> getIndexChangeJobInfos(Database db) {
         List<List<Comparable>> indexChangeJobInfos = new LinkedList<>();
+
+        // Process IndexChangeJob entries
         for (IndexChangeJob indexChangeJob : ImmutableList.copyOf(indexChangeJobs.values())) {
-            if (indexChangeJob.getDbId() != db.getId()) {
+            // Filter by database ID if specified
+            if (db != null && indexChangeJob.getDbId() != db.getId()) {
                 continue;
             }
             indexChangeJob.getInfo(indexChangeJobInfos);
         }
+
+        // Process AlterJobV2 entries
         for (AlterJobV2 alterJob : ImmutableList.copyOf(alterJobsV2.values())) {
-            if (alterJob.getDbId() != db.getId()) {
+            // Filter by database ID if specified
+            if (db != null && alterJob.getDbId() != db.getId()) {
                 continue;
             }
             if (alterJob instanceof SchemaChangeJobV2 && ((SchemaChangeJobV2) alterJob).hasIndexChange()) {
                 ((SchemaChangeJobV2) alterJob).getBuildIndexInfo(indexChangeJobInfos);
             }
         }
-
 
         // sort by "JobId", "TableName", "PartitionName", "CreateTime", "FinishTime"
         ListComparator<List<Comparable>> comparator = new ListComparator<List<Comparable>>(0, 1, 2, 3, 4);

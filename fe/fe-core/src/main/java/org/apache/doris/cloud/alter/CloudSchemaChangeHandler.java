@@ -495,9 +495,21 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
 
     @Override
     public List<List<Comparable>> getAllIndexChangeJobInfos(Database db)  {
+        return getIndexChangeJobInfos(db);
+    }
+
+    @Override
+    public List<List<Comparable>> getAllIndexChangeJobInfos() {
+        return getIndexChangeJobInfos(null);
+    }
+
+    private List<List<Comparable>> getIndexChangeJobInfos(Database db) {
         List<List<Comparable>> schemaChangeJobInfos = new java.util.LinkedList<>();
+
+        // Process AlterJobV2 entries
         for (AlterJobV2 alterJob : ImmutableList.copyOf(alterJobsV2.values())) {
-            if (alterJob.getDbId() != db.getId()) {
+            // Filter by database ID if specified
+            if (db != null && alterJob.getDbId() != db.getId()) {
                 continue;
             }
             if (alterJob instanceof CloudSchemaChangeJobV2 && ((CloudSchemaChangeJobV2) alterJob).hasIndexChange()) {
@@ -505,24 +517,8 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
             }
         }
 
-        ListComparator<List<Comparable>>
-                comparator = new ListComparator<List<Comparable>>(0, 1, 2, 3, 4);
-        schemaChangeJobInfos.sort(comparator);
-        return schemaChangeJobInfos;
-    }
-
-    @Override
-    public List<List<Comparable>> getAllIndexChangeJobInfos() {
-        List<List<Comparable>> schemaChangeJobInfos = new java.util.LinkedList<>();
-        for (AlterJobV2 alterJob : ImmutableList.copyOf(alterJobsV2.values())) {
-            if (alterJob instanceof CloudSchemaChangeJobV2 && ((CloudSchemaChangeJobV2) alterJob).hasIndexChange()) {
-                ((CloudSchemaChangeJobV2) alterJob).getBuildIndexInfo(schemaChangeJobInfos);
-            }
-        }
-
-        // sort by "JobId", "PartitionName", "CreateTime", "FinishTime", "IndexName", "IndexState"
-        ListComparator<List<Comparable>>
-                comparator = new ListComparator<List<Comparable>>(0, 1, 2, 3, 4);
+        // sort by "JobId", "TableName", "PartitionName", "CreateTime", "FinishTime"
+        ListComparator<List<Comparable>> comparator = new ListComparator<List<Comparable>>(0, 1, 2, 3, 4);
         schemaChangeJobInfos.sort(comparator);
         return schemaChangeJobInfos;
     }

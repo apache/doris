@@ -178,11 +178,24 @@ public class BuildIndexOp extends AlterTableOp {
 
     @Override
     public String toSql() {
-        // TODO: support multiple index
+        if (indexDefinitionList.isEmpty()) {
+            return "";
+        }
+
         if (alter) {
-            return indexDefinitionList.get(0).toSql();
+            // For ALTER TABLE scenarios, generate comma-separated index definitions
+            List<String> indexSqls = new ArrayList<>();
+            for (IndexDefinition indexDefinition : indexDefinitionList) {
+                indexSqls.add(indexDefinition.toSql());
+            }
+            return String.join(", ", indexSqls);
         } else {
-            return "BUILD " + indexDefinitionList.get(0).toSql(tableName.toSql());
+            // For BUILD INDEX scenarios, generate multiple BUILD statements separated by semicolons
+            List<String> buildSqls = new ArrayList<>();
+            for (IndexDefinition indexDefinition : indexDefinitionList) {
+                buildSqls.add("BUILD " + indexDefinition.toSql(tableName.toSql()));
+            }
+            return String.join("; ", buildSqls);
         }
     }
 }
