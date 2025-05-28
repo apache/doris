@@ -301,12 +301,13 @@ Status CompactionMixin::do_compact_ordered_rowsets() {
               << ", output_version=" << _output_version;
     // link data to new rowset
     auto seg_id = 0;
+    bool segments_key_bounds_truncated {false};
     std::vector<KeyBoundsPB> segment_key_bounds;
     for (auto rowset : _input_rowsets) {
         RETURN_IF_ERROR(rowset->link_files_to(tablet()->tablet_path(),
                                               _output_rs_writer->rowset_id(), seg_id));
         seg_id += rowset->num_segments();
-
+        segments_key_bounds_truncated |= rowset->is_segments_key_bounds_truncated();
         std::vector<KeyBoundsPB> key_bounds;
         RETURN_IF_ERROR(rowset->get_segments_key_bounds(&key_bounds));
         segment_key_bounds.insert(segment_key_bounds.end(), key_bounds.begin(), key_bounds.end());
@@ -321,7 +322,7 @@ Status CompactionMixin::do_compact_ordered_rowsets() {
     rowset_meta->set_num_segments(_input_num_segments);
     rowset_meta->set_segments_overlap(NONOVERLAPPING);
     rowset_meta->set_rowset_state(VISIBLE);
-
+    rowset_meta->set_segments_key_bounds_truncated(segments_key_bounds_truncated);
     rowset_meta->set_segments_key_bounds(segment_key_bounds);
     _output_rowset = _output_rs_writer->manual_build(rowset_meta);
     return Status::OK();

@@ -90,7 +90,8 @@ void build_rowset_meta_with_spec_field(RowsetMeta& rowset_meta,
     rowset_meta.set_num_segments(spec_rowset_meta.num_segments());
     rowset_meta.set_segments_overlap(spec_rowset_meta.segments_overlap());
     rowset_meta.set_rowset_state(spec_rowset_meta.rowset_state());
-
+    rowset_meta.set_segments_key_bounds_truncated(
+            spec_rowset_meta.is_segments_key_bounds_truncated());
     std::vector<KeyBoundsPB> segments_key_bounds;
     spec_rowset_meta.get_segments_key_bounds(&segments_key_bounds);
     rowset_meta.set_segments_key_bounds(segments_key_bounds);

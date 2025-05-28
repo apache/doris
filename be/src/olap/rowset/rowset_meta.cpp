@@ -240,7 +240,7 @@ void RowsetMeta::set_segments_key_bounds(const std::vector<KeyBoundsPB>& segment
             }
         }
     }
-    set_segments_key_bounds_truncated(really_do_truncation);
+    set_segments_key_bounds_truncated(really_do_truncation || is_segments_key_bounds_truncated());
 }
 
 void RowsetMeta::merge_rowset_meta(const RowsetMeta& other) {
@@ -250,6 +250,8 @@ void RowsetMeta::merge_rowset_meta(const RowsetMeta& other) {
     set_total_disk_size(total_disk_size() + other.total_disk_size());
     set_index_disk_size(index_disk_size() + other.index_disk_size());
     set_total_disk_size(data_disk_size() + index_disk_size());
+    set_segments_key_bounds_truncated(is_segments_key_bounds_truncated() ||
+                                      other.is_segments_key_bounds_truncated());
     for (auto&& key_bound : other.get_segments_key_bounds()) {
         add_segment_key_bounds(key_bound);
     }
