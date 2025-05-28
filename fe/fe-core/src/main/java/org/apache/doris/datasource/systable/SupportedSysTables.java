@@ -32,8 +32,8 @@ public class SupportedSysTables {
         HIVE_SUPPORTED_SYS_TABLES = Lists.newArrayList();
         HIVE_SUPPORTED_SYS_TABLES.add(PartitionsSysTable.INSTANCE);
         // iceberg
-        ICEBERG_SUPPORTED_SYS_TABLES = Lists.newArrayList();
-        ICEBERG_SUPPORTED_SYS_TABLES.add(IcebergSnapshotsSysTable.INSTANCE);
+        ICEBERG_SUPPORTED_SYS_TABLES = Lists.newArrayList(
+                IcebergSysTable.getSupportedIcebergSysTables());
         // paimon
         PAIMON_SUPPORTED_SYS_TABLES = Lists.newArrayList();
         // hudi
