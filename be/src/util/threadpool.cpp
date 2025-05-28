@@ -317,10 +317,6 @@ Status ThreadPool::init() {
         thread_pool_queue_size->set_value(get_queue_size());
         thread_pool_max_queue_size->set_value(get_max_queue_size());
         thread_pool_max_threads->set_value(max_threads());
-        task_execution_time_ns_avg_in_last_1000_times->set_value(
-                _task_execution_time_ns_statistic.mean());
-        task_wait_worker_ns_avg_in_last_1000_times->set_value(
-                _task_wait_worker_time_ns_statistic.mean());
     });
     return Status::OK();
 }
