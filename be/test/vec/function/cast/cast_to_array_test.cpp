@@ -55,7 +55,7 @@ struct ColumnArrayBuilder {
     ColumnWithTypeAndName build() {
         auto nested_column =
                 ColumnHelper::create_nullable_column<DataType>(nested_values, nested_null_map);
-        auto offsets_column = ColumnHelper::create_column<DataTypeUInt64>(offsets);
+        auto offsets_column = ColumnHelper::create_column_offsets<uint64_t>(offsets);
         auto col_array = ColumnArray::create(std::move(nested_column), offsets_column);
         auto col_null_map = ColumnHelper::create_column<DataTypeUInt8>(null_map);
         auto col_nullable = ColumnNullable::create(std::move(col_array), std::move(col_null_map));
@@ -73,7 +73,7 @@ struct ColumnArrayBuilder {
     int size = 0;
     std::vector<FieldType> nested_values;
     std::vector<DataTypeUInt8::FieldType> nested_null_map;
-    std::vector<DataTypeUInt64::FieldType> offsets;
+    std::vector<uint64_t> offsets;
     std::vector<DataTypeUInt8::FieldType> null_map;
 };
 

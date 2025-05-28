@@ -77,7 +77,7 @@ struct ColumnMapBuilder {
         auto key_column = ColumnHelper::create_nullable_column<KeyDataType>(key_data, key_null_map);
         auto value_column =
                 ColumnHelper::create_nullable_column<ValueDataType>(value_data, value_null_map);
-        auto offsets_column = ColumnHelper::create_column<DataTypeUInt64>(offsets);
+        auto offsets_column = ColumnHelper::create_column_offsets<uint64_t>(offsets);
 
         auto col_map = ColumnMap::create(std::move(key_column), std::move(value_column),
                                          std::move(offsets_column));
