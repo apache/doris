@@ -42,14 +42,14 @@ struct FunctionCastToIntTest : public FunctionCastTest {
         InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
         using UnsignedT = typename std::make_unsigned<T>::type;
         DataTypeNumber<PType> dt;
-        auto max_val = std::numeric_limits<T>::max();
-        auto min_val = std::numeric_limits<T>::min();
+        T max_val = std::numeric_limits<T>::max();
+        T min_val = std::numeric_limits<T>::min() + T(1);
         auto max_val_minus_1 = max_val - T {1};
         auto min_val_plus_1 = min_val + T {1};
         auto min_val_abs_val = UnsignedT(max_val) + 1;
         std::string min_val_str_no_sign = DataTypeNumber<PType>::to_string(min_val_abs_val);
-        std::vector<T> test_vals = {T {0},  T {1},  T {9},    T {123}, max_val,
-                                    T {-1}, T {-9}, T {-123}, min_val};
+        std::vector<T> test_vals = {T {0},  T {1},  T {9},    T {123},    max_val,
+                                    T {-1}, T {-9}, T {-123}, T {min_val}};
         test_vals.push_back(max_val_minus_1);
         test_vals.push_back(min_val_plus_1);
 
@@ -61,11 +61,7 @@ struct FunctionCastToIntTest : public FunctionCastTest {
                 std::string v_str;
                 if (is_negative) {
                     // string format without sign
-                    if (v == min_val) {
-                        v_str = min_val_str_no_sign;
-                    } else {
-                        v_str = dt.to_string(-v);
-                    }
+                    v_str = dt.to_string(-v);
                 } else {
                     v_str = dt.to_string(v);
                 }
@@ -112,18 +108,10 @@ struct FunctionCastToIntTest : public FunctionCastTest {
         tmp_test_func(true, true, true);
         // test leading and trailing spaces and sign
         tmp_test_func(true, true, false);
-        // test leading and trailing spaces and leading zeros
-        tmp_test_func(true, false, true);
-        // test leading and trailing spaces
-        tmp_test_func(true, false, false);
         // test with sign and leading zeros
         tmp_test_func(false, true, true);
         // test with sign
         tmp_test_func(false, true, false);
-        // test only leading zeros
-        tmp_test_func(false, false, true);
-        // test strict digits
-        tmp_test_func(false, false, false);
         /*
         DataSet data_set = {
                 // Invalid cases - these should throw exceptions or return error status

@@ -165,7 +165,7 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
 
     template <PrimitiveType IntPType, PrimitiveType FloatPType>
     void from_int_test_func() {
-        using IntType = typename PrimitiveTypeTraits<FloatPType>::CppType;
+        using IntType = typename PrimitiveTypeTraits<IntPType>::CppType;
         using FloatType = typename PrimitiveTypeTraits<FloatPType>::CppType;
         DataTypeNumber<IntPType> dt_from;
         InputTypeSet input_types = {dt_from.get_primitive_type()};
