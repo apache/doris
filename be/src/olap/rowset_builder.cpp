@@ -290,7 +290,7 @@ Status BaseRowsetBuilder::submit_calc_delete_bitmap_task() {
         }
     }
 
-    // to prevent seeing intermidiate state of a tablet
+    // to prevent seeing intermediate state of a tablet
     std::unique_lock<bthread::Mutex> sync_lock;
     if (config::is_cloud_mode()) {
         sync_lock = std::unique_lock<bthread::Mutex>(
