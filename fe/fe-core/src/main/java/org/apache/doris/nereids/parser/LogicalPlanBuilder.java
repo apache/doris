@@ -7777,11 +7777,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (ctx.database != null) {
             dbName = ctx.database.getText();
         }
+
         Expression whereClause = null;
         if (ctx.wildWhere() != null) {
             whereClause = getWildWhere(ctx.wildWhere());
         }
-       return new ShowRoutineLoadTaskCommand(dbName, whereClause);
+
+        return new ShowRoutineLoadTaskCommand(dbName, whereClause);
     }
 
     @Override
