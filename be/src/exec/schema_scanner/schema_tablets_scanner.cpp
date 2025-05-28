@@ -184,7 +184,7 @@ Status SchemaTabletsScanner::_fill_block_impl(vectorized::Block* block) {
     RETURN_IF_ERROR(fill_boolean_column(
             [](BaseTabletSPtr tablet) {
                 if (config::is_cloud_mode()) {
-                    return false;
+                    return true;
                 }
                 return std::static_pointer_cast<Tablet>(tablet)->is_used();
             },
