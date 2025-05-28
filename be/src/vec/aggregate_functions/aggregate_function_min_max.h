@@ -566,6 +566,7 @@ struct SingleValueDataComplexType {
     SingleValueDataComplexType(const DataTypes& argument_types, int be_version) {
         column_type = argument_types[0];
         column_data = column_type->create_column();
+        LOG(INFO) << "asd " << column_type->get_name() << " " << column_data->dump_structure();
         be_exec_version = be_version;
     }
 
@@ -584,6 +585,7 @@ struct SingleValueDataComplexType {
     }
 
     void change_impl(const IColumn& column, size_t row_num) {
+        DCHECK(column_data.get() != nullptr);
         DCHECK_EQ(column_data->size(), 0);
         column_data->insert_from(column, row_num);
         has_value = true;
