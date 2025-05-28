@@ -24,18 +24,13 @@
 
 #include "common/exception.h"
 #include "common/status.h"
+#include "util/jsonb_parser_simd.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_object.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/schema_util.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
-
-#ifdef __AVX2__
-#include "util/jsonb_parser_simd.h"
-#else
-#include "util/jsonb_parser.h"
-#endif
 
 namespace doris {
 
