@@ -291,4 +291,212 @@ TEST_F(ColumnObjectTest, test_insert_indices_from) {
     }
 }
 
+TEST_F(ColumnObjectTest, subcolumn_insert_range_from_test) {
+    ColumnVariant::Subcolumn subcolumn(0, true /* is_nullable */, false /* is_root */);
+    Field int_field = Field::create_field<TYPE_INT>(20);
+    Field string_field = Field::create_field<TYPE_STRING>("hello");
+    Array array_int(2);
+    array_int[0] = int_field;
+    array_int[1] = int_field;
+    Field array_int_field = Field::create_field<TYPE_ARRAY>(array_int);
+    ColumnVariant::Subcolumn subcolumn2(0, true /* is_nullable */, false /* is_root */);
+    subcolumn2.insert(array_int_field);
+    subcolumn2.finalize();
+
+    Array array_string(2);
+    array_string[0] = string_field;
+    array_string[1] = string_field;
+    Field array_string_field = Field::create_field<TYPE_ARRAY>(array_string);
+    ColumnVariant::Subcolumn subcolumn3(0, true /* is_nullable */, false /* is_root */);
+    subcolumn3.insert(array_string_field);
+    subcolumn3.finalize();
+
+    subcolumn.insert_range_from(subcolumn2, 0, 1);
+    subcolumn.insert_range_from(subcolumn3, 0, 1);
+    subcolumn.finalize();
+    EXPECT_EQ(subcolumn.data.size(), 1);
+    std::cout << subcolumn.get_least_common_type()->get_name() << std::endl;
+    EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(), PrimitiveType::TYPE_JSONB);
+}
+
+TEST_F(ColumnObjectTest, subcolumn_insert_test) {
+    ColumnVariant::Subcolumn subcolumn(0, true /* is_nullable */, false /* is_root */);
+    Field int_field = Field::create_field<TYPE_INT>(20);
+    Field string_field = Field::create_field<TYPE_STRING>("hello");
+    Array array_int(2);
+    array_int[0] = int_field;
+    array_int[1] = int_field;
+    Field array_int_field = Field::create_field<TYPE_ARRAY>(array_int);
+
+    Array array_string(2);
+    array_string[0] = string_field;
+    array_string[1] = string_field;
+    Field array_string_field = Field::create_field<TYPE_ARRAY>(array_string);
+
+    subcolumn.insert(array_int_field);
+    subcolumn.insert(array_string_field);
+    subcolumn.finalize();
+    EXPECT_EQ(subcolumn.data.size(), 1);
+    EXPECT_EQ(subcolumn.get_least_common_type()->get_primitive_type(), PrimitiveType::TYPE_JSONB);
+
+    subcolumn.insert(string_field);
+    subcolumn.insert(int_field);
+    EXPECT_EQ(subcolumn.data.size(), 1);
+    EXPECT_EQ(remove_nullable(subcolumn.get_least_common_type())->get_primitive_type(),
+              PrimitiveType::TYPE_JSONB);
+}
+
+TEST_F(ColumnObjectTest, subcolumn_insert_test_advanced) {
+    std::vector<Field> fields;
+
+    fields.emplace_back(Field::create_field<TYPE_NULL>(Null()));
+
+    fields.emplace_back(Field::create_field<TYPE_TINYINT>(-128));
+    fields.emplace_back(Field::create_field<TYPE_TINYINT>(127));
+    fields.emplace_back(Field::create_field<TYPE_TINYINT>(100));
+
+    fields.emplace_back(Field::create_field<TYPE_SMALLINT>(-32768));
+    fields.emplace_back(Field::create_field<TYPE_SMALLINT>(32767));
+    fields.emplace_back(Field::create_field<TYPE_SMALLINT>(10000));
+
+    fields.emplace_back(Field::create_field<TYPE_INT>(-2147483648));
+    fields.emplace_back(Field::create_field<TYPE_INT>(2147483647));
+    fields.emplace_back(Field::create_field<TYPE_INT>(1000000000));
+
+    fields.emplace_back(Field::create_field<TYPE_BIGINT>(-9223372036854775807));
+    fields.emplace_back(Field::create_field<TYPE_BIGINT>(922337203685477588));
+
+    fields.emplace_back(Field::create_field<TYPE_FLOAT>(3.14159f));
+    fields.emplace_back(Field::create_field<TYPE_FLOAT>(-3.14159f));
+
+    fields.emplace_back(Field::create_field<TYPE_DOUBLE>(3.14159265359));
+    fields.emplace_back(Field::create_field<TYPE_DOUBLE>(-3.14159265359));
+
+    fields.emplace_back(Field::create_field<TYPE_STRING>("hello world"));
+    fields.emplace_back(Field::create_field<TYPE_STRING>(""));
+
+    Array arr_int8(2);
+    arr_int8[0] = Field::create_field<TYPE_TINYINT>(1);
+    arr_int8[1] = Field::create_field<TYPE_TINYINT>(2);
+    Field arr_int8_field = Field::create_field<TYPE_ARRAY>(arr_int8);
+    fields.emplace_back(arr_int8_field);
+
+    Array arr_float(2);
+    arr_float[0] = Field::create_field<TYPE_FLOAT>(1.1);
+    arr_float[1] = Field::create_field<TYPE_FLOAT>(2.2);
+    Field arr_float_field = Field::create_field<TYPE_ARRAY>(arr_float);
+    fields.emplace_back(arr_float_field);
+
+    Array arr_string(2);
+    arr_string[0] = Field::create_field<TYPE_STRING>("one");
+    arr_string[1] = Field::create_field<TYPE_STRING>("two");
+    Field arr_string_field = Field::create_field<TYPE_ARRAY>(arr_string);
+    fields.emplace_back(arr_string_field);
+
+    fields.emplace_back(Field::create_field<TYPE_NULL>(Null()));
+
+    std::random_device rd;
+    std::mt19937 g(rd());
+
+    for (int i = 0; i < 10000; i++) {
+        std::shuffle(fields.begin(), fields.end(), g);
+        auto subcolumn = ColumnVariant::Subcolumn(0, true, false);
+
+        for (const auto& field : fields) {
+            subcolumn.insert(field);
+        }
+
+        subcolumn.finalize();
+        EXPECT_EQ(subcolumn.data.size(), 1);
+        // std::cout << "least common type: " << subcolumn.get_least_common_type()->get_name() << std::endl;
+        EXPECT_EQ(subcolumn.least_common_type.get_base_type_id(), PrimitiveType::TYPE_JSONB);
+
+        for (const auto& field : fields) {
+            subcolumn.insert(field);
+        }
+        EXPECT_EQ(subcolumn.least_common_type.get_base_type_id(), PrimitiveType::TYPE_JSONB);
+
+        if (i % 1000 == 0) {
+            std::cout << "insert count " << i << std::endl;
+        }
+    }
+}
+
+TEST_F(ColumnObjectTest, subcolumn_insert_range_from_test_advanced) {
+    std::vector<Field> fields;
+
+    fields.emplace_back(Field::create_field<TYPE_NULL>(Null()));
+
+    fields.emplace_back(Field::create_field<TYPE_TINYINT>(-128));
+    fields.emplace_back(Field::create_field<TYPE_TINYINT>(127));
+    fields.emplace_back(Field::create_field<TYPE_TINYINT>(100));
+
+    fields.emplace_back(Field::create_field<TYPE_SMALLINT>(-32768));
+    fields.emplace_back(Field::create_field<TYPE_SMALLINT>(32767));
+    fields.emplace_back(Field::create_field<TYPE_SMALLINT>(10000));
+
+    fields.emplace_back(Field::create_field<TYPE_INT>(-2147483648));
+    fields.emplace_back(Field::create_field<TYPE_INT>(2147483647));
+    fields.emplace_back(Field::create_field<TYPE_INT>(1000000000));
+
+    fields.emplace_back(Field::create_field<TYPE_BIGINT>(-9223372036854775807));
+    fields.emplace_back(Field::create_field<TYPE_BIGINT>(922337203685477588));
+
+    fields.emplace_back(Field::create_field<TYPE_FLOAT>(3.14159f));
+    fields.emplace_back(Field::create_field<TYPE_FLOAT>(-3.14159f));
+
+    fields.emplace_back(Field::create_field<TYPE_DOUBLE>(3.14159265359));
+    fields.emplace_back(Field::create_field<TYPE_DOUBLE>(-3.14159265359));
+
+    fields.emplace_back(Field::create_field<TYPE_STRING>("hello world"));
+    fields.emplace_back(Field::create_field<TYPE_STRING>(""));
+
+    Array arr_int8(2);
+    arr_int8[0] = Field::create_field<TYPE_TINYINT>(1);
+    arr_int8[1] = Field::create_field<TYPE_TINYINT>(2);
+    Field arr_int8_field = Field::create_field<TYPE_ARRAY>(arr_int8);
+    fields.emplace_back(arr_int8_field);
+
+    Array arr_float(2);
+    arr_float[0] = Field::create_field<TYPE_FLOAT>(1.1);
+    arr_float[1] = Field::create_field<TYPE_FLOAT>(2.2);
+    Field arr_float_field = Field::create_field<TYPE_ARRAY>(arr_float);
+    fields.emplace_back(arr_float_field);
+
+    Array arr_string(2);
+    arr_string[0] = Field::create_field<TYPE_STRING>("one");
+    arr_string[1] = Field::create_field<TYPE_STRING>("two");
+    Field arr_string_field = Field::create_field<TYPE_ARRAY>(arr_string);
+    fields.emplace_back(arr_string_field);
+
+    fields.emplace_back(Field::create_field<TYPE_NULL>(Null()));
+
+    std::random_device rd;
+    std::mt19937 g(rd());
+    for (int i = 0; i < 10000; i++) {
+        std::shuffle(fields.begin(), fields.end(), g);
+        auto subcolumn = ColumnVariant::Subcolumn(0, true, false);
+
+        for (const auto& field : fields) {
+            auto subcolumn_tmp = ColumnVariant::Subcolumn(0, true, false);
+            subcolumn_tmp.insert(field);
+            subcolumn.insert_range_from(subcolumn_tmp, 0, 1);
+        }
+
+        subcolumn.finalize();
+        EXPECT_EQ(subcolumn.data.size(), 1);
+        // std::cout << "least common type: " << subcolumn.get_least_common_type()->get_name() << std::endl;
+        EXPECT_EQ(subcolumn.least_common_type.get_base_type_id(), PrimitiveType::TYPE_JSONB);
+
+        for (const auto& field : fields) {
+            subcolumn.insert(field);
+        }
+        EXPECT_EQ(subcolumn.least_common_type.get_base_type_id(), PrimitiveType::TYPE_JSONB);
+
+        if (i % 1000 == 0) {
+            std::cout << "insert count " << i << std::endl;
+        }
+    }
+}
+
 } // namespace doris::vectorized

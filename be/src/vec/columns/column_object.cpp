@@ -397,6 +397,7 @@ void ColumnVariant::Subcolumn::insert(Field field, FieldInfo info) {
             get_least_supertype_jsonb(
                     PrimitiveTypeSet {base_type, least_common_type.get_base_type_id()},
                     &base_data_type);
+            DCHECK_LE(schema_util::get_number_of_dimensions(*base_data_type), 1);
             type_changed = true;
             base_data_type_id = base_data_type->get_primitive_type();
             if (is_nullable) {
@@ -503,6 +504,7 @@ void ColumnVariant::Subcolumn::insert_range_from(const Subcolumn& src, size_t st
         DataTypePtr new_least_common_type;
         get_least_supertype_jsonb(DataTypes {least_common_type.get(), src.get_least_common_type()},
                                   &new_least_common_type);
+        DCHECK_LE(schema_util::get_number_of_dimensions(*new_least_common_type), 1);
         if (!new_least_common_type->equals(*least_common_type.get())) {
             add_new_column_part(std::move(new_least_common_type));
         }

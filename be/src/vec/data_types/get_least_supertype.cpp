@@ -233,6 +233,10 @@ void get_least_supertype_jsonb(const DataTypes& types, DataTypePtr* type) {
             if (!nested_type) {
                 *type = nullptr;
                 return;
+            } else if (remove_nullable(nested_type)->get_primitive_type() ==
+                       PrimitiveType::TYPE_JSONB) {
+                *type = std::make_shared<DataTypeJsonb>();
+                return;
             }
             *type = std::make_shared<DataTypeArray>(nested_type);
             return;
