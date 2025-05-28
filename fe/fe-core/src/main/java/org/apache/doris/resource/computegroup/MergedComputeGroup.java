@@ -28,8 +28,8 @@ public class MergedComputeGroup extends ComputeGroup {
 
     private Set<String> computeGroupSet;
 
-    public MergedComputeGroup(Set<String> computeGroupSet, SystemInfoService systemInfoService) {
-        super(MergedComputeGroup.class.getSimpleName(), MergedComputeGroup.class.getSimpleName(), systemInfoService);
+    public MergedComputeGroup(String mergedName, Set<String> computeGroupSet, SystemInfoService systemInfoService) {
+        super(mergedName, mergedName, systemInfoService);
         this.computeGroupSet = computeGroupSet;
     }
 
@@ -49,18 +49,8 @@ public class MergedComputeGroup extends ComputeGroup {
     }
 
     @Override
-    public String getId() {
-        throw new RuntimeException("MergedComputeGroup not implements getId.");
-    }
-
-    @Override
-    public String getName() {
-        throw new RuntimeException("MergedComputeGroup not implements getName.");
-    }
-
-    @Override
     public String toString() {
-        return String.format("%s %s", MergedComputeGroup.class.getSimpleName(), String.join(",", computeGroupSet));
+        return String.format("%s name=%s ", MergedComputeGroup.class.getSimpleName(), name);
     }
 
 }

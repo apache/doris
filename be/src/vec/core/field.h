@@ -70,23 +70,19 @@ using FieldVector = std::vector<Field>;
 /// construct a Field of Array or a Tuple type. An alternative approach would be
 /// to construct both of these types from FieldVector, and have the caller
 /// specify the desired Field type explicitly.
-#define DEFINE_FIELD_VECTOR(X)          \
-    struct X : public FieldVector {     \
-        using FieldVector::FieldVector; \
-    }
+struct Array : public FieldVector {
+    using FieldVector::FieldVector;
+};
 
-DEFINE_FIELD_VECTOR(Array);
-DEFINE_FIELD_VECTOR(Tuple);
-DEFINE_FIELD_VECTOR(Map);
-#undef DEFINE_FIELD_VECTOR
+struct Tuple : public FieldVector {
+    using FieldVector::FieldVector;
+};
 
-using FieldMap = std::map<String, Field>;
-#define DEFINE_FIELD_MAP(X)       \
-    struct X : public FieldMap {  \
-        using FieldMap::FieldMap; \
-    }
-DEFINE_FIELD_MAP(VariantMap);
-#undef DEFINE_FIELD_MAP
+struct Map : public FieldVector {
+    using FieldVector::FieldVector;
+};
+
+using VariantMap = std::map<String, Field>;
 
 //TODO: rethink if we really need this? it only save one pointer from std::string
 // not POD type so could only use read/write_json_binary instead of read/write_binary
@@ -250,7 +246,7 @@ private:
 /** 32 is enough. Round number is used for alignment and for better arithmetic inside std::vector.
   * NOTE: Actually, sizeof(std::string) is 32 when using libc++, so Field is 40 bytes.
   */
-#define DBMS_MIN_FIELD_SIZE 32
+constexpr size_t DBMS_MIN_FIELD_SIZE = 32;
 
 /** Discriminated union of several types.
   * Made for replacement of `boost::variant`
@@ -376,6 +372,8 @@ public:
             return get<Int128>() <=> rhs.get<Int128>();
         case PrimitiveType::TYPE_IPV6:
             return get<IPv6>() <=> rhs.get<IPv6>();
+        case PrimitiveType::TYPE_IPV4:
+            return get<IPv4>() <=> rhs.get<IPv4>();
         case PrimitiveType::TYPE_DOUBLE:
             return get<Float64>() < rhs.get<Float64>()    ? std::strong_ordering::less
                    : get<Float64>() == rhs.get<Float64>() ? std::strong_ordering::equal
@@ -499,45 +497,7 @@ private:
 
     void assign(const Field& x);
 
-    ALWAYS_INLINE void destroy() {
-        // TODO(gabriel): Use `PrimitiveTypeTraits<>::CppType`
-        switch (type) {
-        case PrimitiveType::TYPE_STRING:
-        case PrimitiveType::TYPE_CHAR:
-        case PrimitiveType::TYPE_VARCHAR:
-            destroy<String>();
-            break;
-        case PrimitiveType::TYPE_JSONB:
-            destroy<JsonbField>();
-            break;
-        case PrimitiveType::TYPE_ARRAY:
-            destroy<Array>();
-            break;
-        case PrimitiveType::TYPE_STRUCT:
-            destroy<Tuple>();
-            break;
-        case PrimitiveType::TYPE_MAP:
-            destroy<Map>();
-            break;
-        case PrimitiveType::TYPE_VARIANT:
-            destroy<VariantMap>();
-            break;
-        case PrimitiveType::TYPE_OBJECT:
-            destroy<BitmapValue>();
-            break;
-        case PrimitiveType::TYPE_HLL:
-            destroy<HyperLogLog>();
-            break;
-        case PrimitiveType::TYPE_QUANTILE_STATE:
-            destroy<QuantileState>();
-            break;
-        default:
-            break;
-        }
-
-        type = PrimitiveType::
-                TYPE_NULL; /// for exception safety in subsequent calls to destroy and create, when create fails.
-    }
+    void destroy();
 
     template <typename T>
     void destroy() {
@@ -545,8 +505,6 @@ private:
         ptr->~T();
     }
 };
-
-#undef DBMS_MIN_FIELD_SIZE
 
 template <typename T>
 T get(const Field& field) {

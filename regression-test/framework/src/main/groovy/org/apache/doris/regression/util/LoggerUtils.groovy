@@ -23,7 +23,12 @@ class LoggerUtils {
     static Tuple2<Integer, String> getErrorInfo(Throwable t, File file) {
         try {
             if (file.name.endsWith(".groovy")) {
-                def st = findRootErrorStackTrace(t, Sets.newLinkedHashSet(), file)
+                // to disable global variables, we've add some content to the bottom of the groovy file
+                // so if st.getLineNumber > fileLineCt, continue to seek the original line.
+                def fileLineCt = file.readLines().size()
+
+                def st = findRootErrorStackTrace(t, Sets.newLinkedHashSet(), file, fileLineCt)
+
                 int lineNumber = -1
                 if (!st.is(null)) {
                     lineNumber = st.getLineNumber()
@@ -45,12 +50,12 @@ class LoggerUtils {
         }
     }
 
-    static StackTraceElement findRootErrorStackTrace(Throwable t, Set<Throwable> throwables, File file) {
+    static StackTraceElement findRootErrorStackTrace(Throwable t, Set<Throwable> throwables, File file, int fileLineCt) {
         throwables.add(t)
 
         def cause = t.getCause()
         if (!cause.is(null) && !throwables.contains(cause)) {
-            def foundStackTrace = findRootErrorStackTrace(cause, throwables, file)
+            def foundStackTrace = findRootErrorStackTrace(cause, throwables, file, fileLineCt)
             if (!foundStackTrace.is(null)) {
                 return foundStackTrace
             }
@@ -58,7 +63,9 @@ class LoggerUtils {
 
         for (def st : t.getStackTrace()) {
             if (Objects.equals(st.fileName, file.name)) {
-                return st
+                if (st.getLineNumber() < fileLineCt) {
+                    return st
+                }
             }
         }
         return null

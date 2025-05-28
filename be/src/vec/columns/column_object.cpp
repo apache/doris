@@ -46,6 +46,7 @@
 #include "olap/olap_common.h"
 #include "runtime/primitive_type.h"
 #include "util/defer_op.h"
+#include "util/jsonb_parser_simd.h"
 #include "util/simd/bits.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/helpers.h"
@@ -75,12 +76,6 @@
 #include "vec/data_types/data_type_object.h"
 #include "vec/data_types/get_least_supertype.h"
 #include "vec/json/path_in_data.h"
-
-#ifdef __AVX2__
-#include "util/jsonb_parser_simd.h"
-#else
-#include "util/jsonb_parser.h"
-#endif
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
@@ -145,18 +140,20 @@ size_t get_number_of_dimensions(const IDataType& type) {
 /// Returns 0 for scalar fields.
 class FieldVisitorToNumberOfDimensions : public StaticVisitor<size_t> {
 public:
-    size_t operator()(const Array& x) const {
-        const size_t size = x.size();
-        size_t dimensions = 0;
-        for (size_t i = 0; i < size; ++i) {
-            size_t element_dimensions = apply_visitor(*this, x[i]);
-            dimensions = std::max(dimensions, element_dimensions);
+    FieldVisitorToNumberOfDimensions() = default;
+    template <PrimitiveType T>
+    size_t apply(const typename PrimitiveTypeTraits<T>::NearestFieldType& x) {
+        if constexpr (T == TYPE_ARRAY) {
+            const size_t size = x.size();
+            size_t dimensions = 0;
+            for (size_t i = 0; i < size; ++i) {
+                size_t element_dimensions = apply_visitor(*this, x[i]);
+                dimensions = std::max(dimensions, element_dimensions);
+            }
+            return 1 + dimensions;
+        } else {
+            return 0;
         }
-        return 1 + dimensions;
-    }
-    template <typename T>
-    size_t operator()(const T&) const {
-        return 0;
     }
 };
 
@@ -165,51 +162,30 @@ public:
 // for FieldVisitorToScalarType which does not support complex field.
 class SimpleFieldVisitorToScalarType : public StaticVisitor<size_t> {
 public:
-    size_t operator()(const Array& x) {
-        throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "Array type is not supported");
-    }
-    size_t operator()(const UInt64& x) {
-        if (x <= std::numeric_limits<Int8>::max()) {
-            type = PrimitiveType::TYPE_TINYINT;
-        } else if (x <= std::numeric_limits<Int16>::max()) {
-            type = PrimitiveType::TYPE_SMALLINT;
-        } else if (x <= std::numeric_limits<Int32>::max()) {
-            type = PrimitiveType::TYPE_INT;
+    template <PrimitiveType T>
+    size_t apply(const typename PrimitiveTypeTraits<T>::NearestFieldType& x) {
+        if constexpr (T == TYPE_ARRAY) {
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "Array type is not supported");
+        } else if constexpr (T == TYPE_BIGINT) {
+            if (x <= std::numeric_limits<Int8>::max() && x >= std::numeric_limits<Int8>::min()) {
+                type = PrimitiveType::TYPE_TINYINT;
+            } else if (x <= std::numeric_limits<Int16>::max() &&
+                       x >= std::numeric_limits<Int16>::min()) {
+                type = PrimitiveType::TYPE_SMALLINT;
+            } else if (x <= std::numeric_limits<Int32>::max() &&
+                       x >= std::numeric_limits<Int32>::min()) {
+                type = PrimitiveType::TYPE_INT;
+            } else {
+                type = PrimitiveType::TYPE_BIGINT;
+            }
+            return 1;
+        } else if constexpr (T == TYPE_NULL) {
+            have_nulls = true;
+            return 1;
         } else {
-            type = PrimitiveType::TYPE_BIGINT;
+            type = T;
+            return 1;
         }
-        return 1;
-    }
-    size_t operator()(const Int64& x) {
-        if (x <= std::numeric_limits<Int8>::max() && x >= std::numeric_limits<Int8>::min()) {
-            type = PrimitiveType::TYPE_TINYINT;
-        } else if (x <= std::numeric_limits<Int16>::max() &&
-                   x >= std::numeric_limits<Int16>::min()) {
-            type = PrimitiveType::TYPE_SMALLINT;
-        } else if (x <= std::numeric_limits<Int32>::max() &&
-                   x >= std::numeric_limits<Int32>::min()) {
-            type = PrimitiveType::TYPE_INT;
-        } else {
-            type = PrimitiveType::TYPE_BIGINT;
-        }
-        return 1;
-    }
-    size_t operator()(const JsonbField& x) {
-        type = PrimitiveType::TYPE_JSONB;
-        return 1;
-    }
-    size_t operator()(const Null&) {
-        have_nulls = true;
-        return 1;
-    }
-    size_t operator()(const VariantMap&) {
-        type = PrimitiveType::TYPE_VARIANT;
-        return 1;
-    }
-    template <typename T>
-    size_t operator()(const T&) {
-        type = TypeToPrimitiveType<NearestFieldType<T>>::value;
-        return 1;
     }
     void get_scalar_type(PrimitiveType* data_type) const { *data_type = type; }
     bool contain_nulls() const { return have_nulls; }
@@ -226,63 +202,37 @@ private:
 /// More optimized version of FieldToDataType.
 class FieldVisitorToScalarType : public StaticVisitor<size_t> {
 public:
-    using FieldType = PrimitiveType;
-    size_t operator()(const Array& x) {
-        size_t size = x.size();
-        for (size_t i = 0; i < size; ++i) {
-            apply_visitor(*this, x[i]);
-        }
-        return 0;
-    }
-    // TODO(gabriel): remove this function
-    size_t operator()(const UInt64& x) {
-        field_types.insert(PrimitiveType::TYPE_BIGINT);
-        if (x <= std::numeric_limits<Int8>::max()) {
-            type_indexes.insert(PrimitiveType::TYPE_TINYINT);
-        } else if (x <= std::numeric_limits<Int16>::max()) {
-            type_indexes.insert(PrimitiveType::TYPE_SMALLINT);
-        } else if (x <= std::numeric_limits<Int32>::max()) {
-            type_indexes.insert(PrimitiveType::TYPE_INT);
+    template <PrimitiveType T>
+    size_t apply(const typename PrimitiveTypeTraits<T>::NearestFieldType& x) {
+        if constexpr (T == TYPE_ARRAY) {
+            size_t size = x.size();
+            for (size_t i = 0; i < size; ++i) {
+                apply_visitor(*this, x[i]);
+            }
+            return 0;
+        } else if constexpr (T == TYPE_BIGINT) {
+            field_types.insert(PrimitiveType::TYPE_BIGINT);
+            if (x <= std::numeric_limits<Int8>::max() && x >= std::numeric_limits<Int8>::min()) {
+                type_indexes.insert(PrimitiveType::TYPE_TINYINT);
+            } else if (x <= std::numeric_limits<Int16>::max() &&
+                       x >= std::numeric_limits<Int16>::min()) {
+                type_indexes.insert(PrimitiveType::TYPE_SMALLINT);
+            } else if (x <= std::numeric_limits<Int32>::max() &&
+                       x >= std::numeric_limits<Int32>::min()) {
+                type_indexes.insert(PrimitiveType::TYPE_INT);
+            } else {
+                type_indexes.insert(PrimitiveType::TYPE_BIGINT);
+            }
+            return 0;
+        } else if constexpr (T == TYPE_NULL) {
+            have_nulls = true;
+            return 0;
         } else {
-            type_indexes.insert(PrimitiveType::TYPE_BIGINT);
+            PrimitiveTypeTraits<PrimitiveType::TYPE_ARRAY>::CppType a;
+            field_types.insert(T);
+            type_indexes.insert(T);
+            return 0;
         }
-        return 0;
-    }
-    size_t operator()(const Int64& x) {
-        field_types.insert(PrimitiveType::TYPE_BIGINT);
-        if (x <= std::numeric_limits<Int8>::max() && x >= std::numeric_limits<Int8>::min()) {
-            type_indexes.insert(PrimitiveType::TYPE_TINYINT);
-        } else if (x <= std::numeric_limits<Int16>::max() &&
-                   x >= std::numeric_limits<Int16>::min()) {
-            type_indexes.insert(PrimitiveType::TYPE_SMALLINT);
-        } else if (x <= std::numeric_limits<Int32>::max() &&
-                   x >= std::numeric_limits<Int32>::min()) {
-            type_indexes.insert(PrimitiveType::TYPE_INT);
-        } else {
-            type_indexes.insert(PrimitiveType::TYPE_BIGINT);
-        }
-        return 0;
-    }
-    size_t operator()(const JsonbField& x) {
-        field_types.insert(PrimitiveType::TYPE_JSONB);
-        type_indexes.insert(PrimitiveType::TYPE_JSONB);
-        return 0;
-    }
-    size_t operator()(const VariantMap&) {
-        field_types.insert(PrimitiveType::TYPE_VARIANT);
-        type_indexes.insert(PrimitiveType::TYPE_VARIANT);
-        return 0;
-    }
-    size_t operator()(const Null&) {
-        have_nulls = true;
-        return 0;
-    }
-    template <typename T>
-    size_t operator()(const T&) {
-        PrimitiveTypeTraits<PrimitiveType::TYPE_ARRAY>::CppType a;
-        field_types.insert(TypeToPrimitiveType<NearestFieldType<T>>::value);
-        type_indexes.insert(TypeToPrimitiveType<NearestFieldType<T>>::value);
-        return 0;
     }
     void get_scalar_type(PrimitiveType* type) const {
         DataTypePtr data_type;
@@ -305,23 +255,23 @@ public:
     FieldVisitorReplaceScalars(const Field& replacement_, size_t num_dimensions_to_keep_)
             : replacement(replacement_), num_dimensions_to_keep(num_dimensions_to_keep_) {}
 
-    Field operator()(const Array& x) const {
-        if (num_dimensions_to_keep == 0) {
+    template <PrimitiveType T>
+    Field apply(const typename PrimitiveTypeTraits<T>::NearestFieldType& x) const {
+        if constexpr (T == TYPE_ARRAY) {
+            if (num_dimensions_to_keep == 0) {
+                return replacement;
+            }
+
+            const size_t size = x.size();
+            Array res(size);
+            for (size_t i = 0; i < size; ++i) {
+                res[i] = apply_visitor(
+                        FieldVisitorReplaceScalars(replacement, num_dimensions_to_keep - 1), x[i]);
+            }
+            return Field::create_field<TYPE_ARRAY>(res);
+        } else {
             return replacement;
         }
-
-        const size_t size = x.size();
-        Array res(size);
-        for (size_t i = 0; i < size; ++i) {
-            res[i] = apply_visitor(
-                    FieldVisitorReplaceScalars(replacement, num_dimensions_to_keep - 1), x[i]);
-        }
-        return Field::create_field<TYPE_ARRAY>(res);
-    }
-
-    template <typename T>
-    Field operator()(const T&) const {
-        return replacement;
     }
 
 private:
@@ -338,11 +288,12 @@ void get_field_info_impl(const Field& field, FieldInfo* info) {
     PrimitiveType type_id;
     to_scalar_type_visitor.get_scalar_type(&type_id);
     // array item's dimension may missmatch, eg. [1, 2, [1, 2, 3]]
+    FieldVisitorToNumberOfDimensions v;
     *info = {
             type_id,
             to_scalar_type_visitor.contain_nulls(),
             to_scalar_type_visitor.need_convert_field(),
-            apply_visitor(FieldVisitorToNumberOfDimensions(), field),
+            apply_visitor(v, field),
     };
 }
 
