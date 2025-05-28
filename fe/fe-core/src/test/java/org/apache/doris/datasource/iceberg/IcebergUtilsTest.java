@@ -19,6 +19,7 @@ package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
+import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.iceberg.source.IcebergTableQueryInfo;
 
 import org.apache.iceberg.GenericManifestFile;
@@ -220,7 +221,7 @@ public class IcebergUtilsTest {
     }
 
     @Test
-    public void testGetQuerySpecSnapshot() {
+    public void testGetQuerySpecSnapshot() throws UserException {
         Table table = Mockito.mock(Table.class);
 
         // init schemas 0,1,2
@@ -286,35 +287,35 @@ public class IcebergUtilsTest {
 
         // query ref not exists
         Assert.assertThrows(
-                IllegalArgumentException.class,
+                UserException.class,
                 () -> assertQuerySpecSnapshotByVersionOf(table, "ref_not_exists", -1, -1, null));
 
         // query snapshotId not exists
         Assert.assertThrows(
-                IllegalArgumentException.class,
+                UserException.class,
                 () -> assertQuerySpecSnapshotByVersionOf(table, "99", -3, -1, null));
 
         // query branch not exists
         Assert.assertThrows(
-                IllegalArgumentException.class,
+                UserException.class,
                 () -> assertQuerySpecSnapshotByAtBranchMap(table, "branch_not_exists", -3, -1, null));
 
         // query tag not exists
         Assert.assertThrows(
-                IllegalArgumentException.class,
+                UserException.class,
                 () -> assertQuerySpecSnapshotByAtTagMap(table, "tag_not_exists", -3, -1, null));
 
         // query tag with @branch
         Assert.assertThrows(
-                IllegalArgumentException.class,
+                UserException.class,
                 () -> assertQuerySpecSnapshotByAtBranchMap(table, tag1, -3, -1, null));
 
         // query branch with @tag
         Assert.assertThrows(
-                IllegalArgumentException.class,
+                UserException.class,
                 () -> assertQuerySpecSnapshotByAtTagMap(table, branch1, -3, -1, null));
         Assert.assertThrows(
-                IllegalArgumentException.class,
+                UserException.class,
                 () -> assertQuerySpecSnapshotByAtTagMap(table, branch2, -3, -1, null));
 
         // query version with tag
@@ -408,7 +409,7 @@ public class IcebergUtilsTest {
             String version,
             long expectSnapshotId,
             int expectSchemaId,
-            String expectRef) {
+            String expectRef) throws UserException {
         Optional<TableSnapshot> tableSnapshot = Optional.of(TableSnapshot.versionOf(version));
         IcebergTableQueryInfo queryInfo = IcebergUtils.getQuerySpecSnapshot(table, tableSnapshot, Optional.empty());
         assertQueryInfo(queryInfo, expectSnapshotId, expectSchemaId, expectRef);
@@ -420,7 +421,7 @@ public class IcebergUtilsTest {
             String version,
             long expectSnapshotId,
             int expectSchemaId,
-            String expectRef) {
+            String expectRef) throws UserException {
         Optional<TableSnapshot> tableSnapshot = Optional.of(TableSnapshot.timeOf(version));
         IcebergTableQueryInfo queryInfo = IcebergUtils.getQuerySpecSnapshot(table, tableSnapshot, Optional.empty());
         assertQueryInfo(queryInfo, expectSnapshotId, expectSchemaId, expectRef);
@@ -432,7 +433,7 @@ public class IcebergUtilsTest {
             String version,
             long expectSnapshotId,
             int expectSchemaId,
-            String expectRef) {
+            String expectRef) throws UserException {
         HashMap<String, String> map = new HashMap<>();
         map.put("name", version);
         TableScanParams tsp = new TableScanParams("tag", map, null);
@@ -446,7 +447,7 @@ public class IcebergUtilsTest {
             String version,
             long expectSnapshotId,
             int expectSchemaId,
-            String expectRef) {
+            String expectRef) throws UserException {
         List<String> list = new ArrayList<>();
         list.add(version);
         TableScanParams tsp = new TableScanParams("tag", null, list);
@@ -460,7 +461,7 @@ public class IcebergUtilsTest {
             String version,
             long expectSnapshotId,
             int expectSchemaId,
-            String expectRef) {
+            String expectRef) throws UserException {
         HashMap<String, String> map = new HashMap<>();
         map.put("name", version);
         TableScanParams tsp = new TableScanParams("branch", map, null);
@@ -474,7 +475,7 @@ public class IcebergUtilsTest {
             String version,
             long expectSnapshotId,
             int expectSchemaId,
-            String expectRef) {
+            String expectRef) throws UserException {
         List<String> list = new ArrayList<>();
         list.add(version);
         TableScanParams tsp = new TableScanParams("branch", null, list);

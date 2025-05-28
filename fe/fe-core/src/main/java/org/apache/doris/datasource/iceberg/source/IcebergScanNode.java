@@ -227,7 +227,7 @@ public class IcebergScanNode extends FileQueryScanNode {
         }
     }
 
-    public void doStartSplit() {
+    public void doStartSplit() throws UserException {
         TableScan scan = createTableScan();
         CompletableFuture.runAsync(() -> {
             try {
@@ -258,7 +258,7 @@ public class IcebergScanNode extends FileQueryScanNode {
     }
 
     @VisibleForTesting
-    public TableScan createTableScan() {
+    public TableScan createTableScan() throws UserException {
         if (icebergTableScan != null) {
             return icebergTableScan;
         }
@@ -354,7 +354,7 @@ public class IcebergScanNode extends FileQueryScanNode {
     }
 
     @Override
-    public boolean isBatchMode() {
+    public boolean isBatchMode() throws UserException {
         TPushAggOp aggOp = getPushDownAggNoGroupingOp();
         if (aggOp.equals(TPushAggOp.COUNT)) {
             countFromSnapshot = getCountFromSnapshot();
@@ -400,7 +400,7 @@ public class IcebergScanNode extends FileQueryScanNode {
         }
     }
 
-    public IcebergTableQueryInfo getSpecifiedSnapshot() {
+    public IcebergTableQueryInfo getSpecifiedSnapshot() throws UserException {
         TableSnapshot tableSnapshot = getQueryTableSnapshot();
         TableScanParams scanParams = getScanParams();
         Optional<TableScanParams> params = Optional.ofNullable(scanParams);
@@ -490,7 +490,7 @@ public class IcebergScanNode extends FileQueryScanNode {
     }
 
     @VisibleForTesting
-    public long getCountFromSnapshot() {
+    public long getCountFromSnapshot() throws UserException {
         IcebergTableQueryInfo info = getSpecifiedSnapshot();
 
         Snapshot snapshot = info == null

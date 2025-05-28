@@ -794,7 +794,7 @@ public class IcebergUtils {
     public static IcebergTableQueryInfo getQuerySpecSnapshot(
             Table table,
             Optional<TableSnapshot> queryTableSnapshot,
-            Optional<TableScanParams> scanParams) {
+            Optional<TableScanParams> scanParams) throws UserException {
 
         Preconditions.checkArgument(
                 queryTableSnapshot.isPresent() || isIcebergBranchOrTag(scanParams),
@@ -816,13 +816,13 @@ public class IcebergUtils {
             }
             SnapshotRef snapshotRef = table.refs().get(refName);
             if (params.isBranch()) {
-                Preconditions.checkArgument(
-                    snapshotRef != null && snapshotRef.isBranch(),
-                    "Table " + table.name() + " does not have branch named " + refName);
+                if (snapshotRef == null || !snapshotRef.isBranch()) {
+                    throw new UserException("Table " + table.name() + " does not have branch named " + refName);
+                }
             } else {
-                Preconditions.checkArgument(
-                    snapshotRef != null && snapshotRef.isTag(),
-                    "Table " + table.name() + " does not have tag named " + refName);
+                if (snapshotRef == null || !snapshotRef.isTag()) {
+                    throw new UserException("Table " + table.name() + " does not have tag named " + refName);
+                }
             }
             return new IcebergTableQueryInfo(
                 snapshotRef.snapshotId(),
@@ -837,9 +837,9 @@ public class IcebergUtils {
             if (SNAPSHOT_ID.matcher(value).matches()) {
                 long snapshotId = Long.parseLong(value);
                 Snapshot snapshot = table.snapshot(snapshotId);
-                Preconditions.checkArgument(
-                        snapshot != null,
-                        "Table " + table.name() + " does not have snapshotId " + value);
+                if (snapshot == null) {
+                    throw new UserException("Table " + table.name() + " does not have snapshotId " + value);
+                }
                 return new IcebergTableQueryInfo(
                     snapshotId,
                     null,
@@ -847,9 +847,9 @@ public class IcebergUtils {
                 );
             }
 
-            Preconditions.checkArgument(
-                    table.refs().containsKey(value),
-                    "Table " + table.name() + " does not have tag or branch named " + value);
+            if (!table.refs().containsKey(value)) {
+                throw new UserException("Table " + table.name() + " does not have tag or branch named " + value);
+            }
             return new IcebergTableQueryInfo(
                 table.refs().get(value).snapshotId(),
                 value,
@@ -1150,7 +1150,12 @@ public class IcebergUtils {
             // If a snapshot is specified,
             // use the specified snapshot and the corresponding schema(not the latest schema).
             Table icebergTable = getIcebergTable(catalog, dbName, tbName);
-            IcebergTableQueryInfo info = getQuerySpecSnapshot(icebergTable, tableSnapshot, scanParams);
+            IcebergTableQueryInfo info;
+            try {
+                info = getQuerySpecSnapshot(icebergTable, tableSnapshot, scanParams);
+            } catch (UserException e) {
+                throw new RuntimeException(e);
+            }
             return new IcebergSnapshotCacheValue(
                     IcebergPartitionInfo.empty(),
                     new IcebergSnapshot(info.getSnapshotId(), info.getSchemaId()));

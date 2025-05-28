@@ -19,6 +19,7 @@ package org.apache.doris.datasource.iceberg.source;
 
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.security.authentication.PreExecutionAuthenticator;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
@@ -56,7 +57,7 @@ public class IcebergScanNodeTest {
     Snapshot snapshot;
 
     @Test
-    public void testIsBatchMode() {
+    public void testIsBatchMode() throws UserException {
         SessionVariable sessionVariable = new SessionVariable();
         IcebergScanNode icebergScanNode = new IcebergScanNode(new PlanNodeId(1), new TupleDescriptor(new TupleId(1)), sessionVariable);
 
