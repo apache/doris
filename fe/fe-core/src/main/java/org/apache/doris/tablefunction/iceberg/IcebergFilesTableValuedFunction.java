@@ -18,10 +18,10 @@
 package org.apache.doris.tablefunction.iceberg;
 
 import org.apache.doris.analysis.TableName;
-import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.ArrayType;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.MapType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.iceberg.share.ManifestFileBean;
 import org.apache.doris.thrift.TIcebergQueryType;
@@ -30,6 +30,7 @@ import com.google.common.collect.ImmutableList;
 import org.apache.iceberg.util.SerializationUtil;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 class IcebergFilesTableValuedFunction extends IcebergTableValuedFunction {
     private static final ImmutableList<Column> SCHEMA_SNAPSHOT = ImmutableList.of(
@@ -59,7 +60,7 @@ class IcebergFilesTableValuedFunction extends IcebergTableValuedFunction {
     protected List<String> getSplits() {
         return table.currentSnapshot().allManifests(table.io()).stream()
                 .map(ManifestFileBean::fromManifest).map(SerializationUtil::serializeToBase64)
-                .toList();
+                .collect(Collectors.toList());
     }
 
     @Override

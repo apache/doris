@@ -31,6 +31,7 @@ import org.apache.doris.thrift.TMetadataType;
 import org.apache.doris.thrift.TTasksMetadataParams;
 
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
 import java.util.List;
@@ -105,7 +106,7 @@ public class TasksTableValuedFunction extends MetadataTableValuedFunction {
         taskParam.setType(jobType.name());
         taskParam.setCurrentUserIdent(ConnectContext.get().getCurrentUserIdentity().toThrift());
         metaScanRange.setTasksParams(taskParam);
-        return List.of(metaScanRange);
+        return Lists.newArrayList(metaScanRange);
     }
 
     @Override

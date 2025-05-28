@@ -156,7 +156,7 @@ public class PartitionValuesTableValuedFunction extends MetadataTableValuedFunct
         partitionParam.setDatabase(databaseName);
         partitionParam.setTable(tableName);
         metaScanRange.setPartitionValuesParams(partitionParam);
-        return List.of(metaScanRange);
+        return Lists.newArrayList(metaScanRange);
     }
 
     @Override

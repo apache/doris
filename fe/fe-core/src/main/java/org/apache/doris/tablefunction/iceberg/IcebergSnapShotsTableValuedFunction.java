@@ -19,8 +19,8 @@ package org.apache.doris.tablefunction.iceberg;
 
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.MapType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TIcebergQueryType;
 

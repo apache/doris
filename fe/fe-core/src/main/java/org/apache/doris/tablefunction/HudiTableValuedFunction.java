@@ -131,7 +131,7 @@ public class HudiTableValuedFunction extends MetadataTableValuedFunction {
         hudiMetadataParams.setDatabase(hudiTableName.getDb());
         hudiMetadataParams.setTable(hudiTableName.getTbl());
         metaScanRange.setHudiParams(hudiMetadataParams);
-        return List.of(metaScanRange);
+        return Lists.newArrayList(metaScanRange);
     }
 
     @Override

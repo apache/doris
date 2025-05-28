@@ -172,7 +172,7 @@ public abstract class IcebergTableValuedFunction extends MetadataTableValuedFunc
     /**
      * Get the splits for the iceberg table valued function.
      * This method can be overridden to provide multiple splits for the table.
-     * 
+     *
      * @return a list of splits
      */
     protected List<String> getSplits() {
@@ -181,7 +181,7 @@ public abstract class IcebergTableValuedFunction extends MetadataTableValuedFunc
 
     /**
      * Get the schema for the iceberg table valued function.
-     * 
+     *
      * @return a list of columns representing the schema
      */
     protected abstract List<Column> getSchema();

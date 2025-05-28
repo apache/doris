@@ -32,6 +32,7 @@ import org.apache.doris.thrift.TMetadataType;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Lists;
 
 import java.util.List;
 import java.util.Map;
@@ -102,7 +103,7 @@ public class FrontendsTableValuedFunction extends MetadataTableValuedFunction {
         TFrontendsMetadataParams frontendsMetadataParams = new TFrontendsMetadataParams();
         frontendsMetadataParams.setClusterName("");
         metaScanRange.setFrontendsParams(frontendsMetadataParams);
-        return List.of(metaScanRange);
+        return Lists.newArrayList(metaScanRange);
     }
 
     @Override

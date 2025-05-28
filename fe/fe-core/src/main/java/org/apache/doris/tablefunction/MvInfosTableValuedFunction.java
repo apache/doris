@@ -29,6 +29,7 @@ import org.apache.doris.thrift.TMetadataType;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -118,7 +119,7 @@ public class MvInfosTableValuedFunction extends MetadataTableValuedFunction {
         if (LOG.isDebugEnabled()) {
             LOG.debug("getMetaScanRange() end");
         }
-        return List.of(metaScanRange);
+        return Lists.newArrayList(metaScanRange);
     }
 
     @Override
