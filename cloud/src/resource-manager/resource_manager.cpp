@@ -461,7 +461,7 @@ std::pair<MetaServiceCode, std::string> ResourceManager::add_cluster(const std::
 static bool is_sql_node_exceeded_safe_drop_time(const NodeInfoPB& node) {
     int64_t ctime = node.ctime();
     // protect time 5mins
-    int64_t exceed_time = 5 * 60;
+    int64_t exceed_time = config::sql_node_safe_drop_time_seconds;
     TEST_SYNC_POINT_CALLBACK("resource_manager::set_safe_drop_time", &exceed_time);
     exceed_time = ctime + exceed_time;
     auto now_time = std::chrono::system_clock::now();
@@ -471,7 +471,7 @@ static bool is_sql_node_exceeded_safe_drop_time(const NodeInfoPB& node) {
 }
 
 std::pair<MetaServiceCode, std::string> ResourceManager::drop_cluster(
-        const std::string& instance_id, const ClusterInfo& cluster) {
+        const std::string& instance_id, const ClusterInfo& cluster, bool safe_drop_on_sql_cluster) {
     std::stringstream ss;
     std::string msg;
 
@@ -521,7 +521,7 @@ std::pair<MetaServiceCode, std::string> ResourceManager::drop_cluster(
     for (auto& i : instance.clusters()) {
         ++idx;
         if (i.cluster_id() == cluster.cluster.cluster_id()) {
-            if (i.type() == ClusterPB::SQL) {
+            if (i.type() == ClusterPB::SQL && safe_drop_on_sql_cluster) {
                 for (auto& fe_node : i.nodes()) {
                     // check drop fe cluster
                     if (!is_sql_node_exceeded_safe_drop_time(fe_node)) {
