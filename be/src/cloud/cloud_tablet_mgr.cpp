@@ -155,6 +155,13 @@ Result<std::shared_ptr<CloudTablet>> CloudTabletMgr::get_tablet(int64_t tablet_i
                                                                 bool sync_delete_bitmap,
                                                                 SyncRowsetStats* sync_stats,
                                                                 bool force_use_cache) {
+    int64_t duration_ns {0};
+    SCOPED_RAW_TIMER(&duration_ns);
+    Defer defer {[&]() {
+        if (sync_stats) {
+            sync_stats->get_remote_tablet_total_time_ns += duration_ns;
+        }
+    }};
     // LRU value type. `Value`'s lifetime MUST NOT be longer than `CloudTabletMgr`
     class Value : public LRUCacheValueBase {
     public:

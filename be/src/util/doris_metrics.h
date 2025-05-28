@@ -241,6 +241,11 @@ public:
     IntCounter* runtime_filter_consumer_wait_ready_ms = nullptr;
     IntGauge* runtime_filter_consumer_timeout_num = nullptr;
 
+    IntCounter* get_remote_tablet_slow_time_ms = nullptr;
+    IntCounter* get_remote_rowset_slow_time_ms = nullptr;
+    IntCounter* get_remote_tablet_slow_cnt = nullptr;
+    IntCounter* get_remote_rowset_slow_cnt = nullptr;
+
     static DorisMetrics* instance() {
         static DorisMetrics instance;
         return &instance;

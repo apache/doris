@@ -178,6 +178,27 @@ TEST_F(DorisMetricsTest, Normal) {
         EXPECT_TRUE(metric != nullptr);
         EXPECT_STREQ("40", metric->to_string().c_str());
     }
+    {
+        DorisMetrics::instance()->get_remote_tablet_slow_time_ms->increment(1000);
+        auto* metric = server_entity->get_metric("get_remote_tablet_slow_time_ms");
+        EXPECT_TRUE(metric != nullptr);
+        EXPECT_STREQ("1000", metric->to_string().c_str());
+
+        DorisMetrics::instance()->get_remote_rowset_slow_time_ms->increment(2000);
+        metric = server_entity->get_metric("get_remote_rowset_slow_time_ms");
+        EXPECT_TRUE(metric != nullptr);
+        EXPECT_STREQ("2000", metric->to_string().c_str());
+
+        DorisMetrics::instance()->get_remote_tablet_slow_cnt->increment(10);
+        metric = server_entity->get_metric("get_remote_tablet_slow_cnt");
+        EXPECT_TRUE(metric != nullptr);
+        EXPECT_STREQ("10", metric->to_string().c_str());
+
+        DorisMetrics::instance()->get_remote_rowset_slow_cnt->increment(9);
+        metric = server_entity->get_metric("get_remote_rowset_slow_cnt");
+        EXPECT_TRUE(metric != nullptr);
+        EXPECT_STREQ("9", metric->to_string().c_str());
+    }
 }
 
 } // namespace doris

@@ -486,8 +486,37 @@ Status OlapScanLocalState::hold_tablets() {
             }
             RETURN_IF_ERROR(
                     cloud::bthread_fork_join(tasks, config::init_scanner_sync_rowsets_parallelism));
+            int64_t total_get_tablet_time_ns = 0;
+            int64_t total_get_rowset_time_ns = 0;
+            for (size_t i = 0; i < _scan_ranges.size(); i++) {
+                total_get_tablet_time_ns += sync_statistics[i].get_remote_tablet_total_time_ns;
+                total_get_rowset_time_ns += sync_statistics[i].get_remote_rowsets_total_time_ns;
+            }
+            auto time_ms = total_get_tablet_time_ns / 1000 / 1000;
+            if (time_ms >= config::sync_rowsets_slow_threshold_ms) {
+                DorisMetrics::instance()->get_remote_tablet_slow_time_ms->increment(time_ms);
+                DorisMetrics::instance()->get_remote_tablet_slow_cnt->increment(
+                        _scan_ranges.size());
+                LOG_WARNING(
+                        "get tablet takes too long time: {} ms, "
+                        "query_id={}, node_id={}",
+                        time_ms, print_id(PipelineXLocalState<>::_state->query_id()),
+                        _parent->node_id());
+            }
+            time_ms = total_get_rowset_time_ns / 1000 / 1000;
+            if (time_ms >= config::sync_rowsets_slow_threshold_ms) {
+                DorisMetrics::instance()->get_remote_rowset_slow_time_ms->increment(time_ms);
+                DorisMetrics::instance()->get_remote_rowset_slow_cnt->increment(
+                        _scan_ranges.size());
+                LOG_WARNING(
+                        "get tablet rowset takes too long time: {} ms, "
+                        "query_id={}, node_id={}",
+                        time_ms, print_id(PipelineXLocalState<>::_state->query_id()),
+                        _parent->node_id());
+            }
         }
         COUNTER_UPDATE(_sync_rowset_timer, duration_ns);
+
         auto total_rowsets = std::accumulate(
                 _tablets.cbegin(), _tablets.cend(), 0LL,
                 [](long long acc, const auto& tabletWithVersion) {
