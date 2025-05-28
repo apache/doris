@@ -36,6 +36,7 @@ suite("test_agg_state_map") {
     sql "insert into a_table values(1,map_agg_state(1,1));"
     sql "insert into a_table values(1,map_agg_state(2,2));"
     sql "insert into a_table values(2,map_agg_state(3,3));"
+    sql "insert into a_table values(2,map_agg_state(4,null));"
 
     qt_test "select k1,map_agg_merge(k2) from a_table group by k1 order by k1;"
 }

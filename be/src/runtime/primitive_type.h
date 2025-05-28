@@ -50,7 +50,6 @@ template <typename T>
 class DecimalField;
 template <DecimalNativeTypeConcept T>
 struct Decimal;
-struct VariantMap;
 template <typename T>
 class ColumnComplexType;
 using ColumnBitmap = ColumnComplexType<BitmapValue>;
