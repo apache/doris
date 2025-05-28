@@ -179,10 +179,7 @@ public class ResourceMgr implements Writable {
         nameToResource.remove(operationLog.getName());
     }
 
-    public void alterResource(AlterResourceStmt stmt) throws DdlException {
-        String resourceName = stmt.getResourceName();
-        Map<String, String> properties = stmt.getProperties();
-
+    public void alterResource(String resourceName, Map<String, String> properties) throws DdlException {
         if (!nameToResource.containsKey(resourceName)) {
             throw new DdlException("Resource(" + resourceName + ") dose not exist.");
         }
@@ -193,6 +190,13 @@ public class ResourceMgr implements Writable {
         // log alter
         Env.getCurrentEnv().getEditLog().logAlterResource(resource);
         LOG.info("Alter resource success. Resource: {}", resource);
+    }
+
+    public void alterResource(AlterResourceStmt stmt) throws DdlException {
+        String resourceName = stmt.getResourceName();
+        Map<String, String> properties = stmt.getProperties();
+
+        alterResource(resourceName, properties);
     }
 
     public void replayAlterResource(Resource resource) {
