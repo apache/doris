@@ -29,6 +29,8 @@ suite("test_install_plugin_command", "nereids_p0") {
         """
 
     } finally {
-        sql """UNINSTALL PLUGIN ${pluginName}"""
+        checkNereidsExecute """
+            UNINSTALL PLUGIN ${pluginName}
+        """
     }
 }

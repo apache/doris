@@ -23,6 +23,7 @@ import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.SetVar;
 import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
@@ -47,6 +48,7 @@ import com.google.common.collect.EvictingQueue;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpPut;
 import org.apache.http.entity.ContentType;
@@ -60,9 +62,11 @@ import org.apache.logging.log4j.Logger;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -345,6 +349,16 @@ public class MysqlLoadManager {
         httpPut.addHeader("Expect", "100-continue");
         httpPut.addHeader("Content-Type", "text/plain");
         httpPut.addHeader("token", token);
+
+        UserIdentity uid = ConnectContext.get().getCurrentUserIdentity();
+        if (uid == null || StringUtils.isEmpty(uid.getQualifiedUser())) {
+            throw new LoadException("user is null");
+        }
+        // NOTE: set pass word empty here because password is only used when login from mysql client.
+        // All authentication actions after login in do not require a password
+        String auth = String.format("%s:%s", uid.getQualifiedUser(), "");
+        String authEncoding = Base64.getEncoder().encodeToString(auth.getBytes(StandardCharsets.UTF_8));
+        httpPut.addHeader("Authorization", "Basic " + authEncoding);
 
         Map<String, String> props = desc.getProperties();
         if (props != null) {

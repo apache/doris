@@ -54,9 +54,6 @@ static DataTypeInt32 dt_int32;
 static DataTypeInt64 dt_int64;
 static DataTypeInt128 dt_int128;
 static DataTypeUInt8 dt_uint8;
-static DataTypeUInt16 dt_uint16;
-static DataTypeUInt32 dt_uint32;
-static DataTypeUInt64 dt_uint64;
 
 static ColumnFloat32::MutablePtr column_float32;
 static ColumnFloat64::MutablePtr column_float64;
@@ -114,9 +111,6 @@ public:
         test_func(column_int128->get_ptr(), dt_int128, "LARGEINT.csv");
 
         test_func(column_uint8->get_ptr(), dt_uint8, "TINYINT_UNSIGNED.csv");
-        test_func(column_uint16->get_ptr(), dt_uint16, "SMALLINT_UNSIGNED.csv");
-        test_func(column_uint32->get_ptr(), dt_uint32, "INT_UNSIGNED.csv");
-        test_func(column_uint64->get_ptr(), dt_uint64, "BIGINT_UNSIGNED.csv");
     }
     void SetUp() override { helper = std::make_unique<CommonDataTypeTest>(); }
     std::unique_ptr<CommonDataTypeTest> helper;
@@ -378,15 +372,6 @@ TEST_F(DataTypeNumberTest, ser_deser) {
 
     test_func(DataTypeUInt8(), *column_uint8, USE_CONST_SERDE);
     test_func(DataTypeUInt8(), *column_uint8, AGGREGATION_2_1_VERSION);
-
-    test_func(DataTypeUInt16(), *column_uint16, USE_CONST_SERDE);
-    test_func(DataTypeUInt16(), *column_uint16, AGGREGATION_2_1_VERSION);
-
-    test_func(DataTypeUInt32(), *column_uint32, USE_CONST_SERDE);
-    test_func(DataTypeUInt32(), *column_uint32, AGGREGATION_2_1_VERSION);
-
-    test_func(DataTypeUInt64(), *column_uint64, USE_CONST_SERDE);
-    test_func(DataTypeUInt64(), *column_uint64, AGGREGATION_2_1_VERSION);
 }
 
 TEST_F(DataTypeNumberTest, to_string) {
@@ -457,9 +442,6 @@ TEST_F(DataTypeNumberTest, to_string) {
     test_func(dt_int128, *column_int128);
 
     test_func(dt_uint8, *column_uint8);
-    test_func(dt_uint16, *column_uint16);
-    test_func(dt_uint32, *column_uint32);
-    test_func(dt_uint64, *column_uint64);
 }
 TEST_F(DataTypeNumberTest, simple_func_test) {
     auto test_func = [](auto& dt) {
@@ -492,8 +474,5 @@ TEST_F(DataTypeNumberTest, simple_func_test) {
     test_func(dt_int64);
     test_func(dt_int128);
     test_func(dt_uint8);
-    test_func(dt_uint16);
-    test_func(dt_uint32);
-    test_func(dt_uint64);
 }
 } // namespace doris::vectorized

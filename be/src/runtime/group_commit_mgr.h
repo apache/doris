@@ -55,7 +55,7 @@ struct BlockData {
 class LoadBlockQueue {
 public:
     LoadBlockQueue(const UniqueId& load_instance_id, std::string& label, int64_t txn_id,
-                   int64_t schema_version,
+                   int64_t schema_version, int64_t index_size,
                    std::shared_ptr<std::atomic_size_t> all_block_queues_bytes,
                    bool wait_internal_group_commit_finish, int64_t group_commit_interval_ms,
                    int64_t group_commit_data_bytes)
@@ -63,6 +63,7 @@ public:
               label(label),
               txn_id(txn_id),
               schema_version(schema_version),
+              index_size(index_size),
               wait_internal_group_commit_finish(wait_internal_group_commit_finish),
               _group_commit_interval_ms(group_commit_interval_ms),
               _start_time(std::chrono::steady_clock::now()),
@@ -108,6 +109,7 @@ public:
     std::string label;
     int64_t txn_id;
     int64_t schema_version;
+    int64_t index_size;
     bool wait_internal_group_commit_finish = false;
     bool data_size_condition = false;
 
@@ -157,7 +159,7 @@ public:
               _db_id(db_id),
               _table_id(table_id) {};
     Status get_first_block_load_queue(int64_t table_id, int64_t base_schema_version,
-                                      const UniqueId& load_id,
+                                      int64_t index_size, const UniqueId& load_id,
                                       std::shared_ptr<LoadBlockQueue>& load_block_queue,
                                       int be_exe_version,
                                       std::shared_ptr<MemTrackerLimiter> mem_tracker,
@@ -189,9 +191,10 @@ private:
     // fragment_instance_id to load_block_queue
     std::unordered_map<UniqueId, std::shared_ptr<LoadBlockQueue>> _load_block_queues;
     bool _is_creating_plan_fragment = false;
-    // user_load_id -> <create_plan_dep, put_block_dep, base_schema_version>
-    std::unordered_map<UniqueId, std::tuple<std::shared_ptr<pipeline::Dependency>,
-                                            std::shared_ptr<pipeline::Dependency>, int64_t>>
+    // user_load_id -> <create_plan_dep, put_block_dep, base_schema_version, index_size>
+    std::unordered_map<UniqueId,
+                       std::tuple<std::shared_ptr<pipeline::Dependency>,
+                                  std::shared_ptr<pipeline::Dependency>, int64_t, int64_t>>
             _create_plan_deps;
 };
 
@@ -207,7 +210,7 @@ public:
                                 std::shared_ptr<LoadBlockQueue>& load_block_queue,
                                 std::shared_ptr<pipeline::Dependency> get_block_dep);
     Status get_first_block_load_queue(int64_t db_id, int64_t table_id, int64_t base_schema_version,
-                                      const UniqueId& load_id,
+                                      int64_t index_size, const UniqueId& load_id,
                                       std::shared_ptr<LoadBlockQueue>& load_block_queue,
                                       int be_exe_version,
                                       std::shared_ptr<MemTrackerLimiter> mem_tracker,
