@@ -169,7 +169,7 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements MemoP
                                                                             "test",
                                                                             "t7")))).withAlwaysNullable(
                                                                                     true),
-                                                    "sum(k3)"))))
+                                                    "sum(t7.k3)"))))
                                 )
                         ).when(FieldChecker.check("correlationSlot", ImmutableList.of(
                                 new SlotReference(new ExprId(1), "k2", BigIntType.INSTANCE, true,
@@ -195,7 +195,7 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements MemoP
                                                 new Alias(new ExprId(7), (new Sum(
                                                         new SlotReference(new ExprId(4), "k3", BigIntType.INSTANCE, true,
                                                                 ImmutableList.of("test", "t7")))).withAlwaysNullable(true),
-                                                        "sum(k3)"),
+                                                        "sum(t7.k3)"),
                                                 new SlotReference(new ExprId(6), "v2", BigIntType.INSTANCE, true,
                                                         ImmutableList.of("test", "t7"))
                                         )))

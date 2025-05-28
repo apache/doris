@@ -608,7 +608,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
                     continue;
                 }
                 SlotReference slotRef = (SlotReference) slot;
-                if (slotRef.getColumn().isPresent() && slotRef.getColumn().get().isKey()) {
+                if (slotRef.getOriginalColumn().isPresent() && slotRef.getOriginalColumn().get().isKey()) {
                     uniqSlots.add(slot);
                 }
             }

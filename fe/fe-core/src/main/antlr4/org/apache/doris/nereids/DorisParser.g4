@@ -22,7 +22,7 @@ parser grammar DorisParser;
 options { tokenVocab = DorisLexer; }
 
 @members {
-    public boolean doris_legacy_SQL_syntax = true;
+    public boolean ansiSQLSyntax = false;
 }
 
 multiStatements
@@ -229,6 +229,7 @@ supportedCreateStatement
             passwordOption commentSpec?                                             #createUser
     | CREATE (DATABASE | SCHEMA) (IF NOT EXISTS)? name=multipartIdentifier
               properties=propertyClause?                                            #createDatabase
+    | CREATE (READ ONLY)? REPOSITORY name=identifier WITH storageBackend            #createRepository
     | CREATE EXTERNAL? RESOURCE (IF NOT EXISTS)?
             name=identifierOrText properties=propertyClause?                        #createResource
     | CREATE DICTIONARY (IF NOT EXISTS)? name = multipartIdentifier
@@ -248,9 +249,11 @@ dictionaryColumnDef:
 supportedAlterStatement
     : ALTER SYSTEM alterSystemClause                                                        #alterSystem
     | ALTER VIEW name=multipartIdentifier
-        ((MODIFY commentSpec) | ((LEFT_PAREN cols=simpleColumnDefs RIGHT_PAREN)? AS query)) #alterView
-    | ALTER CATALOG name=identifier RENAME newName=identifier                       #alterCatalogRename
-    | ALTER ROLE role=identifierOrText commentSpec                                        #alterRole
+      (MODIFY commentSpec |
+      (LEFT_PAREN cols=simpleColumnDefs RIGHT_PAREN)?
+      (COMMENT STRING_LITERAL)? AS query)                                                   #alterView
+    | ALTER CATALOG name=identifier RENAME newName=identifier                               #alterCatalogRename
+    | ALTER ROLE role=identifierOrText commentSpec                                          #alterRole
     | ALTER STORAGE VAULT name=multipartIdentifier properties=propertyClause                #alterStorageVault
     | ALTER WORKLOAD GROUP name=identifierOrText (FOR computeGroup=identifierOrText)?
         properties=propertyClause?                                                          #alterWorkloadGroup
@@ -276,6 +279,7 @@ supportedAlterStatement
     | ALTER DATABASE name=identifier SET PROPERTIES
             LEFT_PAREN propertyItemList RIGHT_PAREN                                         #alterDatabaseProperties
     | ALTER SYSTEM RENAME COMPUTE GROUP name=identifier newName=identifier                  #alterSystemRenameComputeGroup
+    | ALTER RESOURCE name=identifierOrText properties=propertyClause?                       #alterResource
     | ALTER REPOSITORY name=identifier properties=propertyClause?                           #alterRepository
     | ALTER USER (IF EXISTS)? grantUserIdentify
         passwordOption (COMMENT STRING_LITERAL)?                                            #alterUser
@@ -331,6 +335,7 @@ supportedShowStatement
         (FROM |IN) tableName=multipartIdentifier
         ((FROM | IN) database=identifier)?                                          #showView
     | SHOW PLUGINS                                                                  #showPlugins
+    | SHOW STORAGE (VAULT | VAULTS)                                                 #showStorageVault    
     | SHOW REPOSITORIES                                                             #showRepositories
     | SHOW ENCRYPTKEYS ((FROM | IN) database=multipartIdentifier)?
         (LIKE STRING_LITERAL)?                                                      #showEncryptKeys
@@ -400,6 +405,7 @@ supportedShowStatement
         whereClause? sortClause? limitClause?                                       #showCopy
     | SHOW QUERY STATS ((FOR database=identifier)
             | (FROM tableName=multipartIdentifier (ALL VERBOSE?)?))?                #showQueryStats
+    | SHOW WARM UP JOB wildWhere?                                                   #showWarmUpJob
     ;
 
 supportedLoadStatement
@@ -456,8 +462,7 @@ lockTable
     ;
 
 unsupportedShowStatement
-    : SHOW STORAGE (VAULT | VAULTS)                                                 #showStorageVault
-    | SHOW CREATE MATERIALIZED VIEW name=multipartIdentifier                        #showMaterializedView
+    : SHOW CREATE MATERIALIZED VIEW name=multipartIdentifier                        #showMaterializedView
     | SHOW CREATE statementScope? FUNCTION functionIdentifier
         LEFT_PAREN functionArguments? RIGHT_PAREN
         ((FROM | IN) database=multipartIdentifier)?                                 #showCreateFunction
@@ -479,7 +484,6 @@ unsupportedShowStatement
     | SHOW BUILD INDEX ((FROM | IN) database=multipartIdentifier)?
         wildWhere? sortClause? limitClause?                                         #showBuildIndex
     | SHOW REPLICA STATUS FROM baseTableRef wildWhere?                              #showReplicaStatus
-    | SHOW WARM UP JOB wildWhere?                                                   #showWarmUpJob
     ;
 
 createRoutineLoad
@@ -633,20 +637,20 @@ supportedTransactionStatement
 
 supportedGrantRevokeStatement
     : GRANT privilegeList ON multipartIdentifierOrAsterisk
-        TO (userIdentify | ROLE identifierOrText)                                     #grantTablePrivilege
+        TO (userIdentify | ROLE identifierOrText)                                           #grantTablePrivilege
     | GRANT privilegeList ON
         (RESOURCE | CLUSTER | COMPUTE GROUP | STAGE | STORAGE VAULT | WORKLOAD GROUP)
-        identifierOrTextOrAsterisk TO (userIdentify | ROLE identifierOrText)          #grantResourcePrivilege
-    | GRANT roles+=identifierOrText (COMMA roles+=identifierOrText)* TO userIdentify  #grantRole
-    | REVOKE roles+=identifierOrText (COMMA roles+=identifierOrText)* FROM userIdentify #revokeRole
+        identifierOrTextOrAsterisk TO (userIdentify | ROLE identifierOrText)                #grantResourcePrivilege
+    | GRANT roles+=identifierOrText (COMMA roles+=identifierOrText)* TO userIdentify        #grantRole
+    | REVOKE roles+=identifierOrText (COMMA roles+=identifierOrText)* FROM userIdentify     #revokeRole
+    | REVOKE privilegeList ON
+        (RESOURCE | CLUSTER | COMPUTE GROUP | STAGE | STORAGE VAULT | WORKLOAD GROUP)
+        identifierOrTextOrAsterisk FROM (userIdentify | ROLE identifierOrText)              #revokeResourcePrivilege
     ;
 
 unsupportedGrantRevokeStatement
     : REVOKE privilegeList ON multipartIdentifierOrAsterisk
         FROM (userIdentify | ROLE identifierOrText)                                   #revokeTablePrivilege
-    | REVOKE privilegeList ON
-        (RESOURCE | CLUSTER | COMPUTE GROUP | STAGE | STORAGE VAULT | WORKLOAD GROUP)
-        identifierOrTextOrAsterisk FROM (userIdentify | ROLE identifierOrText)        #revokeResourcePrivilege
     ;
 
 privilege
@@ -659,8 +663,7 @@ privilegeList
     ;
 
 unsupportedAlterStatement
-    : ALTER RESOURCE name=identifierOrText properties=propertyClause?               #alterResource
-    | ALTER COLOCATE GROUP name=multipartIdentifier
+    : ALTER COLOCATE GROUP name=multipartIdentifier
         SET LEFT_PAREN propertyItemList RIGHT_PAREN                                 #alterColocateGroup
     | ALTER ROUTINE LOAD FOR name=multipartIdentifier properties=propertyClause?
             (FROM type=identifier LEFT_PAREN propertyItemList RIGHT_PAREN)?         #alterRoutineLoad
@@ -804,8 +807,7 @@ analyzeProperties
     ;
 
 unsupportedCreateStatement
-    : CREATE (READ ONLY)? REPOSITORY name=identifier WITH storageBackend        #createRepository
-    | CREATE STORAGE VAULT (IF NOT EXISTS)?
+    : CREATE STORAGE VAULT (IF NOT EXISTS)?
         name=identifierOrText properties=propertyClause?                        #createStorageVault
     ;
 
@@ -1167,7 +1169,7 @@ querySpecification
       aggClause?
       havingClause?
       qualifyClause?
-      {doris_legacy_SQL_syntax}? queryOrganization                         #regularQuerySpecification
+      ({!ansiSQLSyntax}? queryOrganization | {ansiSQLSyntax}?)         #regularQuerySpecification
     ;
 
 cte

@@ -365,9 +365,15 @@ std::shared_ptr<VIcebergPartitionWriter> VIcebergTableWriter::_create_partition_
         write_path = output_path;
     }
 
-    VIcebergPartitionWriter::WriteInfo write_info = {
-            std::move(write_path), std::move(original_write_path), std::move(target_path),
-            iceberg_table_sink.file_type};
+    VIcebergPartitionWriter::WriteInfo write_info = {std::move(write_path),
+                                                     std::move(original_write_path),
+                                                     std::move(target_path),
+                                                     iceberg_table_sink.file_type,
+                                                     {}};
+    if (iceberg_table_sink.__isset.broker_addresses) {
+        write_info.broker_addresses.assign(iceberg_table_sink.broker_addresses.begin(),
+                                           iceberg_table_sink.broker_addresses.end());
+    }
 
     _write_file_count++;
     std::vector<std::string> column_names;
