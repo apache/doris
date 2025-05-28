@@ -28,7 +28,6 @@
 #include <set>
 #include <sstream>
 #include <string>
-#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -52,14 +51,6 @@ inline std::string to_upper(const std::string& input) {
     std::transform(input.begin(), input.end(), output.begin(),
                    [](unsigned char c) { return std::toupper(c); });
     return output;
-}
-
-inline std::string to_hex(std::string_view str) {
-    std::stringstream ss;
-    for (auto& i : str) {
-        ss << std::hex << std::setw(2) << std::setfill('0') << ((int16_t)i & 0xff);
-    }
-    return ss.str();
 }
 
 inline bool iequal(const std::string& lhs, const std::string& rhs) {

@@ -30,9 +30,6 @@ bool key_is_not_in_segment(Slice key, const KeyBoundsPB& segment_key_bounds,
                                                      is_segments_key_bounds_truncated);
     bool res2 = Slice::lhs_is_strictly_less_than_rhs(maybe_truncated_max_key,
                                                      is_segments_key_bounds_truncated, key, false);
-    LOG_INFO("xxx res1={}, res2={}, key={}, min_key={}, max_key={}", res1, res2,
-             to_hex(key.to_string()), to_hex(maybe_truncated_min_key.to_string()),
-             to_hex(maybe_truncated_max_key.to_string()));
     return res1 || res2;
 }
 } // namespace doris
