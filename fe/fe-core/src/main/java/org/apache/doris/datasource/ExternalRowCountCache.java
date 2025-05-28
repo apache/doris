@@ -20,6 +20,7 @@ package org.apache.doris.datasource;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.CacheFactory;
 import org.apache.doris.common.Config;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.BasicAsyncCacheLoader;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
@@ -110,10 +111,16 @@ public class ExternalRowCountCache {
         RowCountKey key = new RowCountKey(catalogId, dbId, tableId);
         try {
             CompletableFuture<Optional<Long>> f = rowCountCache.get(key);
-            if (f.isDone()) {
+            // Get row count synchronously by default.
+            if (ConnectContext.get() == null
+                    || ConnectContext.get().getSessionVariable().fetchHiveRowCountSync) {
                 return f.get().orElse(TableIf.UNKNOWN_ROW_COUNT);
+            } else {
+                if (f.isDone()) {
+                    return f.get().orElse(TableIf.UNKNOWN_ROW_COUNT);
+                }
+                LOG.info("Row count for table {}.{}.{} is still processing.", catalogId, dbId, tableId);
             }
-            LOG.info("Row count for table {}.{}.{} is still processing.", catalogId, dbId, tableId);
         } catch (Exception e) {
             LOG.warn("Unexpected exception while returning row count", e);
         }
