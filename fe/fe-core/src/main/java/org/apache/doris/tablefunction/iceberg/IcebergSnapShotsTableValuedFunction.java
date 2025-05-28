@@ -20,6 +20,7 @@ package org.apache.doris.tablefunction.iceberg;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.MapType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TIcebergQueryType;
 
@@ -27,15 +28,17 @@ import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
-class IcebergHistoryTableValuedFunction extends IcebergTableValuedFunction {
+class IcebergSnapShotsTableValuedFunction extends IcebergTableValuedFunction {
     private static final ImmutableList<Column> SCHEMA = ImmutableList.of(
-            new Column("made_current_at", ScalarType.DATETIMEV2),
+            new Column("committed_at", ScalarType.DATETIMEV2),
             new Column("snapshot_id", ScalarType.BIGINT),
             new Column("parent_id", ScalarType.BIGINT),
-            new Column("is_current_ancestor", ScalarType.BOOLEAN));
+            new Column("operation", ScalarType.STRING),
+            new Column("manifest_list", ScalarType.STRING),
+            new Column("summary", new MapType(ScalarType.STRING, ScalarType.STRING)));
 
-    public IcebergHistoryTableValuedFunction(TableName icebergTableName) throws AnalysisException {
-        super(icebergTableName, TIcebergQueryType.HISTORY);
+    public IcebergSnapShotsTableValuedFunction(TableName icebergTableName) throws AnalysisException {
+        super(icebergTableName, TIcebergQueryType.SNAPSHOTS);
     }
 
     @Override

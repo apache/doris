@@ -98,6 +98,10 @@ public abstract class IcebergTableValuedFunction extends MetadataTableValuedFunc
         switch (queryType) {
             case HISTORY:
                 return new IcebergHistoryTableValuedFunction(icebergTableName);
+            case FILES:
+                return new IcebergFilesTableValuedFunction(icebergTableName);
+            case SNAPSHOTS:
+                return new IcebergSnapShotsTableValuedFunction(icebergTableName);
             default:
                 throw new AnalysisException("Unsupported iceberg metadata query type: " + queryType);
         }
