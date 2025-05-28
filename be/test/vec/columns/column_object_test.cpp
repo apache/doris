@@ -428,7 +428,7 @@ TEST_F(ColumnObjectTest, subcolumn_insert_test_advanced) {
     std::random_device rd;
     std::mt19937 g(rd());
 
-    for (int i = 0; i < (2 << fields.size()); i++) {
+    for (int i = 0; i < 10000; i++) {
         std::shuffle(fields.begin(), fields.end(), g);
         auto subcolumn = ColumnVariant::Subcolumn(0, true, false);
 
@@ -516,7 +516,7 @@ TEST_F(ColumnObjectTest, subcolumn_insert_range_from_test_advanced) {
     std::random_device rd;
     std::mt19937 g(rd());
 
-    for (int i = 0; i < (2 << fields.size()); i++) {
+    for (int i = 0; i < 10000; i++) {
         std::shuffle(fields.begin(), fields.end(), g);
         auto subcolumn = ColumnVariant::Subcolumn(0, true, false);
 
