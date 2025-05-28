@@ -1,0 +1,236 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.plugin.audit;
+
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.InternalSchema;
+import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.util.DigitalVersion;
+import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.plugin.AuditEvent;
+import org.apache.doris.plugin.AuditPlugin;
+import org.apache.doris.plugin.Plugin;
+import org.apache.doris.plugin.PluginContext;
+import org.apache.doris.plugin.PluginException;
+import org.apache.doris.plugin.PluginInfo;
+import org.apache.doris.plugin.PluginInfo.PluginType;
+import org.apache.doris.plugin.PluginMgr;
+import org.apache.doris.qe.GlobalVariable;
+
+import com.google.common.collect.Queues;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import java.io.IOException;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.TimeUnit;
+
+/*
+ * This plugin will load audit log to specified doris table at specified interval
+ */
+public class AuditHotSpotLoader extends Plugin implements AuditPlugin {
+
+    public static final String HOT_SPOT_TABLE = "hot_spot";
+
+    private static final Logger LOG = LogManager.getLogger(AuditHotSpotLoader.class);
+
+    private StringBuilder hotSpotBuffer = new StringBuilder();
+    private int auditLogNum = 0;
+    private long lastLoadTimeAuditLog = 0;
+    // sometimes the audit log may fail to load to doris, count it to observe.
+    private long discardLogNum = 0;
+
+    private BlockingQueue<AuditEvent> auditEventQueue;
+    private AuditStreamLoader streamLoader;
+    private Thread loadThread;
+
+    private volatile boolean isClosed = false;
+    private volatile boolean isInit = false;
+
+    private final PluginInfo pluginInfo;
+
+    public AuditHotSpotLoader() {
+        pluginInfo = new PluginInfo(PluginMgr.BUILTIN_PLUGIN_PREFIX + "AuditHotSpotLoader", PluginType.AUDIT,
+            "builtin audit hot spot loader, to load audit log to internal table", DigitalVersion.fromString("2.1.0"),
+            DigitalVersion.fromString("1.8.31"), AuditHotSpotLoader.class.getName(), null, null);
+    }
+
+    public PluginInfo getPluginInfo() {
+        return pluginInfo;
+    }
+
+    @Override
+    public void init(PluginInfo info, PluginContext ctx) throws PluginException {
+        super.init(info, ctx);
+
+        synchronized (this) {
+            if (isInit) {
+                return;
+            }
+            this.lastLoadTimeAuditLog = System.currentTimeMillis();
+            // make capacity large enough to avoid blocking.
+            // and it will not be too large because the audit log will flush if num in queue is larger than
+            // GlobalVariable.audit_plugin_max_batch_bytes.
+            this.auditEventQueue = Queues.newLinkedBlockingDeque(100000);
+            this.streamLoader = new AuditStreamLoader("hotspot", FeConstants.INTERNAL_DB_NAME,
+                HOT_SPOT_TABLE, InternalSchema.HOT_SPOT_SCHEMA);
+            this.loadThread = new Thread(new LoadWorker(), "hot spot loader thread");
+            this.loadThread.start();
+
+            isInit = true;
+        }
+    }
+
+    @Override
+    public void close() throws IOException {
+        super.close();
+        isClosed = true;
+        if (loadThread != null) {
+            try {
+                loadThread.join();
+            } catch (InterruptedException e) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("encounter exception when closing the audit hot spot loader", e);
+                }
+            }
+        }
+    }
+
+    public boolean eventFilter(AuditEvent.EventType type) {
+        return type == AuditEvent.EventType.AFTER_QUERY;
+    }
+
+    public void exec(AuditEvent event) {
+        if (!GlobalVariable.enableHotSpot) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("builtin audit hot spot loader is disabled, discard current audit event");
+            }
+            return;
+        }
+        try {
+            auditEventQueue.add(event);
+        } catch (Exception e) {
+            // In order to ensure that the system can run normally, here we directly
+            // discard the current audit_event. If this problem occurs frequently,
+            // improvement can be considered.
+            ++discardLogNum;
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("encounter exception when putting current audit batch, discard current audit event."
+                        + " total discard num: {}", discardLogNum, e);
+            }
+        }
+    }
+
+    private void assembleAudit(AuditEvent event) {
+        fillLogBuffer(event, hotSpotBuffer);
+        ++auditLogNum;
+    }
+
+    private void fillLogBuffer(AuditEvent event, StringBuilder hotSpotBuffer) {
+        try {
+            if (null != event.tableFullQualifiers && event.tableFullQualifiers.size() > 0) {
+                for (String tableFullQualifier : event.tableFullQualifiers) {
+                    String[] tables = tableFullQualifier.split("[.]");
+                    hotSpotBuffer.append(tables[0]).append("\t");
+                    hotSpotBuffer.append(tables[1]).append("\t");
+                    hotSpotBuffer.append(tables[2]).append("\t");
+                    hotSpotBuffer.append(TimeUtils.longToTimeStringWithHour(event.timestamp)).append("\t");
+                    if (event.isQuery) {
+                        hotSpotBuffer.append(1).append("\t");
+                        hotSpotBuffer.append(0).append("\t");
+                    } else {
+                        hotSpotBuffer.append(0).append("\t");
+                        hotSpotBuffer.append(1).append("\t");
+                    }
+                    hotSpotBuffer.append(TimeUtils.longToTimeStringWithms(event.timestamp)).append("\n");
+                }
+            }
+        } catch (Exception e) {
+            LOG.error("fillHotSpotBuffer error:{}", e.getMessage());
+        }
+    }
+
+    // public for external call.
+    // synchronized to avoid concurrent load.
+    public synchronized void loadIfNecessary(boolean force) {
+        long currentTime = System.currentTimeMillis();
+
+        if (hotSpotBuffer.length() != 0 && (force || hotSpotBuffer.length() >= GlobalVariable.auditPluginMaxBatchBytes
+                || currentTime - lastLoadTimeAuditLog >= GlobalVariable.auditPluginMaxBatchInternalSec * 1000)) {
+            // begin to load
+            try {
+                String token = "";
+                try {
+                    // Acquire token from master
+                    token = Env.getCurrentEnv().getTokenManager().acquireToken();
+                } catch (Exception e) {
+                    LOG.warn("Failed to get auth token: {}", e);
+                    discardLogNum += auditLogNum;
+                    return;
+                }
+                AuditStreamLoader.LoadResponse response = streamLoader.loadBatch(hotSpotBuffer, token);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("audit hot spot loader response: {}", response);
+                }
+            } catch (Exception e) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("encounter exception when putting current audit batch, discard current batch", e);
+                }
+                discardLogNum += auditLogNum;
+            } finally {
+                // make a new string builder to receive following events.
+                resetBatch(currentTime);
+                if (discardLogNum > 0) {
+                    LOG.info("num of total discarded audit logs: {}", discardLogNum);
+                }
+            }
+        }
+    }
+
+    private void resetBatch(long currentTime) {
+        this.hotSpotBuffer = new StringBuilder();
+        this.lastLoadTimeAuditLog = currentTime;
+        this.auditLogNum = 0;
+    }
+
+    private class LoadWorker implements Runnable {
+
+        public LoadWorker() {
+        }
+
+        public void run() {
+            while (!isClosed) {
+                try {
+                    AuditEvent event = auditEventQueue.poll(5, TimeUnit.SECONDS);
+                    if (event != null) {
+                        assembleAudit(event);
+                    }
+                    // process all audit logs
+                    loadIfNecessary(false);
+                } catch (InterruptedException ie) {
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("encounter exception when loading current audit batch", ie);
+                    }
+                } catch (Exception e) {
+                    LOG.error("run audit logger error:", e);
+                }
+            }
+        }
+    }
+
+}

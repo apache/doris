@@ -17,9 +17,10 @@
 
 package org.apache.doris.plugin;
 
-
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
+import java.util.ArrayList;
+import java.util.List;
 
 /*
  * AuditEvent contains all information about audit log info.
@@ -119,6 +120,8 @@ public class AuditEvent {
     public long spillReadBytesFromLocalStorage = -1;
 
     public long pushToAuditLogQueueTime;
+    //note : for hotspot use
+    public List<String> tableFullQualifiers = new ArrayList<String>();
 
     public static class AuditEventBuilder {
 
@@ -288,6 +291,11 @@ public class AuditEvent {
 
         public AuditEventBuilder setSpillReadBytesFromLocalStorage(long bytes) {
             auditEvent.spillReadBytesFromLocalStorage = bytes;
+            return this;
+        }
+
+        public AuditEventBuilder setTableFullQualifiers(List<String> tableFullQualifiers) {
+            auditEvent.tableFullQualifiers = tableFullQualifiers;
             return this;
         }
 

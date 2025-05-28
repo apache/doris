@@ -77,6 +77,7 @@ public class TimeUtils {
             "yyyy-MM-dd HH:mm:ss.SSSSSSSSS");
     private static final DateTimeFormatter DATETIME_FORMAT_WITH_HYPHEN = DateTimeFormatter.ofPattern(
             "yyyy-MM-dd-HH-mm-ss");
+    private static final DateTimeFormatter DATETIME_HOUR_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:00:00");
 
     public static DateTimeFormatter getDateFormatWithTimeZone() {
         return DATE_FORMAT.withZone(getDorisZoneId());
@@ -96,6 +97,10 @@ public class TimeUtils {
 
     public static DateTimeFormatter getDatetimeMsFormatWithTimeZone() {
         return DATETIME_MS_FORMAT.withZone(getDorisZoneId());
+    }
+
+    public static DateTimeFormatter getDatetimeHourFormatWithTimeZone() {
+        return DATETIME_HOUR_FORMAT.withZone(getDorisZoneId());
     }
 
     public static DateTimeFormatter getDatetimeNsFormatWithTimeZone() {
@@ -192,6 +197,10 @@ public class TimeUtils {
 
     public static String longToTimeStringWithms(Long timeStamp) {
         return longToTimeStringWithFormat(timeStamp, getDatetimeMsFormatWithTimeZone());
+    }
+
+    public static String longToTimeStringWithHour(Long timeStamp) {
+        return longToTimeStringWithFormat(timeStamp, getDatetimeHourFormatWithTimeZone());
     }
 
     public static Date getHourAsDate(String hour) {
@@ -363,7 +372,6 @@ public class TimeUtils {
                 parts.length > 3 ? String.format(" %02d:%02d:%02d", Integer.parseInt(parts[3]),
                         Integer.parseInt(parts[4]), Integer.parseInt(parts[5])) : "");
     }
-
 
     // Refer to be/src/vec/runtime/vdatetime_value.h
     public static long convertToDateTimeV2(
