@@ -56,7 +56,9 @@ void ThreadMemTrackerMgr::exceeded(int64_t size) {
     if (_cb_func != nullptr) {
         _cb_func();
     }
-    _limiter_tracker_raw->print_log_usage(_exceed_mem_limit_msg);
+
+    // avoid deadlock, do not print log here:
+    // _limiter_tracker_raw->print_log_usage(_exceed_mem_limit_msg);
 
     if (is_attach_query()) {
         if (_is_process_exceed && _wait_gc) {
