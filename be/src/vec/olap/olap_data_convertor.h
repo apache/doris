@@ -488,7 +488,6 @@ private:
         const void* get_data_at(size_t offset) const override {
             throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                    "now not support get_data_at for OlapColumnDataConvertorMap");
-            __builtin_unreachable();
         };
 
     private:

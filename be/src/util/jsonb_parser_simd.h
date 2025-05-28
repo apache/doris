@@ -72,29 +72,20 @@
 namespace doris {
 
 using int128_t = __int128;
-
-/*
- * Template JsonbParserTSIMD
- */
-template <class OS_TYPE>
 class JsonbParserTSIMD {
 public:
     JsonbParserTSIMD() : err_(JsonbErrType::E_NONE) {}
 
-    explicit JsonbParserTSIMD(OS_TYPE& os) : writer_(os), err_(JsonbErrType::E_NONE) {}
+    explicit JsonbParserTSIMD(JsonbOutStream& os) : writer_(os), err_(JsonbErrType::E_NONE) {}
 
     // parse a UTF-8 JSON string
-    bool parse(const std::string& str, hDictInsert handler = nullptr) {
-        return parse(str.c_str(), str.size(), handler);
-    }
+    bool parse(const std::string& str) { return parse(str.c_str(), str.size()); }
 
     // parse a UTF-8 JSON c-style string (NULL terminated)
-    bool parse(const char* c_str, hDictInsert handler = nullptr) {
-        return parse(c_str, strlen(c_str), handler);
-    }
+    bool parse(const char* c_str) { return parse(c_str, strlen(c_str)); }
 
     // parse a UTF-8 JSON string with length
-    bool parse(const char* pch, size_t len, hDictInsert handler = nullptr) {
+    bool parse(const char* pch, size_t len) {
         // reset state before parse
         reset();
 
@@ -114,7 +105,7 @@ public:
             switch (doc.type()) {
             case simdjson::ondemand::json_type::object:
             case simdjson::ondemand::json_type::array: {
-                parse(doc.get_value(), handler);
+                parse(doc.get_value());
                 break;
             }
             case simdjson::ondemand::json_type::null: {
@@ -151,7 +142,7 @@ public:
 
     // parse json, recursively if necessary, by simdjson
     //  and serialize to binary format by writer
-    void parse(simdjson::ondemand::value value, hDictInsert handler = nullptr) {
+    void parse(simdjson::ondemand::value value) {
         switch (value.type()) {
         case simdjson::ondemand::json_type::null: {
             if (writer_.writeNull() == 0) {
@@ -191,27 +182,14 @@ public:
                     break;
                 }
 
-                int key_id = -1;
-                if (handler) {
-                    key_id = handler(key.data(), key.size());
-                }
-
-                if (key_id < 0) {
-                    if (writer_.writeKey(key.data(), key.size()) == 0) {
-                        err_ = JsonbErrType::E_OUTPUT_FAIL;
-                        LOG(WARNING) << "writeKey failed key: " << key;
-                        break;
-                    }
-                } else {
-                    if (writer_.writeKey(key_id) == 0) {
-                        err_ = JsonbErrType::E_OUTPUT_FAIL;
-                        LOG(WARNING) << "writeKey failed key_id: " << key_id;
-                        break;
-                    }
+                if (writer_.writeKey(key.data(), key.size()) == 0) {
+                    err_ = JsonbErrType::E_OUTPUT_FAIL;
+                    LOG(WARNING) << "writeKey failed key: " << key;
+                    break;
                 }
 
                 // parse object value
-                parse(kv.value(), handler);
+                parse(kv.value());
                 if (err_ != JsonbErrType::E_NONE) {
                     LOG(WARNING) << "parse object value failed";
                     break;
@@ -238,7 +216,7 @@ public:
 
             for (auto elem : value.get_array()) {
                 // parse array element
-                parse(elem.value(), handler);
+                parse(elem.value());
                 if (err_ != JsonbErrType::E_NONE) {
                     LOG(WARNING) << "parse array element failed";
                     break;
@@ -342,7 +320,7 @@ public:
         }
     }
 
-    JsonbWriterT<OS_TYPE>& getWriter() { return writer_; }
+    JsonbWriterT<JsonbOutStream>& getWriter() { return writer_; }
 
     JsonbErrType getErrorCode() { return err_; }
 
@@ -356,11 +334,11 @@ public:
 
 private:
     simdjson::ondemand::parser parser_;
-    JsonbWriterT<OS_TYPE> writer_;
+    JsonbWriterT<JsonbOutStream> writer_;
     JsonbErrType err_;
 };
 
-using JsonbParser = JsonbParserTSIMD<JsonbOutStream>;
+using JsonbParser = JsonbParserTSIMD;
 
 } // namespace doris
 
