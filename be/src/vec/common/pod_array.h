@@ -460,6 +460,8 @@ public:
         this->c_end = this->c_start + new_size;
     }
 
+    /// reset the array capacity
+    /// fill the new additional elements using the value
     void resize_fill(size_t n, const T& value) {
         size_t old_size = this->size();
         const auto new_size = this->byte_size(n);
@@ -689,6 +691,8 @@ public:
         }
     }
 
+    /// reset the array capacity
+    /// replace the all elements using the value
     void assign(size_t n, const T& x) {
         this->resize(n);
         std::fill(begin(), end(), x);
