@@ -59,139 +59,13 @@ TEST_F(OrcReaderInitColumnTest, InitReadColumn) {
         std::vector<std::string> tmp;
         tmp.emplace_back("col1");
 
-        reader->_column_names = &tmp;
+        reader->_table_column_names = &tmp;
         Status st = reader->_init_read_columns();
         std::cout << "st =" << st << "\n";
         std::list<std::string> ans;
         ans.emplace_back("col1");
-        ASSERT_EQ(ans, reader->_read_cols);
-    }
-
-    {
-        using namespace orc;
-        size_t rowCount = 10;
-        MemoryOutputStream memStream(100 * 1024 * 1024);
-        MemoryPool* pool = getDefaultPool();
-        auto type = std::unique_ptr<Type>(Type::buildTypeFromString("struct<col1:int,col2:int>"));
-        WriterOptions options;
-        options.setMemoryPool(pool);
-        auto writer = createWriter(*type, &memStream, options);
-        auto batch = writer->createRowBatch(rowCount);
-        writer->add(*batch);
-        writer->close();
-
-        auto inStream =
-                std::make_unique<MemoryInputStream>(memStream.getData(), memStream.getLength());
-        ReaderOptions readerOptions;
-        readerOptions.setMemoryPool(*pool);
-        auto orc_reader = createReader(std::move(inStream), readerOptions);
-
-        TFileScanRangeParams params;
-        params.slot_name_to_schema_pos.insert({"xxxxx", 0});
-        params.__isset.slot_name_to_schema_pos = true;
-        TFileRangeDesc range;
-        auto reader = OrcReader::create_unique(params, range, "", nullptr, true);
-        reader->_reader = std::move(orc_reader);
-        reader->_is_hive1_orc_or_use_idx = true;
-        std::vector<std::string> column_names;
-        column_names.emplace_back("xxxxx");
-
-        reader->_column_names = &column_names;
-        Status st = reader->_init_read_columns();
-
-        std::cout << "st =" << st << "\n";
-
-        std::list<std::string> ans;
-        ans.emplace_back("col1");
-        ASSERT_EQ(ans, reader->_read_cols);
-    }
-    {
-        using namespace orc;
-        size_t rowCount = 10;
-        MemoryOutputStream memStream(100 * 1024 * 1024);
-        MemoryPool* pool = getDefaultPool();
-        auto type = std::unique_ptr<Type>(
-                Type::buildTypeFromString("struct<_col0:int,_col1:int,_col2:bigint>"));
-        WriterOptions options;
-        options.setMemoryPool(pool);
-        auto writer = createWriter(*type, &memStream, options);
-        auto batch = writer->createRowBatch(rowCount);
-        writer->add(*batch);
-        writer->close();
-
-        auto inStream =
-                std::make_unique<MemoryInputStream>(memStream.getData(), memStream.getLength());
-        ReaderOptions readerOptions;
-        readerOptions.setMemoryPool(*pool);
-        auto orc_reader = createReader(std::move(inStream), readerOptions);
-
-        TFileScanRangeParams params;
-        params.slot_name_to_schema_pos.insert({"a", 0});
-        params.slot_name_to_schema_pos.insert({"b", 1});
-        params.slot_name_to_schema_pos.insert({"c", 2});
-
-        params.__isset.slot_name_to_schema_pos = true;
-        TFileRangeDesc range;
-        auto reader = OrcReader::create_unique(params, range, "", nullptr, true);
-        reader->_reader = std::move(orc_reader);
-        std::vector<std::string> column_names;
-        column_names.emplace_back("b");
-        column_names.emplace_back("c");
-
-        reader->_column_names = &column_names;
-        Status st = reader->_init_read_columns();
-
-        std::list<std::string> ans;
-        ans.emplace_back("_col1");
-        ans.emplace_back("_col2");
-        ASSERT_EQ(ans, reader->_read_cols);
-    }
-
-    {
-        using namespace orc;
-        auto acid_type = createStructType();
-        acid_type->addStructField("operation", createPrimitiveType(orc::TypeKind::INT));
-        acid_type->addStructField("originalTransaction", createPrimitiveType(orc::TypeKind::LONG));
-        acid_type->addStructField("bucket", createPrimitiveType(orc::TypeKind::INT));
-        acid_type->addStructField("rowId", createPrimitiveType(orc::TypeKind::LONG));
-        acid_type->addStructField("currentTransaction", createPrimitiveType(orc::TypeKind::LONG));
-        auto row_type = createStructType();
-        row_type->addStructField("CoL1", createPrimitiveType(orc::TypeKind::LONG));
-        row_type->addStructField("col2", createPrimitiveType(orc::TypeKind::LONG));
-        row_type->addStructField("colUMN3", createPrimitiveType(orc::TypeKind::LONG));
-        acid_type->addStructField("row", std::move(row_type));
-
-        size_t rowCount = 10;
-        MemoryOutputStream memStream(100 * 1024 * 1024);
-        MemoryPool* pool = getDefaultPool();
-        WriterOptions options;
-        options.setMemoryPool(pool);
-        auto writer = createWriter(*acid_type, &memStream, options);
-        auto batch = writer->createRowBatch(rowCount);
-        writer->add(*batch);
-        writer->close();
-
-        auto inStream =
-                std::make_unique<MemoryInputStream>(memStream.getData(), memStream.getLength());
-        ReaderOptions readerOptions;
-        readerOptions.setMemoryPool(*pool);
-        auto orc_reader = createReader(std::move(inStream), readerOptions);
-
-        TFileScanRangeParams params;
-        TFileRangeDesc range;
-        auto reader = OrcReader::create_unique(params, range, "", nullptr, true);
-        reader->_reader = std::move(orc_reader);
-        std::vector<std::string> column_names;
-        column_names.emplace_back("col1");
-        column_names.emplace_back("column3");
-        reader->_column_names = &column_names;
-        reader->_is_acid = true;
-        Status st = reader->_init_read_columns();
-
-        std::list<std::string> ans;
-        ans.emplace_back("row.CoL1");
-        ans.emplace_back("row.colUMN3");
-        ASSERT_EQ(ans, reader->_read_cols);
+        ASSERT_EQ(ans, reader->_read_file_cols);
+        ASSERT_EQ(ans, reader->_read_table_cols);
     }
 }
 
@@ -284,7 +158,7 @@ TEST_F(OrcReaderInitColumnTest, RemoveAcidTest) {
         acid_type->addStructField("row", std::move(row_type));
 
         // Verify that after removing ACID we get the type of the row field
-        const orc::Type& removed_type = _reader->_remove_acid(*acid_type);
+        const orc::Type& removed_type = _reader->remove_acid(*acid_type);
         ASSERT_EQ(removed_type.getKind(), orc::TypeKind::STRUCT);
         ASSERT_EQ(removed_type.getSubtypeCount(), 2); // id and name fields
         ASSERT_EQ(removed_type.getFieldName(0), "id");
@@ -298,7 +172,7 @@ TEST_F(OrcReaderInitColumnTest, RemoveAcidTest) {
         normal_type->addStructField("field1", createPrimitiveType(orc::TypeKind::INT));
         normal_type->addStructField("field2", createPrimitiveType(orc::TypeKind::STRING));
 
-        const orc::Type& result_type = _reader->_remove_acid(*normal_type);
+        const orc::Type& result_type = _reader->remove_acid(*normal_type);
         ASSERT_EQ(&result_type, normal_type.get()); // Should return the same type
         ASSERT_EQ(result_type.getSubtypeCount(), 2);
         ASSERT_EQ(result_type.getFieldName(0), "field1");
@@ -308,7 +182,7 @@ TEST_F(OrcReaderInitColumnTest, RemoveAcidTest) {
     // 3. Test primitive types (non-struct) remain unchanged
     {
         auto int_type = createPrimitiveType(orc::TypeKind::INT);
-        const orc::Type& result_type = _reader->_remove_acid(*int_type);
+        const orc::Type& result_type = _reader->remove_acid(*int_type);
         ASSERT_EQ(&result_type, int_type.get());
         ASSERT_EQ(result_type.getKind(), orc::TypeKind::INT);
     }
@@ -341,7 +215,7 @@ TEST_F(OrcReaderInitColumnTest, RemoveAcidTest) {
         acid_type->addStructField("row", std::move(row_type));
 
         // Verify structure after removing ACID
-        const orc::Type& removed_type = _reader->_remove_acid(*acid_type);
+        const orc::Type& removed_type = _reader->remove_acid(*acid_type);
         ASSERT_EQ(removed_type.getKind(), orc::TypeKind::STRUCT);
         ASSERT_EQ(removed_type.getSubtypeCount(), 3); // id, tags, properties
         ASSERT_EQ(removed_type.getFieldName(0), "id");

@@ -28,6 +28,7 @@
 
 #include "common/cast_set.h"
 #include "common/status.h"
+#include "gen_cpp/Planner_types.h"
 #include "runtime/types.h"
 #include "util/slice.h"
 #include "vec/data_types/data_type.h"
@@ -60,7 +61,7 @@ struct FieldSchema {
     FieldSchema(const FieldSchema& fieldSchema) = default;
     std::string debug_string() const;
 
-    int32_t field_id;
+    int32_t field_id = -1;
 };
 
 class FieldDescriptor {
@@ -73,8 +74,8 @@ private:
     std::unordered_map<std::string, const FieldSchema*> _name_to_field;
     // Used in from_thrift, marking the next schema position that should be parsed
     size_t _next_schema_pos;
-    std::map<int32_t, std::string> _field_id_name_mapping;
 
+private:
     void parse_physical_field(const tparquet::SchemaElement& physical_schema, bool is_nullable,
                               FieldSchema* physical_field);
 
@@ -135,11 +136,7 @@ public:
 
     int32_t size() const { return cast_set<int32_t>(_fields.size()); }
 
-    bool has_parquet_field_id() const { return !_field_id_name_mapping.empty(); }
-
-    std::map<int32_t, std::string> get_field_id_name_map() { return _field_id_name_mapping; }
-
-    const doris::Slice get_column_name_from_field_id(int32_t id) const;
+    const std::vector<FieldSchema>& get_fields_schema() const { return _fields; }
 };
 #include "common/compile_check_end.h"
 

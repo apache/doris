@@ -150,8 +150,8 @@ static void read_parquet_lines(std::vector<std::string> numeric_types,
     runtime_state.set_desc_tbl(desc_tbl);
 
     std::unordered_map<std::string, ColumnValueRangeType> colname_to_value_range;
-    static_cast<void>(p_reader->init_reader(column_names, missing_column_names, nullptr, {},
-                                            nullptr, nullptr, nullptr, nullptr, nullptr));
+    static_cast<void>(p_reader->init_reader(column_names, nullptr, {}, nullptr, nullptr, nullptr,
+                                            nullptr, nullptr));
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
             partition_columns;
     std::unordered_map<std::string, VExprContextSPtr> missing_columns;
@@ -198,6 +198,8 @@ static void read_parquet_lines(std::vector<std::string> numeric_types,
     scan_range.start_offset = 0;
     scan_range.format_type = TFileFormatType::FORMAT_PARQUET;
     scan_range.__isset.format_type = true;
+    scan_range.table_format_params.table_format_type = "hive";
+    scan_range.__isset.table_format_params = true;
     std::unordered_map<std::string, int> colname_to_slot_id;
     for (auto slot : tuple_desc->slots()) {
         TFileScanSlotInfo slot_info;
