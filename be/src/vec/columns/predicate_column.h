@@ -64,10 +64,10 @@ private:
         res_ptr->insert_many_strings_without_reserve(_refs.data(), sel_size);
     }
 
-    template <typename Y, template <typename> typename ColumnContainer>
-    void insert_default_value_res_column(const uint16_t* sel, size_t sel_size,
-                                         ColumnContainer<Y>* res_ptr) {
-        static_assert(std::is_same_v<ColumnContainer<Y>, ColumnType>);
+    template <typename Y>
+    void insert_default_decimal_value_res_column(const uint16_t* sel, size_t sel_size,
+                                                 ColumnDecimal<Y>* res_ptr) {
+        static_assert(std::is_same_v<ColumnDecimal<Y>, ColumnType>);
         auto& res_data = res_ptr->get_data();
         DCHECK(res_data.empty());
         res_data.reserve(sel_size);
@@ -79,6 +79,27 @@ private:
                 static_assert(sizeof(Y) == sizeof(T));
                 memcpy(reinterpret_cast<void*>(&y[i]), reinterpret_cast<void*>(&data[sel[i]]),
                        sizeof(Y));
+            }
+        }
+        res_data.set_end_ptr(y + sel_size);
+    }
+
+    template <PrimitiveType Y>
+    void insert_default_value_res_column(const uint16_t* sel, size_t sel_size,
+                                         ColumnVector<Y>* res_ptr) {
+        static_assert(std::is_same_v<ColumnVector<Y>, ColumnType>);
+        auto& res_data = res_ptr->get_data();
+        DCHECK(res_data.empty());
+        res_data.reserve(sel_size);
+        auto* y = (typename PrimitiveTypeTraits<Y>::ColumnItemType*)res_data.get_end_ptr();
+        for (size_t i = 0; i < sel_size; i++) {
+            if constexpr (std::is_same_v<typename PrimitiveTypeTraits<Y>::ColumnItemType,
+                                         typename PrimitiveTypeTraits<Y>::CppType>) {
+                y[i] = data[sel[i]];
+            } else {
+                static_assert(sizeof(typename PrimitiveTypeTraits<Y>::ColumnItemType) == sizeof(T));
+                memcpy(reinterpret_cast<void*>(&y[i]), reinterpret_cast<void*>(&data[sel[i]]),
+                       sizeof(T));
             }
         }
         res_data.set_end_ptr(y + sel_size);
@@ -405,10 +426,12 @@ public:
 
     Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override {
         ColumnType* column = assert_cast<ColumnType*>(col_ptr);
-        if constexpr (std::is_same_v<T, StringRef>) {
+        if constexpr (is_string_type(Type)) {
             insert_string_to_res_column(sel, sel_size, column);
-        } else if constexpr (std::is_same_v<T, bool>) {
+        } else if constexpr (Type == TYPE_BOOLEAN) {
             insert_byte_to_res_column(sel, sel_size, col_ptr);
+        } else if constexpr (is_decimal(Type)) {
+            insert_default_decimal_value_res_column(sel, sel_size, column);
         } else {
             insert_default_value_res_column(sel, sel_size, column);
         }
