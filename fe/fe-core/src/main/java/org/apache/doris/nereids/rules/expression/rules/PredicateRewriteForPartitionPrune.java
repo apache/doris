@@ -23,7 +23,6 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
-import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Date;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
@@ -70,8 +69,7 @@ public class PredicateRewriteForPartitionPrune
                     }
                 }
                 if (convertable) {
-                    Expression or = ExpressionUtils.combineAsLeftDeepTree(Or.class, splitIn);
-                    return or;
+                    return ExpressionUtils.or(splitIn);
                 }
             } else if (dateChild.getDataType() instanceof DateTimeV2Type) {
                 // V2
@@ -87,8 +85,7 @@ public class PredicateRewriteForPartitionPrune
                     }
                 }
                 if (convertable) {
-                    Expression or = ExpressionUtils.combineAsLeftDeepTree(Or.class, splitIn);
-                    return or;
+                    return ExpressionUtils.or(splitIn);
                 }
             }
         }
