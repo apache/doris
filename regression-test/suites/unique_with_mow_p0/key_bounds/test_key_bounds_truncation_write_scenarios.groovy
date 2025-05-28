@@ -99,7 +99,7 @@ suite("test_key_bounds_truncation_write_scenarios", "nonConcurrent") {
 
     Random random = new Random()
     def randomString = { -> 
-        int count = random.nextInt(200) + 1
+        int count = random.nextInt(200) + 20
         return RandomStringUtils.randomAlphabetic(count);
     }
 
@@ -161,6 +161,7 @@ suite("test_key_bounds_truncation_write_scenarios", "nonConcurrent") {
                 sql """ insert into ${tableName}(k,v2) values ${values};"""
             }
 
+            Thread.sleep(1500)
             disable_publish_spin_wait()
             disable_block_in_publish()
 

@@ -17,15 +17,22 @@
 
 #include "util/key_util.h"
 
+#include "common/logging.h"
+#include "util/string_util.h"
+
 namespace doris {
 
 bool key_is_not_in_segment(Slice key, const KeyBoundsPB& segment_key_bounds,
                            bool is_segments_key_bounds_truncated) {
     Slice maybe_truncated_min_key {segment_key_bounds.min_key()};
     Slice maybe_truncated_max_key {segment_key_bounds.max_key()};
-    return Slice::lhs_is_strictly_less_than_rhs(key, false, maybe_truncated_min_key,
-                                                is_segments_key_bounds_truncated) ||
-           Slice::lhs_is_strictly_less_than_rhs(maybe_truncated_max_key,
-                                                is_segments_key_bounds_truncated, key, false);
+    bool res1 = Slice::lhs_is_strictly_less_than_rhs(key, false, maybe_truncated_min_key,
+                                                     is_segments_key_bounds_truncated);
+    bool res2 = Slice::lhs_is_strictly_less_than_rhs(maybe_truncated_max_key,
+                                                     is_segments_key_bounds_truncated, key, false);
+    LOG_INFO("xxx res1={}, res2={}, key={}, min_key={}, max_key={}", res1, res2,
+             to_hex(key.to_string()), to_hex(maybe_truncated_min_key.to_string()),
+             to_hex(maybe_truncated_max_key.to_string()));
+    return res1 || res2;
 }
 } // namespace doris

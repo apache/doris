@@ -500,6 +500,13 @@ Status BaseTablet::lookup_row_key(const Slice& encoded_key, TabletSchema* latest
                         to_hex(key_without_seq.to_string()));
                 continue;
             }
+            LOG_INFO(
+                    "[xxx] tablet={}, lookup rowset={}, truncated={}, seg={}, "
+                    "key_bounds=[min={}, max={}] for key={}",
+                    tablet_id(), rs->rowset_id().to_string(),
+                    rs->rowset_meta()->is_segments_key_bounds_truncated(), j,
+                    to_hex(segments_key_bounds[j].min_key()),
+                    to_hex(segments_key_bounds[j].max_key()), to_hex(key_without_seq.to_string()));
             picked_segments.emplace_back(j);
         }
         if (picked_segments.empty()) {
