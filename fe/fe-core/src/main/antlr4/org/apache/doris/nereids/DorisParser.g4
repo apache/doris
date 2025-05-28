@@ -280,6 +280,7 @@ supportedAlterStatement
     | ALTER DATABASE name=identifier SET PROPERTIES
             LEFT_PAREN propertyItemList RIGHT_PAREN                                         #alterDatabaseProperties
     | ALTER SYSTEM RENAME COMPUTE GROUP name=identifier newName=identifier                  #alterSystemRenameComputeGroup
+    | ALTER RESOURCE name=identifierOrText properties=propertyClause?                       #alterResource
     | ALTER REPOSITORY name=identifier properties=propertyClause?                           #alterRepository
     | ALTER USER (IF EXISTS)? grantUserIdentify
         passwordOption (COMMENT STRING_LITERAL)?                                            #alterUser
@@ -406,6 +407,7 @@ supportedShowStatement
         whereClause? sortClause? limitClause?                                       #showCopy
     | SHOW QUERY STATS ((FOR database=identifier)
             | (FROM tableName=multipartIdentifier (ALL VERBOSE?)?))?                #showQueryStats
+    | SHOW WARM UP JOB wildWhere?                                                   #showWarmUpJob
     ;
 
 supportedLoadStatement
@@ -435,11 +437,11 @@ supportedOtherStatement
     : HELP mark=identifierOrText                                                    #help
     | UNLOCK TABLES                                                                 #unlockTables
     | INSTALL PLUGIN FROM source=identifierOrText properties=propertyClause?        #installPlugin
+    | UNINSTALL PLUGIN name=identifierOrText                                        #uninstallPlugin
     ;
 
-unsupportedOtherStatement
-    : UNINSTALL PLUGIN name=identifierOrText                                        #uninstallPlugin
-    | LOCK TABLES (lockTable (COMMA lockTable)*)?                                   #lockTables
+unsupportedOtherStatement 
+    : LOCK TABLES (lockTable (COMMA lockTable)*)?                                   #lockTables 
     | WARM UP (CLUSTER | COMPUTE GROUP) destination=identifier WITH
         ((CLUSTER | COMPUTE GROUP) source=identifier |
             (warmUpItem (AND warmUpItem)*)) FORCE?                                  #warmUpCluster
@@ -483,7 +485,6 @@ unsupportedShowStatement
     | SHOW CACHE HOTSPOT tablePath=STRING_LITERAL                                   #showCacheHotSpot
     | SHOW BUILD INDEX ((FROM | IN) database=multipartIdentifier)?
         wildWhere? sortClause? limitClause?                                         #showBuildIndex
-    | SHOW WARM UP JOB wildWhere?                                                   #showWarmUpJob
     ;
 
 createRoutineLoad
@@ -666,8 +667,7 @@ privilegeList
     ;
 
 unsupportedAlterStatement
-    : ALTER RESOURCE name=identifierOrText properties=propertyClause?               #alterResource
-    | ALTER COLOCATE GROUP name=multipartIdentifier
+    : ALTER COLOCATE GROUP name=multipartIdentifier
         SET LEFT_PAREN propertyItemList RIGHT_PAREN                                 #alterColocateGroup
     | ALTER ROUTINE LOAD FOR name=multipartIdentifier properties=propertyClause?
             (FROM type=identifier LEFT_PAREN propertyItemList RIGHT_PAREN)?         #alterRoutineLoad
