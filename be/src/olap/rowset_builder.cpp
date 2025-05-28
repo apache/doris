@@ -39,6 +39,7 @@
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/beta_rowset_writer.h"
 #include "olap/rowset/pending_rowset_helper.h"
+#include "olap/rowset/rowset_fwd.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_meta_manager.h"
 #include "olap/rowset/rowset_writer.h"
@@ -441,13 +442,17 @@ Status BaseRowsetBuilder::_build_current_tablet_schema(
     }
     // set partial update columns info
     _partial_update_info = std::make_shared<PartialUpdateInfo>();
+    std::vector<RowsetSharedPtr> rowsets;
+    RETURN_IF_ERROR(tablet()->capture_consistent_rowsets_unlocked(
+            Version(0, tablet()->get_rowset_with_max_version()->end_version()), &rowsets));
+
     RETURN_IF_ERROR(_partial_update_info->init(
             tablet()->tablet_id(), _req.txn_id, *_tablet_schema,
             table_schema_param->unique_key_update_mode(),
             table_schema_param->partial_update_input_columns(),
             table_schema_param->is_strict_mode(), table_schema_param->timestamp_ms(),
             table_schema_param->nano_seconds(), table_schema_param->timezone(),
-            table_schema_param->auto_increment_coulumn(),
+            table_schema_param->auto_increment_coulumn(), rowsets,
             table_schema_param->sequence_map_col_uid(), _max_version_in_flush_phase));
     return Status::OK();
 }
