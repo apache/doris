@@ -508,7 +508,7 @@ Status PointQueryExecutor::_lookup_row_data() {
                 if (_tablet->tablet_schema()
                             ->column_by_uid(slot->col_unique_id())
                             .has_char_type()) {
-                    column->shrink_padding_chars();
+                    _result_block->get_by_position(pos).column = column->get_shrinked_column();
                 }
             }
         }
