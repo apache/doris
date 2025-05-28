@@ -123,7 +123,7 @@ class EliminateGroupByTest extends TestWithFeService implements MemoPatternMatch
                 .rewrite()
                 .matches(
                         logicalEmptyRelation().when(p -> p.getProjects().get(0).toSql().equals("id")
-                                && p.getProjects().get(1).toSql().equals("1 AS `1`")
+                                && p.getProjects().get(1).toSql().equals("1 AS `count(*)`")
                                 && p.getProjects().get(1).getDataType().isBigIntType()
                         )
                 );
