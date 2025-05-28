@@ -365,16 +365,16 @@ class StreamLoadAction implements SuiteAction {
                 throw new IllegalStateException("Stream load rows mismatch:\n${responseText}")
             }
 
-            // if (time > 0) {
-            //     long elapsed = endTime - startTime
-            //     try {
-            //         // stream load may cost more time than expected in regression test, because of case run in parallel.
-            //         // So we allow stream load cost more time, use 3 * time as threshold.
-            //         Assert.assertTrue("Stream load Expect elapsed <= 3 * ${time}, but meet ${elapsed}", elapsed <= 3 * time)
-            //     } catch (Throwable t) {
-            //         throw new IllegalStateException("Stream load Expect elapsed <= 3 * ${time}, but meet ${elapsed}")
-            //     }
-            // }
+             if (time > 0) {
+                 long elapsed = endTime - startTime
+                 try {
+                     // stream load may cost more time than expected in regression test, because of case run in parallel.
+                     // So we allow stream load cost more time, use 3 * time as threshold.
+                     Assert.assertTrue("Stream load Expect elapsed <= 3 * ${time}, but meet ${elapsed}", elapsed <= 3 * time)
+                 } catch (Throwable t) {
+                     throw new IllegalStateException("Stream load Expect elapsed <= 3 * ${time}, but meet ${elapsed}")
+                 }
+            }
         }
     }
 
