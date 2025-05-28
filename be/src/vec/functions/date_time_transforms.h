@@ -450,7 +450,7 @@ struct DateTimeTransformImpl {
         if (const auto* sources = check_and_get_column<ColumnVector<FromType>>(source_col.get())) {
             auto col_to = ColumnVector<ToType>::create();
             if (is_nullable) {
-                auto null_map = ColumnVector<UInt8>::create(input_rows_count);
+                auto null_map = ColumnVector<UInt8>::create(input_rows_count, false);
                 Op::vector(sources->get_data(), col_to->get_data(), null_map->get_data());
                 if (const auto* nullable_col = check_and_get_column<ColumnNullable>(
                             block.get_by_position(arguments[0]).column.get())) {
