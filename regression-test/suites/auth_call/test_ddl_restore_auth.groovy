@@ -117,14 +117,14 @@ suite("test_ddl_restore_auth","p0,auth_call") {
     sql """truncate table ${dbName}.`${tableName}`"""
 
     sql """grant admin_PRIV on *.*.* to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         def show_snapshot_res = sql """SHOW SNAPSHOT ON ${repositoryName};"""
         logger.info("show_snapshot_res: " + show_snapshot_res)
     }
     sql """revoke admin_PRIV on *.*.* from ${user}"""
 
     // ddl create,show,drop
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
             sql """SHOW SNAPSHOT ON ${repositoryName};"""
             exception "denied"
@@ -154,7 +154,7 @@ suite("test_ddl_restore_auth","p0,auth_call") {
         }
     }
     sql """grant LOAD_PRIV on ${dbName}.* to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """RESTORE SNAPSHOT ${dbName}.`${restoreLabelName}`
                 FROM `${repositoryName}`
                 ON ( `${tableName}` )

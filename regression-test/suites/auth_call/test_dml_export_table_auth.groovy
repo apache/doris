@@ -66,7 +66,7 @@ suite("test_dml_export_table_auth","p0,auth_call") {
     String region = getS3Region()
     String bucket = context.config.otherConfigs.get("s3BucketName");
 
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
             sql """EXPORT TABLE ${dbName}.${tableName} TO "s3://${bucket}/test_outfile/exp_${exportLabel}"
                 PROPERTIES(
@@ -91,7 +91,7 @@ suite("test_dml_export_table_auth","p0,auth_call") {
         }
     }
     sql """grant select_priv on ${dbName}.${tableName} to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """EXPORT TABLE ${dbName}.${tableName} TO "s3://${bucket}/test_outfile/exp_${exportLabel}"
                 PROPERTIES(
                     "format" = "csv",
@@ -109,7 +109,7 @@ suite("test_dml_export_table_auth","p0,auth_call") {
         assertTrue(res.size() == 1)
     }
     sql """grant select_priv on ${dbName} to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """use ${dbName}"""
         def res = sql """show export;"""
         logger.info("res: " + res)

@@ -90,7 +90,7 @@ suite("test_dml_stream_load_auth","p0,auth_call") {
     int pos3 = sout.indexOf(":", pos1)
     def tsc_id = sout.substring(pos3+2, pos2)
 
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
             sql """SHOW TRANSACTION FROM ${dbName} WHERE ID=${tsc_id};"""
             exception "denied"
@@ -105,7 +105,7 @@ suite("test_dml_stream_load_auth","p0,auth_call") {
 
     sql """grant admin_priv on *.*.* to ${user}"""
 
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         def transaction_res = sql """SHOW TRANSACTION FROM ${dbName} WHERE ID=${tsc_id};"""
         assertTrue(transaction_res.size() == 1)
     }

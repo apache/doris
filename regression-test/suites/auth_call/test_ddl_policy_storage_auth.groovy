@@ -53,7 +53,7 @@ suite("test_ddl_policy_storage_auth","p0,auth_call") {
             );"""
 
     // ddl create,show,drop
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """use regression_test;"""
         test {
             sql """CREATE STORAGE POLICY ${storagePolicyName}
@@ -77,7 +77,7 @@ suite("test_ddl_policy_storage_auth","p0,auth_call") {
         }
     }
     sql """grant admin_priv on *.*.* to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """CREATE STORAGE POLICY ${storagePolicyName}
                 PROPERTIES(
                   "storage_resource" = "${resourceName}",

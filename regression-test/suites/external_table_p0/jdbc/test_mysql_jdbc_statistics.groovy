@@ -38,7 +38,7 @@ suite("test_mysql_jdbc_statistics", "p0,external,mysql,external_docker,external_
         sql """use ${catalog_name}.doris_test"""
 
         sql """analyze table ex_tb0 with sync"""
-        result = sql """show column stats ex_tb0 (name)"""
+        def result = sql """show column stats ex_tb0 (name)"""
         assertEquals(result.size(), 1)
         assertEquals(result[0][0], "name")
         assertEquals(result[0][2], "5.0")

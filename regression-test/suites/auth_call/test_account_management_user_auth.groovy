@@ -41,7 +41,7 @@ suite("test_account_management_user_auth","p0,auth_call") {
     sql """grant select_priv on regression_test to ${user}"""
     sql """create database ${dbName}"""
 
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
             sql """CREATE USER ${user_derive} IDENTIFIED BY '${pwd}';"""
             exception "denied"
@@ -69,7 +69,7 @@ suite("test_account_management_user_auth","p0,auth_call") {
     }
     sql """grant grant_priv on *.*.* to '${user}'"""
 
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """CREATE USER ${user_derive} IDENTIFIED BY '${pwd}';"""
         sql """ALTER USER ${user_derive} IDENTIFIED BY "${pwd}";"""
         sql """SET PASSWORD FOR '${user_derive}' = PASSWORD('${pwd}')"""
@@ -85,7 +85,7 @@ suite("test_account_management_user_auth","p0,auth_call") {
     }
     sql """revoke grant_priv on *.*.* from '${user}'"""
     sql """grant admin_priv on *.*.* to '${user}'"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """CREATE USER ${user_derive} IDENTIFIED BY '${pwd}';"""
         sql """ALTER USER ${user_derive} IDENTIFIED BY "${pwd}";"""
         sql """SET PASSWORD FOR '${user_derive}' = PASSWORD('${pwd}')"""

@@ -25,7 +25,7 @@ suite("test_overall_compaction_status") {
     backend_id = backendId_to_backendIP.keySet()[0]
 
     // test be's overall compaction status api
-    (code, out, err) = be_get_overall_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id))
+    def (code, out, err) = be_get_overall_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id))
     logger.info("Get overall compaction status: code=" + code + ", out=" + out + ", err=" + err)
     assertEquals(code, 0)
     assertTrue(out.toLowerCase().contains("basecompaction"))
