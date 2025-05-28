@@ -265,6 +265,17 @@ public:
                                             int64_t end_idx, BufferWritable& bw,
                                             FormatOptions& options) const = 0;
 
+    // Used to serialize columns into JSON.
+    // The default implementation first converts the column to a string and then converts the string to JSON.
+    // This approach can cause issues.
+    // For example, it currently handles parsing errors by converting errors to null values.
+    // However, for a valid Doris column, it should always be possible to convert it to JSON without errors.
+    // This function will not be repeatedly overridden in the future.
+    // Note:
+    // to_column may be nullable or non-nullable. Currently, this function is only called in cast, and cast will handle nullability at the end.
+    virtual Status serialize_column_to_jsonb_vector(const IColumn& from_column,
+                                                    ColumnPtr& to_column) const;
+
     virtual Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                                   const FormatOptions& options) const = 0;
     // deserialize text vector is to avoid virtual function call in complex type nested loop
@@ -387,6 +398,22 @@ protected:
     static void convert_variant_map_to_rapidjson(const vectorized::VariantMap& array,
                                                  rapidjson::Value& target,
                                                  rapidjson::Document::AllocatorType& allocator);
+    static void write_json_string(JsonbWriter& writer, std::string_view str) {
+        // start writing string
+        if (!writer.writeStartString()) {
+            return;
+        }
+        // write string
+        if (str.size() > 0) {
+            if (writer.writeString(str.data(), str.size()) == 0) {
+                return;
+            }
+        }
+        // end writing string
+        if (!writer.writeEndString()) {
+            return;
+        }
+    }
 };
 
 /// Invert values since Arrow interprets 1 as a non-null value, while doris as a null

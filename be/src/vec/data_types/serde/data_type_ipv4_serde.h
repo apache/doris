@@ -37,7 +37,7 @@
 
 namespace doris::vectorized {
 
-class DataTypeIPv4SerDe : public DataTypeNumberSerDe<PrimitiveType::TYPE_IPV4> {
+class DataTypeIPv4SerDe final : public DataTypeNumberSerDe<PrimitiveType::TYPE_IPV4> {
 public:
     DataTypeIPv4SerDe(int nesting_level = 1)
             : DataTypeNumberSerDe<PrimitiveType::TYPE_IPV4>(nesting_level) {};
@@ -58,6 +58,10 @@ public:
     void write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
                                const cctz::time_zone& ctz) const override;
+
+    Status serialize_column_to_jsonb_vector(const IColumn& from_column,
+                                            ColumnPtr& to_column) const override;
+
     void read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int64_t start,
                                 int64_t end, const cctz::time_zone& ctz) const override;
 

@@ -86,6 +86,16 @@ Status DataTypeIPv4SerDe::serialize_one_cell_to_json(const IColumn& column, int6
     return Status::OK();
 }
 
+Status DataTypeIPv4SerDe::serialize_column_to_jsonb_vector(const IColumn& from_column,
+                                                           ColumnPtr& to_column) const {
+    return serialize_column_to_jsonb_vector_number_impl(
+            from_column, to_column, [](JsonbWriter& writer, IPv4 data) {
+                IPv4Value ipv4_value(data);
+                std::string ipv4_str = ipv4_value.to_string();
+                write_json_string(writer, ipv4_str);
+            });
+}
+
 Status DataTypeIPv4SerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                                          const FormatOptions& options) const {
     if (_nesting_level > 1) {

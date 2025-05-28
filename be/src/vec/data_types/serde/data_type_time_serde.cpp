@@ -16,6 +16,8 @@
 // under the License.
 
 #include "data_type_time_serde.h"
+
+#include "vec/runtime/time_value.h"
 namespace doris {
 namespace vectorized {
 #include "common/compile_check_begin.h"
@@ -54,6 +56,15 @@ Status DataTypeTimeV2SerDe::_write_column_to_mysql(const IColumn& column,
         }
     }
     return Status::OK();
+}
+
+Status DataTypeTimeV2SerDe::serialize_column_to_jsonb_vector(const IColumn& from_column,
+                                                             ColumnPtr& to_column) const {
+    return serialize_column_to_jsonb_vector_number_impl(
+            from_column, to_column, [this](JsonbWriter& writer, Float64 data) {
+                auto time_str = TimeValue::to_string(data, scale);
+                write_json_string(writer, time_str);
+            });
 }
 } // namespace vectorized
 } // namespace doris

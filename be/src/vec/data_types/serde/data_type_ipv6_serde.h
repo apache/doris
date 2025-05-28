@@ -41,7 +41,7 @@ class JsonbOutStream;
 namespace vectorized {
 class Arena;
 
-class DataTypeIPv6SerDe : public DataTypeNumberSerDe<PrimitiveType::TYPE_IPV6> {
+class DataTypeIPv6SerDe final : public DataTypeNumberSerDe<PrimitiveType::TYPE_IPV6> {
 public:
     DataTypeIPv6SerDe(int nesting_level = 1)
             : DataTypeNumberSerDe<PrimitiveType::TYPE_IPV6>(nesting_level) {};
@@ -71,6 +71,8 @@ public:
     void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const override;
     void write_one_cell_to_jsonb(const IColumn& column, JsonbWriterT<JsonbOutStream>& result,
                                  Arena* mem_pool, int unique_id, int64_t row_num) const override;
+    Status serialize_column_to_jsonb_vector(const IColumn& from_column,
+                                            ColumnPtr& to_column) const override;
 
 private:
     template <bool is_binary_format>

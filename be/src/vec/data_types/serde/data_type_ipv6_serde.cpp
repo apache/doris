@@ -107,6 +107,16 @@ Status DataTypeIPv6SerDe::serialize_one_cell_to_json(const IColumn& column, int6
     return Status::OK();
 }
 
+Status DataTypeIPv6SerDe::serialize_column_to_jsonb_vector(const IColumn& from_column,
+                                                           ColumnPtr& to_column) const {
+    return serialize_column_to_jsonb_vector_number_impl(
+            from_column, to_column, [](JsonbWriter& writer, IPv6 data) {
+                IPv6Value ipv6_value(data);
+                std::string ipv6_str = ipv6_value.to_string();
+                write_json_string(writer, ipv6_str);
+            });
+}
+
 Status DataTypeIPv6SerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                                          const FormatOptions& options) const {
     if (_nesting_level > 1) {
