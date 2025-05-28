@@ -1096,6 +1096,12 @@ TEST_F(ColumnStringTest, is_ascii) {
         }
         EXPECT_FALSE(column->is_ascii());
     }
+    {
+        auto column = ColumnString::create();
+        std::vector<StringRef> data = {StringRef(""), StringRef(""), StringRef(""),
+                                       StringRef(""), StringRef(""), StringRef("")};
+        EXPECT_TRUE(column->is_ascii());
+    }
 }
 
 } // namespace doris::vectorized

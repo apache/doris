@@ -779,9 +779,6 @@ void ColumnStr<T>::insert(const Field& x) {
 
 template <typename T>
 bool ColumnStr<T>::is_ascii() const {
-    if (chars.empty()) {
-        return true; // empty string is considered as ascii
-    }
     return simd::VStringFunctions::is_ascii(StringRef(chars.data(), chars.size()));
 }
 
