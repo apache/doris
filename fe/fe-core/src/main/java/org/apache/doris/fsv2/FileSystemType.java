@@ -19,7 +19,7 @@ package org.apache.doris.fsv2;
 
 public enum FileSystemType {
     S3,
-    DFS,
+    HDFS,
     OFS,
     JFS,
     BROKER,
