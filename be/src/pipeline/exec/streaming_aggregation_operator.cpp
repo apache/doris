@@ -374,7 +374,6 @@ Status StreamingAggLocalState::_pre_agg_with_serialized_key(doris::vectorized::B
                 value_columns.emplace_back(
                         std::move(*out_block->get_by_position(i + key_size).column).mutate());
             } else {
-                // slot type of value it should always be string type
                 value_columns.emplace_back(
                         _aggregate_evaluators[i]->function()->create_serialize_column());
             }
@@ -464,7 +463,7 @@ Status StreamingAggLocalState::_get_results_with_serialized_key(RuntimeState* st
                         agg_method.init_iterator();
                         auto& data = *agg_method.hash_table;
                         const auto size = std::min(data.size(), size_t(state->batch_size()));
-                        using KeyType = std::decay_t<decltype(agg_method.iterator->get_first())>;
+                        using KeyType = std::decay_t<decltype(agg_method)>::Key;
                         std::vector<KeyType> keys(size);
                         if (_values.size() < size + 1) {
                             _values.resize(size + 1);

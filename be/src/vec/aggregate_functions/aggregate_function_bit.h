@@ -35,7 +35,7 @@ class Arena;
 class BufferReadable;
 class BufferWritable;
 class IColumn;
-template <typename T>
+template <PrimitiveType T>
 class DataTypeNumber;
 template <typename>
 class ColumnVector;

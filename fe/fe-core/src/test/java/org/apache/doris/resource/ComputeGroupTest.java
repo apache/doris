@@ -264,32 +264,22 @@ public class ComputeGroupTest {
             // test MergedComputeGroup
             {
                 Set<String> emptyTags = Sets.newHashSet();
-                String cgName = "merged_cg_name";
-                ComputeGroup emptyMergedCg = new MergedComputeGroup(emptyTags, null);
-                try {
-                    emptyMergedCg.getId();
-                } catch (Exception e) {
-                    Assert.assertTrue(e.getMessage().contains("MergedComputeGroup not implements getId"));
-                }
+                String beTag = "merged_cg_name";
+                String mergedEmptyName = String.join(",", emptyTags);
+                ComputeGroup emptyMergedCg = new MergedComputeGroup(
+                        mergedEmptyName, emptyTags, null);
 
-                try {
-                    emptyMergedCg.getName();
-                } catch (Exception e) {
-                    Assert.assertTrue(e.getMessage().contains("MergedComputeGroup not implements getName"));
-                }
-
-                String mergedCgToString = String.format("%s %s", MergedComputeGroup.class.getSimpleName(),
-                        String.join(",", emptyTags));
+                String mergedCgToString = String.format("%s name=%s ", MergedComputeGroup.class.getSimpleName(), "");
                 Assert.assertTrue(mergedCgToString.equals(emptyMergedCg.toString()));
-                Assert.assertFalse(emptyMergedCg.containsBackend(cgName));
+                Assert.assertFalse(emptyMergedCg.containsBackend(beTag));
 
                 Set<String> tags = Sets.newHashSet();
-                tags.add(cgName);
-                ComputeGroup notEmptyMergedCg = new MergedComputeGroup(tags, null);
-                String mergedCgToString2 = String.format("%s %s", MergedComputeGroup.class.getSimpleName(),
-                        String.join(",", tags));
+                tags.add(beTag);
+                String mergedName = String.join(",", tags);
+                ComputeGroup notEmptyMergedCg = new MergedComputeGroup(mergedName, tags, null);
+                String mergedCgToString2 = String.format("%s name=%s ", MergedComputeGroup.class.getSimpleName(), mergedName);
                 Assert.assertTrue(mergedCgToString2.equals(notEmptyMergedCg.toString()));
-                Assert.assertTrue(notEmptyMergedCg.containsBackend(cgName));
+                Assert.assertTrue(notEmptyMergedCg.containsBackend(beTag));
             }
 
             // test AllBackendComputeGroup
@@ -346,8 +336,8 @@ public class ComputeGroupTest {
                 Assert.assertFalse(allBecg1.equals(allBecg2));
                 Assert.assertFalse(allBecg2.equals(allBecg1));
 
-                MergedComputeGroup mergedCg1 = new MergedComputeGroup(null, null);
-                MergedComputeGroup mergedCg2 = new MergedComputeGroup(null, null);
+                MergedComputeGroup mergedCg1 = new MergedComputeGroup("", null, null);
+                MergedComputeGroup mergedCg2 = new MergedComputeGroup("", null, null);
                 Assert.assertFalse(mergedCg1.equals(mergedCg2));
                 Assert.assertFalse(mergedCg2.equals(mergedCg1));
 
