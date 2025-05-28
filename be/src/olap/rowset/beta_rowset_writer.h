@@ -26,6 +26,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <roaring/roaring.hh>
 #include <string>
 #include <vector>
@@ -233,8 +234,10 @@ protected:
     // record rows number of every segment already written, using for rowid
     // conversion when compaction in unique key with MoW model
     std::vector<uint32_t> _segment_num_rows;
+
     // for unique key table with merge-on-write
     std::vector<KeyBoundsPB> _segments_encoded_key_bounds;
+    std::optional<bool> _segments_key_bounds_truncated;
 
     // counters and statistics maintained during add_rowset
     std::atomic<int64_t> _num_rows_written;

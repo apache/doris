@@ -30,7 +30,7 @@ suite("test_key_bounds_truncation_write_scenarios", "nonConcurrent") {
         `k` varchar(65533) NOT NULL,
         `v1` int,
         v2 int,
-        v3 int )
+        v3 int not null default '99')
         UNIQUE KEY(`k`) DISTRIBUTED BY HASH(`k`) BUCKETS 1
         PROPERTIES("replication_num" = "1",
                 "enable_unique_key_merge_on_write" = "true",
@@ -194,9 +194,6 @@ suite("test_key_bounds_truncation_write_scenarios", "nonConcurrent") {
 
 
         // 3. schema change
-        logger.info("============= schema change ==============")
-        set_be_param("segments_key_bounds_truncation_threshold", 12)
-        Thread.sleep(2000)
         def doSchemaChange = { cmd ->
             sql cmd
             waitForSchemaChangeDone {
@@ -204,10 +201,42 @@ suite("test_key_bounds_truncation_write_scenarios", "nonConcurrent") {
                 time 20000
             }
         }
+
+        // direct schema change
+        logger.info("============= schema change 1 ==============")
+        set_be_param("segments_key_bounds_truncation_threshold", 12)
+        Thread.sleep(1000)
         doSchemaChange " ALTER table ${tableName} modify column v2 varchar(100)"
         printCompactionStatus(tableName)
         checkKeyBounds(12)
+        sql "insert into ${tableName} select * from ${tableName};"
+        def res1 = sql "select k from ${tableName} group by k having count(*)>1;"
+        assert res1.size() == 0
 
+        // linked schema change
+        logger.info("============= schema change 2 ==============")
+        set_be_param("segments_key_bounds_truncation_threshold", 20)
+        Thread.sleep(1000)
+        doSchemaChange " ALTER table ${tableName} modify column v3 int null default '99'"
+        printCompactionStatus(tableName)
+        // will use previous rowsets' segment key bounds
+        // so the length is still 12
+        checkKeyBounds(12)
+        sql "insert into ${tableName} select * from ${tableName};"
+        def res2 = sql "select k from ${tableName} group by k having count(*)>1;"
+        assert res2.size() == 0
+
+        // sort schema change
+        logger.info("============= schema change 3 ==============")
+        set_be_param("segments_key_bounds_truncation_threshold", 15)
+        Thread.sleep(2000)
+        doSchemaChange " ALTER table ${tableName} add column k2 int key after k;"
+        doSchemaChange " ALTER table ${tableName} order by (k2,k,v1,v2,v3);"
+        printCompactionStatus(tableName)
+        checkKeyBounds(15)
+        sql "insert into ${tableName} select * from ${tableName};"
+        def res3 = sql "select k from ${tableName} group by k having count(*)>1;"
+        assert res3.size() == 0
 
         // 4. compaction
         logger.info("============= compaction ==============")

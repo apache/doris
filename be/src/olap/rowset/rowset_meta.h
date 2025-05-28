@@ -32,6 +32,7 @@
 #include "olap/storage_policy.h"
 #include "olap/tablet_fwd.h"
 #include "runtime/memory/lru_cache_policy.h"
+#include "util/string_util.h"
 
 namespace doris {
 
@@ -306,6 +307,13 @@ public:
     }
 
     void set_segments_key_bounds_truncated(bool truncated) {
+        std::string msg;
+        for (const auto& key_bounds : get_segments_key_bounds()) {
+            msg += fmt::format("[min={},max={}]", to_hex(key_bounds.min_key()),
+                               to_hex(key_bounds.max_key()));
+        }
+        LOG_INFO("xxx set rs={}, truncated={}, key_bounds={}, {}", _rowset_id.to_string(),
+                 truncated, msg, Status::InternalError<true>(""));
         _rowset_meta_pb.set_segments_key_bounds_truncated(truncated);
     }
 
