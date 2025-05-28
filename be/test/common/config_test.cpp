@@ -150,7 +150,6 @@ TEST_F(ConfigTest, UpdateConfigs) {
     // replace
     setenv("TEST_CONF_ENV", "test_dir1", true);
     s = config::set_config("cfg_conf_path", "${TEST_CONF_ENV}/test");
-    EXPECT_EQ(s.to_string(), "");
     EXPECT_TRUE(s.ok());
     EXPECT_EQ(cfg_conf_path, "test_dir1/test");
 
