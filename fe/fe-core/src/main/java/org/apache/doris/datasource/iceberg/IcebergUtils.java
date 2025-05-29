@@ -637,7 +637,7 @@ public class IcebergUtils {
                         schema = icebergView.schemas().get((int) schemaId);
                     }
                 } else {
-                    org.apache.iceberg.Table icebergTable = getIcebergTable(catalog, dbName, name);
+                    Table icebergTable = getIcebergTable(catalog, dbName, name);
                     if (schemaId == NEWEST_SCHEMA_ID || icebergTable.currentSnapshot() == null) {
                         schema = icebergTable.schema();
                     } else {
