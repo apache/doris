@@ -390,7 +390,6 @@ public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPost
 
         for (String newWgOneTag : newWgTagSet) {
             double sumOfAllMemLimit = 0;
-            int sumOfAllCpuHardLimit = 0;
 
             // 1 get sum value of all wg which has same tag without current wg
             for (Map.Entry<Long, WorkloadGroup> entry : idToWorkloadGroup.entrySet()) {
@@ -409,9 +408,6 @@ public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPost
                     continue;
                 }
 
-                if (wg.getCpuHardLimitWhenCalSum() > 0) {
-                    sumOfAllCpuHardLimit += wg.getCpuHardLimitWhenCalSum();
-                }
                 if (wg.getMemoryLimitPercentWhenCalSum() > 0) {
                     sumOfAllMemLimit += wg.getMemoryLimitPercentWhenCalSum();
                 }
@@ -419,7 +415,6 @@ public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPost
 
             // 2 sum current wg value
             sumOfAllMemLimit += newWg.getMemoryLimitPercentWhenCalSum();
-            sumOfAllCpuHardLimit += newWg.getCpuHardLimitWhenCalSum();
 
             // 3 check total sum
             if (sumOfAllMemLimit > 100.0 + 1e-6) {
@@ -429,12 +424,6 @@ public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPost
                                 + " cannot be greater than 100.0%. current sum val:" + sumOfAllMemLimit);
             }
 
-            if (sumOfAllCpuHardLimit > 100) {
-                throw new DdlException(
-                        "sum of all workload group " + WorkloadGroup.CPU_HARD_LIMIT + " within tag " + (
-                                newWgTag.isPresent()
-                                        ? newWgTag.get() : "") + " can not be greater than 100% ");
-            }
         }
     }
 
