@@ -40,7 +40,6 @@ import org.apache.doris.nereids.hint.UseMvHint;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.analysis.ColumnAliasGenerator;
-import org.apache.doris.nereids.rules.exploration.mv.InitMaterializationContextHook;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -263,6 +262,8 @@ public class StatementContext implements Closeable {
     private final BitSet needPreMvRewriteRuleMasks = new BitSet(RuleType.SENTINEL.ordinal());
     // if needed to rewrite in RBO phase, this would be set true
     private boolean needPreRewrite = false;
+    // mark is rewritten in RBO phase, if rewritten in RBO phase should set true
+    private boolean preRewritten = false;
 
     public StatementContext() {
         this(ConnectContext.get(), null, 0);
@@ -726,20 +727,6 @@ public class StatementContext implements Closeable {
     }
 
     /**
-     * Clear materialize hooks to control not rewritten by mv
-     */
-    public void clearMaterializedHooks() {
-        Set<PlannerHook> plannerHooks = new HashSet<>();
-        for (PlannerHook hook : this.plannerHooks) {
-            if (hook instanceof InitMaterializationContextHook) {
-                continue;
-            }
-            plannerHooks.add(hook);
-        }
-        this.plannerHooks = plannerHooks;
-    }
-
-    /**
      * Clear materialize hooks by targetHooks to control not rewritten by mv
      */
     public void clearMaterializedHooksBy(Set<PlannerHook> targetHooks) {
@@ -932,6 +919,14 @@ public class StatementContext implements Closeable {
 
     public void setNeedPreRewrite(boolean needPreRewrite) {
         this.needPreRewrite = needPreRewrite;
+    }
+
+    public boolean isPreRewritten() {
+        return preRewritten;
+    }
+
+    public void setPreRewritten(boolean preRewritten) {
+        this.preRewritten = preRewritten;
     }
 
     public Multimap<List<String>, Pair<RelationId, Set<String>>> getTableUsedPartitionNameMap() {

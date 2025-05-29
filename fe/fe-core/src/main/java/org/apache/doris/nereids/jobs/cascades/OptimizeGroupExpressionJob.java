@@ -68,7 +68,7 @@ public class OptimizeGroupExpressionJob extends Job {
 
     private List<Rule> getExplorationRules(CascadesContext cascadesContext) {
         Builder<Rule> ruleBuilder = ImmutableList.<Rule>builder().addAll(getJoinRules());
-        if (!cascadesContext.getStatementContext().isNeedPreRewrite()) {
+        if (!cascadesContext.getStatementContext().isPreRewritten()) {
             ruleBuilder.addAll(getMvRules());
         }
         return ruleBuilder.build();

@@ -470,7 +470,7 @@ public class NereidsPlanner extends Planner {
             }
         }
         // if rule-based optimized, would not be rewritten by cbo, so clear materialized hooks
-        this.cascadesContext.getStatementContext().clearMaterializedHooks();
+        this.cascadesContext.getStatementContext().setPreRewritten(true);
         if (plansWhichContainMv.isEmpty()) {
             return;
         }

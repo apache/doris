@@ -313,6 +313,9 @@ public class MaterializedViewUtils {
             rewrittenPlanContext.getStatementContext().invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
             rewrittenPlanContext.getStatementContext().getPlannerHooks().addAll(removedMaterializedViewHooks);
         }
+        if (rewrittenPlan == null) {
+            return null;
+        }
         if (rewrittenPlan instanceof Sink) {
             // can keep the right column order, no need to adjust
             return rewrittenPlan;
