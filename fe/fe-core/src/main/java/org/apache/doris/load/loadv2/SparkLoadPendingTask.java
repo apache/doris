@@ -46,6 +46,8 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.MetaLockUtils;
+import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
+import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.BrokerFileGroupAggInfo.FileGroupAggKey;
 import org.apache.doris.load.FailMsg;
@@ -523,13 +525,21 @@ public class SparkLoadPendingTask extends LoadTask {
         }
 
         EtlFileGroup etlFileGroup = null;
+        FileFormatProperties fileFormatProperties = fileGroup.getFileFormatProperties();
         if (fileGroup.isLoadFromTable()) {
             etlFileGroup = new EtlFileGroup(SourceType.HIVE, hiveDbTableName, hiveTableProperties,
                     fileGroup.isNegative(), columnMappings, where, partitionIds);
         } else {
+            String columnSeparator = CsvFileFormatProperties.DEFAULT_COLUMN_SEPARATOR;
+            String lineDelimiter = CsvFileFormatProperties.DEFAULT_LINE_DELIMITER;
+            if (fileFormatProperties instanceof CsvFileFormatProperties) {
+                columnSeparator = ((CsvFileFormatProperties) fileFormatProperties).getColumnSeparator();
+                lineDelimiter = ((CsvFileFormatProperties) fileFormatProperties).getLineDelimiter();
+            }
             etlFileGroup = new EtlFileGroup(SourceType.FILE, fileGroup.getFilePaths(), fileFieldNames,
-                    fileGroup.getColumnNamesFromPath(), fileGroup.getColumnSeparator(), fileGroup.getLineDelimiter(),
-                    fileGroup.isNegative(), fileGroup.getFileFormat(), columnMappings, where, partitionIds);
+                    fileGroup.getColumnNamesFromPath(), columnSeparator, lineDelimiter,
+                    fileGroup.isNegative(), fileFormatProperties.getFormatName(),
+                    columnMappings, where, partitionIds);
         }
 
         return etlFileGroup;
