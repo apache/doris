@@ -53,10 +53,11 @@ public class FileSystemFactory {
         return new BrokerFileSystem(name, properties);
     }
 
-    public static RemoteFileSystem get(FileSystemType fileSystemType, Map<String, String> properties)
+    public static RemoteFileSystem get(FileSystemType fileSystemType, Map<String, String> properties,
+                                       String bindBrokerName)
             throws UserException {
         if (fileSystemType == FileSystemType.BROKER) {
-            return new BrokerFileSystem("broker", properties);
+            return new BrokerFileSystem(bindBrokerName, properties);
         }
         List<StorageProperties> storagePropertiesList = StorageProperties.createAll(properties);
 
