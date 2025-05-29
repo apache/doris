@@ -45,7 +45,7 @@ PhysicalResultSink
 --------------------------PhysicalOlapScan[reason]
 
 Hint log:
-Used: leading(web_page broadcast { { cd2 { customer_address { { web_returns { web_sales date_dim } } cd1 } } } reason } ) 
-UnUsed: 
+Used: leading(web_page broadcast { { cd2 { customer_address { { web_returns { web_sales date_dim } } cd1 } } } reason } )
+UnUsed:
 SyntaxError:
 

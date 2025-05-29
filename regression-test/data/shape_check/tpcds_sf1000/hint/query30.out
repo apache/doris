@@ -43,6 +43,6 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 
 Hint log:
 Used: leading(web_returns date_dim customer_address ) leading(ctr1 { customer customer_address } )
-UnUsed: 
+UnUsed:
 SyntaxError:
 

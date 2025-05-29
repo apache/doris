@@ -22,7 +22,7 @@ PhysicalResultSink
 ------------------------PhysicalOlapScan[date_dim]
 
 Hint log:
-Used: leading(store_sales broadcast item broadcast dt ) 
+Used: leading(store_sales broadcast item broadcast dt )
 UnUsed:
 SyntaxError:
 
