@@ -49,7 +49,8 @@ public class TransientTaskManager {
 
     public void start() {
         ThreadFactory exportTaskThreadFactory = new CustomThreadFactory("export-task-execute");
-        this.exportTaskProcessor = new TransientTaskProcessor(EXPORT_THREAD_NUM, EXPORT_TASK_QUEUE_SIZE, exportTaskThreadFactory);
+        this.exportTaskProcessor = new TransientTaskProcessor(
+            EXPORT_THREAD_NUM, EXPORT_TASK_QUEUE_SIZE, exportTaskThreadFactory);
     }
 
     public TransientTaskExecutor getMemoryTaskExecutor(Long taskId) {
