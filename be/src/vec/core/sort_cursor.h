@@ -128,8 +128,8 @@ struct MergeSortCursorImpl {
     ColumnRawPtrs columns;
     SortDescription desc;
     size_t sort_columns_size = 0;
-    size_t pos = 0;
-    size_t rows = 0;
+    int pos = 0;
+    int rows = 0;
 
     MergeSortCursorImpl() = default;
     virtual ~MergeSortCursorImpl() = default;
@@ -145,6 +145,22 @@ struct MergeSortCursorImpl {
               sort_columns_size(desc.size()) {}
 
     bool empty() const { return rows == 0; }
+
+    void reverse() {
+        MutableColumns columns_reversed;
+        for (auto& column : columns) {
+            auto col_reversed = column->clone_empty();
+            for (int j = rows - 1; j >= pos; j--) {
+                col_reversed->insert_from(*column, j);
+            }
+            columns_reversed.push_back(std::move(col_reversed));
+        }
+        block->set_columns(std::move(columns_reversed));
+        for (auto& column_desc : desc) {
+            column_desc.direction *= -1;
+        }
+        reset();
+    }
 
     /// Set the cursor to the beginning of the new block.
     void reset() {
@@ -295,9 +311,7 @@ struct MergeSortCursor {
     /// Inverted so that the priority queue elements are removed in ascending order.
     bool operator<(const MergeSortCursor& rhs) const { return greater(rhs); }
 
-    Field get_top_value() const {
-        return impl->get_top_value();
-    }
+    Field get_top_value() const { return impl->get_top_value(); }
 };
 
 /// For easy copying.

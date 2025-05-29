@@ -75,18 +75,24 @@ Status HeapSorterV2::append_block(Block* block) {
             _queue.next(current_rows);
         } else {
             _queue.remove_top();
+            _data_size -= current->impl->block->allocated_bytes();
         }
         _queue_row_num -= current_rows;
     }
 
     return Status::OK();
 }
+// [1, 3) :  2, [1, 0]
+// [0, 2) : [0, 1], 2
+// pos,rows -> 0,rows-pos-1
 
 Status HeapSorterV2::prepare_for_read() {
     while (_queue.is_valid()) {
         auto [current, current_rows] = _queue.current();
-        current->impl->desc = _sort_description;
-        _state->get_queue().push(MergeSortCursor(current->impl));
+        if (current_rows) {
+            current->impl->reverse();
+            _state->get_queue().push(MergeSortCursor(current->impl));
+        }
         _queue.remove_top();
     }
     return Status::OK();
@@ -121,7 +127,6 @@ Status HeapSorterV2::_prepare_sort_descs(Block* block) {
     _sort_description_reversed = _sort_description;
     for (int i = 0; i < _sort_description.size(); i++) {
         _sort_description_reversed[i].direction *= -1;
-        _sort_description_reversed[i].nulls_direction *= -1;
     }
 
     _init_sort_descs = true;
