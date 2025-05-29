@@ -83,7 +83,6 @@ import org.apache.doris.nereids.DorisParser.AdminDiagnoseTabletContext;
 import org.apache.doris.nereids.DorisParser.AdminRebalanceDiskContext;
 import org.apache.doris.nereids.DorisParser.AdminSetTableStatusContext;
 import org.apache.doris.nereids.DorisParser.AdminShowReplicaDistributionContext;
-import org.apache.doris.nereids.DorisParser.AdminShowReplicaStatusContext;
 import org.apache.doris.nereids.DorisParser.AdminShowTabletStorageFormatContext;
 import org.apache.doris.nereids.DorisParser.AggClauseContext;
 import org.apache.doris.nereids.DorisParser.AggStateDataTypeContext;
@@ -563,7 +562,6 @@ import org.apache.doris.nereids.trees.plans.commands.AdminRebalanceDiskCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminRepairTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetReplicaStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetTableStatusCommand;
-import org.apache.doris.nereids.trees.plans.commands.AdminShowReplicaStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterCatalogCommentCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterCatalogPropertiesCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterCatalogRenameCommand;
@@ -675,6 +673,7 @@ import org.apache.doris.nereids.trees.plans.commands.ResumeJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.ResumeMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.RevokeResourcePrivilegeCommand;
 import org.apache.doris.nereids.trees.plans.commands.RevokeRoleCommand;
+import org.apache.doris.nereids.trees.plans.commands.RevokeTablePrivilegeCommand;
 import org.apache.doris.nereids.trees.plans.commands.SetDefaultStorageVaultCommand;
 import org.apache.doris.nereids.trees.plans.commands.SetOptionsCommand;
 import org.apache.doris.nereids.trees.plans.commands.SetTransactionCommand;
@@ -732,6 +731,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowQueryProfileCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowQueryStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowQueuedAnalyzeJobsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowReplicaDistributionCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowReplicaStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRepositoriesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowResourcesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRestoreCommand;
@@ -5408,22 +5408,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-    public LogicalPlan visitAdminShowReplicaStatus(AdminShowReplicaStatusContext ctx) {
-        Expression where = null;
-        if (ctx.WHERE() != null) {
-            StringLiteral left = new StringLiteral(stripQuotes(ctx.STATUS().toString()));
-            StringLiteral right = new StringLiteral(stripQuotes(ctx.STRING_LITERAL().getText()));
-            if (ctx.NEQ() != null) {
-                where = new Not(new EqualTo(left, right));
-            } else {
-                where = new EqualTo(left, right);
-            }
-        }
-        TableRefInfo tableRefInfo = visitBaseTableRefContext(ctx.baseTableRef());
-        return new AdminShowReplicaStatusCommand(tableRefInfo, where);
-    }
-
-    @Override
     public LogicalPlan visitShowRepositories(ShowRepositoriesContext ctx) {
         return new ShowRepositoriesCommand();
     }
@@ -7507,6 +7491,48 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             userIdentity);
     }
 
+    @Override
+    public LogicalPlan visitRevokeTablePrivilege(DorisParser.RevokeTablePrivilegeContext ctx) {
+        List<AccessPrivilegeWithCols> accessPrivilegeWithCols = visitPrivilegeList(ctx.privilegeList());
+
+        List<String> parts = visitMultipartIdentifierOrAsterisk(ctx.multipartIdentifierOrAsterisk());
+        int size = parts.size();
+
+        TablePattern tablePattern = null;
+        if (size == 1) {
+            String db = parts.get(size - 1);
+            tablePattern = new TablePattern(db, "");
+        }
+
+        if (size == 2) {
+            String db = parts.get(size - 2);
+            String tbl = parts.get(size - 1);
+            tablePattern = new TablePattern(db, tbl);
+        }
+
+        if (size == 3) {
+            String ctl = parts.get(size - 3);
+            String db = parts.get(size - 2);
+            String tbl = parts.get(size - 1);
+            tablePattern = new TablePattern(ctl, db, tbl);
+        }
+
+        Optional<UserIdentity> userIdentity = Optional.empty();
+        Optional<String> role = Optional.empty();
+
+        if (ctx.ROLE() != null) {
+            role = Optional.of(visitIdentifierOrText(ctx.identifierOrText()));
+        } else if (ctx.userIdentify() != null) {
+            userIdentity = Optional.of(visitUserIdentify(ctx.userIdentify()));
+        }
+
+        return new RevokeTablePrivilegeCommand(
+                accessPrivilegeWithCols,
+                tablePattern,
+                userIdentity,
+                role);
+    }
+
     public LogicalPlan visitDropAnalyzeJob(DorisParser.DropAnalyzeJobContext ctx) {
         long jobId = Long.parseLong(ctx.INTEGER_VALUE().getText());
         return new DropAnalyzeJobCommand(jobId);
@@ -7793,6 +7819,32 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
         boolean isAll = ctx.ALL() != null;
         return new ShowRoutineLoadCommand(labelNameInfo, pattern, isAll);
+    }
+
+    @Override
+    public LogicalPlan visitAdminShowReplicaStatus(DorisParser.AdminShowReplicaStatusContext ctx) {
+        Expression where = null;
+        if (ctx.WHERE() != null) {
+            StringLiteral left = new StringLiteral(stripQuotes(ctx.STATUS().toString()));
+            StringLiteral right = new StringLiteral(stripQuotes(ctx.STRING_LITERAL().getText()));
+            if (ctx.NEQ() != null) {
+                where = new Not(new EqualTo(left, right));
+            } else {
+                where = new EqualTo(left, right);
+            }
+        }
+        TableRefInfo tableRefInfo = visitBaseTableRefContext(ctx.baseTableRef());
+        return new ShowReplicaStatusCommand(tableRefInfo, where);
+    }
+
+    @Override
+    public LogicalPlan visitShowReplicaStatus(DorisParser.ShowReplicaStatusContext ctx) {
+        TableRefInfo tableRefInfo = visitBaseTableRefContext(ctx.baseTableRef());
+        Expression whereClause = null;
+        if (ctx.whereClause() != null) {
+            whereClause = getExpression(ctx.whereClause().booleanExpression());
+        }
+        return new ShowReplicaStatusCommand(tableRefInfo, whereClause);
     }
 
     @Override

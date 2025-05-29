@@ -127,7 +127,12 @@ public class GrantTablePrivilegeCommand extends Command implements ForwardWithSy
     }
 
     /**
-     * checkTablePrivileges
+     * Rules:
+     * 1. some privs in Privilege.notBelongToTablePrivileges can not granted/revoked on table
+     * 2. ADMIN_PRIV and NODE_PRIV can only be granted/revoked on GLOBAL level
+     * 3. Only the user with NODE_PRIV can grant NODE_PRIV to other user
+     * 4. Check that the current user has both grant_priv and the permissions to be assigned to others
+     * 5. col priv must assign to specific table
      */
     public static void checkTablePrivileges(Collection<Privilege> privileges, TablePattern tblPattern,
             Map<ColPrivilegeKey, Set<String>> colPrivileges) throws AnalysisException {

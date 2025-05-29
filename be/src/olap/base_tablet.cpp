@@ -17,6 +17,7 @@
 
 #include "olap/base_tablet.h"
 
+#include <bthread/mutex.h>
 #include <fmt/format.h>
 #include <rapidjson/prettywriter.h>
 
@@ -24,6 +25,8 @@
 #include <iterator>
 #include <random>
 
+#include "cloud/cloud_tablet.h"
+#include "cloud/config.h"
 #include "common/cast_set.h"
 #include "common/logging.h"
 #include "common/status.h"
@@ -1244,7 +1247,20 @@ Status BaseTablet::commit_phase_update_delete_bitmap(
 
     std::vector<RowsetSharedPtr> specified_rowsets;
     {
+        // to prevent seeing intermediate state of a tablet
+        std::unique_lock<bthread::Mutex> sync_lock;
+        if (config::is_cloud_mode()) {
+            sync_lock = std::unique_lock<bthread::Mutex>(
+                    std::static_pointer_cast<CloudTablet>(tablet)->get_sync_meta_lock());
+        }
         std::shared_lock meta_rlock(tablet->_meta_lock);
+        if (tablet->tablet_state() == TABLET_NOTREADY) {
+            // tablet is under alter process. The delete bitmap will be calculated after conversion.
+            LOG(INFO) << "tablet is under alter process, delete bitmap will be calculated later, "
+                         "tablet_id: "
+                      << tablet->tablet_id() << " txn_id: " << txn_id;
+            return Status::OK();
+        }
         cur_version = tablet->max_version_unlocked();
         RETURN_IF_ERROR(tablet->get_all_rs_id_unlocked(cur_version, &cur_rowset_ids));
         _rowset_ids_difference(cur_rowset_ids, pre_rowset_ids, &rowset_ids_to_add,
