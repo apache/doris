@@ -354,13 +354,6 @@ Status WorkloadGroupInfo::parse_topic_info(const TWorkloadGroupInfo& tworkload_g
     }
     workload_group_info->enable_memory_overcommit = enable_memory_overcommit;
 
-    // 8 cpu soft limit or hard limit
-    bool enable_cpu_hard_limit = false;
-    if (tworkload_group_info.__isset.enable_cpu_hard_limit) {
-        enable_cpu_hard_limit = tworkload_group_info.enable_cpu_hard_limit;
-    }
-    workload_group_info->enable_cpu_hard_limit = enable_cpu_hard_limit;
-
     // 9 scan thread num
     workload_group_info->scan_thread_num = config::doris_scanner_thread_pool_thread_num;
     if (tworkload_group_info.__isset.scan_thread_num && tworkload_group_info.scan_thread_num > 0) {
@@ -537,28 +530,13 @@ void WorkloadGroup::upsert_thread_pool_no_lock(WorkloadGroupInfo* wg_info,
 }
 
 void WorkloadGroup::upsert_cgroup_cpu_ctl_no_lock(WorkloadGroupInfo* wg_info) {
-    uint64_t wg_id = wg_info->id;
     int cpu_hard_limit = wg_info->cpu_hard_limit;
     uint64_t cpu_shares = wg_info->cpu_share;
-    bool enable_cpu_hard_limit = wg_info->enable_cpu_hard_limit;
     create_cgroup_cpu_ctl_no_lock();
 
     if (_cgroup_cpu_ctl) {
-        if (enable_cpu_hard_limit) {
-            if (cpu_hard_limit > 0) {
-                _cgroup_cpu_ctl->update_cpu_hard_limit(cpu_hard_limit);
-                _cgroup_cpu_ctl->update_cpu_soft_limit(
-                        CgroupCpuCtl::cpu_soft_limit_default_value());
-            } else {
-                LOG(INFO) << "[upsert wg thread pool] enable cpu hard limit but value is "
-                             "illegal: "
-                          << cpu_hard_limit << ", gid=" << wg_id;
-            }
-        } else {
-            _cgroup_cpu_ctl->update_cpu_soft_limit(cpu_shares);
-            _cgroup_cpu_ctl->update_cpu_hard_limit(
-                    CPU_HARD_LIMIT_DEFAULT_VALUE); // disable cpu hard limit
-        }
+        _cgroup_cpu_ctl->update_cpu_hard_limit(cpu_hard_limit);
+        _cgroup_cpu_ctl->update_cpu_soft_limit(cpu_shares);
         _cgroup_cpu_ctl->get_cgroup_cpu_info(&(wg_info->cgroup_cpu_shares),
                                              &(wg_info->cgroup_cpu_hard_limit));
     }

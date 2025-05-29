@@ -289,7 +289,6 @@ struct WorkloadGroupInfo {
     bool enable_memory_overcommit;
     int64_t version;
     int cpu_hard_limit;
-    bool enable_cpu_hard_limit;
     int scan_thread_num;
     int max_remote_scan_thread_num;
     int min_remote_scan_thread_num;
