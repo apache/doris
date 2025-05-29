@@ -34,6 +34,7 @@
 #include "vec/columns/columns_number.h"
 #include "vec/data_types/data_type.h"
 #include "vec/exec/format/parquet/parquet_common.h"
+#include "vec/exec/format/table/table_format_reader.h"
 #include "vparquet_column_chunk_reader.h"
 
 namespace cctz {
@@ -120,7 +121,7 @@ public:
                         io::IOContext* io_ctx)
             : _row_ranges(row_ranges), _ctz(ctz), _io_ctx(io_ctx) {}
     virtual ~ParquetColumnReader() = default;
-    virtual Status read_column_data(ColumnPtr& doris_column, DataTypePtr& type,
+    virtual Status read_column_data(ColumnPtr& doris_column, DataTypePtr& type, const std::shared_ptr<TableSchemaChange::node>& root_node,
                                     FilterMap& filter_map, size_t batch_size, size_t* read_rows,
                                     bool* eof, bool is_dict_filter) = 0;
 
@@ -175,7 +176,7 @@ public:
               _offset_index(offset_index) {}
     ~ScalarColumnReader() override { close(); }
     Status init(io::FileReaderSPtr file, FieldSchema* field, size_t max_buf_size);
-    Status read_column_data(ColumnPtr& doris_column, DataTypePtr& type, FilterMap& filter_map,
+    Status read_column_data(ColumnPtr& doris_column, DataTypePtr& type, const std::shared_ptr<TableSchemaChange::node>& root_node, FilterMap& filter_map,
                             size_t batch_size, size_t* read_rows, bool* eof,
                             bool is_dict_filter) override;
     Status read_dict_values_to_column(MutableColumnPtr& doris_column, bool* has_dict) override;
@@ -221,7 +222,7 @@ public:
             : ParquetColumnReader(row_ranges, ctz, io_ctx) {}
     ~ArrayColumnReader() override { close(); }
     Status init(std::unique_ptr<ParquetColumnReader> element_reader, FieldSchema* field);
-    Status read_column_data(ColumnPtr& doris_column, DataTypePtr& type, FilterMap& filter_map,
+    Status read_column_data(ColumnPtr& doris_column, DataTypePtr& type, const std::shared_ptr<TableSchemaChange::node>& root_node, FilterMap& filter_map,
                             size_t batch_size, size_t* read_rows, bool* eof,
                             bool is_dict_filter) override;
     const std::vector<level_t>& get_rep_level() const override {
@@ -249,7 +250,7 @@ public:
 
     Status init(std::unique_ptr<ParquetColumnReader> key_reader,
                 std::unique_ptr<ParquetColumnReader> value_reader, FieldSchema* field);
-    Status read_column_data(ColumnPtr& doris_column, DataTypePtr& type, FilterMap& filter_map,
+    Status read_column_data(ColumnPtr& doris_column, DataTypePtr& type, const std::shared_ptr<TableSchemaChange::node>& root_node, FilterMap& filter_map,
                             size_t batch_size, size_t* read_rows, bool* eof,
                             bool is_dict_filter) override;
 
@@ -290,7 +291,7 @@ public:
     Status init(
             std::unordered_map<std::string, std::unique_ptr<ParquetColumnReader>>&& child_readers,
             FieldSchema* field);
-    Status read_column_data(ColumnPtr& doris_column, DataTypePtr& type, FilterMap& filter_map,
+    Status read_column_data(ColumnPtr& doris_column, DataTypePtr& type, const std::shared_ptr<TableSchemaChange::node>& root_node, FilterMap& filter_map,
                             size_t batch_size, size_t* read_rows, bool* eof,
                             bool is_dict_filter) override;
 

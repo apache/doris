@@ -32,6 +32,8 @@
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_map.h"
 #include "vec/data_types/data_type_struct.h"
+#include "vec/exec/format/table/table_format_reader.h"
+
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
@@ -137,15 +139,75 @@ Status FieldDescriptor::parse_from_thrift(const std::vector<tparquet::SchemaElem
     auto& root_schema = t_schemas[0];
     _fields.resize(root_schema.num_children);
     _next_schema_pos = 1;
+
+
     for (int i = 0; i < root_schema.num_children; ++i) {
         RETURN_IF_ERROR(parse_node_field(t_schemas, _next_schema_pos, &_fields[i]));
         if (_name_to_field.find(_fields[i].name) != _name_to_field.end()) {
             return Status::InvalidArgument("Duplicated field name: {}", _fields[i].name);
         }
         _name_to_field.emplace(_fields[i].name, &_fields[i]);
-        if (_fields[i].field_id != -1) {
-            _field_id_name_mapping.emplace(_fields[i].field_id, _fields[i].name);
+
+
+
+        _optional_field_id = (_fields[i].field_id != -1) & _optional_field_id;
+    }
+
+//    std::function<void(const FieldSchema&)>
+//        check_parquet_id(const FieldSchema& field) {
+//        if (field.field_id == -1) {
+//
+//            return;
+//        }
+//
+//        field.
+//    }
+
+
+
+    std::function<void(const FieldSchema&, TSchemaInfoNode&)>
+        loop = [&](const  FieldSchema& field, TSchemaInfoNode& root)  {
+
+        if (field.type.type == TYPE_STRUCT) {
+            for (int32_t idx =0 ; idx < field.children.size(); idx++) {
+                const auto& sub_filed = field.children[idx];
+                TSchemaInfoNode sub_node;
+                sub_node.name = sub_filed.name;
+                loop(sub_filed, sub_node);
+
+                if (_optional_field_id && sub_filed.field_id == -1) {
+                    // 子列没有field id  这很奇怪。
+                    // ??????
+                }
+
+                root.children.emplace(_optional_field_id ? sub_filed.field_id : idx , sub_node);
+            }
+        } else if (field.type.type == TYPE_MAP) {
+            {
+                TSchemaInfoNode key_node;
+                key_node.name = "key";
+                loop(field.children[0].children[0],key_node);
+                root.children.emplace(0, key_node);
+            }
+            {
+                TSchemaInfoNode value_node;
+                value_node.name = "value";
+                loop(field.children[0].children[1], value_node);
+                root.children.emplace(1, value_node);
+            }
+        } else if (field.type.type == TYPE_ARRAY) {
+            TSchemaInfoNode element_node;
+            element_node.name = "element";
+            loop(field.children[0], element_node);
+            root.children.emplace(0, element_node);
         }
+    };
+
+    for (int32_t idx = 0; idx < root_schema.num_children; idx++) {
+        TSchemaInfoNode sub_node;
+        sub_node.name = _fields[idx].name;
+        loop(_fields[idx], sub_node);
+        _schema_info_root_node.children.emplace(_optional_field_id ? _fields[idx].field_id : idx, sub_node);
     }
 
     if (_next_schema_pos != t_schemas.size()) {
@@ -156,13 +218,13 @@ Status FieldDescriptor::parse_from_thrift(const std::vector<tparquet::SchemaElem
     return Status::OK();
 }
 
-const doris::Slice FieldDescriptor::get_column_name_from_field_id(int32_t id) const {
-    auto const it = _field_id_name_mapping.find(id);
-    if (it == _field_id_name_mapping.end()) {
-        return {};
-    }
-    return doris::Slice {it->second.data()};
-}
+//const doris::Slice FieldDescriptor::get_column_name_from_field_id(int32_t id) const {
+//    auto const it = _field_id_name_mapping.find(id);
+//    if (it == _field_id_name_mapping.end()) {
+//        return {};
+//    }
+//    return doris::Slice {it->second.data()};
+//}
 
 Status FieldDescriptor::parse_node_field(const std::vector<tparquet::SchemaElement>& t_schemas,
                                          size_t curr_pos, FieldSchema* node_field) {

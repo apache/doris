@@ -19,6 +19,7 @@ package org.apache.doris.datasource.hudi;
 
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.ArrayType;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.ScalarType;
@@ -32,6 +33,7 @@ import org.apache.doris.datasource.TablePartitionValues;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
 import org.apache.doris.datasource.hudi.source.HudiCachedPartitionProcessor;
+import org.apache.doris.thrift.TSchemaInfoNode;
 
 import org.apache.avro.LogicalType;
 import org.apache.avro.LogicalTypes;
@@ -55,7 +57,6 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -162,6 +163,30 @@ public class HudiUtils {
 
     private static String handleUnsupportedType(Schema schema) {
         throw new IllegalArgumentException(String.format("Unsupported logical type: %s", schema.getLogicalType()));
+    }
+
+    public static void updateHudiColumnUniqueId(Column column, Types.Field hudiInternalfield) {
+        column.setUniqueId(hudiInternalfield.fieldId());
+
+        List<Types.Field> hudiInternalfields = new ArrayList<>();
+        switch (hudiInternalfield.type().typeId()) {
+            case ARRAY:
+                hudiInternalfields = ((Types.ArrayType) hudiInternalfield.type()).fields();
+                break;
+            case MAP:
+                hudiInternalfields = ((Types.MapType) hudiInternalfield.type()).fields();
+                break;
+            case RECORD:
+                hudiInternalfields = ((Types.RecordType) hudiInternalfield.type()).fields();
+                break;
+            default:
+                return;
+        }
+
+        List<Column> childColumns = column.getChildren();
+        for (int idx = 0; idx < childColumns.size(); idx++) {
+            updateHudiColumnUniqueId(childColumns.get(idx), hudiInternalfields.get(idx));
+        }
     }
 
     public static Type fromAvroHudiTypeToDorisType(Schema avroSchema) {
@@ -300,13 +325,64 @@ public class HudiUtils {
                 .setConf(hadoopStorageConfiguration).setBasePath(hudiBasePath).build());
     }
 
-    public static Map<Integer, String> getSchemaInfo(InternalSchema internalSchema) {
-        Types.RecordType record = internalSchema.getRecord();
-        Map<Integer, String> schemaInfo = new HashMap<>(record.fields().size());
-        for (Types.Field field : record.fields()) {
-            schemaInfo.put(field.fieldId(), field.name().toLowerCase());
+    public static TSchemaInfoNode getSchemaInfo(InternalSchema internalSchema)  {
+        TSchemaInfoNode root = new TSchemaInfoNode();
+        root.name = "";
+        root.children = new HashMap<>();
+
+        for (Types.Field field : internalSchema.getRecord().fields()) {
+            TSchemaInfoNode childNode = new TSchemaInfoNode();
+            childNode.name = field.name();
+            childNode.children = new HashMap<>();
+            getSchemaInfo(field, childNode);
+            root.children.put(field.fieldId(), childNode);
         }
-        return schemaInfo;
+        return root;
+    }
+
+    public static void getSchemaInfo(Types.Field hudiInternalfield, TSchemaInfoNode root)  {
+
+        switch (hudiInternalfield.type().typeId()) {
+            case ARRAY: {
+                List<Types.Field> hudiInternalfields = ((Types.ArrayType) hudiInternalfield.type()).fields();
+                TSchemaInfoNode childNode = new TSchemaInfoNode();
+                childNode.name = "element";
+                childNode.children = new HashMap<>();
+                getSchemaInfo(hudiInternalfields.get(0), childNode);
+                root.children.put(0, childNode);
+                break;
+            }
+            case MAP: {
+                List<Types.Field> hudiInternalfields = ((Types.MapType) hudiInternalfield.type()).fields();
+                TSchemaInfoNode keyNode = new TSchemaInfoNode();
+                keyNode.name = "key";
+                keyNode.children = new HashMap<>();
+                getSchemaInfo(hudiInternalfields.get(0), keyNode);
+                root.children.put(0, keyNode);
+
+                TSchemaInfoNode valueNode = new TSchemaInfoNode();
+                valueNode.name = "value";
+                valueNode.children = new HashMap<>();
+                getSchemaInfo(hudiInternalfields.get(1), valueNode);
+                root.children.put(1, valueNode);
+                break;
+            }
+            case RECORD: {
+                List<Types.Field> hudiInternalfields = ((Types.RecordType) hudiInternalfield.type()).fields();
+                for (Types.Field field : hudiInternalfields) {
+                    TSchemaInfoNode childNode = new TSchemaInfoNode();
+                    childNode.name = field.name();
+                    childNode.children = new HashMap<>();
+                    getSchemaInfo(field, childNode);
+
+                    root.children.put(field.fieldId(), childNode);
+                }
+                break;
+            }
+            default:
+                return;
+        }
+
     }
 
     public static HudiSchemaCacheValue getSchemaCacheValue(HMSExternalTable hmsTable, String queryInstant) {

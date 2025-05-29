@@ -149,6 +149,9 @@ public class IcebergScanNode extends FileQueryScanNode {
         formatVersion = ((BaseTable) icebergTable).operations().current().formatVersion();
         preExecutionAuthenticator = source.getCatalog().getPreExecutionAuthenticator();
         super.doInitialize();
+        params.setHistorySchemaInfo(new ConcurrentHashMap<>());
+        params.history_schema_info.put(-1L,
+                Column.getSchemaInfo(source.getTargetTable().getColumns()));
     }
 
     @Override

@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.paimon.source;
 
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
@@ -28,6 +29,7 @@ import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.FileSplitter;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
+import org.apache.doris.datasource.paimon.PaimonUtil;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
@@ -38,6 +40,7 @@ import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TPaimonDeletionFileDesc;
 import org.apache.doris.thrift.TPaimonFileDesc;
 import org.apache.doris.thrift.TPushAggOp;
+import org.apache.doris.thrift.TSchemaInfoNode;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -53,7 +56,6 @@ import org.apache.paimon.table.source.DataSplit;
 import org.apache.paimon.table.source.DeletionFile;
 import org.apache.paimon.table.source.RawFile;
 import org.apache.paimon.table.source.ReadBuilder;
-import org.apache.paimon.types.DataField;
 import org.apache.paimon.utils.InstantiationUtil;
 
 import java.io.IOException;
@@ -126,6 +128,8 @@ public class PaimonScanNode extends FileQueryScanNode {
         serializedTable = encodeObjectToString(source.getPaimonTable());
         Preconditions.checkNotNull(source);
         params.setHistorySchemaInfo(new ConcurrentHashMap<>());
+        params.history_schema_info.put(-1L,
+                Column.getSchemaInfo(source.getTargetTable().getColumns()));
     }
 
     @VisibleForTesting
@@ -163,15 +167,14 @@ public class PaimonScanNode extends FileQueryScanNode {
         return Optional.of(serializedTable);
     }
 
-    private Map<Integer, String> getSchemaInfo(Long schemaId) {
+    private TSchemaInfoNode getSchemaInfo(Long schemaId) {
         PaimonExternalTable table = (PaimonExternalTable) source.getTargetTable();
         TableSchema tableSchema = table.getPaimonSchemaCacheValue(schemaId).getTableSchema();
-        Map<Integer, String> columnIdToName = new HashMap<>(tableSchema.fields().size());
-        for (DataField dataField : tableSchema.fields()) {
-            columnIdToName.put(dataField.id(), dataField.name().toLowerCase());
-        }
-
-        return columnIdToName;
+        TSchemaInfoNode root = new TSchemaInfoNode();
+        root.name = "";
+        root.children = new HashMap<>();
+        PaimonUtil.getSchemaInfo(tableSchema.fields(), root);
+        return root;
     }
 
     private void setPaimonParams(TFileRangeDesc rangeDesc, PaimonSplit paimonSplit) {

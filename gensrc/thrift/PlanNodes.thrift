@@ -402,6 +402,11 @@ enum TTextSerdeType {
     HIVE_TEXT_SERDE = 1,
 }
 
+struct TSchemaInfoNode {
+    1: optional string name;
+    2: optional map<i32, TSchemaInfoNode> children;
+}
+
 struct TFileScanRangeParams {
     // deprecated, move to TFileScanRange
     1: optional Types.TFileType file_type;
@@ -453,7 +458,8 @@ struct TFileScanRangeParams {
     //    1. Reduce the access to HMS and HDFS on the JNI side.
     //    2. There will be no inconsistency between the fe and be tables.
     24: optional string serialized_table
-    25: optional map<i64, map<i32, string>> history_schema_info // paimon/hudi map<schema id, map<column unique id , column name>> : for schema change. (native reader)
+    // paimon/hudi/iceberg map<schema id, map<column unique id , column name>> : for schema change. (native reader)
+    25: optional map<i64, TSchemaInfoNode> history_schema_info 
 }
 
 struct TFileRangeDesc {

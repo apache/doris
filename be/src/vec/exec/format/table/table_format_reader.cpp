@@ -23,110 +23,44 @@
 #include "common/status.h"
 #include "vec/core/block.h"
 #include "vec/exec/format/generic_reader.h"
+#include "vec/data_types/data_type_struct.h"
+#include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_map.h"
+#include <string>
+#include "util/string_util.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
+namespace TableSchemaChange {
+    void func(const TSchemaInfoNode &table_id_to_info, const TSchemaInfoNode &file_id_to_info,  std::shared_ptr<tableNode> &root) {
+        for (auto &[field_id, info]: table_id_to_info.children) {
 
+            std::shared_ptr<tableNode> table_node = std::make_shared<tableNode>();
+            if (file_id_to_info.children.contains(field_id)) {
+                table_node->file_name = file_id_to_info.children.at(field_id).name;
+                table_node->exists_in_file = true;
+                func(info, file_id_to_info.children.at(field_id), table_node);
+            } else {
+                table_node->exists_in_file = false;
+            }
+            root->children.emplace(info.name, table_node);
+        }
+    }
+}
 Status TableSchemaChangeHelper::init_schema_info(
-        const std::vector<std::string>& read_table_col_names,
-        const std::unordered_map<int32_t, std::string>& table_id_to_name,
-        const std::unordered_map<std::string, ColumnValueRangeType>*
-                table_col_name_to_value_range) {
+        const TSchemaInfoNode& table_id_to_name) {
     bool exist_schema = true;
-    std::map<int32_t, std::string> file_id_to_name;
+    TSchemaInfoNode file_id_to_name;
     RETURN_IF_ERROR(get_file_col_id_to_name(exist_schema, file_id_to_name));
     if (!exist_schema) {
-        file_id_to_name.clear();
-        for (const auto& [table_col_id, table_col_name] : table_id_to_name) {
-            file_id_to_name.emplace(table_col_id, table_col_name);
-        }
+        // todo
     }
 
-    /** This is to compare the table schema from FE (table_id_to_name) with
-    * the current file schema (file_id_to_name) , generate two maps for future use:
-    * 1. table column name to file column name.
-    * 2. file column name to table column name.
-    * For example, file has a column 'col1',
-    * after this file was written, iceberg changed the column name to 'col1_new'.
-    * The two maps would contain:
-    * 1. col1_new -> col1
-     * 2. col1 -> col1_new
-    */
-    for (const auto& [file_col_id, file_col_name] : file_id_to_name) {
-        if (table_id_to_name.find(file_col_id) == table_id_to_name.end()) {
-            continue;
-        }
+    std::cout  <<"TableSchemaChangeHelper\n";
 
-        auto& table_col_name = table_id_to_name.at(file_col_id);
-        _table_col_to_file_col.emplace(table_col_name, file_col_name);
-        _file_col_to_table_col.emplace(file_col_name, table_col_name);
-        if (table_col_name != file_col_name) {
-            _has_schema_change = true;
-        }
-    }
+    table_info_node_ptr = std::make_shared<TableSchemaChange::tableNode>();
+    TableSchemaChange::func(table_id_to_name, file_id_to_name , table_info_node_ptr);
 
-    /** Generate _all_required_col_names and _not_in_file_col_names.
-     *
-     * _all_required_col_names is all the columns required by user sql.
-     * If the column name has been modified after the data file was written,
-     * put the old name in data file to _all_required_col_names.
-     *
-     * _not_in_file_col_names is all the columns required by user sql but not in the data file.
-     * e.g. New columns added after this data file was written.
-     * The columns added with names used by old dropped columns should consider as a missing column,
-     * which should be in _not_in_file_col_names.
-     */
-    _all_required_col_names.clear();
-    _not_in_file_col_names.clear();
-    for (auto table_col_name : read_table_col_names) {
-        auto iter = _table_col_to_file_col.find(table_col_name);
-        if (iter == _table_col_to_file_col.end()) {
-            _all_required_col_names.emplace_back(table_col_name);
-            _not_in_file_col_names.emplace_back(table_col_name);
-        } else {
-            _all_required_col_names.emplace_back(iter->second);
-        }
-    }
-
-    /** Generate _new_colname_to_value_range, by replacing the column name in
-    * _colname_to_value_range with column name in data file.
-    */
-    for (auto& it : *table_col_name_to_value_range) {
-        auto iter = _table_col_to_file_col.find(it.first);
-        if (iter == _table_col_to_file_col.end()) {
-            _new_colname_to_value_range.emplace(it.first, it.second);
-        } else {
-            _new_colname_to_value_range.emplace(iter->second, it.second);
-        }
-    }
-    return Status::OK();
-}
-
-Status TableSchemaChangeHelper::get_next_block_before(Block* block) const {
-    if (_has_schema_change) {
-        for (int i = 0; i < block->columns(); i++) {
-            ColumnWithTypeAndName& col = block->get_by_position(i);
-            auto iter = _table_col_to_file_col.find(col.name);
-            if (iter != _table_col_to_file_col.end()) {
-                col.name = iter->second;
-            }
-        }
-        block->initialize_index_by_name();
-    }
-    return Status::OK();
-}
-
-Status TableSchemaChangeHelper::get_next_block_after(Block* block) const {
-    if (_has_schema_change) {
-        for (int i = 0; i < block->columns(); i++) {
-            ColumnWithTypeAndName& col = block->get_by_position(i);
-            auto iter = _file_col_to_table_col.find(col.name);
-            if (iter != _file_col_to_table_col.end()) {
-                col.name = iter->second;
-            }
-        }
-        block->initialize_index_by_name();
-    }
     return Status::OK();
 }
 #include "common/compile_check_end.h"
