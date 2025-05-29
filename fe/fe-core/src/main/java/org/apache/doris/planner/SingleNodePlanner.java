@@ -290,9 +290,6 @@ public class SingleNodePlanner {
             Preconditions.checkState(stmt instanceof SetOperationStmt);
             root = createSetOperationPlan((SetOperationStmt) stmt, analyzer, newDefaultOrderByLimit, sqlSelectLimit);
         }
-        if (ConnectContext.get().getExecutor() != null) {
-            ConnectContext.get().getExecutor().getSummaryProfile().setQueryJoinReorderFinishTime();
-        }
 
         // Avoid adding a sort node if the sort tuple has no materialized slots.
         boolean sortHasMaterializedSlots = false;

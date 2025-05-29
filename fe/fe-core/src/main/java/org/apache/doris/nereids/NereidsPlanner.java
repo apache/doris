@@ -381,7 +381,6 @@ public class NereidsPlanner extends Planner {
         }
 
         if (statementContext.getConnectContext().getExecutor() != null) {
-            statementContext.getConnectContext().getExecutor().getSummaryProfile().setQueryAnalysisFinishTime();
             statementContext.getConnectContext().getExecutor().getSummaryProfile().setNereidsAnalysisTime();
         }
     }
@@ -544,7 +543,7 @@ public class NereidsPlanner extends Planner {
 
         distributedPlans = new DistributePlanner(fragments).plan();
         if (statementContext.getConnectContext().getExecutor() != null) {
-            statementContext.getConnectContext().getExecutor().getSummaryProfile().setNereidsDistributeTime();
+            statementContext.getConnectContext().getExecutor().getSummaryProfile().setDistributeTime();
         }
     }
 
@@ -732,7 +731,7 @@ public class NereidsPlanner extends Planner {
 
                 if (distributedPlans != null && !distributedPlans.isEmpty()) {
                     plan += "========== DISTRIBUTED PLAN "
-                            + getTimeMetricString(SummaryProfile::getPrettyNereidsDistributeTime) + " ==========\n";
+                            + getTimeMetricString(SummaryProfile::getPrettyDistributeTime) + " ==========\n";
                     plan += DistributedPlan.toString(Lists.newArrayList(distributedPlans.values())) + "\n\n";
                 }
                 plan += mvSummary;
