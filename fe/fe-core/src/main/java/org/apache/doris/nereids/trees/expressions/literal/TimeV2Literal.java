@@ -31,9 +31,8 @@ import java.time.LocalDateTime;
 public class TimeV2Literal extends Literal {
     private static final LocalDateTime START_OF_A_DAY = LocalDateTime.of(0, 1, 1, 0, 0, 0);
     private static final LocalDateTime END_OF_A_DAY = LocalDateTime.of(9999, 12, 31, 23, 59, 59, 999999000);
-    // part min max store every part of time's min max value
-    private static final TimeV2Literal MIN_VALUE = new TimeV2Literal(-838, 59, 59, 999999, 6);
-    private static final TimeV2Literal MAX_VALUE = new TimeV2Literal(838, 59, 59, 999999, 6);
+    private static final TimeV2Literal MIN_VALUE = new TimeV2Literal(838, 59, 59, 999999, 6, true);
+    private static final TimeV2Literal MAX_VALUE = new TimeV2Literal(838, 59, 59, 999999, 6, false);
 
     protected int hour;
     protected int minute;
@@ -55,8 +54,8 @@ public class TimeV2Literal extends Literal {
             throw new AnalysisException("The value " + value + " is out of range, expect value range is ["
                     + (double) MIN_VALUE.getValue() + ", " + (double) MAX_VALUE.getValue() + "]");
         }
-        this.negative = 1.0 / value < 0;
-        int v = (int) Math.abs(value);
+        this.negative = value < 0;
+        long v = (long) Math.abs(value);
         this.microsecond = (int) (v % 1000000);
         v /= 1000000;
         this.second = (int) (v % 60);
@@ -69,13 +68,15 @@ public class TimeV2Literal extends Literal {
     /**
      * C'tor for time type.
      */
-    public TimeV2Literal(int hour, int minute, int second, int microsecond, int scale) throws AnalysisException {
+    // for -00:... so we need explicite negative
+    public TimeV2Literal(int hour, int minute, int second, int microsecond, int scale, boolean negative)
+            throws AnalysisException {
         super(TimeV2Type.of(scale));
-        this.hour = Math.abs(hour);
+        this.hour = hour;
         this.minute = minute;
         this.second = second;
         this.microsecond = (int) (microsecond / Math.pow(10, 6 - scale)) * (int) Math.pow(10, 6 - scale);
-        this.negative = hour < 0;
+        this.negative = negative;
         if (checkRange(this.hour, this.minute, this.second, this.microsecond) || scale > 6 || scale < 0) {
             throw new AnalysisException("time literal is out of range [-838:59:59.999999, 838:59:59.999999]");
         }
@@ -201,7 +202,7 @@ public class TimeV2Literal extends Literal {
     @Override
     public LiteralExpr toLegacyLiteral() {
         int scale = ((TimeV2Type) dataType).getScale();
-        return new org.apache.doris.analysis.TimeV2Literal(hour, minute, second, microsecond, scale);
+        return new org.apache.doris.analysis.TimeV2Literal(hour, minute, second, microsecond, scale, negative);
     }
 
     @Override
@@ -233,7 +234,7 @@ public class TimeV2Literal extends Literal {
         if (isDateOutOfRange(dateTime)) {
             throw new AnalysisException("datetime out of range: " + dateTime.toString());
         }
-        return new TimeV2Literal(dateTime.getHour(), dateTime.getMinute(), dateTime.getSecond(), 0, 0);
+        return new TimeV2Literal(dateTime.getHour(), dateTime.getMinute(), dateTime.getSecond(), 0, 0, false);
     }
 
     public LocalDateTime toJavaDateType() {

@@ -25,8 +25,8 @@ import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TTimeV2Literal;
 
 public class TimeV2Literal extends LiteralExpr {
-    public static final TimeV2Literal MIN_VALUE = new TimeV2Literal(-838, 59, 59, 999999, 6);
-    public static final TimeV2Literal MAX_VALUE = new TimeV2Literal(838, 59, 59, 999999, 6);
+    public static final TimeV2Literal MIN_VALUE = new TimeV2Literal(838, 59, 59, 999999, 6, true);
+    public static final TimeV2Literal MAX_VALUE = new TimeV2Literal(838, 59, 59, 999999, 6, false);
 
     protected int hour;
     protected int minute;
@@ -47,14 +47,16 @@ public class TimeV2Literal extends LiteralExpr {
         this.negative = false;
     }
 
-    public TimeV2Literal(int hour, int minute, int second, int microsecond, int scale) throws AnalysisException {
+    // for -00:... so we need explicite negative
+    public TimeV2Literal(int hour, int minute, int second, int microsecond, int scale, boolean negative)
+            throws AnalysisException {
         super();
         this.type = ScalarType.createTimeV2Type(scale);
-        this.hour = Math.abs(hour);
+        this.hour = hour;
         this.minute = minute;
         this.second = second;
         this.microsecond = microsecond / (int) Math.pow(10, 6 - scale) * (int) Math.pow(10, 6 - scale);
-        this.negative = hour < 0;
+        this.negative = negative;
         if (checkRange(this.hour, this.minute, this.second, this.microsecond) || scale > 6 || scale < 0) {
             throw new AnalysisException("time literal is out of range [-838:59:59.999999, 838:59:59.999999]");
         }
