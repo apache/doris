@@ -366,6 +366,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                     // behind the INFER_PREDICATES
                                     topDown(new ProjectOtherJoinConditionForNestedLoopJoin())
                             ),
+                            // this rule should invoke after ColumnPruning
+                            custom(RuleType.ELIMINATE_UNNECESSARY_PROJECT, EliminateUnnecessaryProject::new),
                             // Add necessary rules from mv pre rewrite
                             topic("Push project and filter on cte consumer to cte producer",
                                     topDown(

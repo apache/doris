@@ -61,7 +61,7 @@ class StructInfoMapTest extends SqlTestBase {
         Group root = c1.getMemo().getRoot();
         Set<BitSet> tableMaps = root.getstructInfoMap().getTableMaps();
         Assertions.assertTrue(tableMaps.isEmpty());
-        root.getstructInfoMap().refresh(root, c1, new HashSet<>(),
+        root.getstructInfoMap().refresh(root, c1, new BitSet(), new HashSet<>(),
                 connectContext.getSessionVariable().enableMaterializedViewNestRewrite);
         Assertions.assertEquals(1, tableMaps.size());
         new MockUp<MTMVRelationManager>() {
@@ -94,7 +94,7 @@ class StructInfoMapTest extends SqlTestBase {
                 .optimize()
                 .printlnBestPlanTree();
         root = c1.getMemo().getRoot();
-        root.getstructInfoMap().refresh(root, c1, new HashSet<>(),
+        root.getstructInfoMap().refresh(root, c1, new BitSet(), new HashSet<>(),
                 connectContext.getSessionVariable().enableMaterializedViewNestRewrite);
         tableMaps = root.getstructInfoMap().getTableMaps();
         Assertions.assertEquals(2, tableMaps.size());
@@ -124,9 +124,9 @@ class StructInfoMapTest extends SqlTestBase {
         Group root = c1.getMemo().getRoot();
         Set<BitSet> tableMaps = root.getstructInfoMap().getTableMaps();
         Assertions.assertTrue(tableMaps.isEmpty());
-        root.getstructInfoMap().refresh(root, c1, new HashSet<>(),
+        root.getstructInfoMap().refresh(root, c1, new BitSet(), new HashSet<>(),
                 connectContext.getSessionVariable().enableMaterializedViewNestRewrite);
-        root.getstructInfoMap().refresh(root, c1, new HashSet<>(),
+        root.getstructInfoMap().refresh(root, c1, new BitSet(), new HashSet<>(),
                 connectContext.getSessionVariable().enableMaterializedViewNestRewrite);
         Assertions.assertEquals(1, tableMaps.size());
         new MockUp<MTMVRelationManager>() {
@@ -158,7 +158,7 @@ class StructInfoMapTest extends SqlTestBase {
                 .optimize()
                 .printlnBestPlanTree();
         root = c1.getMemo().getRoot();
-        root.getstructInfoMap().refresh(root, c1, new HashSet<>(),
+        root.getstructInfoMap().refresh(root, c1, new BitSet(), new HashSet<>(),
                 connectContext.getSessionVariable().enableMaterializedViewNestRewrite);
         tableMaps = root.getstructInfoMap().getTableMaps();
         Assertions.assertEquals(2, tableMaps.size());
@@ -209,7 +209,7 @@ class StructInfoMapTest extends SqlTestBase {
                 .preMvRewrite()
                 .optimize();
         Group root = c1.getMemo().getRoot();
-        root.getstructInfoMap().refresh(root, c1, new HashSet<>(),
+        root.getstructInfoMap().refresh(root, c1, new BitSet(), new HashSet<>(),
                 connectContext.getSessionVariable().enableMaterializedViewNestRewrite);
         StructInfoMap structInfoMap = root.getstructInfoMap();
         Assertions.assertEquals(2, structInfoMap.getTableMaps().size());
