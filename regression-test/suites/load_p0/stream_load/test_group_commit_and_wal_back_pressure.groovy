@@ -18,7 +18,7 @@
 import org.awaitility.Awaitility
 import static java.util.concurrent.TimeUnit.SECONDS
 
-suite("test_group_commit_and_wal_back_pressure") {
+suite("test_group_commit_and_wal_back_pressure", "p2") {
 
     def getRowCount = { table, expectedRowCount ->
         Awaitility.await().atMost(120, SECONDS).pollInterval(2, SECONDS).until(
