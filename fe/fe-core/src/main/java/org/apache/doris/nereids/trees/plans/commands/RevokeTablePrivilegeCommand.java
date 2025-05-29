@@ -17,16 +17,14 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.analysis.ResourcePattern;
+import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.analysis.WorkloadGroupPattern;
 import org.apache.doris.catalog.AccessPrivilegeWithCols;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.mysql.privilege.ColPrivilegeKey;
-import org.apache.doris.mysql.privilege.PrivBitSet;
 import org.apache.doris.mysql.privilege.Privilege;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -44,13 +42,11 @@ import java.util.Optional;
 import java.util.Set;
 
 /**
- * revoke privilege from some user, this is an administrator operation.
- * REVOKE privilege [, privilege] ON resource 'resource' FROM user_identity [ROLE 'role'];
+ * REVOKE privilege[(col1,col2...)] [, privilege] ON db.tbl FROM user_identity [ROLE 'role'];
  */
-public class RevokeResourcePrivilegeCommand extends Command implements ForwardWithSync {
+public class RevokeTablePrivilegeCommand extends Command implements ForwardWithSync {
     private final Optional<UserIdentity> userIdentity;
-    private final Optional<ResourcePattern> resourcePattern;
-    private final Optional<WorkloadGroupPattern> workloadGroupPattern;
+    private final TablePattern tablePattern;
     private final Optional<String> role;
     // AccessPrivileges will be parsed into two parts,
     // with the column permissions section placed in "colPrivileges" and the others in "privileges"
@@ -60,24 +56,19 @@ public class RevokeResourcePrivilegeCommand extends Command implements ForwardWi
     // Privilege,ctl,db,table -> cols
     private Map<ColPrivilegeKey, Set<String>> colPrivileges = Maps.newHashMap();
 
-    /**
-     * RevokeResourcePrivilegeCommand
-     */
-    public RevokeResourcePrivilegeCommand(List<AccessPrivilegeWithCols> accessPrivileges,
-            Optional<ResourcePattern> resourcePattern, Optional<WorkloadGroupPattern> workloadGroupPattern,
-            Optional<String> role, Optional<UserIdentity> userIdentity) {
-        super(PlanType.REVOKE_RESOURCE_PRIVILEGE_COMMAND);
+    public RevokeTablePrivilegeCommand(List<AccessPrivilegeWithCols> accessPrivileges, TablePattern tablePattern,
+            Optional<UserIdentity> userIdentity, Optional<String> role) {
+        super(PlanType.REVOKE_TABLE_PRIVILEGE_COMMAND);
         this.accessPrivileges = accessPrivileges;
-        this.resourcePattern = resourcePattern;
-        this.workloadGroupPattern = workloadGroupPattern;
-        this.role = role;
+        this.tablePattern = tablePattern;
         this.userIdentity = userIdentity;
+        this.role = role;
     }
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         validate();
-        Env.getCurrentEnv().getAuth().revokeResourcePrivilegeCommand(this);
+        Env.getCurrentEnv().getAuth().revokeTablePrivilegeCommand(this);
     }
 
     /**
@@ -88,23 +79,19 @@ public class RevokeResourcePrivilegeCommand extends Command implements ForwardWi
             throw new AnalysisException("Revoke is prohibited when Ranger is enabled.");
         }
 
+        tablePattern.analyze();
+
         if (userIdentity.isPresent()) {
             userIdentity.get().analyze();
         } else {
             FeNameFormat.checkRoleName(role.get(), false /* can not be superuser */, "Can not revoke from role");
         }
 
-        if (resourcePattern.isPresent()) {
-            resourcePattern.get().analyze();
-        } else if (workloadGroupPattern.isPresent()) {
-            workloadGroupPattern.get().analyze();
-        }
-
         if (!CollectionUtils.isEmpty(accessPrivileges)) {
-            GrantResourcePrivilegeCommand.checkAccessPrivileges(accessPrivileges);
+            GrantTablePrivilegeCommand.checkAccessPrivileges(accessPrivileges);
 
             for (AccessPrivilegeWithCols accessPrivilegeWithCols : accessPrivileges) {
-                accessPrivilegeWithCols.transferAccessPrivilegeToDoris(privileges, colPrivileges, null);
+                accessPrivilegeWithCols.transferAccessPrivilegeToDoris(privileges, colPrivileges, tablePattern);
             }
         }
 
@@ -112,29 +99,23 @@ public class RevokeResourcePrivilegeCommand extends Command implements ForwardWi
             throw new AnalysisException("No privileges or roles in revoke statement.");
         }
 
-        if (resourcePattern.isPresent()) {
-            PrivBitSet.convertResourcePrivToCloudPriv(resourcePattern.get(), privileges);
-            GrantResourcePrivilegeCommand.checkResourcePrivileges(privileges, resourcePattern.get());
-        } else if (workloadGroupPattern.isPresent()) {
-            GrantResourcePrivilegeCommand.checkWorkloadGroupPrivileges(privileges, workloadGroupPattern.get());
+        // Revoke operation obey the same rule as Grant operation. reuse the same method
+        if (tablePattern != null) {
+            GrantTablePrivilegeCommand.checkTablePrivileges(privileges, tablePattern, colPrivileges);
         }
     }
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return visitor.visitRevokeResourcePrivilegeCommand(this, context);
+        return visitor.visitRevokeTablePrivilegeCommand(this, context);
     }
 
     public Optional<UserIdentity> getUserIdentity() {
         return userIdentity;
     }
 
-    public Optional<ResourcePattern> getResourcePattern() {
-        return resourcePattern;
-    }
-
-    public Optional<WorkloadGroupPattern> getWorkloadGroupPattern() {
-        return workloadGroupPattern;
+    public TablePattern getTablePattern() {
+        return tablePattern;
     }
 
     public Optional<String> getRole() {

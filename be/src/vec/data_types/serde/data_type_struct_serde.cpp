@@ -24,6 +24,7 @@
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_struct.h"
 #include "vec/common/string_ref.h"
+#include "vec/data_types/serde/data_type_serde.h"
 
 namespace doris {
 
@@ -321,36 +322,39 @@ void DataTypeStructSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbV
     column.deserialize_and_insert_from_arena(blob->getBlob());
 }
 
-void DataTypeStructSerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                                                arrow::ArrayBuilder* array_builder, int64_t start,
-                                                int64_t end, const cctz::time_zone& ctz) const {
+Status DataTypeStructSerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
+                                                  arrow::ArrayBuilder* array_builder, int64_t start,
+                                                  int64_t end, const cctz::time_zone& ctz) const {
     auto& builder = assert_cast<arrow::StructBuilder&>(*array_builder);
     const auto& struct_column = assert_cast<const ColumnStruct&>(column);
     for (auto r = start; r < end; ++r) {
         if (null_map != nullptr && (*null_map)[r]) {
-            checkArrowStatus(builder.AppendNull(), struct_column.get_name(),
-                             builder.type()->name());
+            RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), struct_column.get_name(),
+                                             builder.type()->name()));
             continue;
         }
-        checkArrowStatus(builder.Append(), struct_column.get_name(), builder.type()->name());
+        RETURN_IF_ERROR(checkArrowStatus(builder.Append(), struct_column.get_name(),
+                                         builder.type()->name()));
         for (auto ei = 0; ei < struct_column.tuple_size(); ++ei) {
             auto* elem_builder = builder.field_builder(ei);
-            elem_serdes_ptrs[ei]->write_column_to_arrow(struct_column.get_column(ei), nullptr,
-                                                        elem_builder, r, r + 1, ctz);
+            RETURN_IF_ERROR(elem_serdes_ptrs[ei]->write_column_to_arrow(
+                    struct_column.get_column(ei), nullptr, elem_builder, r, r + 1, ctz));
         }
     }
+    return Status::OK();
 }
 
-void DataTypeStructSerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
-                                                 int64_t start, int64_t end,
-                                                 const cctz::time_zone& ctz) const {
+Status DataTypeStructSerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
+                                                   int64_t start, int64_t end,
+                                                   const cctz::time_zone& ctz) const {
     auto& struct_column = static_cast<ColumnStruct&>(column);
     const auto* concrete_struct = dynamic_cast<const arrow::StructArray*>(arrow_array);
     DCHECK_EQ(struct_column.tuple_size(), concrete_struct->num_fields());
     for (auto i = 0; i < struct_column.tuple_size(); ++i) {
-        elem_serdes_ptrs[i]->read_column_from_arrow(
-                struct_column.get_column(i), concrete_struct->field(i).get(), start, end, ctz);
+        RETURN_IF_ERROR(elem_serdes_ptrs[i]->read_column_from_arrow(
+                struct_column.get_column(i), concrete_struct->field(i).get(), start, end, ctz));
     }
+    return Status::OK();
 }
 
 template <bool is_binary_format>

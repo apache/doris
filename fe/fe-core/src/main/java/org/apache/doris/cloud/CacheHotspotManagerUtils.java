@@ -240,8 +240,8 @@ public class CacheHotspotManagerUtils {
         TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
         connectContext.setQueryId(queryId);
         connectContext.setStartTime();
-        connectContext.setCurrentUserIdentity(UserIdentity.ROOT);
-        connectContext.setQualifiedUser(UserIdentity.ROOT.getQualifiedUser());
+        connectContext.setCurrentUserIdentity(UserIdentity.ADMIN);
+        connectContext.setQualifiedUser(UserIdentity.ADMIN.getQualifiedUser());
         connectContext.setUserInsertTimeout(getCacheHotSpotInsertTimeoutInSecTimeout());
         return new AutoCloseConnectContext(connectContext);
     }

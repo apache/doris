@@ -869,7 +869,9 @@ public class StmtExecutor {
         }
         List<StatementBase> statements;
         try {
+            getProfile().getSummaryProfile().setParseSqlStartTime(System.currentTimeMillis());
             statements = new NereidsParser().parseSQL(originStmt.originStmt, context.getSessionVariable());
+            getProfile().getSummaryProfile().setParseSqlFinishTime(System.currentTimeMillis());
         } catch (Exception e) {
             throw new ParseException("Nereids parse failed. " + e.getMessage());
         }
@@ -1604,7 +1606,6 @@ public class StmtExecutor {
                 }
             }
         }
-        profile.getSummaryProfile().setQueryAnalysisFinishTime();
         profile.getSummaryProfile().setQueryPlanFinishTime();
     }
 
