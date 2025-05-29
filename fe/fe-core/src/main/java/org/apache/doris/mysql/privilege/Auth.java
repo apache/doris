@@ -67,6 +67,7 @@ import org.apache.doris.nereids.trees.plans.commands.GrantRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.GrantTablePrivilegeCommand;
 import org.apache.doris.nereids.trees.plans.commands.RevokeResourcePrivilegeCommand;
 import org.apache.doris.nereids.trees.plans.commands.RevokeRoleCommand;
+import org.apache.doris.nereids.trees.plans.commands.RevokeTablePrivilegeCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterUserInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateUserInfo;
 import org.apache.doris.persist.AlterUserOperationLog;
@@ -910,6 +911,16 @@ public class Auth implements Writable {
             PrivBitSet privs = PrivBitSet.of(command.getPrivileges());
             revokeInternal(command.getUserIdentity().orElse(null), command.getRole().orElse(null),
                     command.getWorkloadGroupPattern().orElse(null), privs,
+                    true /* err on non exist */, false /* is replay */);
+        }
+    }
+
+    // revoke table
+    public void revokeTablePrivilegeCommand(RevokeTablePrivilegeCommand command) throws DdlException {
+        if (command.getTablePattern() != null) {
+            PrivBitSet privs = PrivBitSet.of(command.getPrivileges());
+            revokeInternal(command.getUserIdentity().orElse(null), command.getRole().orElse(null),
+                    command.getTablePattern(), privs, command.getColPrivileges(),
                     true /* err on non exist */, false /* is replay */);
         }
     }

@@ -78,7 +78,6 @@ unsupportedStatement
     | unsupportedDropStatement
     | unsupportedStatsStatement
     | unsupportedAlterStatement
-    | unsupportedGrantRevokeStatement
     | unsupportedAdminStatement
     | unsupportedCancelStatement
     | unsupportedRefreshStatement
@@ -650,11 +649,8 @@ supportedGrantRevokeStatement
     | REVOKE privilegeList ON
         (RESOURCE | CLUSTER | COMPUTE GROUP | STAGE | STORAGE VAULT | WORKLOAD GROUP)
         identifierOrTextOrAsterisk FROM (userIdentify | ROLE identifierOrText)              #revokeResourcePrivilege
-    ;
-
-unsupportedGrantRevokeStatement
-    : REVOKE privilegeList ON multipartIdentifierOrAsterisk
-        FROM (userIdentify | ROLE identifierOrText)                                   #revokeTablePrivilege
+    | REVOKE privilegeList ON multipartIdentifierOrAsterisk
+        FROM (userIdentify | ROLE identifierOrText)                                         #revokeTablePrivilege
     ;
 
 privilege

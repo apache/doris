@@ -673,6 +673,7 @@ import org.apache.doris.nereids.trees.plans.commands.ResumeJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.ResumeMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.RevokeResourcePrivilegeCommand;
 import org.apache.doris.nereids.trees.plans.commands.RevokeRoleCommand;
+import org.apache.doris.nereids.trees.plans.commands.RevokeTablePrivilegeCommand;
 import org.apache.doris.nereids.trees.plans.commands.SetDefaultStorageVaultCommand;
 import org.apache.doris.nereids.trees.plans.commands.SetOptionsCommand;
 import org.apache.doris.nereids.trees.plans.commands.SetTransactionCommand;
@@ -7487,6 +7488,48 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             workloadGroupPattern,
             role,
             userIdentity);
+    }
+
+    @Override
+    public LogicalPlan visitRevokeTablePrivilege(DorisParser.RevokeTablePrivilegeContext ctx) {
+        List<AccessPrivilegeWithCols> accessPrivilegeWithCols = visitPrivilegeList(ctx.privilegeList());
+
+        List<String> parts = visitMultipartIdentifierOrAsterisk(ctx.multipartIdentifierOrAsterisk());
+        int size = parts.size();
+
+        TablePattern tablePattern = null;
+        if (size == 1) {
+            String db = parts.get(size - 1);
+            tablePattern = new TablePattern(db, "");
+        }
+
+        if (size == 2) {
+            String db = parts.get(size - 2);
+            String tbl = parts.get(size - 1);
+            tablePattern = new TablePattern(db, tbl);
+        }
+
+        if (size == 3) {
+            String ctl = parts.get(size - 3);
+            String db = parts.get(size - 2);
+            String tbl = parts.get(size - 1);
+            tablePattern = new TablePattern(ctl, db, tbl);
+        }
+
+        Optional<UserIdentity> userIdentity = Optional.empty();
+        Optional<String> role = Optional.empty();
+
+        if (ctx.ROLE() != null) {
+            role = Optional.of(visitIdentifierOrText(ctx.identifierOrText()));
+        } else if (ctx.userIdentify() != null) {
+            userIdentity = Optional.of(visitUserIdentify(ctx.userIdentify()));
+        }
+
+        return new RevokeTablePrivilegeCommand(
+                accessPrivilegeWithCols,
+                tablePattern,
+                userIdentity,
+                role);
     }
 
     public LogicalPlan visitDropAnalyzeJob(DorisParser.DropAnalyzeJobContext ctx) {
