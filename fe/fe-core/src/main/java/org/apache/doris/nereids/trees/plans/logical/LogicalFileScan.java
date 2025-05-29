@@ -203,7 +203,7 @@ public class LogicalFileScan extends LogicalCatalogRelation {
         return new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
                 groupExpression, Optional.of(getLogicalProperties()),
                 selectedPartitions, tableSample, tableSnapshot,
-                operativeSlots);
+                operativeSlots, scanParams);
     }
 
     @Override

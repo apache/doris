@@ -74,7 +74,7 @@ public class LogicalHudiScan extends LogicalFileScan {
             Optional<TableScanParams> scanParams, Optional<IncrementalRelation> incrementalRelation,
             List<Slot> operativeSlots) {
         super(id, table, qualifier, groupExpression, logicalProperties,
-                selectedPartitions, tableSample, operativeSlots, tableSnapshot);
+                selectedPartitions, tableSample, tableSnapshot, operativeSlots, scanParams);
         Objects.requireNonNull(scanParams, "scanParams should not null");
         Objects.requireNonNull(incrementalRelation, "incrementalRelation should not null");
         this.incrementalRelation = incrementalRelation;

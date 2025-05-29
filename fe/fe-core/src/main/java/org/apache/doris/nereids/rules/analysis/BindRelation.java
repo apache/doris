@@ -421,7 +421,6 @@ public class BindRelation extends OneAnalysisRuleFactory {
                         return new LogicalFileScan(unboundRelation.getRelationId(), (HMSExternalTable) table,
                                 qualifierWithoutTableName,
                                 unboundRelation.getTableSample(),
-                                ImmutableList.of(),
                                 unboundRelation.getTableSnapshot(),
                                 ImmutableList.of(),
                                 Optional.ofNullable(unboundRelation.getScanParams()));
