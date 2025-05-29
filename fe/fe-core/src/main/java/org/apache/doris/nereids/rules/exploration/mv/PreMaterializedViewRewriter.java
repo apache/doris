@@ -88,7 +88,7 @@ public class PreMaterializedViewRewriter {
         StructInfo structInfo = root.getstructInfoMap().getStructInfo(cascadesContext,
                 chosenMaterializationAndUsedTable.value(), root, null);
         if (structInfo == null) {
-            LOG.warn("preMaterializedViewRewriter rewrite structInfo is null, query is is {}",
+            LOG.warn("preMaterializedViewRewriter rewrite structInfo is null, query id is {}",
                     cascadesContext.getConnectContext().getQueryIdentifier());
         }
         if (structInfo != null && !chosenMaterializationAndUsedTable.key().isEmpty()) {
