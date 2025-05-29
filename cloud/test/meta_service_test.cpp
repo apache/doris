@@ -4887,50 +4887,58 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLockNoReadStats) {
 TEST(MetaServiceTest, GetDeleteBitmapUpdateLockTabletStatsNormal) {
     auto meta_service = get_meta_service();
 
-    std::string instance_id = "test_get_delete_bitmap_update_lock_normal";
-    [[maybe_unused]] auto* sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [](int*) {
-        SyncPoint::get_instance()->disable_processing();
-        SyncPoint::get_instance()->clear_all_call_backs();
-    });
-    sp->set_call_back("get_instance_id", [&](auto&& args) {
-        auto* ret = try_any_cast_ret<std::string>(args);
-        ret->first = instance_id;
-        ret->second = true;
-    });
-    sp->enable_processing();
+    bool enable_batch_get_mow_tablet_stats_and_meta_vals[] = {false, true};
+    for (bool val : enable_batch_get_mow_tablet_stats_and_meta_vals) {
+        config::enable_batch_get_mow_tablet_stats_and_meta = val;
 
-    int64_t db_id = 1000;
-    int64_t table_id = 2001;
-    int64_t index_id = 3001;
-    // [(partition_id, tablet_id)]
-    std::vector<std::array<int64_t, 2>> tablet_idxes {{70001, 12345}, {80001, 3456}, {90001, 6789}};
+        std::string instance_id = "test_get_delete_bitmap_update_lock_normal";
+        [[maybe_unused]] auto* sp = SyncPoint::get_instance();
+        std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [](int*) {
+            SyncPoint::get_instance()->disable_processing();
+            SyncPoint::get_instance()->clear_all_call_backs();
+        });
+        sp->set_call_back("get_instance_id", [&](auto&& args) {
+            auto* ret = try_any_cast_ret<std::string>(args);
+            ret->first = instance_id;
+            ret->second = true;
+        });
+        sp->enable_processing();
 
-    add_tablet_metas(meta_service.get(), instance_id, table_id, index_id, tablet_idxes);
+        int64_t db_id = 1000;
+        int64_t table_id = 2001;
+        int64_t index_id = 3001;
+        // [(partition_id, tablet_id)]
+        std::vector<std::array<int64_t, 2>> tablet_idxes {
+                {70001, 12345}, {80001, 3456}, {90001, 6789}};
 
-    GetDeleteBitmapUpdateLockResponse res;
-    get_delete_bitmap_update_lock(meta_service.get(), res, db_id, table_id, index_id, tablet_idxes,
-                                  5, 999999, -1, true);
-    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        add_tablet_metas(meta_service.get(), instance_id, table_id, index_id, tablet_idxes);
 
-    ASSERT_EQ(res.base_compaction_cnts().size(), tablet_idxes.size());
-    for (const auto& base_compaction_cnt : res.base_compaction_cnts()) {
-        ASSERT_EQ(base_compaction_cnt, 10);
-    }
-    ASSERT_EQ(res.cumulative_compaction_cnts().size(), tablet_idxes.size());
-    for (const auto& cumu_compaction_cnt : res.cumulative_compaction_cnts()) {
-        ASSERT_EQ(cumu_compaction_cnt, 20);
-    }
-    ASSERT_EQ(res.cumulative_points().size(), tablet_idxes.size());
-    for (const auto& cumulative_point : res.cumulative_points()) {
-        ASSERT_EQ(cumulative_point, 30);
+        GetDeleteBitmapUpdateLockResponse res;
+        get_delete_bitmap_update_lock(meta_service.get(), res, db_id, table_id, index_id,
+                                      tablet_idxes, 5, 999999, -1, true);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+
+        ASSERT_EQ(res.base_compaction_cnts().size(), tablet_idxes.size());
+        for (const auto& base_compaction_cnt : res.base_compaction_cnts()) {
+            ASSERT_EQ(base_compaction_cnt, 10);
+        }
+        ASSERT_EQ(res.cumulative_compaction_cnts().size(), tablet_idxes.size());
+        for (const auto& cumu_compaction_cnt : res.cumulative_compaction_cnts()) {
+            ASSERT_EQ(cumu_compaction_cnt, 20);
+        }
+        ASSERT_EQ(res.cumulative_points().size(), tablet_idxes.size());
+        for (const auto& cumulative_point : res.cumulative_points()) {
+            ASSERT_EQ(cumulative_point, 30);
+        }
     }
 }
 
 TEST(MetaServiceTest, GetDeleteBitmapUpdateLockTabletStatsLockExpired) {
     auto meta_service = get_meta_service();
 
-    {
+    bool enable_batch_get_mow_tablet_stats_and_meta_vals[] = {false, true};
+    for (bool val : enable_batch_get_mow_tablet_stats_and_meta_vals) {
+        config::enable_batch_get_mow_tablet_stats_and_meta = val;
         // 2.1 abnormal path, lock has been expired and taken by another load/compaction during
         // the reading of tablet stats
         std::string instance_id = "test_get_delete_bitmap_update_lock_abnormal1";
@@ -4971,7 +4979,9 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLockTabletStatsLockExpired) {
         ASSERT_EQ(res.cumulative_points().size(), 0);
     }
 
-    {
+    for (bool val : enable_batch_get_mow_tablet_stats_and_meta_vals) {
+        config::enable_batch_get_mow_tablet_stats_and_meta = val;
+
         // 2.2 abnormal path, lock has been taken by another load/compaction and been released during
         // the reading of tablet stats
         std::string instance_id = "test_get_delete_bitmap_update_lock_abnormal2";
@@ -5013,7 +5023,9 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLockTabletStatsLockExpired) {
 TEST(MetaServiceTest, GetDeleteBitmapUpdateLockTabletStatsError) {
     auto meta_service = get_meta_service();
 
-    {
+    bool enable_batch_get_mow_tablet_stats_and_meta_vals[] = {false, true};
+    for (bool val : enable_batch_get_mow_tablet_stats_and_meta_vals) {
+        config::enable_batch_get_mow_tablet_stats_and_meta = val;
         // 2.3 abnormal path, meeting error when reading tablets' stats
         std::string instance_id = "test_get_delete_bitmap_update_lock_abnormal3";
         [[maybe_unused]] auto* sp = SyncPoint::get_instance();
@@ -5051,7 +5063,8 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLockTabletStatsError) {
         ASSERT_EQ(res.status().code(), MetaServiceCode::KV_TXN_GET_ERR);
     }
 
-    {
+    for (bool val : enable_batch_get_mow_tablet_stats_and_meta_vals) {
+        config::enable_batch_get_mow_tablet_stats_and_meta = val;
         // 2.4 abnormal path, meeting TXN_TOO_OLD error when reading tablets' stats,
         // this should not fail if lock is not expired
         std::string instance_id = "test_get_delete_bitmap_update_lock_abnormal4";
