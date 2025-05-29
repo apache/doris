@@ -1572,6 +1572,8 @@ DECLARE_mBool(enable_update_delete_bitmap_kv_check_core);
 
 DECLARE_mInt32(segments_key_bounds_truncation_threshold);
 
+DECLARE_mBool(random_segments_key_bounds_truncation);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);

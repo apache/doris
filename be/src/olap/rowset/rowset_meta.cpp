@@ -20,6 +20,7 @@
 #include <gen_cpp/olap_file.pb.h>
 
 #include <memory>
+#include <random>
 
 #include "common/logging.h"
 #include "google/protobuf/util/message_differencer.h"
@@ -227,6 +228,11 @@ void RowsetMeta::set_segments_key_bounds(const std::vector<KeyBoundsPB>& segment
     }
 
     int32_t truncation_threshold = config::segments_key_bounds_truncation_threshold;
+    if (config::random_segments_key_bounds_truncation) {
+        static thread_local std::mt19937 generator(std::random_device {}());
+        std::uniform_int_distribution<int> distribution(-10, 40);
+        truncation_threshold = distribution(generator);
+    }
     bool really_do_truncation {false};
     if (truncation_threshold > 0) {
         for (auto& segment_key_bounds : *_rowset_meta_pb.mutable_segments_key_bounds()) {
