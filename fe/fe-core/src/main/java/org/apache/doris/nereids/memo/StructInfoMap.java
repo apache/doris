@@ -70,7 +70,7 @@ public class StructInfoMap {
             return structInfo;
         }
         if (groupExpressionMap.isEmpty() || !groupExpressionMap.containsKey(tableMap)) {
-            refresh(group, cascadesContext, new HashSet<>(),
+            refresh(group, cascadesContext, tableMap, new HashSet<>(),
                     cascadesContext.getConnectContext().getSessionVariable().isEnableMaterializedViewNestRewrite());
             group.getstructInfoMap().setRefreshVersion(cascadesContext.getMemo().getRefreshVersion());
         }
@@ -122,9 +122,12 @@ public class StructInfoMap {
      * refresh group expression map
      *
      * @param group the root group
+     * @param targetBitSet refreshed group expression table bitset must intersect with the targetBitSet
      *
      */
-    public void refresh(Group group, CascadesContext cascadesContext, Set<Integer> refreshedGroup,
+    public void refresh(Group group, CascadesContext cascadesContext,
+            BitSet targetBitSet,
+            Set<Integer> refreshedGroup,
             boolean forceRefresh) {
         StructInfoMap structInfoMap = group.getstructInfoMap();
         refreshedGroup.add(group.getGroupId().asInt());
@@ -145,7 +148,7 @@ public class StructInfoMap {
             for (Group child : groupExpression.children()) {
                 StructInfoMap childStructInfoMap = child.getstructInfoMap();
                 if (!refreshedGroup.contains(child.getGroupId().asInt())) {
-                    childStructInfoMap.refresh(child, cascadesContext, refreshedGroup, forceRefresh);
+                    childStructInfoMap.refresh(child, cascadesContext, targetBitSet, refreshedGroup, forceRefresh);
                     childStructInfoMap.setRefreshVersion(memoVersion);
                 }
                 childrenTableMap.add(child.getstructInfoMap().getTableMaps());
@@ -157,7 +160,8 @@ public class StructInfoMap {
                     eachGroupExpressionTableSet.or(bitSet);
                 }
             }
-            if (groupExpressionMap.containsKey(eachGroupExpressionTableSet)) {
+            if (groupExpressionMap.containsKey(eachGroupExpressionTableSet)
+                    || (!targetBitSet.isEmpty() && !targetBitSet.intersects(eachGroupExpressionTableSet))) {
                 // for the group expressions of group, only need to refresh any of the group expression
                 // when they have the same group expression table set
                 continue;

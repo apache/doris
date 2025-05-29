@@ -32,7 +32,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.BitSet;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 
@@ -83,7 +82,6 @@ public class PreMaterializedViewRewriter {
                 cascadesContext.getAllMaterializationContexts());
         // Calc the table id set which is used by physical plan
         cascadesContext.getMemo().incrementAndGetRefreshVersion();
-        root.getstructInfoMap().refresh(root, cascadesContext, new HashSet<>(), true);
         // Extract logical plan by table id set by the corresponding best physical plan
         StructInfo structInfo = root.getstructInfoMap().getStructInfo(cascadesContext,
                 chosenMaterializationAndUsedTable.value(), root, null);

@@ -417,7 +417,7 @@ public abstract class MaterializationContext {
         builder.append("\nMaterializedViewRewriteSuccessAndChose:\n");
         if (!chosenMaterializationMap.isEmpty()) {
             chosenMaterializationMap.forEach((materializationQualifier, materializationContext) ->
-                    builder.append(statementContext.isNeedPreRewrite() ? "   RBO" : "  ")
+                    builder.append(statementContext.isPreRewritten() ? " RBO " : " CBO ")
                             .append(generateIdentifierName(materializationQualifier)).append(" chose, \n"));
         } else {
             builder.append("  chose: none, \n");
@@ -436,7 +436,7 @@ public abstract class MaterializationContext {
         }
         if (!rewriteSuccessButNotChoseMap.isEmpty()) {
             rewriteSuccessButNotChoseMap.forEach((materializationQualifier, context) ->
-                    builder.append(statementContext.isNeedPreRewrite() ? "   RBO" : "  ")
+                    builder.append(statementContext.isPreRewritten() ? " RBO " : " CBO ")
                             .append(generateIdentifierName(materializationQualifier)).append(" not chose, \n"));
         } else {
             builder.append("  not chose: none, \n");
@@ -448,7 +448,7 @@ public abstract class MaterializationContext {
                 Set<String> failReasonSet =
                         ctx.getFailReason().values().stream().map(Pair::key).collect(ImmutableSet.toImmutableSet());
                 builder.append("\n")
-                        .append("  ")
+                        .append(statementContext.isPreRewritten() ? " RBO " : " CBO ")
                         .append(generateIdentifierName(ctx.generateMaterializationIdentifier())).append(" fail, \n")
                         .append("  FailSummary: ").append(String.join(", ", failReasonSet));
             }
