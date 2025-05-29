@@ -18,7 +18,6 @@
 package org.apache.doris.datasource.property.fileformat;
 
 import org.apache.doris.analysis.Separator;
-import org.apache.doris.catalog.Column;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
@@ -28,11 +27,9 @@ import org.apache.doris.thrift.TFileTextScanRangeParams;
 import org.apache.doris.thrift.TResultFileSinkOptions;
 
 import com.google.common.base.Strings;
-import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.List;
 import java.util.Map;
 
 public class CsvFileFormatProperties extends FileFormatProperties {
@@ -59,12 +56,7 @@ public class CsvFileFormatProperties extends FileFormatProperties {
     private boolean trimDoubleQuotes;
     private int skipLines;
     private byte enclose;
-
     private byte escape;
-
-    // used by tvf
-    // User specified csv columns, it will override columns got from file
-    private final List<Column> csvSchema = Lists.newArrayList();
 
     String defaultColumnSeparator = DEFAULT_COLUMN_SEPARATOR;
 
@@ -103,9 +95,6 @@ public class CsvFileFormatProperties extends FileFormatProperties {
                     throw new AnalysisException("enclose should not be longer than one byte.");
                 }
                 enclose = (byte) enclosedString.charAt(0);
-                if (enclose == 0) {
-                    throw new AnalysisException("enclose should not be byte [0].");
-                }
             }
 
             String escapeStr = getOrDefault(formatProperties, PROP_ESCAPE,
@@ -149,9 +138,8 @@ public class CsvFileFormatProperties extends FileFormatProperties {
         TFileTextScanRangeParams fileTextScanRangeParams = new TFileTextScanRangeParams();
         fileTextScanRangeParams.setColumnSeparator(this.columnSeparator);
         fileTextScanRangeParams.setLineDelimiter(this.lineDelimiter);
-        if (this.enclose != 0) {
-            fileTextScanRangeParams.setEnclose(this.enclose);
-        }
+        fileTextScanRangeParams.setEnclose(this.enclose);
+        fileTextScanRangeParams.setEscape(this.escape);
         fileAttributes.setTextParams(fileTextScanRangeParams);
         fileAttributes.setHeaderType(headerType);
         fileAttributes.setTrimDoubleQuotes(trimDoubleQuotes);
@@ -187,9 +175,5 @@ public class CsvFileFormatProperties extends FileFormatProperties {
 
     public byte getEscape() {
         return escape;
-    }
-
-    public List<Column> getCsvSchema() {
-        return csvSchema;
     }
 }

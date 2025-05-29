@@ -72,7 +72,10 @@ public abstract class FileFormatProperties {
     public abstract TFileAttributes toTFileAttributes();
 
     public static FileFormatProperties createFileFormatProperties(String formatString) {
-        switch (formatString) {
+        if (formatString == null) {
+            throw new AnalysisException("formatString can not be null");
+        }
+        switch (formatString.toLowerCase()) {
             case FORMAT_CSV:
                 return new CsvFileFormatProperties(formatString);
             case FORMAT_HIVE_TEXT:
@@ -91,6 +94,8 @@ public abstract class FileFormatProperties {
                 return new AvroFileFormatProperties();
             case FORMAT_WAL:
                 return new WalFileFormatProperties();
+            case FORMAT_ARROW:
+                return new ArrowFileFormatProperties();
             default:
                 throw new AnalysisException("format:" + formatString + " is not supported.");
         }
@@ -98,8 +103,7 @@ public abstract class FileFormatProperties {
 
     public static FileFormatProperties createFileFormatProperties(Map<String, String> formatProperties)
             throws AnalysisException {
-        String formatString = formatProperties.getOrDefault(PROP_FORMAT, "")
-                .toLowerCase();
+        String formatString = formatProperties.getOrDefault(PROP_FORMAT, "csv");
         return createFileFormatProperties(formatString);
     }
 
