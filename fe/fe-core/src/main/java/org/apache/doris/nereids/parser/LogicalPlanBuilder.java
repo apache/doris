@@ -7756,11 +7756,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitCancelDecommisionBackend(DorisParser.CancelDecommisionBackendContext ctx) {
-        List<String> parts = new ArrayList<>();
-        for (TerminalNode terminalNode : ctx.STRING_LITERAL()) {
-            parts.add(terminalNode.getText());
-        }
-        return new CancelDecommissionBackendCommand(parts);
+        List<String> hostPorts = ctx.hostPorts.stream()
+                .map(e -> stripQuotes(e.getText()))
+                .collect(Collectors.toList());
+        return new CancelDecommissionBackendCommand(hostPorts);
     }
 
     @Override
