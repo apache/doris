@@ -36,10 +36,10 @@ namespace pipeline {
 class DataQueue;
 
 class CacheSourceOperatorX;
-class CacheSourceLocalState final : public PipelineXLocalState<CacheSharedState> {
+class CacheSourceLocalState final : public PipelineXLocalState<DataQueueSharedState> {
 public:
     ENABLE_FACTORY_CREATOR(CacheSourceLocalState);
-    using Base = PipelineXLocalState<CacheSharedState>;
+    using Base = PipelineXLocalState<DataQueueSharedState>;
     using Parent = CacheSourceOperatorX;
     CacheSourceLocalState(RuntimeState* state, OperatorXBase* parent) : Base(state, parent) {};
 

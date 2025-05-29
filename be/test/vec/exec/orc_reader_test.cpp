@@ -103,7 +103,6 @@ private:
 };
 
 TEST_F(OrcReaderTest, test_build_search_argument) {
-    ExecEnv::GetInstance()->set_orc_memory_pool(new ORCMemoryPool());
     std::vector<std::string>
             exprs =
                     {
