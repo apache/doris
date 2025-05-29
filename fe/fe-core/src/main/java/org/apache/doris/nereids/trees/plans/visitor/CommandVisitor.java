@@ -181,6 +181,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLoadProfileCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowOpenTablesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPartitionIdCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowPartitionsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPluginsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPrivilegesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowProcCommand;
@@ -605,6 +606,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitShowPartitionIdCommand(ShowPartitionIdCommand showPartitionIdCommand, C context) {
         return visitCommand(showPartitionIdCommand, context);
+    }
+
+    default R visitShowPartitionsCommand(ShowPartitionsCommand showPartitionsCommand, C context) {
+        return visitCommand(showPartitionsCommand, context);
     }
 
     default R visitShowVariablesCommand(ShowVariablesCommand showVariablesCommand, C context) {
