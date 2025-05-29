@@ -391,6 +391,9 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
     @Override
     public boolean viewExists(String dbName, String viewName) {
+        if (!(catalog instanceof ViewCatalog)) {
+            return false;
+        }
         try {
             preExecutionAuthenticator.execute(() ->
                     ((ViewCatalog) catalog).viewExists(getTableIdentifier(dbName, viewName)));
@@ -404,13 +407,27 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     @Override
     public View loadView(String dbName, String tblName) {
         if (!(catalog instanceof ViewCatalog)) {
-            throw new RuntimeException("Catalog is not a ViewCatalog");
+            return null;
         }
         try {
             ViewCatalog viewCatalog = (ViewCatalog) catalog;
             return preExecutionAuthenticator.execute(() -> viewCatalog.loadView(TableIdentifier.of(dbName, tblName)));
         } catch (Exception e) {
             throw new RuntimeException("Failed to load view, error message is:" + e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public List<String> listViewNames(String db) {
+        if (!(catalog instanceof ViewCatalog)) {
+            return Collections.emptyList();
+        }
+        try {
+            return preExecutionAuthenticator.execute(() ->
+                ((ViewCatalog) catalog).listViews(Namespace.of(db))
+                    .stream().map(TableIdentifier::name).collect(Collectors.toList()));
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to list view names, error message is:" + e.getMessage(), e);
         }
     }
 

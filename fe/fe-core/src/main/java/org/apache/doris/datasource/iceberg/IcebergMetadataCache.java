@@ -291,15 +291,12 @@ public class IcebergMetadataCache {
         return res;
     }
 
-    @NotNull
     private View loadView(IcebergMetadataCacheKey key) {
         IcebergMetadataOps ops;
-        if (key.catalog instanceof HMSExternalCatalog) {
-            ops = ((HMSExternalCatalog) key.catalog).getIcebergMetadataOps();
-        } else if (key.catalog instanceof IcebergExternalCatalog) {
+        if (key.catalog instanceof IcebergExternalCatalog) {
             ops = (IcebergMetadataOps) (((IcebergExternalCatalog) key.catalog).getMetadataOps());
         } else {
-            throw new RuntimeException("Only support 'hms' and 'iceberg' type for iceberg view");
+            return null;
         }
         try {
             return ((ExternalCatalog) key.catalog).getPreExecutionAuthenticator().execute(() ->
