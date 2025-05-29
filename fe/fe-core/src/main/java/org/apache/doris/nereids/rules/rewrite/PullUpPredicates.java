@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -76,7 +77,7 @@ import java.util.function.Supplier;
 public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void> {
 
     private static final ImmutableSet<Class<? extends Expression>> supportAggFunctions = ImmutableSet.of(
-            Max.class, Min.class);
+            Max.class, Min.class, AnyValue.class);
     Map<Plan, ImmutableSet<Expression>> cache = new IdentityHashMap<>();
     private final boolean getAllPredicates;
     private final ExpressionRewriteContext rewriteContext;

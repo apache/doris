@@ -804,7 +804,7 @@ class InferPredicatesTest extends TestWithFeService implements MemoPatternMatchS
     @Test
     void pullUpPredicateFromAggregate() {
         String sql
-                = "select * from (select avg(age) c1,id from student where age <10 group by id) t1"
+                = "select * from (select min(age) c1,id from student where age <10 group by id) t1"
                 + " inner join score t2 on t2.sid=t1.c1";
         PlanChecker.from(connectContext).analyze(sql).rewrite().printlnTree();
         PlanChecker.from(connectContext)
