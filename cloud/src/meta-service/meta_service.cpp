@@ -2102,13 +2102,13 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
         }
     }
 
-    // no need to record pending key for compaction or schema change,
+    // no need to record pending key for compaction,
     // because delete bitmap will attach to new rowset, just delete new rowset if failed
     // lock_id > 0 : load
     // lock_id = -1 : compaction
     // lock_id = -2 : schema change
     // lock_id = -3 : compaction update delete bitmap without lock
-    if (request->lock_id() > 0) {
+    if (request->lock_id() > 0 || request->lock_id() == -2) {
         std::string pending_val;
         if (is_explicit_txn && !is_first_sub_txn) {
             // put current delete bitmap keys and previous sub txns' into tablet's pending delete bitmap KV
@@ -2203,15 +2203,6 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
                     return;
                 }
             }
-        }
-
-        if (request->has_remove_before_put() && request->remove_before_put()) {
-            // remove existing key
-            std::string end_key {key};
-            encode_int64(INT64_MAX, &end_key);
-            txn->remove(key, end_key);
-            LOG(INFO) << "xxx remove existing key before put, key=" << hex(key)
-                      << " tablet_id=" << tablet_id;
         }
 #ifdef ENABLE_INJECTION_POINT
         if (config::enable_update_delete_bitmap_kv_check) {

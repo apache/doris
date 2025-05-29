@@ -1438,8 +1438,6 @@ message UpdateDeleteBitmapRequest {
 
     // for load txn only
     optional int64 next_visible_version = 14;
-
-    optional bool remove_before_put = 15;
 }
 
 message UpdateDeleteBitmapResponse {

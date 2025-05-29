@@ -5542,7 +5542,7 @@ TEST(MetaServiceTest, UpdateDeleteBitmapFailCase) {
     ASSERT_EQ(get_delete_bitmap_res.segment_delete_bitmaps(0), data1);
 }
 
-TEST(MetaServiceTest, UpdateDeleteBitmapOverrideExistingKey) {
+TEST(MetaServiceTest, UpdateDeleteBitmapScOverrideExistingKey) {
     auto meta_service = get_meta_service();
     brpc::Controller cntl;
     size_t split_size = 90 * 1000; // see cloud/src/common/util.h
@@ -5552,6 +5552,7 @@ TEST(MetaServiceTest, UpdateDeleteBitmapOverrideExistingKey) {
     auto instance_id = get_instance_id(meta_service->resource_mgr(), "test_cloud_unique_id");
 
     {
+        // schema change should use pending delete bitmap to clear previous failed trials
         int64_t db_id = 99999;
         int64_t table_id = 1801;
         int64_t index_id = 4801;
@@ -5597,12 +5598,36 @@ TEST(MetaServiceTest, UpdateDeleteBitmapOverrideExistingKey) {
         }
 
         {
+            std::string pending_key = meta_pending_delete_bitmap_key({instance_id, tablet_id});
+            std::string pending_val;
+            std::unique_ptr<Transaction> txn;
+            ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+            ASSERT_EQ(txn->get(pending_key, &pending_val), TxnErrorCode::TXN_OK);
+            PendingDeleteBitmapPB pending_info;
+            ASSERT_TRUE(pending_info.ParseFromString(pending_val));
+            ASSERT_EQ(pending_info.delete_bitmap_keys_size(), 1);
+
+            std::string_view k1 = pending_info.delete_bitmap_keys(0);
+            k1.remove_prefix(1);
+            std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
+            decode_key(&k1, &out);
+            // 0x01 "meta" ${instance_id} "delete_bitmap" ${tablet_id} ${rowset_id} ${version} ${segment_id} -> roaringbitmap
+            auto encoded_tablet_id = std::get<std::int64_t>(std::get<0>(out[3]));
+            ASSERT_EQ(encoded_tablet_id, tablet_id);
+            auto encoded_rowset_id = std::get<std::string>(std::get<0>(out[4]));
+            ASSERT_EQ(encoded_rowset_id, "123");
+            auto encoded_version = std::get<std::int64_t>(std::get<0>(out[5]));
+            ASSERT_EQ(encoded_version, version);
+            auto encoded_segment_id = std::get<std::int64_t>(std::get<0>(out[6]));
+            ASSERT_EQ(encoded_segment_id, 0);
+        }
+
+        {
             UpdateDeleteBitmapRequest update_delete_bitmap_req;
             UpdateDeleteBitmapResponse update_delete_bitmap_res;
             // will be splited and stored in 3 KVs
             // if we don't remove previous splited KVs, will crash when reading
             std::string data2(split_size * 3, 'a');
-            update_delete_bitmap_req.set_remove_before_put(true);
             update_delete_bitmap(meta_service.get(), update_delete_bitmap_req,
                                  update_delete_bitmap_res, table_id, t1p1, lock_id, initiator,
                                  tablet_id, txn_id, version, data2);
