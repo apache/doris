@@ -77,8 +77,8 @@ public class SplitAssignment {
     public void init() throws UserException {
         splitGenerator.startSplit(backendPolicy.numBackends());
         synchronized (assignLock) {
-            int waitIntervalTimeMillis = 100;
-            int initTimeoutMillis = 5000; // 5s
+            final int waitIntervalTimeMillis = 100;
+            final int initTimeoutMillis = 30000; // 30s
             int waitTotalTime = 0;
             while (sampleSplit == null && needMoreSplit()) {
                 try {
@@ -88,7 +88,8 @@ public class SplitAssignment {
                 }
                 waitTotalTime += waitIntervalTimeMillis;
                 if (waitTotalTime > initTimeoutMillis) {
-                    throw new UserException("Timeout to get first split");
+                    throw new UserException("Failed to get first split after waiting for "
+                            + (waitTotalTime / 1000) + " seconds.");
                 }
             }
         }
@@ -116,14 +117,15 @@ public class SplitAssignment {
                         return;
                     }
                 } catch (InterruptedException e) {
-                    throw new UserException("Failed to offer batch split by interrupted", e);
+                    addUserException(new UserException("Failed to offer batch split by interrupted", e));
                 }
-                if (needMoreSplit()) {
-                    // Throwing an exception here is to terminate the external thread.
-                    // Otherwise, the external thread will still generate splits
-                    //     and continue to add them to the queue.
-                    return;
+                // Throwing an exception here is to terminate the external thread.
+                // Otherwise, the external thread will still generate splits
+                //     and continue to add them to the queue.
+                if (exception != null) {
+                    throw exception;
                 }
+                break;
             }
         }
     }

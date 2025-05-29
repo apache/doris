@@ -236,7 +236,7 @@ public class IcebergScanNode extends FileQueryScanNode {
                 preExecutionAuthenticator.execute(
                         () -> {
                             CloseableIterable<FileScanTask> fileScanTasks = planFileScanTask(scan);
-                            taskRef.set(planFileScanTask(scan));
+                            taskRef.set(fileScanTasks);
 
                             CloseableIterator<FileScanTask> iterator = fileScanTasks.iterator();
                             while (splitAssignment.needMoreSplit() && iterator.hasNext()) {
