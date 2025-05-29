@@ -107,6 +107,7 @@ import org.apache.doris.nereids.trees.plans.commands.DropStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropStoragePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropUserCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropWorkloadGroupCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropWorkloadPolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
@@ -851,6 +852,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitDropEncryptKeyCommand(DropEncryptkeyCommand dropEncryptkeyCommand, C context) {
         return visitCommand(dropEncryptkeyCommand, context);
+    }
+
+    default R visitDropViewCommand(DropViewCommand dropViewCommand, C context) {
+        return visitCommand(dropViewCommand, context);
     }
 
     default R visitDropFileCommand(DropFileCommand dropFileCommand, C context) {

@@ -309,6 +309,7 @@ supportedDropStatement
         (FOR (userIdentify | ROLE roleName=identifier))?                        #dropRowPolicy
     | DROP DICTIONARY (IF EXISTS)? name=multipartIdentifier                     #dropDictionary
     | DROP STAGE (IF EXISTS)? name=identifier                                   #dropStage
+    | DROP VIEW (IF EXISTS)? name=multipartIdentifier                           #dropView
     ;
 
 supportedShowStatement
@@ -757,7 +758,6 @@ fromRollup
     ;
 
 unsupportedDropStatement
-    : DROP VIEW (IF EXISTS)? name=multipartIdentifier                           #dropView
     ;
 
 supportedStatsStatement
