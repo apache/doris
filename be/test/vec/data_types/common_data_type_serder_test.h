@@ -392,8 +392,7 @@ public:
         auto rows = record_batch->num_rows();
         for (size_t i = 0; i < record_batch->num_columns(); ++i) {
             auto array = record_batch->column(i);
-            std::cout << "arrow record_batch pos: " << i << ", array: " << array->ToString()
-                      << std::endl;
+            std::cout << "arrow record_batch pos: " << i << std::endl;
             auto& column_with_type_and_name = new_block->get_by_position(i);
             std::cout << "now we are testing column: "
                       << column_with_type_and_name.column->get_name()
@@ -403,15 +402,17 @@ public:
                                                  column_with_type_and_name.type, rows, "UTC");
             // do check data
             std::cout << "arrow_column_to_doris_column done, column data: "
-                      << column_with_type_and_name.to_string(0)
+                      << column_with_type_and_name.to_string(0).substr(0, 256)
                       << ", column size: " << column_with_type_and_name.column->size() << std::endl;
             EXPECT_EQ(Status::OK(), ret) << "convert arrow to block failed" << ret.to_string();
         }
         std::cout << "arrow deserialize block structure: " << new_block->dump_structure()
                   << std::endl;
         std::cout << "arrow deserialize block data: "
-                  << new_block->dump_data(
-                             0, std::min(static_cast<size_t>(rows), static_cast<size_t>(5)))
+                  << new_block
+                             ->dump_data(
+                                     0, std::min(static_cast<size_t>(rows), static_cast<size_t>(5)))
+                             .substr(0, 256)
                   << std::endl;
     }
 

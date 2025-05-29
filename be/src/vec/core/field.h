@@ -70,23 +70,19 @@ using FieldVector = std::vector<Field>;
 /// construct a Field of Array or a Tuple type. An alternative approach would be
 /// to construct both of these types from FieldVector, and have the caller
 /// specify the desired Field type explicitly.
-#define DEFINE_FIELD_VECTOR(X)          \
-    struct X : public FieldVector {     \
-        using FieldVector::FieldVector; \
-    }
+struct Array : public FieldVector {
+    using FieldVector::FieldVector;
+};
 
-DEFINE_FIELD_VECTOR(Array);
-DEFINE_FIELD_VECTOR(Tuple);
-DEFINE_FIELD_VECTOR(Map);
-#undef DEFINE_FIELD_VECTOR
+struct Tuple : public FieldVector {
+    using FieldVector::FieldVector;
+};
 
-using FieldMap = std::map<String, Field>;
-#define DEFINE_FIELD_MAP(X)       \
-    struct X : public FieldMap {  \
-        using FieldMap::FieldMap; \
-    }
-DEFINE_FIELD_MAP(VariantMap);
-#undef DEFINE_FIELD_MAP
+struct Map : public FieldVector {
+    using FieldVector::FieldVector;
+};
+
+using VariantMap = std::map<String, Field>;
 
 //TODO: rethink if we really need this? it only save one pointer from std::string
 // not POD type so could only use read/write_json_binary instead of read/write_binary
@@ -250,7 +246,7 @@ private:
 /** 32 is enough. Round number is used for alignment and for better arithmetic inside std::vector.
   * NOTE: Actually, sizeof(std::string) is 32 when using libc++, so Field is 40 bytes.
   */
-#define DBMS_MIN_FIELD_SIZE 32
+constexpr size_t DBMS_MIN_FIELD_SIZE = 32;
 
 /** Discriminated union of several types.
   * Made for replacement of `boost::variant`
@@ -511,8 +507,6 @@ private:
         ptr->~T();
     }
 };
-
-#undef DBMS_MIN_FIELD_SIZE
 
 template <typename T>
 T get(const Field& field) {

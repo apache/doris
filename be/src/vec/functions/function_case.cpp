@@ -22,10 +22,8 @@
 namespace doris::vectorized {
 
 void register_function_case(SimpleFunctionFactory& factory) {
-    factory.register_function<FunctionCase<false, false>>();
-    factory.register_function<FunctionCase<false, true>>();
-    factory.register_function<FunctionCase<true, false>>();
-    factory.register_function<FunctionCase<true, true>>();
+    factory.register_function<FunctionCase<false>>();
+    factory.register_function<FunctionCase<true>>();
 }
 
 } // namespace doris::vectorized
