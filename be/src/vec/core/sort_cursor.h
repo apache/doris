@@ -24,6 +24,7 @@
 
 #include "vec/columns/column.h"
 #include "vec/core/block.h"
+#include "vec/core/field.h"
 #include "vec/core/sort_description.h"
 #include "vec/exprs/vexpr_context.h"
 
@@ -174,6 +175,12 @@ struct MergeSortCursorImpl {
     virtual void process_next() {}
     virtual Block* block_ptr() { return nullptr; }
     virtual bool eof() const { return false; }
+
+    Field get_top_value() const {
+        Field field {PrimitiveType::TYPE_NULL};
+        sort_columns[0]->get(pos, field);
+        return field;
+    }
 };
 
 using BlockSupplier = std::function<Status(Block*, bool* eos)>;
@@ -287,6 +294,10 @@ struct MergeSortCursor {
 
     /// Inverted so that the priority queue elements are removed in ascending order.
     bool operator<(const MergeSortCursor& rhs) const { return greater(rhs); }
+
+    Field get_top_value() const {
+        return impl->get_top_value();
+    }
 };
 
 /// For easy copying.
@@ -423,8 +434,8 @@ public:
         }
     }
 
-    void push(MergeSortCursorImpl& cursor) {
-        _queue.emplace_back(&cursor);
+    void push(MergeSortCursor cursor) {
+        _queue.emplace_back(std::move(cursor));
         std::push_heap(_queue.begin(), _queue.end());
         next_child_idx = 0;
 

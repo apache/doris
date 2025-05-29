@@ -54,7 +54,7 @@ Status HeapSorter::append_block(Block* block) {
     DCHECK(block->rows() > 0);
     {
         SCOPED_TIMER(_materialize_timer);
-        if (_vsort_exec_exprs.need_materialize_tuple()) {
+        if (_materialize_sort_exprs) {
             auto output_tuple_expr_ctxs = _vsort_exec_exprs.sort_tuple_slot_expr_ctxs();
             std::vector<int> valid_column_ids(output_tuple_expr_ctxs.size());
             for (int i = 0; i < output_tuple_expr_ctxs.size(); ++i) {
