@@ -67,7 +67,7 @@ Status MetaScanner::open(RuntimeState* state) {
     if (_scan_range.meta_scan_range.metadata_type == TMetadataType::ICEBERG) {
         // TODO: refactor this code
         auto reader = IcebergMetadataJniReader::create_unique(
-                _tuple_desc->slots(), state, _profile, &_scan_range.meta_scan_range.iceberg_params);
+                _tuple_desc->slots(), state, _profile, _scan_range.meta_scan_range.iceberg_params);
         const std::unordered_map<std::string, ColumnValueRangeType> colname_to_value_range;
         RETURN_IF_ERROR(reader->init_reader(&colname_to_value_range));
         _reader = std::move(reader);

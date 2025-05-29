@@ -26,40 +26,8 @@ static const std::string HADOOP_OPTION_PREFIX = "hadoop.";
 
 IcebergMetadataJniReader::IcebergMetadataJniReader(
         const std::vector<SlotDescriptor*>& file_slot_descs, RuntimeState* state,
-        RuntimeProfile* profile, const TIcebergMetadataParams* range_params)
-        : JniReader(file_slot_descs, state, profile) {
-    std::vector<std::string> required_fields;
-    for (const auto& desc : _file_slot_descs) {
-        required_fields.emplace_back(desc->col_name());
-    }
-    std::map<std::string, std::string> params;
-    params["serialized_table"] = range_params->serialized_table;
-    params["serialized_split"] = range_params->serialized_split;
-    params["required_fields"] = join(required_fields, ",");
-    // TODO: set time_zone
-    for (const auto& kv : range_params->hadoop_props) {
-        params[HADOOP_OPTION_PREFIX + kv.first] = kv.second;
-    }
-
-    switch (range_params->iceberg_query_type) {
-    case TIcebergQueryType::HISTORY:
-        _jni_connector = std::make_unique<JniConnector>(
-                "org/apache/doris/iceberg/IcebergHistoryJniScanner", params, required_fields);
-        break;
-    case TIcebergQueryType::FILES:
-        _jni_connector = std::make_unique<JniConnector>(
-                "org/apache/doris/iceberg/IcebergFilesJniScanner", params, required_fields);
-        break;
-    case TIcebergQueryType::SNAPSHOTS:
-        _jni_connector = std::make_unique<JniConnector>(
-                "org/apache/doris/iceberg/IcebergSnapshotsJniScanner", params, required_fields);
-        break;
-        // TODO: more iceberg metadata tables
-    default:
-        // TODO: save error msg
-        break;
-    }
-}
+        RuntimeProfile* profile, const TIcebergMetadataParams& range_params)
+        : JniReader(file_slot_descs, state, profile), _range_params(range_params) {}
 
 Status IcebergMetadataJniReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
     return _jni_connector->get_next_block(block, read_rows, eof);
@@ -77,8 +45,55 @@ Status IcebergMetadataJniReader::get_columns(
 
 Status IcebergMetadataJniReader::init_reader(
         const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
+    std::vector<std::string> required_fields;
+    for (const auto& desc : _file_slot_descs) {
+        required_fields.emplace_back(desc->col_name());
+    }
+    std::map<std::string, std::string> params;
+    params["serialized_table"] = _range_params.serialized_table;
+    params["serialized_split"] = _range_params.serialized_split;
+    params["required_fields"] = join(required_fields, ",");
+    // TODO: set time_zone
+    for (const auto& kv : _range_params.hadoop_props) {
+        params[HADOOP_OPTION_PREFIX + kv.first] = kv.second;
+    }
+    std::string connector_class;
+    switch (_range_params.iceberg_query_type) {
+    case TIcebergQueryType::HISTORY:
+        connector_class = "org/apache/doris/iceberg/IcebergHistoryJniScanner";
+        break;
+    case TIcebergQueryType::METADATA_LOG_ENTRIES:
+        connector_class = "org/apache/doris/iceberg/IcebergMetadataLogEntriesJniScanner";
+        break;
+    case TIcebergQueryType::SNAPSHOTS:
+        connector_class = "org/apache/doris/iceberg/IcebergSnapshotsJniScanner";
+        break;
+    case TIcebergQueryType::ENTRIES:
+        connector_class = "org/apache/doris/iceberg/IcebergEntriesJniScanner";
+        break;
+    case TIcebergQueryType::FILES:
+        connector_class = "org/apache/doris/iceberg/IcebergFilesJniScanner";
+        break;
+    case TIcebergQueryType::MANIFESTS:
+        connector_class = "org/apache/doris/iceberg/IcebergManifestsJniScanner";
+        break;
+    case TIcebergQueryType::PARTITIONS:
+        connector_class = "org/apache/doris/iceberg/IcebergPartitionsJniScanner";
+        break;
+    case TIcebergQueryType::POSITION_DELETES:
+        connector_class = "org/apache/doris/iceberg/IcebergPositionDeletesJniScanner";
+        break;
+    case TIcebergQueryType::REFS:
+        connector_class = "org/apache/doris/iceberg/IcebergRefsJniScanner";
+        break;
+    default:
+        return Status::InternalError("Unsupported iceberg query type: {}",
+                                     _range_params.iceberg_query_type);
+    }
+    _jni_connector =
+            std::make_unique<JniConnector>(connector_class, std::move(params), required_fields);
     if (_jni_connector == nullptr) {
-        return Status::InternalError("JniConnector is not initialized");
+        return Status::InternalError("JniConnector failed to initialize");
     }
     RETURN_IF_ERROR(_jni_connector->init(colname_to_value_range));
     return _jni_connector->open(_state, _profile);

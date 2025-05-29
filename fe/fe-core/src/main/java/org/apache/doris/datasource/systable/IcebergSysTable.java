@@ -45,7 +45,8 @@ public class IcebergSysTable extends SysTable {
             new IcebergSysTable("files"),
             new IcebergSysTable("manifests"),
             new IcebergSysTable("partitions"),
-            new IcebergSysTable("position_deletes"));
+            new IcebergSysTable("position_deletes"),
+            new IcebergSysTable("refs"));
 
     private final String tableName;
 
