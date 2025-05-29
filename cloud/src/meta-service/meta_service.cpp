@@ -2210,7 +2210,8 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
             std::string end_key {key};
             encode_int64(INT64_MAX, &end_key);
             txn->remove(key, end_key);
-            LOG(INFO) << "xxx remove existing key before put, key=" << hex(key) << " tablet_id=" << tablet_id;
+            LOG(INFO) << "xxx remove existing key before put, key=" << hex(key)
+                      << " tablet_id=" << tablet_id;
         }
 #ifdef ENABLE_INJECTION_POINT
         if (config::enable_update_delete_bitmap_kv_check) {
