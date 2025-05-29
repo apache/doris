@@ -295,10 +295,13 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_
 
     // Process external table query task that select columns are all from path.
     if (_read_columns.empty()) {
-        RETURN_IF_ERROR(_read_empty_batch(batch_size, read_rows, batch_eof));
+        bool modify_row_ids = false;
+        RETURN_IF_ERROR(_read_empty_batch(batch_size, read_rows, batch_eof, &modify_row_ids));
         RETURN_IF_ERROR(
                 _fill_partition_columns(block, *read_rows, _lazy_read_ctx.partition_columns));
         RETURN_IF_ERROR(_fill_missing_columns(block, *read_rows, _lazy_read_ctx.missing_columns));
+
+        RETURN_IF_ERROR(_fill_row_id_columns(block, *read_rows, modify_row_ids));
 
         Status st = VExprContext::filter_block(_lazy_read_ctx.conjuncts, block, block->columns());
         *read_rows = block->rows();
@@ -314,6 +317,7 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_
         RETURN_IF_ERROR(
                 _fill_partition_columns(block, *read_rows, _lazy_read_ctx.partition_columns));
         RETURN_IF_ERROR(_fill_missing_columns(block, *read_rows, _lazy_read_ctx.missing_columns));
+        RETURN_IF_ERROR(_fill_row_id_columns(block, *read_rows, false));
 
         if (block->rows() == 0) {
             _convert_dict_cols_to_string_cols(block);
@@ -368,6 +372,10 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_
 
 void RowGroupReader::_merge_read_ranges(std::vector<RowRange>& row_ranges) {
     _read_ranges = row_ranges;
+    _remaining_rows = 0;
+    for (auto& range : row_ranges) {
+        _remaining_rows += range.last_row - range.first_row;
+    }
 }
 
 Status RowGroupReader::_read_column_data(Block* block, const std::vector<std::string>& columns,
@@ -456,6 +464,7 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
                                                 _lazy_read_ctx.predicate_partition_columns));
         RETURN_IF_ERROR(_fill_missing_columns(block, pre_read_rows,
                                               _lazy_read_ctx.predicate_missing_columns));
+        RETURN_IF_ERROR(_fill_row_id_columns(block, pre_read_rows, false));
 
         RETURN_IF_ERROR(_build_pos_delete_filter(pre_read_rows));
 
@@ -507,6 +516,11 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
                 }
                 for (auto& col : _lazy_read_ctx.predicate_missing_columns) {
                     block->get_by_name(col.first).column->assume_mutable()->clear();
+                }
+                if (_row_id_column_iterator_pair.first != nullptr) {
+                    block->get_by_position(_row_id_column_iterator_pair.second)
+                            .column->assume_mutable()
+                            ->clear();
                 }
                 Block::erase_useless_column(block, origin_column_num);
             }
@@ -700,17 +714,21 @@ Status RowGroupReader::_fill_missing_columns(
     return Status::OK();
 }
 
-Status RowGroupReader::_read_empty_batch(size_t batch_size, size_t* read_rows, bool* batch_eof) {
+Status RowGroupReader::_read_empty_batch(size_t batch_size, size_t* read_rows, bool* batch_eof,
+                                         bool* modify_row_ids) {
+    *modify_row_ids = false;
     if (_position_delete_ctx.has_filter) {
         int64_t start_row_id = _position_delete_ctx.current_row_id;
         int64_t end_row_id = std::min(_position_delete_ctx.current_row_id + (int64_t)batch_size,
                                       _position_delete_ctx.last_row_id);
         int64_t num_delete_rows = 0;
+        auto before_index = _position_delete_ctx.index;
         while (_position_delete_ctx.index < _position_delete_ctx.end_index) {
             const int64_t& delete_row_id =
                     _position_delete_ctx.delete_rows[_position_delete_ctx.index];
             if (delete_row_id < start_row_id) {
                 _position_delete_ctx.index++;
+                before_index = _position_delete_ctx.index;
             } else if (delete_row_id < end_row_id) {
                 num_delete_rows++;
                 _position_delete_ctx.index++;
@@ -721,6 +739,21 @@ Status RowGroupReader::_read_empty_batch(size_t batch_size, size_t* read_rows, b
         *read_rows = end_row_id - start_row_id - num_delete_rows;
         _position_delete_ctx.current_row_id = end_row_id;
         *batch_eof = _position_delete_ctx.current_row_id == _position_delete_ctx.last_row_id;
+
+        if (_row_id_column_iterator_pair.first != nullptr) {
+            *modify_row_ids = true;
+            _current_batch_row_ids.clear();
+            _current_batch_row_ids.resize(*read_rows);
+            size_t idx = 0;
+            for (auto id = start_row_id; id < end_row_id; id++) {
+                if (before_index < _position_delete_ctx.index &&
+                    id == _position_delete_ctx.delete_rows[before_index]) {
+                    before_index++;
+                    continue;
+                }
+                _current_batch_row_ids[idx++] = (rowid_t)id;
+            }
+        }
     } else {
         if (batch_size < _remaining_rows) {
             *read_rows = batch_size;
@@ -732,6 +765,47 @@ Status RowGroupReader::_read_empty_batch(size_t batch_size, size_t* read_rows, b
             *batch_eof = true;
         }
     }
+    _total_read_rows += *read_rows;
+    return Status::OK();
+}
+
+Status RowGroupReader::_get_current_batch_row_id(size_t read_rows) {
+    _current_batch_row_ids.clear();
+    _current_batch_row_ids.resize(read_rows);
+
+    int64_t idx = 0;
+    int64_t read_range_rows = 0;
+    for (auto& range : _read_ranges) {
+        if (read_rows == 0) {
+            break;
+        }
+        if (read_range_rows + (range.last_row - range.first_row) > _total_read_rows) {
+            auto fi = std::max(_total_read_rows - read_range_rows, 0L) + range.first_row;
+            auto len = std::min(read_rows, (size_t)std::max(range.last_row - fi, 0L));
+            read_rows -= len;
+
+            for (auto i = 0; i < len; i++) {
+                _current_batch_row_ids[idx++] =
+                        (rowid_t)(fi + i + _current_row_group_idx.first_row);
+            }
+        }
+        read_range_rows += range.last_row - range.first_row;
+    }
+    return Status::OK();
+}
+
+Status RowGroupReader::_fill_row_id_columns(Block* block, size_t read_rows,
+                                            bool is_current_row_ids) {
+    if (_row_id_column_iterator_pair.first != nullptr) {
+        if (!is_current_row_ids) {
+            RETURN_IF_ERROR(_get_current_batch_row_id(read_rows));
+        }
+        auto col = block->get_by_position(_row_id_column_iterator_pair.second)
+                           .column->assume_mutable();
+        RETURN_IF_ERROR(_row_id_column_iterator_pair.first->read_by_rowids(
+                _current_batch_row_ids.data(), _current_batch_row_ids.size(), col));
+    }
+
     return Status::OK();
 }
 

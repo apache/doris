@@ -44,6 +44,8 @@
 #include "exprs/hybrid_set.h"
 #include "io/fs/buffered_reader.h"
 #include "io/fs/file_reader.h"
+#include "olap/id_manager.h"
+#include "olap/utils.h"
 #include "orc/Exceptions.hh"
 #include "orc/Int128.hh"
 #include "orc/MemoryPool.hh"
@@ -1224,6 +1226,7 @@ Status OrcReader::set_fill_columns(
         }
         _row_reader = _reader->createRowReader(_row_reader_options, _orc_filter.get(),
                                                _string_dict_filter.get());
+
         _batch = _row_reader->createRowBatch(_batch_size);
         const auto& selected_type = _row_reader->getSelectedType();
         int idx = 0;
@@ -1346,6 +1349,20 @@ Status OrcReader::_fill_missing_columns(
             }
         }
     }
+    return Status::OK();
+}
+
+Status OrcReader::_fill_row_id_columns(Block* block) {
+    if (_row_id_column_iterator_pair.first != nullptr) {
+        RETURN_IF_ERROR(
+                _row_id_column_iterator_pair.first->seek_to_ordinal(_row_reader->getRowNumber()));
+        size_t fill_size = _batch->numElements;
+
+        auto col = block->get_by_position(_row_id_column_iterator_pair.second)
+                           .column->assume_mutable();
+        RETURN_IF_ERROR(_row_id_column_iterator_pair.first->next_batch(&fill_size, col));
+    }
+
     return Status::OK();
 }
 
@@ -1953,6 +1970,11 @@ Status OrcReader::get_next_block_impl(Block* block, size_t* read_rows, bool* eof
         return Status::OK();
     }
 
+    if (!_seek_to_read_one_line()) {
+        *eof = true;
+        return Status::OK();
+    }
+
     if (_lazy_read_ctx.can_lazy_read) {
         std::vector<uint32_t> columns_to_filter;
         int column_to_keep = block->columns();
@@ -2005,6 +2027,8 @@ Status OrcReader::get_next_block_impl(Block* block, size_t* read_rows, bool* eof
                                                 _lazy_read_ctx.partition_columns));
         RETURN_IF_ERROR(
                 _fill_missing_columns(block, _batch->numElements, _lazy_read_ctx.missing_columns));
+
+        RETURN_IF_ERROR(_fill_row_id_columns(block));
 
         if (block->rows() == 0) {
             RETURN_IF_ERROR(_convert_dict_cols_to_string_cols(block, nullptr));
@@ -2093,6 +2117,8 @@ Status OrcReader::get_next_block_impl(Block* block, size_t* read_rows, bool* eof
         RETURN_IF_ERROR(
                 _fill_missing_columns(block, _batch->numElements, _lazy_read_ctx.missing_columns));
 
+        RETURN_IF_ERROR(_fill_row_id_columns(block));
+
         if (block->rows() == 0) {
             RETURN_IF_ERROR(_convert_dict_cols_to_string_cols(block, nullptr));
             *eof = true;
@@ -2144,7 +2170,7 @@ Status OrcReader::get_next_block_impl(Block* block, size_t* read_rows, bool* eof
                     _execute_filter_position_delete_rowids(*_delete_rows_filter_ptr);
                     RETURN_IF_CATCH_EXCEPTION(Block::filter_block_internal(
                             block, columns_to_filter, (*_delete_rows_filter_ptr)));
-                } else {
+                } else if (_position_delete_ordered_rowids != nullptr) {
                     std::unique_ptr<IColumn::Filter> filter(new IColumn::Filter(block->rows(), 1));
                     _execute_filter_position_delete_rowids(*filter);
                     RETURN_IF_CATCH_EXCEPTION(
