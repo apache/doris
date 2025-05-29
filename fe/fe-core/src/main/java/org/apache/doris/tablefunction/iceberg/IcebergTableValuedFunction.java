@@ -98,10 +98,22 @@ public abstract class IcebergTableValuedFunction extends MetadataTableValuedFunc
         switch (queryType) {
             case HISTORY:
                 return new IcebergHistoryTableValuedFunction(icebergTableName);
-            case FILES:
-                return new IcebergFilesTableValuedFunction(icebergTableName);
+            case METADATA_LOG_ENTRIES:
+                return new IcebergMetadataLogEntriesTableValuedFunction(icebergTableName);
             case SNAPSHOTS:
                 return new IcebergSnapShotsTableValuedFunction(icebergTableName);
+            case ENTRIES:
+                return new IcebergEntriesTableValuedFunction(icebergTableName);
+            case FILES:
+                return new IcebergFilesTableValuedFunction(icebergTableName);
+            case MANIFESTS:
+                return new IcebergManifestsTableValuedFunction(icebergTableName);
+            case PARTITIONS:
+                return new IcebergPartitionsTableValuedFunction(icebergTableName);
+            case POSITION_DELETES:
+                return new IcebergPositionDeletesTableValuedFunction(icebergTableName);
+            case REFS:
+                return new IcebergRefsTableValuedFunction(icebergTableName);
             default:
                 throw new AnalysisException("Unsupported iceberg metadata query type: " + queryType);
         }
@@ -111,7 +123,7 @@ public abstract class IcebergTableValuedFunction extends MetadataTableValuedFunc
             throws AnalysisException {
         this.icebergTableName = icebergTableName;
         this.queryType = queryType;
-        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(icebergTableName.getCtl());
+        CatalogIf<?> catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(icebergTableName.getCtl());
         if (!(catalog instanceof ExternalCatalog)) {
             throw new AnalysisException("Catalog " + icebergTableName.getCtl() + " is not an external catalog");
         }
