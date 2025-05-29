@@ -748,10 +748,9 @@ enum TMetadataType {
 
 // https://iceberg.apache.org/docs/nightly/spark-queries/#inspecting-tables
 enum TIcebergQueryType {
-  UNKNOWN
+  SNAPSHOTS
   HISTORY
   METADATA_LOG_ENTRIES
-  SNAPSHOTS
   ENTRIES
   FILES
   MANIFESTS
