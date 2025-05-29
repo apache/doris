@@ -56,7 +56,7 @@ void VirtualColumnIterator::prepare_materialization(vectorized::IColumn::Ptr col
 
     // orders: [1,2,4,5,7,10]
     std::sort(order.begin(), order.end(), [&](size_t a, size_t b) { return a < b; });
-    LOG_INFO("Sorted order {}", fmt::join(order, ", "));
+    _max_ordinal = order[n - 1];
     // 2. scatter column
     auto scattered_column = column->clone_empty();
     // We need a mapping from global row id to local index in the materialized column.
@@ -101,8 +101,8 @@ Status VirtualColumnIterator::seek_to_ordinal(ordinal_t ord_idx) {
         return Status::OK();
     }
 
-    if (ord_idx >= _size) {
-        return Status::InternalError("Seek to ordinal out of range: {} out of {}", ord_idx, _size);
+    if (ord_idx >= _max_ordinal) {
+        return Status::InternalError("Seek to ordinal out of range: {} out of {}", ord_idx, _max_ordinal);
     }
 
     _current_ordinal = ord_idx;

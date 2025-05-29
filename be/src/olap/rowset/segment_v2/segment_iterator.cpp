@@ -662,6 +662,14 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
     }
 
     size_t pre_size = _row_bitmap.cardinality();
+    size_t rows_of_semgnet = _segment->num_rows();
+    if (pre_size < rows_of_semgnet * 0.3) {
+        LOG_INFO(
+                "Ann topn predicate input rows {} < 30% of segment rows {}, will not use ann index to "
+                "filter",
+                pre_size, rows_of_semgnet);
+        return Status::OK();
+    }
     size_t dst_col_idx = _ann_topn_descriptor->get_dest_column_idx();
     vectorized::IColumn::MutablePtr result_column;
     std::unique_ptr<std::vector<uint64_t>> result_row_ids;
