@@ -29,17 +29,19 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
-import org.apache.doris.common.util.FileFormatConstants;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
+import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
+import org.apache.doris.datasource.property.fileformat.JsonFileFormatProperties;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.task.LoadTaskInfo;
-import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TUniqueKeyUpdateMode;
 
 import com.google.common.base.Function;
 import com.google.common.base.Joiner;
@@ -51,7 +53,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.StringReader;
-import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -98,14 +99,13 @@ public class DataDescription implements InsertStmt.DataDesc {
             FunctionSet.HLL_HASH,
             "substitute");
 
+    private static final String DEFAULT_READ_JSON_BY_LINE = "true";
+
     private final String tableName;
 
     private String dbName;
     private final PartitionNames partitionNames;
     private final List<String> filePaths;
-    private final Separator columnSeparator;
-    private String fileFormat;
-    private TFileCompressType compressType = TFileCompressType.UNKNOWN;
     private boolean clientLocal = false;
     private final boolean isNegative;
     // column names in the path
@@ -121,18 +121,8 @@ public class DataDescription implements InsertStmt.DataDesc {
     private List<String> fileFieldNames;
     // Used for mini load
     private TNetworkAddress beAddr;
-    private Separator lineDelimiter;
     private String columnDef;
     private long backendId;
-    private boolean stripOuterArray = false;
-    private String jsonPaths = "";
-    private String jsonRoot = "";
-    private boolean fuzzyParse = false;
-    // the default must be true.
-    // So that for broker load, this is always true,
-    // and for stream load, it will set on demand.
-    private boolean readJsonByLine = true;
-    private boolean numAsString = false;
 
     private String sequenceCol;
 
@@ -152,17 +142,19 @@ public class DataDescription implements InsertStmt.DataDesc {
     private final LoadTask.MergeType mergeType;
     private final Expr deleteCondition;
     private final Map<String, String> properties;
-    private boolean trimDoubleQuotes = false;
     private boolean isMysqlLoad = false;
-    private int skipLines = 0;
     // use for copy into
     private boolean ignoreCsvRedundantCol = false;
 
     private boolean isAnalyzed = false;
 
-    private byte enclose = 0;
+    TUniqueKeyUpdateMode uniquekeyUpdateMode = TUniqueKeyUpdateMode.UPSERT;
 
-    private byte escape = 0;
+    private FileFormatProperties fileFormatProperties;
+
+    // This map is used to collect information of file format properties.
+    // The map should be only used in `constructor` and `analyzeWithoutCheckPriv` method.
+    private Map<String, String> analysisMap = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
 
     public DataDescription(String tableName,
                            PartitionNames partitionNames,
@@ -217,10 +209,6 @@ public class DataDescription implements InsertStmt.DataDesc {
         this.partitionNames = partitionNames;
         this.filePaths = filePaths;
         this.fileFieldNames = columns;
-        this.columnSeparator = columnSeparator;
-        this.lineDelimiter = lineDelimiter;
-        this.fileFormat = fileFormat;
-        this.compressType = Util.getFileCompressType(compressType);
         this.columnsFromPath = columnsFromPath;
         this.isNegative = isNegative;
         this.columnMappingList = columnMappingList;
@@ -231,6 +219,22 @@ public class DataDescription implements InsertStmt.DataDesc {
         this.deleteCondition = deleteCondition;
         this.sequenceCol = sequenceColName;
         this.properties = properties;
+        if (properties != null) {
+            this.analysisMap.putAll(properties);
+        }
+        // the default value of `read_json_by_line` must be true.
+        // So that for broker load, this is always true,
+        // and for stream load, it will set on demand.
+        putAnalysisMapIfNonNull(JsonFileFormatProperties.PROP_READ_JSON_BY_LINE, DEFAULT_READ_JSON_BY_LINE);
+        if (columnSeparator != null) {
+            putAnalysisMapIfNonNull(CsvFileFormatProperties.PROP_COLUMN_SEPARATOR, columnSeparator.getOriSeparator());
+        }
+        if (lineDelimiter != null) {
+            putAnalysisMapIfNonNull(CsvFileFormatProperties.PROP_LINE_DELIMITER, lineDelimiter.getOriSeparator());
+        }
+        putAnalysisMapIfNonNull(FileFormatProperties.PROP_FORMAT, fileFormat);
+        putAnalysisMapIfNonNull(FileFormatProperties.PROP_COMPRESS_TYPE, compressType);
+
         columnsNameToLowerCase(fileFieldNames);
         columnsNameToLowerCase(columnsFromPath);
     }
@@ -249,8 +253,6 @@ public class DataDescription implements InsertStmt.DataDesc {
         this.partitionNames = partitionNames;
         this.filePaths = null;
         this.fileFieldNames = null;
-        this.columnSeparator = null;
-        this.fileFormat = null;
         this.columnsFromPath = null;
         this.isNegative = isNegative;
         this.columnMappingList = columnMappingList;
@@ -260,6 +262,13 @@ public class DataDescription implements InsertStmt.DataDesc {
         this.mergeType = mergeType;
         this.deleteCondition = deleteCondition;
         this.properties = properties;
+        if (properties != null) {
+            this.analysisMap.putAll(properties);
+        }
+        // the default value of `read_json_by_line` must be true.
+        // So that for broker load, this is always true,
+        // and for stream load, it will set on demand.
+        putAnalysisMapIfNonNull(JsonFileFormatProperties.PROP_READ_JSON_BY_LINE, DEFAULT_READ_JSON_BY_LINE);
     }
 
     // data desc for mysql client
@@ -279,10 +288,6 @@ public class DataDescription implements InsertStmt.DataDesc {
         this.filePaths = Lists.newArrayList(file);
         this.clientLocal = clientLocal;
         this.fileFieldNames = columns;
-        this.columnSeparator = columnSeparator;
-        this.lineDelimiter = lineDelimiter;
-        this.skipLines = skipLines;
-        this.fileFormat = null;
         this.columnsFromPath = null;
         this.isNegative = false;
         this.columnMappingList = columnMappingList;
@@ -292,6 +297,20 @@ public class DataDescription implements InsertStmt.DataDesc {
         this.mergeType = null;
         this.deleteCondition = null;
         this.properties = properties;
+        if (properties != null) {
+            this.analysisMap.putAll(properties);
+        }
+        // the default value of `read_json_by_line` must be true.
+        // So that for broker load, this is always true,
+        // and for stream load, it will set on demand.
+        putAnalysisMapIfNonNull(JsonFileFormatProperties.PROP_READ_JSON_BY_LINE, DEFAULT_READ_JSON_BY_LINE);
+        if (columnSeparator != null) {
+            putAnalysisMapIfNonNull(CsvFileFormatProperties.PROP_COLUMN_SEPARATOR, columnSeparator.getOriSeparator());
+        }
+        if (lineDelimiter != null) {
+            putAnalysisMapIfNonNull(CsvFileFormatProperties.PROP_LINE_DELIMITER, lineDelimiter.getOriSeparator());
+        }
+        putAnalysisMapIfNonNull(CsvFileFormatProperties.PROP_SKIP_LINES, String.valueOf(skipLines));
         this.isMysqlLoad = true;
         columnsNameToLowerCase(fileFieldNames);
     }
@@ -309,11 +328,6 @@ public class DataDescription implements InsertStmt.DataDesc {
         }
 
         this.fileFieldNames = taskInfo.getColumnExprDescs().getFileColNames();
-        this.columnSeparator = taskInfo.getColumnSeparator();
-        this.lineDelimiter = taskInfo.getLineDelimiter();
-        this.enclose = taskInfo.getEnclose();
-        this.escape = taskInfo.getEscape();
-        getFileFormatAndCompressType(taskInfo);
         this.columnsFromPath = null;
         this.isNegative = taskInfo.getNegative();
         this.columnMappingList = taskInfo.getColumnExprDescs().getColumnMappingList();
@@ -323,54 +337,77 @@ public class DataDescription implements InsertStmt.DataDesc {
         this.mergeType = taskInfo.getMergeType();
         this.deleteCondition = taskInfo.getDeleteCondition();
         this.sequenceCol = taskInfo.getSequenceCol();
-        this.stripOuterArray = taskInfo.isStripOuterArray();
-        this.jsonPaths = taskInfo.getJsonPaths();
-        this.jsonRoot = taskInfo.getJsonRoot();
-        this.fuzzyParse = taskInfo.isFuzzyParse();
-        this.readJsonByLine = taskInfo.isReadJsonByLine();
-        this.numAsString = taskInfo.isNumAsString();
+
         this.properties = Maps.newHashMap();
-        this.trimDoubleQuotes = taskInfo.getTrimDoubleQuotes();
-        this.skipLines = taskInfo.getSkipLines();
+        if (properties != null) {
+            this.analysisMap.putAll(properties);
+        }
+        putAnalysisMapIfNonNull(FileFormatProperties.PROP_FORMAT, getFileFormat(taskInfo));
+        if (taskInfo.getCompressType() != null) {
+            putAnalysisMapIfNonNull(FileFormatProperties.PROP_COMPRESS_TYPE, taskInfo.getCompressType().toString());
+        }
+        if (taskInfo.getColumnSeparator() != null) {
+            putAnalysisMapIfNonNull(CsvFileFormatProperties.PROP_COLUMN_SEPARATOR,
+                    taskInfo.getColumnSeparator().getOriSeparator());
+        }
+        if (taskInfo.getLineDelimiter() != null) {
+            putAnalysisMapIfNonNull(CsvFileFormatProperties.PROP_LINE_DELIMITER,
+                    taskInfo.getLineDelimiter().getOriSeparator());
+        }
+        putAnalysisMapIfNonNull(CsvFileFormatProperties.PROP_ENCLOSE, new String(new byte[]{taskInfo.getEnclose()}));
+        putAnalysisMapIfNonNull(CsvFileFormatProperties.PROP_ESCAPE, new String(new byte[]{taskInfo.getEscape()}));
+        putAnalysisMapIfNonNull(CsvFileFormatProperties.PROP_TRIM_DOUBLE_QUOTES,
+                String.valueOf(taskInfo.getTrimDoubleQuotes()));
+        putAnalysisMapIfNonNull(CsvFileFormatProperties.PROP_SKIP_LINES,
+                String.valueOf(taskInfo.getSkipLines()));
+
+        putAnalysisMapIfNonNull(JsonFileFormatProperties.PROP_STRIP_OUTER_ARRAY,
+                String.valueOf(taskInfo.isStripOuterArray()));
+        putAnalysisMapIfNonNull(JsonFileFormatProperties.PROP_JSON_PATHS, taskInfo.getJsonPaths());
+        putAnalysisMapIfNonNull(JsonFileFormatProperties.PROP_JSON_ROOT, taskInfo.getJsonRoot());
+        putAnalysisMapIfNonNull(JsonFileFormatProperties.PROP_FUZZY_PARSE, String.valueOf(taskInfo.isFuzzyParse()));
+        putAnalysisMapIfNonNull(JsonFileFormatProperties.PROP_READ_JSON_BY_LINE,
+                String.valueOf(taskInfo.isReadJsonByLine()));
+        putAnalysisMapIfNonNull(JsonFileFormatProperties.PROP_NUM_AS_STRING, String.valueOf(taskInfo.isNumAsString()));
+
+        this.uniquekeyUpdateMode = taskInfo.getUniqueKeyUpdateMode();
         columnsNameToLowerCase(fileFieldNames);
     }
 
-    private void getFileFormatAndCompressType(LoadTaskInfo taskInfo) {
+    private void putAnalysisMapIfNonNull(String key, String value) {
+        if (value != null) {
+            this.analysisMap.put(key, value);
+        }
+    }
+
+    private String getFileFormat(LoadTaskInfo taskInfo) {
         // get file format
         if (!Strings.isNullOrEmpty(taskInfo.getHeaderType())) {
             // for "csv_with_name" and "csv_with_name_and_type"
-            this.fileFormat = taskInfo.getHeaderType();
+            return taskInfo.getHeaderType();
         } else {
             TFileFormatType type = taskInfo.getFormatType();
             if (Util.isCsvFormat(type)) {
                 // ignore the "compress type" in format, such as FORMAT_CSV_GZ
                 // the compress type is saved in "compressType"
-                this.fileFormat = "csv";
+                return "csv";
             } else {
                 switch (type) {
                     case FORMAT_ORC:
-                        this.fileFormat = "orc";
-                        break;
+                        return "orc";
                     case FORMAT_PARQUET:
-                        this.fileFormat = "parquet";
-                        break;
+                        return "parquet";
                     case FORMAT_JSON:
-                        this.fileFormat = "json";
-                        break;
+                        return "json";
                     case FORMAT_WAL:
-                        this.fileFormat = "wal";
-                        break;
+                        return "wal";
                     case FORMAT_ARROW:
-                        this.fileFormat = "arrow";
-                        break;
+                        return "arrow";
                     default:
-                        this.fileFormat = "unknown";
-                        break;
+                        return "unknown";
                 }
             }
         }
-        // get compress type
-        this.compressType = taskInfo.getCompressType();
     }
 
     public static void validateMappingFunction(String functionName, List<String> args,
@@ -841,7 +878,10 @@ public class DataDescription implements InsertStmt.DataDesc {
                         + "The mapping operator error, op: " + predicate.getOp());
             }
             Expr child0 = predicate.getChild(0);
-            if (!(child0 instanceof SlotRef)) {
+            if (child0 instanceof CastExpr && child0.getChild(0) instanceof SlotRef) {
+                predicate.setChild(0, child0.getChild(0));
+                child0 = predicate.getChild(0);
+            } else if (!(child0 instanceof SlotRef)) {
                 throw new AnalysisException("Mapping function expr only support the column or eq binary predicate. "
                         + "The mapping column error. column: " + child0.toSql());
             }
@@ -941,6 +981,9 @@ public class DataDescription implements InsertStmt.DataDesc {
         }
         // check olapTable schema and sequenceCol
         if (olapTable.hasSequenceCol() && !hasSequenceCol()) {
+            if (uniquekeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS) {
+                return;
+            }
             throw new AnalysisException("Table " + olapTable.getName()
                     + " has sequence column, need to specify the sequence column");
         }
