@@ -22,6 +22,7 @@
 #include "pipeline/exec/operator.h"
 #include "runtime/query_context.h"
 #include "vec/common/sort/heap_sorter.h"
+#include "vec/common/sort/heap_sorterv2.h"
 #include "vec/common/sort/topn_sorter.h"
 
 namespace doris::pipeline {
@@ -47,7 +48,7 @@ Status SortSinkLocalState::open(RuntimeState* state) {
     RETURN_IF_ERROR(p._vsort_exec_exprs.clone(state, _vsort_exec_exprs));
     switch (p._algorithm) {
     case TSortAlgorithm::HEAP_SORT: {
-        _shared_state->sorter = vectorized::HeapSorter::create_shared(
+        _shared_state->sorter = vectorized::HeapSorterV2::create_shared(
                 _vsort_exec_exprs, p._limit, p._offset, p._pool, p._is_asc_order, p._nulls_first,
                 p._child->row_desc());
         break;
