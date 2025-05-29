@@ -1024,6 +1024,13 @@ static bool check_transaction_status(TxnStatusPB expect_status, Transaction* txn
 
     DCHECK(index_pb.has_tablet_index() == true);
     DCHECK(index_pb.tablet_index().has_db_id() == true);
+    if (!index_pb.has_tablet_index() || !index_pb.tablet_index().has_db_id()) {
+        LOG(WARNING) << fmt::format(
+                "txn_index_pb is malformed, tablet_index has no db_id, txn_id={}", txn_id);
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = fmt::format("has no db_id in TxnIndexPB, txn_id={}", txn_id);
+        return false;
+    }
     auto db_id = index_pb.tablet_index().db_id();
     txn_id = index_pb.has_parent_txn_id() ? index_pb.parent_txn_id() : txn_id;
 
@@ -1097,7 +1104,7 @@ void MetaServiceImpl::prepare_rowset(::google::protobuf::RpcController* controll
     // In this case, do not write the recycle key again, otherwise it may cause data loss.
     // If the rowset had load id, it means it is a load request, otherwise it is a
     // compaction/sc request.
-    if (rowset_meta.has_load_id() &&
+    if (config::enable_load_txn_status_check && rowset_meta.has_load_id() &&
         !check_transaction_status(TxnStatusPB::TXN_STATUS_PREPARED, txn.get(), instance_id,
                                   rowset_meta.txn_id(), code, msg)) {
         LOG(WARNING) << "prepare rowset failed, txn_id=" << rowset_meta.txn_id()
@@ -1234,7 +1241,7 @@ void MetaServiceImpl::commit_rowset(::google::protobuf::RpcController* controlle
     // In this case, do not write the recycle key again, otherwise it may cause data loss.
     // If the rowset has load id, it means it is a load request, otherwise it is a
     // compaction/sc request.
-    if (rowset_meta.has_load_id() &&
+    if (config::enable_load_txn_status_check && rowset_meta.has_load_id() &&
         !check_transaction_status(TxnStatusPB::TXN_STATUS_PREPARED, txn.get(), instance_id,
                                   rowset_meta.txn_id(), code, msg)) {
         LOG(WARNING) << "commit rowset failed, txn_id=" << rowset_meta.txn_id()
