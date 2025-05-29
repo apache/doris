@@ -56,24 +56,9 @@ suite("test_array_agg", "p0") {
        select array_join(a, ',', 'replaced'), array_join(s, ',', 'replaced') from ${tableName} order by id;
    """
 
-    try {
-        sql """ select array_sum(s) from ${tableName} order by id; """
-    } catch (Exception e) {
-        logger.info("error: " + e.getMessage())
-        assertTrue(e.getMessage().contains("array_sum(s) does not support type: TEXT"))
-    }
+    qt_sql """ select array_sum(s) from ${tableName} order by id; """
 
-    try {
-        sql """ select array_avg(s) from ${tableName} order by id; """
-    } catch (Exception e) {
-        logger.info("error: " + e.getMessage())
-        assertTrue(e.getMessage().contains("array_avg(s) does not support type: TEXT"))
-    }
+    qt_sql """ select array_avg(s) from ${tableName} order by id; """
 
-    try {
-        sql """ select array_product(s) from ${tableName} order by id; """
-    } catch (Exception e) {
-        logger.info("error: " + e.getMessage())
-        assertTrue(e.getMessage().contains("array_product(s) does not support type: TEXT"))
-    }
+    qt_sql """ select array_product(s) from ${tableName} order by id; """
 }

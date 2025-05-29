@@ -21,19 +21,8 @@ suite("function_type_coercion") {
     qt_greatest """select greatest(1, 2222, '333')"""
     qt_least """select least(5,2000000,'3.0023')"""
     qt_if """select if (1, 2222, 33)"""
-    try {
-        sql  """select array_product(array(1, 2, '3000'))"""
-    } catch (Exception e) {
-        log.info("array_product error: " + e.getMessage())
-        assertTrue(e.getMessage().contains("array_product(array(cast(1 as TEXT), cast(2 as TEXT), '3000')) does not support type: TEXT"))
-    }
-    try {
-        sql """select array_avg(array(1, 2, '3000'))"""
-    } catch (Exception e) {
-        log.info("array_avg error: " + e.getMessage())
-        assertTrue(e.getMessage().contains("array_avg(array(cast(1 as TEXT), cast(2 as TEXT), '3000')) does not support type: TEXT"))
-    }
-   
+    qt_array_product """select array_product(array(1, 2, '3000'))"""
+    qt_array_avg """select array_avg(array(1, 2, '3000'))"""
     qt_array_pushfront """select array_pushfront(array(1,2,3,555555), '4444')"""
     qt_array_pushback """select array_pushback(array(1,2,3,555555), '4444')"""
     qt_array_difference """select array_difference(array(1,2,'200'))"""

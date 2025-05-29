@@ -38,6 +38,11 @@ suite("test_variant_array_function", "p0") {
     sql """
     insert into ${tableName} values
     (1, '{"a":[1, 2,3],"b": ["a", "b", "c"], "c": [1.1, 2.2, 3.3]}')
+    """
+
+    sql """
+    insert into ${tableName} values
+    (2, '{"a":[1, 2,3],"b": ["1", "2", "3"], "c": [1.1, 2.2, 3.3]}')
    """
 
 
@@ -61,24 +66,9 @@ suite("test_variant_array_function", "p0") {
         select array_product(cast(var['a'] as array<int>)), array_product(cast(var['c'] as array<double>)) from ${tableName} order by id;
     """
 
-    try {
-        sql """ select array_sum(cast(var['b'] as array<string>)) from ${tableName} order by id; """
-    } catch (Exception e) {
-        logger.info("error: " + e.getMessage())
-        assertTrue(e.getMessage().contains("array_sum(cast(element_at(var, 'b') as ARRAY<TEXT>)) does not support type: TEXT"))
-    }
+    qt_sql """ select array_sum(cast(var['b'] as array<string>)) from ${tableName} order by id; """
 
-     try {
-        sql """ select array_avg(cast(var['b'] as array<string>)) from ${tableName} order by id; """
-    } catch (Exception e) {
-        logger.info("error: " + e.getMessage())
-        assertTrue(e.getMessage().contains("array_avg(cast(element_at(var, 'b') as ARRAY<TEXT>)) does not support type: TEXT"))
-    }
+    qt_sql """ select array_avg(cast(var['b'] as array<string>)) from ${tableName} order by id; """
 
-    try {
-        sql """ select array_product(cast(var['b'] as array<string>)) from ${tableName} order by id; """
-    } catch (Exception e) {
-        logger.info("error: " + e.getMessage())
-        assertTrue(e.getMessage().contains("array_product(cast(element_at(var, 'b') as ARRAY<TEXT>)) does not support type: TEXT"))
-    }
+    qt_sql """ select array_product(cast(var['b'] as array<string>)) from ${tableName} order by id; """
 }

@@ -101,8 +101,7 @@ public class ArrayAvg extends ScalarFunction implements ExplicitlyCastableSignat
     @Override
     public void checkLegalityBeforeTypeCoercion() {
         DataType argType = child().getDataType();
-        if (((ArrayType) argType).getItemType().isComplexType()
-                                        || ((ArrayType) argType).getItemType().isStringType()) {
+        if (((ArrayType) argType).getItemType().isComplexType()) {
             throw new AnalysisException(toSql() + " does not support type: "
                                                 + ((ArrayType) argType).getItemType().toString());
         }
