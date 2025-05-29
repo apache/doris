@@ -28,6 +28,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
@@ -49,6 +50,7 @@ import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.service.FrontendOptions;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.Sets;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -59,10 +61,19 @@ import java.nio.charset.Charset;
 import java.nio.charset.CharsetDecoder;
 import java.nio.charset.CodingErrorAction;
 import java.util.List;
+import java.util.Set;
 
 public class AuditLogHelper {
 
     private static final Logger LOG = LogManager.getLogger(AuditLogHelper.class);
+    private static final Set<String> LOG_PLAN_INFO_TYPES = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
+
+    static {
+        LOG_PLAN_INFO_TYPES.add("SELECT");
+        LOG_PLAN_INFO_TYPES.add("INSERT");
+        LOG_PLAN_INFO_TYPES.add("UPDATE");
+        LOG_PLAN_INFO_TYPES.add("DELETE");
+    }
 
     /**
      * Add a new method to wrap original logAuditLog to catch all exceptions. Because write audit
@@ -186,6 +197,7 @@ public class AuditLogHelper {
             LOG.warn("Failed to get cloud cluster", e);
         }
         String cluster = Config.isCloudMode() ? cloudCluster : "";
+        String stmtType = getStmtType(parsedStmt);
 
         AuditEventBuilder auditEventBuilder = ctx.getAuditEventBuilder();
         // ATTN: MUST reset, otherwise, the same AuditEventBuilder instance will be used in the next query.
@@ -217,7 +229,39 @@ public class AuditLogHelper {
                 .setCloudCluster(Strings.isNullOrEmpty(cluster) ? "UNKNOWN" : cluster)
                 .setWorkloadGroup(ctx.getWorkloadGroupName())
                 .setFuzzyVariables(!printFuzzyVariables ? "" : ctx.getSessionVariable().printFuzzyVariables())
-                .setCommandType(ctx.getCommand().toString());
+                .setCommandType(ctx.getCommand().toString())
+                .setIsNereids(ctx.getState().isNereids)
+                .setFeIp(FrontendOptions.getLocalHostAddress())
+                .setStmtType(stmtType);
+
+        if (ctx.getExecutor() != null && LOG_PLAN_INFO_TYPES.contains(stmtType)) {
+            SummaryProfile summaryProfile = ctx.getExecutor().getSummaryProfile();
+            // parse time
+            auditEventBuilder.setParseTimeMs(summaryProfile.getParseSqlTimeMs());
+            // plan time
+            String planTimesMs = "{"
+                    + "\"plan\"" + ":" + summaryProfile.getPlanTimeMs() + ","
+                    + "\"garbage_collect\"" + ":" + summaryProfile.getNereidsGarbageCollectionTimeMs() + ","
+                    + "\"lock_tables\"" + ":" + summaryProfile.getNereidsLockTableTimeMs() + ","
+                    + "\"analyze\"" + ":" + summaryProfile.getNereidsAnalysisTimeMs() + ","
+                    + "\"rewrite\"" + ":" + summaryProfile.getNereidsRewriteTimeMs() + ","
+                    + "\"fold_const_by_be\"" + ":" + summaryProfile.getNereidsBeFoldConstTimeMs() + ","
+                    + "\"collect_partitions\"" + ":" + summaryProfile.getNereidsCollectTablePartitionTimeMs() + ","
+                    + "\"optimize\"" + ":" + summaryProfile.getNereidsOptimizeTimeMs() + ","
+                    + "\"translate\"" + ":" + summaryProfile.getNereidsTranslateTimeMs() + ","
+                    + "\"init_scan_node\"" + ":" + summaryProfile.getInitScanNodeTimeMs() + ","
+                    + "\"finalize_scan_node\"" + ":" + summaryProfile.getFinalizeScanNodeTimeMs() + ","
+                    + "\"create_scan_range\"" + ":" + summaryProfile.getCreateScanRangeTimeMs() + ","
+                    + "\"distribute\"" + ":" + summaryProfile.getNereidsDistributeTimeMs()
+                    + "}";
+            auditEventBuilder.setPlanTimesMs(planTimesMs);
+            // get meta time
+            // schedule time
+            // is cache
+            auditEventBuilder.setHitSqlCache(ctx.getExecutor().isCached());
+            // is handled in FE
+            auditEventBuilder.setHandledInFe(ctx.getExecutor().isHandleQueryInFe());
+        }
 
         if (ctx.getState().isQuery()) {
             if (MetricRepo.isInit) {
@@ -266,9 +310,6 @@ public class AuditLogHelper {
         } else {
             auditEventBuilder.setIsQuery(false);
         }
-        auditEventBuilder.setIsNereids(ctx.getState().isNereids);
-
-        auditEventBuilder.setFeIp(FrontendOptions.getLocalHostAddress());
 
         boolean isAnalysisErr = ctx.getState().getStateType() == MysqlStateType.ERR
                 && ctx.getState().getErrType() == QueryState.ErrType.ANALYSIS_ERR;
@@ -285,7 +326,6 @@ public class AuditLogHelper {
             }
         }
         auditEventBuilder.setStmt(handleStmt(encryptSql, parsedStmt));
-        auditEventBuilder.setStmtType(getStmtType(parsedStmt));
 
         if (!Env.getCurrentEnv().isMaster()) {
             if (ctx.executor != null && ctx.executor.isForwardToMaster()) {

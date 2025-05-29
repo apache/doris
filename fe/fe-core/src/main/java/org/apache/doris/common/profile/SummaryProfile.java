@@ -778,6 +778,70 @@ public class SummaryProfile {
         }
     }
 
+    public int getParseSqlTimeMs() {
+        return getTimeMs(parseSqlFinishTime, parseSqlStartTime);
+    }
+
+    public int getPlanTimeMs() {
+        return getTimeMs(queryPlanFinishTime, parseSqlFinishTime);
+    }
+
+    public int getNereidsLockTableTimeMs() {
+        return getTimeMs(nereidsLockTableFinishTime, parseSqlFinishTime);
+    }
+
+    public int getNereidsAnalysisTimeMs() {
+        return getTimeMs(nereidsAnalysisFinishTime, nereidsLockTableFinishTime);
+    }
+
+    public int getNereidsRewriteTimeMs() {
+        return getTimeMs(nereidsRewriteFinishTime, nereidsAnalysisFinishTime);
+    }
+
+    public int getNereidsCollectTablePartitionTimeMs() {
+        return getTimeMs(nereidsCollectTablePartitionFinishTime, nereidsRewriteFinishTime);
+    }
+
+    public int getNereidsOptimizeTimeMs() {
+        return getTimeMs(nereidsOptimizeFinishTime, nereidsCollectTablePartitionFinishTime);
+    }
+
+    public int getNereidsTranslateTimeMs() {
+        return getTimeMs(nereidsTranslateFinishTime, nereidsOptimizeFinishTime);
+    }
+
+    public int getNereidsGarbageCollectionTimeMs() {
+        return (int) (nereidsGarbageCollectionTime);
+    }
+
+    public int getNereidsBeFoldConstTimeMs() {
+        return (int) (nereidsBeFoldConstTime);
+    }
+
+    public int getNereidsDistributeTimeMs() {
+        return getTimeMs(nereidsDistributeFinishTime, nereidsTranslateFinishTime);
+    }
+
+    public int getInitScanNodeTimeMs() {
+        return getTimeMs(initScanNodeFinishTime, initScanNodeStartTime);
+    }
+
+    public int getFinalizeScanNodeTimeMs() {
+        return getTimeMs(finalizeScanNodeFinishTime, finalizeScanNodeStartTime);
+    }
+
+    public int getCreateScanRangeTimeMs() {
+        return getTimeMs(createScanRangeFinishTime, getSplitsFinishTime);
+    }
+
+    public int getTimeMs(long end, long start) {
+        if (end == -1 || start == -1) {
+            return -1;
+        } else {
+            return (int) (end - start);
+        }
+    }
+
     public String getPrettyParseSqlTime() {
         return getPrettyTime(parseSqlFinishTime, parseSqlStartTime, TUnit.TIME_MS);
     }
