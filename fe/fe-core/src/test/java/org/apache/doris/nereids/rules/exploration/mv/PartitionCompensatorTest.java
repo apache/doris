@@ -95,8 +95,7 @@ public class PartitionCompensatorTest extends TestWithFeService {
 
         // Should not make scan to empty relation when the table used by materialized view has no data
         connectContext.getSessionVariable().setDisableNereidsRules(
-                "OLAP_SCAN_PARTITION_PRUNE,PRUNE_EMPTY_PARTITION,ELIMINATE_GROUP_BY_KEY_BY_UNIFORM,"
-                        + "ELIMINATE_CONST_JOIN_CONDITION");
+                "OLAP_SCAN_PARTITION_PRUNE,PRUNE_EMPTY_PARTITION,ELIMINATE_GROUP_BY_KEY_BY_UNIFORM");
     }
 
     // Test when join both side are all partition table and partition column name is same
