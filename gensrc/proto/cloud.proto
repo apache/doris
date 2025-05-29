@@ -189,6 +189,7 @@ message ObjectStoreInfoPB {
         BOS     = 4;
         GCP     = 5;
         AZURE   = 6;
+        TOS     = 7;
     }
     optional int64 ctime = 1;
     optional int64 mtime = 2;

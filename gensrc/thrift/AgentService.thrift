@@ -74,7 +74,8 @@ enum TObjStorageType {
     COS = 4,
     OBS = 5,
     OSS = 6,
-    GCP = 7
+    GCP = 7,
+    TOS = 8
 }
 
 enum TCredProviderType {
