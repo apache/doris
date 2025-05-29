@@ -314,6 +314,11 @@ public class DatabaseTransactionMgr {
             long listenerId, long timeoutSecond)
             throws DuplicatedRequestException, LabelAlreadyUsedException, BeginTransactionException,
             AnalysisException, QuotaExceedException, MetaNotFoundException {
+
+        if (!Env.getCurrentEnv().isMaster()) {
+            throw new BeginTransactionException("FE is not master");
+        }
+
         Database db = env.getInternalCatalog().getDbOrMetaException(dbId);
         if (!coordinator.isFromInternal) {
             InternalDatabaseUtil.checkDatabase(db.getFullName(), ConnectContext.get());
