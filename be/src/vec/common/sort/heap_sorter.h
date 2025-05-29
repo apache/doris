@@ -99,8 +99,6 @@ public:
 
     Field get_top_value() override;
 
-    static constexpr size_t HEAP_SORT_THRESHOLD = 1024;
-
 private:
     void _do_filter(HeapSortCursorBlockView& block_view, size_t num_rows);
 

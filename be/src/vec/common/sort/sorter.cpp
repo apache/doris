@@ -209,7 +209,7 @@ FullSorter::FullSorter(VSortExecExprs& vsort_exec_exprs, int64_t limit, int64_t 
                        std::vector<bool>& nulls_first, const RowDescriptor& row_desc,
                        RuntimeState* state, RuntimeProfile* profile)
         : Sorter(vsort_exec_exprs, limit, offset, pool, is_asc_order, nulls_first),
-          _state(MergeSorterState::create_unique(row_desc, offset, limit, state, profile)) {}
+          _state(MergeSorterState::create_unique(row_desc, offset)) {}
 
 // check whether the unsorted block can hold more data from input block and no need to alloc new memory
 bool FullSorter::has_enough_capacity(Block* input_block, Block* unsorted_block) const {
