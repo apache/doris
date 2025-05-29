@@ -139,8 +139,8 @@ public class HiveMetaStoreCache {
 
         CacheFactory partitionValuesCacheFactory = new CacheFactory(
                 OptionalLong.of(partitionCacheTtlSecond >= ExternalCatalog.CACHE_TTL_DISABLE_CACHE
-                        ? partitionCacheTtlSecond : 28800L),
-                OptionalLong.of(Config.external_cache_expire_time_minutes_after_access * 60L),
+                        ? partitionCacheTtlSecond : Config.external_cache_expire_time_seconds_after_access),
+                OptionalLong.of(Config.external_cache_refresh_time_minutes * 60L),
                 Config.max_hive_partition_table_cache_num,
                 true,
                 null);
@@ -181,7 +181,7 @@ public class HiveMetaStoreCache {
 
         CacheFactory fileCacheFactory = new CacheFactory(
                 OptionalLong.of(fileMetaCacheTtlSecond >= ExternalCatalog.CACHE_TTL_DISABLE_CACHE
-                        ? fileMetaCacheTtlSecond : 28800L),
+                        ? fileMetaCacheTtlSecond : Config.external_cache_expire_time_seconds_after_access),
                 OptionalLong.of(Config.external_cache_refresh_time_minutes * 60L),
                 Config.max_external_file_cache_num,
                 true,
