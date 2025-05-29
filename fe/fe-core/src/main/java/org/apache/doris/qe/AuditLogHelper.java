@@ -100,7 +100,7 @@ public class AuditLogHelper {
         // 2. handle other statement
         int maxLen = GlobalVariable.auditPluginMaxSqlLength;
         if (origStmt.length() > maxLen) {
-            origStmt = truncateByBytes(origStmt) + " ... /* truncated audit_plugin_max_sql_length=" + maxLen + " */";
+            origStmt = truncateByBytes(origStmt) + " ... /* truncated. audit_plugin_max_sql_length=" + maxLen + " */";
         }
         return origStmt.replace("\n", "\\n")
                 .replace("\t", "\\t")
@@ -134,8 +134,8 @@ public class AuditLogHelper {
             int maxLen = GlobalVariable.auditPluginMaxInsertStmtLength <= 0
                     ? GlobalVariable.auditPluginMaxSqlLength : GlobalVariable.auditPluginMaxInsertStmtLength;
             if (origStmt.length() > maxLen) {
-                origStmt = truncateByBytes(origStmt) + " ... /* truncated audit_plugin_max_insert_stmt_length=" + maxLen
-                        + " */";
+                origStmt = truncateByBytes(origStmt) + " ... /* total " + rowCnt
+                        + " rows, truncated. audit_plugin_max_insert_stmt_length=" + maxLen + " */";
             }
             origStmt = origStmt.replace("\n", "\\n")
                     .replace("\t", "\\t")
@@ -336,3 +336,4 @@ public class AuditLogHelper {
         }
     }
 }
+
