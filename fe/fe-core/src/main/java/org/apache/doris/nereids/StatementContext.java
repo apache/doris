@@ -240,7 +240,7 @@ public class StatementContext implements Closeable {
     // Record used table and it's used partitions
     private final Multimap<List<String>, Pair<RelationId, Set<String>>> tableUsedPartitionNameMap =
             HashMultimap.create();
-    private final Map<Integer, Integer> relationIdToTransformedTableIdMap = new HashMap<>();
+    private final Map<Integer, Integer> relationIdToCommonTableIdMap = new HashMap<>();
 
     // Record mtmv and valid partitions map because this is time-consuming behavior
     private final Map<BaseTableInfo, Collection<Partition>> mvCanRewritePartitionsMap = new HashMap<>();
@@ -252,10 +252,16 @@ public class StatementContext implements Closeable {
 
     private boolean prepareStage = false;
 
-    private final List<Plan> rewrittenPlansByMv = new ArrayList<>();
+    // this record the tmp plan in RBO for later pre materialized view rewrite
     private final List<Plan> tmpPlanForMvRewrite = new ArrayList<>();
+    // this record the rewritten plan by mv in RBO phase
+    private final List<Plan> rewrittenPlansByMv = new ArrayList<>();
     private boolean forceRecordTmpPlan = false;
-    private final BitSet ruleMasks = new BitSet(RuleType.SENTINEL.ordinal());
+    // this record the rule in PreMaterializedViewRewriter.NEED_PRE_REWRITE_RULE_TYPES if is applied successfully
+    // or not, if success and in PreRewriteStrategy.FOR_IN_ROB or PreRewriteStrategy.TRY_IN_ROB, mv
+    // would be written in RBO phase
+    private final BitSet needPreMvRewriteRuleMasks = new BitSet(RuleType.SENTINEL.ordinal());
+    // if needed to rewrite in RBO phase, this would be set true
     private boolean needPreRewrite = false;
 
     public StatementContext() {
@@ -888,20 +894,20 @@ public class StatementContext implements Closeable {
         this.partialLoadDictionary = partialLoadDictionary;
     }
 
-    public List<Plan> getRewrittenPlansByMv() {
-        return rewrittenPlansByMv;
-    }
-
-    public void addRewrittenPlanByMv(Plan rewrittenPlanByMv) {
-        this.rewrittenPlansByMv.add(rewrittenPlanByMv);
-    }
-
     public List<Plan> getTmpPlanForMvRewrite() {
         return tmpPlanForMvRewrite;
     }
 
     public void addTmpPlanForMvRewrite(Plan tmpPlan) {
         this.tmpPlanForMvRewrite.add(tmpPlan);
+    }
+
+    public List<Plan> getRewrittenPlansByMv() {
+        return rewrittenPlansByMv;
+    }
+
+    public void addRewrittenPlanByMv(Plan rewrittenPlanByMv) {
+        this.rewrittenPlansByMv.add(rewrittenPlanByMv);
     }
 
     public boolean isForceRecordTmpPlan() {
@@ -912,16 +918,12 @@ public class StatementContext implements Closeable {
         this.forceRecordTmpPlan = forceRecordTmpPlan;
     }
 
-    public boolean ruleHasApplied(RuleType ruleType) {
-        return ruleMasks.get(ruleType.ordinal());
-    }
-
     public void ruleSetApplied(RuleType ruleType) {
-        ruleMasks.set(ruleType.ordinal());
+        needPreMvRewriteRuleMasks.set(ruleType.ordinal());
     }
 
-    public BitSet getRuleMasks() {
-        return ruleMasks;
+    public BitSet getNeedPreMvRewriteRuleMasks() {
+        return needPreMvRewriteRuleMasks;
     }
 
     public boolean isNeedPreRewrite() {
@@ -936,8 +938,8 @@ public class StatementContext implements Closeable {
         return tableUsedPartitionNameMap;
     }
 
-    public Map<Integer, Integer> getRelationIdToTransformedTableIdMap() {
-        return relationIdToTransformedTableIdMap;
+    public Map<Integer, Integer> getRelationIdToCommonTableIdMap() {
+        return relationIdToCommonTableIdMap;
     }
 
     public Map<BaseTableInfo, Collection<Partition>> getMvCanRewritePartitionsMap() {

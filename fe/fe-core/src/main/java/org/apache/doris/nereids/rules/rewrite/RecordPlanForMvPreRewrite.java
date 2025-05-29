@@ -57,7 +57,7 @@ public class RecordPlanForMvPreRewrite extends DefaultPlanRewriter<Void> impleme
             // current statement context doesn't have hook, doesn't use pre RBO materialized view rewrite
             return plan;
         }
-        Map<Integer, Integer> queryUsedScanMap = statementContext.getRelationIdToTransformedTableIdMap();
+        Map<Integer, Integer> queryUsedScanMap = statementContext.getRelationIdToCommonTableIdMap();
         if (!forceRecordTmpPlan && (queryUsedScanMap.size() > 1 && statementContext.getCandidateMTMVs().isEmpty())) {
             // if query used more than one scan, but multi table materialized view is empty, doesn't use pre RBO
             // materialized view rewrite

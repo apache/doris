@@ -48,7 +48,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
-import java.util.BitSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -220,12 +219,8 @@ public class InitMaterializationContextHook implements PlannerHook {
     private static AsyncMaterializationContext doCreateAsyncMaterializationContext(MTMV mtmv, MTMVCache cache,
             Pair<Plan, StructInfo> planAndStructInfo,
             CascadesContext cascadesContext) {
-        BitSet tableBitSetInCurrentCascadesContext = new BitSet();
-        planAndStructInfo.value().getRelations().forEach(
-                relation -> tableBitSetInCurrentCascadesContext.set(relation.getRelationId().asInt()));
         return new AsyncMaterializationContext(mtmv, planAndStructInfo.key(), cache.getOriginalFinalPlan(),
-                ImmutableList.of(), ImmutableList.of(), cascadesContext,
-                planAndStructInfo.value().withTableBitSet(tableBitSetInCurrentCascadesContext));
+                ImmutableList.of(), ImmutableList.of(), cascadesContext, planAndStructInfo.value());
     }
 
     private List<MaterializationContext> createSyncMvContexts(OlapTable olapTable,

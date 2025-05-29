@@ -19,7 +19,6 @@ package org.apache.doris.nereids.jobs.rewrite;
 
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.PlannerHook;
 import org.apache.doris.nereids.cost.Cost;
 import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.hint.UseCboRuleHint;
@@ -29,7 +28,6 @@ import org.apache.doris.nereids.jobs.executor.Rewriter;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
@@ -163,40 +161,24 @@ public class CostBasedRewriteJob implements RewriteJob {
         // Do subtree rewrite
         Rewriter.getCteChildrenRewriter(cboCtx, jobContext.getRemainJobs()).execute();
         CascadesContext rootCtx = currentCtx.getRoot();
-
         if (rootCtx.getRewritePlan() instanceof LogicalCTEAnchor) {
             // set subtree rewrite cache
             currentCtx.getStatementContext().getRewrittenCteProducer()
                     .put(currentCtx.getCurrentTree().orElse(null), (LogicalPlan) cboCtx.getRewritePlan());
             // Do post tree rewrite
             CascadesContext rootCtxCopy = CascadesContext.newCurrentTreeContext(rootCtx);
-
-            // Disable mv rewrite
-            List<PlannerHook> tmpMaterializedViewHooks = MaterializedViewUtils.removeMaterializedViewHooks(
-                    rootCtxCopy.getStatementContext());
-            try {
-                Rewriter.getWholeTreeRewriterWithoutCostBasedJobs(rootCtxCopy).execute();
-                // Do optimize
-                new Optimizer(rootCtxCopy).execute();
-                return rootCtxCopy.getMemo().getRoot().getLowestCostPlan(
-                        rootCtxCopy.getCurrentJobContext().getRequiredProperties());
-            } finally {
-                rootCtxCopy.getStatementContext().getPlannerHooks().addAll(tmpMaterializedViewHooks);
-            }
+            Rewriter.getWholeTreeRewriterWithoutCostBasedJobs(rootCtxCopy).execute();
+            // Do optimize
+            new Optimizer(rootCtxCopy).execute();
+            return rootCtxCopy.getMemo().getRoot().getLowestCostPlan(
+                    rootCtxCopy.getCurrentJobContext().getRequiredProperties());
         } else {
             // Do post tree rewrite
             CascadesContext cboCtxCopy = CascadesContext.newCurrentTreeContext(cboCtx);
-            // Disable mv rewrite
-            List<PlannerHook> tmpMaterializedViewHooks = MaterializedViewUtils.removeMaterializedViewHooks(
-                    cboCtxCopy.getStatementContext());
-            try {
-                // Do optimize
-                new Optimizer(cboCtxCopy).execute();
-                return cboCtxCopy.getMemo().getRoot().getLowestCostPlan(
-                        cboCtxCopy.getCurrentJobContext().getRequiredProperties());
-            } finally {
-                cboCtxCopy.getStatementContext().getPlannerHooks().addAll(tmpMaterializedViewHooks);
-            }
+            // Do optimize
+            new Optimizer(cboCtxCopy).execute();
+            return cboCtxCopy.getMemo().getRoot().getLowestCostPlan(
+                    cboCtxCopy.getCurrentJobContext().getRequiredProperties());
         }
     }
 }

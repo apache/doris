@@ -447,6 +447,10 @@ public class NereidsPlanner extends Planner {
         List<Plan> tmpPlansForMvRewrite = cascadesContext.getStatementContext().getTmpPlanForMvRewrite();
         List<Plan> plansWhichContainMv = new ArrayList<>();
         for (Plan planForRewrite : tmpPlansForMvRewrite) {
+            if (!planForRewrite.getLogicalProperties().equals(
+                    cascadesContext.getRewritePlan().getLogicalProperties())) {
+                continue;
+            }
             try {
                 // pre rewrite
                 Plan rewrittenPlan = MaterializedViewUtils.rewriteByRules(cascadesContext,
