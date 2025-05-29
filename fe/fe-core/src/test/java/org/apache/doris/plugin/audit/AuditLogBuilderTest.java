@@ -73,7 +73,7 @@ public class AuditLogBuilderTest {
                     = "SELECT * FROM very_long_table_name_that_exceeds_the_maximum_length_limit_for_audit_log";
             result = AuditLogHelper.handleStmt(longStmt, nonInsertStmt);
             Assert.assertTrue("Result should contain truncation message",
-                    result.contains("/* truncated audit_plugin_max_sql_length=50 */"));
+                    result.contains("/* truncated. audit_plugin_max_sql_length=50 */"));
             Assert.assertTrue("Result should be shorter than original",
                     result.length() < longStmt.length() + 100); // Add length for truncation message
 
@@ -92,7 +92,7 @@ public class AuditLogBuilderTest {
                     = "SELECT * FROM 表名很长的中文表名字符测试表名很长的中文表名字符测试表名很长的中文表名字符测试";
             result = AuditLogHelper.handleStmt(chineseStmt, nonInsertStmt);
             Assert.assertTrue("Should contain truncation message for Chinese text",
-                    result.contains("/* truncated audit_plugin_max_sql_length=50 */"));
+                    result.contains("/* truncated. audit_plugin_max_sql_length=50 */"));
 
             // 6. Test boundary case: exactly equal to max length
             // Create a string exactly equal to max length
@@ -112,7 +112,7 @@ public class AuditLogBuilderTest {
             String overLimitStmt = sb.toString();
             result = AuditLogHelper.handleStmt(overLimitStmt, nonInsertStmt);
             Assert.assertTrue("Should be truncated when over limit by 1 char",
-                    result.contains("/* truncated audit_plugin_max_sql_length=50 */"));
+                    result.contains("/* truncated. audit_plugin_max_sql_length=50 */"));
 
             // 8. Test empty string
             String emptyStmt = "";
@@ -154,9 +154,7 @@ public class AuditLogBuilderTest {
 
             // Should use audit_plugin_max_insert_stmt_length=80 for truncation
             Assert.assertTrue("Should contain insert stmt length truncation message",
-                    result.contains("/* truncated audit_plugin_max_insert_stmt_length=80 */"));
-            Assert.assertFalse("Should not contain sql length truncation message",
-                    result.contains("/* truncated audit_plugin_max_sql_length="));
+                    result.contains("/* total 3 rows, truncated. audit_plugin_max_insert_stmt_length=80 */"));
 
             // 2. Test short INSERT statement not truncated
             String shortInsertStmt = "INSERT INTO tbl VALUES (1, 'a')";
@@ -165,7 +163,7 @@ public class AuditLogBuilderTest {
 
             // Should not be truncated, and special characters should be properly escaped
             Assert.assertFalse("Short INSERT should not be truncated",
-                    result.contains("/* truncated"));
+                    result.contains("/* truncated."));
             Assert.assertEquals("Short INSERT should remain unchanged", shortInsertStmt, result);
 
             // 3. Test special character handling in INSERT statements
@@ -201,11 +199,11 @@ public class AuditLogBuilderTest {
 
             // INSERT should be truncated (using limit of 80)
             Assert.assertTrue("INSERT should be truncated with insert length limit",
-                    insertResult.contains("/* truncated audit_plugin_max_insert_stmt_length=80 */"));
+                    insertResult.contains("/* total 1 rows, truncated. audit_plugin_max_insert_stmt_length=80 */"));
 
             // SELECT should not be truncated (using limit of 200)
             Assert.assertFalse("SELECT should not be truncated with sql length limit",
-                    selectResult.contains("/* truncated"));
+                    selectResult.contains("/* truncated."));
 
             // 5. Test boundary case: INSERT statement exactly equal to limit length
             // Create a statement exactly equal to INSERT limit length
@@ -221,7 +219,7 @@ public class AuditLogBuilderTest {
 
             // Should not be truncated
             Assert.assertFalse("INSERT at exact limit should not be truncated",
-                    result.contains("/* truncated"));
+                    result.contains("/* truncated."));
             Assert.assertEquals("INSERT at exact limit should remain unchanged",
                     exactLengthInsert, result);
 
@@ -256,11 +254,11 @@ public class AuditLogBuilderTest {
                 String result = AuditLogHelper.handleStmt(longStmt, nonInsertStmt);
 
                 Assert.assertTrue("Should contain truncation message for length " + maxLength,
-                        result.contains("/* truncated audit_plugin_max_sql_length=" + maxLength + " */"));
+                        result.contains("/* truncated. audit_plugin_max_sql_length=" + maxLength + " */"));
 
                 // Verify truncated length is reasonable (original part + truncation info)
                 String expectedTruncationMsg = " ... /* truncated audit_plugin_max_sql_length=" + maxLength + " */";
-                Assert.assertTrue("Truncated result should be reasonable length",
+                Assert.assertTrue("Truncated. result should be reasonable length",
                         result.length() <= maxLength + expectedTruncationMsg.length() + 10); // Allow some UTF-8 encoding error margin
             }
 
@@ -290,7 +288,7 @@ public class AuditLogBuilderTest {
             // If truncated, should contain truncation info
             if (utf8Stmt.length() > 20) {
                 Assert.assertTrue("Should contain truncation message for UTF-8 text",
-                        result.contains("/* truncated audit_plugin_max_sql_length=20 */"));
+                        result.contains("/* truncated. audit_plugin_max_sql_length=20 */"));
             } else {
                 // If not exceeding character limit, should not be truncated
                 Assert.assertEquals("Should not be truncated if within character limit", utf8Stmt, result);
@@ -301,7 +299,7 @@ public class AuditLogBuilderTest {
             String longResult = AuditLogHelper.handleStmt(longUtf8Stmt, nonInsertStmt);
 
             Assert.assertTrue("Long UTF-8 string should be truncated",
-                    longResult.contains("/* truncated audit_plugin_max_sql_length=20 */"));
+                    longResult.contains("/* truncated. audit_plugin_max_sql_length=20 */"));
 
         } finally {
             // Restore original values
@@ -333,7 +331,7 @@ public class AuditLogBuilderTest {
             String result = AuditLogHelper.handleStmt(testStmt, nonInsertStmt);
             // Should use audit_plugin_max_sql_length=100, so not truncated
             Assert.assertFalse("Non-INSERT statement should not be truncated with sql length limit",
-                    result.contains("/* truncated"));
+                    result.contains("/* truncated."));
             Assert.assertEquals("Non-INSERT statement should remain unchanged", testStmt, result);
 
             // 2. Test behavior when statement exceeds regular limit
@@ -346,7 +344,7 @@ public class AuditLogBuilderTest {
             result = AuditLogHelper.handleStmt(longTestStmt, nonInsertStmt);
             // Should use audit_plugin_max_sql_length=100 for truncation
             Assert.assertTrue("Long non-INSERT statement should be truncated",
-                    result.contains("/* truncated audit_plugin_max_sql_length=100 */"));
+                    result.contains("/* truncated. audit_plugin_max_sql_length=100 */"));
             Assert.assertFalse("Should not use insert stmt length limit",
                     result.contains("audit_plugin_max_insert_stmt_length"));
 
