@@ -17,12 +17,15 @@
 
 package org.apache.doris.datasource.property.fileformat;
 
+import org.apache.doris.analysis.Separator;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileTextScanRangeParams;
 import org.apache.doris.thrift.TResultFileSinkOptions;
+
+import com.google.common.base.Strings;
 
 import java.util.Map;
 
@@ -41,6 +44,7 @@ public class JsonFileFormatProperties extends FileFormatProperties {
     private boolean readJsonByLine;
     private boolean numAsString = false;
     private boolean fuzzyParse = false;
+    private String lineDelimiter = CsvFileFormatProperties.DEFAULT_LINE_DELIMITER;
 
 
     public JsonFileFormatProperties() {
@@ -50,37 +54,48 @@ public class JsonFileFormatProperties extends FileFormatProperties {
     @Override
     public void analyzeFileFormatProperties(Map<String, String> formatProperties, boolean isRemoveOriginProperty)
             throws AnalysisException {
-        jsonRoot = getOrDefault(formatProperties, PROP_JSON_ROOT,
-                "", isRemoveOriginProperty);
-        jsonPaths = getOrDefault(formatProperties, PROP_JSON_PATHS,
-                "", isRemoveOriginProperty);
-        readJsonByLine = Boolean.valueOf(
-                getOrDefault(formatProperties, PROP_READ_JSON_BY_LINE,
-                        "", isRemoveOriginProperty)).booleanValue();
-        stripOuterArray = Boolean.valueOf(
-                getOrDefault(formatProperties, PROP_STRIP_OUTER_ARRAY,
-                        "", isRemoveOriginProperty)).booleanValue();
-        numAsString = Boolean.valueOf(
-                getOrDefault(formatProperties, PROP_NUM_AS_STRING,
-                        "", isRemoveOriginProperty)).booleanValue();
-        fuzzyParse = Boolean.valueOf(
-                getOrDefault(formatProperties, PROP_FUZZY_PARSE,
-                        "", isRemoveOriginProperty)).booleanValue();
+        try {
+            jsonRoot = getOrDefault(formatProperties, PROP_JSON_ROOT,
+                    "", isRemoveOriginProperty);
+            jsonPaths = getOrDefault(formatProperties, PROP_JSON_PATHS,
+                    "", isRemoveOriginProperty);
+            readJsonByLine = Boolean.valueOf(
+                    getOrDefault(formatProperties, PROP_READ_JSON_BY_LINE,
+                            "false", isRemoveOriginProperty)).booleanValue();
+            stripOuterArray = Boolean.valueOf(
+                    getOrDefault(formatProperties, PROP_STRIP_OUTER_ARRAY,
+                            "", isRemoveOriginProperty)).booleanValue();
+            numAsString = Boolean.valueOf(
+                    getOrDefault(formatProperties, PROP_NUM_AS_STRING,
+                            "", isRemoveOriginProperty)).booleanValue();
+            fuzzyParse = Boolean.valueOf(
+                    getOrDefault(formatProperties, PROP_FUZZY_PARSE,
+                            "", isRemoveOriginProperty)).booleanValue();
+            lineDelimiter = getOrDefault(formatProperties, CsvFileFormatProperties.PROP_LINE_DELIMITER,
+                    CsvFileFormatProperties.DEFAULT_LINE_DELIMITER, isRemoveOriginProperty);
+            if (Strings.isNullOrEmpty(lineDelimiter)) {
+                throw new AnalysisException("line_delimiter can not be empty.");
+            }
+            lineDelimiter = Separator.convertSeparator(lineDelimiter);
 
-        String compressTypeStr = getOrDefault(formatProperties, PROP_COMPRESS_TYPE,
-                "UNKNOWN", isRemoveOriginProperty);
-        compressionType = Util.getFileCompressType(compressTypeStr);
+            String compressTypeStr = getOrDefault(formatProperties, PROP_COMPRESS_TYPE,
+                    "UNKNOWN", isRemoveOriginProperty);
+            compressionType = Util.getFileCompressType(compressTypeStr);
+        } catch (org.apache.doris.common.AnalysisException e) {
+            throw new AnalysisException("Analyze file format failed: " + e.getMessage());
+        }
     }
 
     @Override
     public void fullTResultFileSinkOptions(TResultFileSinkOptions sinkOptions) {
+        sinkOptions.setLineDelimiter(lineDelimiter);
     }
 
     @Override
     public TFileAttributes toTFileAttributes() {
         TFileAttributes fileAttributes = new TFileAttributes();
         TFileTextScanRangeParams fileTextScanRangeParams = new TFileTextScanRangeParams();
-        fileTextScanRangeParams.setLineDelimiter(CsvFileFormatProperties.DEFAULT_LINE_DELIMITER);
+        fileTextScanRangeParams.setLineDelimiter(this.lineDelimiter);
         fileAttributes.setTextParams(fileTextScanRangeParams);
         fileAttributes.setJsonRoot(jsonRoot);
         fileAttributes.setJsonpaths(jsonPaths);
@@ -113,5 +128,9 @@ public class JsonFileFormatProperties extends FileFormatProperties {
 
     public boolean isFuzzyParse() {
         return fuzzyParse;
+    }
+
+    public String getLineDelimiter() {
+        return lineDelimiter;
     }
 }

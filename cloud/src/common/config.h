@@ -291,6 +291,9 @@ CONF_Strings(recycler_storage_vault_white_list, "");
 // for test only
 CONF_mBool(enable_update_delete_bitmap_kv_check, "false");
 
+// for get_delete_bitmap_update_lock
+CONF_mBool(enable_batch_get_mow_tablet_stats_and_meta, "true");
+
 // aws sdk log level
 //    Off = 0,
 //    Fatal = 1,
