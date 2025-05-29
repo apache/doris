@@ -870,7 +870,7 @@ public class IcebergUtils {
     }
 
     public static boolean isIcebergBranchOrTag(Optional<TableScanParams> scanParams) {
-        if (!scanParams.isPresent()) {
+        if (scanParams == null || !scanParams.isPresent()) {
             return false;
         }
         TableScanParams params = scanParams.get();
