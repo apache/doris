@@ -101,6 +101,7 @@ public class UseCloudClusterStmt extends StatementBase implements NotFallbackInP
         }
 
         if (Strings.isNullOrEmpty(database)) {
+            LOG.warn("log for coverage test");
             return;
         }
         if (!Env.getCurrentEnv().getAccessManager()

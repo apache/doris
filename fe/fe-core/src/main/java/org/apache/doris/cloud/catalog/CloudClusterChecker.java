@@ -112,6 +112,9 @@ public class CloudClusterChecker extends MasterDaemon {
                     String addr = Config.enable_fqdn_mode ? node.getHost() : node.getIp();
                     if (Strings.isNullOrEmpty(addr)) {
                         LOG.warn("cant get valid add from ms {}", node);
+                        LOG.warn("cant get valid add from ms {}", node);
+                        LOG.warn("cant get valid add from ms {}", node);
+                        LOG.warn("cant get valid add from ms {}", node);
                         continue;
                     }
                     Backend b = new Backend(Env.getCurrentEnv().getNextId(), addr, node.getHeartbeatPort());
