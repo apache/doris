@@ -131,8 +131,8 @@ public class AuditLogHelper {
         }
         if (rowCnt > 0) {
             // This is an insert statement.
-            int maxLen = GlobalVariable.auditPluginMaxInsertStmtLength <= 0 ?
-                    GlobalVariable.auditPluginMaxSqlLength : GlobalVariable.auditPluginMaxInsertStmtLength;
+            int maxLen = GlobalVariable.auditPluginMaxInsertStmtLength <= 0
+                    ? GlobalVariable.auditPluginMaxSqlLength : GlobalVariable.auditPluginMaxInsertStmtLength;
             if (origStmt.length() > maxLen) {
                 origStmt = truncateByBytes(origStmt) + " ... /* truncated audit_plugin_max_insert_stmt_length=" + maxLen
                         + " */";
