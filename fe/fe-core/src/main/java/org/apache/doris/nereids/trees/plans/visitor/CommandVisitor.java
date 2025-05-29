@@ -172,6 +172,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowDictionariesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDynamicPartitionCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowEncryptKeysCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowEventsCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowExportCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowFrontendsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowFunctionsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowGrantsCommand;
@@ -899,6 +900,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitShowEventsCommand(ShowEventsCommand showEventsCommand, C context) {
         return visitCommand(showEventsCommand, context);
+    }
+
+    default R visitShowExportCommand(ShowExportCommand showExportCommand, C context) {
+        return visitCommand(showExportCommand, context);
     }
 
     default R visitShowDeleteCommand(ShowDeleteCommand showDeleteCommand, C context) {
