@@ -32,7 +32,6 @@
 #include "olap/storage_policy.h"
 #include "olap/tablet_fwd.h"
 #include "runtime/memory/lru_cache_policy.h"
-#include "util/string_util.h"
 
 namespace doris {
 

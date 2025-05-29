@@ -17,9 +17,6 @@
 
 #include "util/key_util.h"
 
-#include "common/logging.h"
-#include "util/string_util.h"
-
 namespace doris {
 
 bool key_is_not_in_segment(Slice key, const KeyBoundsPB& segment_key_bounds,
