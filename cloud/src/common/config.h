@@ -285,6 +285,9 @@ CONF_Bool(enable_loopback_address_for_ms, "false");
 // Comma seprated list: recycler_storage_vault_white_list="aaa,bbb,ccc"
 CONF_Strings(recycler_storage_vault_white_list, "");
 
+// for get_delete_bitmap_update_lock
+CONF_mBool(enable_batch_get_mow_tablet_stats_and_meta, "true");
+
 // aws sdk log level
 //    Off = 0,
 //    Fatal = 1,
