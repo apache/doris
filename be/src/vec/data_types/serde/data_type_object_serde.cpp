@@ -31,6 +31,7 @@
 #include "vec/common/schema_util.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
+#include "vec/data_types/serde/data_type_serde.h"
 
 namespace doris {
 
@@ -144,26 +145,29 @@ Status DataTypeVariantSerDe::serialize_one_cell_to_json(const IColumn& column, i
     return Status::OK();
 }
 
-void DataTypeVariantSerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                                                 arrow::ArrayBuilder* array_builder, int64_t start,
-                                                 int64_t end, const cctz::time_zone& ctz) const {
+Status DataTypeVariantSerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
+                                                   arrow::ArrayBuilder* array_builder,
+                                                   int64_t start, int64_t end,
+                                                   const cctz::time_zone& ctz) const {
     const auto* var = check_and_get_column<ColumnVariant>(column);
     auto& builder = assert_cast<arrow::StringBuilder&>(*array_builder);
     for (size_t i = start; i < end; ++i) {
         if (null_map && (*null_map)[i]) {
-            checkArrowStatus(builder.AppendNull(), column.get_name(),
-                             array_builder->type()->name());
+            RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column.get_name(),
+                                             array_builder->type()->name()));
         } else {
             std::string serialized_value;
             if (!var->serialize_one_row_to_string(i, &serialized_value)) {
-                throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Failed to serialize variant {}",
-                                       var->dump_structure());
+                return Status::Error(ErrorCode::INTERNAL_ERROR, "Failed to serialize variant {}",
+                                     var->dump_structure());
             }
-            checkArrowStatus(builder.Append(serialized_value.data(),
-                                            static_cast<int>(serialized_value.size())),
-                             column.get_name(), array_builder->type()->name());
+            RETURN_IF_ERROR(
+                    checkArrowStatus(builder.Append(serialized_value.data(),
+                                                    static_cast<int>(serialized_value.size())),
+                                     column.get_name(), array_builder->type()->name()));
         }
     }
+    return Status::OK();
 }
 
 Status DataTypeVariantSerDe::write_column_to_orc(const std::string& timezone, const IColumn& column,

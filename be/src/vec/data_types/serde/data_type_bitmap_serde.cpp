@@ -121,24 +121,25 @@ void DataTypeBitMapSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWr
     result.writeEndBinary();
 }
 
-void DataTypeBitMapSerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                                                arrow::ArrayBuilder* array_builder, int64_t start,
-                                                int64_t end, const cctz::time_zone& ctz) const {
+Status DataTypeBitMapSerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
+                                                  arrow::ArrayBuilder* array_builder, int64_t start,
+                                                  int64_t end, const cctz::time_zone& ctz) const {
     const auto& col = assert_cast<const ColumnBitmap&>(column);
     auto& builder = assert_cast<arrow::BinaryBuilder&>(*array_builder);
     for (size_t string_i = start; string_i < end; ++string_i) {
         if (null_map && (*null_map)[string_i]) {
-            checkArrowStatus(builder.AppendNull(), column.get_name(),
-                             array_builder->type()->name());
+            RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column.get_name(),
+                                             array_builder->type()->name()));
         } else {
             auto& bitmap_value = const_cast<BitmapValue&>(col.get_element(string_i));
             std::string memory_buffer(bitmap_value.getSizeInBytes(), '0');
             bitmap_value.write_to(memory_buffer.data());
-            checkArrowStatus(
+            RETURN_IF_ERROR(checkArrowStatus(
                     builder.Append(memory_buffer.data(), static_cast<int>(memory_buffer.size())),
-                    column.get_name(), array_builder->type()->name());
+                    column.get_name(), array_builder->type()->name()));
         }
     }
+    return Status::OK();
 }
 
 void DataTypeBitMapSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const {

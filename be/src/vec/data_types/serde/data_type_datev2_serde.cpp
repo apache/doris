@@ -91,27 +91,29 @@ Status DataTypeDateV2SerDe::deserialize_one_cell_from_json(IColumn& column, Slic
     return Status::OK();
 }
 
-void DataTypeDateV2SerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                                                arrow::ArrayBuilder* array_builder, int64_t start,
-                                                int64_t end, const cctz::time_zone& ctz) const {
+Status DataTypeDateV2SerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
+                                                  arrow::ArrayBuilder* array_builder, int64_t start,
+                                                  int64_t end, const cctz::time_zone& ctz) const {
     const auto& col_data = static_cast<const ColumnVector<UInt32>&>(column).get_data();
     auto& date32_builder = assert_cast<arrow::Date32Builder&>(*array_builder);
     for (size_t i = start; i < end; ++i) {
         auto daynr = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(col_data[i]).daynr() -
                      date_threshold;
         if (null_map && (*null_map)[i]) {
-            checkArrowStatus(date32_builder.AppendNull(), column.get_name(),
-                             array_builder->type()->name());
+            RETURN_IF_ERROR(checkArrowStatus(date32_builder.AppendNull(), column.get_name(),
+                                             array_builder->type()->name()));
         } else {
-            checkArrowStatus(date32_builder.Append(cast_set<int, int64_t, false>(daynr)),
-                             column.get_name(), array_builder->type()->name());
+            RETURN_IF_ERROR(
+                    checkArrowStatus(date32_builder.Append(cast_set<int, int64_t, false>(daynr)),
+                                     column.get_name(), array_builder->type()->name()));
         }
     }
+    return Status::OK();
 }
 
-void DataTypeDateV2SerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
-                                                 int64_t start, int64_t end,
-                                                 const cctz::time_zone& ctz) const {
+Status DataTypeDateV2SerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
+                                                   int64_t start, int64_t end,
+                                                   const cctz::time_zone& ctz) const {
     auto& col_data = static_cast<ColumnVector<UInt32>&>(column).get_data();
     const auto* concrete_array = dynamic_cast<const arrow::Date32Array*>(arrow_array);
     for (auto value_i = start; value_i < end; ++value_i) {
@@ -119,6 +121,7 @@ void DataTypeDateV2SerDe::read_column_from_arrow(IColumn& column, const arrow::A
         v.get_date_from_daynr(concrete_array->Value(value_i) + date_threshold);
         col_data.emplace_back(binary_cast<DateV2Value<DateV2ValueType>, UInt32>(v));
     }
+    return Status::OK();
 }
 
 template <bool is_binary_format>
