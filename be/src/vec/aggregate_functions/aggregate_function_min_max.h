@@ -21,9 +21,12 @@
 #pragma once
 
 #include <fmt/format.h>
+#include <glog/logging.h>
 #include <string.h>
 
 #include <memory>
+#include <string>
+#include <type_traits>
 #include <vector>
 
 #include "common/logging.h"
@@ -519,18 +522,104 @@ struct AggregateFunctionMinData : Data {
     static const char* name() { return "min"; }
 };
 
+// this is used for plain type about any_value function
 template <typename Data>
 struct AggregateFunctionAnyData : Data {
     using Self = AggregateFunctionAnyData;
     using Data::IsFixedLength;
+    static const char* name() { return "any"; }
     constexpr static bool IS_ANY = true;
-
     void change_if_better(const IColumn& column, size_t row_num, Arena*) {
         this->change_first_time(column, row_num, nullptr);
     }
-    void change_if_better(const Self& to, Arena*) { this->change_first_time(to, nullptr); }
 
+    void change_if_better(const Self& to, Arena*) { this->change_first_time(to, nullptr); }
+};
+
+// this is used for complex type about any_value function
+struct SingleValueDataComplexType {
     static const char* name() { return "any"; }
+    constexpr static bool IS_ANY = true;
+    constexpr static bool IsFixedLength = false;
+    using Self = SingleValueDataComplexType;
+
+    SingleValueDataComplexType() = default;
+
+    SingleValueDataComplexType(const DataTypes& argument_types, int be_version) {
+        column_type = argument_types[0];
+        column_data = column_type->create_column();
+        be_exec_version = be_version;
+    }
+
+    bool has() const { return has_value; }
+
+    void change_first_time(const IColumn& column, size_t row_num, Arena*) {
+        if (UNLIKELY(!has())) {
+            change_impl(column, row_num);
+        }
+    }
+
+    void change_first_time(const Self& to, Arena*) {
+        if (UNLIKELY(!has() && to.has())) {
+            change_impl(*to.column_data, 0);
+        }
+    }
+
+    void change_impl(const IColumn& column, size_t row_num) {
+        DCHECK_EQ(column_data->size(), 0);
+        column_data->insert_from(column, row_num);
+        has_value = true;
+    }
+
+    void insert_result_into(IColumn& to) const {
+        if (has()) {
+            to.insert_from(*column_data, 0);
+        } else {
+            to.insert_default();
+        }
+    }
+
+    void reset() {
+        column_data->clear();
+        has_value = false;
+    }
+
+    void write(BufferWritable& buf) const {
+        write_binary(has(), buf);
+        if (!has()) {
+            return;
+        }
+        auto size_bytes =
+                column_type->get_uncompressed_serialized_bytes(*column_data, be_exec_version);
+        std::string memory_buffer(size_bytes, '0');
+        auto* p = column_type->serialize(*column_data, memory_buffer.data(), be_exec_version);
+        write_binary(memory_buffer, buf);
+        DCHECK_EQ(p, memory_buffer.data() + size_bytes);
+    }
+
+    void read(BufferReadable& buf, Arena* arena) {
+        read_binary(has_value, buf);
+        if (!has()) {
+            return;
+        }
+        std::string memory_buffer;
+        read_binary(memory_buffer, buf);
+        const auto* p =
+                column_type->deserialize(memory_buffer.data(), &column_data, be_exec_version);
+        DCHECK_EQ(p, memory_buffer.data() + memory_buffer.size());
+    }
+
+    void change_if_better(const IColumn& column, size_t row_num, Arena* arena) {
+        this->change_first_time(column, row_num, nullptr);
+    }
+
+    void change_if_better(const Self& to, Arena* arena) { this->change_first_time(to, nullptr); }
+
+private:
+    bool has_value = false;
+    MutableColumnPtr column_data;
+    DataTypePtr column_type;
+    int be_exec_version = -1;
 };
 
 template <typename Data>
@@ -539,6 +628,7 @@ class AggregateFunctionsSingleValue final
 private:
     DataTypePtr& type;
     using Base = IAggregateFunctionDataHelper<Data, AggregateFunctionsSingleValue<Data>>;
+    using IAggregateFunction::argument_types;
 
 public:
     AggregateFunctionsSingleValue(const DataTypes& arguments)
@@ -552,6 +642,14 @@ public:
                                        "because the values of that data type are not comparable",
                                        type->get_name(), get_name());
             }
+        }
+    }
+
+    void create(AggregateDataPtr __restrict place) const override {
+        if constexpr (std::is_same_v<Data, SingleValueDataComplexType>) {
+            new (place) Data(argument_types, IAggregateFunction::version);
+        } else {
+            new (place) Data;
         }
     }
 
@@ -716,4 +814,9 @@ AggregateFunctionPtr create_aggregate_function_single_value(const String& name,
                                                             const DataTypes& argument_types,
                                                             const bool result_is_nullable,
                                                             const AggregateFunctionAttr& attr = {});
+
+template <template <typename> class Data>
+AggregateFunctionPtr create_aggregate_function_single_value_any_value_function(
+        const String& name, const DataTypes& argument_types, const bool result_is_nullable,
+        const AggregateFunctionAttr& attr = {});
 } // namespace doris::vectorized
