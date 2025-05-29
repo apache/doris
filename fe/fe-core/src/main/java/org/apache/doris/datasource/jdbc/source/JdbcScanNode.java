@@ -265,6 +265,9 @@ public class JdbcScanNode extends ExternalScanNode {
     @Override
     protected void createScanRangeLocations() throws UserException {
         scanRangeLocations = Lists.newArrayList(createSingleScanRangeLocations(backendPolicy));
+        // log scan range locations and backend policy
+        LOG.info("Scan range locations for JDBC scan node: {}, backend policy: {}",
+                scanRangeLocations, backendPolicy.getBackends().toString());
     }
 
     @Override
