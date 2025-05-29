@@ -5602,6 +5602,7 @@ TEST(MetaServiceTest, UpdateDeleteBitmapOverrideExistingKey) {
             // will be splited and stored in 3 KVs
             // if we don't remove previous splited KVs, will crash when reading
             std::string data2(split_size * 3, 'a');
+            update_delete_bitmap_req.set_remove_before_put(true);
             update_delete_bitmap(meta_service.get(), update_delete_bitmap_req,
                                  update_delete_bitmap_res, table_id, t1p1, lock_id, initiator,
                                  tablet_id, txn_id, version, data2);
@@ -5622,7 +5623,7 @@ TEST(MetaServiceTest, UpdateDeleteBitmapOverrideExistingKey) {
             ASSERT_EQ(get_delete_bitmap_res.versions_size(), 1);
             ASSERT_EQ(get_delete_bitmap_res.segment_ids_size(), 1);
             ASSERT_EQ(get_delete_bitmap_res.segment_delete_bitmaps_size(), 1);
-            ASSERT_NE(get_delete_bitmap_res.segment_delete_bitmaps(0), data2);
+            ASSERT_EQ(get_delete_bitmap_res.segment_delete_bitmaps(0), data2);
         }
     }
 }
