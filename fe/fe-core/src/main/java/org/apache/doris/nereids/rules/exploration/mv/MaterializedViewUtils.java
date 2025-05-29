@@ -32,7 +32,6 @@ import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.PlannerHook;
 import org.apache.doris.nereids.StatementContext;
-import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.StructInfoNode;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.StructInfoMap;
 import org.apache.doris.nereids.rules.RuleType;
@@ -200,21 +199,6 @@ public class MaterializedViewUtils {
     }
 
     /**
-     * get relationIdToTableIdMap by given statementContext
-     */
-    public static Map<Integer, Integer> getRelationIdToCommonTableIdMap(StatementContext statementContext,
-            StructInfo structInfo) {
-        Map<Integer, Integer> result = new HashMap<>();
-        for (StructInfoNode node : structInfo.getRelationIdStructInfoNodeMap().values()) {
-            for (CatalogRelation catalogRelation : node.getCatalogRelation()) {
-                result.put(catalogRelation.getRelationId().asInt(),
-                        statementContext.getTableId(catalogRelation.getTable()).asInt());
-            }
-        }
-        return result;
-    }
-
-    /**
      * Extract struct info from plan, support to get struct info from logical plan or plan in group.
      * @param plan maybe remove unnecessary plan node, and the logical output maybe wrong
      * @param originalPlan original plan, the output is right
@@ -236,7 +220,7 @@ public class MaterializedViewUtils {
                 for (BitSet queryTableSet : queryTableSets) {
                     // TODO As only support MatchMode.COMPLETE, so only get equaled query table struct info
                     BitSet queryCommonTableSet = MaterializedViewUtils.transformToCommonTableId(queryTableSet,
-                            cascadesContext.getStatementContext().getRelationIdToTransformedTableIdMap());
+                            cascadesContext.getStatementContext().getRelationIdToCommonTableIdMap());
                     // compare relation id corresponding table id
                     if (!materializedViewTableSet.isEmpty()
                             && !materializedViewTableSet.equals(queryCommonTableSet)) {
@@ -298,7 +282,7 @@ public class MaterializedViewUtils {
         Plan tmpRewrittenPlan = rewrittenPlan;
         // After RBO, slot order may change, so need originSlotToRewrittenExprId which record
         // origin plan slot order
-        List<ExprId> originalRewrittenPlanOutputs =
+        List<ExprId> rewrittenPlanOutputsBeforeOptimize =
                 rewrittenPlan.getOutput().stream().map(Slot::getExprId).collect(Collectors.toList());
         // run rbo job on mv rewritten plan
         CascadesContext rewrittenPlanContext = CascadesContext.initContext(
@@ -333,20 +317,20 @@ public class MaterializedViewUtils {
             // can keep the right column order, no need to adjust
             return rewrittenPlan;
         }
-        Map<ExprId, Slot> rewrittenPlanExprIdToOutputSlotMap = Maps.newLinkedHashMap();
+        Map<ExprId, Slot> rewrittenPlanAfterOptimizedExprIdToOutputMap = Maps.newLinkedHashMap();
         for (Slot slot : rewrittenPlan.getOutput()) {
-            rewrittenPlanExprIdToOutputSlotMap.put(slot.getExprId(), slot);
+            rewrittenPlanAfterOptimizedExprIdToOutputMap.put(slot.getExprId(), slot);
         }
-        List<ExprId> rewrittenPlanOutputs = rewrittenPlan.getOutput().stream()
+        List<ExprId> rewrittenPlanOutputsAfterOptimized = rewrittenPlan.getOutput().stream()
                 .map(Slot::getExprId).collect(Collectors.toList());
         // If project order doesn't change, return rewrittenPlan directly
-        if (originalRewrittenPlanOutputs.equals(rewrittenPlanOutputs)) {
+        if (rewrittenPlanOutputsBeforeOptimize.equals(rewrittenPlanOutputsAfterOptimized)) {
             return rewrittenPlan;
         }
         // the expr id would change for some rule, once happened, not check result colum order
         List<NamedExpression> adjustedOrderProjects = new ArrayList<>();
-        for (ExprId exprId : originalRewrittenPlanOutputs) {
-            Slot output = rewrittenPlanExprIdToOutputSlotMap.get(exprId);
+        for (ExprId exprId : rewrittenPlanOutputsBeforeOptimize) {
+            Slot output = rewrittenPlanAfterOptimizedExprIdToOutputMap.get(exprId);
             if (output == null) {
                 // some rule change the output slot id, would cause error, so not optimize and return tmpRewrittenPlan
                 return tmpRewrittenPlan;
@@ -434,12 +418,15 @@ public class MaterializedViewUtils {
     }
 
     /**
-     * Collect table info for rewrite
+     * Collect table info for rewrite, should be called only once for every plan, info as following:
+     * 1. table scan used partition
+     * 2. scan relation id to table id mapping
+     * this table info would be recorded in statementContext's relationIdToTableId and tableUsedPartitionNameMap
      */
     public static void collectTableInfoForRewrite(Plan plan, StatementContext statementContext) {
         Multimap<List<String>, Pair<RelationId, Set<String>>> tableUsedPartitionNameMap =
                 statementContext.getTableUsedPartitionNameMap();
-        Map<Integer, Integer> relationIdToTableId = statementContext.getRelationIdToTransformedTableIdMap();
+        Map<Integer, Integer> relationIdToTableId = statementContext.getRelationIdToCommonTableIdMap();
         plan.accept(new DefaultPlanVisitor<Void, Void>() {
             @Override
             public Void visitLogicalCatalogRelation(LogicalCatalogRelation catalogRelation, Void context) {

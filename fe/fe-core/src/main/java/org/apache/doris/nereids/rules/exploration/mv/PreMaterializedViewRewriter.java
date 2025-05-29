@@ -127,7 +127,7 @@ public class PreMaterializedViewRewriter {
             return false;
         }
         // if rewrite success rule not in NeedPreRewriteRule, should not be written in rbo
-        BitSet appliedRules = statementContext.getRuleMasks();
+        BitSet appliedRules = statementContext.getNeedPreMvRewriteRuleMasks();
         BitSet needPreRewriteRuleSet = (BitSet) getNeedPreRewriteRule().clone();
         needPreRewriteRuleSet.and(appliedRules);
         return !needPreRewriteRuleSet.isEmpty() || PreRewriteStrategy.FORCE_IN_RBO.equals(preRewriteStrategy);

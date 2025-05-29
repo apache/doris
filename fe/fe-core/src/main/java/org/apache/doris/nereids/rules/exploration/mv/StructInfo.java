@@ -167,16 +167,6 @@ public class StructInfo {
                 this.tableBitSet, null, null, this.planOutputShuttledExpressions);
     }
 
-    /**
-     * Construct StructInfo with new tableBitSet
-     */
-    public StructInfo withTableBitSet(BitSet tableBitSet) {
-        return new StructInfo(this.originalPlan, this.originalPlanId, this.hyperGraph, this.valid, this.topPlan,
-                this.bottomPlan, this.relations, this.relationIdStructInfoNodeMap, this.predicates,
-                this.shuttledExpressionsToExpressionsMap, this.expressionToShuttledExpressionToMap,
-                tableBitSet, this.splitPredicate, this.equivalenceClass, this.planOutputShuttledExpressions);
-    }
-
     private static boolean collectStructInfoFromGraph(HyperGraph hyperGraph,
             Plan topPlan,
             Map<ExpressionPosition, Multimap<Expression, Pair<Expression, HyperElement>>>

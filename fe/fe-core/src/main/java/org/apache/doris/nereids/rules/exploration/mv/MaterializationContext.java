@@ -24,6 +24,8 @@ import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.StructInfoNode;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.memo.GroupId;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.ExpressionMapping;
@@ -34,6 +36,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.algebra.Relation;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.statistics.ColumnStatistic;
@@ -58,7 +61,8 @@ import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 /**
- * Abstract context for query rewrite by materialized view
+ * Abstract context for query rewrite by materialized view, this context is different by statement context
+ * which means should be instanced by new query
  */
 public abstract class MaterializationContext {
     private static final Logger LOG = LogManager.getLogger(MaterializationContext.class);
@@ -86,8 +90,6 @@ public abstract class MaterializationContext {
     protected boolean available = true;
     // Mark the materialization plan in the context is already rewritten successfully or not
     protected boolean success = false;
-    // Mark the materialization plan in the context is rewritten successfully in RBO or not
-    protected boolean rewrittenInRbo = false;
     // Mark enable record failure detail info or not, because record failure detail info is performance-depleting
     protected final boolean enableRecordFailureDetail;
     // The materialization plan struct info, construct struct info is expensive,
@@ -339,14 +341,6 @@ public abstract class MaterializationContext {
         return success;
     }
 
-    public boolean isRewrittenInRbo() {
-        return rewrittenInRbo;
-    }
-
-    public void setRewrittenInRbo(boolean rewrittenInRbo) {
-        this.rewrittenInRbo = rewrittenInRbo;
-    }
-
     /**
      * Record fail reason when in rewriting by struct info
      */
@@ -382,6 +376,19 @@ public abstract class MaterializationContext {
                 Pair.of(summary, this.isEnableRecordFailureDetail() ? failureReasonSupplier.get() : ""));
     }
 
+    /**
+     * get materialization context common table id by current statementContext
+     */
+    public BitSet getCommonTableIdSet(StatementContext statementContext) {
+        BitSet commonTableId = new BitSet();
+        for (StructInfoNode node : structInfo.getRelationIdStructInfoNodeMap().values()) {
+            for (CatalogRelation catalogRelation : node.getCatalogRelation()) {
+                commonTableId.set(statementContext.getTableId(catalogRelation.getTable()).asInt());
+            }
+        }
+        return commonTableId;
+    }
+
     @Override
     public String toString() {
         return getStringInfo();
@@ -392,6 +399,7 @@ public abstract class MaterializationContext {
      */
     public static String toSummaryString(CascadesContext cascadesContext,
             Plan physicalPlan) {
+        StatementContext statementContext = cascadesContext.getStatementContext();
         List<MaterializationContext> materializationContexts = cascadesContext.getMaterializationContexts();
         if (materializationContexts.isEmpty()) {
             return "";
@@ -409,7 +417,7 @@ public abstract class MaterializationContext {
         builder.append("\nMaterializedViewRewriteSuccessAndChose:\n");
         if (!chosenMaterializationMap.isEmpty()) {
             chosenMaterializationMap.forEach((materializationQualifier, materializationContext) ->
-                    builder.append(materializationContext.isRewrittenInRbo() ? "   RBO" : "  ")
+                    builder.append(statementContext.isNeedPreRewrite() ? "   RBO" : "  ")
                             .append(generateIdentifierName(materializationQualifier)).append(" chose, \n"));
         } else {
             builder.append("  chose: none, \n");
@@ -428,7 +436,7 @@ public abstract class MaterializationContext {
         }
         if (!rewriteSuccessButNotChoseMap.isEmpty()) {
             rewriteSuccessButNotChoseMap.forEach((materializationQualifier, context) ->
-                    builder.append(context.isRewrittenInRbo() ? "   RBO" : "  ")
+                    builder.append(statementContext.isNeedPreRewrite() ? "   RBO" : "  ")
                             .append(generateIdentifierName(materializationQualifier)).append(" not chose, \n"));
         } else {
             builder.append("  not chose: none, \n");

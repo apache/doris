@@ -128,11 +128,8 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 continue;
             }
             // get query struct infos according to the view strut info, if valid query struct infos is empty, bail out
-            Map<Integer, Integer> relationIdToTableIdMap = MaterializedViewUtils.getRelationIdToCommonTableIdMap(
-                    statementContext, context.getStructInfo());
-            BitSet commonTableId = new BitSet();
-            relationIdToTableIdMap.values().forEach(commonTableId::set);
-            List<StructInfo> queryStructInfos = getValidQueryStructInfos(queryPlan, cascadesContext, commonTableId);
+            List<StructInfo> queryStructInfos = getValidQueryStructInfos(queryPlan, cascadesContext,
+                    context.getCommonTableIdSet(statementContext));
             if (queryStructInfos.isEmpty()) {
                 continue;
             }
