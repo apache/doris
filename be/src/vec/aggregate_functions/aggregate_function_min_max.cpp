@@ -20,10 +20,12 @@
 
 #include "vec/aggregate_functions/aggregate_function_min_max.h"
 
+#include "runtime/define_primitive_type.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/factory_helpers.h"
 #include "vec/aggregate_functions/helpers.h"
 #include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_nullable.h"
 
 namespace doris::vectorized {
@@ -88,13 +90,40 @@ AggregateFunctionPtr create_aggregate_function_single_value(const String& name,
     return nullptr;
 }
 
+// any_value
+template <template <typename> class Data>
+AggregateFunctionPtr create_aggregate_function_single_value_any_value_function(
+        const String& name, const DataTypes& argument_types, const bool result_is_nullable,
+        const AggregateFunctionAttr& attr) {
+    AggregateFunctionPtr res = create_aggregate_function_single_value<Data>(
+            name, argument_types, result_is_nullable, attr);
+    if (res) {
+        return res;
+    }
+    const DataTypePtr& argument_type = remove_nullable(argument_types[0]);
+    if (argument_type->get_primitive_type() == PrimitiveType::TYPE_ARRAY ||
+        argument_type->get_primitive_type() == PrimitiveType::TYPE_MAP ||
+        argument_type->get_primitive_type() == PrimitiveType::TYPE_STRUCT ||
+        argument_type->get_primitive_type() == PrimitiveType::TYPE_AGG_STATE ||
+        argument_type->get_primitive_type() == PrimitiveType::TYPE_OBJECT ||
+        argument_type->get_primitive_type() == PrimitiveType::TYPE_HLL ||
+        argument_type->get_primitive_type() == PrimitiveType::TYPE_QUANTILE_STATE) {
+        return creator_without_type::create<
+                AggregateFunctionsSingleValue<SingleValueDataComplexType>>(argument_types,
+                                                                           result_is_nullable);
+    }
+
+    return nullptr;
+}
+
 void register_aggregate_function_minmax(AggregateFunctionSimpleFactory& factory) {
     factory.register_function_both(
             "max", create_aggregate_function_single_value<AggregateFunctionMaxData>);
     factory.register_function_both(
             "min", create_aggregate_function_single_value<AggregateFunctionMinData>);
     factory.register_function_both(
-            "any", create_aggregate_function_single_value<AggregateFunctionAnyData>);
+            "any",
+            create_aggregate_function_single_value_any_value_function<AggregateFunctionAnyData>);
     factory.register_alias("any", "any_value");
 }
 
