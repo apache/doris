@@ -168,13 +168,18 @@ public class Index implements Writable {
         return InvertedIndexUtil.getInvertedIndexParserStopwords(properties);
     }
 
+    public boolean isNonTokenizedInvertedIndex() {
+        return getInvertedIndexParser().equalsIgnoreCase(InvertedIndexUtil.INVERTED_INDEX_PARSER_NONE);
+    }
+
     // Whether the index can be changed in light mode
-    // cloud mode only supports light change for ngram_bf index
+    // cloud mode only supports light change for ngram_bf index and inverted index without parser
     // local mode supports light change for both inverted index and ngram_bf index
     // the rest of the index types do not support light change
     public boolean isLightIndexChangeSupported() {
         if (Config.isCloudMode()) {
-            return indexType == IndexDef.IndexType.NGRAM_BF;
+            return indexType == IndexDef.IndexType.NGRAM_BF
+                    || (indexType == IndexDef.IndexType.INVERTED && isNonTokenizedInvertedIndex());
         } else {
             return indexType == IndexDef.IndexType.INVERTED
                 || indexType == IndexDef.IndexType.NGRAM_BF;
