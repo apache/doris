@@ -1491,6 +1491,9 @@ DEFINE_mInt32(load_trigger_compaction_version_percent, "66");
 DEFINE_mInt64(base_compaction_interval_seconds_since_last_operation, "86400");
 DEFINE_mBool(enable_compaction_pause_on_high_memory, "true");
 
+DEFINE_mDouble(max_wait_time_multiplier, "0.5");
+DEFINE_mInt32(load_timeout_remaining_seconds, "30");
+
 DEFINE_mBool(enable_calc_delete_bitmap_between_segments_concurrently, "false");
 
 // clang-format off

@@ -35,6 +35,7 @@
 #include <atomic>
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
+#include <cstdint>
 #include <functional>
 #include <initializer_list>
 #include <map>
@@ -155,7 +156,7 @@ public:
 
     // wait remote to close stream,
     // remote will close stream when it receives CLOSE_LOAD
-    Status close_wait(RuntimeState* state, int64_t timeout_ms = 0);
+    Status close_finish_check(RuntimeState* state, bool* is_closed);
 
     // cancel the stream, abort close_wait, mark _is_closed and _is_cancelled
     void cancel(Status reason);
@@ -216,6 +217,8 @@ public:
         _failed_tablets[tablet_id] = reason;
     }
 
+    int64_t bytes_written() const { return _bytes_written; }
+
 private:
     Status _encode_and_send(PStreamHeader& header, std::span<const Slice> data = {});
     Status _send_with_buffer(butil::IOBuf& buf, bool sync = false);
@@ -247,9 +250,7 @@ protected:
     Status _cancel_st;
 
     bthread::Mutex _open_mutex;
-    bthread::Mutex _close_mutex;
     bthread::Mutex _cancel_mutex;
-    bthread::ConditionVariable _close_cv;
 
     std::mutex _buffer_mutex;
     std::mutex _send_mutex;
@@ -266,6 +267,7 @@ protected:
     std::unordered_map<int64_t, Status> _failed_tablets;
 
     bool _is_incremental = false;
+    size_t _bytes_written = 0;
 };
 
 // a collection of LoadStreams connect to the same node
@@ -310,8 +312,6 @@ public:
 
     Status close_load(const std::vector<PTabletID>& tablets_to_commit);
 
-    Status close_wait(RuntimeState* state, int64_t timeout_ms = 0);
-
     std::unordered_set<int64_t> success_tablets() {
         std::unordered_set<int64_t> s;
         for (auto& stream : _streams) {
@@ -329,6 +329,8 @@ public:
         }
         return m;
     }
+
+    std::vector<std::shared_ptr<LoadStreamStub>> streams() { return _streams; }
 
 private:
     std::vector<std::shared_ptr<LoadStreamStub>> _streams;
