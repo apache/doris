@@ -589,6 +589,9 @@ public class SessionVariable implements Serializable, Writable {
     public static final String CREATE_TABLE_PARTITION_MAX_NUM
             = "create_table_partition_max_num";
 
+    public static final String MATERIALIZED_VIEW_REWRITE_DURATION_THRESHOLD_MS
+            = "materialized_view_rewrite_duration_threshold_ms";
+
     public static final String ENABLE_PUSHDOWN_MINMAX_ON_UNIQUE = "enable_pushdown_minmax_on_unique";
 
     public static final String HIVE_PARQUET_USE_COLUMN_NAMES = "hive_parquet_use_column_names";
@@ -1978,6 +1981,12 @@ public class SessionVariable implements Serializable, Writable {
             description = {"是否允许嵌套物化视图改写",
                     "Whether enable materialized view nest rewrite"})
     public boolean enableMaterializedViewNestRewrite = false;
+
+    @VariableMgr.VarAttr(name = MATERIALIZED_VIEW_REWRITE_DURATION_THRESHOLD_MS, needForward = true,
+            description = {"物化视图透明改写允许的最长耗时，超过此时长不再进行透明改写",
+                    "The maximum duration allowed for transparent rewriting of materialized views; "
+                            + "if this duration is exceeded, transparent rewriting will no longer be performed."})
+    public long materializedViewRewriteDurationThresholdMs = 1000L;
 
     @VariableMgr.VarAttr(name = CREATE_TABLE_PARTITION_MAX_NUM, needForward = true,
             description = {"建表时创建分区的最大数量",

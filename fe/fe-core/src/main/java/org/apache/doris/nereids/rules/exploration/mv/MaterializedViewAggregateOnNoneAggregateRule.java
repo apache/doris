@@ -92,11 +92,15 @@ public class MaterializedViewAggregateOnNoneAggregateRule extends AbstractMateri
 
     @Override
     protected Pair<Map<BaseTableInfo, Set<String>>, Map<BaseTableInfo, Set<String>>> calcInvalidPartitions(
-            Plan queryPlan, Plan rewrittenPlan, AsyncMaterializationContext materializationContext,
-            CascadesContext cascadesContext) throws AnalysisException {
+            Set<String> queryUsedPartition,
+            Plan rewrittenPlan,
+            CascadesContext cascadesContext,
+            AsyncMaterializationContext materializationContext)
+            throws AnalysisException {
         Pair<Map<BaseTableInfo, Set<String>>, Map<BaseTableInfo, Set<String>>> invalidPartitions
-                = super.calcInvalidPartitions(queryPlan, rewrittenPlan, materializationContext, cascadesContext);
-        if (needUnionRewrite(invalidPartitions, cascadesContext)) {
+                = super.calcInvalidPartitions(queryUsedPartition, rewrittenPlan, cascadesContext,
+                materializationContext);
+        if (PartitionCompensator.needUnionRewrite(invalidPartitions, cascadesContext)) {
             // if query use some invalid partition in mv, bail out
             return null;
         }

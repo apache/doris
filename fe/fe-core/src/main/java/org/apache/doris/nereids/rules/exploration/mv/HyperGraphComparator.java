@@ -406,13 +406,20 @@ public class HyperGraphComparator {
     }
 
     private Map<Edge, Edge> constructQueryToViewJoinMapWithExpr() {
-        Map<Expression, Edge> viewExprToEdge = getViewJoinEdges().stream()
-                .flatMap(e -> e.getExpressions().stream().map(expr -> Pair.of(expr, e)))
-                .collect(ImmutableMap.toImmutableMap(p -> p.first, p -> p.second));
-        Map<Expression, Edge> queryExprToEdge = getQueryJoinEdges().stream()
-                .flatMap(e -> e.getExpressions().stream().map(expr -> Pair.of(expr, e)))
-                .collect(ImmutableMap.toImmutableMap(p -> p.first, p -> p.second));
-
+        Map<Expression, Edge> viewExprToEdge = new HashMap<>();
+        List<JoinEdge> viewJoinEdges = getViewJoinEdges();
+        for (JoinEdge viewJoin : viewJoinEdges) {
+            for (Expression expression : viewJoin.getExpressions()) {
+                viewExprToEdge.put(expression, viewJoin);
+            }
+        }
+        Map<Expression, Edge> queryExprToEdge = new HashMap<>();
+        List<JoinEdge> queryJoinEdges = getQueryJoinEdges();
+        for (JoinEdge queryJoin : queryJoinEdges) {
+            for (Expression expression : queryJoin.getExpressions()) {
+                queryExprToEdge.put(expression, queryJoin);
+            }
+        }
         HashMap<Edge, Edge> edgeMap = new HashMap<>();
         for (Entry<Expression, Edge> entry : queryExprToEdge.entrySet()) {
             if (edgeMap.containsKey(entry.getValue())) {
@@ -444,15 +451,19 @@ public class HyperGraphComparator {
     //         +--LogicalOlapScan
     private Map<Edge, Edge> constructQueryToViewFilterMapWithExpr() {
         Multimap<Expression, Edge> viewExprToEdge = HashMultimap.create();
-        getViewFilterEdges().stream()
-                .flatMap(e -> e.getExpressions().stream().map(expr -> Pair.of(expr, e)))
-                .forEach(pair -> viewExprToEdge.put(pair.key(), pair.value()));
-
+        List<FilterEdge> viewFilterEdges = getViewFilterEdges();
+        for (FilterEdge viewEdge : viewFilterEdges) {
+            for (Expression expression : viewEdge.getExpressions()) {
+                viewExprToEdge.put(expression, viewEdge);
+            }
+        }
         Multimap<Expression, Edge> queryExprToEdge = HashMultimap.create();
-        getQueryFilterEdges().stream()
-                .flatMap(e -> e.getExpressions().stream().map(expr -> Pair.of(expr, e)))
-                .forEach(pair -> queryExprToEdge.put(pair.key(), pair.value()));
-
+        List<FilterEdge> queryFilterEdges = getQueryFilterEdges();
+        for (FilterEdge queryEdge : queryFilterEdges) {
+            for (Expression expression : queryEdge.getExpressions()) {
+                queryExprToEdge.put(expression, queryEdge);
+            }
+        }
         HashMap<Edge, Edge> queryToViewEdgeMap = new HashMap<>();
         for (Entry<Expression, Collection<Edge>> entry : queryExprToEdge.asMap().entrySet()) {
             Expression queryExprViewBased = null;
