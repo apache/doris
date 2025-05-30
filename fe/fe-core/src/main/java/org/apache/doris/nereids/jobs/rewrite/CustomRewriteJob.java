@@ -71,6 +71,8 @@ public class CustomRewriteJob implements RewriteJob {
                         ruleType.name(), root.treeString(), rewrittenRoot.treeString());
                 cascadesContext.addPlanProcess(planProcess);
             }
+            // if rewrite success, record the rule type
+            context.getCascadesContext().getStatementContext().ruleSetApplied(ruleType);
         }
         cascadesContext.setRewritePlan(rewrittenRoot);
     }

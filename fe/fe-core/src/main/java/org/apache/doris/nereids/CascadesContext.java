@@ -24,7 +24,6 @@ import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.executor.Analyzer;
 import org.apache.doris.nereids.jobs.executor.TableCollectAndHookInitializer;
-import org.apache.doris.nereids.jobs.executor.TablePartitionCollector;
 import org.apache.doris.nereids.jobs.rewrite.RewriteBottomUpJob;
 import org.apache.doris.nereids.jobs.rewrite.RewriteTopDownJob;
 import org.apache.doris.nereids.jobs.rewrite.RootPlanTreeRewriteJob.RootRewriteJobContext;
@@ -105,7 +104,7 @@ public class CascadesContext implements ScheduleContext {
     private final Optional<CTEId> currentTree;
     private final Optional<CascadesContext> parent;
 
-    private final Set<MaterializationContext> materializationContexts;
+    private final Map<List<String>, MaterializationContext> materializationContexts;
     private final Set<List<String>> materializationRewrittenSuccessSet = new HashSet<>();
     private boolean isLeadingJoin = false;
 
@@ -144,7 +143,7 @@ public class CascadesContext implements ScheduleContext {
         this.currentJobContext = new JobContext(this, requireProperties, Double.MAX_VALUE);
         this.subqueryExprIsAnalyzed = new HashMap<>();
         this.runtimeFilterContext = new RuntimeFilterContext(getConnectContext().getSessionVariable());
-        this.materializationContexts = new HashSet<>();
+        this.materializationContexts = new HashMap<>();
         if (statementContext.getConnectContext() != null) {
             ConnectContext connectContext = statementContext.getConnectContext();
             SessionVariable sessionVariable = connectContext.getSessionVariable();
@@ -221,16 +220,31 @@ public class CascadesContext implements ScheduleContext {
         return isTimeout;
     }
 
+    /**
+     * Init memo with plan
+     */
     public void toMemo() {
         this.memo = new Memo(getConnectContext(), plan);
+        List<Plan> rewrittenPlansByMv = this.getStatementContext().getRewrittenPlansByMv();
+        boolean initMultiPlanMemo = Memo.needInitMultiPlanMemo(this);
+        if (initMultiPlanMemo) {
+            // copy tmp plan for mv rewrite firstly
+            for (Plan rewrittenPlan : rewrittenPlansByMv) {
+                // aggregate_without_roll_up query_13_0 cause error into targetGroup but differ in logical properties
+                // tmp rewritten plan output is different from final rewritten plan output
+                if (!rewrittenPlan.getLogicalProperties().equals(plan.getLogicalProperties())) {
+                    LOG.error("rewritten plan in rbo logical properties are "
+                                    + "different from original plan, query id is {}",
+                            getConnectContext().getQueryIdentifier());
+                    continue;
+                }
+                this.memo.copyIn(rewrittenPlan, this.memo.getRoot(), false);
+            }
+        }
     }
 
     public TableCollectAndHookInitializer newTableCollector() {
         return new TableCollectAndHookInitializer(this);
-    }
-
-    public TablePartitionCollector newTablePartitionCollector() {
-        return new TablePartitionCollector(this);
     }
 
     public Analyzer newAnalyzer() {
@@ -345,13 +359,18 @@ public class CascadesContext implements ScheduleContext {
     }
 
     public List<MaterializationContext> getMaterializationContexts() {
-        return materializationContexts.stream()
+        return materializationContexts.values().stream()
                 .filter(MaterializationContext::isAvailable)
                 .collect(Collectors.toList());
     }
 
+    public Map<List<String>, MaterializationContext> getAllMaterializationContexts() {
+        return materializationContexts;
+    }
+
     public void addMaterializationContext(MaterializationContext materializationContext) {
-        this.materializationContexts.add(materializationContext);
+        this.materializationContexts.put(materializationContext.generateMaterializationIdentifier(),
+                materializationContext);
     }
 
     public Set<List<String>> getMaterializationRewrittenSuccessSet() {

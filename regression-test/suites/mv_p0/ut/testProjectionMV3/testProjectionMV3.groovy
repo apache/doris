@@ -18,6 +18,9 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("testProjectionMV3") {
+    String db = context.config.getDbNameByFile(context.file)
+    sql "use ${db}"
+
     sql """ DROP TABLE IF EXISTS emps; """
 
     sql """
@@ -35,13 +38,19 @@ suite ("testProjectionMV3") {
     sql """insert into emps values("2020-01-02",2,"b",2,2,2);"""
 
     def result = "null"
-
-    createMV("create materialized view emps_mv as select deptno, empid, name from emps order by deptno;")
+    create_sync_mv(db, "emps", "emps_mv",
+            "select deptno, empid, name from emps order by deptno;")
 
     sql """insert into emps values("2020-01-01",1,"a",1,1,1);"""
 
     sql """analyze table emps with sync;"""
-    sql """alter table emps modify column time_col set stats ('row_count'='3');"""
+    sql """set enable_stats=true;"""
+
+    mv_rewrite_fail("select * from emps order by empid;", "emps_mv")
+    mv_rewrite_success("select empid + 1, name from emps where deptno = 1 order by empid;", "emps_mv")
+    mv_rewrite_success("select name from emps where deptno = 1 order by empid;", "emps_mv")
+
+    sql """alter table emps modify column time_col set stats ('row_count'='4');"""
     sql """set enable_stats=false;"""
 
     mv_rewrite_fail("select * from emps order by empid;", "emps_mv")
@@ -53,11 +62,4 @@ suite ("testProjectionMV3") {
     mv_rewrite_success("select name from emps where deptno = 1 order by empid;", "emps_mv")
     qt_select_mv2 "select name from emps where deptno = 1 order by empid;"
 
-    sql """set enable_stats=true;"""
-
-    mv_rewrite_fail("select * from emps order by empid;", "emps_mv")
-
-    mv_rewrite_success("select empid + 1, name from emps where deptno = 1 order by empid;", "emps_mv")
-
-    mv_rewrite_success("select name from emps where deptno = 1 order by empid;", "emps_mv")
 }
