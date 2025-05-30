@@ -145,8 +145,10 @@ Status Merger::vmerge_rowsets(BaseTabletSPtr tablet, ReaderType reader_type,
         stats_output->merged_rows = reader.merged_rows();
         stats_output->filtered_rows = reader.filtered_rows();
         if (config::is_cloud_mode()) {
-            stats_output->cloud_local_read_time = reader.stats().file_cache_stats.local_io_timer;
-            stats_output->cloud_remote_read_time = reader.stats().file_cache_stats.remote_io_timer;
+            stats_output->cloud_local_read_time =
+                    reader.stats().file_cache_stats.local_io_timer / 1000 / 1000;
+            stats_output->cloud_remote_read_time =
+                    reader.stats().file_cache_stats.remote_io_timer / 1000 / 1000;
         }
     }
 
@@ -325,8 +327,10 @@ Status Merger::vertical_compact_one_group(
         stats_output->merged_rows = reader.merged_rows();
         stats_output->filtered_rows = reader.filtered_rows();
         if (config::is_cloud_mode()) {
-            stats_output->cloud_local_read_time = reader.stats().file_cache_stats.local_io_timer;
-            stats_output->cloud_remote_read_time = reader.stats().file_cache_stats.remote_io_timer;
+            stats_output->cloud_local_read_time =
+                    reader.stats().file_cache_stats.local_io_timer / 1000 / 1000;
+            stats_output->cloud_remote_read_time =
+                    reader.stats().file_cache_stats.remote_io_timer / 1000 / 1000;
         }
     }
     RETURN_IF_ERROR(dst_rowset_writer->flush_columns(is_key));

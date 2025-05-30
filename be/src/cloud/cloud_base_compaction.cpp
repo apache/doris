@@ -303,8 +303,8 @@ Status CloudBaseCompaction::execute_compact() {
             .tag("output_rowset_data_size", _output_rowset->data_disk_size())
             .tag("output_rowset_index_size", _output_rowset->index_disk_size())
             .tag("output_rowset_total_size", _output_rowset->total_disk_size())
-            .tag("local_read_time_ns", _stats.cloud_local_read_time)
-            .tag("remote_read_time_ns", _stats.cloud_remote_read_time);
+            .tag("local_read_time_ms", _stats.cloud_local_read_time)
+            .tag("remote_read_time_ms", _stats.cloud_remote_read_time);
 
     //_compaction_succeed = true;
     _state = CompactionState::SUCCESS;
