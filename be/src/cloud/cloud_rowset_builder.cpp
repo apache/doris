@@ -95,7 +95,8 @@ Status CloudRowsetBuilder::check_tablet_version_count() {
         return Status::Error<TOO_MANY_VERSION>(
                 "failed to init rowset builder. version count: {}, exceed limit: {}, "
                 "tablet: {}. Please reduce the frequency of loading data or adjust the "
-                "max_tablet_version_num or time_series_max_tablet_version_numin be.conf to a larger value.",
+                "max_tablet_version_num or time_series_max_tablet_version_numin be.conf to a "
+                "larger value.",
                 version_count, max_version_config, _tablet->tablet_id());
     }
     return Status::OK();

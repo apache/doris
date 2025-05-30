@@ -171,7 +171,8 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
     if (tablet->exceed_version_limit(max_version_config)) {
         return Status::Status::Error<TOO_MANY_VERSION>(
                 "failed to push data. version count: {}, exceed limit: {}, tablet: {}. Please "
-                "reduce the frequency of loading data or adjust the max_tablet_version_num or time_series_max_tablet_version_num in "
+                "reduce the frequency of loading data or adjust the max_tablet_version_num or "
+                "time_series_max_tablet_version_num in "
                 "be.conf to a larger value.",
                 tablet->version_count(), max_version_config, tablet->tablet_id());
     }
