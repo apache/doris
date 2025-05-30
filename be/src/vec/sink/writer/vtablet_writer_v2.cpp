@@ -484,6 +484,7 @@ Status VTabletWriterV2::write(RuntimeState* state, Block& input_block) {
     // For each tablet, send its input_rows from block to delta writer
     for (const auto& [tablet_id, rows] : rows_for_tablet) {
         RETURN_IF_ERROR(_write_memtable(block, tablet_id, rows));
+        _write_tablets.insert(tablet_id);
     }
 
     COUNTER_SET(_input_rows_counter, _number_input_rows);
@@ -707,30 +708,162 @@ Status VTabletWriterV2::close(Status exec_status) {
 
 Status VTabletWriterV2::_close_wait(bool incremental) {
     SCOPED_TIMER(_close_load_timer);
-    auto st = _load_stream_map->for_each_st(
-            [this, incremental](int64_t dst_id, LoadStreamStubs& streams) -> Status {
-                if (streams.is_incremental() != incremental) {
-                    return Status::OK();
+    auto streams_for_node = _load_stream_map->get_streams_for_node();
+    auto check_timeout = [this]() -> Status {
+        int64_t remain_ms = static_cast<int64_t>(_state->execution_timeout()) * 1000 -
+                            _timeout_watch.elapsed_time() / 1000 / 1000;
+        DBUG_EXECUTE_IF("VTabletWriterV2._close_wait.load_timeout", { remain_ms = 0; });
+        if (remain_ms <= 0) {
+            LOG(WARNING) << "load timed out before close waiting, load_id=" << print_id(_load_id);
+            return Status::TimedOut("load timed out before close waiting");
+        }
+        return Status::OK();
+    };
+    auto check_streams_finish =
+            [this](std::unordered_set<std::shared_ptr<LoadStreamStub>>& unfinished_streams,
+                   Status& status,
+                   const std::unordered_map<int64_t, std::shared_ptr<LoadStreamStubs>>&
+                           streams_for_node) -> Status {
+        for (const auto& [dst_id, streams] : streams_for_node) {
+            for (const auto& stream : streams->streams()) {
+                if (!unfinished_streams.contains(stream)) {
+                    continue;
                 }
-                int64_t remain_ms = static_cast<int64_t>(_state->execution_timeout()) * 1000 -
-                                    _timeout_watch.elapsed_time() / 1000 / 1000;
-                DBUG_EXECUTE_IF("VTabletWriterV2._close_wait.load_timeout", { remain_ms = 0; });
-                if (remain_ms <= 0) {
-                    LOG(WARNING) << "load timed out before close waiting, load_id="
-                                 << print_id(_load_id);
-                    return Status::TimedOut("load timed out before close waiting");
+                bool is_closed = false;
+                auto stream_st = stream->close_finish_check(_state, &is_closed);
+                if (!stream_st.ok()) {
+                    status = stream_st;
+                    unfinished_streams.erase(stream);
+                    LOG(WARNING) << "close_wait failed: " << stream_st
+                                 << ", load_id=" << print_id(_load_id);
                 }
-                auto st = streams.close_wait(_state, remain_ms);
-                if (!st.ok()) {
-                    LOG(WARNING) << "close_wait timeout on streams to dst_id=" << dst_id
-                                 << ", load_id=" << print_id(_load_id) << ": " << st;
+                if (is_closed) {
+                    unfinished_streams.erase(stream);
                 }
-                return st;
-            });
-    if (!st.ok()) {
-        LOG(WARNING) << "close_wait failed: " << st << ", load_id=" << print_id(_load_id);
+            }
+        }
+        return status;
+    };
+
+    std::unordered_set<std::shared_ptr<LoadStreamStub>> unfinished_streams;
+    for (const auto& [dst_id, streams] : streams_for_node) {
+        if (streams->is_incremental() != incremental) {
+            continue;
+        }
+        for (const auto& stream : streams->streams()) {
+            unfinished_streams.insert(stream);
+        }
     }
-    return st;
+
+    Status status;
+    // First wait for quorum success
+    while (true) {
+        RETURN_IF_ERROR(check_timeout());
+        RETURN_IF_ERROR(check_streams_finish(unfinished_streams, status, streams_for_node));
+        if (_quorum_success(unfinished_streams) || !status.ok() || unfinished_streams.empty()) {
+            break;
+        }
+        bthread_usleep(1000 * 10);
+    }
+
+    // Then wait for remaining streams as much as possible
+    if (status.ok() && !unfinished_streams.empty()) {
+        double max_wait_time_ms = _calc_max_wait_time_ms(streams_for_node, unfinished_streams);
+        while (true) {
+            RETURN_IF_ERROR(check_timeout());
+            RETURN_IF_ERROR(check_streams_finish(unfinished_streams, status, streams_for_node));
+
+            if (unfinished_streams.empty() || !status.ok()) {
+                break;
+            }
+
+            // Check if we should stop waiting
+            if (static_cast<double>(UnixMillis() - _timeout_watch.elapsed_time()) >
+                        max_wait_time_ms ||
+                _state->execution_timeout() * 1000 - _timeout_watch.elapsed_time() <
+                        config::load_timeout_remaining_seconds * 1000) {
+                std::stringstream unfinished_streams_str;
+                for (const auto& stream : unfinished_streams) {
+                    unfinished_streams_str << stream->stream_id() << ",";
+                }
+                LOG(INFO) << "reach max wait time"
+                          << ", load_id=" << print_id(_load_id) << ", txn_id=" << _txn_id
+                          << ", unfinished streams: " << unfinished_streams_str.str();
+                break;
+            }
+            bthread_usleep(1000 * 10);
+        }
+    }
+
+    if (!status.ok()) {
+        LOG(WARNING) << "close_wait failed: " << status << ", load_id=" << print_id(_load_id);
+    }
+    return status;
+}
+
+bool VTabletWriterV2::_quorum_success(
+        const std::unordered_set<std::shared_ptr<LoadStreamStub>>& unfinished_streams) {
+    if (_write_tablets.empty()) {
+        return false;
+    }
+    const int num_replicas = _num_replicas;
+    const int quorum = num_replicas / 2 + 1;
+    std::unordered_map<int64_t, int> success_counts;
+    auto streams_for_node = _load_stream_map->get_streams_for_node();
+    for (const auto& [dst_id, streams] : streams_for_node) {
+        for (const auto& stream : streams->streams()) {
+            if (unfinished_streams.contains(stream)) {
+                continue;
+            }
+            for (auto tablet_id : stream->success_tablets()) {
+                if (_write_tablets.contains(tablet_id)) {
+                    success_counts[tablet_id]++;
+                }
+            }
+        }
+    }
+    for (auto tablet_id : _write_tablets) {
+        int success = success_counts[tablet_id];
+        if (success < quorum) {
+            return false;
+        }
+    }
+    return true;
+}
+
+double VTabletWriterV2::_calc_max_wait_time_ms(
+        const std::unordered_map<int64_t, std::shared_ptr<LoadStreamStubs>>& streams_for_node,
+        const std::unordered_set<std::shared_ptr<LoadStreamStub>>& unfinished_streams) {
+    double avg_speed = 0.0;
+    int64_t total_time_ms = std::max<int64_t>(
+            1L, static_cast<int64_t>(UnixMillis() - _timeout_watch.elapsed_time()));
+    int64_t finished_streams_count = 0;
+
+    for (const auto& [dst_id, streams] : streams_for_node) {
+        for (const auto& stream : streams->streams()) {
+            if (unfinished_streams.contains(stream)) {
+                continue;
+            }
+            avg_speed += static_cast<double>(stream->bytes_written()) /
+                         static_cast<double>(total_time_ms);
+            finished_streams_count++;
+        }
+    }
+    DCHECK(finished_streams_count > 0) << "no finished streams";
+    avg_speed /= static_cast<double>(finished_streams_count);
+
+    double max_wait_time_ms = 0.0;
+    for (const auto& [dst_id, streams] : streams_for_node) {
+        for (const auto& stream : streams->streams()) {
+            if (unfinished_streams.contains(stream)) {
+                max_wait_time_ms = std::max(
+                        max_wait_time_ms, static_cast<double>(stream->bytes_written()) / avg_speed);
+            }
+        }
+    }
+    max_wait_time_ms += config::max_wait_time_multiplier * max_wait_time_ms;
+
+    return max_wait_time_ms;
 }
 
 void VTabletWriterV2::_calc_tablets_to_commit() {
