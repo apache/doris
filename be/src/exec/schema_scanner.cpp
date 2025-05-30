@@ -28,6 +28,7 @@
 
 #include "exec/schema_scanner/schema_active_queries_scanner.h"
 #include "exec/schema_scanner/schema_backend_active_tasks.h"
+#include "exec/schema_scanner/schema_backend_configuration_scanner.h"
 #include "exec/schema_scanner/schema_backend_kerberos_ticket_cache.h"
 #include "exec/schema_scanner/schema_catalog_meta_cache_stats_scanner.h"
 #include "exec/schema_scanner/schema_charsets_scanner.h"
@@ -195,6 +196,8 @@ std::unique_ptr<SchemaScanner> SchemaScanner::create(TSchemaTableType::type type
         return SchemaFilesScanner::create_unique();
     case TSchemaTableType::SCH_PARTITIONS:
         return SchemaPartitionsScanner::create_unique();
+    case TSchemaTableType::SCH_BACKEND_CONFIGURATION:
+        return SchemaBackendConfigurationScanner::create_unique();
     case TSchemaTableType::SCH_ROWSETS:
         return SchemaRowsetsScanner::create_unique();
     case TSchemaTableType::SCH_METADATA_NAME_IDS:
