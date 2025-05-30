@@ -259,6 +259,11 @@ public:
     // check that if the delete bitmap in delete bitmap cache has the same cardinality with the expected_delete_bitmap's
     Status check_delete_bitmap_cache(int64_t txn_id, DeleteBitmap* expected_delete_bitmap) override;
 
+    void agg_delete_bitmap_for_compaction(int64_t start_version, int64_t end_version,
+                                          const std::vector<RowsetSharedPtr>& pre_rowsets,
+                                          DeleteBitmapPtr& new_delete_bitmap,
+                                          std::map<std::string, int64_t>& pre_rowset_to_versions);
+
     bool need_remove_unused_rowsets();
 
     void add_unused_rowsets(const std::vector<RowsetSharedPtr>& rowsets);
@@ -327,6 +332,7 @@ private:
     // unused_rowsets, [start_version, end_version]
     std::mutex _gc_mutex;
     std::unordered_map<RowsetId, RowsetSharedPtr> _unused_rowsets;
+    std::vector<std::pair<std::vector<RowsetId>, DeleteBitmapKeyRanges>> _unused_delete_bitmap;
 };
 
 using CloudTabletSPtr = std::shared_ptr<CloudTablet>;
