@@ -338,6 +338,8 @@ export ASAN_OPTIONS=suppressions=${DORIS_HOME}/conf/asan_suppr.conf
 ## detect_container_overflow=0, https://github.com/google/sanitizers/issues/193
 export ASAN_OPTIONS=symbolize=1:abort_on_error=1:disable_coredump=0:unmap_shadow_on_exit=1:detect_container_overflow=0:check_malloc_usable_size=0:${ASAN_OPTIONS}
 export UBSAN_OPTIONS=print_stacktrace=1
+## set msan env to continue running when detecting errors
+export TSAN_OPTIONS=halt_on_error=0:second_deadlock_stack=1:report_atomic_races=0:print_symbolized=1:suppressions=${DORIS_HOME}/conf/tsan-suppressions.txt
 
 ## set TCMALLOC_HEAP_LIMIT_MB to limit memory used by tcmalloc
 set_tcmalloc_heap_limit() {

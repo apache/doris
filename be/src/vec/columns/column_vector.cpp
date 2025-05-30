@@ -556,4 +556,9 @@ template class ColumnVector<Int128>;
 template class ColumnVector<Float32>;
 template class ColumnVector<Float64>;
 template class ColumnVector<IPv6>; // IPv6
+
+// 很神秘，我也不知道为什么
+#ifdef THREAD_SANITIZER
+template class ColumnVector<wide::integer<256ul, int>>;
+#endif
 } // namespace doris::vectorized
