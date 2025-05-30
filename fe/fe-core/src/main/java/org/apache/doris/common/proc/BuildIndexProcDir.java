@@ -28,6 +28,16 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.OrderByPair;
+import org.apache.doris.nereids.trees.expressions.EqualPredicate;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.GreaterThan;
+import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
+import org.apache.doris.nereids.trees.expressions.LessThan;
+import org.apache.doris.nereids.trees.expressions.LessThanEqual;
+import org.apache.doris.nereids.trees.expressions.Not;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -39,6 +49,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 public class BuildIndexProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
@@ -57,6 +68,54 @@ public class BuildIndexProcDir implements ProcDirInterface {
     public BuildIndexProcDir(SchemaChangeHandler schemaChangeHandler, Database db) {
         this.schemaChangeHandler = schemaChangeHandler;
         this.db = db;
+    }
+
+    boolean filterResult(String columnName, Comparable element, Map<String, Expression> filter)
+            throws AnalysisException {
+        if (filter == null) {
+            return true;
+        }
+        Expression subExpr = filter.get(columnName.toLowerCase());
+        if (subExpr == null) {
+            return true;
+        }
+
+        Expression right;
+        if (subExpr instanceof Not && subExpr.child(0) instanceof EqualTo) {
+            right = subExpr.child(0).child(1);
+        } else {
+            right = subExpr.child(1);
+        }
+
+        if (right instanceof StringLikeLiteral && subExpr instanceof EqualTo) {
+            return ((StringLikeLiteral) right).getValue().equals(element);
+        }
+
+        if (right instanceof org.apache.doris.nereids.trees.expressions.literal.DateLiteral) {
+            if (!(right instanceof DateTimeLiteral)) {
+                throw new AnalysisException("Invalid date type: " + right.getDataType());
+            }
+
+            Long leftVal = new DateTimeLiteral((String) element).getValue();
+            Long rightVal = ((DateTimeLiteral) right).getValue();
+
+            if (subExpr instanceof EqualPredicate) {
+                return leftVal.equals(rightVal);
+            } else if (subExpr instanceof GreaterThan) {
+                return leftVal > rightVal;
+            } else if (subExpr instanceof GreaterThanEqual) {
+                return leftVal >= rightVal;
+            } else if (subExpr instanceof LessThan) {
+                return leftVal < rightVal;
+            } else if (subExpr instanceof LessThanEqual) {
+                return leftVal <= rightVal;
+            } else if (subExpr instanceof Not) {
+                return !leftVal.equals(rightVal);
+            } else {
+                Preconditions.checkState(false, "No defined binary operator.");
+            }
+        }
+        return true;
     }
 
     boolean filterResult(String columnName, Comparable element, HashMap<String, Expr> filter) throws AnalysisException {
@@ -108,6 +167,68 @@ public class BuildIndexProcDir implements ProcDirInterface {
             }
         }
         return true;
+    }
+
+    public ProcResult fetchResultByFilter(Map<String, Expression> filter, ArrayList<OrderByPair> orderByPairs,
+                                          LimitElement limitElement) throws AnalysisException {
+        Preconditions.checkNotNull(db);
+        Preconditions.checkNotNull(schemaChangeHandler);
+
+        List<List<Comparable>> indexChangeJobInfos = schemaChangeHandler.getAllIndexChangeJobInfos(db);
+
+        //where
+        List<List<Comparable>> jobInfos;
+        if (filter == null || filter.size() == 0) {
+            jobInfos = indexChangeJobInfos;
+        } else {
+            jobInfos = Lists.newArrayList();
+            for (List<Comparable> infoStr : indexChangeJobInfos) {
+                if (infoStr.size() != TITLE_NAMES.size()) {
+                    LOG.warn("indexChangeJobInfos.size() " + indexChangeJobInfos.size()
+                            + " not equal TITLE_NAMES.size() " + TITLE_NAMES.size());
+                    continue;
+                }
+                boolean isNeed = true;
+                for (int i = 0; i < infoStr.size(); i++) {
+                    isNeed = filterResult(TITLE_NAMES.get(i), infoStr.get(i), filter);
+                    if (!isNeed) {
+                        break;
+                    }
+                }
+                if (isNeed) {
+                    jobInfos.add(infoStr);
+                }
+            }
+        }
+
+        // order by
+        if (orderByPairs != null) {
+            ListComparator<List<Comparable>> comparator = null;
+            OrderByPair[] orderByPairArr = new OrderByPair[orderByPairs.size()];
+            comparator = new ListComparator<List<Comparable>>(orderByPairs.toArray(orderByPairArr));
+            Collections.sort(jobInfos, comparator);
+        }
+
+        //limit
+        if (limitElement != null && limitElement.hasLimit()) {
+            int beginIndex = (int) limitElement.getOffset();
+            int endIndex = (int) (beginIndex + limitElement.getLimit());
+            if (endIndex > jobInfos.size()) {
+                endIndex = jobInfos.size();
+            }
+            jobInfos = jobInfos.subList(beginIndex, endIndex);
+        }
+
+        BaseProcResult result = new BaseProcResult();
+        result.setNames(TITLE_NAMES);
+        for (List<Comparable> jobInfo : jobInfos) {
+            List<String> oneResult = new ArrayList<String>(jobInfos.size());
+            for (Comparable column : jobInfo) {
+                oneResult.add(column.toString());
+            }
+            result.addRow(oneResult);
+        }
+        return result;
     }
 
     public ProcResult fetchResultByFilter(HashMap<String, Expr> filter, ArrayList<OrderByPair> orderByPairs,
