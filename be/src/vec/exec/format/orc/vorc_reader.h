@@ -38,6 +38,7 @@
 #include "io/fs/file_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "olap/olap_common.h"
+#include "olap/rowset/segment_v2/column_reader.h"
 #include "orc/Reader.hh"
 #include "orc/Type.hh"
 #include "orc/Vector.hh"
@@ -59,6 +60,9 @@ namespace doris {
 class RuntimeState;
 class TFileRangeDesc;
 class TFileScanRangeParams;
+namespace segment_v2 {
+class RowIdColumnIteratorV2;
+}
 namespace io {
 class FileSystem;
 struct IOContext;
@@ -123,7 +127,9 @@ public:
         int64_t set_fill_column_time = 0;
         int64_t decode_value_time = 0;
         int64_t decode_null_map_time = 0;
-        int64_t filter_block_time = 0;
+        int64_t predicate_filter_time = 0;
+        int64_t dict_filter_rewrite_time = 0;
+        int64_t lazy_read_filtered_rows = 0;
     };
 
     OrcReader(RuntimeProfile* profile, RuntimeState* state, const TFileScanRangeParams& params,
@@ -207,6 +213,12 @@ public:
     static DataTypePtr convert_to_doris_type(const orc::Type* orc_type);
     static std::string get_field_name_lower_case(const orc::Type* orc_type, int pos);
 
+    void set_row_id_column_iterator(
+            const std::pair<std::shared_ptr<segment_v2::RowIdColumnIteratorV2>, int>&
+                    iterator_pair) {
+        _row_id_column_iterator_pair = iterator_pair;
+    }
+
 protected:
     void _collect_profile_before_close() override;
 
@@ -222,7 +234,9 @@ private:
         RuntimeProfile::Counter* set_fill_column_time = nullptr;
         RuntimeProfile::Counter* decode_value_time = nullptr;
         RuntimeProfile::Counter* decode_null_map_time = nullptr;
-        RuntimeProfile::Counter* filter_block_time = nullptr;
+        RuntimeProfile::Counter* predicate_filter_time = nullptr;
+        RuntimeProfile::Counter* dict_filter_rewrite_time = nullptr;
+        RuntimeProfile::Counter* lazy_read_filtered_rows = nullptr;
         RuntimeProfile::Counter* selected_row_group_count = nullptr;
         RuntimeProfile::Counter* evaluated_row_group_count = nullptr;
     };
@@ -572,6 +586,24 @@ private:
         return true;
     }
 
+    Status _fill_row_id_columns(Block* block);
+
+    bool _seek_to_read_one_line() {
+        if (_read_line_mode_mode) {
+            if (_read_lines.empty()) {
+                return false;
+            }
+            _row_reader->seekToRow(_read_lines.front());
+            _read_lines.pop_front();
+        }
+        return true;
+    }
+
+    Status _set_read_one_line_impl() override {
+        _batch_size = 1;
+        return Status::OK();
+    }
+
 private:
     // This is only for count(*) short circuit read.
     // save the total number of rows in range
@@ -669,6 +701,9 @@ private:
     int64_t _orc_tiny_stripe_threshold_bytes = 8L * 1024L * 1024L;
     int64_t _orc_once_max_read_bytes = 8L * 1024L * 1024L;
     int64_t _orc_max_merge_distance_bytes = 1L * 1024L * 1024L;
+
+    std::pair<std::shared_ptr<segment_v2::RowIdColumnIteratorV2>, int>
+            _row_id_column_iterator_pair = {nullptr, -1};
 };
 
 class StripeStreamInputStream : public orc::InputStream, public ProfileCollector {

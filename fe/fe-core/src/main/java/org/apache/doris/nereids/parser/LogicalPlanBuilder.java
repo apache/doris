@@ -83,7 +83,6 @@ import org.apache.doris.nereids.DorisParser.AdminDiagnoseTabletContext;
 import org.apache.doris.nereids.DorisParser.AdminRebalanceDiskContext;
 import org.apache.doris.nereids.DorisParser.AdminSetTableStatusContext;
 import org.apache.doris.nereids.DorisParser.AdminShowReplicaDistributionContext;
-import org.apache.doris.nereids.DorisParser.AdminShowReplicaStatusContext;
 import org.apache.doris.nereids.DorisParser.AdminShowTabletStorageFormatContext;
 import org.apache.doris.nereids.DorisParser.AggClauseContext;
 import org.apache.doris.nereids.DorisParser.AggStateDataTypeContext;
@@ -361,6 +360,7 @@ import org.apache.doris.nereids.DorisParser.ShowLoadContext;
 import org.apache.doris.nereids.DorisParser.ShowLoadProfileContext;
 import org.apache.doris.nereids.DorisParser.ShowOpenTablesContext;
 import org.apache.doris.nereids.DorisParser.ShowPartitionIdContext;
+import org.apache.doris.nereids.DorisParser.ShowPartitionsContext;
 import org.apache.doris.nereids.DorisParser.ShowPluginsContext;
 import org.apache.doris.nereids.DorisParser.ShowPrivilegesContext;
 import org.apache.doris.nereids.DorisParser.ShowProcContext;
@@ -563,7 +563,6 @@ import org.apache.doris.nereids.trees.plans.commands.AdminRebalanceDiskCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminRepairTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetReplicaStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetTableStatusCommand;
-import org.apache.doris.nereids.trees.plans.commands.AdminShowReplicaStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterCatalogCommentCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterCatalogPropertiesCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterCatalogRenameCommand;
@@ -675,6 +674,7 @@ import org.apache.doris.nereids.trees.plans.commands.ResumeJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.ResumeMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.RevokeResourcePrivilegeCommand;
 import org.apache.doris.nereids.trees.plans.commands.RevokeRoleCommand;
+import org.apache.doris.nereids.trees.plans.commands.RevokeTablePrivilegeCommand;
 import org.apache.doris.nereids.trees.plans.commands.SetDefaultStorageVaultCommand;
 import org.apache.doris.nereids.trees.plans.commands.SetOptionsCommand;
 import org.apache.doris.nereids.trees.plans.commands.SetTransactionCommand;
@@ -723,6 +723,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLoadProfileCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowOpenTablesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPartitionIdCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowPartitionsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPluginsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPrivilegesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowProcCommand;
@@ -732,6 +733,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowQueryProfileCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowQueryStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowQueuedAnalyzeJobsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowReplicaDistributionCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowReplicaStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRepositoriesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowResourcesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRestoreCommand;
@@ -4895,6 +4897,55 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
+    public LogicalPlan visitShowPartitions(ShowPartitionsContext ctx) {
+        String ctlName = null;
+        String dbName = null;
+        String tableName = null;
+        Expression wildWhere = null;
+        List<OrderKey> orderKeys = null;
+        long limit = -1L;
+        long offset = 0L;
+
+        List<String> nameParts = visitMultipartIdentifier(ctx.tableName);
+        if (nameParts.size() == 1) {
+            tableName = nameParts.get(0);
+        } else if (nameParts.size() == 2) {
+            dbName = nameParts.get(0);
+            tableName = nameParts.get(1);
+        } else if (nameParts.size() == 3) {
+            ctlName = nameParts.get(0);
+            dbName = nameParts.get(1);
+            tableName = nameParts.get(2);
+        } else {
+            throw new AnalysisException("nameParts in create table should be [ctl.][db.]tbl");
+        }
+
+        if (ctx.sortClause() != null) {
+            orderKeys = visit(ctx.sortClause().sortItem(), OrderKey.class);
+        }
+        if (ctx.wildWhere() != null) {
+            wildWhere = getWildWhere(ctx.wildWhere());
+        }
+        if (ctx.limitClause() != null) {
+            limit = ctx.limitClause().limit != null
+                ? Long.parseLong(ctx.limitClause().limit.getText())
+                : 0;
+            if (limit < 0) {
+                throw new ParseException("Limit requires non-negative number", ctx.limitClause());
+            }
+            offset = ctx.limitClause().offset != null
+                ? Long.parseLong(ctx.limitClause().offset.getText())
+                : 0;
+            if (offset < 0) {
+                throw new ParseException("Offset requires non-negative number", ctx.limitClause());
+            }
+        }
+        boolean isTempPartition = ctx.TEMPORARY() != null;
+        TableNameInfo tblNameInfo = new TableNameInfo(ctlName, dbName, tableName);
+        return new ShowPartitionsCommand(tblNameInfo, wildWhere, orderKeys, limit, offset, isTempPartition);
+    }
+
+    @Override
     public AlterTableCommand visitAlterTable(AlterTableContext ctx) {
         TableNameInfo tableNameInfo = new TableNameInfo(visitMultipartIdentifier(ctx.tableName));
         List<AlterTableOp> alterTableOps = new ArrayList<>();
@@ -5404,22 +5455,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             return new AdminCleanTrashCommand(backendsQuery);
         }
         return new AdminCleanTrashCommand();
-    }
-
-    @Override
-    public LogicalPlan visitAdminShowReplicaStatus(AdminShowReplicaStatusContext ctx) {
-        Expression where = null;
-        if (ctx.WHERE() != null) {
-            StringLiteral left = new StringLiteral(stripQuotes(ctx.STATUS().toString()));
-            StringLiteral right = new StringLiteral(stripQuotes(ctx.STRING_LITERAL().getText()));
-            if (ctx.NEQ() != null) {
-                where = new Not(new EqualTo(left, right));
-            } else {
-                where = new EqualTo(left, right);
-            }
-        }
-        TableRefInfo tableRefInfo = visitBaseTableRefContext(ctx.baseTableRef());
-        return new AdminShowReplicaStatusCommand(tableRefInfo, where);
     }
 
     @Override
@@ -7506,6 +7541,48 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             userIdentity);
     }
 
+    @Override
+    public LogicalPlan visitRevokeTablePrivilege(DorisParser.RevokeTablePrivilegeContext ctx) {
+        List<AccessPrivilegeWithCols> accessPrivilegeWithCols = visitPrivilegeList(ctx.privilegeList());
+
+        List<String> parts = visitMultipartIdentifierOrAsterisk(ctx.multipartIdentifierOrAsterisk());
+        int size = parts.size();
+
+        TablePattern tablePattern = null;
+        if (size == 1) {
+            String db = parts.get(size - 1);
+            tablePattern = new TablePattern(db, "");
+        }
+
+        if (size == 2) {
+            String db = parts.get(size - 2);
+            String tbl = parts.get(size - 1);
+            tablePattern = new TablePattern(db, tbl);
+        }
+
+        if (size == 3) {
+            String ctl = parts.get(size - 3);
+            String db = parts.get(size - 2);
+            String tbl = parts.get(size - 1);
+            tablePattern = new TablePattern(ctl, db, tbl);
+        }
+
+        Optional<UserIdentity> userIdentity = Optional.empty();
+        Optional<String> role = Optional.empty();
+
+        if (ctx.ROLE() != null) {
+            role = Optional.of(visitIdentifierOrText(ctx.identifierOrText()));
+        } else if (ctx.userIdentify() != null) {
+            userIdentity = Optional.of(visitUserIdentify(ctx.userIdentify()));
+        }
+
+        return new RevokeTablePrivilegeCommand(
+                accessPrivilegeWithCols,
+                tablePattern,
+                userIdentity,
+                role);
+    }
+
     public LogicalPlan visitDropAnalyzeJob(DorisParser.DropAnalyzeJobContext ctx) {
         long jobId = Long.parseLong(ctx.INTEGER_VALUE().getText());
         return new DropAnalyzeJobCommand(jobId);
@@ -7768,6 +7845,32 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
 
         return new RefreshDictionaryCommand(dbName, dictName);
+    }
+
+    @Override
+    public LogicalPlan visitAdminShowReplicaStatus(DorisParser.AdminShowReplicaStatusContext ctx) {
+        Expression where = null;
+        if (ctx.WHERE() != null) {
+            StringLiteral left = new StringLiteral(stripQuotes(ctx.STATUS().toString()));
+            StringLiteral right = new StringLiteral(stripQuotes(ctx.STRING_LITERAL().getText()));
+            if (ctx.NEQ() != null) {
+                where = new Not(new EqualTo(left, right));
+            } else {
+                where = new EqualTo(left, right);
+            }
+        }
+        TableRefInfo tableRefInfo = visitBaseTableRefContext(ctx.baseTableRef());
+        return new ShowReplicaStatusCommand(tableRefInfo, where);
+    }
+
+    @Override
+    public LogicalPlan visitShowReplicaStatus(DorisParser.ShowReplicaStatusContext ctx) {
+        TableRefInfo tableRefInfo = visitBaseTableRefContext(ctx.baseTableRef());
+        Expression whereClause = null;
+        if (ctx.whereClause() != null) {
+            whereClause = getExpression(ctx.whereClause().booleanExpression());
+        }
+        return new ShowReplicaStatusCommand(tableRefInfo, whereClause);
     }
 
     @Override

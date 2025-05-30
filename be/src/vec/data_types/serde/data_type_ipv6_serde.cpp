@@ -146,27 +146,29 @@ Status DataTypeIPv6SerDe::read_column_from_pb(IColumn& column, const PValues& ar
     return Status::OK();
 }
 
-void DataTypeIPv6SerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                                              arrow::ArrayBuilder* array_builder, int64_t start,
-                                              int64_t end, const cctz::time_zone& ctz) const {
+Status DataTypeIPv6SerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
+                                                arrow::ArrayBuilder* array_builder, int64_t start,
+                                                int64_t end, const cctz::time_zone& ctz) const {
     const auto& col_data = assert_cast<const ColumnIPv6&>(column).get_data();
     auto& string_builder = assert_cast<arrow::StringBuilder&>(*array_builder);
     for (size_t i = start; i < end; ++i) {
         if (null_map && (*null_map)[i]) {
-            checkArrowStatus(string_builder.AppendNull(), column.get_name(),
-                             array_builder->type()->name());
+            RETURN_IF_ERROR(checkArrowStatus(string_builder.AppendNull(), column.get_name(),
+                                             array_builder->type()->name()));
         } else {
             std::string ipv6_str = IPv6Value::to_string(col_data[i]);
-            checkArrowStatus(string_builder.Append(ipv6_str.c_str(),
-                                                   cast_set<int, size_t, false>(ipv6_str.size())),
-                             column.get_name(), array_builder->type()->name());
+            RETURN_IF_ERROR(checkArrowStatus(
+                    string_builder.Append(ipv6_str.c_str(),
+                                          cast_set<int, size_t, false>(ipv6_str.size())),
+                    column.get_name(), array_builder->type()->name()));
         }
     }
+    return Status::OK();
 }
 
-void DataTypeIPv6SerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
-                                               int64_t start, int64_t end,
-                                               const cctz::time_zone& ctz) const {
+Status DataTypeIPv6SerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
+                                                 int64_t start, int64_t end,
+                                                 const cctz::time_zone& ctz) const {
     auto& col_data = assert_cast<ColumnIPv6&>(column).get_data();
     const auto* concrete_array = assert_cast<const arrow::StringArray*>(arrow_array);
     std::shared_ptr<arrow::Buffer> buffer = concrete_array->value_data();
@@ -182,9 +184,9 @@ void DataTypeIPv6SerDe::read_column_from_arrow(IColumn& column, const arrow::Arr
             } else {
                 IPv6 ipv6_val;
                 if (!IPv6Value::from_string(ipv6_val, raw_data, raw_data_len)) {
-                    throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-                                           "parse number fail, string: '{}'",
-                                           std::string(raw_data, raw_data_len).c_str());
+                    return Status::Error(ErrorCode::INVALID_ARGUMENT,
+                                         "parse number fail, string: '{}'",
+                                         std::string(raw_data, raw_data_len).c_str());
                 }
                 col_data.emplace_back(ipv6_val);
             }
@@ -192,6 +194,7 @@ void DataTypeIPv6SerDe::read_column_from_arrow(IColumn& column, const arrow::Arr
             col_data.emplace_back(0);
         }
     }
+    return Status::OK();
 }
 
 Status DataTypeIPv6SerDe::write_column_to_orc(const std::string& timezone, const IColumn& column,
