@@ -694,6 +694,8 @@ message CommitTxnRequest {
     optional bool is_txn_load = 9;
     repeated SubTxnInfo sub_txn_infos = 10;
     optional bool enable_txn_lazy_commit = 11;
+    optional int64 lock_id = 12;
+    optional bool skip_remove_delete_bitmap_lock = 13;
 }
 
 message SubTxnInfo {
