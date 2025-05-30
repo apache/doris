@@ -1497,8 +1497,9 @@ DEFINE_mBool(enable_calc_delete_bitmap_between_segments_concurrently, "false");
 DEFINE_mBool(enable_update_delete_bitmap_kv_check_core, "false");
 
 // the max length of segments key bounds, in bytes
+// ATTENTION: as long as this conf has ever been enabled, cluster downgrade and backup recovery will no longer be supported.
 DEFINE_mInt32(segments_key_bounds_truncation_threshold, "-1");
-// for test only, use random segments key bounds truncation threshold every time
+// ATTENTION: for test only, use random segments key bounds truncation threshold every time
 DEFINE_mBool(random_segments_key_bounds_truncation, "false");
 
 // clang-format off
