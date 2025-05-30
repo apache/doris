@@ -57,10 +57,10 @@ suite("test_single_compaction_with_variant_inverted", "p2, nonConcurrent") {
 
         String command = sb.toString()
         logger.info(command)
-        process = command.execute()
-        code = process.waitFor()
-        err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())));
-        out = process.getText()
+        def process = command.execute()
+        def code = process.waitFor()
+        def err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())));
+        def out = process.getText()
         logger.info("Run compaction: code=" + code + ", out=" + out + ", disableAutoCompaction " + disableAutoCompaction + ", err=" + err)
         if (!disableAutoCompaction) {
             return "Success, " + out
@@ -78,10 +78,10 @@ suite("test_single_compaction_with_variant_inverted", "p2, nonConcurrent") {
 
         String command = sb.toString()
         logger.info(command)
-        process = command.execute()
-        code = process.waitFor()
-        err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())));
-        out = process.getText()
+        def process = command.execute()
+        def code = process.waitFor()
+        def err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())));
+        def out = process.getText()
         logger.info("Run compaction: code=" + code + ", out=" + out + ", disableAutoCompaction " + disableAutoCompaction + ", err=" + err)
         if (!disableAutoCompaction) {
             return "Success, " + out
@@ -100,9 +100,9 @@ suite("test_single_compaction_with_variant_inverted", "p2, nonConcurrent") {
 
             String command = sb.toString()
             logger.info(command)
-            process = command.execute()
-            code = process.waitFor()
-            out = process.getText()
+            def process = command.execute()
+            def code = process.waitFor()
+            def out = process.getText()
             logger.info("Get compaction status: code=" + code + ", out=" + out)
             assertEquals(code, 0)
             def compactionStatus = parseJson(out.trim())
@@ -121,9 +121,9 @@ suite("test_single_compaction_with_variant_inverted", "p2, nonConcurrent") {
 
         String command = sb.toString()
         logger.info(command)
-        process = command.execute()
-        code = process.waitFor()
-        out = process.getText()
+        def process = command.execute()
+        def code = process.waitFor()
+        def out = process.getText()
         logger.info("Get tablet status: code=" + code + ", out=" + out)
         assertEquals(code, 0)
         def tabletStatus = parseJson(out.trim())
