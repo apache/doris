@@ -470,6 +470,10 @@ public class MTMVTask extends AbstractTask {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("mtmv task get writeLock end, taskId: {}", super.getTaskId());
             }
+            // if cancelled when pending, do not run
+            if (TaskStatus.CANCELED.equals(getStatus())) {
+                return;
+            }
             super.runTask();
         } finally {
             job.writeUnlock();
