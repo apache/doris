@@ -17,7 +17,8 @@
 
 package org.apache.doris.iceberg;
 
-import org.apache.iceberg.DataFile;
+import org.apache.iceberg.ContentFile;
+import org.apache.iceberg.ManifestContent;
 import org.apache.iceberg.ManifestFile;
 import org.apache.iceberg.ManifestFiles;
 import org.apache.iceberg.util.SerializationUtil;
@@ -56,13 +57,16 @@ class IcebergFilesJniScanner extends IcebergMetadataJniScanner {
 
     public IcebergFilesJniScanner(int batchSize, Map<String, String> params) {
         super(batchSize, params);
-        // TODO: use IcebergMetaSplit to pass the manifest file information
         manifestBean = SerializationUtil.deserializeFromBase64(params.get("serialized_split"));
     }
 
     @Override
     protected void initReader() throws IOException {
-        reader = ManifestFiles.read(manifestBean, table.io(), table.specs()).iterator();
+        if (manifestBean.content() == ManifestContent.DATA) {
+            reader = ManifestFiles.read(manifestBean, table.io(), table.specs()).iterator();
+        } else {
+            reader = ManifestFiles.readDeleteManifest(manifestBean, table.io(), table.specs()).iterator();
+        }
     }
 
     @Override
@@ -71,46 +75,44 @@ class IcebergFilesJniScanner extends IcebergMetadataJniScanner {
     }
 
     protected Object getColumnValue(String columnName, Object row) {
-        DataFile dataFile = (DataFile) row;
+        ContentFile<?> file = (ContentFile<?>) row;
         switch (columnName) {
             case "content":
-                return dataFile.content().ordinal();
+                return file.content().ordinal();
             case "file_path":
-                return dataFile.path().toString();
+                return file.path().toString();
             case "file_format":
-                return dataFile.format().name();
+                return file.format().name();
             case "spec_id":
-                return dataFile.specId();
+                return file.specId();
             case "record_count":
-                return dataFile.recordCount();
+                return file.recordCount();
             case "file_size_in_bytes":
-                return dataFile.fileSizeInBytes();
+                return file.fileSizeInBytes();
             case "column_sizes":
-                return dataFile.columnSizes();
+                return file.columnSizes();
             case "value_counts":
-                return dataFile.valueCounts();
+                return file.valueCounts();
             case "null_value_counts":
-                return dataFile.nullValueCounts();
+                return file.nullValueCounts();
             case "nan_value_counts":
-                return dataFile.nanValueCounts();
+                return file.nanValueCounts();
             case "lower_bounds":
-                return convertKeyTypeToString(dataFile.lowerBounds());
+                return convertKeyTypeToString(file.lowerBounds());
             case "upper_bounds":
-                return convertKeyTypeToString(dataFile.upperBounds());
+                return convertKeyTypeToString(file.upperBounds());
             case "key_metadata":
                 // The key metadata is stored as a ByteBuffer, so we convert it to a string.
                 // TODO: how to parse this
-                return dataFile.keyMetadata() != null ? dataFile.keyMetadata().toString() : null;
+                return file.keyMetadata() != null ? file.keyMetadata().toString() : null;
             case "split_offsets":
-                return dataFile.splitOffsets();
+                return file.splitOffsets();
             case "equality_ids":
-                return dataFile.equalityFieldIds();
+                return file.equalityFieldIds();
             case "sort_order_id":
-                return dataFile.sortOrderId();
+                return file.sortOrderId();
             case "readable_metrics":
                 // TODO: support this
-                // The readable metrics are not directly available in DataFile, so we return
-                // null.
                 // This can be extended to include actual metrics if needed.
                 return null;
             default:
