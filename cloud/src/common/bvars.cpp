@@ -17,6 +17,10 @@
 
 #include "common/bvars.h"
 
+#include <bvar/multi_dimension.h>
+#include <bvar/reducer.h>
+#include <bvar/status.h>
+
 #include <cstdint>
 #include <stdexcept>
 
@@ -98,6 +102,24 @@ BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_partition_earlest_ts("recycle
 BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_rowset_earlest_ts("recycler", "recycle_rowset_earlest_ts");
 BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_tmp_rowset_earlest_ts("recycler", "recycle_tmp_rowset_earlest_ts");
 BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_expired_txn_label_earlest_ts("recycler", "recycle_expired_txn_label_earlest_ts");
+bvar::Status<int64_t> g_bvar_recycler_task_max_concurrency("recycler_task_max_concurrency_num",0);
+bvar::Adder<int64_t> g_bvar_recycler_task_concurrency;
+
+// recycler's mbvars
+mBvarLongStatus g_bvar_recycler_instance_running("recycler_instance_running",{"instance_id"});
+mBvarLongStatus g_bvar_recycler_instance_last_recycle_duration("recycler_instance_last_recycle_duration_ms",{"instance_id"});
+mBvarLongStatus g_bvar_recycler_instance_next_time("recycler_instance_next_time_s",{"instance_id"});
+mBvarPairStatus<int64_t> g_bvar_recycler_instance_recycle_times("recycler_instance_recycle_times",{"instance_id"});
+mBvarLongStatus g_bvar_recycler_instance_recycle_last_success_times("recycler_instance_recycle_last_success_times",{"instance_id"});
+mBvarLongStatus g_bvar_recycler_vault_recycle_status("recycler_vault_recycle_status", {"instance_id", "vault_name"});
+mBvarIntAdder g_bvar_recycler_normal_vault_counter("recycler_vault_normal_counter", {"instance_id", "vault_type"});
+mBvarIntAdder g_bvar_recycler_abnormal_vault_counter("recycler_vault_abnormal_counter", {"instance_id", "vault_type"});
+mBvarIntAdder g_bvar_recycler_vault_recycle_task_concurrency("recycler_vault_recycle_task_concurrency", {"instance_id", "vault_name"});
+mBvarPairStatus<int64_t> g_bvar_recycler_instance_recycle_indexes("recycler_instance_recycle_indexes", {"instance_id"});
+mBvarPairStatus<int64_t> g_bvar_recycler_instance_recycle_partitions("recycler_instance_recycle_partitions", {"instance_id"});
+mBvarPairStatus<int64_t> g_bvar_recycler_instance_recycle_tmp_rowsets("recycler_instance_recycle_tmp_rowsets", {"instance_id"});
+mBvarPairStatus<int64_t> g_bvar_recycler_instance_recycle_rowsets("recycler_instance_recycle_rowsets", {"instance_id"});
+mBvarPairStatus<int64_t> g_bvar_recycler_instance_recycle_versions("recycler_instance_recycle_versions", {"instance_id"});
 
 // txn_kv's bvars
 bvar::LatencyRecorder g_bvar_txn_kv_get("txn_kv", "get");

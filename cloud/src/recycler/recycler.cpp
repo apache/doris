@@ -17,8 +17,10 @@
 
 #include "recycler/recycler.h"
 
+#include <brpc/builtin_service.pb.h>
 #include <brpc/server.h>
 #include <butil/endpoint.h>
+#include <bvar/status.h>
 #include <gen_cpp/cloud.pb.h>
 #include <gen_cpp/olap_file.pb.h>
 
@@ -27,9 +29,11 @@
 #include <cstddef>
 #include <cstdint>
 #include <deque>
+#include <initializer_list>
 #include <numeric>
 #include <string>
 #include <string_view>
+#include <utility>
 
 #include "common/stopwatch.h"
 #include "meta-service/meta_service.h"
@@ -275,7 +279,11 @@ void Recycler::recycle_callback() {
         if (stopped()) return;
         LOG_INFO("begin to recycle instance").tag("instance_id", instance_id);
         auto ctime_ms = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+        g_bvar_recycler_task_concurrency << 1;
+        g_bvar_recycler_instance_running.put({instance_id}, 1);
+        g_bvar_recycler_instance_recycle_times.put({instance_id}, std::make_pair(ctime_ms, -1));
         ret = instance_recycler->do_recycle();
+        g_bvar_recycler_task_concurrency << -1;
         // If instance recycler has been aborted, don't finish this job
         if (!instance_recycler->stopped()) {
             finish_instance_recycle_job(txn_kv_.get(), recycle_job_key, instance_id, ip_port_,
@@ -285,9 +293,18 @@ void Recycler::recycle_callback() {
             std::lock_guard lock(mtx_);
             recycling_instance_map_.erase(instance_id);
         }
-        auto elpased_ms =
-                duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count() -
-                ctime_ms;
+        auto now = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+        auto elpased_ms = now - ctime_ms;
+        g_bvar_recycler_instance_recycle_times.put({instance_id}, std::make_pair(ctime_ms, now));
+        g_bvar_recycler_instance_last_recycle_duration.put({instance_id}, elpased_ms);
+        g_bvar_recycler_instance_next_time.put({instance_id},
+                                               now + config::recycle_interval_seconds * 1000);
+        LOG(INFO) << "recycle instance done, "
+                  << "instance_id=" << instance_id << " ret=" << ret << " ctime_ms: " << ctime_ms
+                  << " now: " << now;
+
+        g_bvar_recycler_instance_recycle_last_success_times.put({instance_id}, now);
+
         LOG_INFO("finish recycle instance")
                 .tag("instance_id", instance_id)
                 .tag("cost_ms", elpased_ms);
@@ -344,6 +361,7 @@ void Recycler::check_recycle_tasks() {
 
 int Recycler::start(brpc::Server* server) {
     instance_filter_.reset(config::recycle_whitelist, config::recycle_blacklist);
+    g_bvar_recycler_task_max_concurrency.set_value(config::recycle_concurrency);
 
     if (config::enable_checker) {
         checker_ = std::make_unique<Checker>(txn_kv_);
@@ -688,6 +706,7 @@ int InstanceRecycler::recycle_deleted_instance() {
 
     std::unique_ptr<int, std::function<void(int*)>> defer_log_statistics((int*)0x01, [&](int*) {
         auto cost = duration<float>(steady_clock::now() - start_time).count();
+        g_bvar_recycler_instance_running.put({instance_id_}, 0);
         LOG(INFO) << (ret == 0 ? "successfully" : "failed to")
                   << " recycle deleted instance, cost=" << cost
                   << "s, instance_id=" << instance_id_;
@@ -699,13 +718,16 @@ int InstanceRecycler::recycle_deleted_instance() {
             return ret;
         }
 
+        auto vault_type = accessor_type_to_string(accessor->type());
         LOG(INFO) << "begin to delete all objects in " << accessor->uri();
         int del_ret = accessor->delete_all();
         if (del_ret == 0) {
+            g_bvar_recycler_normal_vault_counter.put({instance_id_, vault_type}, 1);
             LOG(INFO) << "successfully delete all objects in " << accessor->uri();
         } else if (del_ret != 1) { // no need to log, because S3Accessor has logged this error
             // If `del_ret == 1`, it can be considered that the object data has been recycled by cloud platform,
             // so the recycling has been successful.
+            g_bvar_recycler_abnormal_vault_counter.put({instance_id_, vault_type}, 1);
             ret = -1;
         }
     }
@@ -753,11 +775,15 @@ int InstanceRecycler::recycle_deleted_instance() {
     std::string start_vault_key = storage_vault_key(key_info0);
     std::string end_vault_key = storage_vault_key(key_info1);
     txn->remove(start_vault_key, end_vault_key);
+    g_bvar_recycler_vault_recycle_status.put(
+            {instance_id_, fmt::format("{}-{}", hex(start_vault_key), hex(end_vault_key))}, 0);
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
         LOG(WARNING) << "failed to delete all kv, instance_id=" << instance_id_ << ", err=" << err;
         ret = -1;
     }
+    g_bvar_recycler_vault_recycle_status.put(
+            {instance_id_, fmt::format("{}-{}", hex(start_vault_key), hex(end_vault_key))}, 1);
 
     if (ret == 0) {
         // remove instance kv
@@ -896,10 +922,15 @@ int InstanceRecycler::recycle_indexes() {
         ++num_recycled;
         check_recycle_task(instance_id_, task_name, num_scanned, num_recycled, start_time);
         index_keys.push_back(k);
+        LOG(INFO) << "recycle index done, instance_id=" << instance_id_
+                  << " table_id=" << index_pb.table_id() << " index_id=" << index_id
+                  << " state=" << RecycleIndexPB::State_Name(index_pb.state());
+        g_bvar_recycler_instance_recycle_indexes.put({instance_id_},
+                                                     std::make_pair(num_recycled, 0));
         return 0;
     };
 
-    auto loop_done = [&index_keys, this]() -> int {
+    auto loop_done = [&index_keys, &num_recycled, this]() -> int {
         if (index_keys.empty()) return 0;
         std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01,
                                                               [&](int*) { index_keys.clear(); });
@@ -907,6 +938,8 @@ int InstanceRecycler::recycle_indexes() {
             LOG(WARNING) << "failed to delete recycle index kv, instance_id=" << instance_id_;
             return -1;
         }
+        g_bvar_recycler_instance_recycle_indexes.put({instance_id_},
+                                                     std::make_pair(num_recycled, 1));
         return 0;
     };
 
@@ -1115,11 +1148,13 @@ int InstanceRecycler::recycle_partitions() {
                 partition_version_keys.push_back(partition_version_key(
                         {instance_id_, part_pb.db_id(), part_pb.table_id(), partition_id}));
             }
+            g_bvar_recycler_instance_recycle_partitions.put({instance_id_},
+                                                            std::make_pair(num_recycled, 0));
         }
         return ret;
     };
 
-    auto loop_done = [&partition_keys, &partition_version_keys, this]() -> int {
+    auto loop_done = [&partition_keys, &partition_version_keys, &num_recycled, this]() -> int {
         if (partition_keys.empty()) return 0;
         std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [&](int*) {
             partition_keys.clear();
@@ -1143,6 +1178,8 @@ int InstanceRecycler::recycle_partitions() {
                          << " err=" << err;
             return -1;
         }
+        g_bvar_recycler_instance_recycle_partitions.put({instance_id_},
+                                                        std::make_pair(num_recycled, 1));
         return 0;
     };
 
@@ -1233,10 +1270,17 @@ int InstanceRecycler::recycle_versions() {
         }
         ++num_recycled;
         is_recycled = true;
+        g_bvar_recycler_instance_recycle_versions.put({instance_id_},
+                                                      std::make_pair(num_recycled, 0));
         return 0;
     };
 
-    return scan_and_recycle(version_key_begin, version_key_end, std::move(recycle_func));
+    int ret = scan_and_recycle(version_key_begin, version_key_end, std::move(recycle_func));
+    if (!ret) {
+        g_bvar_recycler_instance_recycle_versions.put({instance_id_},
+                                                      std::make_pair(num_recycled, 1));
+    }
+    return ret;
 }
 
 int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id, int64_t partition_id,
@@ -2074,6 +2118,8 @@ int InstanceRecycler::recycle_rowsets() {
                 ++num_empty_rowset;
             }
         }
+        g_bvar_recycler_instance_recycle_rowsets.put({instance_id_},
+                                                     std::make_pair(num_recycled.load(), 0));
         return 0;
     };
 
@@ -2093,6 +2139,8 @@ int InstanceRecycler::recycle_rowsets() {
                 return;
             }
             num_recycled.fetch_add(rowset_keys_to_delete.size(), std::memory_order_relaxed);
+            g_bvar_recycler_instance_recycle_rowsets.put({instance_id_},
+                                                         std::make_pair(num_recycled.load(), 1));
         });
         return 0;
     };
@@ -2273,6 +2321,9 @@ int InstanceRecycler::recycle_tmp_rowsets() {
         if (rowset.num_segments() > 0) { // Skip empty rowset
             tmp_rowsets.push_back(std::move(rowset));
         }
+        g_bvar_recycler_instance_recycle_tmp_rowsets.put({instance_id_},
+                                                         std::make_pair(tmp_rowset_keys.size(), 0));
+
         return 0;
     };
 
@@ -2290,6 +2341,8 @@ int InstanceRecycler::recycle_tmp_rowsets() {
             return -1;
         }
         num_recycled += tmp_rowset_keys.size();
+        g_bvar_recycler_instance_recycle_tmp_rowsets.put({instance_id_},
+                                                         std::make_pair(num_recycled, 1));
         return 0;
     };
 

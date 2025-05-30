@@ -20,6 +20,8 @@
 #include <bthread/mutex.h>
 #include <bvar/bvar.h>
 #include <bvar/latency_recorder.h>
+#include <bvar/multi_dimension.h>
+#include <bvar/reducer.h>
 
 #include <cstdint>
 #include <map>
@@ -27,6 +29,7 @@
 #include <mutex>
 #include <string>
 #include <type_traits>
+#include <utility>
 
 /**
  * Manage bvars that with similar names (identical prefix)
@@ -96,6 +99,103 @@ using BvarLatencyRecorderWithTag = BvarWithTag<bvar::LatencyRecorder>;
 template <typename T>
     requires std::is_integral_v<T>
 using BvarStatusWithTag = BvarWithTag<bvar::Status<T>, true>;
+
+/**
+@brief: A wrapper class for multidimensional bvar metrics.
+This template class provides a convenient interface for managing multidimensional
+bvar metrics. It supports various bvar types including Adder, IntRecorder,
+LatencyRecorder, Maxer, and Status.
+@param: BvarType The type of bvar metric to use (must be one of the supported types)
+@output: Based on the bvar multidimensional counter implementation,
+the metrics output format would typically follow this structure:
+{metric_name}{dimension1="value1",dimension2="value2",...} value
+@example: Basic usage with an Adder:
+// Create a 2-dimensional counter with dimensions "region" and "service"
+mBvarWrapper<bvar::Adder<int>> request_counter("xxx_request_count", {"region", "service"});
+// Increment the counter for specific dimension values
+request_counter.put({"east", "login"}, 1);
+request_counter.put({"west", "search"}, 1);
+request_counter.put({"east", "login"}, 1); // Now east/login has value 2
+// the output of above metrics:
+xxx_request_count{region="east",service="login"} 2
+xxx_request_count{region="west",service="search"} 1
+@note: The dimensions provided in the constructor and the values provided to
+put() and get() methods must match in count. Also, all supported bvar types
+have different behaviors for how values are processed and retrieved.
+*/
+template <typename BvarType>
+class mBvarWrapper {
+public:
+    mBvarWrapper(const std::string& metric_name,
+                 const std::initializer_list<std::string>& dim_names)
+            : counter_(metric_name, std::list<std::string>(dim_names)) {
+        static_assert(is_valid_bvar_type<BvarType>::value,
+                      "BvarType must be one of the supported bvar types (Adder, IntRecorder, "
+                      "LatencyRecorder, Maxer, Status)");
+    }
+
+    template <typename ValType>
+    void put(const std::initializer_list<std::string>& dim_values, ValType value) {
+        BvarType* stats = counter_.get_stats(std::list<std::string>(dim_values));
+        if (stats) {
+            if constexpr (std::is_same_v<BvarType, bvar::Status<double>> ||
+                          std::is_same_v<BvarType, bvar::Status<long>>) {
+                stats->set_value(value);
+            } else if constexpr (is_pair_status<BvarType>::value) {
+                stats->set_value(std::make_pair(value.first, value.second));
+            } else {
+                *stats << value;
+            }
+        }
+    }
+
+    auto get(const std::initializer_list<std::string>& dim_values) {
+        BvarType* stats = counter_.get_stats(std::list<std::string>(dim_values));
+        if (stats) {
+            return stats->get_value();
+        }
+        return std::declval<BvarType>(0);
+    }
+
+private:
+    template <typename T>
+    struct is_valid_bvar_type : std::false_type {};
+    template <typename T>
+    struct is_pair_status : std::false_type {};
+    template <typename T>
+    struct is_valid_bvar_type<bvar::Adder<T>> : std::true_type {};
+    template <>
+    struct is_valid_bvar_type<bvar::IntRecorder> : std::true_type {};
+    template <typename T>
+    struct is_valid_bvar_type<bvar::Maxer<T>> : std::true_type {};
+    template <typename T>
+    struct is_valid_bvar_type<bvar::Status<T>> : std::true_type {};
+    template <typename T>
+    struct is_pair_status<bvar::Status<std::pair<T, T>>> : std::true_type {};
+    template <>
+    struct is_valid_bvar_type<bvar::LatencyRecorder> : std::true_type {};
+
+    bvar::MultiDimension<BvarType> counter_;
+};
+
+using mBvarIntAdder = mBvarWrapper<bvar::Adder<int>>;
+using mBvarDoubleAdder = mBvarWrapper<bvar::Adder<double>>;
+using mBvarIntRecorder = mBvarWrapper<bvar::IntRecorder>;
+using mBvarLatencyRecorder = mBvarWrapper<bvar::LatencyRecorder>;
+using mBvarIntMaxer = mBvarWrapper<bvar::Maxer<int>>;
+using mBvarDoubleMaxer = mBvarWrapper<bvar::Maxer<double>>;
+using mBvarLongStatus = mBvarWrapper<bvar::Status<long>>;
+using mBvarDoubleStatus = mBvarWrapper<bvar::Status<double>>;
+
+namespace std {
+template <typename T1, typename T2>
+inline std::ostream& operator<<(std::ostream& os, const std::pair<T1, T2>& p) {
+    return os << "{" << p.first << "," << p.second << "}";
+}
+} // namespace std
+
+template <typename T>
+using mBvarPairStatus = mBvarWrapper<bvar::Status<std::pair<T, T>>>;
 
 // meta-service's bvars
 extern BvarLatencyRecorderWithTag g_bvar_ms_begin_txn;
@@ -170,6 +270,23 @@ extern BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_partition_earlest_ts;
 extern BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_rowset_earlest_ts;
 extern BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_tmp_rowset_earlest_ts;
 extern BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_expired_txn_label_earlest_ts;
+
+extern bvar::Status<int64_t> g_bvar_recycler_task_max_concurrency;
+extern bvar::Adder<int64_t> g_bvar_recycler_task_concurrency;
+extern mBvarLongStatus g_bvar_recycler_instance_running;
+extern mBvarLongStatus g_bvar_recycler_instance_last_recycle_duration;
+extern mBvarLongStatus g_bvar_recycler_instance_next_time;
+extern mBvarPairStatus<int64_t> g_bvar_recycler_instance_recycle_times;
+extern mBvarLongStatus g_bvar_recycler_instance_recycle_last_success_times;
+extern mBvarLongStatus g_bvar_recycler_vault_recycle_status;
+extern mBvarIntAdder g_bvar_recycler_normal_vault_counter;
+extern mBvarIntAdder g_bvar_recycler_abnormal_vault_counter;
+extern mBvarIntAdder g_bvar_recycler_vault_recycle_task_concurrency;
+extern mBvarPairStatus<int64_t> g_bvar_recycler_instance_recycle_indexes;
+extern mBvarPairStatus<int64_t> g_bvar_recycler_instance_recycle_partitions;
+extern mBvarPairStatus<int64_t> g_bvar_recycler_instance_recycle_tmp_rowsets;
+extern mBvarPairStatus<int64_t> g_bvar_recycler_instance_recycle_rowsets;
+extern mBvarPairStatus<int64_t> g_bvar_recycler_instance_recycle_versions;
 
 // txn_kv's bvars
 extern bvar::LatencyRecorder g_bvar_txn_kv_get;
