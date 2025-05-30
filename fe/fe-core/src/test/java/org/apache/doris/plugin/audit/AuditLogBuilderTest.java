@@ -384,7 +384,7 @@ public class AuditLogBuilderTest {
                         result.contains("audit_plugin_max_sql_length=200"));
             }
 
-            // Test 2: auditPluginMaxInsertStmtLength > auditPluginMaxSqlLength  
+            // Test 2: auditPluginMaxInsertStmtLength > auditPluginMaxSqlLength
             // Should use the smaller SQL limit
             GlobalVariable.auditPluginMaxSqlLength = 60;
             GlobalVariable.auditPluginMaxInsertStmtLength = 150;
@@ -543,7 +543,7 @@ public class AuditLogBuilderTest {
                         result.contains("audit_plugin_max_insert_stmt_length=0") || result.isEmpty());
             }
 
-            // Test Case 2: auditPluginMaxSqlLength > 0, auditPluginMaxInsertStmtLength = 0  
+            // Test Case 2: auditPluginMaxSqlLength > 0, auditPluginMaxInsertStmtLength = 0
             // Expected: Math.max(0, Math.min(0, positive)) = Math.max(0, 0) = 0
             GlobalVariable.auditPluginMaxSqlLength = 50;
             GlobalVariable.auditPluginMaxInsertStmtLength = 0;
@@ -580,7 +580,7 @@ public class AuditLogBuilderTest {
             }
 
             // Test Case 5: Negative auditPluginMaxInsertStmtLength
-            // Expected: Math.max(0, Math.min(negative, positive)) = Math.max(0, negative) = 0  
+            // Expected: Math.max(0, Math.min(negative, positive)) = Math.max(0, negative) = 0
             GlobalVariable.auditPluginMaxSqlLength = 50;
             GlobalVariable.auditPluginMaxInsertStmtLength = -20;
 
@@ -651,9 +651,9 @@ public class AuditLogBuilderTest {
         } catch (Exception e) {
             // If any exception occurs, we want to log it but not fail the test immediately
             // This helps us identify which specific abnormal values cause issues
-            Assert.fail("Unexpected exception with abnormal length limits: " + e.getMessage() + 
-                       ". sqlLength=" + GlobalVariable.auditPluginMaxSqlLength + 
-                       ", insertLength=" + GlobalVariable.auditPluginMaxInsertStmtLength);
+            Assert.fail("Unexpected exception with abnormal length limits: " + e.getMessage()
+                    + ". sqlLength=" + GlobalVariable.auditPluginMaxSqlLength
+                    + ", insertLength=" + GlobalVariable.auditPluginMaxInsertStmtLength);
         } finally {
             // Restore original values
             GlobalVariable.auditPluginMaxSqlLength = originalMaxSqlLength;
