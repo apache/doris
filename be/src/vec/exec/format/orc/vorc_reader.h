@@ -704,6 +704,12 @@ private:
 
     std::pair<std::shared_ptr<segment_v2::RowIdColumnIteratorV2>, int>
             _row_id_column_iterator_pair = {nullptr, -1};
+
+    // When using the tiny stripe read optimization, if there are many columns in the orc file and only a
+    // few of them are used in a query, the tiny stripe optimization will cause serious read amplification.
+    // When the proportion of the actual number of bytes to be read in the entire stripe is greater than
+    // this parameter, read optimization is used.
+    double _orc_tiny_stripe_amplification_factor = 0.4;
 };
 
 class StripeStreamInputStream : public orc::InputStream, public ProfileCollector {
