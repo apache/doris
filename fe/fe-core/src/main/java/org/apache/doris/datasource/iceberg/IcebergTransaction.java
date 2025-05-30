@@ -73,10 +73,18 @@ public class IcebergTransaction implements Transaction {
         }
     }
 
-    public void beginInsert(SimpleTableInfo tableInfo) {
-        this.tableInfo = tableInfo;
-        this.table = getNativeTable(tableInfo);
-        this.transaction = table.newTransaction();
+    public void beginInsert(SimpleTableInfo tableInfo) throws UserException {
+        try {
+            ops.getPreExecutionAuthenticator().execute(() -> {
+                // create and start the iceberg transaction
+                this.tableInfo = tableInfo;
+                this.table = getNativeTable(tableInfo);
+                this.transaction = table.newTransaction();
+            });
+        } catch (Exception e) {
+            throw new UserException("Failed to begin insert for iceberg table " + tableInfo, e);
+        }
+
     }
 
     public void finishInsert(SimpleTableInfo tableInfo, Optional<InsertCommandContext> insertCtx) {
